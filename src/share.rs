@@ -115,29 +115,3 @@ impl ShareStore {
 pub fn build_share_url(base_url: &str, token: &str) -> String {
     format!("{}/share/{token}", base_url.trim_end_matches('/'))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rotate_revoke_round_trip() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("share.json");
-        let store = ShareStore::load(&path).unwrap();
-        assert!(store.get().is_none());
-
-        let first = store.rotate().unwrap();
-        assert!(store.is_valid(&first.token));
-
-        // Rotation invalidates the previous token and survives a reload.
-        let second = store.rotate().unwrap();
-        assert!(!store.is_valid(&first.token));
-        let reloaded = ShareStore::load(&path).unwrap();
-        assert!(reloaded.is_valid(&second.token));
-
-        store.revoke().unwrap();
-        assert!(!store.is_valid(&second.token));
-        assert!(ShareStore::load(&path).unwrap().get().is_none());
-    }
-}

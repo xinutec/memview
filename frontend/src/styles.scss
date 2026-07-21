@@ -40,22 +40,17 @@ body {
   line-height: 1.55;
   overflow-wrap: break-word;
 
-  h1,
-  h2,
-  h3 {
-    line-height: 1.25;
-  }
   h1 {
-    font-size: 1.4rem;
+    font: var(--mat-sys-headline-small);
   }
   h2 {
-    font-size: 1.15rem;
+    font: var(--mat-sys-title-large);
     margin-top: 1.5em;
     border-bottom: 1px solid var(--mat-sys-outline-variant);
     padding-bottom: 0.2em;
   }
   h3 {
-    font-size: 1rem;
+    font: var(--mat-sys-title-medium);
   }
 
   a {
@@ -67,7 +62,12 @@ body {
   }
 
   code {
+    // Monospace runs optically larger than Roboto at the same size, and a code
+    // span must track whatever text encloses it — body copy, a heading, a list
+    // item. That makes this relative-to-context, not a new step on the scale.
+    // dev-lint: allow-font-size optical match to the enclosing text
     font-size: 0.85em;
+    font-family: ui-monospace, monospace;
     background: var(--mat-sys-surface-container);
     border-radius: 4px;
     padding: 0.1em 0.3em;

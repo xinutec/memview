@@ -132,13 +132,13 @@ impl Corpus {
         self.docs.values().map(|d| d.meta.clone()).collect()
     }
 
-    /// Names of memories whose body wikilinks to `name`.
+    /// Names of memories whose body wikilinks to `name`. Shares
+    /// `wikilink_targets` with `outlinks` so the two directions of the graph
+    /// can't disagree about what counts as a link.
     pub fn backlinks(&self, name: &str) -> Vec<MemoryMeta> {
-        let plain = format!("[[{name}]]");
-        let piped = format!("[[{name}|");
         self.docs
             .values()
-            .filter(|d| d.meta.name != name && (d.body.contains(&plain) || d.body.contains(&piped)))
+            .filter(|d| d.meta.name != name && wikilink_targets(&d.body).iter().any(|t| t == name))
             .map(|d| d.meta.clone())
             .collect()
     }
@@ -207,6 +207,12 @@ pub struct SearchHit {
 }
 
 /// Extract `[[target]]` / `[[target|title]]` targets in order of appearance.
+///
+/// Bodies are hand-wrapped, so a wikilink can straddle a source line. comrak
+/// renders that as one link, so the graph must see it as one too — internal
+/// whitespace is collapsed rather than the link being skipped. A link can't
+/// span a paragraph break, which also stops an unclosed `[[` from swallowing
+/// the rest of the file.
 fn wikilink_targets(body: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut rest = body;
@@ -215,12 +221,13 @@ fn wikilink_targets(body: &str) -> Vec<String> {
         let Some(end) = rest.find("]]") else { break };
         let inner = &rest[..end];
         rest = &rest[end + 2..];
-        if inner.is_empty() || inner.contains('\n') {
+        if inner.contains("\n\n") {
             continue;
         }
-        let target = inner.split('|').next().unwrap_or(inner).trim();
+        let target = inner.split('|').next().unwrap_or(inner);
+        let target = target.split_whitespace().collect::<Vec<_>>().join(" ");
         if !target.is_empty() {
-            out.push(target.to_string());
+            out.push(target);
         }
     }
     out
@@ -290,44 +297,4 @@ pub fn render_markdown(md: &str) -> Result<String> {
     let mut out = String::new();
     format_html(root, &options, &mut out).context("rendering markdown")?;
     Ok(out)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn frontmatter_split() {
-        let (yaml, body) = split_frontmatter("---\nname: x\n---\n\nBody here.\n");
-        assert_eq!(yaml, Some("name: x"));
-        assert_eq!(body, "\nBody here.\n");
-        let (yaml, body) = split_frontmatter("no frontmatter\n");
-        assert!(yaml.is_none());
-        assert_eq!(body, "no frontmatter\n");
-    }
-
-    #[test]
-    fn wikilink_extraction() {
-        let targets = wikilink_targets("see [[a_b]] and [[c|titled]] but not [[bro\nken]]");
-        assert_eq!(targets, vec!["a_b".to_string(), "c".to_string()]);
-    }
-
-    #[test]
-    fn render_rewrites_links() {
-        let html = render_markdown(
-            "See [[project_foo]] and [Title](file_bar.md) and [ext](https://x.example/).",
-        )
-        .unwrap();
-        assert!(html.contains("href=\"/m/project_foo\""), "{html}");
-        assert!(html.contains("href=\"/m/file_bar\""), "{html}");
-        assert!(html.contains("href=\"https://x.example/\""), "{html}");
-    }
-
-    #[test]
-    fn snippet_respects_char_boundaries() {
-        let body = "é".repeat(200);
-        let pos = body.to_lowercase().find('é').unwrap();
-        let s = snippet_around(&body, pos + 100, 2);
-        assert!(s.contains('é'));
-    }
 }

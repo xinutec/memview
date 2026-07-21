@@ -1,5 +1,5 @@
 h1 {
-  font-size: 1.3rem;
+  font: var(--mat-sys-headline-small);
 }
 
 .explainer {
@@ -18,7 +18,7 @@ h1 {
 }
 
 .dates {
-  font-size: 0.85rem;
+  font: var(--mat-sys-body-small);
   color: var(--mat-sys-on-surface-variant);
 }
 
