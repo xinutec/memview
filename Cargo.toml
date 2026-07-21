@@ -1,0 +1,39 @@
+[package]
+name = "memview"
+version = "0.1.0"
+edition = "2024"
+
+# Read-only web viewer for the Claude memory markdown corpus (frontmatter +
+# [[wikilink]] cross-references). Auth is Nextcloud OAuth2 (identity-only,
+# copied from the `messages` app) with a health-style public share token;
+# both are inert unless configured so local dev serves open. See README.md.
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = "0.8"
+tower-http = { version = "0.7", features = ["fs"] }
+axum-extra = { version = "0.12", features = ["cookie"] }
+reqwest = { version = "0.13", default-features = false, features = [
+    "json",
+    "form",
+    "rustls",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+comrak = "0"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+hmac = "0.13"
+sha2 = "0.11"
+hex = "0.4"
+base64 = "0.22"
+rand = "0.9"
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+time = "0.3"
+url = "2"
+
+[dev-dependencies]
+tempfile = "3"
