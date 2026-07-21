@@ -1,0 +1,34 @@
+@if (auth.needsSignIn()) {
+  <div class="signin">
+    <h1>memory</h1>
+    <p>Claude's memory of our work, rendered.</p>
+    <a mat-flat-button [href]="loginHref()">Sign in with Nextcloud</a>
+  </div>
+} @else if (loading()) {
+  <mat-progress-bar mode="indeterminate" />
+} @else {
+  <mat-toolbar class="bar">
+    <a routerLink="/" class="brand">memory</a>
+    <span class="spacer"></span>
+    <a mat-icon-button routerLink="/search" aria-label="Search">
+      <mat-icon>search</mat-icon>
+    </a>
+    <a mat-icon-button routerLink="/all" aria-label="All memories">
+      <mat-icon>list</mat-icon>
+    </a>
+    @if (me(); as user) {
+      @if (!user.shared && user.auth_enabled) {
+        <a mat-icon-button routerLink="/sharing" aria-label="Share link">
+          <mat-icon>share</mat-icon>
+        </a>
+        <button mat-icon-button (click)="signOut()" aria-label="Sign out">
+          <mat-icon>logout</mat-icon>
+        </button>
+      }
+    }
+  </mat-toolbar>
+
+  <main class="content">
+    <router-outlet />
+  </main>
+}

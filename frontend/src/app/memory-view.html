@@ -1,0 +1,59 @@
+@if (loading()) {
+  <mat-progress-bar mode="indeterminate" />
+} @else if (page(); as p) {
+  <header class="head">
+    <h1 class="name">{{ p.name }}</h1>
+    <div class="meta">
+      <span class="type">{{ p.mtype }}</span>
+      @if (p.modified) {
+        <span class="modified">updated {{ p.modified | date: 'mediumDate' }}</span>
+      }
+    </div>
+    @if (p.description) {
+      <p class="description">{{ p.description }}</p>
+    }
+  </header>
+
+  <div class="md-content" appContentNav [innerHTML]="p.html"></div>
+
+  @if (p.outlinks.length || p.dangling.length) {
+    <section class="links">
+      <h2>Links to</h2>
+      <ul class="link-list">
+        @for (m of p.outlinks; track m.name) {
+          <li>
+            <a [routerLink]="['/m', m.name]">{{ m.name }}</a>
+            @if (m.description) {
+              <span class="desc">{{ m.description }}</span>
+            }
+          </li>
+        }
+        @for (d of p.dangling; track d) {
+          <li class="dangling">{{ d }} <span class="desc">not written yet</span></li>
+        }
+      </ul>
+    </section>
+  }
+
+  @if (p.backlinks.length) {
+    <section class="links">
+      <h2>Linked from</h2>
+      <ul class="link-list">
+        @for (m of p.backlinks; track m.name) {
+          <li>
+            <a [routerLink]="['/m', m.name]">{{ m.name }}</a>
+            @if (m.description) {
+              <span class="desc">{{ m.description }}</span>
+            }
+          </li>
+        }
+      </ul>
+    </section>
+  }
+} @else if (missing()) {
+  <div class="missing">
+    <h1>{{ name() }}</h1>
+    <p>This memory hasn't been written yet — a dangling link marks something worth writing.</p>
+    <a routerLink="/">Back to the index</a>
+  </div>
+}

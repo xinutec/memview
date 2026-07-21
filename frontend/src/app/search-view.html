@@ -1,0 +1,33 @@
+<form class="search" (ngSubmit)="submit()">
+  <mat-form-field appearance="outline" subscriptSizing="dynamic" class="field">
+    <mat-icon matPrefix>search</mat-icon>
+    <input matInput placeholder="Search memories" name="q" [(ngModel)]="query" />
+    @if (query()) {
+      <button matSuffix mat-icon-button type="button" (click)="clear()" aria-label="Clear">
+        <mat-icon>close</mat-icon>
+      </button>
+    }
+  </mat-form-field>
+</form>
+
+@if (searching()) {
+  <mat-progress-bar mode="indeterminate" />
+}
+
+@if (results(); as hits) {
+  <ul class="hit-list">
+    @for (h of hits; track h.name) {
+      <li>
+        <a [routerLink]="['/m', h.name]">{{ h.name }}</a>
+        @if (h.description) {
+          <span class="desc">{{ h.description }}</span>
+        }
+        @if (h.snippet) {
+          <span class="snippet">{{ h.snippet }}</span>
+        }
+      </li>
+    } @empty {
+      <p class="empty">No matches.</p>
+    }
+  </ul>
+}

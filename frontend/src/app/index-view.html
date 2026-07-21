@@ -1,0 +1,6 @@
+@if (html(); as content) {
+  <p class="count">{{ count() }} memories</p>
+  <div class="md-content" appContentNav [innerHTML]="content"></div>
+} @else {
+  <mat-progress-bar mode="indeterminate" />
+}

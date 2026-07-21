@@ -1,0 +1,33 @@
+h1 {
+  font-size: 1.3rem;
+}
+
+.explainer {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.link-box {
+  background: var(--mat-sys-surface-container);
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+
+  code {
+    white-space: nowrap;
+  }
+}
+
+.dates {
+  font-size: 0.85rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+
+  .danger {
+    color: var(--mat-sys-error);
+  }
+}

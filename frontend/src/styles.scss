@@ -1,0 +1,109 @@
+@use '@angular/material' as mat;
+
+html {
+  color-scheme: light dark;
+  @include mat.theme(
+    (
+      color: mat.$violet-palette,
+      typography: Roboto,
+      density: 0,
+    )
+  );
+}
+
+// Universal border-box reset (fleet convention, DL-ANGULAR-BOX-SIZING-RESET):
+// without it `width: 100%` + side padding renders wider than the viewport and
+// the page scrolls sideways on a phone.
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: Roboto, sans-serif;
+  // Paint the page with the theme surface (like the sibling viewers) rather
+  // than relying on the UA canvas colour — a native wrapper reads this to
+  // colour the strips behind the system bars.
+  background-color: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
+}
+
+// Rendered-markdown content (innerHTML, so unscoped by view encapsulation).
+.md-content {
+  line-height: 1.55;
+  overflow-wrap: break-word;
+
+  h1,
+  h2,
+  h3 {
+    line-height: 1.25;
+  }
+  h1 {
+    font-size: 1.4rem;
+  }
+  h2 {
+    font-size: 1.15rem;
+    margin-top: 1.5em;
+    border-bottom: 1px solid var(--mat-sys-outline-variant);
+    padding-bottom: 0.2em;
+  }
+  h3 {
+    font-size: 1rem;
+  }
+
+  a {
+    color: var(--mat-sys-primary);
+    text-decoration: none;
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  code {
+    font-size: 0.85em;
+    background: var(--mat-sys-surface-container);
+    border-radius: 4px;
+    padding: 0.1em 0.3em;
+  }
+
+  pre {
+    background: var(--mat-sys-surface-container);
+    border-radius: 8px;
+    padding: 0.75em;
+    overflow-x: auto;
+    code {
+      background: none;
+      padding: 0;
+    }
+  }
+
+  blockquote {
+    margin: 0.5em 0;
+    padding-left: 0.75em;
+    border-left: 3px solid var(--mat-sys-outline-variant);
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  ul,
+  ol {
+    padding-left: 1.4em;
+  }
+
+  table {
+    border-collapse: collapse;
+    display: block;
+    overflow-x: auto;
+    th,
+    td {
+      border: 1px solid var(--mat-sys-outline-variant);
+      padding: 0.3em 0.6em;
+    }
+  }
+}

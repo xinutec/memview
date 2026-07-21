@@ -1,0 +1,23 @@
+@if (memories(); as list) {
+  <div class="filters">
+    <button mat-button [class.active]="filter() === 'all'" (click)="filter.set('all')">all ({{ list.length }})</button>
+    @for (t of types(); track t) {
+      <button mat-button [class.active]="filter() === t" (click)="filter.set(t)">{{ t }}</button>
+    }
+  </div>
+
+  <ul class="mem-list">
+    @for (m of visible(); track m.name) {
+      <li>
+        <a [routerLink]="['/m', m.name]">{{ m.name }}</a>
+        @if (m.description) {
+          <span class="desc">{{ m.description }}</span>
+        }
+      </li>
+    } @empty {
+      <p>No memories.</p>
+    }
+  </ul>
+} @else {
+  <mat-progress-bar mode="indeterminate" />
+}

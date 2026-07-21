@@ -1,0 +1,65 @@
+{
+  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+  "version": 1,
+  "newProjectRoot": "projects",
+  "projects": {
+    "memview-web": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "prefix": "app",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "outputPath": "dist/memview-web",
+            "browser": "src/main.ts",
+            "index": "src/index.html",
+            "tsConfig": "tsconfig.app.json",
+            "inlineStyleLanguage": "scss",
+            "assets": [{ "glob": "**/*", "input": "public" }],
+            "styles": [
+              "@fontsource/roboto/300.css",
+              "@fontsource/roboto/400.css",
+              "@fontsource/roboto/500.css",
+              "material-icons/iconfont/filled.css",
+              "src/styles.scss"
+            ]
+          },
+          "configurations": {
+            "production": {
+              "budgets": [
+                { "type": "initial", "maximumWarning": "800kB", "maximumError": "1.5MB" },
+                { "type": "anyComponentStyle", "maximumWarning": "4kB", "maximumError": "8kB" }
+              ],
+              "outputHashing": "all"
+            },
+            "development": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "serve": {
+          "builder": "@angular/build:dev-server",
+          "options": { "proxyConfig": "proxy.conf.json" },
+          "configurations": {
+            "production": { "buildTarget": "memview-web:build:production" },
+            "development": { "buildTarget": "memview-web:build:development" }
+          },
+          "defaultConfiguration": "development"
+        },
+        "test": {
+          "builder": "@angular/build:unit-test",
+          "options": {
+            "buildTarget": "memview-web:build:development",
+            "runner": "vitest",
+            "tsConfig": "tsconfig.spec.json"
+          }
+        }
+      }
+    }
+  }
+}

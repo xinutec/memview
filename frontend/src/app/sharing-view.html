@@ -1,0 +1,35 @@
+<h1>Public share link</h1>
+<p class="explainer">
+  One link gives read-only access to the whole memory corpus, without a Nextcloud login. Rotating replaces the link — the
+  old one stops working immediately. Revoking removes access entirely.
+</p>
+
+@if (busy()) {
+  <mat-progress-bar mode="indeterminate" />
+}
+
+@if (info(); as i) {
+  @if (i.active) {
+    <div class="link-box">
+      <code>{{ shareUrl(i) }}</code>
+    </div>
+    <p class="dates">
+      Created {{ i.created_at | date: 'medium' }}
+      @if (i.last_accessed_at) {
+        · last opened {{ i.last_accessed_at | date: 'medium' }}
+      } @else {
+        · never opened
+      }
+    </p>
+    <div class="actions">
+      <button mat-flat-button (click)="copy(i)">{{ copied() ? 'Copied' : 'Copy link' }}</button>
+      <button mat-button (click)="rotate()" [disabled]="busy()">Rotate</button>
+      <button mat-button class="danger" (click)="revoke()" [disabled]="busy()">Revoke</button>
+    </div>
+  } @else {
+    <p>No share link is active.</p>
+    <button mat-flat-button (click)="rotate()" [disabled]="busy()">Create link</button>
+  }
+} @else {
+  <mat-progress-bar mode="indeterminate" />
+}

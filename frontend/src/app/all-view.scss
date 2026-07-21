@@ -1,0 +1,36 @@
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 0;
+
+  .active {
+    background: var(--mat-sys-secondary-container);
+    color: var(--mat-sys-on-secondary-container);
+  }
+}
+
+.mem-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  a {
+    color: var(--mat-sys-primary);
+    text-decoration: none;
+    overflow-wrap: anywhere;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  .desc {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
