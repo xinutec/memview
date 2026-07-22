@@ -14,6 +14,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{DateTime, Utc};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
+use subtle::ConstantTimeEq;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ShareState {
@@ -55,9 +56,12 @@ impl ShareStore {
         self.state.lock().expect("share state poisoned").clone()
     }
 
-    /// True when `token` matches the active share token.
+    /// True when `token` matches the active share token. Constant-time, like the
+    /// session HMAC check: `==` would short-circuit on the first wrong byte and
+    /// let the timing walk the token out one byte at a time.
     pub fn is_valid(&self, token: &str) -> bool {
-        self.get().is_some_and(|s| s.token == token)
+        self.get()
+            .is_some_and(|s| s.token.as_bytes().ct_eq(token.as_bytes()).into())
     }
 
     /// Create or rotate the token. Any previous one is gone after this call.
