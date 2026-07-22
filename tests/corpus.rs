@@ -109,6 +109,39 @@ fn search_snippets_survive_multibyte_bodies() {
 }
 
 #[test]
+fn search_snippet_offset_survives_cased_multibyte_prefix() {
+    // 'İ' is 2 bytes but lowercases to "i̇" (3 bytes), so `body.to_lowercase()`
+    // is longer than `body` — and a match offset found in the lowercased copy
+    // points too far into the ORIGINAL. With enough such chars before the match,
+    // the drift exceeds the snippet's back-window and the naive offset would slice
+    // PAST the match entirely, dropping it from the snippet. The correct offset
+    // (found against the original) keeps it centred.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let prefix = "İ ".repeat(120); // ~120 bytes of lowercase drift, > the 80-byte window
+    std::fs::write(
+        dir.path().join("MEMORY.md"),
+        "# Memory index\n- [p](project_drift.md)\n",
+    )
+    .expect("write index");
+    std::fs::write(
+        dir.path().join("project_drift.md"),
+        format!(
+            "---\nname: project_drift\ndescription: d\nmetadata:\n  type: project\n---\n\n{prefix}NEEDLETOKEN tail\n"
+        ),
+    )
+    .expect("write memory");
+
+    let corpus = Corpus::load(dir.path()).expect("loads");
+    let hits = corpus.search("needletoken");
+    assert_eq!(hits.len(), 1);
+    let snippet = hits[0].snippet.as_ref().expect("body snippet");
+    assert!(
+        snippet.contains("NEEDLETOKEN"),
+        "snippet windowed the wrong offset: {snippet:?}"
+    );
+}
+
+#[test]
 fn rendering_rewrites_both_link_forms_but_leaves_external_urls() {
     let html = render_markdown(
         "See [[project_alpha]] and [Title](reference_beta.md) and [ext](https://x.example/).",

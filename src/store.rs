@@ -179,8 +179,11 @@ impl Corpus {
             .filter_map(|d| {
                 let name_hit = d.meta.name.to_lowercase().contains(&q);
                 let desc_hit = d.meta.description.to_lowercase().contains(&q);
-                let body_lower = d.body.to_lowercase();
-                let body_pos = body_lower.find(&q);
+                // Offset into the ORIGINAL body: `body.to_lowercase().find()` would
+                // return an offset into the lowercased copy, which drifts wherever
+                // lowercasing changes a char's byte length (e.g. 'İ' 2B → "i̇" 3B) —
+                // then snippet_around would window the wrong place.
+                let body_pos = find_ci(&d.body, &q);
                 if !name_hit && !desc_hit && body_pos.is_none() {
                     return None;
                 }
@@ -231,6 +234,30 @@ fn wikilink_targets(body: &str) -> Vec<String> {
         }
     }
     out
+}
+
+/// First byte offset in `body` (original casing) where the text, lowercased,
+/// begins with `needle` (already lowercased). Unlike `body.to_lowercase().find`,
+/// the returned offset is valid in `body` itself — case folding can change a
+/// char's byte length, so an offset into the lowercased copy can't be used to
+/// slice the original.
+fn find_ci(body: &str, needle: &str) -> Option<usize> {
+    if needle.is_empty() {
+        return None;
+    }
+    body.char_indices().find_map(|(i, _)| {
+        // Lowercase the tail lazily, char by char (one char can fold to several),
+        // and compare against the needle — matching when the needle runs out.
+        let mut folded = body[i..].chars().flat_map(char::to_lowercase);
+        let mut want = needle.chars();
+        loop {
+            match (folded.next(), want.next()) {
+                (_, None) => return Some(i),
+                (Some(a), Some(b)) if a == b => {}
+                _ => return None,
+            }
+        }
+    })
 }
 
 /// ~160-char window around a byte position, clamped to char boundaries.
