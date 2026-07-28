@@ -14,7 +14,12 @@ export class ContentNav {
   @HostListener('click', ['$event'])
   onClick(event: MouseEvent): void {
     if (event.ctrlKey || event.metaKey || event.shiftKey || event.button !== 0) return;
-    const anchor = (event.target as HTMLElement).closest('a');
+    // `instanceof` rather than `as HTMLElement`: a click can land on a text node
+    // or an SVG element, neither of which has `closest`, and an assertion would
+    // turn that into a TypeError at the top of every click handler.
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const anchor = target.closest('a');
     if (!anchor) return;
     const href = anchor.getAttribute('href');
     if (!href?.startsWith('/')) return;
