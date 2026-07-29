@@ -1,10 +1,11 @@
-import { expect, test, type Page } from "@playwright/test";
+import { test, type Page } from "@playwright/test";
 // The fleet-shared harness, published as @xinutec/ui-harness (source repo
 // ~/Code/ui-harness). Ships compiled JS, so it loads straight from node_modules.
 import {
   expectIconFontLoaded,
   expectNoHorizontalOverflow,
   expectNoTextOverlaps,
+  expectCanvasLegible,
   expectViewportIsPhone,
 } from "@xinutec/ui-harness";
 
@@ -170,63 +171,23 @@ test("graph — legend of long section titles under the canvas @ phone width", a
 });
 
 /**
- * Canvas drawing takes colour strings, and an unparseable one is ignored in
- * silence — `fillStyle` simply keeps its previous value, which starts out black.
- * Material's system tokens compute to `light-dark(#1a1b1f, #e3e2e6)`, a CSS
- * function no canvas can parse, so passing one straight through paints black on
- * a dark background with nothing anywhere reporting a problem.
+ * The graph is painted on a canvas, which is the one place the stylesheet does
+ * not reach: an unparseable colour assigned to `fillStyle` is ignored in
+ * SILENCE, leaving the previous value (black on a fresh context). Nothing else
+ * in this suite can see that — the layout checks measure geometry, the unit
+ * tests never rasterise, and the page is perfectly valid. So this reads pixels.
  *
- * Nothing else in this suite can see that: the layout checks measure geometry,
- * the unit tests never rasterise, and the page is perfectly valid. So this reads
- * the pixels, in both schemes — the bug is invisible in light mode.
+ * Both schemes, because the classic form of the bug (a Material token, which
+ * computes to `light-dark(...)`) is invisible in light mode.
  */
 for (const scheme of ["light", "dark"] as const) {
-  test(`graph canvas stays legible in ${scheme} mode`, async ({ page }) => {
+  test(`graph canvas stays legible in ${scheme} mode`, async ({ page }, testInfo) => {
     await page.emulateMedia({ colorScheme: scheme });
     await mockApi(page);
     await page.goto("/graph");
-    const canvas = page.locator("app-graph-view canvas");
-    await canvas.waitFor();
-    // The layout settles over a few frames; measure once it has drawn.
+    await page.locator("app-graph-view canvas").waitFor();
+    // The force layout settles over a few frames; measure once it has drawn.
     await page.waitForTimeout(1200);
-
-    const contrast = await canvas.evaluate((element) => {
-      if (!(element instanceof HTMLCanvasElement)) throw new Error("not a canvas");
-      const ctx = element.getContext("2d");
-      if (!ctx) throw new Error("no 2d context");
-
-      const relativeLuminance = (r: number, g: number, b: number): number => {
-        const channel = (v: number): number => {
-          const s = v / 255;
-          return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
-        };
-        return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-      };
-
-      const background = getComputedStyle(document.body).backgroundColor;
-      const channels = background.match(/\d+/g)?.map(Number) ?? [255, 255, 255];
-      const backgroundLuminance = relativeLuminance(channels[0], channels[1], channels[2]);
-
-      const { data } = ctx.getImageData(0, 0, element.width, element.height);
-      // Solidly painted pixels only — antialiased edges and the faint edge lines
-      // blend toward the background by design and would drag the measure down.
-      const ratios: number[] = [];
-      for (let i = 0; i < data.length; i += 4) {
-        if (data[i + 3] < 200) continue;
-        const l = relativeLuminance(data[i], data[i + 1], data[i + 2]);
-        const [hi, lo] =
-          l > backgroundLuminance ? [l, backgroundLuminance] : [backgroundLuminance, l];
-        ratios.push((hi + 0.05) / (lo + 0.05));
-      }
-      if (ratios.length === 0) return { painted: 0, best: 0 };
-      ratios.sort((a, b) => a - b);
-      return { painted: ratios.length, best: ratios[Math.floor(ratios.length * 0.9)] };
-    });
-
-    expect(contrast.painted, "the graph canvas painted nothing at all").toBeGreaterThan(200);
-    expect(
-      contrast.best,
-      `graph canvas in ${scheme} mode: brightest marks reach only ${contrast.best.toFixed(1)}:1`,
-    ).toBeGreaterThan(3);
+    await expectCanvasLegible(page, testInfo, "app-graph-view canvas");
   });
 }
