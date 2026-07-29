@@ -16,6 +16,40 @@ a curated `MEMORY.md` index).
   unless configured**: without `SESSION_SECRET` the app serves open — that's
   the local dev mode.
 
+## Views
+
+| route | what |
+| --- | --- |
+| `/` | MEMORY.md, the curated index |
+| `/m/<name>` | one memory, with backlinks, outlinks and dangling links |
+| `/all` | every memory, grouped by type |
+| `/search` | substring search with snippets |
+| `/graph` | the corpus as a 3D link graph |
+| `/sharing` | owner-only share-link management |
+
+`/graph` draws every memory as a node and every resolvable `[[wikilink]]` as an
+edge (`GET /api/graph`), laid out by a force simulation in `graph-layout.ts`.
+Drag to turn, scroll to zoom, tap a memory to walk its neighbourhood 1–5 hops;
+the section legend doubles as a filter.
+
+Three choices worth knowing before changing it:
+
+- **Canvas 2D with a hand-rolled projection, not WebGL.** A few hundred nodes
+  cost nothing to draw, text labels stay trivial, and the bundle gains no
+  dependency — the page has to render over the VPN with no third-party fetch.
+- **Sections are positional, not just coloured.** Each MEMORY.md `## section`
+  gets an anchor on a sphere and its members are pulled toward it, because with
+  link forces alone — and ~half the corpus's links crossing sections — the
+  curated colours smear uniformly through one ball. Measured on the live corpus,
+  same-section pairs settle ~30% closer than cross-section ones.
+- **Canvas gets nothing from the stylesheet.** It does not inherit the Material
+  theme and does not repaint when the OS flips to dark, and a `light-dark()`
+  token assigned to `fillStyle` is ignored *silently*. So data colours are fixed
+  `hsl()`, only the chrome resolves tokens (through a probe element), a
+  `prefers-color-scheme` listener repaints, and `expectCanvasLegible` reads the
+  actual pixels in both schemes. dev-lint's `DL-CANVAS-SYSTEM-TOKEN` guards the
+  static half.
+
 ## Run (dev, Mac)
 
 ```sh
