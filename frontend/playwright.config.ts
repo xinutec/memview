@@ -14,7 +14,11 @@ import { defineConfig, devices } from '@playwright/test';
  * scripts/verify.sh after `ng build`) serves the freshly-built dist;
  * reuseExistingServer attaches to a serve.mjs already up.
  */
-const PORT = 4273;
+// Unique across the fleet. Every app's harness sets `reuseExistingServer: true`,
+// so two apps sharing a port silently attach to each OTHER's server and both
+// suites fail in ways that never reproduce alone. This was 4273, which is
+// health's.
+const PORT = 4275;
 
 export default defineConfig({
   testDir: './e2e',
