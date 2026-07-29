@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   Edge,
+  LayoutInput,
   SETTLED,
   createLayout,
+  fitZoom,
   neighbourhood,
   project,
   sectionColour,
@@ -11,7 +13,14 @@ import {
 } from './graph-layout';
 
 /** A rule cited by one project, and a second project two hops away through it. */
-const NAMES = ['project_a', 'feedback_rule', 'project_b', 'reference_lonely'];
+const NAMES: LayoutInput[] = [
+  { name: 'project_a', section: 'Projects' },
+  { name: 'feedback_rule', section: 'Rules' },
+  { name: 'project_b', section: 'Projects' },
+  { name: 'reference_lonely', section: null },
+];
+const SECTIONS = ['Projects', 'Rules'];
+const NAME_LIST = NAMES.map((n) => n.name);
 const EDGES: Edge[] = [
   { source: 'project_a', target: 'feedback_rule' },
   // Written the other way round on purpose: the rule cites project_b, rather
@@ -25,7 +34,7 @@ function distance(a: { x: number; y: number; z: number }, b: { x: number; y: num
 
 describe('neighbourhood', () => {
   it('includes the root and follows links in both directions', () => {
-    const one = neighbourhood(EDGES, NAMES, 'project_a', 1);
+    const one = neighbourhood(EDGES, NAME_LIST, 'project_a', 1);
     expect([...one].sort()).toEqual(['feedback_rule', 'project_a']);
   });
 
@@ -33,22 +42,22 @@ describe('neighbourhood', () => {
     // project_b writes no links at all; it is reachable only by walking the
     // rule's outgoing edge backwards. This is the "which rules govern this"
     // case — in the real corpus rules cite projects as often as the reverse.
-    const two = neighbourhood(EDGES, NAMES, 'project_a', 2);
+    const two = neighbourhood(EDGES, NAME_LIST, 'project_a', 2);
     expect([...two].sort()).toEqual(['feedback_rule', 'project_a', 'project_b']);
   });
 
   it('stops growing once the component is exhausted', () => {
-    const far = neighbourhood(EDGES, NAMES, 'project_a', 99);
+    const far = neighbourhood(EDGES, NAME_LIST, 'project_a', 99);
     expect(far.has('reference_lonely')).toBe(false);
     expect(far.size).toBe(3);
   });
 
   it('returns nothing for a name the graph does not have', () => {
-    expect(neighbourhood(EDGES, NAMES, 'project_missing', 3).size).toBe(0);
+    expect(neighbourhood(EDGES, NAME_LIST, 'project_missing', 3).size).toBe(0);
   });
 
   it('gives an unlinked memory only itself', () => {
-    expect([...neighbourhood(EDGES, NAMES, 'reference_lonely', 3)]).toEqual(['reference_lonely']);
+    expect([...neighbourhood(EDGES, NAME_LIST, 'reference_lonely', 3)]).toEqual(['reference_lonely']);
   });
 });
 
@@ -56,26 +65,26 @@ describe('createLayout', () => {
   it('places the same corpus identically twice', () => {
     // Deterministic on purpose: a reproducible picture makes a screenshot or a
     // bug report meaningful. Math.random would forfeit that.
-    const a = createLayout(NAMES, EDGES);
-    const b = createLayout(NAMES, EDGES);
+    const a = createLayout(NAMES, EDGES, SECTIONS);
+    const b = createLayout(NAMES, EDGES, SECTIONS);
     expect(a.nodes.map((n) => n.pos)).toEqual(b.nodes.map((n) => n.pos));
   });
 
   it('starts every node somewhere distinct', () => {
-    const layout = createLayout(NAMES, EDGES);
+    const layout = createLayout(NAMES, EDGES, SECTIONS);
     const seen = new Set(layout.nodes.map((n) => `${n.pos.x},${n.pos.y},${n.pos.z}`));
     expect(seen.size).toBe(NAMES.length);
   });
 
   it('drops an edge naming a node the graph does not have', () => {
-    const layout = createLayout(NAMES, [...EDGES, { source: 'project_a', target: 'ghost' }]);
+    const layout = createLayout(NAMES, [...EDGES, { source: 'project_a', target: 'ghost' }], SECTIONS);
     expect(layout.pairs).toHaveLength(EDGES.length);
   });
 });
 
 describe('stepLayout', () => {
   it('cools to a stop and pulls linked memories closer than unlinked ones', () => {
-    const layout = createLayout(NAMES, EDGES);
+    const layout = createLayout(NAMES, EDGES, SECTIONS);
     for (let i = 0; i < 600; i++) stepLayout(layout);
     expect(layout.alpha).toBeLessThan(SETTLED);
 
@@ -92,10 +101,42 @@ describe('stepLayout', () => {
     expect(Number.isFinite(linked)).toBe(true);
   });
 
+  it('gathers a section into its own territory even with no links at all', () => {
+    // The force that stops the picture reading as a random scatter. Tested with
+    // NO edges so nothing but the section pull can be responsible: if this ever
+    // passes only because two nodes happen to be linked, it proves nothing.
+    const inputs: LayoutInput[] = [
+      { name: 'a1', section: 'A' },
+      { name: 'a2', section: 'A' },
+      { name: 'b1', section: 'B' },
+      { name: 'b2', section: 'B' },
+    ];
+    const layout = createLayout(inputs, [], ['A', 'B']);
+    for (let i = 0; i < 600; i++) stepLayout(layout);
+    const at = (name: string) => layout.nodes[layout.index.get(name) ?? -1].pos;
+    expect(distance(at('a1'), at('a2'))).toBeLessThan(distance(at('a1'), at('b1')));
+    expect(distance(at('b1'), at('b2'))).toBeLessThan(distance(at('b1'), at('a2')));
+  });
+
+  it('leaves an unsectioned memory nearer the middle than a sectioned one', () => {
+    // "Indexed under no heading" is depicted as floating unattached in the
+    // centre rather than being given a home it does not have.
+    const inputs: LayoutInput[] = [
+      { name: 'loose', section: null },
+      { name: 'a1', section: 'A' },
+      { name: 'b1', section: 'B' },
+    ];
+    const layout = createLayout(inputs, [], ['A', 'B']);
+    for (let i = 0; i < 600; i++) stepLayout(layout);
+    const at = (name: string) => layout.nodes[layout.index.get(name) ?? -1].pos;
+    const origin = { x: 0, y: 0, z: 0 };
+    expect(distance(at('loose'), origin)).toBeLessThan(distance(at('a1'), origin));
+  });
+
   it('separates nodes that start on top of each other', () => {
     // A single-node corpus, then a degenerate two-node one: the guard against a
     // zero-distance inverse square must not produce NaN.
-    const layout = createLayout(['a', 'b'], []);
+    const layout = createLayout([{ name: 'a', section: null }, { name: 'b', section: null }], []);
     layout.nodes[0].pos = { x: 0, y: 0, z: 0 };
     layout.nodes[1].pos = { x: 0, y: 0, z: 0 };
     for (let i = 0; i < 50; i++) stepLayout(layout);
@@ -107,7 +148,7 @@ describe('stepLayout', () => {
 });
 
 describe('project', () => {
-  const cam = { yaw: 0, pitch: 0, distance: 900 };
+  const cam = { yaw: 0, pitch: 0, distance: 900, zoom: 1 };
 
   it('puts the origin at the centre of the viewport', () => {
     const p = project({ x: 0, y: 0, z: 0 }, cam, 800, 600);
@@ -131,6 +172,18 @@ describe('project', () => {
     expect(behind.x).toBeGreaterThan(400);
   });
 
+  it('scales the picture with zoom, not with camera distance', () => {
+    // The bug this pins: with `scale = distance / depth`, the origin plane is
+    // ALWAYS 1:1 (depth === distance there), so no camera distance could ever
+    // frame a graph wider than the canvas and the fit was a silent no-op.
+    const near = project({ x: 100, y: 0, z: 0 }, { ...cam, distance: 300 }, 800, 600);
+    const far = project({ x: 100, y: 0, z: 0 }, { ...cam, distance: 3000 }, 800, 600);
+    expect(near.x).toBeCloseTo(far.x);
+
+    const out = project({ x: 100, y: 0, z: 0 }, { ...cam, zoom: 0.5 }, 800, 600);
+    expect(out.x - 400).toBeCloseTo((near.x - 400) / 2);
+  });
+
   it('turns the scene with yaw', () => {
     const front = project({ x: 100, y: 0, z: 0 }, cam, 800, 600);
     const turned = project({ x: 100, y: 0, z: 0 }, { ...cam, yaw: Math.PI / 2 }, 800, 600);
@@ -149,5 +202,20 @@ describe('sectionColour', () => {
     // A `light-dark(...)` token assigned to fillStyle fails silently and leaves
     // the previous colour — invisible in light mode, black-on-black in dark.
     expect(sectionColour(3)).toMatch(/^hsl\(\d+ \d+% \d+%\)$/);
+  });
+});
+
+describe('fitZoom', () => {
+  it('frames the graph inside the smaller viewport axis with margin', () => {
+    // 339 real memories settle to a radius of ~330 world units against a phone
+    // canvas ~412px wide — unframed, that shows only the crowded middle and
+    // clips every outer node.
+    const zoom = fitZoom(330, 412, 620);
+    expect(330 * zoom).toBeLessThan(412 / 2);
+    expect(330 * zoom).toBeGreaterThan(412 / 2 / 1.5);
+  });
+
+  it('never divides by a zero-radius graph', () => {
+    expect(Number.isFinite(fitZoom(0, 400, 400))).toBe(true);
   });
 });

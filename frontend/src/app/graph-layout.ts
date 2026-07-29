@@ -22,6 +22,8 @@ export interface LayoutNode {
   name: string;
   pos: Vec3;
   vel: Vec3;
+  /** This node's section anchor; null = unsectioned, anchored at the origin. */
+  anchor: Vec3 | null;
 }
 
 export interface Layout {
@@ -34,6 +36,13 @@ export interface Layout {
   alpha: number;
 }
 
+/** What the layout needs to know about a memory: who it is, and where it belongs. */
+export interface LayoutInput {
+  name: string;
+  /** MEMORY.md section, or null for memories the index files under no heading. */
+  section: string | null;
+}
+
 export interface Edge {
   source: string;
   target: string;
@@ -44,8 +53,17 @@ export interface Camera {
   yaw: number;
   /** Rotation about the horizontal axis, radians. */
   pitch: number;
-  /** Eye distance from the origin, in world units. */
+  /**
+   * Eye distance from the origin, in world units. This sets how strongly
+   * perspective bites (how much nearer things loom) — it is NOT the zoom.
+   * Deriving scale from distance alone gives `distance / depth`, which is
+   * exactly 1 at the origin plane whatever the distance: the picture then
+   * renders one world unit per pixel forever, no fit is possible, and a graph
+   * wider than the canvas is permanently clipped.
+   */
   distance: number;
+  /** Pixels per world unit at the origin plane — the actual zoom. */
+  zoom: number;
 }
 
 export interface Projected {
@@ -61,8 +79,17 @@ const REPULSION = 2400;
 const SPRING = 0.045;
 const REST_LENGTH = 26;
 const DAMPING = 0.82;
-const CENTERING = 0.008;
+const CENTERING = 0.004;
 const COOLING = 0.985;
+/**
+ * Pull toward the node's section anchor. This is what stops the picture reading
+ * as a random scatter: without it the ONLY forces are links, and since ~half the
+ * corpus's links cross sections, the curated colours smear uniformly through one
+ * ball. Kept well below SPRING so links still visibly drag a memory toward what
+ * it cites — sections claim territory, they don't imprison.
+ */
+const SECTION_PULL = 0.022;
+const ORIGIN: Vec3 = { x: 0, y: 0, z: 0 };
 /** Below this the picture has stopped visibly moving, so the loop can idle. */
 export const SETTLED = 0.02;
 /** Guards the inverse-square term when two nodes land almost on top of another. */
@@ -86,15 +113,47 @@ function seedPosition(i: number, total: number, radius: number): Vec3 {
   };
 }
 
-export function createLayout(names: readonly string[], edges: readonly Edge[]): Layout {
-  const radius = 12 * Math.cbrt(Math.max(1, names.length));
+/**
+ * Give every section a home on a sphere, in the order MEMORY.md lists them.
+ *
+ * Sections adjacent in the index land adjacent in space, so the picture keeps
+ * the reading order of the curated taxonomy. Unsectioned memories anchor at the
+ * origin — floating unattached in the middle is an honest depiction of a memory
+ * the index files under no heading.
+ */
+function sectionAnchors(sections: readonly string[], radius: number): Map<string, Vec3> {
+  const anchors = new Map<string, Vec3>();
+  sections.forEach((section, i) => {
+    anchors.set(section, seedPosition(i, sections.length, radius));
+  });
+  return anchors;
+}
+
+export function createLayout(
+  inputs: readonly LayoutInput[],
+  edges: readonly Edge[],
+  sections: readonly string[] = [],
+): Layout {
+  const radius = 12 * Math.cbrt(Math.max(1, inputs.length));
+  const anchors = sectionAnchors(sections, radius * 0.62);
   const index = new Map<string, number>();
-  names.forEach((name, i) => index.set(name, i));
-  const nodes: LayoutNode[] = names.map((name, i) => ({
-    name,
-    pos: seedPosition(i, names.length, radius),
-    vel: { x: 0, y: 0, z: 0 },
-  }));
+  inputs.forEach((input, i) => index.set(input.name, i));
+  const nodes: LayoutNode[] = inputs.map((input, i) => {
+    const anchor = input.section === null ? null : (anchors.get(input.section) ?? null);
+    const seed = seedPosition(i, inputs.length, radius);
+    // Start inside the section's territory rather than anywhere on the sphere:
+    // a force layout settles into whatever local minimum it starts near, so
+    // seeding by section is most of what makes the sections hold together.
+    const pos =
+      anchor === null
+        ? { x: seed.x * 0.35, y: seed.y * 0.35, z: seed.z * 0.35 }
+        : {
+            x: anchor.x + seed.x * 0.3,
+            y: anchor.y + seed.y * 0.3,
+            z: anchor.z + seed.z * 0.3,
+          };
+    return { name: input.name, pos, vel: { x: 0, y: 0, z: 0 }, anchor };
+  });
   const pairs: [number, number][] = [];
   for (const edge of edges) {
     const a = index.get(edge.source);
@@ -168,6 +227,14 @@ export function stepLayout(layout: Layout): void {
   }
 
   for (const node of nodes) {
+    // An unsectioned node anchors at the origin, and at the SAME strength as a
+    // sectioned one. Leaving it to the much weaker CENTERING term instead let
+    // repulsion win and flung it to the outer shell — the opposite of the
+    // "floating unattached in the middle" this is meant to depict.
+    const anchor = node.anchor ?? ORIGIN;
+    node.vel.x += (anchor.x - node.pos.x) * SECTION_PULL;
+    node.vel.y += (anchor.y - node.pos.y) * SECTION_PULL;
+    node.vel.z += (anchor.z - node.pos.z) * SECTION_PULL;
     node.vel.x -= node.pos.x * CENTERING;
     node.vel.y -= node.pos.y * CENTERING;
     node.vel.z -= node.pos.z * CENTERING;
@@ -177,6 +244,16 @@ export function stepLayout(layout: Layout): void {
   }
 
   layout.alpha *= COOLING;
+}
+
+/** Distance from the origin to the furthest node — what the camera must frame. */
+export function boundingRadius(layout: Layout): number {
+  let max = 1;
+  for (const node of layout.nodes) {
+    const d = Math.hypot(node.pos.x, node.pos.y, node.pos.z);
+    if (d > max) max = d;
+  }
+  return max;
 }
 
 /** World point → screen point. Yaw about Y, then pitch about X, then perspective. */
@@ -192,8 +269,16 @@ export function project(p: Vec3, cam: Camera, width: number, height: number): Pr
   // Clamp so a node that swings behind the eye is pushed to the far plane rather
   // than projecting to a mirrored position in front of it.
   const depth = Math.max(1, z2 + cam.distance);
-  const scale = cam.distance / depth;
+  const scale = (cam.zoom * cam.distance) / depth;
   return { x: width / 2 + x1 * scale, y: height / 2 + y2 * scale, depth, scale };
+}
+
+/**
+ * The zoom that frames a graph of `radius` world units inside `width`×`height`,
+ * leaving `margin` proportional padding so nodes don't sit against the edge.
+ */
+export function fitZoom(radius: number, width: number, height: number, margin = 1.15): number {
+  return Math.min(width, height) / 2 / Math.max(1, radius * margin);
 }
 
 /**
