@@ -32,6 +32,27 @@ export interface SearchHit extends MemoryMeta {
   snippet: string | null;
 }
 
+export interface GraphNode extends MemoryMeta {
+  /** MEMORY.md `## section`, or null when the index links it under no heading. */
+  section: string | null;
+  /** Body length in bytes; ~50x range across the corpus, so scale it log-wise. */
+  size: number;
+  in_degree: number;
+  out_degree: number;
+}
+
+export interface GraphEdge {
+  source: string;
+  target: string;
+}
+
+export interface GraphData {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  /** Section titles in MEMORY.md order — the legend's order. */
+  sections: string[];
+}
+
 export interface ShareInfo {
   active: boolean;
   token?: string;

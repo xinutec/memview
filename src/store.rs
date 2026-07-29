@@ -8,7 +8,7 @@
 //! would be worse than the read cost. Rendering rewrites both link forms to
 //! the SPA route `/m/<name>`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -199,6 +199,140 @@ impl Corpus {
         hits.sort_by(|a, b| b.score.cmp(&a.score).then(a.meta.name.cmp(&b.meta.name)));
         hits
     }
+
+    /// The whole corpus as a link graph: one node per memory, one edge per
+    /// distinct `[[wikilink]]` between two memories that both exist.
+    ///
+    /// Shares `wikilink_targets` with `backlinks`/`outlinks`, so the graph view
+    /// and the per-memory link panels cannot disagree about what a link is.
+    /// Dangling wikilinks are deliberately absent — they have no node to point
+    /// at; `outlinks` is where they stay visible.
+    pub fn graph(&self) -> Graph {
+        let (section_of, sections) = self
+            .index_md
+            .as_deref()
+            .map(index_sections)
+            .unwrap_or_default();
+
+        let mut edges = Vec::new();
+        let mut in_degree: BTreeMap<String, usize> = BTreeMap::new();
+        let mut out_degree: BTreeMap<String, usize> = BTreeMap::new();
+        for doc in self.docs.values() {
+            let mut seen = BTreeSet::new();
+            for target in wikilink_targets(&doc.body) {
+                // Mentioning a memory twice is still one relationship, and a
+                // memory linking itself is not a relationship at all.
+                if target == doc.meta.name
+                    || !self.docs.contains_key(&target)
+                    || !seen.insert(target.clone())
+                {
+                    continue;
+                }
+                *out_degree.entry(doc.meta.name.clone()).or_default() += 1;
+                *in_degree.entry(target.clone()).or_default() += 1;
+                edges.push(GraphEdge {
+                    source: doc.meta.name.clone(),
+                    target,
+                });
+            }
+        }
+
+        let nodes = self
+            .docs
+            .values()
+            .map(|d| GraphNode {
+                meta: d.meta.clone(),
+                section: section_of.get(&d.meta.name).cloned(),
+                size: d.body.len(),
+                in_degree: in_degree.get(&d.meta.name).copied().unwrap_or(0),
+                out_degree: out_degree.get(&d.meta.name).copied().unwrap_or(0),
+            })
+            .collect();
+
+        Graph {
+            nodes,
+            edges,
+            sections,
+        }
+    }
+}
+
+/// MEMORY.md's curated taxonomy: which `## section` indexes each memory, plus
+/// the section titles in document order.
+///
+/// A memory linked from more than one section keeps the first — the index is
+/// ordered, so the first mention is the one that classifies it. Links above the
+/// first heading (the index's preamble) belong to no section.
+fn index_sections(index_md: &str) -> (BTreeMap<String, String>, Vec<String>) {
+    let mut section_of = BTreeMap::new();
+    let mut sections: Vec<String> = Vec::new();
+    let mut current: Option<String> = None;
+    for line in index_md.lines() {
+        if let Some(title) = line.strip_prefix("## ") {
+            let title = title.trim().to_string();
+            if !sections.contains(&title) {
+                sections.push(title.clone());
+            }
+            current = Some(title);
+            continue;
+        }
+        let Some(section) = current.as_ref() else {
+            continue;
+        };
+        for stem in md_link_stems(line) {
+            section_of.entry(stem).or_insert_with(|| section.clone());
+        }
+    }
+    (section_of, sections)
+}
+
+/// Stems of relative `](name.md)` links on one line — the index's link form.
+fn md_link_stems(line: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = line;
+    while let Some(start) = rest.find("](") {
+        rest = &rest[start + 2..];
+        let Some(end) = rest.find(')') else { break };
+        let url = &rest[..end];
+        rest = &rest[end + 1..];
+        if let Some(stem) = md_link_stem(url) {
+            out.push(stem.to_string());
+        }
+    }
+    out
+}
+
+/// A memory as a node in the link graph: its metadata plus the structural
+/// facts a layout needs.
+#[derive(Debug, Clone, Serialize)]
+pub struct GraphNode {
+    #[serde(flatten)]
+    pub meta: MemoryMeta,
+    /// The `## section` of MEMORY.md that indexes this memory — the curated
+    /// taxonomy, which beats anything clustering would infer. `None` when the
+    /// index never links it under a heading; that is a real corpus fact, so it
+    /// is reported rather than folded into a catch-all bucket.
+    pub section: Option<String>,
+    /// Body length in bytes. Spans ~50x across the real corpus (median ~1.9 KB,
+    /// max ~97 KB), so a renderer wanting node radii should scale it log-wise.
+    pub size: usize,
+    pub in_degree: usize,
+    pub out_degree: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GraphEdge {
+    pub source: String,
+    pub target: String,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct Graph {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+    /// Section titles in MEMORY.md order, so a legend reads in the order the
+    /// index was written rather than alphabetically.
+    pub sections: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]

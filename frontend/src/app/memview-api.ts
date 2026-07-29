@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
-import { IndexPage, Me, MemoryMeta, MemoryPage, SearchHit, ShareInfo } from './models';
+import { GraphData, IndexPage, Me, MemoryMeta, MemoryPage, SearchHit, ShareInfo } from './models';
 
 /** Thin client over the memview backend. Same-origin in prod; via the dev
  *  proxy (proxy.conf.json) in `ng serve`. Session cookie rides along. */
@@ -27,6 +27,10 @@ export class MemviewApi {
 
   memory(name: string): Observable<MemoryPage> {
     return this.http.get<MemoryPage>(`/api/memory/${encodeURIComponent(name)}`);
+  }
+
+  graph(): Observable<GraphData> {
+    return this.http.get<GraphData>('/api/graph');
   }
 
   search(q: string): Observable<{ hits: SearchHit[] }> {

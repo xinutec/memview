@@ -10,7 +10,7 @@ use crate::access::{OwnerOnly, ReadAccess, Viewer};
 use crate::error::AppError;
 use crate::share::build_share_url;
 use crate::state::AppState;
-use crate::store::{Corpus, MemoryMeta, render_markdown};
+use crate::store::{Corpus, Graph, MemoryMeta, render_markdown};
 
 fn load_corpus(app: &AppState) -> Result<Corpus, AppError> {
     Ok(Corpus::load(&app.cfg.memory_dir)?)
@@ -82,6 +82,16 @@ pub async fn memory(
         outlinks,
         dangling,
     }))
+}
+
+/// GET /api/graph — the corpus as a link graph, for the 3D view. One payload
+/// for the whole graph: at corpus scale (hundreds of nodes, ~2 edges each) it
+/// is tens of KB, and a layout needs every node before it can place any.
+pub async fn graph(
+    State(app): State<AppState>,
+    ReadAccess(_): ReadAccess,
+) -> Result<Json<Graph>, AppError> {
+    Ok(Json(load_corpus(&app)?.graph()))
 }
 
 #[derive(Deserialize)]

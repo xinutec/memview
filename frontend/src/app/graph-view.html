@@ -1,0 +1,77 @@
+<div class="stage">
+  <canvas
+    #canvas
+    (pointerdown)="onPointerDown($event)"
+    (pointermove)="onPointerMove($event)"
+    (pointerup)="onPointerUp($event)"
+    (pointercancel)="onPointerUp($event)"
+    (wheel)="onWheel($event)"
+  ></canvas>
+  @if (!data()) {
+    <mat-progress-bar mode="indeterminate" />
+  }
+</div>
+
+@if (data(); as graph) {
+  <p class="scale">
+    {{ graph.nodes.length }} memories · {{ graph.edges.length }} links · drag to turn, scroll to
+    zoom, tap a memory to walk from it
+  </p>
+
+  <div class="controls">
+    <mat-slide-toggle [checked]="spin()" (change)="setSpin($event.checked)">spin</mat-slide-toggle>
+    <button mat-button (click)="reheat()">
+      <mat-icon>refresh</mat-icon>
+      re-settle
+    </button>
+  </div>
+
+  @if (selected(); as node) {
+    <div class="focus">
+      <h2>{{ node.name }}</h2>
+      @if (node.description) {
+        <p class="desc">{{ node.description }}</p>
+      }
+      <p class="facts">
+        {{ node.section ?? 'indexed under no heading' }} · {{ node.in_degree }} in ·
+        {{ node.out_degree }} out
+      </p>
+
+      <label id="depth-label" class="depth" for="depth-slider">
+        connected within {{ focusDepth() }} hop{{ focusDepth() === 1 ? '' : 's' }}:
+        {{ litCount() }} memories
+      </label>
+      <mat-slider min="1" max="5" step="1" discrete>
+        <input
+          id="depth-slider"
+          matSliderThumb
+          aria-labelledby="depth-label"
+          [value]="focusDepth()"
+          (valueChange)="setDepth($event)"
+        />
+      </mat-slider>
+
+      <div class="focus-actions">
+        <a mat-flat-button [routerLink]="['/m', node.name]">Open</a>
+        <button mat-button (click)="clearSelection()">Show all</button>
+      </div>
+    </div>
+  }
+
+  <ul class="legend">
+    @for (row of legend(); track row.key) {
+      <li>
+        <button
+          type="button"
+          [class.off]="isHidden(row.key)"
+          (click)="toggleSection(row.key)"
+          [attr.aria-pressed]="!isHidden(row.key)"
+        >
+          <span class="swatch" [style.background]="row.colour"></span>
+          <span class="name">{{ row.label }}</span>
+          <span class="count">{{ row.count }}</span>
+        </button>
+      </li>
+    }
+  </ul>
+}

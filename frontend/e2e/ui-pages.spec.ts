@@ -1,4 +1,4 @@
-import { test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 // The fleet-shared harness, published as @xinutec/ui-harness (source repo
 // ~/Code/ui-harness). Ships compiled JS, so it loads straight from node_modules.
 import {
@@ -64,6 +64,34 @@ const SEARCH = {
   ],
 };
 
+/** A graph the size the real one draws at: several sections (long titles, the
+ *  legend's overflow risk), a hub, and a memory the index files under no
+ *  heading. Enough nodes that the contrast probe below has pixels to measure. */
+const GRAPH_SECTIONS = [
+  "Infrastructure & data services",
+  "Rules — deploy & infra ops",
+  "health-sync",
+];
+const GRAPH = {
+  sections: GRAPH_SECTIONS,
+  nodes: Array.from({ length: 12 }, (_, i) => ({
+    name: `project_health_verified_core_lean_${i}`,
+    description: "Lean 4 port of the health matcher — bit-exact against the quant twin",
+    mtype: i % 2 === 0 ? "project" : "feedback",
+    modified: "2026-07-20T09:00:00Z",
+    // One memory deliberately carries no section: the index links it above any
+    // `##` heading, and the legend has to say so rather than inventing a bucket.
+    section: i === 11 ? null : GRAPH_SECTIONS[i % GRAPH_SECTIONS.length],
+    size: 1800 + i * 3200,
+    in_degree: i === 0 ? 9 : 1,
+    out_degree: i === 0 ? 3 : 1,
+  })),
+  edges: Array.from({ length: 11 }, (_, i) => ({
+    source: "project_health_verified_core_lean_0",
+    target: `project_health_verified_core_lean_${i + 1}`,
+  })),
+};
+
 /** Mock every backend call. Catch-all FIRST — Playwright runs handlers
  *  last-registered-first. */
 async function mockApi(page: Page): Promise<void> {
@@ -74,6 +102,7 @@ async function mockApi(page: Page): Promise<void> {
   await page.route("**/api/index", (r) => r.fulfill({ json: INDEX }));
   await page.route("**/api/memories", (r) => r.fulfill({ json: MEMORIES }));
   await page.route("**/api/memory/**", (r) => r.fulfill({ json: MEMORY_PAGE }));
+  await page.route("**/api/graph", (r) => r.fulfill({ json: GRAPH }));
   await page.route("**/api/search**", (r) => r.fulfill({ json: SEARCH }));
 }
 
@@ -131,3 +160,73 @@ test("search results — snippets under long slugs @ phone width", async ({ page
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 });
+
+test("graph — legend of long section titles under the canvas @ phone width", async ({ page }, testInfo) => {
+  await mockApi(page);
+  await page.goto("/graph");
+  await page.getByText("Infrastructure & data services").waitFor();
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+});
+
+/**
+ * Canvas drawing takes colour strings, and an unparseable one is ignored in
+ * silence — `fillStyle` simply keeps its previous value, which starts out black.
+ * Material's system tokens compute to `light-dark(#1a1b1f, #e3e2e6)`, a CSS
+ * function no canvas can parse, so passing one straight through paints black on
+ * a dark background with nothing anywhere reporting a problem.
+ *
+ * Nothing else in this suite can see that: the layout checks measure geometry,
+ * the unit tests never rasterise, and the page is perfectly valid. So this reads
+ * the pixels, in both schemes — the bug is invisible in light mode.
+ */
+for (const scheme of ["light", "dark"] as const) {
+  test(`graph canvas stays legible in ${scheme} mode`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await mockApi(page);
+    await page.goto("/graph");
+    const canvas = page.locator("app-graph-view canvas");
+    await canvas.waitFor();
+    // The layout settles over a few frames; measure once it has drawn.
+    await page.waitForTimeout(1200);
+
+    const contrast = await canvas.evaluate((element) => {
+      if (!(element instanceof HTMLCanvasElement)) throw new Error("not a canvas");
+      const ctx = element.getContext("2d");
+      if (!ctx) throw new Error("no 2d context");
+
+      const relativeLuminance = (r: number, g: number, b: number): number => {
+        const channel = (v: number): number => {
+          const s = v / 255;
+          return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+        };
+        return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+      };
+
+      const background = getComputedStyle(document.body).backgroundColor;
+      const channels = background.match(/\d+/g)?.map(Number) ?? [255, 255, 255];
+      const backgroundLuminance = relativeLuminance(channels[0], channels[1], channels[2]);
+
+      const { data } = ctx.getImageData(0, 0, element.width, element.height);
+      // Solidly painted pixels only — antialiased edges and the faint edge lines
+      // blend toward the background by design and would drag the measure down.
+      const ratios: number[] = [];
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i + 3] < 200) continue;
+        const l = relativeLuminance(data[i], data[i + 1], data[i + 2]);
+        const [hi, lo] =
+          l > backgroundLuminance ? [l, backgroundLuminance] : [backgroundLuminance, l];
+        ratios.push((hi + 0.05) / (lo + 0.05));
+      }
+      if (ratios.length === 0) return { painted: 0, best: 0 };
+      ratios.sort((a, b) => a - b);
+      return { painted: ratios.length, best: ratios[Math.floor(ratios.length * 0.9)] };
+    });
+
+    expect(contrast.painted, "the graph canvas painted nothing at all").toBeGreaterThan(200);
+    expect(
+      contrast.best,
+      `graph canvas in ${scheme} mode: brightest marks reach only ${contrast.best.toFixed(1)}:1`,
+    ).toBeGreaterThan(3);
+  });
+}

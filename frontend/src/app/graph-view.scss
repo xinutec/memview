@@ -1,0 +1,144 @@
+.stage {
+  position: relative;
+  // Tall enough to read the structure, short enough that the controls below
+  // stay reachable on a phone without scrolling past the picture.
+  height: min(68dvh, 620px);
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--mat-sys-surface-container-lowest);
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    // The gesture is a rotate, so the browser must not claim the drag for
+    // scrolling first — without this a touch drag pans the page instead.
+    touch-action: none;
+    cursor: grab;
+  }
+
+  mat-progress-bar {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+  }
+}
+
+.scale {
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+  margin: 8px 0 0;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.focus {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 12px;
+  background: var(--mat-sys-surface-container-low);
+
+  h2 {
+    font: var(--mat-sys-title-medium);
+    margin: 0;
+    // Memory names are long unbreakable snake_case tokens; without this they
+    // push the panel past the right edge on a phone.
+    overflow-wrap: anywhere;
+  }
+
+  .desc {
+    font: var(--mat-sys-body-medium);
+    margin: 4px 0 0;
+    overflow-wrap: anywhere;
+  }
+
+  .facts {
+    font: var(--mat-sys-body-small);
+    color: var(--mat-sys-on-surface-variant);
+    margin: 4px 0 0;
+    overflow-wrap: anywhere;
+  }
+
+  .depth {
+    display: block;
+    font: var(--mat-sys-body-small);
+    color: var(--mat-sys-on-surface-variant);
+    margin-top: 8px;
+  }
+
+  mat-slider {
+    width: 100%;
+  }
+
+  .focus-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
+
+.legend {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 8px;
+    border: none;
+    border-radius: 8px;
+    background: none;
+    color: inherit;
+    font: var(--mat-sys-body-medium);
+    text-align: start;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--mat-sys-surface-container-high);
+    }
+
+    // Hidden sections stay listed and legible — a filter you can't find your
+    // way out of is worse than no filter.
+    &.off {
+      color: var(--mat-sys-on-surface-variant);
+      .swatch {
+        opacity: 0.25;
+      }
+      .name {
+        text-decoration: line-through;
+      }
+    }
+  }
+
+  .swatch {
+    flex: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+  }
+
+  .name {
+    flex: 1;
+    overflow-wrap: anywhere;
+  }
+
+  .count {
+    flex: none;
+    font: var(--mat-sys-label-small);
+    color: var(--mat-sys-on-surface-variant);
+  }
+}

@@ -2,7 +2,7 @@
 //! public API against fixture memories shaped like the real corpus
 //! (frontmatter + `[[wikilinks]]` + a MEMORY.md index).
 
-use memview::store::{Corpus, render_markdown};
+use memview::store::{Corpus, Graph, GraphNode, render_markdown};
 
 fn corpus() -> Corpus {
     Corpus::load(concat!(
@@ -10,6 +10,14 @@ fn corpus() -> Corpus {
         "/tests/fixtures/memory"
     ))
     .expect("fixture corpus loads")
+}
+
+fn node<'a>(graph: &'a Graph, name: &str) -> &'a GraphNode {
+    graph
+        .nodes
+        .iter()
+        .find(|n| n.meta.name == name)
+        .unwrap_or_else(|| panic!("{name} is a node"))
 }
 
 #[test]
@@ -163,4 +171,109 @@ fn rendering_escapes_raw_html_rather_than_dropping_it() {
 #[test]
 fn missing_corpus_directory_is_an_error_not_an_empty_corpus() {
     assert!(Corpus::load("/nonexistent/memview/corpus").is_err());
+}
+
+#[test]
+fn graph_nodes_carry_the_curated_section_size_and_degrees() {
+    let graph = corpus().graph();
+    assert_eq!(graph.nodes.len(), 3);
+
+    let alpha = node(&graph, "project_alpha");
+    assert_eq!(alpha.section.as_deref(), Some("Projects"));
+    // Alpha wikilinks three names but only two are written; a dangling link has
+    // no node to point at, so it is not out-degree either.
+    assert_eq!(alpha.out_degree, 2);
+    // reference_beta's body ends "Related: [[project_alpha]]", which resolves.
+    assert_eq!(alpha.in_degree, 1);
+    assert!(alpha.size > 0, "body length feeds node radius");
+
+    let gamma = node(&graph, "feedback_gamma");
+    assert_eq!(gamma.section.as_deref(), Some("Working rules"));
+    assert_eq!(gamma.in_degree, 1);
+    assert_eq!(gamma.out_degree, 0);
+}
+
+#[test]
+fn graph_edges_are_the_resolvable_wikilinks_only() {
+    let graph = corpus().graph();
+    let mut pairs: Vec<(&str, &str)> = graph
+        .edges
+        .iter()
+        .map(|e| (e.source.as_str(), e.target.as_str()))
+        .collect();
+    pairs.sort_unstable();
+    assert_eq!(
+        pairs,
+        [
+            ("project_alpha", "feedback_gamma"),
+            ("project_alpha", "reference_beta"),
+            ("reference_beta", "project_alpha"),
+        ]
+    );
+}
+
+#[test]
+fn graph_sections_keep_the_index_order_not_alphabetical() {
+    // A legend follows the order Pippijn curated in MEMORY.md.
+    assert_eq!(corpus().graph().sections, ["Projects", "Working rules"]);
+}
+
+#[test]
+fn graph_ignores_self_links_collapses_repeats_and_reports_unindexed_memories() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("MEMORY.md"),
+        "# Memory index\n\npreamble [why](project_b.md)\n\n## Only section\n- [a](project_a.md)\n",
+    )
+    .expect("write index");
+    std::fs::write(
+        dir.path().join("project_a.md"),
+        "---\nname: project_a\ndescription: a\nmetadata:\n  type: project\n---\n\n\
+         Cites [[project_b]] twice: [[project_b]]. And itself, [[project_a]].\n",
+    )
+    .expect("write a");
+    std::fs::write(
+        dir.path().join("project_b.md"),
+        "---\nname: project_b\ndescription: b\nmetadata:\n  type: project\n---\n\nNothing.\n",
+    )
+    .expect("write b");
+
+    let graph = Corpus::load(dir.path()).expect("loads").graph();
+    let pairs: Vec<(&str, &str)> = graph
+        .edges
+        .iter()
+        .map(|e| (e.source.as_str(), e.target.as_str()))
+        .collect();
+    // Two mentions of the same target are one relationship; a self-link is none.
+    assert_eq!(pairs, [("project_a", "project_b")]);
+    assert_eq!(node(&graph, "project_a").out_degree, 1);
+    assert_eq!(
+        node(&graph, "project_a").section.as_deref(),
+        Some("Only section")
+    );
+    // project_b is linked only from the preamble, above any `##` heading. It has
+    // no section — reported as such rather than bucketed into a fake catch-all,
+    // because "indexed nowhere" is a real thing to be able to see.
+    assert_eq!(node(&graph, "project_b").section, None);
+}
+
+#[test]
+fn graph_of_a_corpus_without_an_index_still_has_nodes_and_edges() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("project_a.md"),
+        "---\nname: project_a\ndescription: a\n---\n\nSee [[project_b]].\n",
+    )
+    .expect("write a");
+    std::fs::write(
+        dir.path().join("project_b.md"),
+        "---\nname: project_b\ndescription: b\n---\n\nNothing.\n",
+    )
+    .expect("write b");
+
+    let graph = Corpus::load(dir.path()).expect("loads").graph();
+    assert_eq!(graph.nodes.len(), 2);
+    assert_eq!(graph.edges.len(), 1);
+    assert!(graph.sections.is_empty());
+    assert!(graph.nodes.iter().all(|n| n.section.is_none()));
 }
