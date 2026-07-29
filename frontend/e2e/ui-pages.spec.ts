@@ -35,6 +35,11 @@ const INDEX = {
   count: 284,
 };
 
+/** One row per `mtype`, so every filter chip has something to show. These are
+ *  real index rows — the layout only gets stressed honestly by real slug
+ *  lengths and real teaser widths. Keep them to the *technical* end of the
+ *  corpus: this file is committed, and a `user_`/`feedback_` teaser about the
+ *  person rather than the work has no business travelling with the source. */
 const MEMORIES = [
   { name: "project_health_verified_core_lean", description: "Lean 4 port of the health matcher — bit-exact against the TypeScript quant twin", mtype: "project", modified: "2026-07-20T09:00:00Z" },
   { name: "reference_launchd_tcc_external_volume", description: "launchd jobs on /Volumes/Backup die with spawn exit 78; the child exec HANGS in dyld", mtype: "reference", modified: "2026-07-11T09:00:00Z" },
