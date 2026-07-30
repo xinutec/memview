@@ -7,6 +7,7 @@ import { Router, RouterLink, RouterOutlet } from '@angular/router';
 
 import { AuthStore } from './auth';
 import { MemviewApi } from './memview-api';
+import { Telemetry } from './telemetry';
 import { Me } from './models';
 
 @Component({
@@ -19,11 +20,16 @@ export class App {
   private api = inject(MemviewApi);
   private router = inject(Router);
   readonly auth = inject(AuthStore);
+  private telemetry = inject(Telemetry);
 
   readonly me = signal<Me | null>(null);
   readonly loading = signal(true);
 
   constructor() {
+    // Wired once, in the shell: two central seams (router events and one
+    // capture-phase click listener), so no view knows this exists and no new
+    // control can be missed by forgetting to annotate it.
+    this.telemetry.init();
     this.api.me().subscribe({
       next: (me) => {
         this.me.set(me);

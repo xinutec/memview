@@ -1,4 +1,9 @@
 [package]
+# Adding src/bin/memory-lint.rs made `cargo run` ambiguous, which silently broke
+# scripts/dev.sh — it exec'd `cargo run`, cargo refused to choose, and the dev
+# server simply never started. The server is the default; the linter is asked
+# for by name.
+default-run = "memview"
 name = "memview"
 version = "0.1.0"
 edition = "2024"

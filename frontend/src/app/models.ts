@@ -58,6 +58,18 @@ export interface GraphData {
   sections: string[];
 }
 
+/** One thing that happened in the client — mirrors routes/telemetry.rs. */
+export interface TelemetryEvent {
+  /** `nav` for a route change, `tap` for a control. */
+  kind: string;
+  path: string;
+  /** The control's visible text, verbatim; absent for a navigation. */
+  label: string | null;
+  /** The client's clock, epoch milliseconds — a batch arrives all at once, so
+   *  the server's receive time cannot order the events inside it. */
+  at: number;
+}
+
 export interface ShareInfo {
   active: boolean;
   token?: string;

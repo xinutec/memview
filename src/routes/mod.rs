@@ -2,6 +2,7 @@
 
 pub mod api;
 pub mod auth;
+pub mod telemetry;
 
 use axum::Router;
 use axum::routing::{delete, get, post};
@@ -21,7 +22,8 @@ pub fn router(state: AppState) -> Router {
         .route("/search", get(api::search))
         .route("/share", get(api::share_get))
         .route("/share", post(api::share_rotate))
-        .route("/share", delete(api::share_revoke));
+        .route("/share", delete(api::share_revoke))
+        .route("/telemetry", post(telemetry::record));
 
     let app = Router::new()
         .route("/login", get(auth::login))
