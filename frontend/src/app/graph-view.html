@@ -6,6 +6,7 @@
     (pointerup)="onPointerUp($event)"
     (pointercancel)="onPointerUp($event)"
     (wheel)="onWheel($event)"
+    (contextmenu)="$event.preventDefault()"
   ></canvas>
   @if (!data()) {
     <mat-progress-bar mode="indeterminate" />
@@ -13,9 +14,10 @@
 </div>
 
 @if (data(); as graph) {
-  <p class="scale">
-    {{ graph.nodes.length }} memories in {{ clusters().length }} regions · drag to turn, pinch or
-    scroll to zoom, tap a memory to walk from it
+  <p class="scale">{{ graph.nodes.length }} memories in {{ clusters().length }} regions</p>
+  <p class="hint">
+    drag to turn · two fingers to move · pinch to zoom · tap a memory to walk from it · tap the
+    background to come back
   </p>
 
   @if (hasUsage()) {

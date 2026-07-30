@@ -14,6 +14,7 @@ import {
   MIN_FRAME_RADIUS,
   neighbourhood,
   neighboursOf,
+  panDelta,
   planLabels,
   project,
   sectionColour,
@@ -600,5 +601,62 @@ describe('planLabels', () => {
     expect(plan.collided).toBe(0);
     expect(plan.offCanvas).toBe(0);
     expect(plan.overBudget).toBe(0);
+  });
+});
+
+describe('panDelta', () => {
+  const cam = { yaw: 0, pitch: 0, distance: 900, zoom: 1, target: { x: 0, y: 0, z: 0 } };
+
+  it('moves the world under the cursor by exactly the drag', () => {
+    // The property that matters: after panning, the point that was under the
+    // finger is under the finger still. Anything else feels like the graph
+    // slipping.
+    const at = { x: 40, y: -25, z: 0 };
+    const before = project(at, cam, 800, 600);
+    const d = panDelta(30, 12, cam);
+    const after = project(at, { ...cam, target: { x: -d.x, y: -d.y, z: -d.z } }, 800, 600);
+    expect(after.x - before.x).toBeCloseTo(30);
+    expect(after.y - before.y).toBeCloseTo(12);
+  });
+
+  it('holds the drag true when the camera is turned', () => {
+    // Undoing the rotation is the whole job. With yaw and pitch applied, a naive
+    // implementation that shifted the target along the world axes would send the
+    // graph off at an angle to the finger.
+    //
+    // Measured on the target itself, because that is the plane the promise is
+    // made about — see the parallax case below for what happens off it.
+    const turned = { ...cam, yaw: 0.9, pitch: -0.4, zoom: 0.5 };
+    const at = { x: 0, y: 0, z: 0 };
+    const before = project(at, turned, 800, 600);
+    const d = panDelta(-22, 17, turned);
+    const after = project(at, { ...turned, target: { x: -d.x, y: -d.y, z: -d.z } }, 800, 600);
+    expect(after.x - before.x).toBeCloseTo(-22);
+    expect(after.y - before.y).toBeCloseTo(17);
+  });
+
+  it('lets nearer nodes outrun the drag, and further ones lag it', () => {
+    // Not a defect: the drag is exact on the target's plane and everything else
+    // moves by its own perspective factor. Pinned because the tempting "fix" —
+    // dividing by each node's depth — would make the graph shear as it panned.
+    const nearer = { x: 0, y: 0, z: -300 };
+    const further = { x: 0, y: 0, z: 300 };
+    const d = panDelta(40, 0, cam);
+    const moved = { ...cam, target: { x: -d.x, y: -d.y, z: -d.z } };
+    const dNear = project(nearer, moved, 800, 600).x - project(nearer, cam, 800, 600).x;
+    const dFar = project(further, moved, 800, 600).x - project(further, cam, 800, 600).x;
+    expect(dNear).toBeGreaterThan(40);
+    expect(dFar).toBeLessThan(40);
+  });
+
+  it('moves further in world units when zoomed out', () => {
+    const near = panDelta(100, 0, { ...cam, zoom: 2 });
+    const far = panDelta(100, 0, { ...cam, zoom: 0.5 });
+    expect(Math.abs(far.x)).toBeGreaterThan(Math.abs(near.x));
+  });
+
+  it('survives a zoom of zero rather than returning infinities', () => {
+    const d = panDelta(10, 10, { ...cam, zoom: 0 });
+    expect(Number.isFinite(d.x + d.y + d.z)).toBe(true);
   });
 });

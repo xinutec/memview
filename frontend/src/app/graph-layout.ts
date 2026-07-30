@@ -356,6 +356,40 @@ export function project(p: Vec3, cam: Camera, width: number, height: number): Pr
 }
 
 /**
+ * How far to move the camera's target so the picture follows a screen drag of
+ * `dx`, `dy` pixels.
+ *
+ * The inverse of {@link project}'s rotation, evaluated in the plane through the
+ * target: undo the pitch, then the yaw, holding depth fixed. Holding depth is
+ * what makes a pan a pan — solving without that constraint is under-determined,
+ * since every point along the ray under the cursor projects to the same pixel,
+ * and picking the wrong one slides the graph toward or away from the eye while
+ * it moves sideways.
+ *
+ * Scale is the zoom alone, because at the target's own depth the perspective
+ * factor is exactly 1 — that plane is where the reader is looking, so a drag
+ * tracks the cursor there and only there. Nearer nodes drift slightly faster
+ * than the finger and further ones slower, which is what parallax is.
+ *
+ * Returned as the vector to SUBTRACT from the target: dragging right moves the
+ * camera left, which is what makes the content come with you.
+ */
+export function panDelta(dx: number, dy: number, cam: Camera): Vec3 {
+  const scale = Math.max(cam.zoom, 1e-6);
+  const x1 = dx / scale;
+  const y2 = dy / scale;
+  const cy = Math.cos(cam.yaw);
+  const sy = Math.sin(cam.yaw);
+  const cp = Math.cos(cam.pitch);
+  const sp = Math.sin(cam.pitch);
+  // Undo the pitch with z2 held at 0 — the target's own plane.
+  const ty = y2 * cp;
+  const z1 = -y2 * sp;
+  // Undo the yaw.
+  return { x: x1 * cy + z1 * sy, y: ty, z: -x1 * sy + z1 * cy };
+}
+
+/**
  * The zoom that frames a graph of `radius` world units inside `width`×`height`,
  * leaving `margin` proportional padding so nodes don't sit against the edge.
  */

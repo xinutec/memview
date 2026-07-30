@@ -30,6 +30,7 @@ import {
   frameFor,
   neighbourhood,
   neighboursOf,
+  panDelta,
   planLabels,
   project,
   sectionColour,
@@ -377,7 +378,16 @@ export class GraphView {
    * phone could see the whole corpus and never look closer at any of it.
    */
   private pointers = new Map<number, { x: number; y: number }>();
-  private pinch: { spread: number; zoom: number } | null = null;
+  /** Live two-finger gesture: its opening spread and zoom, and its last midpoint. */
+  private pinch: { spread: number; zoom: number; mid: { x: number; y: number } } | null = null;
+  /**
+   * Once the reader moves the camera by hand, stop dragging it back.
+   *
+   * Separate from `userZoomed` because they are different intentions: someone
+   * who has panned to a corner has not asked for a different zoom, and
+   * re-framing under them would undo the very thing they just did.
+   */
+  private userPanned = false;
   private theme = { text: '#000', edge: 'rgba(0,0,0,0.15)', halo: '#fff' };
 
   /**
@@ -539,15 +549,18 @@ export class GraphView {
       return true;
     }
 
-    const dx = goal.target.x - cam.target.x;
-    const dy = goal.target.y - cam.target.y;
-    const dz = goal.target.z - cam.target.z;
-    cam.target = {
-      x: cam.target.x + dx * CAMERA_EASE,
-      y: cam.target.y + dy * CAMERA_EASE,
-      z: cam.target.z + dz * CAMERA_EASE,
-    };
-    let travelling = Math.hypot(dx, dy, dz) > TARGET_EPSILON;
+    let travelling = false;
+    if (!this.userPanned) {
+      const dx = goal.target.x - cam.target.x;
+      const dy = goal.target.y - cam.target.y;
+      const dz = goal.target.z - cam.target.z;
+      cam.target = {
+        x: cam.target.x + dx * CAMERA_EASE,
+        y: cam.target.y + dy * CAMERA_EASE,
+        z: cam.target.z + dz * CAMERA_EASE,
+      };
+      travelling = Math.hypot(dx, dy, dz) > TARGET_EPSILON;
+    }
 
     // A hand zoom is left alone — but only the zoom. Re-centring on the memory
     // the reader just walked to is the whole gesture, and refusing to do it
@@ -772,18 +785,32 @@ export class GraphView {
     return null;
   }
 
-  /** Distance between the two active pointers, or null unless there are two. */
-  private spread(): number | null {
+  /** Spread and midpoint of the two active pointers, or null unless there are two. */
+  private gesture(): { spread: number; mid: { x: number; y: number } } | null {
     if (this.pointers.size !== 2) return null;
     const [a, b] = [...this.pointers.values()];
-    return Math.hypot(a.x - b.x, a.y - b.y);
+    return {
+      spread: Math.hypot(a.x - b.x, a.y - b.y),
+      mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+    };
+  }
+
+  /** Move the camera so the picture follows a drag of `dx`, `dy` pixels. */
+  private pan(dx: number, dy: number): void {
+    const d = panDelta(dx, dy, this.camera);
+    this.camera.target = {
+      x: this.camera.target.x - d.x,
+      y: this.camera.target.y - d.y,
+      z: this.camera.target.z - d.z,
+    };
+    this.userPanned = true;
   }
 
   onPointerDown(event: PointerEvent): void {
     this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    const spread = this.spread();
-    if (spread !== null) {
-      this.pinch = { spread, zoom: this.camera.zoom };
+    const two = this.gesture();
+    if (two !== null) {
+      this.pinch = { spread: two.spread, zoom: this.camera.zoom, mid: two.mid };
       // A pinch is never a tap, whatever the fingers did afterwards.
       this.dragMoved = Number.MAX_SAFE_INTEGER;
       return;
@@ -800,12 +827,18 @@ export class GraphView {
     if (this.pointers.has(event.pointerId)) {
       this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     }
-    const spread = this.spread();
-    if (this.pinch && spread !== null) {
+    const two = this.gesture();
+    if (this.pinch && two !== null) {
+      // Both at once, because fingers do both at once: the spread sets the zoom
+      // and the midpoint carries the picture with them. Treating a two-finger
+      // gesture as zoom-only makes the graph squirm away from under the hand
+      // whenever the pinch is not perfectly centred.
       this.camera.zoom = Math.max(
         MIN_ZOOM,
-        Math.min(MAX_ZOOM, (this.pinch.zoom * spread) / this.pinch.spread),
+        Math.min(MAX_ZOOM, (this.pinch.zoom * two.spread) / this.pinch.spread),
       );
+      this.pan(two.mid.x - this.pinch.mid.x, two.mid.y - this.pinch.mid.y);
+      this.pinch.mid = two.mid;
       this.userZoomed = true;
       this.requestDraw();
       return;
@@ -814,11 +847,18 @@ export class GraphView {
       const dx = event.clientX - this.lastPointer.x;
       const dy = event.clientY - this.lastPointer.y;
       this.dragMoved += Math.abs(dx) + Math.abs(dy);
-      this.camera.yaw += dx * 0.006;
-      this.camera.pitch = Math.max(
-        -Math.PI / 2,
-        Math.min(Math.PI / 2, this.camera.pitch + dy * 0.006),
-      );
+      // Shift, or any button but the left one, moves instead of turning — the
+      // desktop equivalent of two fingers, since a trackpad's two-finger drag
+      // arrives as a wheel event and is already the zoom.
+      if (event.shiftKey || event.buttons > 1) {
+        this.pan(dx, dy);
+      } else {
+        this.camera.yaw += dx * 0.006;
+        this.camera.pitch = Math.max(
+          -Math.PI / 2,
+          Math.min(Math.PI / 2, this.camera.pitch + dy * 0.006),
+        );
+      }
       this.lastPointer = { x: event.clientX, y: event.clientY };
       this.requestDraw();
       return;
@@ -919,6 +959,7 @@ export class GraphView {
   focusCluster(index: number): void {
     this.focusedCluster.set(this.focusedCluster() === index ? null : index);
     this.userZoomed = false;
+    this.userPanned = false;
     this.ensureLoop();
   }
 
@@ -933,6 +974,8 @@ export class GraphView {
     if (level === this.grain()) return;
     this.pickedGrain.set(level);
     this.focusedCluster.set(null);
+    this.userPanned = false;
+    this.userZoomed = false;
     this.rebuildLayout();
   }
 
