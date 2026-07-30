@@ -20,7 +20,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::couse::CoUse;
-use crate::store::{Corpus, RELATIONS, index_links, split_relation, wikilinks_of};
+use crate::store::{Corpus, RELATIONS, has_section, index_links, split_relation, wikilinks_of};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Severity {
@@ -110,14 +110,21 @@ const RULES: &[(&str, Severity, &str)] = &[
         "links a memory that was never written — an intent marker, so this is a backlog and never an error",
     ),
     (
+        // Promoted 2026-07-30, at zero. Nine of the nineteen this rule was
+        // reporting turned out to be the CHECK, not the corpus: it demanded the
+        // literal bytes `**Why:**`, so `**Why (the nixos-repo caution):**` —
+        // better writing, a scope the rule genuinely has — read as no reason at
+        // all. Fixing that first mattered: promoting the old check would have
+        // made "phrase it exactly this way" an error, and the corpus would have
+        // been edited to satisfy a string match.
         "missing-why",
-        Severity::Warning,
-        "a feedback memory needs **Why:** — a rule without its reason gets misapplied",
+        Severity::Error,
+        "a feedback memory needs a bold **Why…** section — a rule without its reason gets misapplied",
     ),
     (
         "missing-how",
-        Severity::Warning,
-        "a feedback memory needs **How to apply:** — a rule you cannot act on is a note",
+        Severity::Error,
+        "a feedback memory needs a bold **How to apply…** section — a rule you cannot act on is a note",
     ),
     (
         "unlinked-co-use",
@@ -195,11 +202,11 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
         }
 
         if doc.meta.mtype == "feedback" {
-            if !doc.body.contains("**Why:**") {
-                push("missing-why", name, "no **Why:** line".to_string());
+            if !has_section(&doc.body, "Why") {
+                push("missing-why", name, "says no why".to_string());
             }
-            if !doc.body.contains("**How to apply:**") {
-                push("missing-how", name, "no **How to apply:** line".to_string());
+            if !has_section(&doc.body, "How to apply") {
+                push("missing-how", name, "nothing to act on".to_string());
             }
         }
 

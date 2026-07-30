@@ -337,6 +337,53 @@ pub fn index_links(index_md: &str) -> Vec<String> {
     out
 }
 
+/// Every bold run in a document, as plain text.
+///
+/// Parsed, not string-matched. `**Why:**` inside a fenced example is a sample
+/// of a rule, not a rule stating its reason, and a `contains()` cannot tell the
+/// difference — the same class of mistake as the three hand-rolled link parsers
+/// this file replaced.
+pub fn bold_runs(body: &str) -> Vec<String> {
+    let options = markdown_options();
+    let arena = Arena::new();
+    let root = parse_document(&arena, body, &options);
+    let mut out = Vec::new();
+    for node in root.descendants() {
+        if matches!(node.data.borrow().value, NodeValue::Strong) {
+            out.push(node_text(node));
+        }
+    }
+    out
+}
+
+/// Whether some bold run opens a section named `heading`.
+///
+/// Deliberately loose about what follows the name. The corpus writes
+/// `**Why (the nixos-repo caution):**` and `**How to apply, generally.**`, and
+/// both are the section this asks about — carrying a scope qualifier or ending
+/// in a full stop makes them better writing, not absent ones. A checker that
+/// demanded one exact byte sequence would be asking the corpus to write worse
+/// prose to satisfy it, which is the wrong way round.
+pub fn has_section(body: &str, heading: &str) -> bool {
+    bold_runs(body).iter().any(|run| {
+        let run = run.trim();
+        let Some(rest) = run
+            .to_ascii_lowercase()
+            .strip_prefix(&heading.to_ascii_lowercase())
+            .map(str::to_string)
+        else {
+            return false;
+        };
+        // The name has to be a whole word: `**Why:**`, `**Why (2026-07-21):**`
+        // and `**Why I was wrong.**` are all this section, while `**Whyever**`
+        // is not the word at all. A bold run *opening* with the word is taken as
+        // the section — anything bold that begins "Why" is announcing a reason,
+        // and demanding more structure than that would only push the corpus back
+        // toward one rigid phrasing.
+        rest.is_empty() || rest.starts_with([':', '.', ' ', ',', '(', '—', '-'])
+    })
+}
+
 /// The plain text of a node — its descendant text and code runs, concatenated.
 fn node_text<'a>(
     node: &'a comrak::arena_tree::Node<'a, std::cell::RefCell<comrak::nodes::Ast>>,

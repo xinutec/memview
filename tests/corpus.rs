@@ -2,7 +2,7 @@
 //! public API against fixture memories shaped like the real corpus
 //! (frontmatter + `[[wikilinks]]` + a MEMORY.md index).
 
-use memview::store::{Corpus, Graph, GraphNode, render_markdown};
+use memview::store::{Corpus, Graph, GraphNode, has_section, render_markdown};
 
 fn corpus() -> Corpus {
     Corpus::load(concat!(
@@ -352,4 +352,57 @@ fn a_wikilink_inside_code_is_not_a_link() {
     let html = render_markdown(md).unwrap();
     assert!(html.contains(r#"href="/m/project_alpha""#), "{html}");
     assert!(!html.contains("/m/la,lo,ts"), "{html}");
+}
+
+#[test]
+fn a_section_head_is_the_word_however_it_is_punctuated() {
+    // The corpus writes all of these, and every one of them is the memory
+    // stating its reason. The check this replaced was a literal
+    // `contains("**Why:**")`, which flagged nine memories that already said why
+    // — asking the corpus to write worse prose so a checker could find it.
+    for head in [
+        "**Why:**",
+        "**Why.**",
+        "**Why (the nixos-repo caution):**",
+        "**Why I was wrong.**",
+        "**Why this matters:**",
+        "**why:**",
+    ] {
+        assert!(
+            has_section(&format!("{head} because of the thing."), "Why"),
+            "{head}"
+        );
+    }
+    for head in [
+        "**How to apply:**",
+        "**How to apply.**",
+        "**How to apply, generally.**",
+        "**How to apply the exception:**",
+    ] {
+        assert!(
+            has_section(&format!("{head} do the thing."), "How to apply"),
+            "{head}"
+        );
+    }
+}
+
+#[test]
+fn a_section_head_has_to_be_bold_and_has_to_be_the_word() {
+    // Plain prose is not a section, whatever it opens with.
+    assert!(!has_section("Why this happened is a long story.", "Why"));
+    // The word has to end there — `Whyever` is a different word, and a memory
+    // that only mentions applying something has not said how.
+    assert!(!has_section("**Whyever not:** go ahead.", "Why"));
+    assert!(!has_section("**How to applyify:** no.", "How to apply"));
+    // A heading is not the section either: the convention is a bold lead-in,
+    // and accepting `## Why` would quietly permit two shapes.
+    assert!(!has_section("## Why\n\nbecause.", "Why"));
+}
+
+#[test]
+fn a_section_head_inside_a_fence_is_an_example_not_a_section() {
+    // The exact failure the literal `contains()` could not see: a memory ABOUT
+    // the convention, quoting it, counted as a memory following it.
+    let quoting = "This rule wants:\n\n```md\n**Why:** the reason goes here\n```\n";
+    assert!(!has_section(quoting, "Why"));
 }

@@ -10,6 +10,44 @@ use memview::couse::CoUse;
 use memview::lint;
 use memview::store::Corpus;
 
+/// How long to let a half-finished write finish before believing it.
+const SETTLE: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Rules that a corpus caught mid-write can fail through no fault of its own.
+///
+/// Writing a memory is two edits — the file, then its line in MEMORY.md — and
+/// anything that loads the corpus between them sees a memory that exists and is
+/// not indexed. Both rules are ERRORS, and the pre-commit gate runs this, so a
+/// concurrent session writing a memory could fail an unrelated commit for a
+/// reason that was never the committer's and that evaporates on retry.
+const RACY: [&str; 2] = ["not-in-index", "index-points-nowhere"];
+
+/// Re-read once before reporting a racy rule, and believe the second answer.
+///
+/// A retry rather than a timestamp heuristic: "was this file written recently"
+/// needs a threshold that is wrong in both directions, whereas re-reading asks
+/// the corpus the same question again and takes the answer. A real finding
+/// survives it — the index is not going to fix itself — so nothing is hidden,
+/// and this costs a few seconds only on the runs that were about to fail.
+fn settle(
+    corpus: Corpus,
+    dir: &str,
+    couse: Option<&CoUse>,
+) -> Result<(Corpus, Vec<lint::Finding>)> {
+    let findings = lint::check(&corpus, couse);
+    let racy = findings.iter().any(|f| RACY.contains(&f.rule));
+    if !racy {
+        return Ok((corpus, findings));
+    }
+    eprintln!(
+        "index disagrees with the files — re-reading in {SETTLE:?} in case a write is in flight"
+    );
+    std::thread::sleep(SETTLE);
+    let corpus = Corpus::load(dir)?;
+    let findings = lint::check(&corpus, couse);
+    Ok((corpus, findings))
+}
+
 fn main() -> Result<()> {
     let dir = std::env::args().nth(1).unwrap_or_else(|| {
         let home = std::env::var("HOME").unwrap_or_default();
@@ -23,7 +61,7 @@ fn main() -> Result<()> {
         .parent()
         .map(|p| p.join("couse.json"))
         .and_then(|p| CoUse::load(&p));
-    let findings = lint::check(&corpus, couse.as_ref());
+    let (corpus, findings) = settle(corpus, &dir, couse.as_ref())?;
     let reasons = lint::rule_reasons();
 
     println!("{} memories in {dir}\n", corpus.docs.len());
