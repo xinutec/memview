@@ -91,8 +91,28 @@ const graph = file
   ? JSON.parse(readFileSync(file, 'utf8'))
   : syntheticGraph();
 
-const inputs = graph.nodes.map((n) => ({ name: n.name, section: n.section ?? null }));
-const sections = [...new Set(inputs.map((n) => n.section))].filter((s) => s !== null);
+const names = graph.nodes.map((n) => n.name);
+const curated = new Map(graph.nodes.map((n) => [n.name, n.section ?? null]));
+
+// The clusters the LINKS form, which is what the picture is anchored on — not
+// the curated MEMORY.md sections, which are compared against them below.
+const levels = layout.clusterLevels(names, graph.edges);
+const READABLE = 20;
+let rung = 0;
+levels.forEach((level, i) => {
+  if (Math.abs(level.length - READABLE) < Math.abs(levels[rung].length - READABLE)) rung = i;
+});
+const chosen = [...(levels[rung] ?? [])].sort((a, b) => b.members.length - a.members.length);
+const clusterOf = new Map();
+chosen.forEach((c, i) => c.members.forEach((m) => clusterOf.set(m, i)));
+
+const inputs = names.map((name) => {
+  const c = chosen[clusterOf.get(name)];
+  // A cluster of one is handed no group, so it anchors at the origin instead of
+  // claiming territory of its own.
+  return { name, group: c && c.members.length > 1 ? c.core : null };
+});
+const sections = chosen.filter((c) => c.members.length > 1).map((c) => c.core);
 const state = layout.createLayout(inputs, graph.edges, sections);
 
 // A phone, because that is the narrowest thing this has to work on and the
@@ -125,7 +145,7 @@ const zoom = layout.fitZoom(radius, WIDTH, HEIGHT);
 const camera = { yaw: 0.6, pitch: 0.35, distance: 900, zoom, target: { x: 0, y: 0, z: 0 } };
 const projected = state.nodes.map((n, i) => ({
   name: n.name,
-  section: inputs[i].section,
+  section: inputs[i].group,
   degree: (graph.nodes[i].in_degree ?? 0) + (graph.nodes[i].out_degree ?? 0),
   pos: n.pos,
   p: layout.project(n.pos, camera, WIDTH, HEIGHT),
@@ -158,9 +178,9 @@ function sectionSeparation() {
   let intraCount = 0;
   let inter = 0;
   let interCount = 0;
-  // Section comes from the input list, not the layout node — a LayoutNode
-  // carries an `anchor`, not a section, and reading a field that is not there
-  // silently makes every pair "same section" and the ratio NaN.
+  // The group comes from the input list, not the layout node — a LayoutNode
+  // carries an `anchor`, not a group, and reading a field that is not there
+  // silently makes every pair "same group" and the ratio NaN.
   const list = projected;
   for (let i = 0; i < list.length; i++) {
     for (let j = i + 1; j < list.length; j++) {
@@ -223,6 +243,30 @@ function walkability() {
 
 const walk = walkability();
 
+/**
+ * How far the clusters found in the links agree with the curated index.
+ *
+ * Reported, not gated. A low number is not a defect in either one — it is the
+ * finding: the index is organised by topic and the links by what was worked on
+ * together, and where they part company is exactly where the picture has
+ * something to say that MEMORY.md does not.
+ */
+function agreement() {
+  let matched = 0;
+  for (const c of chosen) {
+    const counts = new Map();
+    for (const m of c.members) {
+      const s = curated.get(m) ?? '(none)';
+      counts.set(s, (counts.get(s) ?? 0) + 1);
+    }
+    matched += Math.max(...counts.values());
+  }
+  return matched / names.length;
+}
+
+const stranded = chosen.filter((c) => c.members.length === 1).length;
+const topBridges = layout.bridges(names, graph.edges, clusterOf).slice(0, 3);
+
 const report = {
   source: file ?? 'synthetic',
   nodes: graph.nodes.length,
@@ -247,6 +291,11 @@ const report = {
   busiest: walk.busiest,
   focusFits: `${walk.onScreen}/${walk.litHere}`,
   focusZoomGain: `${walk.zoomGain.toFixed(2)}x`,
+  clusterLadder: levels.map((l) => l.length).join(' → '),
+  clustersShown: chosen.length,
+  stranded,
+  indexAgreement: `${(agreement() * 100).toFixed(0)}%`,
+  topBridge: topBridges.map((b) => `${b.name}(${b.spans})`).join(' '),
 };
 
 for (const [k, v] of Object.entries(report)) {
@@ -274,6 +323,22 @@ if (walk.onScreen < walk.litHere) {
     `focusing ${walk.busiest} leaves ${walk.litHere - walk.onScreen} of its ${walk.litHere} `
       + 'neighbours off the canvas — with isolate on, those are simply gone',
   );
+}
+// A grouping that puts nearly everything in one cluster, or gives nearly every
+// memory its own, is not a reading of the corpus — it is the algorithm failing
+// to find one, and the picture would be a single ball or a uniform scatter.
+if (chosen.length > 1) {
+  const biggest = chosen[0].members.length / names.length;
+  if (biggest > 0.6) {
+    problems.push(
+      `the largest cluster holds ${(biggest * 100).toFixed(0)}% of the corpus — that is one ball, not a map`,
+    );
+  }
+  if (stranded / names.length > 0.25) {
+    problems.push(
+      `${stranded} of ${names.length} memories cluster alone — the links are not being read`,
+    );
+  }
 }
 if (walk.zoomGain < 1) {
   problems.push(

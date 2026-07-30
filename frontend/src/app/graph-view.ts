@@ -9,11 +9,8 @@ import {
   viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
-import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
-import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatSliderModule } from '@angular/material/slider';
@@ -21,11 +18,14 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import {
   Camera,
+  Cluster,
   LabelPlan,
   Layout,
   LinkDirection,
   SETTLED,
   UNSECTIONED_COLOUR,
+  bridges,
+  clusterLevels,
   createLayout,
   frameFor,
   neighbourhood,
@@ -57,14 +57,25 @@ const CAMERA_EASE = 0.14;
 /** World units, and a zoom ratio, below which the camera counts as arrived. */
 const TARGET_EPSILON = 0.4;
 const ZOOM_EPSILON = 0.002;
-/** How many jump-box matches to offer at once. */
-const JUMP_LIMIT = 8;
+/**
+ * How many clusters make a readable map, used to pick the opening grain.
+ *
+ * The corpus supports several groupings — on the live corpus 103, then 34, then
+ * 23 — and none of them is the right one. This is a legibility budget, not a
+ * claim about the structure: a dozen or two named regions is what a reader can
+ * hold at once, and the ladder is exposed so they can go finer or coarser.
+ */
+const READABLE_CLUSTERS = 20;
 
-interface LegendRow {
-  key: string | null;
-  label: string;
+/** A cluster as the legend shows it: what it is called, how big, what colour. */
+interface ClusterRow {
+  /** Position in the sorted legend — also the hue index. */
+  index: number;
+  core: string;
+  members: readonly string[];
   colour: string;
-  count: number;
+  /** Nothing links to it and it links to nothing; it is a cluster of one. */
+  alone: boolean;
 }
 
 /** A memory offered as somewhere to walk to. */
@@ -108,21 +119,17 @@ interface Placed {
  * Walking is the point, and the picture alone cannot carry it. At corpus scale
  * a memory is a four-pixel dot among three hundred and forty, only ten of which
  * can be labelled at once, so "click the neighbour you want next" is not an
- * instruction a reader can follow. The trail, the neighbour list and the jump
- * box are how you actually move; the canvas shows you where that movement has
- * taken you.
+ * instruction a reader can follow. The clusters and the neighbour list are how
+ * you move; the canvas shows you where that movement has taken you.
  */
 @Component({
   selector: 'app-graph-view',
   templateUrl: './graph-view.html',
   styleUrl: './graph-view.scss',
   imports: [
-    FormsModule,
     RouterLink,
     MatButtonModule,
-    MatFormFieldModule,
     MatIconModule,
-    MatInputModule,
     MatProgressBarModule,
     MatSliderModule,
     MatSlideToggleModule,
@@ -150,8 +157,46 @@ export class GraphView {
   readonly spin = signal(true);
   /** Hide everything outside the neighbourhood, rather than dimming it. */
   readonly isolate = signal(true);
-  readonly hiddenSections = signal<ReadonlySet<string | null>>(new Set());
-  readonly jump = signal('');
+  /** Which cluster is being read as a whole, by legend index. */
+  readonly focusedCluster = signal<number | null>(null);
+
+  /**
+   * The cluster ladder, coarsening from left to right.
+   *
+   * Derived, not stored: the clusters are a pure function of the links, so
+   * holding them as state could only ever let them disagree with the graph they
+   * came from.
+   */
+  readonly levels = computed<readonly Cluster[][]>(() => {
+    const graph = this.data();
+    if (!graph) return [];
+    return clusterLevels(
+      graph.nodes.map((n) => n.name),
+      graph.edges,
+    );
+  });
+
+  /**
+   * The rung nearest a readable number of regions.
+   *
+   * Opening at the finest grain would be a true reading of the corpus and a
+   * useless map — on the live corpus that is 103 clusters.
+   */
+  private readonly defaultGrain = computed(() => {
+    const levels = this.levels();
+    let best = 0;
+    levels.forEach((level, i) => {
+      const closer =
+        Math.abs(level.length - READABLE_CLUSTERS)
+        < Math.abs(levels[best].length - READABLE_CLUSTERS);
+      if (closer) best = i;
+    });
+    return best;
+  });
+
+  /** null until the reader picks a grain of their own. */
+  private readonly pickedGrain = signal<number | null>(null);
+  readonly grain = computed(() => this.pickedGrain() ?? this.defaultGrain());
 
   private readonly byName = computed(() => {
     const graph = this.data();
@@ -163,36 +208,74 @@ export class GraphView {
     return name === undefined ? null : (this.byName().get(name) ?? null);
   });
 
-  readonly legend = computed<LegendRow[]>(() => {
-    const graph = this.data();
-    if (!graph) return [];
-    const counts = new Map<string | null, number>();
-    for (const node of graph.nodes) {
-      counts.set(node.section, (counts.get(node.section) ?? 0) + 1);
-    }
-    const rows: LegendRow[] = graph.sections.map((title, i) => ({
-      key: title,
-      label: title,
-      colour: sectionColour(i),
-      count: counts.get(title) ?? 0,
-    }));
-    const loose = counts.get(null) ?? 0;
-    if (loose > 0) {
-      rows.push({
-        key: null,
-        label: 'indexed under no heading',
-        colour: UNSECTIONED_COLOUR,
-        count: loose,
-      });
-    }
-    return rows;
+  /**
+   * The clusters at the current grain, biggest first.
+   *
+   * Sorted by size so the largest regions get the most separated hues and a
+   * stable place in the legend; ties break on the core's name so the order does
+   * not depend on which memory the API happened to list first.
+   */
+  readonly clusters = computed<ClusterRow[]>(() => {
+    const level = this.levels()[this.grain()] ?? [];
+    return [...level]
+      .sort((a, b) => b.members.length - a.members.length || a.core.localeCompare(b.core))
+      .map((c, index) => ({
+        index,
+        core: c.core,
+        members: c.members,
+        // A cluster of one gets no hue. Colouring it would imply it belongs
+        // somewhere, and the whole point of showing it is that it does not.
+        colour: c.members.length > 1 ? sectionColour(index) : UNSECTIONED_COLOUR,
+        alone: c.members.length === 1,
+      }));
   });
 
-  /** Names to keep lit: the selected memory's neighbourhood, or all of them. */
+  /** Which cluster each memory landed in, by legend index. */
+  private readonly clusterOf = computed(() => {
+    const of = new Map<string, number>();
+    for (const row of this.clusters()) for (const m of row.members) of.set(m, row.index);
+    return of;
+  });
+
+  /**
+   * How many clusters each memory's links reach into.
+   *
+   * The corpus's load-bearing joins, and not the same thing as its hubs — on
+   * the live corpus the top bridge is a *rule*, feedback_verify_assumptions,
+   * which reaches 10 of 23 clusters. A picture where both hubs and bridges are
+   * just large dots cannot tell you that.
+   */
+  readonly spans = computed(() => {
+    const graph = this.data();
+    if (!graph) return new Map<string, number>();
+    const found = bridges(
+      graph.nodes.map((n) => n.name),
+      graph.edges,
+      this.clusterOf(),
+    );
+    return new Map(found.map((b) => [b.name, b.spans]));
+  });
+
+  /** Memories in no cluster but their own — nothing links to them, or from. */
+  readonly stranded = computed(() => this.clusters().filter((c) => c.alone));
+
+  /**
+   * Names to keep lit: a whole cluster, or the walk's neighbourhood, or all.
+   *
+   * A cluster reading wins over a walk because it is the coarser question — you
+   * ask "what is in here" before "where does this one go" — and answering both
+   * at once would light a union that is neither.
+   */
   private readonly lit = computed<ReadonlySet<string> | null>(() => {
     const graph = this.data();
+    if (!graph) return null;
+    const cluster = this.focusedCluster();
+    if (cluster !== null) {
+      const row = this.clusters().find((c) => c.index === cluster);
+      if (row) return new Set(row.members);
+    }
     const root = this.selected();
-    if (!graph || !root) return null;
+    if (!root) return null;
     return neighbourhood(
       graph.edges,
       graph.nodes.map((n) => n.name),
@@ -223,33 +306,6 @@ export class GraphView {
     });
   });
 
-  /** Memories matching the jump box, by name or description. */
-  readonly jumpHits = computed<MemoryRow[]>(() => {
-    const needle = this.jump().trim().toLowerCase();
-    const graph = this.data();
-    if (!graph || needle.length < 2) return [];
-    const walked = new Set(this.trail());
-    return graph.nodes
-      .filter(
-        (n) =>
-          n.name.toLowerCase().includes(needle) || n.description.toLowerCase().includes(needle),
-      )
-      // A name match is what the reader almost always meant; a description match
-      // is the fallback that finds a memory whose slug you cannot remember.
-      .sort((a, b) => {
-        const an = a.name.toLowerCase().includes(needle) ? 0 : 1;
-        const bn = b.name.toLowerCase().includes(needle) ? 0 : 1;
-        return an - bn || a.name.localeCompare(b.name);
-      })
-      .slice(0, JUMP_LIMIT)
-      .map((n) => ({
-        name: n.name,
-        description: n.description,
-        colour: this.colourFor(n),
-        visited: walked.has(n.name),
-      }));
-  });
-
   private camera: Camera = {
     yaw: 0.6,
     pitch: -0.25,
@@ -260,7 +316,6 @@ export class GraphView {
   private layout: Layout | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
   private placed: Placed[] = [];
-  private colours = new Map<string, string>();
   private width = 0;
 
   /** What the last frame's labelling decided, including its rejections. */
@@ -302,16 +357,9 @@ export class GraphView {
     });
 
     this.api.graph().subscribe((graph) => {
-      this.colours = new Map(graph.sections.map((s, i) => [s, sectionColour(i)]));
-      this.layout = createLayout(
-        graph.nodes.map((n) => ({ name: n.name, section: n.section })),
-        graph.edges,
-        graph.sections,
-      );
-      this.fitted = false;
       this.data.set(graph);
+      this.rebuildLayout();
       this.applyWalk();
-      this.ensureLoop();
     });
 
     afterNextRender(() => {
@@ -432,14 +480,15 @@ export class GraphView {
   private frame(): boolean {
     const layout = this.layout;
     if (!layout || this.width === 0) return false;
-    const goal = frameFor(
-      layout,
-      this.selected()?.name ?? null,
-      this.lit(),
-      this.width,
-      this.height,
-      FIT_MARGIN,
-    );
+    // A focused cluster is framed on its core — the member it is named after —
+    // so the region the reader picked from the legend arrives centred on the
+    // memory whose name they read.
+    const cluster = this.focusedCluster();
+    const centre =
+      cluster === null
+        ? (this.selected()?.name ?? null)
+        : (this.clusters().find((c) => c.index === cluster)?.core ?? null);
+    const goal = frameFor(layout, centre, this.lit(), this.width, this.height, FIT_MARGIN);
     const cam = this.camera;
 
     if (!this.fitted) {
@@ -471,9 +520,43 @@ export class GraphView {
     return travelling;
   }
 
+  /**
+   * A memory's colour is its cluster's, found in the links — not its curated
+   * section. On the live corpus those two disagree for about half the corpus at
+   * map scale, and the picture should show the structure that is actually there.
+   */
+  /**
+   * Rebuild the layout so each cluster gets its own territory.
+   *
+   * A cluster of one is handed no group at all, so it anchors at the origin and
+   * floats unattached in the middle. That is the honest picture of a memory
+   * nothing links to — and on the live corpus it puts all twelve of them where
+   * they cannot be missed, instead of scattering them into regions they have no
+   * connection to.
+   */
+  private rebuildLayout(): void {
+    const graph = this.data();
+    if (!graph) return;
+    const groupOf = new Map<string, string>();
+    const groups: string[] = [];
+    for (const row of this.clusters()) {
+      if (row.alone) continue;
+      groups.push(row.core);
+      for (const member of row.members) groupOf.set(member, row.core);
+    }
+    this.layout = createLayout(
+      graph.nodes.map((n) => ({ name: n.name, group: groupOf.get(n.name) ?? null })),
+      graph.edges,
+      groups,
+    );
+    this.fitted = false;
+    this.ensureLoop();
+  }
+
   private colourFor(node: GraphNode): string {
-    if (node.section === null) return UNSECTIONED_COLOUR;
-    return this.colours.get(node.section) ?? UNSECTIONED_COLOUR;
+    const index = this.clusterOf().get(node.name);
+    if (index === undefined) return UNSECTIONED_COLOUR;
+    return this.clusters()[index]?.colour ?? UNSECTIONED_COLOUR;
   }
 
   private draw(): void {
@@ -483,7 +566,6 @@ export class GraphView {
     if (!ctx || !layout || !graph || this.width === 0) return;
 
     ctx.clearRect(0, 0, this.width, this.height);
-    const hidden = this.hiddenSections();
     const lit = this.lit();
     const isolate = lit !== null && this.isolate();
     const selected = this.selected();
@@ -493,7 +575,6 @@ export class GraphView {
     const screen = new Map<string, Placed>();
     for (let i = 0; i < graph.nodes.length; i++) {
       const node = graph.nodes[i];
-      if (hidden.has(node.section)) continue;
       const isLit = lit === null || lit.has(node.name);
       // Isolating is not the same as dimming. The camera flies in close on a
       // walk, so the memories that are merely *near* the one being read are
@@ -691,6 +772,9 @@ export class GraphView {
 
   private setTrail(walk: readonly string[]): void {
     this.trail.set(walk);
+    // Stepping onto a memory ends the cluster reading: the reader has stopped
+    // asking what is in the region and started asking where this one goes.
+    if (walk.length) this.focusedCluster.set(null);
     // A deliberate move re-earns the right to frame the picture: the reader
     // asked to go somewhere, and leaving them at a hand-set zoom that no longer
     // shows it would be obeying the letter of "don't re-frame under them".
@@ -714,22 +798,31 @@ export class GraphView {
     const trail = this.trail();
     const at = trail.indexOf(name);
     this.setTrail(at === -1 ? [...trail, name] : trail.slice(0, at + 1));
-    this.jump.set('');
   }
 
   back(): void {
     this.setTrail(this.trail().slice(0, -1));
   }
 
-  toggleSection(key: string | null): void {
-    const next = new Set<string | null>(this.hiddenSections());
-    if (!next.delete(key)) next.add(key);
-    this.hiddenSections.set(next);
-    this.requestDraw();
+  /** Read a whole cluster: light its members and fly the camera to its core. */
+  focusCluster(index: number): void {
+    this.focusedCluster.set(this.focusedCluster() === index ? null : index);
+    this.userZoomed = false;
+    this.ensureLoop();
   }
 
-  isHidden(key: string | null): boolean {
-    return this.hiddenSections().has(key);
+  /**
+   * Change the grain, which rebuilds the picture.
+   *
+   * The clusters are the layout's anchors, so a coarser reading is a genuinely
+   * different arrangement of the same memories rather than a recolouring — the
+   * simulation has to run again for the regions to re-form.
+   */
+  setGrain(level: number): void {
+    if (level === this.grain()) return;
+    this.pickedGrain.set(level);
+    this.focusedCluster.set(null);
+    this.rebuildLayout();
   }
 
   setSpin(on: boolean): void {
@@ -749,6 +842,14 @@ export class GraphView {
 
   clearSelection(): void {
     this.setTrail([]);
+  }
+
+  /** What cluster a memory landed in, for the focus card. */
+  clusterName(name: string): string {
+    const index = this.clusterOf().get(name);
+    const row = index === undefined ? undefined : this.clusters()[index];
+    if (!row || row.alone) return 'in no cluster';
+    return row.core === name ? `core of its cluster (${row.members.length})` : `with ${row.core}`;
   }
 
   /** The glyph for how a link between two memories was written. */

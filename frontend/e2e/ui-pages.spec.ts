@@ -70,9 +70,11 @@ const SEARCH = {
   ],
 };
 
-/** A graph the size the real one draws at: several sections (long titles, the
- *  legend's overflow risk), a hub, and a memory the index files under no
- *  heading. Enough nodes that the contrast probe below has pixels to measure. */
+/** A graph shaped like the real one: three groups that link densely inside
+ *  themselves and thinly across, so the clustering has something to find and the
+ *  legend has more than one row. Long slugs throughout — a cluster is named
+ *  after its most-connected member, so the legend carries the same unbreakable
+ *  snake_case tokens the rest of the app does. */
 const GRAPH_SECTIONS = [
   "Infrastructure & data services",
   "Rules — deploy & infra ops",
@@ -92,10 +94,24 @@ const GRAPH = {
     in_degree: i === 0 ? 9 : 1,
     out_degree: i === 0 ? 3 : 1,
   })),
-  edges: Array.from({ length: 11 }, (_, i) => ({
-    source: "project_health_verified_core_lean_0",
-    target: `project_health_verified_core_lean_${i + 1}`,
-  })),
+  edges: [
+    // Three dense groups of four…
+    ...[0, 4, 8].flatMap((base) =>
+      [
+        [base, base + 1],
+        [base + 1, base + 2],
+        [base + 2, base + 3],
+        [base + 3, base],
+        [base, base + 2],
+      ].map(([a, b]) => ({
+        source: `project_health_verified_core_lean_${a}`,
+        target: `project_health_verified_core_lean_${b}`,
+      })),
+    ),
+    // …joined by two single links, which is what makes them separable at all.
+    { source: "project_health_verified_core_lean_0", target: "project_health_verified_core_lean_4" },
+    { source: "project_health_verified_core_lean_4", target: "project_health_verified_core_lean_8" },
+  ],
 };
 
 /** Mock every backend call. Catch-all FIRST — Playwright runs handlers
@@ -167,10 +183,13 @@ test("search results — snippets under long slugs @ phone width", async ({ page
   await expectNoHorizontalOverflow(page, testInfo);
 });
 
-test("graph — legend of long section titles under the canvas @ phone width", async ({ page }, testInfo) => {
+test("graph — cluster legend of long slugs under the canvas @ phone width", async ({ page }, testInfo) => {
   await mockApi(page);
   await page.goto("/graph");
-  await page.getByText("Infrastructure & data services").waitFor();
+  // The legend names each cluster after its most-connected member, so what has
+  // to fit is a full memory slug, not a hand-written section title.
+  await page.getByRole("heading", { name: "clusters" }).waitFor();
+  await page.locator(".legend button").first().waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 });
@@ -185,15 +204,14 @@ const TRAIL_SCROLLER = [".trail ol"];
 
 test("graph — a walk: trail crumbs and hop list @ phone width", async ({ page }, testInfo) => {
   await mockApi(page);
-  await page.goto("/graph");
-  // Walked via the jump box rather than by clicking the canvas: which pixel a
-  // node lands on depends on where the force layout happens to have settled, so
-  // a test that clicked coordinates would be measuring the simulation.
-  await page.getByPlaceholder("Walk to a memory").fill("lean_0");
-  await page.locator(".hops button").first().click();
-  // The hub, so the hop list is at its longest — eleven long slugs, each with a
-  // teaser under it and a direction arrow to the right of both.
+  // Entered by URL, then walked by clicking a hop. Clicking the canvas instead
+  // would mean picking a pixel, and which pixel a node lands on depends on where
+  // the force layout happened to settle — that measures the simulation.
+  await page.goto("/graph?walk=project_health_verified_core_lean_0");
   await page.getByText("one hop away").waitFor();
+  await page.locator(".hops button").first().click();
+  // Two crumbs now: the walk was extended, not replaced.
+  await page.locator(".trail li").nth(1).waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo, null, TRAIL_SCROLLER);
 });

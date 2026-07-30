@@ -14,36 +14,24 @@
 
 @if (data(); as graph) {
   <p class="scale">
-    {{ graph.nodes.length }} memories · {{ graph.edges.length }} links · drag to turn, scroll to
-    zoom, tap a memory to walk from it
+    {{ graph.nodes.length }} memories · {{ graph.edges.length }} links ·
+    {{ clusters().length }} clusters found in the links · drag to turn, scroll to zoom
   </p>
 
-  <mat-form-field appearance="outline" subscriptSizing="dynamic" class="jump">
-    <mat-icon matPrefix>my_location</mat-icon>
-    <input matInput placeholder="Walk to a memory" name="jump" [(ngModel)]="jump" />
-    @if (jump()) {
-      <button matSuffix mat-icon-button type="button" (click)="jump.set('')" aria-label="Clear">
-        <mat-icon>close</mat-icon>
-      </button>
-    }
-  </mat-form-field>
-
-  @if (jumpHits(); as hits) {
-    @if (hits.length) {
-      <ul class="hops">
-        @for (hit of hits; track hit.name) {
-          <li>
-            <button type="button" (click)="walkTo(hit.name)" [class.visited]="hit.visited">
-              <span class="swatch" [style.background]="hit.colour"></span>
-              <span class="who">
-                <span class="name">{{ hit.name }}</span>
-                <span class="desc">{{ hit.description }}</span>
-              </span>
-            </button>
-          </li>
-        }
-      </ul>
-    }
+  @if (levels().length > 1) {
+    <div class="grain" role="group" aria-label="Cluster grain">
+      <span class="grain-label">grain</span>
+      @for (level of levels(); track $index) {
+        <button
+          type="button"
+          [class.on]="grain() === $index"
+          [attr.aria-pressed]="grain() === $index"
+          (click)="setGrain($index)"
+        >
+          {{ level.length }}
+        </button>
+      }
+    </div>
   }
 
   <div class="controls">
@@ -81,9 +69,12 @@
         <p class="desc">{{ node.description }}</p>
       }
       <p class="facts">
-        {{ node.section ?? 'indexed under no heading' }} · {{ node.in_degree }} in ·
-        {{ node.out_degree }} out
+        {{ clusterName(node.name) }} · {{ node.in_degree }} in · {{ node.out_degree }} out
+        @if (spans().get(node.name); as reach) {
+          · <strong>bridges {{ reach }} clusters</strong>
+        }
       </p>
+      <p class="facts filed">filed under {{ node.section ?? 'no heading' }}</p>
 
       <label id="depth-label" class="depth" for="depth-slider">
         connected within {{ focusDepth() }} hop{{ focusDepth() === 1 ? '' : 's' }}:
@@ -139,20 +130,50 @@
     </div>
   }
 
+  <h3 class="legend-title">clusters</h3>
+  <p class="legend-note">
+    Found in the links, not read off the index — a memory sits with what it cites, which is not
+    always where MEMORY.md files it.
+  </p>
   <ul class="legend">
-    @for (row of legend(); track row.key) {
-      <li>
-        <button
-          type="button"
-          [class.off]="isHidden(row.key)"
-          (click)="toggleSection(row.key)"
-          [attr.aria-pressed]="!isHidden(row.key)"
-        >
-          <span class="swatch" [style.background]="row.colour"></span>
-          <span class="name">{{ row.label }}</span>
-          <span class="count">{{ row.count }}</span>
-        </button>
-      </li>
+    @for (row of clusters(); track row.core) {
+      @if (!row.alone) {
+        <li>
+          <button
+            type="button"
+            [class.on]="focusedCluster() === row.index"
+            [attr.aria-pressed]="focusedCluster() === row.index"
+            (click)="focusCluster(row.index)"
+          >
+            <span class="swatch" [style.background]="row.colour"></span>
+            <span class="name">{{ row.core }}</span>
+            <span class="count">{{ row.members.length }}</span>
+          </button>
+        </li>
+      }
     }
   </ul>
+
+  @if (stranded(); as alone) {
+    @if (alone.length) {
+      <h3 class="legend-title">
+        reachable from nothing
+        <span class="count">{{ alone.length }}</span>
+      </h3>
+      <p class="legend-note">
+        No memory links to these and they link to none. They can only be found by already knowing
+        their name — which, for a rule meant to apply to future work, means never.
+      </p>
+      <ul class="hops">
+        @for (row of alone; track row.core) {
+          <li>
+            <button type="button" (click)="walkTo(row.core)">
+              <span class="swatch" [style.background]="row.colour"></span>
+              <span class="who"><span class="name">{{ row.core }}</span></span>
+            </button>
+          </li>
+        }
+      </ul>
+    }
+  }
 }

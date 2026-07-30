@@ -110,18 +110,6 @@
     &:hover {
       background: var(--mat-sys-surface-container-high);
     }
-
-    // Hidden sections stay listed and legible — a filter you can't find your
-    // way out of is worse than no filter.
-    &.off {
-      color: var(--mat-sys-on-surface-variant);
-      .swatch {
-        opacity: 0.25;
-      }
-      .name {
-        text-decoration: line-through;
-      }
-    }
   }
 
   .swatch {
@@ -141,11 +129,6 @@
     font: var(--mat-sys-label-small);
     color: var(--mat-sys-on-surface-variant);
   }
-}
-
-.jump {
-  width: 100%;
-  margin-top: 12px;
 }
 
 .trail {
@@ -286,4 +269,60 @@
     color: var(--mat-sys-on-surface-variant);
     padding: 8px;
   }
+}
+
+.grain {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+
+  .grain-label {
+    font: var(--mat-sys-body-small);
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  button {
+    padding: 4px 10px;
+    border: 1px solid var(--mat-sys-outline-variant);
+    border-radius: 999px;
+    background: none;
+    color: var(--mat-sys-on-surface-variant);
+    font: var(--mat-sys-label-large);
+    cursor: pointer;
+
+    &.on {
+      background: var(--mat-sys-secondary-container);
+      color: var(--mat-sys-on-secondary-container);
+      border-color: transparent;
+    }
+  }
+}
+
+.legend-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font: var(--mat-sys-title-small);
+  margin: 20px 0 0;
+
+  .count {
+    font: var(--mat-sys-label-small);
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+.legend-note {
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+  margin: 2px 0 0;
+}
+
+.focus .filed {
+  opacity: 0.75;
+}
+
+.legend button.on {
+  background: var(--mat-sys-secondary-container);
+  color: var(--mat-sys-on-secondary-container);
 }

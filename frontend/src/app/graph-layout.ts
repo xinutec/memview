@@ -22,7 +22,7 @@ export interface LayoutNode {
   name: string;
   pos: Vec3;
   vel: Vec3;
-  /** This node's section anchor; null = unsectioned, anchored at the origin. */
+  /** This node's group anchor; null = ungrouped, anchored at the origin. */
   anchor: Vec3 | null;
 }
 
@@ -39,8 +39,16 @@ export interface Layout {
 /** What the layout needs to know about a memory: who it is, and where it belongs. */
 export interface LayoutInput {
   name: string;
-  /** MEMORY.md section, or null for memories the index files under no heading. */
-  section: string | null;
+  /**
+   * The group whose territory this memory sits in, or null for one that belongs
+   * to none.
+   *
+   * Deliberately not called a section. The grouping that organises the picture
+   * is the one found in the links ({@link clusterLevels}), not the one read off
+   * MEMORY.md — and on the live corpus those two disagree about half the time
+   * at map scale. The layout has no business knowing which it was handed.
+   */
+  group: string | null;
 }
 
 export interface Edge {
@@ -91,13 +99,13 @@ const DAMPING = 0.82;
 const CENTERING = 0.004;
 const COOLING = 0.985;
 /**
- * Pull toward the node's section anchor. This is what stops the picture reading
- * as a random scatter: without it the ONLY forces are links, and since ~half the
- * corpus's links cross sections, the curated colours smear uniformly through one
- * ball. Kept well below SPRING so links still visibly drag a memory toward what
- * it cites — sections claim territory, they don't imprison.
+ * Pull toward the node's group anchor. This is what stops the picture reading as
+ * a random scatter: without it the ONLY forces are links, and a grouping whose
+ * members cite outside it as often as within smears uniformly into one ball.
+ * Kept well below SPRING so links still visibly drag a memory toward what it
+ * cites — a group claims territory, it doesn't imprison.
  */
-const SECTION_PULL = 0.022;
+const GROUP_PULL = 0.022;
 const ORIGIN: Vec3 = { x: 0, y: 0, z: 0 };
 /** Below this the picture has stopped visibly moving, so the loop can idle. */
 export const SETTLED = 0.02;
@@ -123,17 +131,17 @@ function seedPosition(i: number, total: number, radius: number): Vec3 {
 }
 
 /**
- * Give every section a home on a sphere, in the order MEMORY.md lists them.
+ * Give every group a home on a sphere, in the order it was handed over.
  *
- * Sections adjacent in the index land adjacent in space, so the picture keeps
- * the reading order of the curated taxonomy. Unsectioned memories anchor at the
- * origin — floating unattached in the middle is an honest depiction of a memory
- * the index files under no heading.
+ * Adjacent groups land adjacent in space, so a caller that passes them in a
+ * meaningful order gets that order back in the picture. A memory in no group
+ * anchors at the origin — floating unattached in the middle is an honest
+ * depiction of one nothing has claimed.
  */
-function sectionAnchors(sections: readonly string[], radius: number): Map<string, Vec3> {
+function groupAnchors(groups: readonly string[], radius: number): Map<string, Vec3> {
   const anchors = new Map<string, Vec3>();
-  sections.forEach((section, i) => {
-    anchors.set(section, seedPosition(i, sections.length, radius));
+  groups.forEach((group, i) => {
+    anchors.set(group, seedPosition(i, groups.length, radius));
   });
   return anchors;
 }
@@ -141,18 +149,18 @@ function sectionAnchors(sections: readonly string[], radius: number): Map<string
 export function createLayout(
   inputs: readonly LayoutInput[],
   edges: readonly Edge[],
-  sections: readonly string[] = [],
+  groups: readonly string[] = [],
 ): Layout {
   const radius = 12 * Math.cbrt(Math.max(1, inputs.length));
-  const anchors = sectionAnchors(sections, radius * 0.62);
+  const anchors = groupAnchors(groups, radius * 0.62);
   const index = new Map<string, number>();
   inputs.forEach((input, i) => index.set(input.name, i));
   const nodes: LayoutNode[] = inputs.map((input, i) => {
-    const anchor = input.section === null ? null : (anchors.get(input.section) ?? null);
+    const anchor = input.group === null ? null : (anchors.get(input.group) ?? null);
     const seed = seedPosition(i, inputs.length, radius);
-    // Start inside the section's territory rather than anywhere on the sphere:
-    // a force layout settles into whatever local minimum it starts near, so
-    // seeding by section is most of what makes the sections hold together.
+    // Start inside the group's territory rather than anywhere on the sphere: a
+    // force layout settles into whatever local minimum it starts near, so
+    // seeding by group is most of what makes the groups hold together.
     const pos =
       anchor === null
         ? { x: seed.x * 0.35, y: seed.y * 0.35, z: seed.z * 0.35 }
@@ -236,14 +244,14 @@ export function stepLayout(layout: Layout): void {
   }
 
   for (const node of nodes) {
-    // An unsectioned node anchors at the origin, and at the SAME strength as a
-    // sectioned one. Leaving it to the much weaker CENTERING term instead let
+    // An ungrouped node anchors at the origin, and at the SAME strength as a
+    // grouped one. Leaving it to the much weaker CENTERING term instead let
     // repulsion win and flung it to the outer shell — the opposite of the
     // "floating unattached in the middle" this is meant to depict.
     const anchor = node.anchor ?? ORIGIN;
-    node.vel.x += (anchor.x - node.pos.x) * SECTION_PULL;
-    node.vel.y += (anchor.y - node.pos.y) * SECTION_PULL;
-    node.vel.z += (anchor.z - node.pos.z) * SECTION_PULL;
+    node.vel.x += (anchor.x - node.pos.x) * GROUP_PULL;
+    node.vel.y += (anchor.y - node.pos.y) * GROUP_PULL;
+    node.vel.z += (anchor.z - node.pos.z) * GROUP_PULL;
     node.vel.x -= node.pos.x * CENTERING;
     node.vel.y -= node.pos.y * CENTERING;
     node.vel.z -= node.pos.z * CENTERING;
@@ -437,6 +445,214 @@ export function neighboursOf(edges: readonly Edge[], root: string): Neighbour[] 
   return [...seen]
     .map(([name, direction]) => ({ name, direction }))
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * A group of memories that link to each other more than to the rest of the
+ * corpus — found from the links, not read off the index.
+ */
+export interface Cluster {
+  /**
+   * The most-connected member, which is what the cluster gets called.
+   *
+   * Named after a member rather than by summarising them, because a summary
+   * would be a claim about what the cluster *means* and nothing here knows
+   * that. "the dev-lint cluster" is checkable; "tooling and quality" is not.
+   */
+  readonly core: string;
+  /** Members, most-connected first. */
+  readonly members: readonly string[];
+}
+
+/** A weighted graph — needed because Louvain's aggregation produces weights. */
+interface Weighted {
+  /** Per node: neighbour index → edge weight. */
+  readonly adj: Map<number, number>[];
+  /** Weight of each node's self-loop (edges collapsed by aggregation). */
+  readonly self: number[];
+  /** Weighted degree, counting a self-loop twice. */
+  readonly degree: number[];
+  /** Sum of all degrees — twice the total edge weight. */
+  readonly volume: number;
+}
+
+function weightedFrom(size: number, links: readonly [number, number, number][]): Weighted {
+  const adj = Array.from({ length: size }, () => new Map<number, number>());
+  const self = new Array<number>(size).fill(0);
+  const degree = new Array<number>(size).fill(0);
+  let volume = 0;
+  for (const [a, b, w] of links) {
+    if (a === b) {
+      self[a] += w;
+      degree[a] += 2 * w;
+      volume += 2 * w;
+      continue;
+    }
+    adj[a].set(b, (adj[a].get(b) ?? 0) + w);
+    adj[b].set(a, (adj[b].get(a) ?? 0) + w);
+    degree[a] += w;
+    degree[b] += w;
+    volume += 2 * w;
+  }
+  return { adj, self, degree, volume };
+}
+
+/**
+ * One Louvain level: move each node to whichever neighbouring community gains
+ * the most modularity, repeating until nothing moves.
+ *
+ * Deterministic — nodes are visited in index order and ties keep the incumbent.
+ * The usual formulation shuffles, which would make the same corpus cluster
+ * differently on every load and turn "which cluster is this in?" into a
+ * question with no stable answer.
+ */
+function localMoving(g: Weighted): number[] {
+  const size = g.adj.length;
+  const community = Array.from({ length: size }, (_, i) => i);
+  const total = [...g.degree];
+  if (g.volume === 0) return community;
+
+  for (let sweep = 0; sweep < 30; sweep++) {
+    let moved = 0;
+    for (let v = 0; v < size; v++) {
+      const own = community[v];
+      // Take v out before scoring, so staying put is judged on the same terms
+      // as moving. Leaving it in makes its own community look better than it is
+      // by exactly its own degree, and almost nothing ever moves.
+      total[own] -= g.degree[v];
+
+      const weightTo = new Map<number, number>();
+      for (const [w, weight] of g.adj[v]) {
+        weightTo.set(community[w], (weightTo.get(community[w]) ?? 0) + weight);
+      }
+
+      let best = own;
+      let bestGain = (weightTo.get(own) ?? 0) - (total[own] * g.degree[v]) / g.volume;
+      for (const [c, weight] of weightTo) {
+        const gain = weight - (total[c] * g.degree[v]) / g.volume;
+        if (gain > bestGain) {
+          bestGain = gain;
+          best = c;
+        }
+      }
+
+      total[best] += g.degree[v];
+      community[v] = best;
+      if (best !== own) moved++;
+    }
+    if (moved === 0) break;
+  }
+  return community;
+}
+
+/** Renumber a partition to 0..k-1, keeping first-appearance order. */
+function compact(community: readonly number[]): { labels: number[]; count: number } {
+  const seen = new Map<number, number>();
+  const labels = community.map((c) => {
+    const had = seen.get(c);
+    if (had !== undefined) return had;
+    const next = seen.size;
+    seen.set(c, next);
+    return next;
+  });
+  return { labels, count: seen.size };
+}
+
+/**
+ * Cluster the corpus by its links, at every resolution the structure supports.
+ *
+ * Louvain, run to exhaustion: each level's communities are collapsed into single
+ * nodes and clustered again, so level 0 is the finest grouping the links justify
+ * and each later level is a coarser reading of the same structure. Returned as a
+ * ladder rather than one answer because there is no single right grain — "the
+ * recall project" and "everything about speech" are both true, and which one is
+ * useful depends on how far out the reader is standing.
+ *
+ * Memories with no links at all form no cluster: they are returned as
+ * singletons, which is an honest depiction of a memory nothing reaches.
+ */
+export function clusterLevels(names: readonly string[], edges: readonly Edge[]): Cluster[][] {
+  const index = new Map(names.map((n, i) => [n, i]));
+  const links: [number, number, number][] = [];
+  for (const edge of edges) {
+    const a = index.get(edge.source);
+    const b = index.get(edge.target);
+    if (a === undefined || b === undefined || a === b) continue;
+    links.push([a, b, 1]);
+  }
+
+  const degree = new Array<number>(names.length).fill(0);
+  for (const [a, b] of links) {
+    degree[a]++;
+    degree[b]++;
+  }
+
+  const levels: Cluster[][] = [];
+  // Which level-0 node each current super-node contains.
+  let members: number[][] = names.map((_, i) => [i]);
+  let graph = weightedFrom(names.length, links);
+
+  for (let level = 0; level < 10; level++) {
+    const { labels, count } = compact(localMoving(graph));
+    // A level that changes nothing is the top: aggregating again would loop.
+    if (count === graph.adj.length) break;
+
+    const grouped = Array.from({ length: count }, (): number[] => []);
+    members.forEach((owned, i) => grouped[labels[i]].push(...owned));
+    levels.push(
+      grouped.map((owned) => {
+        const sorted = [...owned].sort((a, b) => degree[b] - degree[a] || (names[a] < names[b] ? -1 : 1));
+        return { core: names[sorted[0]], members: sorted.map((i) => names[i]) };
+      }),
+    );
+
+    // Collapse: one node per community, edges summed, intra-community edges
+    // becoming self-loops so the next level still sees how dense each one is.
+    const next: [number, number, number][] = [];
+    for (let v = 0; v < graph.adj.length; v++) {
+      if (graph.self[v] > 0) next.push([labels[v], labels[v], graph.self[v]]);
+      for (const [w, weight] of graph.adj[v]) {
+        if (w < v) continue;
+        next.push([labels[v], labels[w], weight]);
+      }
+    }
+    graph = weightedFrom(count, next);
+    members = grouped;
+  }
+
+  return levels;
+}
+
+/**
+ * Memories whose neighbours reach into the most different clusters.
+ *
+ * These are the corpus's load-bearing joins — remove one and two areas of the
+ * work stop being connected. They are not the same as the hubs: a hub is busy
+ * inside its own cluster, a bridge is what the walk has to pass through to get
+ * anywhere else, and the difference is invisible in a picture where both are
+ * just large dots.
+ */
+export function bridges(
+  names: readonly string[],
+  edges: readonly Edge[],
+  clusterOf: ReadonlyMap<string, number>,
+): { name: string; spans: number }[] {
+  const reach = new Map<string, Set<number>>();
+  const note = (from: string, to: string): void => {
+    const c = clusterOf.get(to);
+    if (c === undefined) return;
+    const set = reach.get(from);
+    if (set) set.add(c);
+    else reach.set(from, new Set([c]));
+  };
+  for (const edge of edges) {
+    note(edge.source, edge.target);
+    note(edge.target, edge.source);
+  }
+  return names
+    .map((name) => ({ name, spans: reach.get(name)?.size ?? 0 }))
+    .filter((entry) => entry.spans > 1)
+    .sort((a, b) => b.spans - a.spans || a.name.localeCompare(b.name));
 }
 
 /**

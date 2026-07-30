@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   boundingRadius,
+  bridges,
+  clusterLevels,
   createLayout,
   Edge,
   fitZoom,
@@ -21,10 +23,10 @@ import {
 
 /** A rule cited by one project, and a second project two hops away through it. */
 const NAMES: LayoutInput[] = [
-  { name: 'project_a', section: 'Projects' },
-  { name: 'feedback_rule', section: 'Rules' },
-  { name: 'project_b', section: 'Projects' },
-  { name: 'reference_lonely', section: null },
+  { name: 'project_a', group: 'Projects' },
+  { name: 'feedback_rule', group: 'Rules' },
+  { name: 'project_b', group: 'Projects' },
+  { name: 'reference_lonely', group: null },
 ];
 const SECTIONS = ['Projects', 'Rules'];
 const NAME_LIST = NAMES.map((n) => n.name);
@@ -108,15 +110,15 @@ describe('stepLayout', () => {
     expect(Number.isFinite(linked)).toBe(true);
   });
 
-  it('gathers a section into its own territory even with no links at all', () => {
+  it('gathers a group into its own territory even with no links at all', () => {
     // The force that stops the picture reading as a random scatter. Tested with
-    // NO edges so nothing but the section pull can be responsible: if this ever
+    // NO edges so nothing but the group pull can be responsible: if this ever
     // passes only because two nodes happen to be linked, it proves nothing.
     const inputs: LayoutInput[] = [
-      { name: 'a1', section: 'A' },
-      { name: 'a2', section: 'A' },
-      { name: 'b1', section: 'B' },
-      { name: 'b2', section: 'B' },
+      { name: 'a1', group: 'A' },
+      { name: 'a2', group: 'A' },
+      { name: 'b1', group: 'B' },
+      { name: 'b2', group: 'B' },
     ];
     const layout = createLayout(inputs, [], ['A', 'B']);
     for (let i = 0; i < 600; i++) stepLayout(layout);
@@ -125,13 +127,13 @@ describe('stepLayout', () => {
     expect(distance(at('b1'), at('b2'))).toBeLessThan(distance(at('b1'), at('a2')));
   });
 
-  it('leaves an unsectioned memory nearer the middle than a sectioned one', () => {
-    // "Indexed under no heading" is depicted as floating unattached in the
+  it('leaves an ungrouped memory nearer the middle than a grouped one', () => {
+    // A memory no cluster claimed is depicted as floating unattached in the
     // centre rather than being given a home it does not have.
     const inputs: LayoutInput[] = [
-      { name: 'loose', section: null },
-      { name: 'a1', section: 'A' },
-      { name: 'b1', section: 'B' },
+      { name: 'loose', group: null },
+      { name: 'a1', group: 'A' },
+      { name: 'b1', group: 'B' },
     ];
     const layout = createLayout(inputs, [], ['A', 'B']);
     for (let i = 0; i < 600; i++) stepLayout(layout);
@@ -143,7 +145,7 @@ describe('stepLayout', () => {
   it('separates nodes that start on top of each other', () => {
     // A single-node corpus, then a degenerate two-node one: the guard against a
     // zero-distance inverse square must not produce NaN.
-    const layout = createLayout([{ name: 'a', section: null }, { name: 'b', section: null }], []);
+    const layout = createLayout([{ name: 'a', group: null }, { name: 'b', group: null }], []);
     layout.nodes[0].pos = { x: 0, y: 0, z: 0 };
     layout.nodes[1].pos = { x: 0, y: 0, z: 0 };
     for (let i = 0; i < 50; i++) stepLayout(layout);
@@ -258,6 +260,123 @@ describe('neighboursOf', () => {
 
   it('gives nothing for a memory nothing links to', () => {
     expect(neighboursOf(EDGES, 'reference_lonely')).toEqual([]);
+  });
+});
+
+describe('clusterLevels', () => {
+  /**
+   * Two triangles joined by a single link. Any honest community detector has to
+   * find exactly this: the two triangles, and the join as a join rather than as
+   * a third group.
+   */
+  const BARBELL: Edge[] = [
+    { source: 'a1', target: 'a2' },
+    { source: 'a2', target: 'a3' },
+    { source: 'a3', target: 'a1' },
+    { source: 'b1', target: 'b2' },
+    { source: 'b2', target: 'b3' },
+    { source: 'b3', target: 'b1' },
+    { source: 'a1', target: 'b1' },
+  ];
+  const BARBELL_NAMES = ['a1', 'a2', 'a3', 'b1', 'b2', 'b3'];
+
+  it('finds the groups the links actually form', () => {
+    const [finest] = clusterLevels(BARBELL_NAMES, BARBELL);
+    const of = new Map<string, number>();
+    finest.forEach((c, i) => c.members.forEach((m) => of.set(m, i)));
+    expect(of.get('a1')).toBe(of.get('a2'));
+    expect(of.get('a2')).toBe(of.get('a3'));
+    expect(of.get('b1')).toBe(of.get('b2'));
+    expect(of.get('a1')).not.toBe(of.get('b1'));
+  });
+
+  it('names each cluster after its most-connected member', () => {
+    const [finest] = clusterLevels(BARBELL_NAMES, BARBELL);
+    // a1 and b1 carry the joining link, so they outrank their triangle-mates.
+    expect(finest.map((c) => c.core).sort()).toEqual(['a1', 'b1']);
+  });
+
+  it('clusters the same corpus identically twice', () => {
+    // Louvain is normally randomised, which would make "which cluster is this
+    // in?" a question with a different answer on every load.
+    const a = clusterLevels(BARBELL_NAMES, BARBELL);
+    const b = clusterLevels(BARBELL_NAMES, BARBELL);
+    expect(a).toEqual(b);
+  });
+
+  it('does not care which way round a link was written', () => {
+    const flipped = BARBELL.map((e) => ({ source: e.target, target: e.source }));
+    expect(clusterLevels(BARBELL_NAMES, flipped)).toEqual(clusterLevels(BARBELL_NAMES, BARBELL));
+  });
+
+  it('gives coarser levels than it started with, and stops when nothing merges', () => {
+    // Six nodes in three linked pairs: fine level = 3 clusters, then they merge.
+    const chain: Edge[] = [
+      { source: 'p1', target: 'p2' },
+      { source: 'q1', target: 'q2' },
+      { source: 'r1', target: 'r2' },
+      { source: 'p2', target: 'q1' },
+      { source: 'q2', target: 'r1' },
+    ];
+    const levels = clusterLevels(['p1', 'p2', 'q1', 'q2', 'r1', 'r2'], chain);
+    expect(levels.length).toBeGreaterThan(0);
+    for (let i = 1; i < levels.length; i++) {
+      expect(levels[i].length).toBeLessThan(levels[i - 1].length);
+    }
+  });
+
+  it('leaves a memory nothing links to in a cluster of its own', () => {
+    const levels = clusterLevels([...BARBELL_NAMES, 'alone'], BARBELL);
+    const solo = levels[0].find((c) => c.members.includes('alone'));
+    expect(solo?.members).toEqual(['alone']);
+  });
+
+  it('accounts for every memory exactly once at every level', () => {
+    // A partition that loses or duplicates a memory would make cluster sizes lie
+    // and the legend's counts disagree with the corpus.
+    for (const level of clusterLevels(BARBELL_NAMES, BARBELL)) {
+      const all = level.flatMap((c) => c.members);
+      expect(all.sort()).toEqual([...BARBELL_NAMES].sort());
+    }
+  });
+
+  it('survives a corpus with no links at all', () => {
+    expect(() => clusterLevels(['a', 'b'], [])).not.toThrow();
+  });
+});
+
+describe('bridges', () => {
+  it('ranks the memory whose links reach the most clusters first', () => {
+    const of = new Map([
+      ['hub', 0],
+      ['a', 0],
+      ['b', 1],
+      ['c', 2],
+      ['d', 3],
+    ]);
+    const edges: Edge[] = [
+      { source: 'hub', target: 'a' },
+      { source: 'hub', target: 'b' },
+      { source: 'hub', target: 'c' },
+      { source: 'b', target: 'd' },
+    ];
+    const found = bridges(['hub', 'a', 'b', 'c', 'd'], edges, of);
+    expect(found[0]).toEqual({ name: 'hub', spans: 3 });
+  });
+
+  it('leaves out a memory whose links all stay inside one cluster', () => {
+    // The distinction the picture cannot show: this memory can be busy — a hub
+    // — and still join nothing to anything.
+    const of = new Map([
+      ['a', 0],
+      ['b', 0],
+      ['c', 0],
+    ]);
+    const edges: Edge[] = [
+      { source: 'a', target: 'b' },
+      { source: 'a', target: 'c' },
+    ];
+    expect(bridges(['a', 'b', 'c'], edges, of)).toEqual([]);
   });
 });
 
