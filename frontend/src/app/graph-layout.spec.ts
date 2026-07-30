@@ -660,3 +660,60 @@ describe('panDelta', () => {
     expect(Number.isFinite(d.x + d.y + d.z)).toBe(true);
   });
 });
+
+describe('affinities', () => {
+  /** Two memories in different groups, with no link between them. */
+  const APART: LayoutInput[] = [
+    { name: 'a1', group: 'A' },
+    { name: 'a2', group: 'A' },
+    { name: 'b1', group: 'B' },
+    { name: 'b2', group: 'B' },
+  ];
+  const settle = (affinities: { a: string; b: string; npmi: number }[]) => {
+    const layout = createLayout(APART, [], ['A', 'B'], affinities);
+    for (let i = 0; i < 600; i++) stepLayout(layout);
+    const at = (n: string) => layout.nodes[layout.index.get(n) ?? -1].pos;
+    return distance(at('a1'), at('b1'));
+  };
+
+  it('pulls two memories together that the corpus never linked', () => {
+    // The whole point: they are in different regions and neither cites the
+    // other, but the work keeps using them together.
+    const without = settle([]);
+    const with_ = settle([{ a: 'a1', b: 'b1', npmi: 0.9 }]);
+    expect(with_).toBeLessThan(without);
+  });
+
+  it('pulls harder the stronger the evidence', () => {
+    const weak = settle([{ a: 'a1', b: 'b1', npmi: 0.2 }]);
+    const strong = settle([{ a: 'a1', b: 'b1', npmi: 0.95 }]);
+    expect(strong).toBeLessThan(weak);
+  });
+
+  it('never pushes, whatever the artefact claims', () => {
+    // A negative score would mean "these avoid each other", which is not
+    // something thirteen sessions can support. Clamped, not trusted.
+    const apart = settle([]);
+    const negative = settle([{ a: 'a1', b: 'b1', npmi: -5 }]);
+    expect(negative).toBeCloseTo(apart, 3);
+  });
+
+  it('leaves the stated structure the stronger of the two', () => {
+    // A linked pair must still end up closer than a merely co-used pair of the
+    // same nominal strength, or the corpus stops being the skeleton.
+    const linked = createLayout(APART, [{ source: 'a1', target: 'b1' }], ['A', 'B']);
+    const affine = createLayout(APART, [], ['A', 'B'], [{ a: 'a1', b: 'b1', npmi: 1 }]);
+    for (let i = 0; i < 600; i++) {
+      stepLayout(linked);
+      stepLayout(affine);
+    }
+    const gap = (l: typeof linked) =>
+      distance(l.nodes[l.index.get('a1') ?? -1].pos, l.nodes[l.index.get('b1') ?? -1].pos);
+    expect(gap(linked)).toBeLessThan(gap(affine));
+  });
+
+  it('drops an affinity naming a memory the graph does not have', () => {
+    const layout = createLayout(APART, [], ['A', 'B'], [{ a: 'a1', b: 'ghost', npmi: 1 }]);
+    expect(layout.soft).toHaveLength(0);
+  });
+});

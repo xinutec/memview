@@ -72,6 +72,20 @@ export interface GraphData {
   sections: string[];
   /** Usage by memory name. Empty when no co-use artefact was mined. */
   usage: Record<string, Usage>;
+  /** Pairs the work keeps using together, whether or not either links the other. */
+  affinities: Affinity[];
+}
+
+/** A pull between two memories that the corpus never wrote down. */
+export interface Affinity {
+  a: string;
+  b: string;
+  /** Turns in which both were used. */
+  turns: number;
+  /** Distinct sessions those turns came from — the support. */
+  sessions: number;
+  /** Normalised mutual information, ~0..1. */
+  npmi: number;
 }
 
 /** One thing that happened in the client — mirrors routes/telemetry.rs. */

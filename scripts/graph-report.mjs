@@ -106,6 +106,11 @@ const chosen = [...(levels[rung] ?? [])].sort((a, b) => b.members.length - a.mem
 const clusterOf = new Map();
 chosen.forEach((c, i) => c.members.forEach((m) => clusterOf.set(m, i)));
 
+// Affinities move the picture but must not tear it apart; both effects are
+// measured below. Absent from the synthetic graph, which is the point — the
+// layout has to be sane without them.
+const affinities = graph.affinities ?? [];
+
 const inputs = names.map((name) => {
   const c = chosen[clusterOf.get(name)];
   // A cluster of one is handed no group, so it anchors at the origin instead of
@@ -113,7 +118,7 @@ const inputs = names.map((name) => {
   return { name, group: c && c.members.length > 1 ? c.core : null };
 });
 const sections = chosen.filter((c) => c.members.length > 1).map((c) => c.core);
-const state = layout.createLayout(inputs, graph.edges, sections);
+const state = layout.createLayout(inputs, graph.edges, sections, affinities);
 
 // A phone, because that is the narrowest thing this has to work on and the
 // clipping bug only showed at that width.
@@ -244,6 +249,46 @@ function walkability() {
 const walk = walkability();
 
 /**
+ * How much closer the affinities actually pull, measured against the same graph
+ * laid out without them.
+ *
+ * The obvious metric — co-used distance against the mean distance between all
+ * pairs — is worthless, and provably so: setting the spring to zero moved it
+ * from 0.55 to 0.58. Co-used memories are largely the same memories the corpus
+ * already links, so they sit close whether or not this force exists, and the
+ * ratio measures that correlation rather than anything the layout did.
+ *
+ * Two settled runs is the only honest comparison. It doubles the report's work,
+ * which is a fair price for a number that can distinguish a working force from
+ * an inert one.
+ */
+function affinityPull() {
+  if (affinities.length === 0) return null;
+  const bare = layout.createLayout(inputs, graph.edges, sections, []);
+  for (let i = 0; i < steps; i++) layout.stepLayout(bare);
+
+  const mean = (state) => {
+    const at = new Map(state.nodes.map((n) => [n.name, n.pos]));
+    let total = 0;
+    let count = 0;
+    for (const f of affinities) {
+      const p = at.get(f.a);
+      const q = at.get(f.b);
+      if (!p || !q) continue;
+      total += Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z);
+      count++;
+    }
+    return count ? total / count : null;
+  };
+  const withPull = mean(state);
+  const without = mean(bare);
+  if (withPull === null || without === null || without === 0) return null;
+  return { pairs: affinities.length, ratio: withPull / without };
+}
+
+const pull = affinityPull();
+
+/**
  * How far the clusters found in the links agree with the curated index.
  *
  * Reported, not gated. A low number is not a defect in either one — it is the
@@ -296,6 +341,10 @@ const report = {
   stranded,
   indexAgreement: `${(agreement() * 100).toFixed(0)}%`,
   topBridge: topBridges.map((b) => `${b.name}(${b.spans})`).join(' '),
+  affinities: affinities.length,
+  affinityPull: pull
+    ? `${pull.ratio.toFixed(2)}x vs the same graph without them, over ${pull.pairs} pairs`
+    : 'none',
 };
 
 for (const [k, v] of Object.entries(report)) {
@@ -339,6 +388,21 @@ if (chosen.length > 1) {
       `${stranded} of ${names.length} memories cluster alone — the links are not being read`,
     );
   }
+}
+// The failure this view has had twice, in two different forces: a term that is
+// wired, computes, and moves nothing. It cannot be seen — the picture is
+// plausible either way — so it has to be a number.
+if (pull && pull.ratio > 0.95) {
+  problems.push(
+    `affinities move co-used memories to ${pull.ratio.toFixed(2)}x where they sit without them `
+      + '— the second force is inert',
+  );
+}
+if (pull && pull.ratio < 0.15) {
+  problems.push(
+    `affinities collapse co-used memories to ${pull.ratio.toFixed(2)}x where they sit without them `
+      + '— the second force is overpowering the links it is meant to qualify',
+  );
 }
 if (walk.zoomGain < 1) {
   problems.push(

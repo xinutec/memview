@@ -32,6 +32,8 @@ export interface Layout {
   index: Map<string, number>;
   /** Edges as index pairs — resolved once, so the hot loop never hashes. */
   pairs: [number, number][];
+  /** Affinities as index pairs with their strength. */
+  soft: [number, number, number][];
   /** Simulation temperature: 1 at rest-start, cooling to 0. */
   alpha: number;
 }
@@ -49,6 +51,22 @@ export interface LayoutInput {
    * at map scale. The layout has no business knowing which it was handed.
    */
   group: string | null;
+}
+
+/**
+ * A pull between two memories that the corpus never wrote down.
+ *
+ * Mined from the session transcripts: how often the two turn up in the same
+ * piece of work. Kept as a distinct kind of edge rather than merged into
+ * {@link Edge}, because they answer different questions and the layout has to
+ * be able to weigh them differently — a link is a claim somebody made, an
+ * affinity is a habit nobody noticed.
+ */
+export interface Affinity {
+  readonly a: string;
+  readonly b: string;
+  /** Normalised mutual information, ~0..1. Scales the pull. */
+  readonly npmi: number;
 }
 
 export interface Edge {
@@ -108,6 +126,28 @@ const COOLING = 0.985;
  * cites — a group claims territory, it doesn't imprison.
  */
 const GROUP_PULL = 0.022;
+/**
+ * Strength of the pull between two memories used together, at full confidence.
+ *
+ * Just under SPRING, and both facts matter. Under, because a written link is a
+ * claim somebody made on purpose while an affinity is a correlation over
+ * thirteen sessions, about a third of which are coincidence — so a stated link
+ * must always outweigh a habit of the same nominal strength. Only just under,
+ * because the first value tried here (0.012) moved co-used memories to 0.94x
+ * where they sat without it: wired, computing, and doing nothing anyone could
+ * see. Measured, not guessed — `scripts/graph-report.mjs` lays the same corpus
+ * out twice, with and without, and fails the build if this goes inert again.
+ */
+const AFFINITY_SPRING = 0.04;
+/**
+ * Rest length for an affinity, longer than a link's.
+ *
+ * Two memories used together are not necessarily *about* each other, so they
+ * should end up neighbours rather than sitting on top of one another. Pulling
+ * them to the same distance as a stated link would claim more than the evidence
+ * supports.
+ */
+const AFFINITY_REST = 40;
 const ORIGIN: Vec3 = { x: 0, y: 0, z: 0 };
 /** Below this the picture has stopped visibly moving, so the loop can idle. */
 export const SETTLED = 0.02;
@@ -152,6 +192,7 @@ export function createLayout(
   inputs: readonly LayoutInput[],
   edges: readonly Edge[],
   groups: readonly string[] = [],
+  affinities: readonly Affinity[] = [],
 ): Layout {
   const radius = 12 * Math.cbrt(Math.max(1, inputs.length));
   const anchors = groupAnchors(groups, radius * 0.62);
@@ -182,7 +223,17 @@ export function createLayout(
     // instead of going blank.
     if (a !== undefined && b !== undefined && a !== b) pairs.push([a, b]);
   }
-  return { nodes, index, pairs, alpha: 1 };
+  const soft: [number, number, number][] = [];
+  for (const affinity of affinities) {
+    const a = index.get(affinity.a);
+    const b = index.get(affinity.b);
+    // Clamped rather than trusted: npmi is bounded above by 1 but a degenerate
+    // corpus can produce a value at the boundary, and a negative one would push
+    // instead of pull — which is a claim this has no evidence for.
+    if (a === undefined || b === undefined || a === b) continue;
+    soft.push([a, b, Math.max(0, Math.min(1, affinity.npmi))]);
+  }
+  return { nodes, index, pairs, soft, alpha: 1 };
 }
 
 /**
@@ -191,7 +242,7 @@ export function createLayout(
  * Mutates in place and cools `alpha`.
  */
 export function stepLayout(layout: Layout): void {
-  const { nodes, pairs } = layout;
+  const { nodes, pairs, soft } = layout;
   const n = nodes.length;
   for (const node of nodes) {
     node.vel.x *= DAMPING;
@@ -234,6 +285,28 @@ export function stepLayout(layout: Layout): void {
     const dz = b.pos.z - a.pos.z;
     const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || MIN_DISTANCE;
     const force = SPRING * (d - REST_LENGTH);
+    const ux = (dx / d) * force;
+    const uy = (dy / d) * force;
+    const uz = (dz / d) * force;
+    a.vel.x += ux;
+    a.vel.y += uy;
+    a.vel.z += uz;
+    b.vel.x -= ux;
+    b.vel.y -= uy;
+    b.vel.z -= uz;
+  }
+
+  // The same spring as a link, at a fraction of the strength and a longer rest.
+  // Applied after the links so that where the two disagree, the stated
+  // structure has already had its say.
+  for (const [i, j, strength] of soft) {
+    const a = nodes[i];
+    const b = nodes[j];
+    const dx = b.pos.x - a.pos.x;
+    const dy = b.pos.y - a.pos.y;
+    const dz = b.pos.z - a.pos.z;
+    const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || MIN_DISTANCE;
+    const force = AFFINITY_SPRING * strength * (d - AFFINITY_REST);
     const ux = (dx / d) * force;
     const uy = (dy / d) * force;
     const uz = (dz / d) * force;

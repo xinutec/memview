@@ -96,6 +96,7 @@ pub async fn graph(
         && let Some(couse) = crate::couse::CoUse::load(std::path::Path::new(path))
     {
         graph.usage = couse.usage;
+        graph.affinities = couse.pairs;
     }
     Ok(Json(graph))
 }

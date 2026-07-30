@@ -638,6 +638,13 @@ export class GraphView {
       graph.nodes.map((n) => ({ name: n.name, group: groupOf.get(n.name) ?? null })),
       graph.edges,
       groups,
+      // The regions are NOT rebuilt from these. Clustering stays on the written
+      // links, so a region remains what the corpus says; the affinities only
+      // move memories inside and between those regions. Folding them into the
+      // clustering too would average the two signals into one and lose exactly
+      // the disagreement that makes them worth having — 71% of them cross a
+      // region boundary.
+      graph.affinities ?? [],
     );
     this.fitted = false;
     this.ensureLoop();

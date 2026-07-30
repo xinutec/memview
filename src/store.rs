@@ -271,6 +271,7 @@ impl Corpus {
             edges,
             sections,
             usage: Default::default(),
+            affinities: Default::default(),
         }
     }
 }
@@ -386,6 +387,12 @@ pub struct Graph {
     /// rather than to nothing.
     #[serde(default)]
     pub usage: std::collections::BTreeMap<String, crate::couse::Usage>,
+    /// Pairs the work keeps using together, whether or not either links the
+    /// other. A second, weaker pull in the layout: 71% of these cross a region
+    /// boundary drawn from the written links alone, so they move the picture
+    /// rather than merely confirming it.
+    #[serde(default)]
+    pub affinities: Vec<crate::couse::Pair>,
     /// Section titles in MEMORY.md order, so a legend reads in the order the
     /// index was written rather than alphabetically.
     pub sections: Vec<String>,
