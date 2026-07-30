@@ -24,7 +24,6 @@ pub fn router(state: AppState) -> Router {
         .route("/share", delete(api::share_revoke));
 
     let app = Router::new()
-        .route("/healthz", get(|| async { "ok" }))
         .route("/login", get(auth::login))
         .route("/auth/callback", get(auth::callback))
         .route("/logout", post(auth::logout))
@@ -55,5 +54,13 @@ pub fn router(state: AppState) -> Router {
     let trace = TraceLayer::new_for_http()
         .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
         .on_response(DefaultOnResponse::new().level(Level::INFO));
-    app.layer(trace).with_state(state)
+
+    // /healthz is registered AFTER the layer, so it is deliberately untraced.
+    // kubelet probes it twice on two schedules — roughly three times every twenty
+    // seconds, about 26,000 lines a day — and logging that buries the handful of
+    // requests a person actually made. A log nobody can skim is not observability,
+    // and the first version of this shipped with the probes in it.
+    app.layer(trace)
+        .route("/healthz", get(|| async { "ok" }))
+        .with_state(state)
 }
