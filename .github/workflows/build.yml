@@ -1,0 +1,72 @@
+---
+name: build
+
+# memview (Rust backend + Angular frontend) — gate on fmt + clippy + cargo test
+# and the frontend's eslint + unit tests + prod build + the shared phone-layout
+# harness, then build and push xinutec/memview:latest to Docker Hub. The k8s
+# manifests and the deploy live in the home monorepo
+# (xinutec/pippijn code/kubes/memview/k8s); the image tag is the only contract
+# between this repo and the deploy.
+#
+# No corpus anywhere in here: the tests run against synthetic fixtures in
+# tests/fixtures/memory, and the real memory directory is a runtime mount.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/flake.lock"
+  workflow_dispatch: {}
+
+jobs:
+  verify:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    container: rust:1-bookworm
+    steps:
+      - uses: actions/checkout@v6
+      - run: rustup component add clippy rustfmt
+      - run: cargo fmt --all --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+
+  fe-verify:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npx ng build --configuration production
+      # Real-browser render check: icon fonts load, no text overlaps or overflow.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run ui-check
+
+  image:
+    needs: [verify, fe-verify]
+    # Docker Hub auth comes from repo secrets; the GITHUB_TOKEN only reads.
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: xinutec/memview:latest
+          cache-from: type=registry,ref=xinutec/memview:cache
+          cache-to: type=registry,ref=xinutec/memview:cache
