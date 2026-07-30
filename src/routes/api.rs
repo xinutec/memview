@@ -91,7 +91,13 @@ pub async fn graph(
     State(app): State<AppState>,
     ReadAccess(_): ReadAccess,
 ) -> Result<Json<Graph>, AppError> {
-    Ok(Json(load_corpus(&app)?.graph()))
+    let mut graph = load_corpus(&app)?.graph();
+    if let Some(path) = &app.cfg.couse_file
+        && let Some(couse) = crate::couse::CoUse::load(std::path::Path::new(path))
+    {
+        graph.usage = couse.usage;
+    }
+    Ok(Json(graph))
 }
 
 #[derive(Deserialize)]

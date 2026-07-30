@@ -72,6 +72,19 @@ find "$MEMORY_DIR" -type f | sed "s|^$MEMORY_DIR/||" | remote sh -c "'
   rm -f /state/.sync-keep
 '"
 
+# The co-use artefact, if it has been mined. Pushed to /state, NOT /corpus: the
+# prune above deletes anything in /corpus that is not a memory on the Mac, and
+# this is not a memory. It carries only names and integers — no transcript text
+# ever reaches it — but it does describe working patterns, which is why it goes
+# to a VPN-only, owner-gated app and nowhere else.
+COUSE="${COUSE_FILE:-$(dirname "$MEMORY_DIR")/couse.json}"
+if [[ -f $COUSE ]]; then
+  echo "pushing co-use…"
+  remote sh -c "'cat > /state/couse.json'" < "$COUSE"
+else
+  echo "no co-use artefact at $COUSE — skipping (mine it with: cargo run --release --bin couse)"
+fi
+
 echo "verifying…"
 remote sh -c "'ls /corpus | wc -l'" | tr -d '\r' | while read -r n; do
   echo "  $n files on isis"

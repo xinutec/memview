@@ -94,6 +94,21 @@ const GRAPH = {
     in_degree: i === 0 ? 9 : 1,
     out_degree: i === 0 ? 3 : 1,
   })),
+  // Usage is what the size selector reads. Varied on purpose: one memory
+  // heavily used, one never touched, so "used" and "fresh" draw differently and
+  // a control that silently did nothing would show up as an unchanged picture.
+  usage: Object.fromEntries(
+    Array.from({ length: 12 }, (_, i) => [
+      `project_health_verified_core_lean_${i}`,
+      {
+        sessions: i === 0 ? 11 : (i % 4),
+        turns: i === 0 ? 180 : i * 3,
+        reads: i % 3,
+        edits: i === 0 ? 40 : i,
+        last: i === 11 ? null : `2026-07-${String(10 + i).padStart(2, "0")}T09:00:00Z`,
+      },
+    ]),
+  ),
   edges: [
     // Three dense groups of four…
     ...[0, 4, 8].flatMap((base) =>
@@ -186,6 +201,11 @@ test("search results — snippets under long slugs @ phone width", async ({ page
 test("graph — cluster legend of long slugs under the canvas @ phone width", async ({ page }, testInfo) => {
   await mockApi(page);
   await page.goto("/graph");
+  // Every reading of the size control, because each one re-renders the canvas
+  // and any of them can be the one that throws on a memory with no usage.
+  for (const label of ["edited", "fresh", "linked", "used"]) {
+    await page.getByRole("button", { name: label, exact: true }).click();
+  }
   // The legend names each cluster after its most-connected member, so what has
   // to fit is a full memory slug, not a hand-written section title.
   await page.getByRole("heading", { name: "clusters" }).waitFor();

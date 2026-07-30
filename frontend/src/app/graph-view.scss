@@ -31,14 +31,6 @@
   margin: 8px 0 0;
 }
 
-.controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  margin-top: 8px;
-}
-
 .focus {
   margin-top: 12px;
   padding: 12px;
@@ -271,13 +263,14 @@
   }
 }
 
-.grain {
+.pick {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   margin-top: 12px;
 
-  .grain-label {
+  .pick-label {
     font: var(--mat-sys-body-small);
     color: var(--mat-sys-on-surface-variant);
   }
@@ -310,6 +303,12 @@
     font: var(--mat-sys-label-small);
     color: var(--mat-sys-on-surface-variant);
   }
+}
+
+.hint {
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+  margin: 4px 0 0;
 }
 
 .legend-note {

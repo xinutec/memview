@@ -51,11 +51,27 @@ export interface GraphEdge {
   relation: string | null;
 }
 
+/** Signs of life for one memory — mirrors couse.rs. */
+export interface Usage {
+  /** Distinct sessions that mentioned it. */
+  sessions: number;
+  /** Turns that mentioned it. */
+  turns: number;
+  /** Times deliberately opened. */
+  reads: number;
+  /** Times written or edited. */
+  edits: number;
+  /** Most recent mention, ISO-8601, or null if never seen. */
+  last: string | null;
+}
+
 export interface GraphData {
   nodes: GraphNode[];
   edges: GraphEdge[];
   /** Section titles in MEMORY.md order — the legend's order. */
   sections: string[];
+  /** Usage by memory name. Empty when no co-use artefact was mined. */
+  usage: Record<string, Usage>;
 }
 
 /** One thing that happened in the client — mirrors routes/telemetry.rs. */

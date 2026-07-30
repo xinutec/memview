@@ -14,13 +14,30 @@
 
 @if (data(); as graph) {
   <p class="scale">
-    {{ graph.nodes.length }} memories · {{ graph.edges.length }} links ·
-    {{ clusters().length }} clusters found in the links · drag to turn, scroll to zoom
+    {{ graph.nodes.length }} memories in {{ clusters().length }} regions · drag to turn, pinch or
+    scroll to zoom, tap a memory to walk from it
   </p>
 
+  @if (hasUsage()) {
+    <div class="pick" role="group" aria-label="What the size of a dot means">
+      <span class="pick-label">size shows</span>
+      @for (m of metrics; track m.key) {
+        <button
+          type="button"
+          [class.on]="metric() === m.key"
+          [attr.aria-pressed]="metric() === m.key"
+          (click)="setMetric(m.key)"
+        >
+          {{ m.label }}
+        </button>
+      }
+    </div>
+    <p class="hint">{{ metricHint() }}</p>
+  }
+
   @if (levels().length > 1) {
-    <div class="grain" role="group" aria-label="Cluster grain">
-      <span class="grain-label">grain</span>
+    <div class="pick" role="group" aria-label="How coarsely to group">
+      <span class="pick-label">regions</span>
       @for (level of levels(); track $index) {
         <button
           type="button"
@@ -32,18 +49,10 @@
         </button>
       }
     </div>
+    <p class="hint">
+      how coarsely the links are grouped — the same corpus, read broadly or finely
+    </p>
   }
-
-  <div class="controls">
-    <mat-slide-toggle [checked]="spin()" (change)="setSpin($event.checked)">spin</mat-slide-toggle>
-    <mat-slide-toggle [checked]="isolate()" (change)="setIsolate($event.checked)">
-      isolate
-    </mat-slide-toggle>
-    <button mat-button (click)="reheat()">
-      <mat-icon>refresh</mat-icon>
-      re-settle
-    </button>
-  </div>
 
   @if (trail(); as walked) {
     @if (walked.length) {
@@ -71,9 +80,19 @@
       <p class="facts">
         {{ clusterName(node.name) }} · {{ node.in_degree }} in · {{ node.out_degree }} out
         @if (spans().get(node.name); as reach) {
-          · <strong>bridges {{ reach }} clusters</strong>
+          · <strong>bridges {{ reach }} regions</strong>
         }
       </p>
+      @if (usageOf(node.name); as u) {
+        <p class="facts">
+          used in {{ u.sessions }} session{{ u.sessions === 1 ? '' : 's' }} ·
+          {{ u.reads }} read{{ u.reads === 1 ? '' : 's' }} ·
+          {{ u.edits }} edit{{ u.edits === 1 ? '' : 's' }}
+          @if (u.last) {
+            · last {{ u.last | date: 'd MMM' }}
+          }
+        </p>
+      }
       <p class="facts filed">filed under {{ node.section ?? 'no heading' }}</p>
 
       <label id="depth-label" class="depth" for="depth-slider">

@@ -51,12 +51,35 @@ pub struct Pair {
     pub npmi: f64,
 }
 
+/// Signs of life for one memory: how much it is actually used, and when last.
+///
+/// The graph could already show how *connected* a memory is — that is just its
+/// links. It could not show whether anyone ever goes there. A rule cited by six
+/// projects and never once consulted looks identical, in a link graph, to the
+/// one that governs every session.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Usage {
+    /// Distinct sessions that mentioned it at all.
+    pub sessions: usize,
+    /// Turns that mentioned it — finer, and dominated by long pieces of work.
+    pub turns: usize,
+    /// Times it was deliberately opened with Read.
+    pub reads: usize,
+    /// Times it was written or edited.
+    pub edits: usize,
+    /// Most recent mention, ISO-8601, or absent if never seen.
+    pub last: Option<String>,
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct CoUse {
     /// Turns that used at least two memories — the denominator.
     pub turns: usize,
-    /// Pairs above [`MIN_SUPPORT`], strongest first.
+    /// Pairs above the session floor, strongest first.
     pub pairs: Vec<Pair>,
+    /// Per-memory usage, for every memory seen at least once.
+    #[serde(default)]
+    pub usage: BTreeMap<String, Usage>,
 }
 
 /// Distinct sessions a pair must meet in before it is reported at all.
@@ -181,6 +204,7 @@ fn scan_session(
     corpus: &BTreeSet<String>,
     session: usize,
     out: &mut Vec<(usize, BTreeSet<String>)>,
+    usage: &mut BTreeMap<String, Usage>,
 ) -> Result<()> {
     let text = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
 
@@ -207,7 +231,35 @@ fn scan_session(
         if named.len() > MAX_PER_LINE {
             continue;
         }
+        // Which tool, if any, this line is a call of. A line can in principle
+        // carry more than one call; in practice it does not, and attributing a
+        // read to the wrong one of two memories named together is a smaller
+        // error than not counting reads at all. Stated because it is a limit,
+        // not because it is exact.
+        let opened = find_at(line, b"\"name\":\"Read\"", 0).is_some();
+        let written = find_at(line, b"\"name\":\"Write\"", 0).is_some()
+            || find_at(line, b"\"name\":\"Edit\"", 0).is_some();
+        let stamp =
+            field(line, "timestamp").and_then(|t| std::str::from_utf8(t).ok().map(str::to_string));
         for name in named {
+            let entry = usage.entry(name.clone()).or_default();
+            entry.turns += 1;
+            if opened {
+                entry.reads += 1;
+            }
+            if written {
+                entry.edits += 1;
+            }
+            // Kept as the maximum rather than the last seen: transcripts are
+            // scanned in filename order, which is not chronological order.
+            if let Some(stamp) = &stamp
+                && entry
+                    .last
+                    .as_deref()
+                    .is_none_or(|prev| prev < stamp.as_str())
+            {
+                entry.last = Some(stamp.clone());
+            }
             refs.push((uuid.clone(), name));
         }
     }
@@ -256,6 +308,7 @@ fn scan_session(
 /// Mine every transcript in `dir` for memories used together.
 pub fn scan(dir: &Path, corpus: &BTreeSet<String>) -> Result<CoUse> {
     let mut baskets: Vec<(usize, BTreeSet<String>)> = Vec::new();
+    let mut usage: BTreeMap<String, Usage> = BTreeMap::new();
     let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
         .with_context(|| format!("reading transcripts in {}", dir.display()))?
         .filter_map(|e| e.ok().map(|e| e.path()))
@@ -264,12 +317,28 @@ pub fn scan(dir: &Path, corpus: &BTreeSet<String>) -> Result<CoUse> {
     paths.sort();
     let session_count = paths.len();
     for (i, path) in paths.iter().enumerate() {
-        scan_session(path, corpus, i, &mut baskets)?;
+        scan_session(path, corpus, i, &mut baskets, &mut usage)?;
     }
 
     let total = baskets.len();
     if total == 0 {
         return Ok(CoUse::default());
+    }
+    // Sessions per memory, which is the honest "how often is this used" — turns
+    // inside one session are one piece of work, so a memory hammered for a week
+    // and never touched again would otherwise outrank one consulted every week.
+    {
+        let mut per_name: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
+        for (session, basket) in &baskets {
+            for name in basket {
+                per_name.entry(name).or_default().insert(*session);
+            }
+        }
+        for (name, sessions) in per_name {
+            if let Some(u) = usage.get_mut(name) {
+                u.sessions = sessions.len();
+            }
+        }
     }
     // Per-session presence: which names appeared in any turn, and which pairs
     // met inside some single turn. Collapsing to presence here is what makes the
@@ -316,5 +385,6 @@ pub fn scan(dir: &Path, corpus: &BTreeSet<String>) -> Result<CoUse> {
     Ok(CoUse {
         turns: total,
         pairs,
+        usage,
     })
 }

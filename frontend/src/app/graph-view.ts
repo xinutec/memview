@@ -8,11 +8,11 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { DatePipe } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatSliderModule } from '@angular/material/slider';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
@@ -36,7 +36,7 @@ import {
   stepLayout,
 } from './graph-layout';
 import { MemviewApi } from './memview-api';
-import { GraphData, GraphNode } from './models';
+import { GraphData, GraphNode, Usage } from './models';
 
 /** Below this drag distance a pointer gesture counts as a click, not a rotate. */
 const CLICK_SLOP = 4;
@@ -66,6 +66,24 @@ const ZOOM_EPSILON = 0.002;
  * hold at once, and the ladder is exposed so they can go finer or coarser.
  */
 const READABLE_CLUSTERS = 20;
+
+/**
+ * What the size of a dot means. One control, where there were four toggles.
+ *
+ * A link graph can show how *connected* a memory is and nothing else — so a
+ * rule cited by six projects and never once consulted looks exactly like the
+ * one that governs every session. These are the questions the links cannot
+ * answer, and each is a different reading of one picture rather than a
+ * different picture.
+ */
+export type Metric = 'use' | 'edits' | 'age' | 'links';
+
+export const METRICS: readonly { key: Metric; label: string; hint: string }[] = [
+  { key: 'use', label: 'used', hint: 'bigger = came up in more separate sessions' },
+  { key: 'edits', label: 'edited', hint: 'bigger = rewritten more often' },
+  { key: 'age', label: 'fresh', hint: 'bigger = used recently; small = long untouched' },
+  { key: 'links', label: 'linked', hint: 'bigger = more links in and out' },
+];
 
 /** A cluster as the legend shows it: what it is called, how big, what colour. */
 interface ClusterRow {
@@ -129,12 +147,12 @@ interface Placed {
   templateUrl: './graph-view.html',
   styleUrl: './graph-view.scss',
   imports: [
+    DatePipe,
     RouterLink,
     MatButtonModule,
     MatIconModule,
     MatProgressBarModule,
     MatSliderModule,
-    MatSlideToggleModule,
   ],
 })
 export class GraphView {
@@ -156,9 +174,7 @@ export class GraphView {
   readonly hovered = signal<GraphNode | null>(null);
   /** Hops of the selected memory's neighbourhood to keep lit. */
   readonly focusDepth = signal(1);
-  readonly spin = signal(true);
-  /** Hide everything outside the neighbourhood, rather than dimming it. */
-  readonly isolate = signal(true);
+  readonly metric = signal<Metric>('use');
   /** Which cluster is being read as a whole, by legend index. */
   readonly focusedCluster = signal<number | null>(null);
 
@@ -258,6 +274,25 @@ export class GraphView {
     return new Map(found.map((b) => [b.name, b.spans]));
   });
 
+  /** Usage by name, empty when nothing has been mined. */
+  private readonly usage = computed<Record<string, Usage>>(() => this.data()?.usage ?? {});
+
+  readonly hasUsage = computed(() => Object.keys(this.usage()).length > 0);
+
+  readonly metricHint = computed(
+    () => METRICS.find((m) => m.key === this.metric())?.hint ?? '',
+  );
+
+  /** Newest `last` across the corpus — the reference point for freshness. */
+  private readonly newest = computed(() => {
+    let max = 0;
+    for (const u of Object.values(this.usage())) {
+      const t = u.last ? Date.parse(u.last) : 0;
+      if (t > max) max = t;
+    }
+    return max;
+  });
+
   /** Memories in no cluster but their own — nothing links to them, or from. */
   readonly stranded = computed(() => this.clusters().filter((c) => c.alone));
 
@@ -333,6 +368,16 @@ export class GraphView {
   private dragging = false;
   private dragMoved = 0;
   private lastPointer: { x: number; y: number } | null = null;
+  /**
+   * Every pointer currently down, so two of them can be a pinch.
+   *
+   * Without this there was no way to zoom on a phone at all: the only zoom was
+   * a wheel handler, which no touch device produces. The graph settles to a
+   * radius of ~335 world units and opens fitted to the canvas, so a reader on a
+   * phone could see the whole corpus and never look closer at any of it.
+   */
+  private pointers = new Map<number, { x: number; y: number }>();
+  private pinch: { spread: number; zoom: number } | null = null;
   private theme = { text: '#000', edge: 'rgba(0,0,0,0.15)', halo: '#fff' };
 
   /**
@@ -454,13 +499,6 @@ export class GraphView {
       moving = true;
     }
     if (this.frame()) moving = true;
-    // Spin is for reading structure, and it stops once the reader is reading
-    // something specific: labels sliding out from under the memory you just
-    // walked to are worse than a still picture.
-    if (this.spin() && !this.dragging && !this.selected()) {
-      this.camera.yaw += 0.0016;
-      moving = true;
-    }
     this.draw();
     if (moving || this.dirty) {
       this.dirty = false;
@@ -529,6 +567,42 @@ export class GraphView {
    * map scale, and the picture should show the structure that is actually there.
    */
   /**
+   * How big a memory should be drawn, in 0..1, under the current reading.
+   *
+   * Never zero: a memory that has never been used, never edited and links to
+   * nothing is still there, and shrinking it to invisibility would answer the
+   * question by hiding it. It draws small, which is the honest depiction.
+   *
+   * Falls back to links whenever nothing has been mined, so the picture on a
+   * machine with no transcripts is the old one rather than a field of identical
+   * dots.
+   */
+  private weight(node: GraphNode): number {
+    const usage = this.usage()[node.name];
+    const metric = this.hasUsage() ? this.metric() : 'links';
+    if (metric === 'links') {
+      const degree = node.in_degree + node.out_degree;
+      return Math.min(1, Math.sqrt(degree) / 5.5);
+    }
+    if (!usage) return 0.05;
+    if (metric === 'use') {
+      // Sessions, not turns. A memory hammered for one week and never touched
+      // again would otherwise outrank one consulted quietly every week.
+      return Math.min(1, Math.sqrt(usage.sessions) / 3.6);
+    }
+    if (metric === 'edits') {
+      return Math.min(1, Math.log10(1 + usage.edits) / 2.1);
+    }
+    // Freshness, measured against the most recent use anywhere in the corpus
+    // rather than against today — the transcripts have an end date, and scoring
+    // against now would fade the whole picture uniformly as they age.
+    const newest = this.newest();
+    if (!usage.last || newest === 0) return 0.05;
+    const days = (newest - Date.parse(usage.last)) / 86_400_000;
+    return Math.max(0.05, 1 - Math.min(1, days / 30));
+  }
+
+  /**
    * Rebuild the layout so each cluster gets its own territory.
    *
    * A cluster of one is handed no group at all, so it anchors at the origin and
@@ -570,7 +644,11 @@ export class GraphView {
 
     ctx.clearRect(0, 0, this.width, this.height);
     const lit = this.lit();
-    const isolate = lit !== null && this.isolate();
+    // Isolating is automatic rather than a toggle: the camera flies in close on
+    // a walk, so the memories merely *near* the focused one are drawn large, as
+    // unexplained blobs behind the thing that was asked for. There was never a
+    // reading in which showing them helped.
+    const isolate = lit !== null;
     const selected = this.selected();
     const hovered = this.hovered();
 
@@ -579,16 +657,9 @@ export class GraphView {
     for (let i = 0; i < graph.nodes.length; i++) {
       const node = graph.nodes[i];
       const isLit = lit === null || lit.has(node.name);
-      // Isolating is not the same as dimming. The camera flies in close on a
-      // walk, so the memories that are merely *near* the one being read are
-      // drawn large — as unexplained blobs behind the thing you asked for.
       if (isolate && !isLit) continue;
       const p = project(layout.nodes[i].pos, this.camera, this.width, this.height);
-      const degree = node.in_degree + node.out_degree;
-      // Weighted toward degree, not body length: how connected a memory is says
-      // more about its place in the graph than how long it is, and sizing by
-      // bytes made a 97 KB roadmap outrank a load-bearing one-line rule.
-      const radius = (2 + Math.log10(1 + node.size / 400) * 0.9 + Math.sqrt(degree) * 1.4) * p.scale;
+      const radius = (1.6 + this.weight(node) * 4.2) * p.scale;
       const entry: Placed = {
         node,
         x: p.x,
@@ -701,7 +772,22 @@ export class GraphView {
     return null;
   }
 
+  /** Distance between the two active pointers, or null unless there are two. */
+  private spread(): number | null {
+    if (this.pointers.size !== 2) return null;
+    const [a, b] = [...this.pointers.values()];
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+
   onPointerDown(event: PointerEvent): void {
+    this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    const spread = this.spread();
+    if (spread !== null) {
+      this.pinch = { spread, zoom: this.camera.zoom };
+      // A pinch is never a tap, whatever the fingers did afterwards.
+      this.dragMoved = Number.MAX_SAFE_INTEGER;
+      return;
+    }
     this.dragging = true;
     this.dragMoved = 0;
     this.lastPointer = { x: event.clientX, y: event.clientY };
@@ -711,6 +797,19 @@ export class GraphView {
   onPointerMove(event: PointerEvent): void {
     const canvas = this.canvasRef().nativeElement;
     const rect = canvas.getBoundingClientRect();
+    if (this.pointers.has(event.pointerId)) {
+      this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    }
+    const spread = this.spread();
+    if (this.pinch && spread !== null) {
+      this.camera.zoom = Math.max(
+        MIN_ZOOM,
+        Math.min(MAX_ZOOM, (this.pinch.zoom * spread) / this.pinch.spread),
+      );
+      this.userZoomed = true;
+      this.requestDraw();
+      return;
+    }
     if (this.dragging && this.lastPointer) {
       const dx = event.clientX - this.lastPointer.x;
       const dy = event.clientY - this.lastPointer.y;
@@ -734,6 +833,15 @@ export class GraphView {
   onPointerUp(event: PointerEvent): void {
     const canvas = this.canvasRef().nativeElement;
     const rect = canvas.getBoundingClientRect();
+    this.pointers.delete(event.pointerId);
+    // Lifting one finger of a pinch must not become a drag from wherever that
+    // finger happened to be — it would spin the graph on every zoom.
+    if (this.pinch) {
+      if (this.pointers.size === 0) this.pinch = null;
+      this.dragging = false;
+      this.lastPointer = null;
+      return;
+    }
     const wasDrag = this.dragMoved > CLICK_SLOP;
     this.dragging = false;
     this.lastPointer = null;
@@ -828,14 +936,9 @@ export class GraphView {
     this.rebuildLayout();
   }
 
-  setSpin(on: boolean): void {
-    this.spin.set(on);
-    if (on) this.ensureLoop();
-  }
-
-  setIsolate(on: boolean): void {
-    this.isolate.set(on);
-    this.ensureLoop();
+  setMetric(metric: Metric): void {
+    this.metric.set(metric);
+    this.requestDraw();
   }
 
   setDepth(depth: number): void {
@@ -845,6 +948,13 @@ export class GraphView {
 
   clearSelection(): void {
     this.setTrail([]);
+  }
+
+  readonly metrics = METRICS;
+
+  /** Usage for one memory, or null when nothing has been mined. */
+  usageOf(name: string): Usage | null {
+    return this.usage()[name] ?? null;
   }
 
   /** What cluster a memory landed in, for the focus card. */
@@ -862,10 +972,4 @@ export class GraphView {
     return 'sync_alt';
   }
 
-  /** Re-heat the simulation — a settled layout can sit in a local minimum. */
-  reheat(): void {
-    if (!this.layout) return;
-    this.layout.alpha = 1;
-    this.ensureLoop();
-  }
 }

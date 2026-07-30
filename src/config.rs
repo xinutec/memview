@@ -24,6 +24,14 @@ pub struct Config {
     /// Directory of the built Angular bundle to serve (SPA fallback). Unset →
     /// API-only (dev, where `ng serve` proxies).
     pub static_dir: Option<String>,
+
+    /// The co-use artefact, if one has been mined.
+    ///
+    /// Optional everywhere: it is derived from the session transcripts, which
+    /// exist only on the Mac, and the graph is worth serving without it. Never
+    /// inside `memory_dir` — the sync replaces that directory wholesale, and
+    /// this is not a memory.
+    pub couse_file: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -91,6 +99,7 @@ impl Config {
                 .map(|u| u.trim_end_matches('/').to_string()),
             auth,
             static_dir: std::env::var("STATIC_DIR").ok(),
+            couse_file: std::env::var("COUSE_FILE").ok(),
         })
     }
 

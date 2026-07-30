@@ -270,6 +270,7 @@ impl Corpus {
             nodes,
             edges,
             sections,
+            usage: Default::default(),
         }
     }
 }
@@ -380,6 +381,11 @@ pub struct GraphEdge {
 pub struct Graph {
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,
+    /// How much each memory is actually used, keyed by name. Empty when no
+    /// co-use artefact is available — the picture degrades to structure only,
+    /// rather than to nothing.
+    #[serde(default)]
+    pub usage: std::collections::BTreeMap<String, crate::couse::Usage>,
     /// Section titles in MEMORY.md order, so a legend reads in the order the
     /// index was written rather than alphabetically.
     pub sections: Vec<String>,
