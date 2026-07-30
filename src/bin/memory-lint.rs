@@ -6,6 +6,7 @@
 //! rule can be introduced as a warning, worked down to zero, and then promoted
 //! in `lint.rs` — after which the corpus can never regress on it.
 use anyhow::Result;
+use memview::couse::CoUse;
 use memview::lint;
 use memview::store::Corpus;
 
@@ -15,7 +16,14 @@ fn main() -> Result<()> {
         format!("{home}/.claude/projects/-Users-pippijn-Code/memory")
     });
     let corpus = Corpus::load(&dir)?;
-    let findings = lint::check(&corpus);
+    // Optional: the artefact is produced by `cargo run --bin couse`, which reads
+    // gigabytes of transcripts. Absent on any machine but the Mac, and the lint
+    // is still worth running without it.
+    let couse = std::path::Path::new(&dir)
+        .parent()
+        .map(|p| p.join("couse.json"))
+        .and_then(|p| CoUse::load(&p));
+    let findings = lint::check(&corpus, couse.as_ref());
     let reasons = lint::rule_reasons();
 
     println!("{} memories in {dir}\n", corpus.docs.len());

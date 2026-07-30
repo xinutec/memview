@@ -45,6 +45,10 @@ nix develop -c bash -c '
 MEMORY_DIR="${MEMORY_DIR:-$HOME/.claude/projects/-Users-pippijn-Code/memory}"
 if [[ -f $MEMORY_DIR/MEMORY.md ]]; then
   nix develop -c cargo run --quiet --bin memory-lint "$MEMORY_DIR" | tail -20
+  # The co-use artefact is NOT regenerated here: it reads every byte of every
+  # session transcript (~3 GB, about two minutes). memory-lint uses whatever is
+  # already on disk, so this gate stays fast and the mining is run deliberately:
+  #     nix develop -c cargo run --release --bin couse
 else
   echo "no corpus at $MEMORY_DIR — skipping memory-lint"
 fi

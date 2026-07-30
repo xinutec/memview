@@ -19,6 +19,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::couse::CoUse;
 use crate::store::{Corpus, RELATIONS, index_links, split_relation, wikilinks_of};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -119,6 +120,15 @@ const RULES: &[(&str, Severity, &str)] = &[
         "a feedback memory needs **How to apply:** — a rule you cannot act on is a note",
     ),
     (
+        "unlinked-co-use",
+        // Advisory, and never promoted. This is evidence, not a rule: two
+        // memories used together may still have nothing to say about each
+        // other, and a gate that forced a link for every correlation would fill
+        // the corpus with links nobody meant.
+        Severity::Warning,
+        "used together in separate turns but neither links the other — a link the corpus is missing",
+    ),
+    (
         "untyped-links",
         Severity::Warning,
         "no link declares a relation, so the structure says only \"related\"",
@@ -146,7 +156,7 @@ pub fn rule_reasons() -> BTreeMap<&'static str, (Severity, &'static str)> {
 ///
 /// Findings come back sorted by severity then memory, so the output reads as a
 /// worklist and a run with nothing to say prints nothing.
-pub fn check(corpus: &Corpus) -> Vec<Finding> {
+pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
     let mut findings = Vec::new();
     let mut push = |rule: &'static str, memory: &str, detail: String| {
         findings.push(Finding {
@@ -158,6 +168,9 @@ pub fn check(corpus: &Corpus) -> Vec<Finding> {
     };
 
     let mut linked: BTreeSet<String> = BTreeSet::new();
+    // Unordered pairs, for the co-use comparison: a link in either direction
+    // means the two memories already know about each other.
+    let mut pairs: BTreeSet<(String, String)> = BTreeSet::new();
     let mut typed_links = 0usize;
     let mut total_links = 0usize;
 
@@ -221,6 +234,12 @@ pub fn check(corpus: &Corpus) -> Vec<Finding> {
             if corpus.docs.contains_key(&link.target) {
                 linked.insert(link.target.clone());
                 linked.insert(name.clone());
+                let (x, y) = if *name < link.target {
+                    (name.clone(), link.target.clone())
+                } else {
+                    (link.target.clone(), name.clone())
+                };
+                pairs.insert((x, y));
             } else {
                 push("dangling-link", name, format!("[[{}]]", link.target));
             }
@@ -261,6 +280,36 @@ pub fn check(corpus: &Corpus) -> Vec<Finding> {
             "(corpus)",
             format!("{typed_links} of {total_links} links declare a relation"),
         );
+    }
+
+    // What the transcripts say belongs together and the corpus does not.
+    if let Some(couse) = couse {
+        let missing = couse.unlinked(&pairs);
+        // Capped, and the cap is reported rather than silently applied: 500
+        // suggestions is a wall, not a worklist, and a list that quietly stops
+        // reads as "that is all of them".
+        const SHOWN: usize = 20;
+        for pair in missing.iter().take(SHOWN) {
+            push(
+                "unlinked-co-use",
+                &pair.a,
+                format!(
+                    "{} with {} ({} sessions, {} turns, npmi {:.2})",
+                    "used together", pair.b, pair.sessions, pair.turns, pair.npmi
+                ),
+            );
+        }
+        if missing.len() > SHOWN {
+            push(
+                "unlinked-co-use",
+                "(corpus)",
+                format!(
+                    "{} more unlinked pairs seen in >= {} sessions; showing the {SHOWN} strongest",
+                    missing.len() - SHOWN,
+                    crate::couse::MIN_SESSIONS
+                ),
+            );
+        }
     }
 
     findings.sort_by(|a, b| {
