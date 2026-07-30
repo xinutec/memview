@@ -3,6 +3,7 @@
 pub mod access;
 pub mod config;
 pub mod error;
+pub mod lint;
 pub mod nextcloud;
 pub mod routes;
 pub mod session;

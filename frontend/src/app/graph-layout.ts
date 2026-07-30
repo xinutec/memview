@@ -54,6 +54,8 @@ export interface LayoutInput {
 export interface Edge {
   source: string;
   target: string;
+  /** What the link claims, or null/absent for a plain mention. */
+  relation?: string | null;
 }
 
 export interface Camera {
@@ -421,6 +423,15 @@ export type LinkDirection = 'out' | 'in' | 'both';
 export interface Neighbour {
   readonly name: string;
   readonly direction: LinkDirection;
+  /**
+   * What the link claims, or null for a plain mention.
+   *
+   * Reported beside the direction rather than folded into it: "this rule
+   * governs that project" and "that project is governed by this rule" are the
+   * same claim seen from two ends, and a walk needs both halves to describe
+   * where it can go.
+   */
+  readonly relation: string | null;
 }
 
 /**
@@ -432,18 +443,23 @@ export interface Neighbour {
  */
 export function neighboursOf(edges: readonly Edge[], root: string): Neighbour[] {
   const seen = new Map<string, LinkDirection>();
-  const note = (name: string, direction: LinkDirection): void => {
+  const claims = new Map<string, string>();
+  const note = (name: string, direction: LinkDirection, relation?: string | null): void => {
     const had = seen.get(name);
     // Cited in one direction already and now the other: the two memories point
     // at each other, which is worth showing as such rather than as a duplicate.
     seen.set(name, had === undefined || had === direction ? direction : 'both');
+    // A claim beats a plain mention. Two memories can link each other, one
+    // saying something and one just pointing, and the one that says something
+    // is the one worth reporting.
+    if (relation) claims.set(name, relation);
   };
   for (const edge of edges) {
-    if (edge.source === root && edge.target !== root) note(edge.target, 'out');
-    if (edge.target === root && edge.source !== root) note(edge.source, 'in');
+    if (edge.source === root && edge.target !== root) note(edge.target, 'out', edge.relation);
+    if (edge.target === root && edge.source !== root) note(edge.source, 'in', edge.relation);
   }
   return [...seen]
-    .map(([name, direction]) => ({ name, direction }))
+    .map(([name, direction]) => ({ name, direction, relation: claims.get(name) ?? null }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 

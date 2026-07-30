@@ -44,6 +44,11 @@ export interface GraphNode extends MemoryMeta {
 export interface GraphEdge {
   source: string;
   target: string;
+  /**
+   * What the link claims — `part-of`, `governs`, `because`, `refines`,
+   * `supersedes`, `contradicts` — or null for a plain mention.
+   */
+  relation: string | null;
 }
 
 export interface GraphData {

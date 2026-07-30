@@ -13,7 +13,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use comrak::nodes::NodeValue;
+use comrak::nodes::{NodeLink, NodeValue};
 use comrak::{Arena, Options, format_html, parse_document};
 use serde::{Deserialize, Serialize};
 
@@ -46,6 +46,11 @@ pub struct MemoryDoc {
     pub meta: MemoryMeta,
     /// Markdown body (frontmatter stripped).
     pub body: String,
+    /// The file exactly as written, frontmatter included. Kept because linting
+    /// the corpus has to see what the frontmatter *says*, not only what parsing
+    /// it produced — a `name:` that disagrees with the filename is invisible
+    /// once the parse has already preferred the filename.
+    pub raw: String,
 }
 
 pub struct Corpus {
@@ -118,6 +123,7 @@ impl Corpus {
                         modified,
                     },
                     body: body.to_string(),
+                    raw: text.clone(),
                 },
             );
         }
@@ -219,20 +225,31 @@ impl Corpus {
         let mut out_degree: BTreeMap<String, usize> = BTreeMap::new();
         for doc in self.docs.values() {
             let mut seen = BTreeSet::new();
-            for target in wikilink_targets(&doc.body) {
+            for link in wikilinks(&doc.body) {
                 // Mentioning a memory twice is still one relationship, and a
-                // memory linking itself is not a relationship at all.
-                if target == doc.meta.name
-                    || !self.docs.contains_key(&target)
-                    || !seen.insert(target.clone())
-                {
+                // memory linking itself is not a relationship at all. A typed
+                // mention beats an untyped one for the same pair, so a body that
+                // says `[[x]]` in passing and `[[governs:x]]` where it means it
+                // reports the claim rather than whichever came first.
+                if link.target == doc.meta.name || !self.docs.contains_key(&link.target) {
+                    continue;
+                }
+                if !seen.insert(link.target.clone()) {
+                    if let Some(relation) = link.relation
+                        && let Some(existing) = edges.iter_mut().find(|e: &&mut GraphEdge| {
+                            e.source == doc.meta.name && e.target == link.target
+                        })
+                    {
+                        existing.relation.get_or_insert(relation);
+                    }
                     continue;
                 }
                 *out_degree.entry(doc.meta.name.clone()).or_default() += 1;
-                *in_degree.entry(target.clone()).or_default() += 1;
+                *in_degree.entry(link.target.clone()).or_default() += 1;
                 edges.push(GraphEdge {
                     source: doc.meta.name.clone(),
-                    target,
+                    target: link.target,
+                    relation: link.relation,
                 });
             }
         }
@@ -257,49 +274,80 @@ impl Corpus {
     }
 }
 
-/// MEMORY.md's curated taxonomy: which `## section` indexes each memory, plus
-/// the section titles in document order.
+/// Map each memory to the `## section` of MEMORY.md that indexes it, and list
+/// the section titles in the order the index writes them.
 ///
-/// A memory linked from more than one section keeps the first — the index is
-/// ordered, so the first mention is the one that classifies it. Links above the
-/// first heading (the index's preamble) belong to no section.
+/// Parsed with comrak, like everything else that reads corpus markdown. The
+/// line-by-line scanner this replaced could not see a heading written with
+/// `setext` underlining, mis-read any link whose title contained `](`, and
+/// happily indexed links inside fenced code — three ways for the legend to
+/// disagree with the page it is a legend for.
 fn index_sections(index_md: &str) -> (BTreeMap<String, String>, Vec<String>) {
+    let options = markdown_options();
+    let arena = Arena::new();
+    let root = parse_document(&arena, index_md, &options);
     let mut section_of = BTreeMap::new();
     let mut sections: Vec<String> = Vec::new();
     let mut current: Option<String> = None;
-    for line in index_md.lines() {
-        if let Some(title) = line.strip_prefix("## ") {
-            let title = title.trim().to_string();
-            if !sections.contains(&title) {
-                sections.push(title.clone());
+    // Pre-order, so a heading is always visited before the links beneath it.
+    for node in root.descendants() {
+        let value = node.data.borrow().value.clone();
+        match value {
+            NodeValue::Heading(h) if h.level == 2 => {
+                let title = node_text(node);
+                if !title.is_empty() {
+                    if !sections.contains(&title) {
+                        sections.push(title.clone());
+                    }
+                    current = Some(title);
+                }
             }
-            current = Some(title);
-            continue;
-        }
-        let Some(section) = current.as_ref() else {
-            continue;
-        };
-        for stem in md_link_stems(line) {
-            section_of.entry(stem).or_insert_with(|| section.clone());
+            NodeValue::Link(link) => {
+                let Some(section) = current.as_ref() else {
+                    continue;
+                };
+                if let Some(stem) = md_link_stem(&link.url) {
+                    section_of
+                        .entry(stem.to_string())
+                        .or_insert_with(|| section.clone());
+                }
+            }
+            _ => {}
         }
     }
     (section_of, sections)
 }
 
-/// Stems of relative `](name.md)` links on one line — the index's link form.
-fn md_link_stems(line: &str) -> Vec<String> {
+/// Every `name.md` the index links, in order — including any written before the
+/// first heading, which `index_sections` deliberately files under no section.
+pub fn index_links(index_md: &str) -> Vec<String> {
+    let options = markdown_options();
+    let arena = Arena::new();
+    let root = parse_document(&arena, index_md, &options);
     let mut out = Vec::new();
-    let mut rest = line;
-    while let Some(start) = rest.find("](") {
-        rest = &rest[start + 2..];
-        let Some(end) = rest.find(')') else { break };
-        let url = &rest[..end];
-        rest = &rest[end + 1..];
-        if let Some(stem) = md_link_stem(url) {
+    for node in root.descendants() {
+        if let NodeValue::Link(link) = &node.data.borrow().value
+            && let Some(stem) = md_link_stem(&link.url)
+        {
             out.push(stem.to_string());
         }
     }
     out
+}
+
+/// The plain text of a node — its descendant text and code runs, concatenated.
+fn node_text<'a>(
+    node: &'a comrak::arena_tree::Node<'a, std::cell::RefCell<comrak::nodes::Ast>>,
+) -> String {
+    let mut out = String::new();
+    for child in node.descendants() {
+        match &child.data.borrow().value {
+            NodeValue::Text(text) => out.push_str(text),
+            NodeValue::Code(code) => out.push_str(&code.literal),
+            _ => {}
+        }
+    }
+    out.trim().to_string()
 }
 
 /// A memory as a node in the link graph: its metadata plus the structural
@@ -324,6 +372,8 @@ pub struct GraphNode {
 pub struct GraphEdge {
     pub source: String,
     pub target: String,
+    /// What the link claims, or `None` for a plain mention. See [`RELATIONS`].
+    pub relation: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -343,28 +393,94 @@ pub struct SearchHit {
     score: u32,
 }
 
-/// Extract `[[target]]` / `[[target|title]]` targets in order of appearance.
+/// The relations a link may declare, and what each one asserts.
+///
+/// A closed vocabulary on purpose. The corpus had 856 links and every one of
+/// them said only "related", while doing at least five different jobs — a rule
+/// governing a project, a project citing a fact, a sub-project belonging to a
+/// parent. An open vocabulary would record those distinctions once each and
+/// never let anything be asked of them; a fixed one can be checked, filtered and
+/// counted.
+///
+/// Unknown prefixes are deliberately NOT tolerated: `[[superseeds:x]]` keeps the
+/// typo in the target, finds no memory of that name, and shows up as a dangling
+/// link. A misspelt relation silently downgrading to an untyped link would hide
+/// exactly the mistake this vocabulary exists to make visible.
+pub const RELATIONS: [&str; 6] = [
+    // This memory is a component of that one.
+    "part-of",
+    // This rule applies to that work.
+    "governs",
+    // That memory is the reason for what this one says.
+    "because",
+    // This narrows or extends that one.
+    "refines",
+    // This replaces that one, which is now history.
+    "supersedes",
+    // A known, unresolved tension between the two.
+    "contradicts",
+];
+
+/// One `[[link]]`: who it points at, and what it claims about the relationship.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Wikilink {
+    /// `None` for a plain `[[name]]` — a mention, with nothing asserted.
+    pub relation: Option<String>,
+    pub target: String,
+}
+
+/// Split a wikilink's inner text into an optional relation and a target.
+///
+/// Only a prefix in [`RELATIONS`] counts. Anything else stays part of the
+/// target, so it fails loudly as a dangling link rather than quietly becoming
+/// an untyped one.
+pub fn split_relation(inner: &str) -> (Option<String>, String) {
+    if let Some((prefix, rest)) = inner.split_once(':')
+        && RELATIONS.contains(&prefix)
+        && !rest.is_empty()
+    {
+        return (Some(prefix.to_string()), rest.to_string());
+    }
+    (None, inner.to_string())
+}
+
+/// Extract every `[[wikilink]]`, in order of appearance.
+///
+/// Parsed with comrak rather than scanned for `[[`, so this and the rendered
+/// HTML can never disagree about what a link is. The hand-rolled scanner this
+/// replaced could not see code: a shell snippet containing `rm -rf "${x[[-n
+/// "$target"]]}"`, a Lean type, a `[[la,lo,ts]]` tuple in a fenced block — all
+/// three were being reported as links to memories that had never been written,
+/// while comrak had correctly refused to make links of them. The bug was not
+/// that the guesses were bad; it was that there were two parsers.
 ///
 /// Bodies are hand-wrapped, so a wikilink can straddle a source line. comrak
-/// renders that as one link, so the graph must see it as one too — internal
-/// whitespace is collapsed rather than the link being skipped. A link can't
-/// span a paragraph break, which also stops an unclosed `[[` from swallowing
-/// the rest of the file.
+/// renders that as one link, and now so does this.
 fn wikilink_targets(body: &str) -> Vec<String> {
+    wikilinks(body).into_iter().map(|l| l.target).collect()
+}
+
+/// Every `[[link]]` in the body, in order, with the relation each declares.
+///
+/// Public so the corpus linter sees exactly the links the viewer does — the two
+/// disagreeing about what a link is would make every finding suspect.
+pub fn wikilinks_of(body: &str) -> Vec<Wikilink> {
+    wikilinks(body)
+}
+
+fn wikilinks(body: &str) -> Vec<Wikilink> {
+    let options = markdown_options();
+    let arena = Arena::new();
+    let root = parse_document(&arena, body, &options);
     let mut out = Vec::new();
-    let mut rest = body;
-    while let Some(start) = rest.find("[[") {
-        rest = &rest[start + 2..];
-        let Some(end) = rest.find("]]") else { break };
-        let inner = &rest[..end];
-        rest = &rest[end + 2..];
-        if inner.contains("\n\n") {
-            continue;
-        }
-        let target = inner.split('|').next().unwrap_or(inner);
-        let target = target.split_whitespace().collect::<Vec<_>>().join(" ");
-        if !target.is_empty() {
-            out.push(target);
+    for node in root.descendants() {
+        if let NodeValue::WikiLink(wl) = &node.data.borrow().value {
+            let target = wl.url.split('|').next().unwrap_or(&wl.url);
+            let target = target.split_whitespace().collect::<Vec<_>>().join(" ");
+            let (relation, target) = split_relation(&target);
+            if !target.is_empty() {
+                out.push(Wikilink { relation, target });
+            }
         }
     }
     out
@@ -445,7 +561,32 @@ pub fn render_markdown(md: &str) -> Result<String> {
         let mut data = node.data.borrow_mut();
         match &mut data.value {
             NodeValue::WikiLink(wl) => {
-                wl.url = format!("/m/{}", wl.url);
+                let (relation, target) = split_relation(&wl.url);
+                match relation {
+                    None => wl.url = format!("/m/{target}"),
+                    // A typed link becomes an ordinary link, because a wikilink
+                    // node has nowhere to put the relation — and it has to go
+                    // somewhere the reader can see. As a `title` it surfaces on
+                    // hover; left in the label the prose would read
+                    // "governs:project_x" mid-sentence, which puts structure
+                    // into the wording where it does not belong.
+                    Some(relation) => {
+                        data.value = NodeValue::Link(Box::new(NodeLink {
+                            url: format!("/m/{target}"),
+                            title: relation,
+                        }));
+                        // The label still carries the prefix comrak parsed.
+                        drop(data);
+                        for child in node.children() {
+                            let mut cd = child.data.borrow_mut();
+                            if let NodeValue::Text(text) = &mut cd.value {
+                                *text = target.clone().into();
+                                break;
+                            }
+                        }
+                        continue;
+                    }
+                }
             }
             NodeValue::Link(link) => {
                 if let Some(stem) = md_link_stem(&link.url) {

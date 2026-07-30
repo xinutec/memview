@@ -64,7 +64,12 @@ fn outlinks_separate_written_memories_from_dangling_ones() {
     // `[[feedback_gamma|the habit]]` is piped AND wrapped across a source line;
     // comrak still renders it as one link, so the graph must resolve it too.
     assert_eq!(names, ["feedback_gamma", "reference_beta"]);
-    assert_eq!(dangling, ["project_not_written_yet"]);
+    // The misspelt relation dangles with its prefix intact — that is what makes
+    // a typo findable instead of leaving it to pass as an untyped link.
+    assert_eq!(
+        dangling,
+        ["project_not_written_yet", "superseeds:reference_beta"]
+    );
 }
 
 #[test]
@@ -276,4 +281,75 @@ fn graph_of_a_corpus_without_an_index_still_has_nodes_and_edges() {
     assert_eq!(graph.edges.len(), 1);
     assert!(graph.sections.is_empty());
     assert!(graph.nodes.iter().all(|n| n.section.is_none()));
+}
+
+#[test]
+fn a_typed_link_records_its_relation_on_the_edge() {
+    let graph = corpus().graph();
+    let edge = graph
+        .edges
+        .iter()
+        .find(|e| e.source == "project_alpha" && e.target == "feedback_gamma")
+        .expect("alpha links gamma");
+    // The body mentions gamma twice: once plainly and once as `governs:`. A
+    // claim beats a passing mention, whichever the parser reaches first.
+    assert_eq!(edge.relation.as_deref(), Some("governs"));
+}
+
+#[test]
+fn an_untyped_link_claims_nothing() {
+    let graph = corpus().graph();
+    let edge = graph
+        .edges
+        .iter()
+        .find(|e| e.source == "project_alpha" && e.target == "reference_beta")
+        .expect("alpha links beta");
+    // beta is linked plainly first, then as `because:`. Same rule as above.
+    assert_eq!(edge.relation.as_deref(), Some("because"));
+}
+
+#[test]
+fn a_misspelt_relation_dangles_instead_of_passing_as_untyped() {
+    // The whole point of a closed vocabulary. `superseeds:reference_beta` must
+    // NOT resolve to reference_beta — a typo that silently degrades to a plain
+    // link is a typo nobody ever finds.
+    let corpus = corpus();
+    let doc = corpus.get("project_alpha").expect("alpha exists");
+    let (_, dangling) = corpus.outlinks(doc);
+    assert!(
+        dangling.iter().any(|d| d == "superseeds:reference_beta"),
+        "expected the typo to dangle, got {dangling:?}"
+    );
+}
+
+#[test]
+fn rendering_puts_the_relation_on_the_link_not_in_the_sentence() {
+    let html = render_markdown("A rule that [[governs:project_alpha]] the work.").unwrap();
+    // The prose must read "…that project_alpha the work", never
+    // "governs:project_alpha" — the relation is structure, not wording.
+    assert!(html.contains(r#"href="/m/project_alpha""#), "{html}");
+    assert!(html.contains(r#"title="governs""#), "{html}");
+    assert!(!html.contains("governs:project_alpha"), "{html}");
+}
+
+#[test]
+fn an_untyped_wikilink_renders_exactly_as_before() {
+    let html = render_markdown("See [[project_alpha]].").unwrap();
+    assert!(html.contains(r#"href="/m/project_alpha""#), "{html}");
+    assert!(!html.contains("title="), "{html}");
+}
+
+#[test]
+fn a_wikilink_inside_code_is_not_a_link() {
+    // comrak never makes a link inside code, and this must agree with it. The
+    // hand-rolled scanner that used to do this job reported three shell and
+    // Lean snippets across the live corpus as links to memories nobody had
+    // written — `[[-n "$target"]]` among them.
+    let html = render_markdown("Run `rm [[-n \"$target\"]]` first.").unwrap();
+    assert!(!html.contains("/m/"), "{html}");
+
+    let md = "Text [[project_alpha]] then:\n\n```sh\nfoo [[la,lo,ts]] bar\n```\n";
+    let html = render_markdown(md).unwrap();
+    assert!(html.contains(r#"href="/m/project_alpha""#), "{html}");
+    assert!(!html.contains("/m/la,lo,ts"), "{html}");
 }

@@ -37,6 +37,18 @@ nix develop -c bash -c '
   node scripts/graph-report.mjs
 '
 
+# The corpus itself, when it is present. Guarded rather than required: CI has no
+# memory directory (the image ships the viewer, never the memories), and a gate
+# that cannot run there would either fail every build or be quietly skipped in
+# both places. Locally it is the check that matters most — the app can be
+# perfect and the document set still be falling apart.
+MEMORY_DIR="${MEMORY_DIR:-$HOME/.claude/projects/-Users-pippijn-Code/memory}"
+if [[ -f $MEMORY_DIR/MEMORY.md ]]; then
+  nix develop -c cargo run --quiet --bin memory-lint "$MEMORY_DIR" | tail -20
+else
+  echo "no corpus at $MEMORY_DIR — skipping memory-lint"
+fi
+
 # Shared fleet rules over the whole repo (nix run, never result/bin — a pinned
 # build goes stale and silently misses rules shipped since).
 nix run "$HOME/Code/dev-lint" -- .

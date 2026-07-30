@@ -326,3 +326,16 @@
   background: var(--mat-sys-secondary-container);
   color: var(--mat-sys-on-secondary-container);
 }
+
+// What a typed link claims, beside the memory it claims it about. Small and
+// quiet: the relation qualifies the name, it does not compete with it.
+.hops .claim {
+  display: inline-block;
+  margin-inline-start: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--mat-sys-secondary-container);
+  color: var(--mat-sys-on-secondary-container);
+  font: var(--mat-sys-label-small);
+  vertical-align: middle;
+}

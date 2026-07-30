@@ -232,10 +232,22 @@ describe('sectionColour', () => {
 });
 
 describe('neighboursOf', () => {
+  it('reports what a typed link claims, and prefers a claim to a mention', () => {
+    const claims: Edge[] = [
+      { source: 'feedback_rule', target: 'project_a', relation: null },
+      { source: 'project_a', target: 'feedback_rule', relation: 'governs' },
+    ];
+    // Both memories link each other; only one of them says anything. The claim
+    // is the half worth reporting.
+    expect(neighboursOf(claims, 'project_a')).toEqual([
+      { name: 'feedback_rule', direction: 'both', relation: 'governs' },
+    ]);
+  });
+
   it('lists one hop with the direction each link was written in', () => {
     expect(neighboursOf(EDGES, 'feedback_rule')).toEqual([
-      { name: 'project_a', direction: 'in' },
-      { name: 'project_b', direction: 'out' },
+      { name: 'project_a', direction: 'in', relation: null },
+      { name: 'project_b', direction: 'out', relation: null },
     ]);
   });
 
@@ -245,7 +257,7 @@ describe('neighboursOf', () => {
       { source: 'feedback_rule', target: 'project_a' },
     ];
     expect(neighboursOf(mutual, 'project_a')).toEqual([
-      { name: 'feedback_rule', direction: 'both' },
+      { name: 'feedback_rule', direction: 'both', relation: null },
     ]);
   });
 

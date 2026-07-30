@@ -96,6 +96,8 @@ interface MemoryRow {
  */
 interface NeighbourRow extends MemoryRow {
   direction: LinkDirection;
+  /** What the link claims, or null for a plain mention. */
+  relation: string | null;
 }
 
 interface Placed {
@@ -297,6 +299,7 @@ export class GraphView {
       return {
         name: n.name,
         direction: n.direction,
+        relation: n.relation,
         // A link can name a memory that was never written — the API reports
         // those so the gap is visible rather than quietly dropped.
         description: node?.description ?? 'not written yet',

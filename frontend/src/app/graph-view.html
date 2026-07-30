@@ -106,7 +106,12 @@
               <button type="button" (click)="walkTo(hop.name)" [class.visited]="hop.visited">
                 <span class="swatch" [style.background]="hop.colour"></span>
                 <span class="who">
-                  <span class="name">{{ hop.name }}</span>
+                  <span class="name">
+                    {{ hop.name }}
+                    @if (hop.relation) {
+                      <span class="claim">{{ hop.relation }}</span>
+                    }
+                  </span>
                   <span class="desc">{{ hop.description }}</span>
                 </span>
                 <mat-icon
