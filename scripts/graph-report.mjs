@@ -122,7 +122,7 @@ const zoom = layout.fitZoom(radius, WIDTH, HEIGHT);
 // yaw and pitch are required: omitting them yields NaN coordinates and a report
 // that confidently claims every node is off-canvas. Angled rather than
 // axis-aligned, because that is how the view actually presents the graph.
-const camera = { yaw: 0.6, pitch: 0.35, distance: 900, zoom };
+const camera = { yaw: 0.6, pitch: 0.35, distance: 900, zoom, target: { x: 0, y: 0, z: 0 } };
 const projected = state.nodes.map((n, i) => ({
   name: n.name,
   section: inputs[i].section,
@@ -181,6 +181,48 @@ function sectionSeparation() {
 
 const ratio = sectionSeparation();
 
+/**
+ * Whether the graph can actually be *walked*, as opposed to looked at.
+ *
+ * A walk is: stand on a memory, read a list of where you can go, step, repeat.
+ * That fails in two ways the picture cannot show. If the typical memory has
+ * dozens of neighbours the hop list is a wall of text and choosing is no easier
+ * than it was on the canvas. And if focusing does not tighten the camera, the
+ * step is purely textual — the reader is told they moved while the picture
+ * stays a distant ball.
+ */
+function walkability() {
+  const counts = inputs.map((n) => layout.neighboursOf(graph.edges, n.name).length);
+  const sorted = [...counts].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
+
+  // Focus the busiest memory — the worst case for both fitting a neighbourhood
+  // on the canvas and for the length of the hop list.
+  const busiest = inputs[counts.indexOf(Math.max(...counts))]?.name ?? inputs[0].name;
+  const lit = layout.neighbourhood(graph.edges, inputs.map((n) => n.name), busiest, 1);
+  const framing = layout.frameFor(state, busiest, lit, WIDTH, HEIGHT);
+  const focusCam = { ...camera, zoom: framing.zoom, target: framing.target };
+
+  // With `isolate` on, only the lit set is drawn — so only the lit set has to
+  // land on the canvas, and all of it must.
+  let onScreen = 0;
+  for (const entry of projected) {
+    if (!lit.has(entry.name)) continue;
+    const p = layout.project(entry.pos, focusCam, WIDTH, HEIGHT);
+    if (p.x >= 0 && p.x <= WIDTH && p.y >= 0 && p.y <= HEIGHT) onScreen++;
+  }
+  return {
+    busiest,
+    median,
+    max: sorted.at(-1) ?? 0,
+    litHere: lit.size,
+    onScreen,
+    zoomGain: framing.zoom / zoom,
+  };
+}
+
+const walk = walkability();
+
 const report = {
   source: file ?? 'synthetic',
   nodes: graph.nodes.length,
@@ -200,6 +242,11 @@ const report = {
   labelsOverBudget: plan.overBudget,
   labelBudget: layout.LABEL_BUDGET,
   intraOverInter: Number(ratio.toFixed(3)),
+  hopsMedian: walk.median,
+  hopsMax: walk.max,
+  busiest: walk.busiest,
+  focusFits: `${walk.onScreen}/${walk.litHere}`,
+  focusZoomGain: `${walk.zoomGain.toFixed(2)}x`,
 };
 
 for (const [k, v] of Object.entries(report)) {
@@ -221,6 +268,18 @@ if (plan.drawn.length > layout.LABEL_BUDGET) {
 }
 if (Number.isFinite(ratio) && ratio > 0.85) {
   problems.push(`sections are not holding together (intra/inter ${report.intraOverInter}, want well under 1)`);
+}
+if (walk.onScreen < walk.litHere) {
+  problems.push(
+    `focusing ${walk.busiest} leaves ${walk.litHere - walk.onScreen} of its ${walk.litHere} `
+      + 'neighbours off the canvas — with isolate on, those are simply gone',
+  );
+}
+if (walk.zoomGain < 1) {
+  problems.push(
+    `focusing pulls the camera BACK (${report.focusZoomGain}) — a step should close in on where `
+      + 'the reader went, not away from it',
+  );
 }
 
 if (problems.length) {

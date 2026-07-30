@@ -176,6 +176,29 @@ test("graph — legend of long section titles under the canvas @ phone width", a
 });
 
 /**
+ * The trail scrolls sideways BY DESIGN. A walk of six memories is six
+ * unbreakable snake_case slugs, which is wider than a phone at any font size,
+ * and truncating the walk would throw away how the reader got where they are —
+ * which is half of what a path through the corpus tells you.
+ */
+const TRAIL_SCROLLER = [".trail ol"];
+
+test("graph — a walk: trail crumbs and hop list @ phone width", async ({ page }, testInfo) => {
+  await mockApi(page);
+  await page.goto("/graph");
+  // Walked via the jump box rather than by clicking the canvas: which pixel a
+  // node lands on depends on where the force layout happens to have settled, so
+  // a test that clicked coordinates would be measuring the simulation.
+  await page.getByPlaceholder("Walk to a memory").fill("lean_0");
+  await page.locator(".hops button").first().click();
+  // The hub, so the hop list is at its longest — eleven long slugs, each with a
+  // teaser under it and a direction arrow to the right of both.
+  await page.getByText("one hop away").waitFor();
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo, null, TRAIL_SCROLLER);
+});
+
+/**
  * The graph is painted on a canvas, which is the one place the stylesheet does
  * not reach: an unparseable colour assigned to `fillStyle` is ignored in
  * SILENCE, leaving the previous value (black on a fresh context). Nothing else

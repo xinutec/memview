@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  boundingRadius,
   createLayout,
   Edge,
   fitZoom,
+  frameFor,
   LABEL_BUDGET,
   LabelCandidate,
   LayoutInput,
+  MIN_FRAME_RADIUS,
   neighbourhood,
+  neighboursOf,
   planLabels,
   project,
   sectionColour,
@@ -151,7 +155,7 @@ describe('stepLayout', () => {
 });
 
 describe('project', () => {
-  const cam = { yaw: 0, pitch: 0, distance: 900, zoom: 1 };
+  const cam = { yaw: 0, pitch: 0, distance: 900, zoom: 1, target: { x: 0, y: 0, z: 0 } };
 
   it('puts the origin at the centre of the viewport', () => {
     const p = project({ x: 0, y: 0, z: 0 }, cam, 800, 600);
@@ -192,6 +196,23 @@ describe('project', () => {
     const turned = project({ x: 100, y: 0, z: 0 }, { ...cam, yaw: Math.PI / 2 }, 800, 600);
     expect(turned.x).not.toBeCloseTo(front.x);
   });
+
+  it('puts the camera target at the centre, not the origin', () => {
+    const at = { x: 120, y: -40, z: 0 };
+    const p = project(at, { ...cam, target: at }, 800, 600);
+    expect(p.x).toBeCloseTo(400);
+    expect(p.y).toBeCloseTo(300);
+  });
+
+  it('translates before rotating, so the target holds the centre at any angle', () => {
+    // Rotating first and translating after would swing the focused node around
+    // the middle of the screen as the graph spins — the node you are standing on
+    // would be the one thing that refuses to stay still.
+    const at = { x: 120, y: -40, z: 60 };
+    const turned = project(at, { ...cam, target: at, yaw: 1.1, pitch: 0.4 }, 800, 600);
+    expect(turned.x).toBeCloseTo(400);
+    expect(turned.y).toBeCloseTo(300);
+  });
 });
 
 describe('sectionColour', () => {
@@ -205,6 +226,102 @@ describe('sectionColour', () => {
     // A `light-dark(...)` token assigned to fillStyle fails silently and leaves
     // the previous colour — invisible in light mode, black-on-black in dark.
     expect(sectionColour(3)).toMatch(/^hsl\(\d+ \d+% \d+%\)$/);
+  });
+});
+
+describe('neighboursOf', () => {
+  it('lists one hop with the direction each link was written in', () => {
+    expect(neighboursOf(EDGES, 'feedback_rule')).toEqual([
+      { name: 'project_a', direction: 'in' },
+      { name: 'project_b', direction: 'out' },
+    ]);
+  });
+
+  it('reports a pair that cite each other once, as mutual', () => {
+    const mutual: Edge[] = [
+      { source: 'project_a', target: 'feedback_rule' },
+      { source: 'feedback_rule', target: 'project_a' },
+    ];
+    expect(neighboursOf(mutual, 'project_a')).toEqual([
+      { name: 'feedback_rule', direction: 'both' },
+    ]);
+  });
+
+  it('ignores a memory that links to itself', () => {
+    expect(neighboursOf([{ source: 'project_a', target: 'project_a' }], 'project_a')).toEqual([]);
+  });
+
+  it('orders by name, so a walk sees the same list twice', () => {
+    const shuffled = [...EDGES].reverse();
+    expect(neighboursOf(shuffled, 'feedback_rule')).toEqual(neighboursOf(EDGES, 'feedback_rule'));
+  });
+
+  it('gives nothing for a memory nothing links to', () => {
+    expect(neighboursOf(EDGES, 'reference_lonely')).toEqual([]);
+  });
+});
+
+describe('boundingRadius', () => {
+  const spread = createLayout(NAMES, EDGES, SECTIONS);
+
+  it('measures the whole graph from the origin by default', () => {
+    expect(boundingRadius(spread)).toBeGreaterThan(1);
+  });
+
+  it('measures only the named subset', () => {
+    const one = new Set([spread.nodes[0].name]);
+    const centre = spread.nodes[0].pos;
+    // The node is the centre of its own measurement, so the radius collapses to
+    // the floor of 1 rather than reaching out to the rest of the corpus.
+    expect(boundingRadius(spread, centre, one)).toBe(1);
+    expect(boundingRadius(spread, centre)).toBeGreaterThan(1);
+  });
+});
+
+describe('frameFor', () => {
+  const spread = createLayout(NAMES, EDGES, SECTIONS);
+
+  it('looks at the whole corpus from the origin when nothing is focused', () => {
+    const framing = frameFor(spread, null, null, 412, 620);
+    expect(framing.target).toEqual({ x: 0, y: 0, z: 0 });
+    // The floor applies here too: a four-memory corpus is smaller than
+    // MIN_FRAME_RADIUS, and framing it exactly would fill the canvas with four
+    // enormous dots. Written through the floor rather than around it, because
+    // the corpus this view actually serves is far past it.
+    const radius = Math.max(MIN_FRAME_RADIUS, boundingRadius(spread));
+    expect(framing.zoom).toBeCloseTo(fitZoom(radius, 412, 620));
+  });
+
+  it('centres on the focused memory itself', () => {
+    const framing = frameFor(spread, 'feedback_rule', null, 412, 620);
+    const i = spread.index.get('feedback_rule')!;
+    expect(framing.target).toEqual({ ...spread.nodes[i].pos });
+  });
+
+  it('does not alias the node position it is centred on', () => {
+    // Aliasing would make the camera track a node that every step moves,
+    // silently skipping the easing the caller is about to apply.
+    const framing = frameFor(spread, 'feedback_rule', null, 412, 620);
+    const before = { ...framing.target };
+    stepLayout(spread);
+    expect(framing.target).toEqual(before);
+  });
+
+  it('frames a neighbourhood closer than the whole corpus', () => {
+    for (let i = 0; i < 200; i++) stepLayout(spread);
+    const near = neighbourhood(EDGES, NAME_LIST, 'project_a', 1);
+    const whole = frameFor(spread, null, null, 412, 620);
+    const focused = frameFor(spread, 'project_a', near, 412, 620);
+    expect(focused.zoom).toBeGreaterThanOrEqual(whole.zoom);
+  });
+
+  it('refuses to zoom past the floor for a memory that links to nothing', () => {
+    // A lone node has a neighbourhood radius of zero; without the floor the fit
+    // would be hundreds of pixels per world unit and the reader would arrive at
+    // one dot filling the canvas with nothing else in sight.
+    const alone = new Set(['reference_lonely']);
+    const framing = frameFor(spread, 'reference_lonely', alone, 412, 620);
+    expect(framing.zoom).toBeCloseTo(fitZoom(MIN_FRAME_RADIUS, 412, 620));
   });
 });
 

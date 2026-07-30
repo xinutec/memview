@@ -64,6 +64,15 @@ export interface Camera {
   distance: number;
   /** Pixels per world unit at the origin plane — the actual zoom. */
   zoom: number;
+  /**
+   * The world point that lands at the centre of the canvas.
+   *
+   * Required, not optional. Walking the graph means the camera has to be able
+   * to look at somewhere other than the middle of the corpus, and a field that
+   * defaults to the origin when forgotten produces a picture that is subtly
+   * wrong rather than one that fails to compile.
+   */
+  target: Vec3;
 }
 
 export interface Projected {
@@ -246,14 +255,72 @@ export function stepLayout(layout: Layout): void {
   layout.alpha *= COOLING;
 }
 
-/** Distance from the origin to the furthest node — what the camera must frame. */
-export function boundingRadius(layout: Layout): number {
+/**
+ * Distance from `centre` to the furthest node — what the camera must frame.
+ *
+ * `names` restricts the measurement to a subset, which is what makes framing a
+ * neighbourhood possible: the whole corpus is ~330 units across, so a camera
+ * that always measured every node could only ever show the whole ball.
+ */
+export function boundingRadius(
+  layout: Layout,
+  centre: Vec3 = ORIGIN,
+  names?: ReadonlySet<string>,
+): number {
   let max = 1;
   for (const node of layout.nodes) {
-    const d = Math.hypot(node.pos.x, node.pos.y, node.pos.z);
+    if (names && !names.has(node.name)) continue;
+    const d = Math.hypot(node.pos.x - centre.x, node.pos.y - centre.y, node.pos.z - centre.z);
     if (d > max) max = d;
   }
   return max;
+}
+
+/**
+ * The smallest radius the camera will frame, in world units.
+ *
+ * Without a floor, focusing a memory that links to nothing gives a
+ * neighbourhood of one node, a radius of zero, and a zoom of several hundred
+ * pixels per world unit — the reader arrives at a single dot filling the canvas
+ * with no context at all. This is roughly one spring rest length, so an
+ * unlinked memory sits at the scale its neighbours would have occupied.
+ */
+export const MIN_FRAME_RADIUS = 34;
+
+/** Where the camera should look, and how tightly, to show a set of memories. */
+export interface Framing {
+  readonly target: Vec3;
+  readonly zoom: number;
+}
+
+/**
+ * Frame `names` centred on `centre`.
+ *
+ * Centred on the focused memory itself rather than on the centroid of its
+ * neighbourhood: the reader clicked one thing, and putting that thing dead in
+ * the middle is what makes the step legible. A centroid drifts with whichever
+ * side of the neighbourhood happens to be bigger, so the node you asked for
+ * ends up off-centre by an amount that changes every step.
+ *
+ * With no centre this frames the whole corpus about the origin, which is the
+ * unfocused view.
+ */
+export function frameFor(
+  layout: Layout,
+  centre: string | null,
+  names: ReadonlySet<string> | null,
+  width: number,
+  height: number,
+  margin = 1.15,
+): Framing {
+  const i = centre === null ? undefined : layout.index.get(centre);
+  const at = i === undefined ? ORIGIN : layout.nodes[i].pos;
+  // Copied, not aliased: node positions are mutated in place by every step, so
+  // holding the reference would make the camera track a moving node silently
+  // and skip the easing the caller is about to do.
+  const target = { x: at.x, y: at.y, z: at.z };
+  const radius = Math.max(MIN_FRAME_RADIUS, boundingRadius(layout, target, names ?? undefined));
+  return { target, zoom: fitZoom(radius, width, height, margin) };
 }
 
 /** World point → screen point. Yaw about Y, then pitch about X, then perspective. */
@@ -262,10 +329,15 @@ export function project(p: Vec3, cam: Camera, width: number, height: number): Pr
   const sy = Math.sin(cam.yaw);
   const cp = Math.cos(cam.pitch);
   const sp = Math.sin(cam.pitch);
-  const x1 = p.x * cy - p.z * sy;
-  const z1 = p.x * sy + p.z * cy;
-  const y2 = p.y * cp - z1 * sp;
-  const z2 = p.y * sp + z1 * cp;
+  // Translate before rotating, so `target` is the point that lands dead centre
+  // whatever the camera angle.
+  const tx = p.x - cam.target.x;
+  const ty = p.y - cam.target.y;
+  const tz = p.z - cam.target.z;
+  const x1 = tx * cy - tz * sy;
+  const z1 = tx * sy + tz * cy;
+  const y2 = ty * cp - z1 * sp;
+  const z2 = ty * sp + z1 * cp;
   // Clamp so a node that swings behind the eye is pushed to the far plane rather
   // than projecting to a mirrored position in front of it.
   const depth = Math.max(1, z2 + cam.distance);
@@ -326,6 +398,45 @@ export function neighbourhood(
     frontier = next;
   }
   return found;
+}
+
+/**
+ * Which way the link between two memories was written.
+ *
+ * Kept, even though {@link neighbourhood} deliberately ignores direction when
+ * deciding what is *connected*. Reading is not walking: "this memory cites that
+ * one" and "that one cites this" are different claims about the corpus, and a
+ * list that flattened them would hide which memory chose to make the link.
+ */
+export type LinkDirection = 'out' | 'in' | 'both';
+
+export interface Neighbour {
+  readonly name: string;
+  readonly direction: LinkDirection;
+}
+
+/**
+ * Every memory one hop from `root`, with the direction of the link.
+ *
+ * Sorted by name so the list a reader is walking does not reshuffle between
+ * steps — a list whose order depends on edge order in the API response makes
+ * the same neighbourhood look different on every visit.
+ */
+export function neighboursOf(edges: readonly Edge[], root: string): Neighbour[] {
+  const seen = new Map<string, LinkDirection>();
+  const note = (name: string, direction: LinkDirection): void => {
+    const had = seen.get(name);
+    // Cited in one direction already and now the other: the two memories point
+    // at each other, which is worth showing as such rather than as a duplicate.
+    seen.set(name, had === undefined || had === direction ? direction : 'both');
+  };
+  for (const edge of edges) {
+    if (edge.source === root && edge.target !== root) note(edge.target, 'out');
+    if (edge.target === root && edge.source !== root) note(edge.source, 'in');
+  }
+  return [...seen]
+    .map(([name, direction]) => ({ name, direction }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**

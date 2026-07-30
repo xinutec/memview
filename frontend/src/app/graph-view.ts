@@ -8,8 +8,11 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
+import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
+import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatSliderModule } from '@angular/material/slider';
@@ -19,12 +22,13 @@ import {
   Camera,
   LabelPlan,
   Layout,
+  LinkDirection,
   SETTLED,
   UNSECTIONED_COLOUR,
-  boundingRadius,
   createLayout,
-  fitZoom,
+  frameFor,
   neighbourhood,
+  neighboursOf,
   planLabels,
   project,
   sectionColour,
@@ -40,12 +44,46 @@ const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 20;
 /** Padding between the framed graph and the canvas edge, as a fraction. */
 const FIT_MARGIN = 1.15;
+/**
+ * Fraction of the remaining distance the camera closes each frame.
+ *
+ * A step has to be *watchable*: jumping the camera to the next memory tells the
+ * reader where they arrived but not where it was, so the graph stops being a
+ * map and becomes a slideshow. At 60fps this settles in about a fifth of a
+ * second — long enough to follow, short enough not to feel like waiting.
+ */
+const CAMERA_EASE = 0.14;
+/** World units, and a zoom ratio, below which the camera counts as arrived. */
+const TARGET_EPSILON = 0.4;
+const ZOOM_EPSILON = 0.002;
+/** How many jump-box matches to offer at once. */
+const JUMP_LIMIT = 8;
 
 interface LegendRow {
   key: string | null;
   label: string;
   colour: string;
   count: number;
+}
+
+/** A memory offered as somewhere to walk to. */
+interface MemoryRow {
+  name: string;
+  description: string;
+  colour: string;
+  /** Already somewhere on the trail — where walking here would rewind to. */
+  visited: boolean;
+}
+
+/**
+ * A memory one hop from where the reader is standing.
+ *
+ * Separate from a plain row because only a neighbour has a direction. A search
+ * hit is not a link, and giving it a nominal one would put an arrow beside
+ * every result claiming a relationship the corpus never recorded.
+ */
+interface NeighbourRow extends MemoryRow {
+  direction: LinkDirection;
 }
 
 interface Placed {
@@ -65,15 +103,25 @@ interface Placed {
  * ~700 edges cost nothing to draw, text labels stay trivial, and the bundle
  * gains no dependency (the page must render over the VPN with no third-party
  * fetch). See graph-layout.ts for the maths.
+ *
+ * Walking is the point, and the picture alone cannot carry it. At corpus scale
+ * a memory is a four-pixel dot among three hundred and forty, only ten of which
+ * can be labelled at once, so "click the neighbour you want next" is not an
+ * instruction a reader can follow. The trail, the neighbour list and the jump
+ * box are how you actually move; the canvas shows you where that movement has
+ * taken you.
  */
 @Component({
   selector: 'app-graph-view',
   templateUrl: './graph-view.html',
   styleUrl: './graph-view.scss',
   imports: [
+    FormsModule,
     RouterLink,
     MatButtonModule,
+    MatFormFieldModule,
     MatIconModule,
+    MatInputModule,
     MatProgressBarModule,
     MatSliderModule,
     MatSlideToggleModule,
@@ -85,12 +133,32 @@ export class GraphView {
   private canvasRef = viewChild.required<ElementRef<HTMLCanvasElement>>('canvas');
 
   readonly data = signal<GraphData | null>(null);
-  readonly selected = signal<GraphNode | null>(null);
+  /**
+   * The walk so far, oldest first; the last entry is where the reader stands.
+   *
+   * The trail is the selection, rather than a history kept beside it. A graph
+   * walk with no way back makes every wrong turn a restart, and keeping the two
+   * as separate state is how they drift apart.
+   */
+  readonly trail = signal<readonly string[]>([]);
   readonly hovered = signal<GraphNode | null>(null);
   /** Hops of the selected memory's neighbourhood to keep lit. */
   readonly focusDepth = signal(1);
   readonly spin = signal(true);
+  /** Hide everything outside the neighbourhood, rather than dimming it. */
+  readonly isolate = signal(true);
   readonly hiddenSections = signal<ReadonlySet<string | null>>(new Set());
+  readonly jump = signal('');
+
+  private readonly byName = computed(() => {
+    const graph = this.data();
+    return new Map((graph?.nodes ?? []).map((n) => [n.name, n]));
+  });
+
+  readonly selected = computed<GraphNode | null>(() => {
+    const name = this.trail().at(-1);
+    return name === undefined ? null : (this.byName().get(name) ?? null);
+  });
 
   readonly legend = computed<LegendRow[]>(() => {
     const graph = this.data();
@@ -132,7 +200,60 @@ export class GraphView {
 
   readonly litCount = computed(() => this.lit()?.size ?? 0);
 
-  private camera: Camera = { yaw: 0.6, pitch: -0.25, distance: 900, zoom: 1 };
+  /** Where the reader can go from here, and which way each link was written. */
+  readonly neighbours = computed<NeighbourRow[]>(() => {
+    const graph = this.data();
+    const here = this.selected();
+    if (!graph || !here) return [];
+    const walked = new Set(this.trail());
+    return neighboursOf(graph.edges, here.name).map((n) => {
+      const node = this.byName().get(n.name);
+      return {
+        name: n.name,
+        direction: n.direction,
+        // A link can name a memory that was never written — the API reports
+        // those so the gap is visible rather than quietly dropped.
+        description: node?.description ?? 'not written yet',
+        colour: node ? this.colourFor(node) : UNSECTIONED_COLOUR,
+        visited: walked.has(n.name),
+      };
+    });
+  });
+
+  /** Memories matching the jump box, by name or description. */
+  readonly jumpHits = computed<MemoryRow[]>(() => {
+    const needle = this.jump().trim().toLowerCase();
+    const graph = this.data();
+    if (!graph || needle.length < 2) return [];
+    const walked = new Set(this.trail());
+    return graph.nodes
+      .filter(
+        (n) =>
+          n.name.toLowerCase().includes(needle) || n.description.toLowerCase().includes(needle),
+      )
+      // A name match is what the reader almost always meant; a description match
+      // is the fallback that finds a memory whose slug you cannot remember.
+      .sort((a, b) => {
+        const an = a.name.toLowerCase().includes(needle) ? 0 : 1;
+        const bn = b.name.toLowerCase().includes(needle) ? 0 : 1;
+        return an - bn || a.name.localeCompare(b.name);
+      })
+      .slice(0, JUMP_LIMIT)
+      .map((n) => ({
+        name: n.name,
+        description: n.description,
+        colour: this.colourFor(n),
+        visited: walked.has(n.name),
+      }));
+  });
+
+  private camera: Camera = {
+    yaw: 0.6,
+    pitch: -0.25,
+    distance: 900,
+    zoom: 1,
+    target: { x: 0, y: 0, z: 0 },
+  };
   private layout: Layout | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
   private placed: Placed[] = [];
@@ -144,7 +265,7 @@ export class GraphView {
   private height = 0;
   private running = false;
   private dirty = false;
-  /** Whether the camera has framed the settled layout yet. */
+  /** Whether the camera has framed the graph at all yet. */
   private fitted = false;
   /** Once the reader zooms by hand, stop re-framing under them. */
   private userZoomed = false;
@@ -229,9 +350,6 @@ export class GraphView {
     canvas.width = Math.max(1, Math.round(rect.width * dpr));
     canvas.height = Math.max(1, Math.round(rect.height * dpr));
     this.ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
-    // Re-frame for the new canvas size, unless the reader has chosen a zoom —
-    // silently undoing their zoom on an orientation change would be worse.
-    if (this.fitted && !this.userZoomed) this.fit();
     this.requestDraw();
   }
 
@@ -259,21 +377,11 @@ export class GraphView {
       stepLayout(layout);
       moving = true;
     }
-    // Frame the graph on every frame it is still moving, not once when it stops.
-    //
-    // Fitting only on settle meant the camera sat at its initial zoom of 1 for
-    // the whole simulation — 259 steps, about 4.3 seconds at 60fps — while the
-    // graph expanded past the edges, and then snapped to the fitted zoom (0.537
-    // on the live corpus) in a single frame. It read as the view being broken and
-    // then correcting itself. Re-fitting continuously makes that same change a
-    // gradual zoom-out that tracks the layout as it spreads.
-    //
-    // Cheap: boundingRadius is one pass over ~350 nodes, against a step that
-    // already does the pairwise force loop.
-    if (!this.userZoomed && (moving || !this.fitted)) {
-      this.fit();
-    }
-    if (this.spin() && !this.dragging) {
+    if (this.frame()) moving = true;
+    // Spin is for reading structure, and it stops once the reader is reading
+    // something specific: labels sliding out from under the memory you just
+    // walked to are worse than a still picture.
+    if (this.spin() && !this.dragging && !this.selected()) {
       this.camera.yaw += 0.0016;
       moving = true;
     }
@@ -285,6 +393,58 @@ export class GraphView {
       this.running = false;
     }
   };
+
+  /**
+   * Move the camera toward what it should be looking at. Returns whether it is
+   * still travelling.
+   *
+   * The first framing snaps, every later one eases. Snapping the first is what
+   * stops the load reading as a bug: the camera starts at zoom 1, the settled
+   * corpus needs about 0.54, and easing that gap on the first frame shows a
+   * clipped close-up that then pulls back — which is exactly the "starts zoomed
+   * in, zooms out a few seconds later" this view used to do.
+   */
+  private frame(): boolean {
+    const layout = this.layout;
+    if (!layout || this.width === 0) return false;
+    const goal = frameFor(
+      layout,
+      this.selected()?.name ?? null,
+      this.lit(),
+      this.width,
+      this.height,
+      FIT_MARGIN,
+    );
+    const cam = this.camera;
+
+    if (!this.fitted) {
+      this.fitted = true;
+      cam.target = goal.target;
+      cam.zoom = goal.zoom;
+      return true;
+    }
+
+    const dx = goal.target.x - cam.target.x;
+    const dy = goal.target.y - cam.target.y;
+    const dz = goal.target.z - cam.target.z;
+    cam.target = {
+      x: cam.target.x + dx * CAMERA_EASE,
+      y: cam.target.y + dy * CAMERA_EASE,
+      z: cam.target.z + dz * CAMERA_EASE,
+    };
+    let travelling = Math.hypot(dx, dy, dz) > TARGET_EPSILON;
+
+    // A hand zoom is left alone — but only the zoom. Re-centring on the memory
+    // the reader just walked to is the whole gesture, and refusing to do it
+    // because they had scrolled earlier would strand them looking at the
+    // previous one.
+    if (!this.userZoomed) {
+      const ratio = goal.zoom / cam.zoom;
+      cam.zoom += (goal.zoom - cam.zoom) * CAMERA_EASE;
+      if (Math.abs(ratio - 1) > ZOOM_EPSILON) travelling = true;
+    }
+    return travelling;
+  }
 
   private colourFor(node: GraphNode): string {
     if (node.section === null) return UNSECTIONED_COLOUR;
@@ -300,6 +460,7 @@ export class GraphView {
     ctx.clearRect(0, 0, this.width, this.height);
     const hidden = this.hiddenSections();
     const lit = this.lit();
+    const isolate = lit !== null && this.isolate();
     const selected = this.selected();
     const hovered = this.hovered();
 
@@ -308,6 +469,11 @@ export class GraphView {
     for (let i = 0; i < graph.nodes.length; i++) {
       const node = graph.nodes[i];
       if (hidden.has(node.section)) continue;
+      const isLit = lit === null || lit.has(node.name);
+      // Isolating is not the same as dimming. The camera flies in close on a
+      // walk, so the memories that are merely *near* the one being read are
+      // drawn large — as unexplained blobs behind the thing you asked for.
+      if (isolate && !isLit) continue;
       const p = project(layout.nodes[i].pos, this.camera, this.width, this.height);
       const degree = node.in_degree + node.out_degree;
       // Weighted toward degree, not body length: how connected a memory is says
@@ -321,7 +487,7 @@ export class GraphView {
         depth: p.depth,
         radius: Math.max(1.2, radius),
         colour: this.colourFor(node),
-        lit: lit === null || lit.has(node.name),
+        lit: isLit,
       };
       placed.push(entry);
       screen.set(node.name, entry);
@@ -464,9 +630,9 @@ export class GraphView {
     this.lastPointer = null;
     if (wasDrag) return;
     const found = this.hit(event.clientX - rect.left, event.clientY - rect.top);
-    // Clicking empty space clears the focus — the way out of a walk.
-    this.selected.set(found);
-    this.requestDraw();
+    // Clicking empty space clears the walk — the way out.
+    if (found) this.walkTo(found.name);
+    else this.clearSelection();
   }
 
   onWheel(event: WheelEvent): void {
@@ -478,12 +644,31 @@ export class GraphView {
     this.requestDraw();
   }
 
-  /** Frame the settled graph in the current canvas. */
-  private fit(): void {
-    const layout = this.layout;
-    if (!layout || this.width === 0) return;
-    this.fitted = true;
-    this.camera.zoom = fitZoom(boundingRadius(layout), this.width, this.height, FIT_MARGIN);
+  /**
+   * Take one step of the walk.
+   *
+   * Arriving somewhere already on the trail rewinds to it rather than appending.
+   * Two memories that cite each other are one tap apart, so an appending trail
+   * would grow an unbounded there-and-back-again of the same two names and the
+   * back button would replay it one step at a time.
+   */
+  walkTo(name: string): void {
+    if (!this.byName().has(name)) return;
+    const trail = this.trail();
+    const at = trail.indexOf(name);
+    this.trail.set(at === -1 ? [...trail, name] : trail.slice(0, at + 1));
+    // A deliberate move re-earns the right to frame the picture: the reader
+    // asked to go somewhere, and leaving them at a hand-set zoom that no longer
+    // shows it would be obeying the letter of "don't re-frame under them".
+    this.userZoomed = false;
+    this.jump.set('');
+    this.ensureLoop();
+  }
+
+  back(): void {
+    this.trail.set(this.trail().slice(0, -1));
+    this.userZoomed = false;
+    this.ensureLoop();
   }
 
   toggleSection(key: string | null): void {
@@ -502,14 +687,27 @@ export class GraphView {
     if (on) this.ensureLoop();
   }
 
+  setIsolate(on: boolean): void {
+    this.isolate.set(on);
+    this.ensureLoop();
+  }
+
   setDepth(depth: number): void {
     this.focusDepth.set(depth);
-    this.requestDraw();
+    this.ensureLoop();
   }
 
   clearSelection(): void {
-    this.selected.set(null);
-    this.requestDraw();
+    this.trail.set([]);
+    this.userZoomed = false;
+    this.ensureLoop();
+  }
+
+  /** The glyph for how a link between two memories was written. */
+  arrow(direction: LinkDirection): string {
+    if (direction === 'out') return 'arrow_forward';
+    if (direction === 'in') return 'arrow_back';
+    return 'sync_alt';
   }
 
   /** Re-heat the simulation — a settled layout can sit in a local minimum. */

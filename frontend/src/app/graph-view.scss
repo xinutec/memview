@@ -142,3 +142,148 @@
     color: var(--mat-sys-on-surface-variant);
   }
 }
+
+.jump {
+  width: 100%;
+  margin-top: 12px;
+}
+
+.trail {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 12px;
+
+  ol {
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin: 0;
+    padding: 0 0 4px;
+    // The walk is kept whole rather than collapsed to the last few steps: how
+    // you arrived is half of what a path through the corpus tells you. It
+    // scrolls sideways instead, so a long walk costs width and not history.
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  li::after {
+    content: '›';
+    margin-inline-start: 4px;
+    color: var(--mat-sys-outline);
+  }
+
+  li:last-child::after {
+    content: none;
+  }
+
+  button {
+    // Long snake_case names must not wrap mid-crumb; the row scrolls instead.
+    white-space: nowrap;
+    padding: 4px 8px;
+    border: none;
+    border-radius: 8px;
+    background: var(--mat-sys-surface-container-high);
+    color: var(--mat-sys-on-surface-variant);
+    font: var(--mat-sys-label-large);
+    cursor: pointer;
+
+    &:hover {
+      background: var(--mat-sys-secondary-container);
+    }
+
+    // Where the reader is standing. Marked, but still a button — tapping it is
+    // a harmless no-op, and greying it out would read as "this step failed".
+    &.here {
+      background: var(--mat-sys-primary);
+      color: var(--mat-sys-on-primary);
+    }
+  }
+}
+
+.hops-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font: var(--mat-sys-title-small);
+  margin: 16px 0 4px;
+
+  .count {
+    font: var(--mat-sys-label-small);
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+.hops {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  > li > button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px;
+    border: none;
+    border-radius: 8px;
+    background: none;
+    color: inherit;
+    text-align: start;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--mat-sys-surface-container-high);
+    }
+
+    // Somewhere the walk has already been. Dimmed rather than hidden: a link
+    // back to where you came from is a fact about the corpus, and removing it
+    // would misdescribe the neighbourhood.
+    &.visited .name {
+      color: var(--mat-sys-on-surface-variant);
+    }
+  }
+
+  .swatch {
+    flex: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+  }
+
+  .who {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .name {
+    display: block;
+    font: var(--mat-sys-body-medium);
+    overflow-wrap: anywhere;
+  }
+
+  .desc {
+    display: block;
+    font: var(--mat-sys-body-small);
+    color: var(--mat-sys-on-surface-variant);
+    overflow-wrap: anywhere;
+  }
+
+  .way {
+    flex: none;
+    color: var(--mat-sys-outline);
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+  }
+
+  .empty {
+    font: var(--mat-sys-body-small);
+    color: var(--mat-sys-on-surface-variant);
+    padding: 8px;
+  }
+}

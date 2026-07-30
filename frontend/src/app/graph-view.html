@@ -18,13 +18,61 @@
     zoom, tap a memory to walk from it
   </p>
 
+  <mat-form-field appearance="outline" subscriptSizing="dynamic" class="jump">
+    <mat-icon matPrefix>my_location</mat-icon>
+    <input matInput placeholder="Walk to a memory" name="jump" [(ngModel)]="jump" />
+    @if (jump()) {
+      <button matSuffix mat-icon-button type="button" (click)="jump.set('')" aria-label="Clear">
+        <mat-icon>close</mat-icon>
+      </button>
+    }
+  </mat-form-field>
+
+  @if (jumpHits(); as hits) {
+    @if (hits.length) {
+      <ul class="hops">
+        @for (hit of hits; track hit.name) {
+          <li>
+            <button type="button" (click)="walkTo(hit.name)" [class.visited]="hit.visited">
+              <span class="swatch" [style.background]="hit.colour"></span>
+              <span class="who">
+                <span class="name">{{ hit.name }}</span>
+                <span class="desc">{{ hit.description }}</span>
+              </span>
+            </button>
+          </li>
+        }
+      </ul>
+    }
+  }
+
   <div class="controls">
     <mat-slide-toggle [checked]="spin()" (change)="setSpin($event.checked)">spin</mat-slide-toggle>
+    <mat-slide-toggle [checked]="isolate()" (change)="setIsolate($event.checked)">
+      isolate
+    </mat-slide-toggle>
     <button mat-button (click)="reheat()">
       <mat-icon>refresh</mat-icon>
       re-settle
     </button>
   </div>
+
+  @if (trail(); as walked) {
+    @if (walked.length) {
+      <nav class="trail" aria-label="Walk so far">
+        <button mat-icon-button (click)="back()" aria-label="Back one step">
+          <mat-icon>arrow_back</mat-icon>
+        </button>
+        <ol>
+          @for (name of walked; track name) {
+            <li>
+              <button type="button" [class.here]="$last" (click)="walkTo(name)">{{ name }}</button>
+            </li>
+          }
+        </ol>
+      </nav>
+    }
+  }
 
   @if (selected(); as node) {
     <div class="focus">
@@ -55,6 +103,39 @@
         <a mat-flat-button [routerLink]="['/m', node.name]">Open</a>
         <button mat-button (click)="clearSelection()">Show all</button>
       </div>
+
+      @if (neighbours(); as hops) {
+        <h3 class="hops-title">
+          one hop away
+          <span class="count">{{ hops.length }}</span>
+        </h3>
+        <ul class="hops">
+          @for (hop of hops; track hop.name) {
+            <li>
+              <button type="button" (click)="walkTo(hop.name)" [class.visited]="hop.visited">
+                <span class="swatch" [style.background]="hop.colour"></span>
+                <span class="who">
+                  <span class="name">{{ hop.name }}</span>
+                  <span class="desc">{{ hop.description }}</span>
+                </span>
+                <mat-icon
+                  class="way"
+                  [attr.aria-label]="
+                    hop.direction === 'out'
+                      ? 'cited by this memory'
+                      : hop.direction === 'in'
+                        ? 'cites this memory'
+                        : 'cite each other'
+                  "
+                  >{{ arrow(hop.direction) }}</mat-icon
+                >
+              </button>
+            </li>
+          } @empty {
+            <li class="empty">Links to nothing, and nothing links here.</li>
+          }
+        </ul>
+      }
     </div>
   }
 
