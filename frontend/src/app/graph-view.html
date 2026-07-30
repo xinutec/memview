@@ -153,6 +153,37 @@
           }
         </ul>
       }
+
+      @if (companions(); as also) {
+        @if (also.length) {
+          <h3 class="hops-title">
+            used together with
+            <span class="count">{{ also.length }}</span>
+          </h3>
+          <p class="legend-note">
+            Not from the links — from the sessions. Dashed in the picture above.
+          </p>
+          <ul class="hops">
+            @for (mate of also; track mate.name) {
+              <li>
+                <button type="button" (click)="walkTo(mate.name)" [class.visited]="mate.visited">
+                  <span class="swatch" [style.background]="mate.colour"></span>
+                  <span class="who">
+                    <span class="name">
+                      {{ mate.name }}
+                      @if (!mate.linked) {
+                        <span class="claim unwritten">not linked</span>
+                      }
+                    </span>
+                    <span class="desc">{{ mate.description }}</span>
+                  </span>
+                  <span class="count">{{ mate.sessions }}</span>
+                </button>
+              </li>
+            }
+          </ul>
+        }
+      }
     </div>
   }
 

@@ -26,6 +26,7 @@ import {
   UNSECTIONED_COLOUR,
   bridges,
   clusterLevels,
+  companionsOf,
   createLayout,
   frameFor,
   neighbourhood,
@@ -77,10 +78,15 @@ const READABLE_CLUSTERS = 20;
  * answer, and each is a different reading of one picture rather than a
  * different picture.
  */
-export type Metric = 'use' | 'edits' | 'age' | 'links';
+export type Metric = 'use' | 'reads' | 'edits' | 'age' | 'links';
 
 export const METRICS: readonly { key: Metric; label: string; hint: string }[] = [
   { key: 'use', label: 'used', hint: 'bigger = came up in more separate sessions' },
+  {
+    key: 'reads',
+    label: 'opened',
+    hint: 'bigger = deliberately opened more often; small = only ever came up in passing',
+  },
   { key: 'edits', label: 'edited', hint: 'bigger = rewritten more often' },
   { key: 'age', label: 'fresh', hint: 'bigger = used recently; small = long untouched' },
   { key: 'links', label: 'linked', hint: 'bigger = more links in and out' },
@@ -119,6 +125,19 @@ interface NeighbourRow extends MemoryRow {
   relation: string | null;
 }
 
+/**
+ * A memory the work keeps using alongside this one.
+ *
+ * No direction, because there is none to have — co-use is symmetric, and giving
+ * it an arrow would dress a correlation up as a claim somebody made.
+ */
+interface CompanionRow extends MemoryRow {
+  /** Sessions both were used in — the evidence, shown rather than the npmi. */
+  sessions: number;
+  /** The corpus links them too, so this is corroboration, not a discovery. */
+  linked: boolean;
+}
+
 interface Placed {
   node: GraphNode;
   x: number;
@@ -127,6 +146,8 @@ interface Placed {
   radius: number;
   colour: string;
   lit: boolean;
+  /** Reached by co-use rather than by a link — drawn, but not as structure. */
+  companion: boolean;
 }
 
 /**
@@ -345,6 +366,37 @@ export class GraphView {
     });
   });
 
+  /**
+   * Where the work goes from here, as opposed to where the links say it can.
+   *
+   * Kept beside the neighbours rather than merged into them. The two lists
+   * disagreeing is the whole point — 71% of the mined pairs cross a region
+   * boundary drawn from written links — and a single merged list would hide
+   * which of the two knew about a given memory.
+   */
+  readonly companions = computed<CompanionRow[]>(() => {
+    const graph = this.data();
+    const here = this.selected();
+    if (!graph || !here) return [];
+    const walked = new Set(this.trail());
+    return companionsOf(graph.affinities ?? [], graph.edges, here.name).map((c) => {
+      const node = this.byName().get(c.name);
+      return {
+        name: c.name,
+        sessions: c.sessions,
+        linked: c.linked,
+        description: node?.description ?? 'not written yet',
+        colour: node ? this.colourFor(node) : UNSECTIONED_COLOUR,
+        visited: walked.has(c.name),
+      };
+    });
+  });
+
+  /** Companions of where the reader stands — drawn even when the links don't reach them. */
+  private readonly companionNames = computed<ReadonlySet<string>>(
+    () => new Set(this.companions().map((c) => c.name)),
+  );
+
   private camera: Camera = {
     yaw: 0.6,
     pitch: -0.25,
@@ -539,6 +591,12 @@ export class GraphView {
       cluster === null
         ? (this.selected()?.name ?? null)
         : (this.clusters().find((c) => c.index === cluster)?.core ?? null);
+    // Framed on the link neighbourhood alone, deliberately excluding companions
+    // — and measured rather than assumed: 89% of them land on the canvas anyway
+    // (graph-report), so widening the frame to guarantee the last 11% would
+    // trade the close-in view that makes a step legible for very little. A dash
+    // running off the edge is itself the signal that the work reaches somewhere
+    // far away, and the list below the canvas names every one of them.
     const goal = frameFor(layout, centre, this.lit(), this.width, this.height, FIT_MARGIN);
     const cam = this.camera;
 
@@ -582,9 +640,11 @@ export class GraphView {
   /**
    * How big a memory should be drawn, in 0..1, under the current reading.
    *
-   * Never zero: a memory that has never been used, never edited and links to
-   * nothing is still there, and shrinking it to invisibility would answer the
-   * question by hiding it. It draws small, which is the honest depiction.
+   * May be zero, but a zero still draws: the radius has a floor of 1.6 world
+   * units before this scales it, because a memory that has never been used,
+   * never edited and links to nothing is still there, and shrinking it to
+   * invisibility would answer the question by hiding it. It draws small, which
+   * is the honest depiction.
    *
    * Falls back to links whenever nothing has been mined, so the picture on a
    * machine with no transcripts is the old one rather than a field of identical
@@ -602,6 +662,14 @@ export class GraphView {
       // Sessions, not turns. A memory hammered for one week and never touched
       // again would otherwise outrank one consulted quietly every week.
       return Math.min(1, Math.sqrt(usage.sessions) / 3.6);
+    }
+    if (metric === 'reads') {
+      // Deliberate opens, which is a different question from "came up" and has
+      // a very different shape: 48% of the live corpus has never been opened at
+      // all, and 31 memories come up in five or more sessions without one. That
+      // half-empty picture IS the answer — a memory the work only ever mentions
+      // in passing is one nobody has checked.
+      return Math.min(1, Math.sqrt(usage.reads) / 5.5);
     }
     if (metric === 'edits') {
       return Math.min(1, Math.log10(1 + usage.edits) / 2.1);
@@ -672,12 +740,19 @@ export class GraphView {
     const selected = this.selected();
     const hovered = this.hovered();
 
+    // Co-use partners survive isolation even though no link reaches them. That
+    // is the entire claim being made — "the work keeps opening these together
+    // and nothing in the corpus says why" — and it cannot be made by a picture
+    // that only ever draws what the links already found.
+    const companions = this.companionNames();
+
     const placed: Placed[] = [];
     const screen = new Map<string, Placed>();
     for (let i = 0; i < graph.nodes.length; i++) {
       const node = graph.nodes[i];
       const isLit = lit === null || lit.has(node.name);
-      if (isolate && !isLit) continue;
+      const isCompanion = !isLit && companions.has(node.name);
+      if (isolate && !isLit && !isCompanion) continue;
       const p = project(layout.nodes[i].pos, this.camera, this.width, this.height);
       const radius = (1.6 + this.weight(node) * 4.2) * p.scale;
       const entry: Placed = {
@@ -688,6 +763,7 @@ export class GraphView {
         radius: Math.max(1.2, radius),
         colour: this.colourFor(node),
         lit: isLit,
+        companion: isCompanion,
       };
       placed.push(entry);
       screen.set(node.name, entry);
@@ -711,13 +787,18 @@ export class GraphView {
       ctx.stroke();
     }
 
+    this.drawCoUse(ctx, screen, selected);
+
     for (const entry of placed) {
       // Fog: distant nodes fade, which is most of what reads as depth on a flat
       // screen once the picture stops moving. Measured against the CURRENT
       // camera distance, not a constant — a fixed 900 stopped varying with zoom
       // and the picture read as a flat scatter.
       const fog = Math.max(0.12, Math.min(1, this.camera.distance / entry.depth));
-      ctx.globalAlpha = entry.lit ? fog : fog * 0.12;
+      // A companion is dimmer than the neighbourhood but nothing like as dim as
+      // an unrelated node: it is being shown on purpose, on weaker evidence.
+      const strength = entry.lit ? 1 : entry.companion ? 0.7 : 0.12;
+      ctx.globalAlpha = fog * strength;
       ctx.fillStyle = entry.colour;
       ctx.beginPath();
       ctx.arc(entry.x, entry.y, entry.radius, 0, Math.PI * 2);
@@ -738,6 +819,41 @@ export class GraphView {
   }
 
   /**
+   * Dash a line from where the reader stands to everything used alongside it.
+   *
+   * Dashed, and only ever from the selected memory. Dashed because a solid line
+   * would read as the same kind of fact as a link, and it is not one — a link is
+   * a claim somebody wrote down, this is a habit inferred from thirteen
+   * sessions. Only from the selection because the mined pairs are corpus-wide:
+   * drawing all 605 at once would bury the links under a second, denser graph
+   * that answers a question nobody asked.
+   */
+  private drawCoUse(
+    ctx: CanvasRenderingContext2D,
+    screen: ReadonlyMap<string, Placed>,
+    selected: GraphNode | null,
+  ): void {
+    if (!selected) return;
+    const from = screen.get(selected.name);
+    if (!from) return;
+    ctx.save();
+    ctx.setLineDash([3, 4]);
+    ctx.globalAlpha = 0.5;
+    for (const companion of this.companions()) {
+      const to = screen.get(companion.name);
+      if (!to) continue;
+      // In the companion's own colour, so a dash leaving the region says where
+      // it went — most of them do leave, which is what makes them worth drawing.
+      ctx.strokeStyle = to.colour;
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /**
    * Label the landmarks, nearest first, skipping any label that would collide
    * with one already drawn or run off the canvas.
    *
@@ -755,14 +871,17 @@ export class GraphView {
   ): void {
     const plan = planLabels(
       placed
-        .filter((e) => e.lit || e.node === selected || e.node === hovered)
+        .filter((e) => e.lit || e.companion || e.node === selected || e.node === hovered)
         .map((e) => ({
           name: e.node.name,
           x: e.x,
           y: e.y,
           radius: e.radius,
           degree: e.node.in_degree + e.node.out_degree,
-          pinned: e.node === selected || e.node === hovered,
+          // A companion is pinned: it was drawn to be identified, and a dash
+          // leading to an anonymous dot somewhere off in another region is
+          // strictly worse than not drawing it.
+          pinned: e.companion || e.node === selected || e.node === hovered,
         })),
       (text) => ctx.measureText(text).width,
       this.width,

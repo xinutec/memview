@@ -289,6 +289,53 @@ function affinityPull() {
 const pull = affinityPull();
 
 /**
+ * Whether the dashed co-use layer is worth drawing, on the two grounds it could
+ * fail on.
+ *
+ * It is redundant if the companions are the same memories the links already
+ * reach — then every dash lies on top of an edge and says nothing. And it is
+ * illegible if, with the camera framed on the link neighbourhood, the
+ * companions land off the canvas — then the reader gets a dash running to
+ * nowhere. Neither is visible in a screenshot of a picture that looks fine.
+ *
+ * Measured across every memory that has companions at all, not on one focus:
+ * the busiest memory is the least representative, since it is the one whose
+ * links already reach everywhere.
+ */
+function coUseReach() {
+  if (affinities.length === 0) return null;
+  let total = 0;
+  let beyondLinks = 0;
+  let onCanvasCount = 0;
+  let withCompanions = 0;
+  for (const input of inputs) {
+    const mates = layout.companionsOf(affinities, graph.edges, input.name);
+    if (mates.length === 0) continue;
+    withCompanions++;
+    const lit = layout.neighbourhood(graph.edges, names, input.name, 1);
+    const framing = layout.frameFor(state, input.name, lit, WIDTH, HEIGHT);
+    const cam = { ...camera, zoom: framing.zoom, target: framing.target };
+    for (const mate of mates) {
+      total++;
+      if (!mate.linked) beyondLinks++;
+      const at = state.nodes[state.index.get(mate.name)];
+      if (!at) continue;
+      const p = layout.project(at.pos, cam, WIDTH, HEIGHT);
+      if (p.x >= 0 && p.x <= WIDTH && p.y >= 0 && p.y <= HEIGHT) onCanvasCount++;
+    }
+  }
+  if (total === 0) return null;
+  return {
+    withCompanions,
+    median: Number((total / withCompanions).toFixed(1)),
+    beyondLinks: beyondLinks / total,
+    visible: onCanvasCount / total,
+  };
+}
+
+const reach = coUseReach();
+
+/**
  * How far the clusters found in the links agree with the curated index.
  *
  * Reported, not gated. A low number is not a defect in either one — it is the
@@ -345,6 +392,10 @@ const report = {
   affinityPull: pull
     ? `${pull.ratio.toFixed(2)}x vs the same graph without them, over ${pull.pairs} pairs`
     : 'none',
+  coUseMemories: reach ? reach.withCompanions : 0,
+  coUsePerMemory: reach ? reach.median : 0,
+  coUseUnlinked: reach ? `${(reach.beyondLinks * 100).toFixed(0)}%` : 'n/a',
+  coUseVisible: reach ? `${(reach.visible * 100).toFixed(0)}% land on the focused canvas` : 'n/a',
 };
 
 for (const [k, v] of Object.entries(report)) {
@@ -396,6 +447,15 @@ if (pull && pull.ratio > 0.95) {
   problems.push(
     `affinities move co-used memories to ${pull.ratio.toFixed(2)}x where they sit without them `
       + '— the second force is inert',
+  );
+}
+// The dashed layer earns its ink by showing something the links do not. If
+// almost every companion is already a link neighbour, every dash lies on top of
+// an edge and the layer is decoration.
+if (reach && reach.beyondLinks < 0.2) {
+  problems.push(
+    `only ${(reach.beyondLinks * 100).toFixed(0)}% of co-use pairs go beyond the links `
+      + '— the dashed layer is drawing what the edges already drew',
   );
 }
 if (pull && pull.ratio < 0.15) {

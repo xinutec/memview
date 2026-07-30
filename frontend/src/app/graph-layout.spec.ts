@@ -4,6 +4,7 @@ import {
   boundingRadius,
   bridges,
   clusterLevels,
+  companionsOf,
   createLayout,
   Edge,
   fitZoom,
@@ -273,6 +274,59 @@ describe('neighboursOf', () => {
 
   it('gives nothing for a memory nothing links to', () => {
     expect(neighboursOf(EDGES, 'reference_lonely')).toEqual([]);
+  });
+});
+
+describe('companionsOf', () => {
+  const affinities = [
+    { a: 'project_a', b: 'reference_x', npmi: 0.4, sessions: 5 },
+    { a: 'feedback_rule', b: 'project_a', npmi: 0.9, sessions: 8 },
+    { a: 'project_b', b: 'reference_y', npmi: 0.7, sessions: 4 },
+  ];
+
+  it('finds a pair from either end, since co-use has no direction', () => {
+    // project_a is `a` in one row and `b` in the other. Reading only one field
+    // would show the habit to one of the two memories and hide it from the
+    // other, which is the bug this exists to prevent.
+    expect(companionsOf(affinities, [], 'project_a').map((c) => c.name)).toEqual([
+      'feedback_rule',
+      'reference_x',
+    ]);
+  });
+
+  it('marks whether the corpus already links the pair', () => {
+    const linked: Edge[] = [{ source: 'feedback_rule', target: 'project_a', relation: 'governs' }];
+    const found = companionsOf(affinities, linked, 'project_a');
+    expect(found.map((c) => [c.name, c.linked])).toEqual([
+      ['feedback_rule', true],
+      ['reference_x', false],
+    ]);
+  });
+
+  it('carries the support, not only the strength', () => {
+    expect(companionsOf(affinities, [], 'reference_y')).toEqual([
+      { name: 'project_b', npmi: 0.7, sessions: 4, linked: false },
+    ]);
+  });
+
+  it('orders equal strengths by name, so the list does not reshuffle', () => {
+    const tied = [
+      { a: 'root', b: 'zeta', npmi: 0.5, sessions: 3 },
+      { a: 'root', b: 'alpha', npmi: 0.5, sessions: 3 },
+    ];
+    expect(companionsOf(tied, [], 'root').map((c) => c.name)).toEqual(['alpha', 'zeta']);
+  });
+
+  it('reports no support rather than guessing when the miner gave none', () => {
+    expect(companionsOf([{ a: 'root', b: 'other', npmi: 0.5 }], [], 'root')[0].sessions).toBe(0);
+  });
+
+  it('ignores a pair of one memory with itself', () => {
+    expect(companionsOf([{ a: 'root', b: 'root', npmi: 1 }], [], 'root')).toEqual([]);
+  });
+
+  it('gives nothing for a memory nothing was ever used alongside', () => {
+    expect(companionsOf(affinities, [], 'project_lonely')).toEqual([]);
   });
 });
 

@@ -338,3 +338,12 @@
   font: var(--mat-sys-label-small);
   vertical-align: middle;
 }
+
+// A pair the work keeps using that the corpus never linked. Outlined rather
+// than filled: it marks an absence, so it should not look like a badge the
+// memory earned.
+.hops .claim.unwritten {
+  background: none;
+  border: 1px solid var(--mat-sys-outline);
+  color: var(--mat-sys-on-surface-variant);
+}

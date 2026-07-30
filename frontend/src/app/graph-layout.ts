@@ -67,6 +67,8 @@ export interface Affinity {
   readonly b: string;
   /** Normalised mutual information, ~0..1. Scales the pull. */
   readonly npmi: number;
+  /** Distinct sessions both were used in — the support behind the npmi. */
+  readonly sessions?: number;
 }
 
 export interface Edge {
@@ -568,6 +570,59 @@ export function neighboursOf(edges: readonly Edge[], root: string): Neighbour[] 
   return [...seen]
     .map(([name, direction]) => ({ name, direction, relation: claims.get(name) ?? null }))
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * A memory the work keeps reaching for alongside another one.
+ *
+ * The counterpart of {@link Neighbour}: a neighbour is somewhere the corpus says
+ * you can go, a companion is somewhere the work kept going anyway. Whether the
+ * two agree is the interesting part, so {@link Companion.linked} is carried
+ * rather than used to filter — a habit nobody wrote down is exactly the case
+ * worth surfacing, and one that was written down is corroboration.
+ */
+export interface Companion {
+  readonly name: string;
+  /** Normalised mutual information — how much more than chance. */
+  readonly npmi: number;
+  /** Distinct sessions behind it; 0 when the miner did not report support. */
+  readonly sessions: number;
+  /** The corpus already links these two, in either direction. */
+  readonly linked: boolean;
+}
+
+/**
+ * Every memory used together with `root`, strongest first.
+ *
+ * Affinities are stored once per unordered pair, so both ends have to be
+ * checked — reading only `a` would silently show the habit to one of the two
+ * memories involved and hide it from the other.
+ */
+export function companionsOf(
+  affinities: readonly Affinity[],
+  edges: readonly Edge[],
+  root: string,
+): Companion[] {
+  const linked = new Set<string>();
+  for (const edge of edges) {
+    if (edge.source === root) linked.add(edge.target);
+    if (edge.target === root) linked.add(edge.source);
+  }
+  const found: Companion[] = [];
+  for (const affinity of affinities) {
+    const other =
+      affinity.a === root ? affinity.b : affinity.b === root ? affinity.a : null;
+    if (other === null || other === root) continue;
+    found.push({
+      name: other,
+      npmi: affinity.npmi,
+      sessions: affinity.sessions ?? 0,
+      linked: linked.has(other),
+    });
+  }
+  // Name breaks the tie, so equal-strength companions keep a stable order
+  // across visits rather than following the artefact's row order.
+  return found.sort((a, b) => b.npmi - a.npmi || a.name.localeCompare(b.name));
 }
 
 /**
