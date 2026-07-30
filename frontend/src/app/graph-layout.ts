@@ -364,6 +364,9 @@ const EDGE_MARGIN = 4;
 /** Gap between a node's circle and its text. */
 const LABEL_GAP = 4;
 
+/** Vertical step when a label cannot sit on its node's own line. */
+const LABEL_LINE = 16;
+
 /** A node that could be labelled, already projected to screen coordinates. */
 export interface LabelCandidate {
   readonly name: string;
@@ -437,25 +440,55 @@ export function planLabels(
   let offCanvas = 0;
   let collided = 0;
 
+  const overlaps = (box: { x: number; y: number; w: number; h: number }): boolean =>
+    boxes.some(
+      (d) => box.x < d.x + d.w && box.x + box.w > d.x && box.y < d.y + d.h && box.y + box.h > d.y,
+    );
+
   for (const entry of queue) {
     const width = measure(entry.name);
     const gap = entry.radius + LABEL_GAP;
-    const flipped = entry.x + gap + width > canvasWidth - EDGE_MARGIN;
-    const x = flipped ? entry.x - gap - width : entry.x + gap;
-    if (x < EDGE_MARGIN) {
-      offCanvas++;
+
+    // Six placements, in falling order of preference: beside the node first,
+    // then a line above or below on either side.
+    //
+    // Trying only two — right, else flipped left — threw away half the budget on
+    // the live corpus: 5 of 10 labels drawn, 5 lost to collisions, because the
+    // highest-degree nodes are the ones clustered together and so are exactly the
+    // ones whose labels compete. A line's offset is small enough that the label
+    // still reads as belonging to its node, and recovers most of them.
+    let placed: PlacedLabel | null = null;
+    for (const dy of [0, -LABEL_LINE, LABEL_LINE]) {
+      for (const flipped of [false, true]) {
+        // Beside the node is preferred, but only where the text actually fits.
+        const wouldOverrun = entry.x + gap + width > canvasWidth - EDGE_MARGIN;
+        if (!flipped && wouldOverrun) continue;
+        const x = flipped ? entry.x - gap - width : entry.x + gap;
+        if (x < EDGE_MARGIN) continue;
+        const y = entry.y + dy;
+        const box = { x, y: y - LABEL_HALF_HEIGHT, w: width, h: LABEL_HALF_HEIGHT * 2 };
+        if (overlaps(box)) continue;
+        boxes.push(box);
+        placed = { name: entry.name, x, y, width, flipped };
+        break;
+      }
+      if (placed) break;
+    }
+
+    if (placed) {
+      drawn.push(placed);
       continue;
     }
-    const box = { x, y: entry.y - LABEL_HALF_HEIGHT, w: width, h: LABEL_HALF_HEIGHT * 2 };
-    const clash = boxes.some(
-      (d) => box.x < d.x + d.w && box.x + box.w > d.x && box.y < d.y + d.h && box.y + box.h > d.y,
-    );
-    if (clash) {
+    // Nothing fitted. Distinguish "no room on the canvas" from "every position
+    // was taken", because they call for different fixes — a wider margin versus
+    // a smaller budget.
+    const fitsSomewhere = entry.x + gap + width <= canvasWidth - EDGE_MARGIN
+      || entry.x - gap - width >= EDGE_MARGIN;
+    if (fitsSomewhere) {
       collided++;
-      continue;
+    } else {
+      offCanvas++;
     }
-    boxes.push(box);
-    drawn.push({ name: entry.name, x, y: entry.y, width, flipped });
   }
 
   return {

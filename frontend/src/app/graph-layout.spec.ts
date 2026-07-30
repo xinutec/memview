@@ -260,13 +260,33 @@ describe('planLabels', () => {
     expect(plan.drawn.map((l) => l.name)).toEqual(['hub', 'middling']);
   });
 
-  it('drops a label that would overprint one already placed', () => {
-    // Same y, overlapping x: the second cannot be drawn legibly.
+  it('moves a label that would overprint one already placed', () => {
+    // Same y, overlapping x. Dropping it was the old behaviour and it threw away
+    // half the budget on the live corpus, because the highest-degree nodes are
+    // exactly the ones clustered together.
     const nodes = [candidate('first', 20, 100, 10), candidate('second', 30, 100, 9)];
 
     const plan = planLabels(nodes, measure, 1000);
 
-    expect(plan.drawn.map((l) => l.name)).toEqual(['first']);
+    expect(plan.drawn.map((l) => l.name)).toEqual(['first', 'second']);
+    expect(plan.collided).toBe(0);
+    // The first keeps its node's own line; the second steps off it.
+    expect(plan.drawn[0].y).toBe(100);
+    expect(plan.drawn[1].y).not.toBe(100);
+  });
+
+  it('still counts a label with nowhere left to go', () => {
+    // Three labels stacked on one point exhaust the line above and below too.
+    const nodes = [
+      candidate('one', 20, 100, 10),
+      candidate('two', 22, 100, 9),
+      candidate('three', 24, 100, 8),
+      candidate('four', 26, 100, 7),
+    ];
+
+    const plan = planLabels(nodes, measure, 1000);
+
+    expect(plan.drawn.length).toBe(3);
     expect(plan.collided).toBe(1);
   });
 
@@ -310,7 +330,9 @@ describe('planLabels', () => {
     expect(plan.drawn.map((l) => l.name)).toContain('the_one_hovered');
   });
 
-  it('places a pinned node first, so nothing can crowd it out', () => {
+  it('places a pinned node first, so it keeps the best position', () => {
+    // Both get drawn now — the hub steps to another line — but the node the
+    // reader is pointing at is the one that keeps its own line.
     const nodes = [
       candidate('hub', 20, 100, 99),
       candidate('asked_about', 25, 100, 0, true),
@@ -319,7 +341,8 @@ describe('planLabels', () => {
     const plan = planLabels(nodes, measure, 1000);
 
     expect(plan.drawn[0].name).toBe('asked_about');
-    expect(plan.collided).toBe(1);
+    expect(plan.drawn[0].y).toBe(100);
+    expect(plan.drawn.map((l) => l.name)).toContain('hub');
   });
 
   it('reports nothing drawn for no candidates', () => {
