@@ -45,7 +45,15 @@ fi
 remote() { ssh "$HOST" "kubectl -n $NAMESPACE exec -i $DEPLOY -- $*"; }
 
 echo "pushing…"
-tar -C "$MEMORY_DIR" -czf - . | remote sh -c "'tar -C /corpus -xzf -'"
+# Files only, never the directory entry. `tar -c .` archives `./` itself, and
+# extracting that tries to restore the archive's mode and timestamps onto
+# /corpus — a mounted volume owned by the node, which the container's uid 65532
+# may not chmod. tar treats the refusal as fatal even though every file inside
+# extracted perfectly, so the sync "failed" with the corpus fully copied.
+#
+# --no-same-owner because a non-root extract cannot chown and should not try.
+( cd "$MEMORY_DIR" && find . -type f -print0 | tar --null -T - -czf - ) \
+  | remote sh -c "'tar -C /corpus -xzf - --no-same-owner'"
 
 # Prune what is no longer in the corpus. Without this a deleted memory would
 # live on in the viewer forever — and a memory gets deleted precisely when it
