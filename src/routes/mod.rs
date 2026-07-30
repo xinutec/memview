@@ -6,7 +6,8 @@ pub mod auth;
 use axum::Router;
 use axum::routing::{delete, get, post};
 use tower_http::services::{ServeDir, ServeFile};
-use tower_http::trace::TraceLayer;
+use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
+use tracing::Level;
 
 use crate::state::AppState;
 
@@ -44,8 +45,15 @@ pub fn router(state: AppState) -> Router {
     // running — no way to tell a slow corpus read from a client that gave up, or
     // to see a 401 storm from a stale cookie.
     //
-    // At debug rather than info: the corpus is re-read per request, so a browsing
-    // session is chatty, and a log that scrolls is one nobody reads. RUST_LOG is
-    // already set to `info,memview=debug` in the deployment.
-    app.layer(TraceLayer::new_for_http()).with_state(state)
+    // The levels are set explicitly rather than left at the defaults. TraceLayer
+    // logs under the `tower_http` target, and the deployment's filter is
+    // `info,memview=debug` — which raises *this crate* to debug and leaves
+    // tower_http at info. Taking the default DEBUG therefore shipped a layer that
+    // could never emit a line, in the name of adding observability. Responses at
+    // INFO make the useful half independent of a filter string maintained in a
+    // different repository.
+    let trace = TraceLayer::new_for_http()
+        .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+        .on_response(DefaultOnResponse::new().level(Level::INFO));
+    app.layer(trace).with_state(state)
 }
