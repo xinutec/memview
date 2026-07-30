@@ -198,6 +198,23 @@ test("graph — a walk: trail crumbs and hop list @ phone width", async ({ page 
   await expectNoHorizontalOverflow(page, testInfo, null, TRAIL_SCROLLER);
 });
 
+test("graph — a linked walk survives a cold load @ phone width", async ({ page }, testInfo) => {
+  await mockApi(page);
+  await page.goto(
+    "/graph?walk=project_health_verified_core_lean_0,project_health_verified_core_lean_3",
+  );
+  // Both crumbs, and the walk standing on the second one. The ordering this
+  // pins is the whole risk: the URL is read before the corpus arrives, and a
+  // walk checked against an empty graph drops every name it has and lands on
+  // an unfocused picture with no sign the link ever said otherwise.
+  await page.locator(".trail li").nth(1).waitFor();
+  await page
+    .getByRole("heading", { name: "project_health_verified_core_lean_3", exact: true })
+    .waitFor();
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo, null, TRAIL_SCROLLER);
+});
+
 /**
  * The graph is painted on a canvas, which is the one place the stylesheet does
  * not reach: an unparseable colour assigned to `fillStyle` is ignored in

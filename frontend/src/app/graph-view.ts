@@ -8,6 +8,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -16,7 +17,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatSliderModule } from '@angular/material/slider';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import {
   Camera,
@@ -129,6 +130,8 @@ interface Placed {
 })
 export class GraphView {
   private api = inject(MemviewApi);
+  private router = inject(Router);
+  private route = inject(ActivatedRoute);
   private host = inject<ElementRef<HTMLElement>>(ElementRef);
   private canvasRef = viewChild.required<ElementRef<HTMLCanvasElement>>('canvas');
 
@@ -274,8 +277,29 @@ export class GraphView {
   private lastPointer: { x: number; y: number } | null = null;
   private theme = { text: '#000', edge: 'rgba(0,0,0,0.15)', halo: '#fff' };
 
+  /**
+   * A walk read from the URL that has not been applied yet.
+   *
+   * The graph arrives asynchronously, and a walk names memories that only exist
+   * once it has. Applying the names against an empty corpus would silently drop
+   * every one of them and land the reader on an unfocused graph with no hint
+   * that their link had said otherwise.
+   */
+  private pendingWalk: readonly string[] | null = null;
+
   constructor() {
     const destroyRef = inject(DestroyRef);
+
+    // The walk lives in ?walk= so a path through the corpus can be linked, and
+    // so the browser's own back gesture — the one a phone reader will reach for
+    // — undoes a step rather than leaving the graph entirely.
+    this.route.queryParamMap.pipe(takeUntilDestroyed()).subscribe((params) => {
+      const walk = (params.get('walk') ?? '').split(',').filter(Boolean);
+      // Guard against the write below bouncing straight back in as a read.
+      if (walk.join(',') === this.trail().join(',')) return;
+      this.pendingWalk = walk;
+      this.applyWalk();
+    });
 
     this.api.graph().subscribe((graph) => {
       this.colours = new Map(graph.sections.map((s, i) => [s, sectionColour(i)]));
@@ -286,6 +310,7 @@ export class GraphView {
       );
       this.fitted = false;
       this.data.set(graph);
+      this.applyWalk();
       this.ensureLoop();
     });
 
@@ -652,23 +677,48 @@ export class GraphView {
    * would grow an unbounded there-and-back-again of the same two names and the
    * back button would replay it one step at a time.
    */
-  walkTo(name: string): void {
-    if (!this.byName().has(name)) return;
-    const trail = this.trail();
-    const at = trail.indexOf(name);
-    this.trail.set(at === -1 ? [...trail, name] : trail.slice(0, at + 1));
+  /** Take up a walk read from the URL, once there is a corpus to check it against. */
+  private applyWalk(): void {
+    const walk = this.pendingWalk;
+    if (walk === null || this.data() === null) return;
+    this.pendingWalk = null;
+    // A link can outlive the memory it names: a walk is written down once and
+    // the corpus is rewritten daily. Unknown names are dropped rather than
+    // rejecting the whole walk, so an old link still lands you as close to
+    // where it meant as the corpus still allows.
+    this.setTrail(walk.filter((name) => this.byName().has(name)));
+  }
+
+  private setTrail(walk: readonly string[]): void {
+    this.trail.set(walk);
     // A deliberate move re-earns the right to frame the picture: the reader
     // asked to go somewhere, and leaving them at a hand-set zoom that no longer
     // shows it would be obeying the letter of "don't re-frame under them".
     this.userZoomed = false;
-    this.jump.set('');
+    // Not awaited: the trail signal is already set, so the picture has moved —
+    // the navigation only records where it moved to. It resolves false when a
+    // faster second step supersedes it, which is the correct outcome and not
+    // something to recover from.
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      // null, not '': an empty value would leave a bare `?walk=` on the URL of
+      // a graph nobody is walking.
+      queryParams: { walk: walk.length ? walk.join(',') : null },
+      queryParamsHandling: 'merge',
+    });
     this.ensureLoop();
   }
 
+  walkTo(name: string): void {
+    if (!this.byName().has(name)) return;
+    const trail = this.trail();
+    const at = trail.indexOf(name);
+    this.setTrail(at === -1 ? [...trail, name] : trail.slice(0, at + 1));
+    this.jump.set('');
+  }
+
   back(): void {
-    this.trail.set(this.trail().slice(0, -1));
-    this.userZoomed = false;
-    this.ensureLoop();
+    this.setTrail(this.trail().slice(0, -1));
   }
 
   toggleSection(key: string | null): void {
@@ -698,9 +748,7 @@ export class GraphView {
   }
 
   clearSelection(): void {
-    this.trail.set([]);
-    this.userZoomed = false;
-    this.ensureLoop();
+    this.setTrail([]);
   }
 
   /** The glyph for how a link between two memories was written. */
