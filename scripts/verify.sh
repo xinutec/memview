@@ -27,6 +27,14 @@ nix develop -c bash -c '
   # really failed; a nonzero exit with a good bundle was the kqueue flake.
   test -s dist/memview-web/browser/index.html
   npm run ui-check
+
+  cd ..
+  # The graph layout, measured rather than looked at. Every bug this view has had
+  # was a picture that looked plausible — a zoom that was a silent no-op, labels
+  # that overprinted, sections that smeared into one ball — and none of them
+  # threw or failed a lint. These thresholds are the only gate that can catch the
+  # next one before it ships.
+  node scripts/graph-report.mjs
 '
 
 # Shared fleet rules over the whole repo (nix run, never result/bin — a pinned

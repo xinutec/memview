@@ -344,3 +344,124 @@ export function sectionColour(index: number): string {
 
 /** The colour for a memory with no `## section` — grey, and visibly not a hue. */
 export const UNSECTIONED_COLOUR = 'hsl(0 0% 60%)';
+
+/**
+ * How many landmark labels to draw at most.
+ *
+ * A budget rather than a degree cutoff. Degree is a property of the corpus, not
+ * of the picture, so as the corpus grows the same cutoff labels ever more nodes:
+ * at degree >= 10 the live corpus drew ~25 labels that collided into unreadable
+ * stacks. A fixed budget keeps the picture legible whatever the corpus does.
+ */
+export const LABEL_BUDGET = 10;
+
+/** Half the line box a label occupies, for collision purposes. */
+const LABEL_HALF_HEIGHT = 7;
+
+/** Keep text this far inside the canvas edge. */
+const EDGE_MARGIN = 4;
+
+/** Gap between a node's circle and its text. */
+const LABEL_GAP = 4;
+
+/** A node that could be labelled, already projected to screen coordinates. */
+export interface LabelCandidate {
+  readonly name: string;
+  readonly x: number;
+  readonly y: number;
+  readonly radius: number;
+  readonly degree: number;
+  /** Labelled whatever its degree — the node under the pointer, or the one
+   *  being walked from. Those are what the reader is asking about. */
+  readonly pinned: boolean;
+}
+
+export interface PlacedLabel {
+  readonly name: string;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  /** Drawn to the left of its node because the text would have run off. */
+  readonly flipped: boolean;
+}
+
+/**
+ * What labelling decided — including everything it decided against.
+ *
+ * The rejections are returned rather than discarded because they are the useful
+ * signal: a picture that silently drops nine labels in ten looks the same as one
+ * with nothing to say. `scripts/graph-report.mjs` reads these.
+ */
+export interface LabelPlan {
+  readonly drawn: readonly PlacedLabel[];
+  /** Dropped: the text ran off the canvas even after flipping to the left. */
+  readonly offCanvas: number;
+  /** Dropped: would have overprinted a label already placed. */
+  readonly collided: number;
+  /** Never considered — beyond the budget. */
+  readonly overBudget: number;
+}
+
+/**
+ * Choose which labels to draw and where.
+ *
+ * Pure, and separated from the canvas on purpose. This is the logic behind the
+ * worst bug the graph view has had — ~25 long snake_case names overprinting each
+ * other, several running off the right edge mid-word — and while it lived inside
+ * the drawing routine it could not be tested at all, because exercising it meant
+ * having a real `CanvasRenderingContext2D`.
+ *
+ * Text measurement stays with the caller as [measure]: only the canvas knows how
+ * wide a string renders in the current font, and inventing an approximation here
+ * would make the tests agree with a model of text rather than with text.
+ */
+export function planLabels(
+  candidates: readonly LabelCandidate[],
+  measure: (text: string) => number,
+  canvasWidth: number,
+  budget: number = LABEL_BUDGET,
+): LabelPlan {
+  // Pinned first, unconditionally — not merely "added if the budget was full",
+  // which is what this did while it lived in the drawing routine. A pinned node
+  // inside the budget was then placed in degree order, so a hub's label could
+  // collide with it and drop the very node the reader was pointing at. The
+  // comment there claimed these were labelled "whatever their degree"; they were
+  // only guaranteed to be *considered*, which is not the same promise.
+  const pinned = candidates.filter((c) => c.pinned);
+  const ranked = candidates.filter((c) => !c.pinned).sort((a, b) => b.degree - a.degree);
+  const considered = ranked.slice(0, budget);
+  const queue = [...pinned, ...considered];
+
+  const drawn: PlacedLabel[] = [];
+  const boxes: { x: number; y: number; w: number; h: number }[] = [];
+  let offCanvas = 0;
+  let collided = 0;
+
+  for (const entry of queue) {
+    const width = measure(entry.name);
+    const gap = entry.radius + LABEL_GAP;
+    const flipped = entry.x + gap + width > canvasWidth - EDGE_MARGIN;
+    const x = flipped ? entry.x - gap - width : entry.x + gap;
+    if (x < EDGE_MARGIN) {
+      offCanvas++;
+      continue;
+    }
+    const box = { x, y: entry.y - LABEL_HALF_HEIGHT, w: width, h: LABEL_HALF_HEIGHT * 2 };
+    const clash = boxes.some(
+      (d) => box.x < d.x + d.w && box.x + box.w > d.x && box.y < d.y + d.h && box.y + box.h > d.y,
+    );
+    if (clash) {
+      collided++;
+      continue;
+    }
+    boxes.push(box);
+    drawn.push({ name: entry.name, x, y: entry.y, width, flipped });
+  }
+
+  return {
+    drawn,
+    offCanvas,
+    collided,
+    overBudget: ranked.length - considered.length,
+  };
+}

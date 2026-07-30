@@ -17,6 +17,7 @@ import { RouterLink } from '@angular/router';
 
 import {
   Camera,
+  LabelPlan,
   Layout,
   SETTLED,
   UNSECTIONED_COLOUR,
@@ -24,6 +25,7 @@ import {
   createLayout,
   fitZoom,
   neighbourhood,
+  planLabels,
   project,
   sectionColour,
   stepLayout,
@@ -36,15 +38,6 @@ const CLICK_SLOP = 4;
 /** Zoom bounds, in pixels per world unit at the origin plane. */
 const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 20;
-/**
- * How many landmark labels to draw at most.
- *
- * A degree threshold does NOT work: it is a property of the corpus, not of the
- * picture, so as the corpus grows the same cutoff labels ever more nodes. At
- * degree >= 10 the live corpus drew ~25 labels that collided into unreadable
- * stacks. A fixed budget keeps the picture legible whatever the corpus does.
- */
-const LABEL_BUDGET = 10;
 /** Padding between the framed graph and the canvas edge, as a fraction. */
 const FIT_MARGIN = 1.15;
 
@@ -145,6 +138,9 @@ export class GraphView {
   private placed: Placed[] = [];
   private colours = new Map<string, string>();
   private width = 0;
+
+  /** What the last frame's labelling decided, including its rejections. */
+  private labelPlan: LabelPlan | null = null;
   private height = 0;
   private running = false;
   private dirty = false;
@@ -382,40 +378,30 @@ export class GraphView {
     selected: GraphNode | null,
     hovered: GraphNode | null,
   ): void {
-    const degree = (e: Placed): number => e.node.in_degree + e.node.out_degree;
-    const candidates = placed
-      .filter((e) => e.lit)
-      .sort((a, b) => degree(b) - degree(a))
-      .slice(0, LABEL_BUDGET);
-    // The one under the pointer and the one being walked from always get a
-    // label, whatever their degree — they're what the reader is asking about.
-    for (const entry of placed) {
-      if ((entry.node === selected || entry.node === hovered) && !candidates.includes(entry)) {
-        candidates.unshift(entry);
-      }
-    }
+    const plan = planLabels(
+      placed
+        .filter((e) => e.lit || e.node === selected || e.node === hovered)
+        .map((e) => ({
+          name: e.node.name,
+          x: e.x,
+          y: e.y,
+          radius: e.radius,
+          degree: e.node.in_degree + e.node.out_degree,
+          pinned: e.node === selected || e.node === hovered,
+        })),
+      (text) => ctx.measureText(text).width,
+      this.width,
+    );
+    this.labelPlan = plan;
 
-    const drawn: { x: number; y: number; w: number; h: number }[] = [];
-    for (const entry of candidates) {
-      const label = entry.node.name;
-      const width = ctx.measureText(label).width;
-      const gap = entry.radius + 4;
-      // Flip to the left of the node rather than let the text leave the canvas.
-      const x = entry.x + gap + width > this.width - 4 ? entry.x - gap - width : entry.x + gap;
-      if (x < 4) continue;
-      const box = { x, y: entry.y - 7, w: width, h: 14 };
-      const clash = drawn.some(
-        (d) => x < d.x + d.w && x + box.w > d.x && box.y < d.y + d.h && box.y + box.h > d.y,
-      );
-      if (clash) continue;
-      drawn.push(box);
+    for (const label of plan.drawn) {
       // Halo behind the text so a label crossing a dense region stays readable.
       ctx.lineWidth = 3;
       ctx.strokeStyle = this.theme.halo;
-      ctx.strokeText(label, x, entry.y);
+      ctx.strokeText(label.name, label.x, label.y);
       ctx.lineWidth = 1;
       ctx.fillStyle = this.theme.text;
-      ctx.fillText(label, x, entry.y);
+      ctx.fillText(label.name, label.x, label.y);
     }
   }
 

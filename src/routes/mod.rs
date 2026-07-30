@@ -6,6 +6,7 @@ pub mod auth;
 use axum::Router;
 use axum::routing::{delete, get, post};
 use tower_http::services::{ServeDir, ServeFile};
+use tower_http::trace::TraceLayer;
 
 use crate::state::AppState;
 
@@ -38,5 +39,13 @@ pub fn router(state: AppState) -> Router {
         app
     };
 
-    app.with_state(state)
+    // One line per request: method, path, status, latency. The app had none, so
+    // the only evidence it had ever served anything was that it was still
+    // running — no way to tell a slow corpus read from a client that gave up, or
+    // to see a 401 storm from a stale cookie.
+    //
+    // At debug rather than info: the corpus is re-read per request, so a browsing
+    // session is chatty, and a log that scrolls is one nobody reads. RUST_LOG is
+    // already set to `info,memview=debug` in the deployment.
+    app.layer(TraceLayer::new_for_http()).with_state(state)
 }

@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  Edge,
-  LayoutInput,
-  SETTLED,
   createLayout,
+  Edge,
   fitZoom,
+  LABEL_BUDGET,
+  LabelCandidate,
+  LayoutInput,
   neighbourhood,
+  planLabels,
   project,
   sectionColour,
+  SETTLED,
   stepLayout,
 } from './graph-layout';
 
@@ -217,5 +220,114 @@ describe('fitZoom', () => {
 
   it('never divides by a zero-radius graph', () => {
     expect(Number.isFinite(fitZoom(0, 400, 400))).toBe(true);
+  });
+});
+
+describe('planLabels', () => {
+  /** A fixed-width stand-in for canvas text measurement. */
+  const measure = (text: string): number => text.length * 7;
+
+  const candidate = (
+    name: string,
+    x: number,
+    y: number,
+    degree: number,
+    pinned = false,
+  ): LabelCandidate => ({ name, x, y, radius: 4, degree, pinned });
+
+  it('never draws more than the budget', () => {
+    // The bug this replaced used a degree cutoff, so a growing corpus labelled
+    // ever more nodes: ~25 collided into unreadable stacks on the live data.
+    const many = Array.from({ length: 40 }, (_, i) =>
+      candidate(`node_${i}`, 20, i * 40, 100 - i),
+    );
+
+    const plan = planLabels(many, measure, 1000);
+
+    expect(plan.drawn.length).toBeLessThanOrEqual(LABEL_BUDGET);
+    expect(plan.overBudget).toBe(30);
+  });
+
+  it('labels the highest-degree nodes', () => {
+    const nodes = [
+      candidate('quiet', 20, 10, 1),
+      candidate('hub', 20, 60, 99),
+      candidate('middling', 20, 110, 50),
+    ];
+
+    const plan = planLabels(nodes, measure, 1000, 2);
+
+    expect(plan.drawn.map((l) => l.name)).toEqual(['hub', 'middling']);
+  });
+
+  it('drops a label that would overprint one already placed', () => {
+    // Same y, overlapping x: the second cannot be drawn legibly.
+    const nodes = [candidate('first', 20, 100, 10), candidate('second', 30, 100, 9)];
+
+    const plan = planLabels(nodes, measure, 1000);
+
+    expect(plan.drawn.map((l) => l.name)).toEqual(['first']);
+    expect(plan.collided).toBe(1);
+  });
+
+  it('keeps both labels when they are far enough apart', () => {
+    const nodes = [candidate('first', 20, 100, 10), candidate('second', 20, 300, 9)];
+
+    expect(planLabels(nodes, measure, 1000).drawn.length).toBe(2);
+  });
+
+  it('flips a label to the left rather than let it leave the canvas', () => {
+    // The other half of the original bug: names ran off the right edge mid-word.
+    const nodes = [candidate('a_long_memory_name', 380, 100, 10)];
+
+    const plan = planLabels(nodes, measure, 412);
+
+    expect(plan.drawn.length).toBe(1);
+    expect(plan.drawn[0].flipped).toBe(true);
+    expect(plan.drawn[0].x).toBeLessThan(380);
+  });
+
+  it('drops a label that fits on neither side', () => {
+    // A narrow canvas and a long name: flipping puts it off the left edge, so
+    // there is nowhere legible to put it and it is counted rather than clipped.
+    const nodes = [candidate('an_extremely_long_memory_name_here', 30, 100, 10)];
+
+    const plan = planLabels(nodes, measure, 200);
+
+    expect(plan.drawn.length).toBe(0);
+    expect(plan.offCanvas).toBe(1);
+  });
+
+  it('always labels a pinned node, even past the budget', () => {
+    // The hovered or selected node is what the reader is asking about.
+    const many = Array.from({ length: 40 }, (_, i) =>
+      candidate(`node_${i}`, 20, i * 40, 100 - i),
+    );
+    const asked = candidate('the_one_hovered', 20, 5000, 0, true);
+
+    const plan = planLabels([...many, asked], measure, 1000);
+
+    expect(plan.drawn.map((l) => l.name)).toContain('the_one_hovered');
+  });
+
+  it('places a pinned node first, so nothing can crowd it out', () => {
+    const nodes = [
+      candidate('hub', 20, 100, 99),
+      candidate('asked_about', 25, 100, 0, true),
+    ];
+
+    const plan = planLabels(nodes, measure, 1000);
+
+    expect(plan.drawn[0].name).toBe('asked_about');
+    expect(plan.collided).toBe(1);
+  });
+
+  it('reports nothing drawn for no candidates', () => {
+    const plan = planLabels([], measure, 1000);
+
+    expect(plan.drawn).toEqual([]);
+    expect(plan.collided).toBe(0);
+    expect(plan.offCanvas).toBe(0);
+    expect(plan.overBudget).toBe(0);
   });
 });

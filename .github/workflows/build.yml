@@ -49,6 +49,9 @@ jobs:
       # Real-browser render check: icon fonts load, no text overlaps or overflow.
       - run: npx playwright install --with-deps chromium
       - run: npm run ui-check
+      # The graph layout, measured. Runs against a synthetic corpus-scale graph
+      # because the real corpus is deliberately absent from CI.
+      - run: node ../scripts/graph-report.mjs
 
   image:
     needs: [verify, fe-verify]

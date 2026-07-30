@@ -25,9 +25,16 @@ async fn main() -> Result<()> {
         None => tracing::warn!("auth NOT configured — serving open (dev mode)"),
     }
     // Fail fast on an unreadable corpus rather than 500ing every request.
+    //
+    // The count is explicitly "at startup". The corpus is re-read from disk on
+    // every request — deliberately, since a live Claude session writes memories
+    // and staleness would be worse than the read cost — so this number goes out
+    // of date the moment anything syncs. It said `0 memories` for hours while the
+    // app was serving 349, which is exactly the kind of log line that costs more
+    // than it gives.
     let corpus = memview::store::Corpus::load(&cfg.memory_dir)?;
     tracing::info!(
-        "corpus: {} memories in {}",
+        "corpus at startup: {} memories in {} (re-read per request)",
         corpus.docs.len(),
         cfg.memory_dir
     );
