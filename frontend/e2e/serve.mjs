@@ -11,7 +11,18 @@ import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'dist', 'memview-web', 'browser');
-const PORT = Number(process.argv[2] ?? 4273);
+// No default, deliberately. A default is exactly how this drifts: each app's
+// harness is copied from a sibling, the config's PORT is updated and this line
+// is not — so running `node e2e/serve.mjs` by hand silently squats on the
+// SIBLING's port and breaks that app's concurrent e2e run. All three apps that
+// had a mismatch got it this way (utterance defaulted to recall's port, memview
+// to health's, fleetwatch to life's). Playwright always passes the port, so
+// requiring it costs nothing and makes the mismatch unrepresentable.
+const PORT = Number(process.argv[2]);
+if (!Number.isInteger(PORT) || PORT <= 0) {
+  console.error("usage: node e2e/serve.mjs <port>   (the PORT from playwright.config.ts)");
+  process.exit(2);
+}
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',

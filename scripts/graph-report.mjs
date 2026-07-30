@@ -95,6 +95,18 @@ const inputs = graph.nodes.map((n) => ({ name: n.name, section: n.section ?? nul
 const sections = [...new Set(inputs.map((n) => n.section))].filter((s) => s !== null);
 const state = layout.createLayout(inputs, graph.edges, sections);
 
+// A phone, because that is the narrowest thing this has to work on and the
+// clipping bug only showed at that width.
+const WIDTH = 412;
+const HEIGHT = 732;
+
+// How far the graph spreads while it settles, expressed as the zoom the camera
+// would need at each end. The view used to fit only once the layout stopped
+// moving, so it sat at zoom 1 for the whole simulation and then snapped — this
+// is the size of that snap, and the reason the fit now runs every frame.
+const seededRadius = layout.boundingRadius(state);
+const seededZoom = layout.fitZoom(seededRadius, WIDTH, HEIGHT);
+
 // The simulation cools through `alpha`; SETTLED is the threshold the view uses
 // to stop stepping. The cap is a backstop, not the expected exit.
 let steps = 0;
@@ -105,11 +117,6 @@ while (steps < MAX_STEPS && state.alpha > layout.SETTLED) {
 }
 
 const radius = layout.boundingRadius(state);
-
-// A phone, because that is the narrowest thing this has to work on and the
-// clipping bug only showed at that width.
-const WIDTH = 412;
-const HEIGHT = 732;
 const zoom = layout.fitZoom(radius, WIDTH, HEIGHT);
 
 // yaw and pitch are required: omitting them yields NaN coordinates and a report
@@ -180,9 +187,12 @@ const report = {
   edges: graph.edges.length,
   sections: sections.length,
   settleSteps: steps,
+  seededRadius: Number(seededRadius.toFixed(1)),
   boundingRadius: Number(radius.toFixed(1)),
   canvas: `${WIDTH}x${HEIGHT}`,
+  seededZoom: Number(seededZoom.toFixed(4)),
   fitZoom: Number(zoom.toFixed(4)),
+  zoomTravel: `${(seededZoom / zoom).toFixed(2)}x over ${steps} steps`,
   nodesOnCanvas: `${onCanvas}/${graph.nodes.length}`,
   labelsDrawn: plan.drawn.length,
   labelsCollided: plan.collided,

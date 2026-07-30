@@ -258,10 +258,19 @@ export class GraphView {
     if (layout.alpha > SETTLED) {
       stepLayout(layout);
       moving = true;
-    } else if (!this.fitted) {
-      // Frame the whole graph once it stops moving, so nodes can't sit clipped
-      // against the canvas edge — the corpus settles to a radius far wider than
-      // the canvas, so an unframed view shows only the crowded middle.
+    }
+    // Frame the graph on every frame it is still moving, not once when it stops.
+    //
+    // Fitting only on settle meant the camera sat at its initial zoom of 1 for
+    // the whole simulation — 259 steps, about 4.3 seconds at 60fps — while the
+    // graph expanded past the edges, and then snapped to the fitted zoom (0.537
+    // on the live corpus) in a single frame. It read as the view being broken and
+    // then correcting itself. Re-fitting continuously makes that same change a
+    // gradual zoom-out that tracks the layout as it spreads.
+    //
+    // Cheap: boundingRadius is one pass over ~350 nodes, against a step that
+    // already does the pairwise force loop.
+    if (!this.userZoomed && (moving || !this.fitted)) {
       this.fit();
     }
     if (this.spin() && !this.dragging) {
