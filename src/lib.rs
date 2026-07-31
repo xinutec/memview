@@ -6,6 +6,7 @@ pub mod couse;
 pub mod error;
 pub mod lint;
 pub mod nextcloud;
+pub mod rank;
 pub mod routes;
 pub mod session;
 pub mod share;

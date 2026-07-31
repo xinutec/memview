@@ -2,6 +2,8 @@
 //! share management is owner-only.
 
 use axum::Json;
+use std::collections::BTreeMap;
+
 use axum::extract::{Path, Query, State};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -106,14 +108,28 @@ pub struct SearchQuery {
     q: String,
 }
 
+/// The mined per-memory usage, or an empty map when nothing has been mined.
+///
+/// Absent is a normal state, not a failure: a machine with no transcripts (CI,
+/// or a fresh checkout) has no artefact, and search must still work there —
+/// only the ordering among comparable answers changes.
+fn usage_of(app: &AppState) -> BTreeMap<String, crate::couse::Usage> {
+    app.cfg
+        .couse_file
+        .as_deref()
+        .and_then(|p| crate::couse::CoUse::load(std::path::Path::new(p)))
+        .map(|c| c.usage)
+        .unwrap_or_default()
+}
+
 /// GET /api/search?q=
 pub async fn search(
     State(app): State<AppState>,
     ReadAccess(_): ReadAccess,
     Query(query): Query<SearchQuery>,
-) -> Result<Json<Value>, AppError> {
+) -> Result<Json<crate::store::SearchResult>, AppError> {
     let corpus = load_corpus(&app)?;
-    Ok(Json(json!({ "hits": corpus.search(&query.q) })))
+    Ok(Json(corpus.search(&query.q, &usage_of(&app))))
 }
 
 fn share_json(app: &AppState) -> Value {

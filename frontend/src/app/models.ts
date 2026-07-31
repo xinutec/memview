@@ -30,6 +30,19 @@ export interface IndexPage {
 
 export interface SearchHit extends MemoryMeta {
   snippet: string | null;
+  /** BM25 score. Exposed so a ranking regression is visible, not just felt. */
+  score: number;
+}
+
+/** What a search found — and whether it had to widen the question to find it. */
+export interface SearchResult {
+  hits: SearchHit[];
+  /**
+   * True when nothing matched every word and the query fell back to "any word".
+   * Shown to the reader rather than swallowed: results for a question they did
+   * not ask, presented as though they had, is the worst kind of quiet failure.
+   */
+  relaxed: boolean;
 }
 
 export interface GraphNode extends MemoryMeta {

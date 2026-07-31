@@ -8,7 +8,7 @@ import {
   Me,
   MemoryMeta,
   MemoryPage,
-  SearchHit,
+  SearchResult,
   ShareInfo,
 } from './models';
 
@@ -41,8 +41,8 @@ export class MemviewApi {
     return this.http.get<GraphData>('/api/graph');
   }
 
-  search(q: string): Observable<{ hits: SearchHit[] }> {
-    return this.http.get<{ hits: SearchHit[] }>('/api/search', { params: { q } });
+  search(q: string): Observable<SearchResult> {
+    return this.http.get<SearchResult>('/api/search', { params: { q } });
   }
 
   shareGet(): Observable<ShareInfo> {

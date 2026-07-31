@@ -10,7 +10,14 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { Subject, catchError, of, switchMap } from 'rxjs';
 
 import { MemviewApi } from './memview-api';
-import { SearchHit } from './models';
+import { SearchHit, SearchResult } from './models';
+
+/**
+ * What a failed search yields. Spelled out whole rather than as a partial
+ * literal so the type stays exact — a fallback missing a field makes every read
+ * of it `any`, which is how a rename slips past the gate.
+ */
+const EMPTY_RESULT: SearchResult = { hits: [], relaxed: false };
 
 /**
  * Full-text search. The query lives in ?q= so results are linkable and the
@@ -38,17 +45,22 @@ export class SearchView {
 
   readonly query = signal('');
   readonly results = signal<SearchHit[] | null>(null);
+  /** The query matched nothing whole, so it was widened. Said out loud. */
+  readonly relaxed = signal(false);
   readonly searching = signal(false);
   private search$ = new Subject<string>();
 
   constructor() {
     this.search$
       .pipe(
-        switchMap((q) => this.api.search(q).pipe(catchError(() => of({ hits: [] as SearchHit[] })))),
+        switchMap((q) =>
+          this.api.search(q).pipe(catchError(() => of(EMPTY_RESULT))),
+        ),
         takeUntilDestroyed(),
       )
       .subscribe((res) => {
         this.results.set(res.hits);
+        this.relaxed.set(res.relaxed);
         this.searching.set(false);
       });
 

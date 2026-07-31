@@ -41,3 +41,12 @@
 .empty {
   color: var(--mat-sys-on-surface-variant);
 }
+
+// The widened-query notice. Styled as a remark rather than an error: the
+// results below it are real, they simply answer a looser question than the one
+// that was typed.
+.relaxed {
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+  margin: 0 0 8px;
+}

@@ -17,6 +17,9 @@ use comrak::nodes::{NodeLink, NodeValue};
 use comrak::{Arena, Options, format_html, parse_document};
 use serde::{Deserialize, Serialize};
 
+use crate::couse::Usage;
+use crate::rank;
+
 #[derive(Debug, Deserialize, Default)]
 struct FrontmatterMeta {
     #[serde(rename = "type")]
@@ -174,36 +177,61 @@ impl Corpus {
         (existing, dangling)
     }
 
-    pub fn search(&self, query: &str) -> Vec<SearchHit> {
-        let q = query.to_lowercase();
-        if q.is_empty() {
-            return Vec::new();
+    /// Memories matching `query`, best first, and whether the query had to be
+    /// relaxed to find them.
+    ///
+    /// `usage` is the mined co-use artefact when there is one; it supplies a mild
+    /// prior so that among comparable answers the ones the work actually leans on
+    /// come first. Empty is fine and changes only the ordering.
+    ///
+    /// **Every term is required first, and only if that finds nothing is the
+    /// query relaxed to any term** — with the fact returned, never swallowed. A
+    /// search that quietly widens its own query presents loose matches as though
+    /// they were what was asked for, and the reader has no way to tell.
+    pub fn search(&self, query: &str, usage: &BTreeMap<String, Usage>) -> SearchResult {
+        if query.trim().is_empty() {
+            return SearchResult::default();
         }
-        let mut hits: Vec<SearchHit> = self
+        let docs: Vec<rank::Doc<'_>> = self
             .docs
             .values()
-            .filter_map(|d| {
-                let name_hit = d.meta.name.to_lowercase().contains(&q);
-                let desc_hit = d.meta.description.to_lowercase().contains(&q);
-                // Offset into the ORIGINAL body: `body.to_lowercase().find()` would
-                // return an offset into the lowercased copy, which drifts wherever
-                // lowercasing changes a char's byte length (e.g. 'İ' 2B → "i̇" 3B) —
-                // then snippet_around would window the wrong place.
-                let body_pos = find_ci(&d.body, &q);
-                if !name_hit && !desc_hit && body_pos.is_none() {
-                    return None;
-                }
-                let score =
-                    (name_hit as u32) * 4 + (desc_hit as u32) * 2 + body_pos.is_some() as u32;
-                Some(SearchHit {
-                    meta: d.meta.clone(),
-                    snippet: body_pos.map(|p| snippet_around(&d.body, p, q.len())),
-                    score,
-                })
+            .map(|d| rank::Doc {
+                name: &d.meta.name,
+                description: &d.meta.description,
+                body: &d.body,
+                usage: usage.get(&d.meta.name),
             })
             .collect();
-        hits.sort_by(|a, b| b.score.cmp(&a.score).then(a.meta.name.cmp(&b.meta.name)));
-        hits
+
+        let mut relaxed = false;
+        let mut scored = rank::rank(&docs, query, true);
+        if scored.is_empty() {
+            scored = rank::rank(&docs, query, false);
+            relaxed = !scored.is_empty();
+        }
+
+        let values: Vec<&MemoryDoc> = self.docs.values().collect();
+        let hits = scored
+            .into_iter()
+            .map(|s| {
+                let d = values[s.index];
+                // Snippet anchored on the RAREST term the memory actually holds,
+                // not on the whole query: the query as typed usually appears
+                // nowhere, which is the fault this ranking exists to fix, and a
+                // snippet from offset zero would show the frontmatter every time.
+                let pos = rank::tokenize(query)
+                    .iter()
+                    .filter_map(|t| find_ci(&d.body, t).map(|p| (t.len(), p)))
+                    .max_by_key(|(len, _)| *len)
+                    .map(|(_, p)| p);
+                SearchHit {
+                    meta: d.meta.clone(),
+                    snippet: pos.map(|p| snippet_around(&d.body, p, query.len())),
+                    score: (s.score * 100.0).round() / 100.0,
+                }
+            })
+            .collect();
+        SearchResult { hits, relaxed }
     }
 
     /// The whole corpus as a link graph: one node per memory, one edge per
@@ -450,7 +478,18 @@ pub struct SearchHit {
     #[serde(flatten)]
     pub meta: MemoryMeta,
     pub snippet: Option<String>,
-    score: u32,
+    /// BM25 score. Exposed so a ranking regression shows up in the response
+    /// rather than only in how the page happens to feel.
+    pub score: f64,
+}
+
+/// What a search found, and whether it had to widen the question to find it.
+#[derive(Debug, Default, Serialize)]
+pub struct SearchResult {
+    pub hits: Vec<SearchHit>,
+    /// True when nothing matched every term and the query fell back to "any
+    /// term". The page says so — see the note in [`Corpus::search`].
+    pub relaxed: bool,
 }
 
 /// The relations a link may declare, and what each one asserts.

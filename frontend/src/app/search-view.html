@@ -15,6 +15,14 @@
 }
 
 @if (results(); as hits) {
+  @if (relaxed()) {
+    <!-- Never silent. Widening the query changes the question being answered,
+         and a reader shown results for a question they did not ask has no way
+         to tell that is what happened. -->
+    <p class="relaxed">
+      Nothing matched every word — showing memories that match some of them.
+    </p>
+  }
   <ul class="hit-list">
     @for (h of hits; track h.name) {
       <li>

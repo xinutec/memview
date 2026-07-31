@@ -92,10 +92,16 @@ fn backlinks_find_the_memories_pointing_here() {
     assert!(corpus.backlinks("project_unmentioned").is_empty());
 }
 
+/// `Corpus::search` with no mined usage — which is what CI has, and what every
+/// test here means by "search".
+fn search(corpus: &memview::store::Corpus, q: &str) -> Vec<memview::store::SearchHit> {
+    corpus.search(q, &std::collections::BTreeMap::new()).hits
+}
+
 #[test]
 fn search_ranks_name_and_description_hits_above_body_hits() {
     let corpus = corpus();
-    let hits = corpus.search("beta");
+    let hits = search(&corpus, "beta");
     let names: Vec<&str> = hits.iter().map(|h| h.meta.name.as_str()).collect();
     // reference_beta matches on name+description; project_alpha only in body.
     assert_eq!(names, ["reference_beta", "project_alpha"]);
@@ -107,8 +113,8 @@ fn search_ranks_name_and_description_hits_above_body_hits() {
 #[test]
 fn search_is_case_insensitive_and_empty_for_no_query() {
     let corpus = corpus();
-    assert_eq!(corpus.search("WIREGUARD").len(), 1);
-    assert!(corpus.search("").is_empty());
+    assert_eq!(search(&corpus, "WIREGUARD").len(), 1);
+    assert!(search(&corpus, "").is_empty());
 }
 
 #[test]
@@ -116,7 +122,7 @@ fn search_snippets_survive_multibyte_bodies() {
     // The snippet window is a byte range around the match; a corpus full of
     // accented prose must not slice a character in half (that would panic).
     let corpus = corpus();
-    let hits = corpus.search("naïve");
+    let hits = search(&corpus, "naïve");
     assert_eq!(hits.len(), 1);
     assert!(hits[0].snippet.as_ref().expect("snippet").contains("naïve"));
 }
@@ -145,7 +151,7 @@ fn search_snippet_offset_survives_cased_multibyte_prefix() {
     .expect("write memory");
 
     let corpus = Corpus::load(dir.path()).expect("loads");
-    let hits = corpus.search("needletoken");
+    let hits = search(&corpus, "needletoken");
     assert_eq!(hits.len(), 1);
     let snippet = hits[0].snippet.as_ref().expect("body snippet");
     assert!(
