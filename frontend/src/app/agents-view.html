@@ -39,6 +39,21 @@
             </li>
           }
         </ul>
+        @if (a.knows.length) {
+          <ul class="knows">
+            @for (k of a.knows; track k.name) {
+              <li>
+                <a [routerLink]="['/m', k.name]">{{ k.name }}</a>
+                <span class="counts">
+                  {{ k.mentions }}×
+                  @if (k.edits) {
+                    {{ k.edits }}e
+                  }
+                </span>
+              </li>
+            }
+          </ul>
+        }
       </li>
     }
   </ul>

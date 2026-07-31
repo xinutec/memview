@@ -131,6 +131,19 @@ export interface ShareInfo {
   last_accessed_at?: string | null;
 }
 
+/**
+ * How one agent uses one memory — mirrors agents.rs.
+ *
+ * Mentions are the signal; reads and edits are the deliberate subset. A memory
+ * usually arrives by being recalled into context rather than opened, so
+ * counting opens alone would measure the rare case.
+ */
+export interface MemoryUse {
+  mentions: number;
+  reads: number;
+  edits: number;
+}
+
 /** One named session and where its work landed — mirrors agents.rs. */
 export interface Agent {
   name: string;
@@ -145,6 +158,12 @@ export interface Agent {
   reads: Record<string, number>;
   /** Files written or edited, per project directory. Lifetime, undecayed. */
   writes: Record<string, number>;
+  /**
+   * Which memories this agent works with, keyed by memory name. The companion
+   * question to `reads`/`writes`: those say where it is responsible, this says
+   * what it has consulted.
+   */
+  memories: Record<string, MemoryUse>;
   /**
    * Recency-weighted days present, per project — what the ordering uses.
    * Days rather than files, so one busy afternoon cannot outvote a fortnight.

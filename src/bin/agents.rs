@@ -6,9 +6,12 @@
 //! `~/.claude/projects`, which is gigabytes. Writes `agents.json` beside them —
 //! never inside `memory/`, which `scripts/sync.sh` replaces wholesale, so
 //! anything parked there is destroyed on the next sync.
+use std::collections::BTreeSet;
+
 use anyhow::Result;
 use memview::agents;
 use memview::couse::stamp;
+use memview::store::Corpus;
 
 fn main() -> Result<()> {
     let home = std::env::var("HOME").unwrap_or_default();
@@ -23,6 +26,19 @@ fn main() -> Result<()> {
     // nothing publishes a home directory from a public repo.
     let code_root = std::env::var("CODE_ROOT").unwrap_or_else(|_| format!("{home}/Code"));
 
+    // The memory names to attribute mentions to. Filtered against the live
+    // corpus for the same reason the co-use miner is: this repo's own test
+    // fixtures match every pattern a memory does. Absent corpus, absent
+    // profile — the rest of the mine is unaffected.
+    let memory_dir = std::env::var("MEMORY_DIR")
+        .unwrap_or_else(|_| format!("{home}/.claude/projects/-Users-pippijn-Code/memory"));
+    let corpus: BTreeSet<String> = Corpus::load(&memory_dir)
+        .map(|c| c.docs.keys().cloned().collect())
+        .unwrap_or_default();
+    if corpus.is_empty() {
+        println!("no corpus at {memory_dir} — mining without the memory profile");
+    }
+
     let generated = stamp(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -34,6 +50,7 @@ fn main() -> Result<()> {
         std::path::Path::new(&root),
         std::path::Path::new(&sessions),
         &code_root,
+        &corpus,
         &generated,
     )?;
 
@@ -62,6 +79,16 @@ fn main() -> Result<()> {
             agent.delegated,
             top.join(" ")
         );
+        // What it consults, beside where it works — the two answer different
+        // questions and routing a task wants both.
+        let mut mem: Vec<(&String, &agents::MemoryUse)> = agent.memories.iter().collect();
+        mem.sort_by(|a, b| b.1.mentions.cmp(&a.1.mentions).then_with(|| a.0.cmp(b.0)));
+        for (name, use_) in mem.iter().take(5) {
+            println!(
+                "        {:<58} {:>5} mentions {:>4}r {:>3}e",
+                name, use_.mentions, use_.reads, use_.edits
+            );
+        }
     }
 
     found.save(std::path::Path::new(&out))?;

@@ -52,6 +52,15 @@ pub struct Agent {
     pub reads: BTreeMap<String, usize>,
     /// Files written or edited, per project directory. Lifetime, undecayed.
     pub writes: BTreeMap<String, usize>,
+    /// Which memories this agent works with, keyed by memory name.
+    ///
+    /// The companion to `reads`/`writes` and a different question: those say
+    /// where an agent is *responsible*, this says what it has *consulted*. For
+    /// handing out a task the second is often the better evidence — territory
+    /// says who owns a repository, and this says who has read the rules that
+    /// govern it.
+    #[serde(default)]
+    pub memories: BTreeMap<String, MemoryUse>,
     /// Recency-weighted days present, per project — the ordering signal. See
     /// [`recency`] for why this is days rather than files.
     #[serde(default)]
@@ -61,6 +70,27 @@ pub struct Agent {
     /// First and last activity, ISO-8601.
     pub first: String,
     pub last: String,
+}
+
+/// How one agent uses one memory.
+///
+/// **Mentions are the signal; reads and edits are a deliberate subset of it.**
+/// A memory usually reaches a session by being recalled into its context, which
+/// is not an attributable event anywhere in the transcript — so counting only
+/// the times someone opened the file measures the rare case and misses the
+/// ordinary one. Naming a memory in prose or in reasoning is the memory having
+/// been *thought about*, and that is what ranks an agent's familiarity with it.
+///
+/// Reads and edits are still kept apart, because they answer questions mentions
+/// cannot: who went and looked it up, and who is maintaining it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MemoryUse {
+    /// Lines naming this memory in this agent's transcripts.
+    pub mentions: usize,
+    /// Lines that also carried a `Read` — deliberately opened.
+    pub reads: usize,
+    /// Lines that also carried a `Write` or `Edit` — this agent maintains it.
+    pub edits: usize,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -317,7 +347,13 @@ fn named_in_transcript(text: &[u8]) -> Option<String> {
 const PATH_KEY: &[u8] = b"\"file_path\":\"";
 
 /// Count one transcript's tool calls into `agent`, and note the days.
-fn scan_transcript(text: &[u8], code_root: &str, agent: &mut Agent, seen: &mut DaysSeen) {
+fn scan_transcript(
+    text: &[u8],
+    code_root: &str,
+    corpus: &std::collections::BTreeSet<String>,
+    agent: &mut Agent,
+    seen: &mut DaysSeen,
+) {
     // Built once per transcript rather than once per line — the needles are
     // fixed and the corpus is millions of lines.
     let needles: Vec<(String, bool)> = READ_TOOLS
@@ -342,6 +378,30 @@ fn scan_transcript(text: &[u8], code_root: &str, agent: &mut Agent, seen: &mut D
                 agent.last = stamp.to_string();
             }
             day = day_number(stamp);
+        }
+        // Which memories this line worked with. Shared with the co-use miner —
+        // one detector and one listing cap, so the two artefacts cannot
+        // disagree about what counts as a mention.
+        if !corpus.is_empty() {
+            let named = crate::couse::names_in(line, corpus);
+            if named.len() <= crate::couse::MAX_PER_LINE {
+                // The loose form on purpose: this asks whether the line was a
+                // tool call at all, not which file it touched, so it does not
+                // depend on where `file_path` sits in the input object.
+                let opened = find_at(line, b"\"name\":\"Read\"", 0).is_some();
+                let written = find_at(line, b"\"name\":\"Write\"", 0).is_some()
+                    || find_at(line, b"\"name\":\"Edit\"", 0).is_some();
+                for name in named {
+                    let use_ = agent.memories.entry(name).or_default();
+                    use_.mentions += 1;
+                    if opened {
+                        use_.reads += 1;
+                    }
+                    if written {
+                        use_.edits += 1;
+                    }
+                }
+            }
         }
         // A line can carry more than one tool call, so every occurrence is
         // walked rather than only the first — a batched turn that opens six
@@ -399,10 +459,15 @@ fn scan_transcript(text: &[u8], code_root: &str, agent: &mut Agent, seen: &mut D
 /// session and a session's transcripts live under whichever root it was started
 /// in, so scoping to one root would silently lose whole agents. Work a session
 /// delegated counts as its own — see [`transcripts_under`].
+///
+/// `corpus` is the set of memory names to attribute mentions to; pass an empty
+/// set on a machine that has no corpus and the memory profile is simply absent,
+/// the way the co-use artefact is.
 pub fn scan(
     projects_root: &Path,
     sessions_dir: &Path,
     code_root: &str,
+    corpus: &std::collections::BTreeSet<String>,
     generated: &str,
 ) -> Result<Agents> {
     let names = registry_names(sessions_dir);
@@ -455,6 +520,7 @@ pub fn scan(
         scan_transcript(
             &text,
             code_root,
+            corpus,
             agent,
             days.entry(agent.name.clone()).or_default(),
         );

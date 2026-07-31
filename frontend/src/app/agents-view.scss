@@ -83,3 +83,42 @@
     font-variant-numeric: tabular-nums;
   }
 }
+
+// What the agent consults, under where it works. Deliberately quieter than the
+// places above it: territory is the primary answer and this is the corroborating
+// one, so it reads as a footnote to the row rather than a second list competing
+// with it.
+.knows {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+
+  > li {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    font: var(--mat-sys-body-small);
+    // Memory names are long and hyphen-free; without this a phone width pushes
+    // the row off the edge rather than wrapping it.
+    overflow-wrap: anywhere;
+  }
+
+  a {
+    color: var(--mat-sys-on-surface-variant);
+    text-decoration: none;
+
+    &:hover,
+    &:focus-visible {
+      color: var(--mat-sys-primary);
+      text-decoration: underline;
+    }
+  }
+
+  .counts {
+    color: var(--mat-sys-outline);
+    font-variant-numeric: tabular-nums;
+  }
+}

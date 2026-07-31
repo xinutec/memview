@@ -3,6 +3,7 @@ import { DatePipe } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { RouterLink } from '@angular/router';
 import { catchError, of } from 'rxjs';
 
 import { MemviewApi } from './memview-api';
@@ -17,6 +18,14 @@ interface Place {
   share: number;
 }
 
+/** One memory an agent works with, as the list draws it. */
+interface Known {
+  name: string;
+  mentions: number;
+  reads: number;
+  edits: number;
+}
+
 /** An agent as the page shows it. */
 interface AgentRow {
   name: string;
@@ -29,10 +38,14 @@ interface AgentRow {
   first: string;
   last: string;
   places: Place[];
+  knows: Known[];
 }
 
 /** Projects listed per agent. Beyond this the tail is one-offs. */
 const PLACES_SHOWN = 6;
+
+/** Memories listed per agent. */
+const KNOWS_SHOWN = 5;
 
 /**
  * Which named session works on what.
@@ -70,7 +83,7 @@ const PLACES_SHOWN = 6;
   selector: 'app-agents-view',
   templateUrl: './agents-view.html',
   styleUrl: './agents-view.scss',
-  imports: [DatePipe, MatIconModule, MatProgressBarModule],
+  imports: [DatePipe, MatIconModule, MatProgressBarModule, RouterLink],
 })
 export class AgentsView {
   private api = inject(MemviewApi);
@@ -126,6 +139,14 @@ export class AgentsView {
     const strongest = Math.max(...places.map((p) => p.share), Number.MIN_VALUE);
     for (const p of places) p.share = p.share / strongest;
 
+    // What it consults, ranked by mentions rather than by opens: a memory
+    // usually arrives by recall, which no transcript line records, so opens
+    // measure the rare case.
+    const knows: Known[] = Object.entries(a.memories ?? {})
+      .map(([name, u]) => ({ name, ...u }))
+      .sort((x, y) => y.mentions - x.mentions || x.name.localeCompare(y.name))
+      .slice(0, KNOWS_SHOWN);
+
     const writes = Object.values(a.writes).reduce((n, v) => n + v, 0);
     const reads = Object.values(a.reads).reduce((n, v) => n + v, 0);
     return {
@@ -139,6 +160,7 @@ export class AgentsView {
       first: a.first,
       last: a.last,
       places,
+      knows,
     };
   }
 }

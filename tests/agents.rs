@@ -65,6 +65,16 @@ fn mine_with(
     delegated: &[(&str, Vec<String>)],
     registry: &[(&str, &str)],
 ) -> Vec<Agent> {
+    mine_corpus(transcripts, delegated, registry, &[])
+}
+
+/// As [`mine_with`], plus the memory names a mention is attributed to.
+fn mine_corpus(
+    transcripts: &[(&str, Vec<String>)],
+    delegated: &[(&str, Vec<String>)],
+    registry: &[(&str, &str)],
+    corpus: &[&str],
+) -> Vec<Agent> {
     let dir: PathBuf = std::env::temp_dir().join(format!(
         "agents-test-{}-{:?}",
         std::process::id(),
@@ -86,10 +96,13 @@ fn mine_with(
     for (pid, json) in registry {
         std::fs::write(sessions.join(format!("{pid}.json")), json).unwrap();
     }
+    let names: std::collections::BTreeSet<String> =
+        corpus.iter().map(|s| (*s).to_string()).collect();
     let found = scan(
         &dir.join("projects"),
         &sessions,
         "/code",
+        &names,
         "2026-07-31T00:00:00Z",
     )
     .unwrap();
@@ -273,6 +286,94 @@ fn a_delegated_transcript_alone_still_lands_under_its_owner() {
     assert_eq!(agents[0].name, "s9");
     assert_eq!(agents[0].transcripts, 0);
     assert_eq!(agents[0].delegated, 1);
+}
+
+/// A line of assistant prose that names memories, as a transcript records it.
+fn said(text: &str, stamp: &str) -> String {
+    format!(
+        "{{\"type\":\"assistant\",\"timestamp\":\"{stamp}\",\"message\":{{\"content\":\"{text}\"}}}}"
+    )
+}
+
+#[test]
+fn a_memory_named_in_prose_counts_for_the_agent_that_named_it() {
+    // Mentions, not opens. A memory reaches a session by being recalled into
+    // its context, which no line records, so counting only deliberate Reads
+    // measures the rare case: the co-use miner got 14 usable pairs that way
+    // against 829. Naming it is the memory having been thought about.
+    let agents = mine_corpus(
+        &[(
+            "s1",
+            vec![
+                said(
+                    "as feedback_no_coauthor says, no trailers",
+                    "2026-07-30T10:00:00Z",
+                ),
+                said("feedback_no_coauthor again", "2026-07-30T10:01:00Z"),
+                call(Tool::Read, "/code/thing/a", "2026-07-30T10:02:00Z"),
+            ],
+        )],
+        &[],
+        &[("100", r#"{"pid":100,"sessionId":"s1","name":"boss"}"#)],
+        &["feedback_no_coauthor", "project_unmentioned"],
+    );
+
+    let m = &agents[0].memories;
+    assert_eq!(m.get("feedback_no_coauthor").map(|u| u.mentions), Some(2));
+    assert_eq!(m.get("feedback_no_coauthor").map(|u| u.reads), Some(0));
+    assert!(
+        !m.contains_key("project_unmentioned"),
+        "a memory nobody named must not appear"
+    );
+}
+
+#[test]
+fn a_memory_a_subagent_consulted_belongs_to_the_agent_that_sent_it() {
+    // Same rule as the file counts: a subagent read it because a named session
+    // asked it to, so what it consulted is that session's knowledge.
+    let agents = mine_corpus(
+        &[("s1", vec![said("planning", "2026-07-30T10:00:00Z")])],
+        &[(
+            "s1/subagents/agent-aaa.jsonl",
+            vec![said(
+                "checking feedback_no_coauthor",
+                "2026-07-30T10:05:00Z",
+            )],
+        )],
+        &[("100", r#"{"pid":100,"sessionId":"s1","name":"boss"}"#)],
+        &["feedback_no_coauthor"],
+    );
+
+    assert_eq!(agents.len(), 1);
+    assert_eq!(
+        agents[0]
+            .memories
+            .get("feedback_no_coauthor")
+            .map(|u| u.mentions),
+        Some(1)
+    );
+}
+
+#[test]
+fn a_line_listing_many_memories_is_a_listing_and_counts_for_none() {
+    // The MEMORY.md trap, shared with the co-use miner: one index bullet names
+    // seventeen memories and the index is injected into every session. Counted,
+    // it would make every agent look equally familiar with everything.
+    let many: Vec<String> = (0..7).map(|i| format!("project_m{i}")).collect();
+    let corpus: Vec<&str> = many.iter().map(String::as_str).collect();
+    let agents = mine_corpus(
+        &[("s1", vec![said(&many.join(", "), "2026-07-30T10:00:00Z")])],
+        &[],
+        &[("100", r#"{"pid":100,"sessionId":"s1","name":"boss"}"#)],
+        &corpus,
+    );
+
+    assert!(
+        agents.is_empty() || agents[0].memories.is_empty(),
+        "a listing of {} names must contribute nothing: {:?}",
+        many.len(),
+        agents[0].memories
+    );
 }
 
 #[test]
