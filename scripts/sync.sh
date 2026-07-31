@@ -90,7 +90,10 @@ fi
 # prompts, ~2 MB of them. Never assistant replies and never tool output, which
 # is both where the noise is and where a credential could surface. It is served
 # owner-only, so a share link cannot reach it.
-HISTORY="${HISTORY_FILE:-$(dirname "$MEMORY_DIR")/history.json}"
+# One level ABOVE the co-use artefact, and deliberately: co-use is scoped to one
+# project's transcripts, while the history spans every project directory under
+# ~/.claude/projects. Filing it inside one of them would misdescribe it.
+HISTORY="${HISTORY_FILE:-$HOME/.claude/history.json}"
 if [[ -f $HISTORY ]]; then
   echo "pushing history…"
   remote sh -c "'cat > /state/history.json'" < "$HISTORY"
