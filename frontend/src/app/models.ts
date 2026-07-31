@@ -136,10 +136,16 @@ export interface Agent {
   name: string;
   /** Transcripts under this name; more than one when a session was resumed. */
   transcripts: number;
-  /** Files opened, per project directory. */
+  /** Files opened, per project directory. Lifetime totals, undecayed. */
   reads: Record<string, number>;
-  /** Files written or edited, per project directory. */
+  /** Files written or edited, per project directory. Lifetime, undecayed. */
   writes: Record<string, number>;
+  /**
+   * Recency-weighted days present, per project — what the ordering uses.
+   * Days rather than files, so one busy afternoon cannot outvote a fortnight.
+   */
+  recent_reads: Record<string, number>;
+  recent_writes: Record<string, number>;
   first: string;
   last: string;
 }

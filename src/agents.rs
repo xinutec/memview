@@ -18,6 +18,11 @@
 //! else while doing its writing in `health` — reporting one number would call it
 //! a monorepo session, which is not what it is.
 //!
+//! **Where an agent works is decided by recent days present, not by lifetime
+//! file counts** — see [`recency`]. A session is renamed as its job changes, and
+//! the name is a claim about what it is doing *now*, so its history has to be
+//! weighted the same way.
+//!
 //! Only names, project names and integers leave this module — the same rule the
 //! rest of the mining follows, for the same reason
 //! (see the module docs on [`crate::couse`]).
@@ -38,10 +43,17 @@ pub struct Agent {
     /// Transcripts filed under this name. More than one when a session is
     /// resumed, or when the same name has been reused over time.
     pub transcripts: usize,
-    /// Files opened, per project directory.
+    /// Files opened, per project directory. Lifetime totals, undecayed — the
+    /// honest record of what happened, and what the totals line reports.
     pub reads: BTreeMap<String, usize>,
-    /// Files written or edited, per project directory.
+    /// Files written or edited, per project directory. Lifetime, undecayed.
     pub writes: BTreeMap<String, usize>,
+    /// Recency-weighted days present, per project — the ordering signal. See
+    /// [`recency`] for why this is days rather than files.
+    #[serde(default)]
+    pub recent_reads: BTreeMap<String, f64>,
+    #[serde(default)]
+    pub recent_writes: BTreeMap<String, f64>,
     /// First and last activity, ISO-8601.
     pub first: String,
     pub last: String,
@@ -74,6 +86,66 @@ const READ_TOOLS: [&str; 1] = ["Read"];
 /// ...and as writing. `NotebookEdit` carries `notebook_path`, not `file_path`,
 /// so it is not counted here rather than counted wrongly.
 const WRITE_TOOLS: [&str; 2] = ["Write", "Edit"];
+
+/// How long it takes for a day's presence to count half as much.
+///
+/// Fourteen days is deliberately gentle. The measured alternative was decaying
+/// individual file operations, and both shapes were tried against the live
+/// corpus: day-presence put more agents on their own project than event decay
+/// did, and — unlike event decay — the answer did not move when the half-life
+/// was halved. A signal that is insensitive to a tuning constant is one the
+/// constant is not secretly carrying.
+const HALF_LIFE_DAYS: f64 = 14.0;
+
+/// Days since the epoch for an ISO-8601 stamp, from its `YYYY-MM-DD` prefix.
+///
+/// Hinnant's civil-days algorithm, inline rather than pulled from a date crate:
+/// the whole need is "how many days between these two dates", and the miner
+/// otherwise has no date dependency at all.
+fn day_number(stamp: &str) -> Option<i64> {
+    let bytes = stamp.as_bytes();
+    if bytes.len() < 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return None;
+    }
+    let y: i64 = stamp.get(0..4)?.parse().ok()?;
+    let m: i64 = stamp.get(5..7)?.parse().ok()?;
+    let d: i64 = stamp.get(8..10)?.parse().ok()?;
+    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
+        return None;
+    }
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    Some(era * 146097 + doe - 719468)
+}
+
+/// Weight a set of active days against `today`, newest counting most.
+///
+/// **Days present, not files touched.** A session that spent one afternoon
+/// making seventy-five edits in a repository it has not opened since is not a
+/// session that works there, but counting files says it is — and on the live
+/// data that single burst outvoted a fortnight of steady work in the project
+/// the session is actually named for. Counting the days it showed up cannot be
+/// dominated that way: a busy afternoon is worth one day, the same as a quiet
+/// one.
+///
+/// Nothing decays to zero, so an old project fades out of the ordering rather
+/// than disappearing — the lifetime counts alongside it stay undecayed.
+pub fn recency(days: &std::collections::BTreeSet<i64>, today: i64) -> f64 {
+    days.iter()
+        .map(|&d| 0.5f64.powf(((today - d).max(0)) as f64 / HALF_LIFE_DAYS))
+        .sum()
+}
+
+/// The days an agent was present in each project, kept apart from the counts
+/// because a day is not a tally — the same day seen twice is still one day.
+#[derive(Default)]
+struct DaysSeen {
+    reads: BTreeMap<String, std::collections::BTreeSet<i64>>,
+    writes: BTreeMap<String, std::collections::BTreeSet<i64>>,
+}
 
 /// The project a path belongs to: the first element under the code root.
 ///
@@ -139,12 +211,13 @@ fn named_in_transcript(text: &[u8]) -> Option<String> {
     (!name.is_empty() && name.len() <= 40).then(|| name.to_string())
 }
 
-/// Count one transcript's tool calls into `agent`.
-fn scan_transcript(text: &[u8], code_root: &str, agent: &mut Agent) {
+/// Count one transcript's tool calls into `agent`, and note the days.
+fn scan_transcript(text: &[u8], code_root: &str, agent: &mut Agent, seen: &mut DaysSeen) {
     for line in text.split(|&c| c == b'\n') {
         if line.is_empty() {
             continue;
         }
+        let mut day = None;
         if let Some(stamp) = field(line, "timestamp").and_then(|t| std::str::from_utf8(t).ok()) {
             if agent.first.is_empty() || stamp < agent.first.as_str() {
                 agent.first = stamp.to_string();
@@ -152,14 +225,15 @@ fn scan_transcript(text: &[u8], code_root: &str, agent: &mut Agent) {
             if stamp > agent.last.as_str() {
                 agent.last = stamp.to_string();
             }
+            day = day_number(stamp);
         }
         // A line can carry more than one tool call, so every occurrence is
         // walked rather than only the first — a batched turn that opens six
         // files is six reads, and counting it as one would understate exactly
         // the sessions that work hardest.
-        for (tools, counter) in [
-            (READ_TOOLS.as_slice(), &mut agent.reads),
-            (WRITE_TOOLS.as_slice(), &mut agent.writes),
+        for (tools, counter, days) in [
+            (READ_TOOLS.as_slice(), &mut agent.reads, &mut seen.reads),
+            (WRITE_TOOLS.as_slice(), &mut agent.writes, &mut seen.writes),
         ] {
             for tool in tools {
                 let needle = format!("\"name\":\"{tool}\",\"input\":{{\"file_path\":\"");
@@ -172,7 +246,10 @@ fn scan_transcript(text: &[u8], code_root: &str, agent: &mut Agent) {
                     if let Ok(path) = std::str::from_utf8(&line[start..end])
                         && let Some(project) = project_of(path, code_root)
                     {
-                        *counter.entry(project).or_insert(0) += 1;
+                        *counter.entry(project.clone()).or_insert(0) += 1;
+                        if let Some(day) = day {
+                            days.entry(project).or_default().insert(day);
+                        }
                     }
                     from = end;
                 }
@@ -194,6 +271,10 @@ pub fn scan(
 ) -> Result<Agents> {
     let names = registry_names(sessions_dir);
     let mut by_name: BTreeMap<String, Agent> = BTreeMap::new();
+    let mut days: BTreeMap<String, DaysSeen> = BTreeMap::new();
+    // "Now" is the mine's own stamp, not the wall clock, so the weights are a
+    // property of the artefact and re-reading it never changes what it says.
+    let today = day_number(generated).unwrap_or(0);
 
     let roots = std::fs::read_dir(projects_root)
         .with_context(|| format!("reading {}", projects_root.display()))?;
@@ -227,7 +308,28 @@ pub fn scan(
                 ..Agent::default()
             });
             agent.transcripts += 1;
-            scan_transcript(&text, code_root, agent);
+            scan_transcript(
+                &text,
+                code_root,
+                agent,
+                days.entry(agent.name.clone()).or_default(),
+            );
+        }
+    }
+
+    for (name, seen) in &days {
+        let Some(agent) = by_name.get_mut(name) else {
+            continue;
+        };
+        for (project, when) in &seen.reads {
+            agent
+                .recent_reads
+                .insert(project.clone(), recency(when, today));
+        }
+        for (project, when) in &seen.writes {
+            agent
+                .recent_writes
+                .insert(project.clone(), recency(when, today));
         }
     }
 

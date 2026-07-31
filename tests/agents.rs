@@ -157,6 +157,82 @@ fn several_tool_calls_on_one_line_all_count() {
 }
 
 #[test]
+fn one_busy_day_does_not_outrank_a_fortnight_of_steady_work() {
+    // The case this ranking exists for. A session spent one afternoon making
+    // many edits in a repository it never returned to, and has since worked
+    // steadily somewhere else. Counting files says it belongs to the burst;
+    // counting days present says it belongs where it keeps showing up.
+    let mut lines = vec![];
+    for i in 0..75 {
+        lines.push(call(
+            "Write",
+            &format!("/code/burst/f{i}"),
+            "2026-07-21T10:00:00Z",
+        ));
+    }
+    for day in ["25", "27", "29", "30", "31"] {
+        lines.push(call(
+            "Write",
+            "/code/steady/f",
+            &format!("2026-07-{day}T10:00:00Z"),
+        ));
+    }
+
+    let agents = mine(
+        &[("s1", lines)],
+        &[("100", r#"{"pid":100,"sessionId":"s1","name":"steady"}"#)],
+    );
+    let a = &agents[0];
+
+    // The lifetime counts still tell the truth about what happened.
+    assert_eq!(a.writes.get("burst"), Some(&75));
+    assert_eq!(a.writes.get("steady"), Some(&5));
+
+    // The ranking does not.
+    let burst = a.recent_writes["burst"];
+    let steady = a.recent_writes["steady"];
+    assert!(
+        steady > burst,
+        "steady {steady} should outrank burst {burst}"
+    );
+}
+
+#[test]
+fn the_same_day_seen_twice_is_still_one_day() {
+    // Presence is the unit. Were repeats counted, the burst would win again by
+    // the back door.
+    let agents = mine(
+        &[(
+            "s1",
+            (0..20)
+                .map(|i| call("Write", &format!("/code/p/f{i}"), "2026-07-31T10:00:00Z"))
+                .collect(),
+        )],
+        &[("100", r#"{"pid":100,"sessionId":"s1","name":"a"}"#)],
+    );
+
+    assert_eq!(agents[0].writes.get("p"), Some(&20));
+    // One day, and it is today, so it is worth exactly one.
+    assert!((agents[0].recent_writes["p"] - 1.0).abs() < 1e-9);
+}
+
+#[test]
+fn a_project_that_went_quiet_fades_but_does_not_vanish() {
+    // Fading out of the ordering is right; disappearing is not. The lifetime
+    // counts are the record, and a zero here would quietly contradict them.
+    let agents = mine(
+        &[(
+            "s1",
+            vec![call("Write", "/code/old/f", "2025-01-01T10:00:00Z")],
+        )],
+        &[("100", r#"{"pid":100,"sessionId":"s1","name":"a"}"#)],
+    );
+
+    let score = agents[0].recent_writes["old"];
+    assert!(score > 0.0 && score < 0.01, "{score}");
+}
+
+#[test]
 fn one_name_over_several_transcripts_is_one_agent() {
     // A resumed session writes a second transcript; it is still one agent.
     let agents = mine(

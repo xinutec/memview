@@ -41,16 +41,21 @@ fn main() -> Result<()> {
     for agent in &found.agents {
         let reads: usize = agent.reads.values().sum();
         let writes: usize = agent.writes.values().sum();
+        // Ordered the way the page orders it — by recent days present, not by
+        // lifetime writes — so the console and the UI cannot disagree.
         let top: Vec<String> = {
-            let mut v: Vec<(&String, &usize)> = agent.writes.iter().collect();
-            v.sort_by_key(|(name, n)| (std::cmp::Reverse(**n), name.as_str()));
+            let mut v: Vec<(&String, &f64)> = agent.recent_writes.iter().collect();
+            v.sort_by(|a, b| b.1.total_cmp(a.1).then_with(|| a.0.cmp(b.0)));
             v.into_iter()
                 .take(3)
-                .map(|(name, n)| format!("{name}({n})"))
+                .map(|(name, score)| {
+                    let n = agent.writes.get(name).copied().unwrap_or(0);
+                    format!("{name}({n}w, {score:.1})")
+                })
                 .collect()
         };
         println!(
-            "  {:<18} {:>6} reads {:>6} writes   writes: {}",
+            "  {:<18} {:>6} reads {:>6} writes   recent: {}",
             agent.name,
             reads,
             writes,
