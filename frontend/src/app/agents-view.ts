@@ -56,10 +56,11 @@ const PLACES_SHOWN = 6;
  * of what happened; only the order and the bar widths follow recency.
  *
  * **Work a session delegated counts as its own.** A subagent has no name and no
- * continuity; it ran because a named session asked it to. A fifth of all file
- * operations happen in delegated transcripts, and the share runs from none to a
- * third depending on the session — so leaving them out would not just undercount
- * but undercount unevenly, making agents incomparable.
+ * continuity; it ran because a named session asked it to. About a tenth of all
+ * Read/Write/Edit calls in the corpus happen in delegated transcripts, and the
+ * share runs from none at all to a seventh depending on the session — so leaving
+ * them out would not just undercount but undercount unevenly, making agents
+ * incomparable.
  *
  * Owner-only, and the server enforces it. These are counts rather than text,
  * but they describe the shape of the work — which projects exist and who is

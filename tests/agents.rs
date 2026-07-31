@@ -4,10 +4,46 @@ use std::path::PathBuf;
 
 use memview::agents::{Agent, scan};
 
+/// A tool whose calls the miner counts.
+#[derive(Clone, Copy)]
+enum Tool {
+    Read,
+    Write,
+    Edit,
+}
+
+impl Tool {
+    fn name(self) -> &'static str {
+        match self {
+            Tool::Read => "Read",
+            Tool::Write => "Write",
+            Tool::Edit => "Edit",
+        }
+    }
+
+    /// The `input` object as this tool actually serialises it.
+    ///
+    /// **The shape is per-tool, and `file_path` is not always the first key.**
+    /// `Edit` puts `replace_all` ahead of it and the payload after it. A fixture
+    /// that wrote the path first for every tool is what hid a needle matching no
+    /// `Edit` at all: 28,546 of them in the live corpus, every one counted as
+    /// zero while the page called the total "writes".
+    fn input(self, path: &str) -> String {
+        match self {
+            Tool::Read => format!("{{\"file_path\":\"{path}\"}}"),
+            Tool::Write => format!("{{\"file_path\":\"{path}\",\"content\":\"x\"}}"),
+            Tool::Edit => format!(
+                "{{\"replace_all\":false,\"file_path\":\"{path}\",\"old_string\":\"a\",\"new_string\":\"b\"}}"
+            ),
+        }
+    }
+}
+
 /// A tool-call line as the transcripts actually write it.
-fn call(tool: &str, path: &str, stamp: &str) -> String {
+fn call(tool: Tool, path: &str, stamp: &str) -> String {
+    let (name, input) = (tool.name(), tool.input(path));
     format!(
-        "{{\"type\":\"assistant\",\"timestamp\":\"{stamp}\",\"message\":{{\"content\":[{{\"type\":\"tool_use\",\"name\":\"{tool}\",\"input\":{{\"file_path\":\"{path}\"}}}}]}}}}"
+        "{{\"type\":\"assistant\",\"timestamp\":\"{stamp}\",\"message\":{{\"content\":[{{\"type\":\"tool_use\",\"name\":\"{name}\",\"input\":{input}}}]}}}}"
     )
 }
 
@@ -69,10 +105,14 @@ fn reads_and_writes_are_counted_apart_and_per_project() {
         &[(
             "s1",
             vec![
-                call("Read", "/code/health/src/a.rs", "2026-07-01T10:00:00Z"),
-                call("Read", "/code/pippijn/k8s/b.yaml", "2026-07-01T10:01:00Z"),
-                call("Write", "/code/health/src/c.rs", "2026-07-01T10:02:00Z"),
-                call("Edit", "/code/health/src/d.rs", "2026-07-01T10:03:00Z"),
+                call(Tool::Read, "/code/health/src/a.rs", "2026-07-01T10:00:00Z"),
+                call(
+                    Tool::Read,
+                    "/code/pippijn/k8s/b.yaml",
+                    "2026-07-01T10:01:00Z",
+                ),
+                call(Tool::Write, "/code/health/src/c.rs", "2026-07-01T10:02:00Z"),
+                call(Tool::Edit, "/code/health/src/d.rs", "2026-07-01T10:03:00Z"),
             ],
         )],
         &[(
@@ -101,13 +141,17 @@ fn work_outside_the_code_root_is_not_a_project() {
         &[(
             "s1",
             vec![
-                call("Write", "/private/tmp/scratch/x.py", "2026-07-01T10:00:00Z"),
                 call(
-                    "Read",
+                    Tool::Write,
+                    "/private/tmp/scratch/x.py",
+                    "2026-07-01T10:00:00Z",
+                ),
+                call(
+                    Tool::Read,
                     "/elsewhere/.claude/memory/m.md",
                     "2026-07-01T10:00:01Z",
                 ),
-                call("Write", "/code/real/x", "2026-07-01T10:00:02Z"),
+                call(Tool::Write, "/code/real/x", "2026-07-01T10:00:02Z"),
             ],
         )],
         &[("100", r#"{"pid":100,"sessionId":"s1","name":"tidy"}"#)],
@@ -125,7 +169,7 @@ fn the_registry_beats_the_name_the_transcript_remembers() {
     let lines = vec![
         r#"{"type":"user","message":{"content":"the user named this session \"old-name\""}}"#
             .to_string(),
-        call("Write", "/code/thing/x", "2026-07-01T10:00:00Z"),
+        call(Tool::Write, "/code/thing/x", "2026-07-01T10:00:00Z"),
     ];
     let agents = mine(
         &[("s1", lines)],
@@ -140,9 +184,9 @@ fn a_session_the_registry_forgot_falls_back_to_the_transcript_then_the_id() {
     let named = vec![
         r#"{"type":"user","message":{"content":"the user named this session \"remembered\""}}"#
             .to_string(),
-        call("Write", "/code/thing/x", "2026-07-01T10:00:00Z"),
+        call(Tool::Write, "/code/thing/x", "2026-07-01T10:00:00Z"),
     ];
-    let anonymous = vec![call("Write", "/code/thing/y", "2026-07-01T10:00:00Z")];
+    let anonymous = vec![call(Tool::Write, "/code/thing/y", "2026-07-01T10:00:00Z")];
     let agents = mine(&[("s1", named), ("s2", anonymous)], &[]);
 
     let names: Vec<&str> = agents.iter().map(|a| a.name.as_str()).collect();
@@ -182,17 +226,17 @@ fn work_a_session_delegated_counts_as_its_own() {
     let agents = mine_with(
         &[(
             "s1",
-            vec![call("Write", "/code/thing/a", "2026-07-30T10:00:00Z")],
+            vec![call(Tool::Write, "/code/thing/a", "2026-07-30T10:00:00Z")],
         )],
         &[
             (
                 "s1/subagents/agent-aaa.jsonl",
-                vec![call("Write", "/code/thing/b", "2026-07-30T10:05:00Z")],
+                vec![call(Tool::Write, "/code/thing/b", "2026-07-30T10:05:00Z")],
             ),
             (
                 // Workflow agents nest one level deeper again.
                 "s1/subagents/workflows/wf_1/agent-bbb.jsonl",
-                vec![call("Edit", "/code/other/c", "2026-07-30T10:06:00Z")],
+                vec![call(Tool::Edit, "/code/other/c", "2026-07-30T10:06:00Z")],
             ),
         ],
         &[("100", r#"{"pid":100,"sessionId":"s1","name":"boss"}"#)],
@@ -220,7 +264,7 @@ fn a_delegated_transcript_alone_still_lands_under_its_owner() {
         &[],
         &[(
             "s9/subagents/agent-zzz.jsonl",
-            vec![call("Write", "/code/thing/a", "2026-07-30T10:00:00Z")],
+            vec![call(Tool::Write, "/code/thing/a", "2026-07-30T10:00:00Z")],
         )],
         &[],
     );
@@ -232,6 +276,107 @@ fn a_delegated_transcript_alone_still_lands_under_its_owner() {
 }
 
 #[test]
+fn an_edit_counts_as_a_write_though_the_path_is_not_the_first_key() {
+    // The defect this pins. `Edit` serialises `replace_all` before `file_path`,
+    // so a needle expecting the path directly after the tool name matched none
+    // of the 28,546 edits in the live corpus: reads looked entirely normal while
+    // writes were missing the operation that does most of the changing, and the
+    // page ranked agents on the remainder.
+    let agents = mine(
+        &[(
+            "s1",
+            vec![
+                call(Tool::Edit, "/code/thing/a", "2026-07-30T10:00:00Z"),
+                call(Tool::Write, "/code/thing/b", "2026-07-30T10:01:00Z"),
+                call(Tool::Read, "/code/thing/c", "2026-07-30T10:02:00Z"),
+            ],
+        )],
+        &[],
+    );
+
+    assert_eq!(
+        agents[0].writes.get("thing"),
+        Some(&2),
+        "an Edit is a write"
+    );
+    assert_eq!(agents[0].reads.get("thing"), Some(&1));
+}
+
+#[test]
+fn a_tool_call_carrying_no_path_does_not_borrow_the_next_one_s() {
+    // Defensive: every Read/Write/Edit on the live corpus does carry a path, so
+    // this is about what the lookup may not do rather than a shape seen in the
+    // wild. Searching forward for the key without stopping at the next tool call
+    // would credit a call that has no file of its own with the following call's.
+    let line = concat!(
+        r#"{"type":"assistant","timestamp":"2026-07-30T10:00:00Z","message":{"content":["#,
+        r#"{"type":"tool_use","name":"Read","input":{"limit":10}},"#,
+        r#"{"type":"tool_use","name":"Write","input":{"file_path":"/code/thing/a","content":"x"}}"#,
+        r#"]}}"#
+    );
+    let agents = mine(&[("s1", vec![line.to_string()])], &[]);
+
+    assert_eq!(agents[0].writes.get("thing"), Some(&1));
+    assert_eq!(
+        agents[0].reads.get("thing"),
+        None,
+        "the Read named no file of its own"
+    );
+}
+
+#[test]
+fn delegated_work_lands_under_a_name_the_transcript_supplied() {
+    // The ordering invariant, and the reason a session's own transcript is read
+    // before anything it dispatched: only that transcript carries the naming
+    // reminder. Read a subagent first and the owner settles under its bare id,
+    // splitting one agent into two rows — its own work under the name and its
+    // delegated work under the uuid. Nothing else would fail.
+    let own = vec![
+        r#"{"type":"user","message":{"content":"the user named this session \"remembered\""}}"#
+            .to_string(),
+        call(Tool::Write, "/code/thing/a", "2026-07-30T10:00:00Z"),
+    ];
+    let agents = mine_with(
+        &[("s1", own)],
+        &[(
+            "s1/subagents/agent-aaa.jsonl",
+            vec![call(Tool::Write, "/code/thing/b", "2026-07-30T10:05:00Z")],
+        )],
+        &[],
+    );
+
+    let names: Vec<&str> = agents.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(agents.len(), 1, "{names:?}");
+    assert_eq!(agents[0].name, "remembered");
+    assert_eq!(agents[0].delegated, 1);
+    assert_eq!(agents[0].writes.get("thing"), Some(&2));
+}
+
+#[test]
+fn a_subagent_quoting_a_name_does_not_name_itself() {
+    // A subagent inherits its parent's context and can quote the reminder in it.
+    // The reminder names the session that dispatched the work, so honouring it
+    // here would file the work under a name of the parent's, arrived at by
+    // accident — and would do it differently depending on what the parent had
+    // been talking about.
+    let agents = mine_with(
+        &[],
+        &[(
+            "s9/subagents/agent-zzz.jsonl",
+            vec![
+                r#"{"type":"user","message":{"content":"the user named this session \"impostor\""}}"#
+                    .to_string(),
+                call(Tool::Write, "/code/thing/a", "2026-07-30T10:00:00Z"),
+            ],
+        )],
+        &[],
+    );
+
+    assert_eq!(agents.len(), 1);
+    assert_eq!(agents[0].name, "s9", "a subagent must not claim a name");
+}
+
+#[test]
 fn one_busy_day_does_not_outrank_a_fortnight_of_steady_work() {
     // The case this ranking exists for. A session spent one afternoon making
     // many edits in a repository it never returned to, and has since worked
@@ -240,14 +385,14 @@ fn one_busy_day_does_not_outrank_a_fortnight_of_steady_work() {
     let mut lines = vec![];
     for i in 0..75 {
         lines.push(call(
-            "Write",
+            Tool::Write,
             &format!("/code/burst/f{i}"),
             "2026-07-21T10:00:00Z",
         ));
     }
     for day in ["25", "27", "29", "30", "31"] {
         lines.push(call(
-            "Write",
+            Tool::Write,
             "/code/steady/f",
             &format!("2026-07-{day}T10:00:00Z"),
         ));
@@ -280,7 +425,13 @@ fn the_same_day_seen_twice_is_still_one_day() {
         &[(
             "s1",
             (0..20)
-                .map(|i| call("Write", &format!("/code/p/f{i}"), "2026-07-31T10:00:00Z"))
+                .map(|i| {
+                    call(
+                        Tool::Write,
+                        &format!("/code/p/f{i}"),
+                        "2026-07-31T10:00:00Z",
+                    )
+                })
                 .collect(),
         )],
         &[("100", r#"{"pid":100,"sessionId":"s1","name":"a"}"#)],
@@ -298,7 +449,7 @@ fn a_project_that_went_quiet_fades_but_does_not_vanish() {
     let agents = mine(
         &[(
             "s1",
-            vec![call("Write", "/code/old/f", "2025-01-01T10:00:00Z")],
+            vec![call(Tool::Write, "/code/old/f", "2025-01-01T10:00:00Z")],
         )],
         &[("100", r#"{"pid":100,"sessionId":"s1","name":"a"}"#)],
     );
@@ -314,11 +465,11 @@ fn one_name_over_several_transcripts_is_one_agent() {
         &[
             (
                 "s1",
-                vec![call("Write", "/code/thing/a", "2026-07-01T10:00:00Z")],
+                vec![call(Tool::Write, "/code/thing/a", "2026-07-01T10:00:00Z")],
             ),
             (
                 "s2",
-                vec![call("Write", "/code/thing/b", "2026-07-02T10:00:00Z")],
+                vec![call(Tool::Write, "/code/thing/b", "2026-07-02T10:00:00Z")],
             ),
         ],
         &[

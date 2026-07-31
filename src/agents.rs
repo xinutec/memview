@@ -185,11 +185,11 @@ struct Transcript {
 /// separately would invent hundreds of one-shot agents and subtract their work
 /// from the sessions actually responsible for it.
 ///
-/// It is not a rounding error. On the live corpus a fifth of all file
-/// operations happen in delegated transcripts, and the share swings from none
-/// to a third depending on the session — so ignoring them does not merely
-/// undercount, it undercounts unevenly, which is what makes agents
-/// incomparable rather than uniformly understated.
+/// It is not a rounding error. On the live corpus about a tenth of all
+/// Read/Write/Edit calls happen in delegated transcripts, and the share runs
+/// from none at all to a seventh depending on the session — so ignoring them
+/// does not merely undercount, it undercounts unevenly, which is what makes
+/// agents incomparable rather than uniformly understated.
 fn transcripts_under(projects_root: &Path) -> Vec<Transcript> {
     fn descend(dir: &Path, owner: &str, out: &mut Vec<Transcript>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -197,7 +197,14 @@ fn transcripts_under(projects_root: &Path) -> Vec<Transcript> {
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_dir() {
+            // `file_type` comes from the directory entry and does NOT follow
+            // symlinks, where `is_dir` would: a link back to an ancestor would
+            // otherwise recurse until the stack gives out. It also saves a stat
+            // per entry, and there are a thousand of them.
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_dir() {
                 descend(&path, owner, out);
             } else if path.extension().is_some_and(|e| e == "jsonl") {
                 out.push(Transcript {
@@ -227,7 +234,10 @@ fn transcripts_under(projects_root: &Path) -> Vec<Transcript> {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .to_string();
-            if path.is_dir() {
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_dir() {
                 // A session's own directory: everything beneath it is work it
                 // dispatched, however deeply nested.
                 descend(&path, &stem, &mut out);
@@ -303,8 +313,22 @@ fn named_in_transcript(text: &[u8]) -> Option<String> {
     (!name.is_empty() && name.len() <= 40).then(|| name.to_string())
 }
 
+/// The key holding the path, inside a tool call's `input` object.
+const PATH_KEY: &[u8] = b"\"file_path\":\"";
+
 /// Count one transcript's tool calls into `agent`, and note the days.
 fn scan_transcript(text: &[u8], code_root: &str, agent: &mut Agent, seen: &mut DaysSeen) {
+    // Built once per transcript rather than once per line — the needles are
+    // fixed and the corpus is millions of lines.
+    let needles: Vec<(String, bool)> = READ_TOOLS
+        .iter()
+        .map(|tool| (format!("\"name\":\"{tool}\",\"input\":{{"), false))
+        .chain(
+            WRITE_TOOLS
+                .iter()
+                .map(|tool| (format!("\"name\":\"{tool}\",\"input\":{{"), true)),
+        )
+        .collect();
     for line in text.split(|&c| c == b'\n') {
         if line.is_empty() {
             continue;
@@ -323,28 +347,47 @@ fn scan_transcript(text: &[u8], code_root: &str, agent: &mut Agent, seen: &mut D
         // walked rather than only the first — a batched turn that opens six
         // files is six reads, and counting it as one would understate exactly
         // the sessions that work hardest.
-        for (tools, counter, days) in [
-            (READ_TOOLS.as_slice(), &mut agent.reads, &mut seen.reads),
-            (WRITE_TOOLS.as_slice(), &mut agent.writes, &mut seen.writes),
-        ] {
-            for tool in tools {
-                let needle = format!("\"name\":\"{tool}\",\"input\":{{\"file_path\":\"");
-                let mut from = 0;
-                while let Some(at) = find_at(line, needle.as_bytes(), from) {
-                    let start = at + needle.len();
-                    let Some(end) = find_at(line, b"\"", start) else {
-                        break;
-                    };
-                    if let Ok(path) = std::str::from_utf8(&line[start..end])
-                        && let Some(project) = project_of(path, code_root)
-                    {
-                        *counter.entry(project.clone()).or_insert(0) += 1;
-                        if let Some(day) = day {
-                            days.entry(project).or_default().insert(day);
-                        }
-                    }
-                    from = end;
+        for (head, is_write) in &needles {
+            let (counter, days) = if *is_write {
+                (&mut agent.writes, &mut seen.writes)
+            } else {
+                (&mut agent.reads, &mut seen.reads)
+            };
+            let mut from = 0;
+            while let Some(at) = find_at(line, head.as_bytes(), from) {
+                let input = at + head.len();
+                from = input;
+                // **`file_path` is not always the input's first key.** `Edit`
+                // serialises `replace_all` ahead of it — every one of the 28,546
+                // in the live corpus — so a needle demanding the path directly
+                // after the tool name matched none of them at all, and the miner
+                // reported zero edits while calling the number "writes". The
+                // path is looked up inside the object instead.
+                //
+                // Bounded by the next tool call so one carrying no path cannot
+                // borrow the following call's. A tool's own payload cannot forge
+                // either marker: it is a JSON string, so its quotes arrive
+                // backslash-escaped and match neither needle.
+                let limit = find_at(line, b"\"name\":\"", input).unwrap_or(line.len());
+                let Some(key) = find_at(line, PATH_KEY, input) else {
+                    break;
+                };
+                if key >= limit {
+                    continue;
                 }
+                let start = key + PATH_KEY.len();
+                let Some(end) = find_at(line, b"\"", start) else {
+                    break;
+                };
+                if let Ok(path) = std::str::from_utf8(&line[start..end])
+                    && let Some(project) = project_of(path, code_root)
+                {
+                    *counter.entry(project.clone()).or_insert(0) += 1;
+                    if let Some(day) = day {
+                        days.entry(project).or_default().insert(day);
+                    }
+                }
+                from = end;
             }
         }
     }
