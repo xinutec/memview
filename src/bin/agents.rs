@@ -55,10 +55,11 @@ fn main() -> Result<()> {
                 .collect()
         };
         println!(
-            "  {:<18} {:>6} reads {:>6} writes   recent: {}",
+            "  {:<18} {:>6} reads {:>6} writes {:>5} deleg   recent: {}",
             agent.name,
             reads,
             writes,
+            agent.delegated,
             top.join(" ")
         );
     }

@@ -12,9 +12,9 @@
 } @else {
   <p class="lede">
     Where each named session actually works, from the files it opens and
-    changes. Ordered by recent days present, so a single busy afternoon does not
-    outrank steady work; the counts are lifetime totals. Bars are scaled within
-    an agent, not between them.
+    changes, including the subagents it dispatched. Ordered by recent days
+    present, so a single busy afternoon does not outrank steady work; the counts
+    are lifetime totals. Bars are scaled within an agent, not between them.
   </p>
 
   <ul class="agents">
@@ -25,6 +25,9 @@
         </div>
         <div class="totals">
           {{ a.reads }} read · {{ a.writes }} written ·
+          @if (a.delegated) {
+            {{ a.delegated }} delegated ·
+          }
           {{ a.last | date: 'd MMM' }}
         </div>
         <ul class="places">

@@ -24,6 +24,8 @@ interface AgentRow {
   anonymous: boolean;
   reads: number;
   writes: number;
+  /** Subagent and workflow transcripts this session dispatched, if any. */
+  delegated: number;
   first: string;
   last: string;
   places: Place[];
@@ -52,6 +54,12 @@ const PLACES_SHOWN = 6;
  * to, and that afternoon outranked the fortnight of steady work it is named
  * for. The counts shown against each bar stay undecayed — they are the record
  * of what happened; only the order and the bar widths follow recency.
+ *
+ * **Work a session delegated counts as its own.** A subagent has no name and no
+ * continuity; it ran because a named session asked it to. A fifth of all file
+ * operations happen in delegated transcripts, and the share runs from none to a
+ * third depending on the session — so leaving them out would not just undercount
+ * but undercount unevenly, making agents incomparable.
  *
  * Owner-only, and the server enforces it. These are counts rather than text,
  * but they describe the shape of the work — which projects exist and who is
@@ -126,6 +134,7 @@ export class AgentsView {
       anonymous: /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(a.name),
       reads,
       writes,
+      delegated: a.delegated,
       first: a.first,
       last: a.last,
       places,

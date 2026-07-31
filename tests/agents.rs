@@ -16,6 +16,19 @@ fn call(tool: &str, path: &str, stamp: &str) -> String {
 /// `sessions` maps a transcript id to its lines; the registry is a separate
 /// directory, exactly as on the real machine.
 fn mine(transcripts: &[(&str, Vec<String>)], registry: &[(&str, &str)]) -> Vec<Agent> {
+    mine_with(transcripts, &[], registry)
+}
+
+/// As [`mine`], plus transcripts of work a session dispatched.
+///
+/// `delegated` maps a relative path under the project root — the real nesting
+/// is `<session>/subagents/agent-x.jsonl`, and again under
+/// `subagents/workflows/<run>/` for workflow agents.
+fn mine_with(
+    transcripts: &[(&str, Vec<String>)],
+    delegated: &[(&str, Vec<String>)],
+    registry: &[(&str, &str)],
+) -> Vec<Agent> {
     let dir: PathBuf = std::env::temp_dir().join(format!(
         "agents-test-{}-{:?}",
         std::process::id(),
@@ -28,6 +41,11 @@ fn mine(transcripts: &[(&str, Vec<String>)], registry: &[(&str, &str)]) -> Vec<A
     std::fs::create_dir_all(&sessions).unwrap();
     for (id, lines) in transcripts {
         std::fs::write(projects.join(format!("{id}.jsonl")), lines.join("\n")).unwrap();
+    }
+    for (rel, lines) in delegated {
+        let path = projects.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, lines.join("\n")).unwrap();
     }
     for (pid, json) in registry {
         std::fs::write(sessions.join(format!("{pid}.json")), json).unwrap();
@@ -154,6 +172,63 @@ fn several_tool_calls_on_one_line_all_count() {
     );
 
     assert_eq!(agents[0].reads.get("health"), Some(&3));
+}
+
+#[test]
+fn work_a_session_delegated_counts_as_its_own() {
+    // A subagent has no name and no continuity; it exists because a named
+    // session asked for it. Filing its edits separately would invent a one-shot
+    // agent and subtract the work from the session responsible for it.
+    let agents = mine_with(
+        &[(
+            "s1",
+            vec![call("Write", "/code/thing/a", "2026-07-30T10:00:00Z")],
+        )],
+        &[
+            (
+                "s1/subagents/agent-aaa.jsonl",
+                vec![call("Write", "/code/thing/b", "2026-07-30T10:05:00Z")],
+            ),
+            (
+                // Workflow agents nest one level deeper again.
+                "s1/subagents/workflows/wf_1/agent-bbb.jsonl",
+                vec![call("Edit", "/code/other/c", "2026-07-30T10:06:00Z")],
+            ),
+        ],
+        &[("100", r#"{"pid":100,"sessionId":"s1","name":"boss"}"#)],
+    );
+
+    assert_eq!(
+        agents.len(),
+        1,
+        "delegated work must not become its own agent"
+    );
+    let a = &agents[0];
+    assert_eq!(a.name, "boss");
+    assert_eq!(a.transcripts, 1);
+    assert_eq!(a.delegated, 2);
+    assert_eq!(a.writes.get("thing"), Some(&2));
+    assert_eq!(a.writes.get("other"), Some(&1));
+}
+
+#[test]
+fn a_delegated_transcript_alone_still_lands_under_its_owner() {
+    // Ordering matters: the subagent is read before nothing else establishes
+    // the name. Without the registry it must still settle under the owning
+    // session's id rather than the subagent's own filename.
+    let agents = mine_with(
+        &[],
+        &[(
+            "s9/subagents/agent-zzz.jsonl",
+            vec![call("Write", "/code/thing/a", "2026-07-30T10:00:00Z")],
+        )],
+        &[],
+    );
+
+    assert_eq!(agents.len(), 1);
+    assert_eq!(agents[0].name, "s9");
+    assert_eq!(agents[0].transcripts, 0);
+    assert_eq!(agents[0].delegated, 1);
 }
 
 #[test]

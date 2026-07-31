@@ -134,8 +134,13 @@ export interface ShareInfo {
 /** One named session and where its work landed — mirrors agents.rs. */
 export interface Agent {
   name: string;
-  /** Transcripts under this name; more than one when a session was resumed. */
+  /** Main-loop transcripts under this name; more than one when resumed. */
   transcripts: number;
+  /**
+   * Transcripts of subagents and workflow agents this session dispatched.
+   * Their work counts as this agent's — it asked for it.
+   */
+  delegated: number;
   /** Files opened, per project directory. Lifetime totals, undecayed. */
   reads: Record<string, number>;
   /** Files written or edited, per project directory. Lifetime, undecayed. */

@@ -40,9 +40,13 @@ pub struct Agent {
     /// The name it goes by — "recall", "health" — or its session id when it was
     /// never named.
     pub name: String,
-    /// Transcripts filed under this name. More than one when a session is
-    /// resumed, or when the same name has been reused over time.
+    /// Main-loop transcripts filed under this name. More than one when a
+    /// session is resumed, or when the same name has been reused over time.
     pub transcripts: usize,
+    /// Transcripts of subagents and workflow agents this session dispatched.
+    /// Their work is counted as this agent's — see [`transcripts_under`].
+    #[serde(default)]
+    pub delegated: usize,
     /// Files opened, per project directory. Lifetime totals, undecayed — the
     /// honest record of what happened, and what the totals line reports.
     pub reads: BTreeMap<String, usize>,
@@ -160,6 +164,94 @@ fn project_of(path: &str, code_root: &str) -> Option<String> {
     (!name.is_empty()).then(|| name.to_string())
 }
 
+/// One transcript file and the session whose work it records.
+struct Transcript {
+    path: std::path::PathBuf,
+    /// The session id that owns this work — for a delegated transcript, the
+    /// session that dispatched it, not the subagent's own id.
+    owner: String,
+    delegated: bool,
+}
+
+/// Every transcript under a project directory, attributed to its owner.
+///
+/// The layout is `<project>/<session>.jsonl` for a session's own turns, and
+/// `<project>/<session>/subagents/…` — nested again under `workflows/<run>/`
+/// for workflow agents — for everything it dispatched.
+///
+/// **Delegated work belongs to the session that dispatched it.** A subagent has
+/// no name, no continuity and no purpose of its own; it exists because a named
+/// session asked for it, and its edits are that session's edits. Filing them
+/// separately would invent hundreds of one-shot agents and subtract their work
+/// from the sessions actually responsible for it.
+///
+/// It is not a rounding error. On the live corpus a fifth of all file
+/// operations happen in delegated transcripts, and the share swings from none
+/// to a third depending on the session — so ignoring them does not merely
+/// undercount, it undercounts unevenly, which is what makes agents
+/// incomparable rather than uniformly understated.
+fn transcripts_under(projects_root: &Path) -> Vec<Transcript> {
+    fn descend(dir: &Path, owner: &str, out: &mut Vec<Transcript>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                descend(&path, owner, out);
+            } else if path.extension().is_some_and(|e| e == "jsonl") {
+                out.push(Transcript {
+                    path,
+                    owner: owner.to_string(),
+                    delegated: true,
+                });
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    let Ok(roots) = std::fs::read_dir(projects_root) else {
+        return out;
+    };
+    for root in roots.flatten() {
+        if !root.path().is_dir() {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(root.path()) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let stem = path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            if path.is_dir() {
+                // A session's own directory: everything beneath it is work it
+                // dispatched, however deeply nested.
+                descend(&path, &stem, &mut out);
+            } else if path.extension().is_some_and(|e| e == "jsonl") {
+                out.push(Transcript {
+                    path,
+                    owner: stem,
+                    delegated: false,
+                });
+            }
+        }
+    }
+    // A session's own transcript before anything it dispatched, so the name is
+    // resolved from the transcript that carries the naming reminder before a
+    // subagent — which carries none — can settle the agent under a bare id.
+    out.sort_by(|a, b| {
+        a.owner
+            .cmp(&b.owner)
+            .then(a.delegated.cmp(&b.delegated))
+            .then(a.path.cmp(&b.path))
+    });
+    out
+}
+
 /// Session id → name, from the live registry at `~/.claude/sessions`.
 ///
 /// Keyed by pid, and each entry carries `sessionId` and `name`. This is the
@@ -262,7 +354,8 @@ fn scan_transcript(text: &[u8], code_root: &str, agent: &mut Agent, seen: &mut D
 ///
 /// Every project directory is walked, not just one: agents are named per
 /// session and a session's transcripts live under whichever root it was started
-/// in, so scoping to one root would silently lose whole agents.
+/// in, so scoping to one root would silently lose whole agents. Work a session
+/// delegated counts as its own — see [`transcripts_under`].
 pub fn scan(
     projects_root: &Path,
     sessions_dir: &Path,
@@ -276,45 +369,52 @@ pub fn scan(
     // property of the artefact and re-reading it never changes what it says.
     let today = day_number(generated).unwrap_or(0);
 
-    let roots = std::fs::read_dir(projects_root)
+    std::fs::metadata(projects_root)
         .with_context(|| format!("reading {}", projects_root.display()))?;
-    for root in roots.flatten() {
-        if !root.path().is_dir() {
-            continue;
-        }
-        let Ok(files) = std::fs::read_dir(root.path()) else {
+    // The name an owner settled on, so a dispatched transcript lands under the
+    // same agent as the session that dispatched it.
+    let mut resolved: BTreeMap<String, String> = BTreeMap::new();
+
+    for transcript in transcripts_under(projects_root) {
+        let Ok(text) = std::fs::read(&transcript.path) else {
             continue;
         };
-        for file in files.flatten() {
-            let path = file.path();
-            if path.extension().is_none_or(|e| e != "jsonl") {
-                continue;
-            }
-            let Ok(text) = std::fs::read(&path) else {
-                continue;
-            };
-            let id = path.file_stem().unwrap_or_default().to_string_lossy();
-            // Registry first, transcript second, id last. An unnamed session is
-            // shown as its id rather than merged into an "unknown" bucket —
-            // several distinct agents pooled under one label would be a claim
-            // about the work that nothing supports.
-            let name = names
-                .get(id.as_ref())
-                .cloned()
-                .or_else(|| named_in_transcript(&text))
-                .unwrap_or_else(|| id.to_string());
-            let agent = by_name.entry(name.clone()).or_insert_with(|| Agent {
-                name,
-                ..Agent::default()
-            });
+        // Registry first, transcript second, id last. An unnamed session is
+        // shown as its id rather than merged into an "unknown" bucket —
+        // several distinct agents pooled under one label would be a claim
+        // about the work that nothing supports.
+        let name = resolved
+            .entry(transcript.owner.clone())
+            .or_insert_with(|| {
+                names
+                    .get(&transcript.owner)
+                    .cloned()
+                    // Only a session's own transcript carries the naming
+                    // reminder; a subagent that quotes one is quoting its
+                    // parent's context, not naming itself.
+                    .or_else(|| {
+                        (!transcript.delegated)
+                            .then(|| named_in_transcript(&text))
+                            .flatten()
+                    })
+                    .unwrap_or_else(|| transcript.owner.clone())
+            })
+            .clone();
+        let agent = by_name.entry(name.clone()).or_insert_with(|| Agent {
+            name,
+            ..Agent::default()
+        });
+        if transcript.delegated {
+            agent.delegated += 1;
+        } else {
             agent.transcripts += 1;
-            scan_transcript(
-                &text,
-                code_root,
-                agent,
-                days.entry(agent.name.clone()).or_default(),
-            );
         }
+        scan_transcript(
+            &text,
+            code_root,
+            agent,
+            days.entry(agent.name.clone()).or_default(),
+        );
     }
 
     for (name, seen) in &days {
