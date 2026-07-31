@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 
 import { AllView } from './all-view';
 import { GraphView } from './graph-view';
+import { HistoryView } from './history-view';
 import { IndexView } from './index-view';
 import { MemoryView } from './memory-view';
 import { SearchView } from './search-view';
@@ -15,7 +16,8 @@ import { SharingView } from './sharing-view';
  *   /m/:name       → one memory, rendered
  *   /all           → every memory, grouped by type
  *   /graph         → the corpus as a 3D link graph
- *   /search        → full-text search (?q=)
+ *   /search        → full-text search of the memories (?q=)
+ *   /history       → what every session worked on (owner-only)
  *   /sharing       → owner-only share-link management
  *   /share/:token  → share-link landing: stores the token, then → /
  */
@@ -25,6 +27,7 @@ export const routes: Routes = [
   { path: 'all', component: AllView },
   { path: 'graph', component: GraphView },
   { path: 'search', component: SearchView },
+  { path: 'history', component: HistoryView },
   { path: 'sharing', component: SharingView },
   { path: 'share/:token', component: ShareEntry },
   { path: '**', redirectTo: '' },

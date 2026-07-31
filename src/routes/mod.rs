@@ -20,6 +20,8 @@ pub fn router(state: AppState) -> Router {
         .route("/memory/{name}", get(api::memory))
         .route("/graph", get(api::graph))
         .route("/search", get(api::search))
+        .route("/history", get(api::history))
+        .route("/history/search", get(api::history_search))
         .route("/share", get(api::share_get))
         .route("/share", post(api::share_rotate))
         .route("/share", delete(api::share_revoke))

@@ -2,7 +2,17 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
-import { GraphData, IndexPage, Me, MemoryMeta, MemoryPage, SearchHit, ShareInfo } from './models';
+import {
+  GraphData,
+  HistorySearchResult,
+  HistorySummary,
+  IndexPage,
+  Me,
+  MemoryMeta,
+  MemoryPage,
+  SearchHit,
+  ShareInfo,
+} from './models';
 
 /** Thin client over the memview backend. Same-origin in prod; via the dev
  *  proxy (proxy.conf.json) in `ng serve`. Session cookie rides along. */
@@ -45,5 +55,21 @@ export class MemviewApi {
   }
   shareRevoke(): Observable<ShareInfo> {
     return this.http.delete<ShareInfo>('/api/share');
+  }
+
+  /** Sessions and projects. Owner-only server-side; a share token gets 403. */
+  history(): Observable<HistorySummary> {
+    return this.http.get<HistorySummary>('/api/history');
+  }
+
+  /**
+   * Turns matching a query. Searched on the server because the turn list is
+   * ~13 MB — sending it to a phone would be the slow half of an instant answer.
+   */
+  historySearch(q: string, project?: string, session?: string): Observable<HistorySearchResult> {
+    let params: Record<string, string> = { q };
+    if (project) params = { ...params, project };
+    if (session) params = { ...params, session };
+    return this.http.get<HistorySearchResult>('/api/history/search', { params });
   }
 }

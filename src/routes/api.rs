@@ -158,3 +158,181 @@ pub async fn share_revoke(
     app.share.revoke()?;
     Ok(Json(share_json(&app)))
 }
+
+// -- history ---------------------------------------------------------------
+//
+// Owner-only, all of it. Not because isis is untrusted — it holds the corpus
+// already and the fleet's threat model is losing data, not disclosing it — but
+// because a share token is a deliberately public surface. Handing somebody a
+// link to one memory must not also hand them every prompt ever typed.
+
+/// What the history page needs to render before anyone searches: who the
+/// sessions are and what they worked on. Deliberately WITHOUT the turns, which
+/// are ~13 MB and are answered by the search endpoint instead.
+#[derive(serde::Serialize)]
+pub struct HistorySummary {
+    pub generated: String,
+    pub sessions: Vec<crate::history::Session>,
+    pub projects: Vec<crate::history::Project>,
+    pub turns: usize,
+}
+
+/// One search hit, with enough context to be worth reading in a list.
+#[derive(serde::Serialize)]
+pub struct HistoryHit {
+    pub session: String,
+    pub project: Option<String>,
+    pub at: String,
+    /// What was asked. Short — a prompt averages ninety characters.
+    pub prompt: String,
+    /// A window around the match in what Claude said, or empty when the match
+    /// was in the prompt. Never the whole reply: those run to thousands of
+    /// characters and a list of them is not a list of answers.
+    pub reply: String,
+    /// Which field matched, so the row can say why it is here.
+    pub matched: &'static str,
+}
+
+/// Characters of context on each side of a match.
+const SNIPPET_PAD: usize = 110;
+
+/// A window around `pos` in `text`, on character boundaries.
+fn snippet(text: &str, pos: usize, len: usize) -> String {
+    let mut start = pos.saturating_sub(SNIPPET_PAD);
+    while start > 0 && !text.is_char_boundary(start) {
+        start -= 1;
+    }
+    let mut end = (pos + len + SNIPPET_PAD).min(text.len());
+    while end < text.len() && !text.is_char_boundary(end) {
+        end += 1;
+    }
+    let mut out = text[start..end].replace('\n', " ");
+    if start > 0 {
+        out.insert(0, '…');
+    }
+    if end < text.len() {
+        out.push('…');
+    }
+    out
+}
+
+fn load_history(app: &AppState) -> Option<crate::history::History> {
+    let path = app.cfg.history_file.as_ref()?;
+    crate::history::History::load(std::path::Path::new(path))
+}
+
+/// GET /api/history — sessions and projects (owner only).
+pub async fn history(
+    State(app): State<AppState>,
+    OwnerOnly(_): OwnerOnly,
+) -> Result<Json<HistorySummary>, AppError> {
+    let Some(h) = load_history(&app) else {
+        // An empty summary rather than a 404: the page renders and says the
+        // artefact has not been mined, which is a fact about this deployment
+        // rather than an error in the request.
+        return Ok(Json(HistorySummary {
+            generated: String::new(),
+            sessions: Vec::new(),
+            projects: Vec::new(),
+            turns: 0,
+        }));
+    };
+    Ok(Json(HistorySummary {
+        generated: h.generated,
+        sessions: h.sessions,
+        projects: h.projects,
+        turns: h.turns.len(),
+    }))
+}
+
+/// How many hits to return. A search that answers with two thousand rows has
+/// not answered anything, and the count is reported separately so a truncated
+/// result never reads as a complete one.
+const MAX_HITS: usize = 100;
+
+#[derive(serde::Deserialize)]
+pub struct HistoryQuery {
+    pub q: Option<String>,
+    pub project: Option<String>,
+    pub session: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+pub struct HistorySearch {
+    pub hits: Vec<HistoryHit>,
+    /// Total matches, which may exceed `hits.len()`.
+    pub total: usize,
+}
+
+/// GET /api/history/search — turns matching a query (owner only).
+///
+/// Searched on the server rather than shipped to the client: the turn list is
+/// ~13 MB, and a plain substring scan over it in Rust costs single-digit
+/// milliseconds, so sending it to a phone over the VPN would be the slow half
+/// of an otherwise instant answer.
+pub async fn history_search(
+    State(app): State<AppState>,
+    OwnerOnly(_): OwnerOnly,
+    axum::extract::Query(query): axum::extract::Query<HistoryQuery>,
+) -> Result<Json<HistorySearch>, AppError> {
+    let Some(h) = load_history(&app) else {
+        return Ok(Json(HistorySearch {
+            hits: Vec::new(),
+            total: 0,
+        }));
+    };
+    let needle = query.q.unwrap_or_default().to_lowercase();
+    let mut hits = Vec::new();
+    let mut total = 0;
+    for turn in &h.turns {
+        let project = turn
+            .project
+            .and_then(|i| h.projects.get(i))
+            .map(|p| p.name.clone());
+        if let Some(want) = &query.project
+            && project.as_deref() != Some(want.as_str())
+        {
+            continue;
+        }
+        let session = h
+            .sessions
+            .get(turn.session)
+            .map(|s| s.name.clone())
+            .unwrap_or_default();
+        if let Some(want) = &query.session
+            && session != *want
+        {
+            continue;
+        }
+        // Both sides are searched. Asking "what did I say" is the easy recall
+        // problem; "I remember it SAYING something, but not which session" is
+        // the common one, and prompts alone cannot answer it.
+        let mut reply = String::new();
+        let matched = if needle.is_empty() {
+            // An empty query lists the filtered set, which is what makes "show
+            // me everything heatcam" a query rather than a special case.
+            "all"
+        } else if turn.prompt.to_lowercase().contains(&needle) {
+            "prompt"
+        } else if let Some(at) = turn.reply.to_lowercase().find(&needle) {
+            reply = snippet(&turn.reply, at, needle.len());
+            "reply"
+        } else {
+            continue;
+        };
+        total += 1;
+        if hits.len() < MAX_HITS {
+            hits.push(HistoryHit {
+                session,
+                project,
+                at: turn.at.clone(),
+                prompt: turn.prompt.clone(),
+                reply,
+                matched,
+            });
+        }
+    }
+    // Newest first: looking for something you did recently is the common case.
+    hits.sort_by(|a, b| b.at.cmp(&a.at));
+    Ok(Json(HistorySearch { hits, total }))
+}

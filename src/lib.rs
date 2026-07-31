@@ -4,6 +4,7 @@ pub mod access;
 pub mod config;
 pub mod couse;
 pub mod error;
+pub mod history;
 pub mod lint;
 pub mod nextcloud;
 pub mod routes;

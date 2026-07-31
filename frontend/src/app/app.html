@@ -20,6 +20,14 @@
       <mat-icon>hub</mat-icon>
     </a>
     @if (me(); as user) {
+      @if (!user.shared) {
+        <!-- Owner-only, like the API behind it. Shown to a local dev owner too
+             (auth_enabled false), unlike the sign-out and share controls below,
+             which have nothing to act on without auth. -->
+        <a mat-icon-button routerLink="/history" aria-label="Session history">
+          <mat-icon>history</mat-icon>
+        </a>
+      }
       @if (!user.shared && user.auth_enabled) {
         <a mat-icon-button routerLink="/sharing" aria-label="Share link">
           <mat-icon>share</mat-icon>

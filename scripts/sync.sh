@@ -85,6 +85,19 @@ else
   echo "no co-use artefact at $COUSE — skipping (mine it with: cargo run --release --bin couse)"
 fi
 
+# The session history. Same destination and the same reasoning as above, with
+# one difference worth stating: this one DOES carry text — the reader's own
+# prompts, ~2 MB of them. Never assistant replies and never tool output, which
+# is both where the noise is and where a credential could surface. It is served
+# owner-only, so a share link cannot reach it.
+HISTORY="${HISTORY_FILE:-$(dirname "$MEMORY_DIR")/history.json}"
+if [[ -f $HISTORY ]]; then
+  echo "pushing history…"
+  remote sh -c "'cat > /state/history.json'" < "$HISTORY"
+else
+  echo "no history artefact at $HISTORY — skipping (mine it with: cargo run --release --bin history)"
+fi
+
 echo "verifying…"
 remote sh -c "'ls /corpus | wc -l'" | tr -d '\r' | while read -r n; do
   echo "  $n files on isis"
