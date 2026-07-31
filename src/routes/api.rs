@@ -132,6 +132,26 @@ pub async fn search(
     Ok(Json(corpus.search(&query.q, &usage_of(&app))))
 }
 
+/// GET /api/agents — which named session works where (owner only).
+///
+/// Owner-only, and not because the numbers are secret — they are counts, the
+/// same shape of derived signal the graph already serves. A share token is a
+/// deliberately public surface, though, and a link to one memory must not also
+/// hand over the roster of what is being worked on and by whom. That is the
+/// shape of the work, not a memory.
+pub async fn agents(
+    State(app): State<AppState>,
+    OwnerOnly(_): OwnerOnly,
+) -> Result<Json<crate::agents::Agents>, AppError> {
+    let found = app
+        .cfg
+        .agents_file
+        .as_deref()
+        .and_then(|p| crate::agents::Agents::load(std::path::Path::new(p)))
+        .unwrap_or_default();
+    Ok(Json(found))
+}
+
 fn share_json(app: &AppState) -> Value {
     match app.share.get() {
         Some(s) => {

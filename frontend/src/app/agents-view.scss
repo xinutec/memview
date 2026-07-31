@@ -1,0 +1,92 @@
+.lede,
+.empty,
+.stamp {
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.stamp {
+  margin-top: 20px;
+}
+
+.agents {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+
+  > li {
+    padding: 12px 0;
+    border-top: 1px solid var(--mat-sys-outline-variant);
+  }
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  // Agent names are short, but a never-named session shows a 36-character id;
+  // wrapping keeps it off the right edge at phone width instead of widening
+  // the page.
+  flex-wrap: wrap;
+
+  .name {
+    font: var(--mat-sys-title-small);
+    overflow-wrap: anywhere;
+  }
+
+  // An id standing in for a name is not a name, and should not read as one.
+  .anonymous {
+    font: var(--mat-sys-body-small);
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  .home {
+    font: var(--mat-sys-label-small);
+    background: var(--mat-sys-secondary-container);
+    color: var(--mat-sys-on-secondary-container);
+    border-radius: 10px;
+    padding: 1px 8px;
+  }
+}
+
+.totals {
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+  margin-top: 2px;
+}
+
+.places {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  // Project name, bar, counts. The bar takes what is left, so a long project
+  // name never pushes the counts off the edge.
+  grid-template-columns: minmax(0, auto) 1fr max-content;
+  gap: 4px 8px;
+  align-items: center;
+
+  > li {
+    display: contents;
+  }
+
+  .project {
+    font: var(--mat-sys-body-small);
+    overflow-wrap: anywhere;
+  }
+
+  .bar {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--mat-sys-primary);
+    // A project with a single touch still has to be visible, or the row reads
+    // as a project with no work in it at all.
+    min-width: 2px;
+  }
+
+  .counts {
+    font: var(--mat-sys-body-small);
+    color: var(--mat-sys-on-surface-variant);
+    font-variant-numeric: tabular-nums;
+  }
+}

@@ -130,3 +130,21 @@ export interface ShareInfo {
   created_at?: string;
   last_accessed_at?: string | null;
 }
+
+/** One named session and where its work landed — mirrors agents.rs. */
+export interface Agent {
+  name: string;
+  /** Transcripts under this name; more than one when a session was resumed. */
+  transcripts: number;
+  /** Files opened, per project directory. */
+  reads: Record<string, number>;
+  /** Files written or edited, per project directory. */
+  writes: Record<string, number>;
+  first: string;
+  last: string;
+}
+
+export interface AgentsResult {
+  generated: string;
+  agents: Agent[];
+}

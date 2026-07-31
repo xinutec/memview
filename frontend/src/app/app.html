@@ -29,6 +29,15 @@
         <span>Link graph</span>
       </a>
       @if (me(); as user) {
+        @if (!user.shared) {
+          <!-- Owner-only, like the API behind it. Shown to a local dev owner
+               too (auth_enabled false), unlike the share and sign-out controls,
+               which have nothing to act on without auth. -->
+          <a mat-menu-item routerLink="/agents">
+            <mat-icon>groups</mat-icon>
+            <span>Agents</span>
+          </a>
+        }
         @if (!user.shared && user.auth_enabled) {
           <a mat-menu-item routerLink="/sharing">
             <mat-icon>share</mat-icon>

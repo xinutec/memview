@@ -35,6 +35,7 @@ fn app(dir: &std::path::Path) -> (AppState, String) {
         }),
         static_dir: None,
         couse_file: None,
+        agents_file: None,
     };
     let state = AppState::new(cfg, reqwest::Client::new(), share);
     (state, token)
@@ -72,6 +73,12 @@ async fn a_share_token_reads_the_corpus_but_never_the_owner_surface() {
         status(&state, "/api/share", Some(&token)).await,
         StatusCode::FORBIDDEN,
     );
+    // Nor is the agent roster: a link to one memory must not also disclose the
+    // shape of the work — which projects exist, and who is doing what in them.
+    assert_eq!(
+        status(&state, "/api/agents", Some(&token)).await,
+        StatusCode::FORBIDDEN,
+    );
 }
 
 #[tokio::test]
@@ -81,7 +88,7 @@ async fn no_credential_reaches_nothing() {
     std::fs::write(dir.path().join("corpus/MEMORY.md"), "# Memory index\n").expect("index");
     let (state, _token) = app(dir.path());
 
-    for path in ["/api/graph", "/api/search?q=x", "/api/share"] {
+    for path in ["/api/graph", "/api/search?q=x", "/api/share", "/api/agents"] {
         assert_eq!(
             status(&state, path, None).await,
             StatusCode::UNAUTHORIZED,

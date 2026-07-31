@@ -8,6 +8,7 @@ import {
   Me,
   MemoryMeta,
   MemoryPage,
+  AgentsResult,
   SearchResult,
   ShareInfo,
 } from './models';
@@ -51,6 +52,11 @@ export class MemviewApi {
   shareRotate(): Observable<ShareInfo> {
     return this.http.post<ShareInfo>('/api/share', {});
   }
+  /** Which named session works where. Owner-only; a share token gets 403. */
+  agents(): Observable<AgentsResult> {
+    return this.http.get<AgentsResult>('/api/agents');
+  }
+
   shareRevoke(): Observable<ShareInfo> {
     return this.http.delete<ShareInfo>('/api/share');
   }

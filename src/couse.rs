@@ -175,7 +175,7 @@ impl CoUse {
 }
 
 /// Find `needle` in `hay` starting at `from`.
-fn find_at(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
+pub(crate) fn find_at(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
     if needle.is_empty() || hay.len() < needle.len() {
         return None;
     }
@@ -188,7 +188,7 @@ fn find_at(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
 /// and all but a handful of lines mention no memory at all. Note that probing
 /// for `"uuid":"` cannot collide with `"parentUuid":"` — the latter capitalises
 /// the U, so the lowercase needle does not occur in it.
-fn field<'a>(line: &'a [u8], key: &str) -> Option<&'a [u8]> {
+pub(crate) fn field<'a>(line: &'a [u8], key: &str) -> Option<&'a [u8]> {
     let needle = format!("\"{key}\":\"");
     let start = find_at(line, needle.as_bytes(), 0)? + needle.len();
     let end = find_at(line, b"\"", start)?;

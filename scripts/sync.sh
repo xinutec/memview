@@ -85,6 +85,16 @@ else
   echo "no co-use artefact at $COUSE — skipping (mine it with: cargo run --release --bin couse)"
 fi
 
+# The agent roster: which named session works in which project directory.
+# Names, project names and integers, same as the co-use artefact.
+AGENTS="${AGENTS_FILE:-$HOME/.claude/agents.json}"
+if [[ -f $AGENTS ]]; then
+  echo "pushing agents…"
+  remote sh -c "'cat > /state/agents.json'" < "$AGENTS"
+else
+  echo "no agent artefact at $AGENTS — skipping (mine it with: cargo run --release --bin agents)"
+fi
+
 # No transcript text is pushed, and there is no artefact carrying any.
 #
 # There was: a mined `history.json` of every prompt and reply, served behind an

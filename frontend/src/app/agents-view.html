@@ -1,0 +1,47 @@
+@if (loading()) {
+  <mat-progress-bar mode="indeterminate" />
+} @else if (denied()) {
+  <p class="empty">
+    Agents are owner-only. A share link shows the memories, not the shape of the
+    work behind them.
+  </p>
+} @else if (!rows().length) {
+  <p class="empty">
+    Nothing mined yet — run <code>cargo run --release --bin agents</code>.
+  </p>
+} @else {
+  <p class="lede">
+    Where each named session actually works, from the files it opens and
+    changes. Bars are scaled within an agent, not between them.
+  </p>
+
+  <ul class="agents">
+    @for (a of rows(); track a.name) {
+      <li>
+        <div class="head">
+          <span class="name" [class.anonymous]="a.anonymous">{{ a.name }}</span>
+          @if (a.home) {
+            <span class="home">{{ a.home }}</span>
+          }
+        </div>
+        <div class="totals">
+          {{ a.reads }} read · {{ a.writes }} written ·
+          {{ a.last | date: 'd MMM' }}
+        </div>
+        <ul class="places">
+          @for (p of a.places; track p.project) {
+            <li>
+              <span class="project">{{ p.project }}</span>
+              <span class="bar" [style.width.%]="p.share * 100"></span>
+              <span class="counts">{{ p.reads }}r {{ p.writes }}w</span>
+            </li>
+          }
+        </ul>
+      </li>
+    }
+  </ul>
+
+  @if (generated()) {
+    <p class="stamp">mined {{ generated() | date: 'd MMM HH:mm' }}</p>
+  }
+}
