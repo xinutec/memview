@@ -156,10 +156,25 @@ export interface HistoryHit {
   reply: string;
   /** Which field matched: 'prompt', 'reply', or 'all' for an unfiltered list. */
   matched: string;
+  /** BM25 score. Exposed so a ranking regression is visible, not just felt. */
+  score: number;
+}
+
+/** How many matches a session or project holds, across the WHOLE match set. */
+export interface HistoryTally {
+  name: string;
+  hits: number;
 }
 
 export interface HistorySearchResult {
   hits: HistoryHit[];
   /** Total matches, which may exceed hits.length. */
   total: number;
+  /**
+   * Where the whole match set lives, most hits first. For a broad term no page
+   * of turns can answer "which session said this" — 973 matches for "backup"
+   * span every session — but a count per session answers it in one line.
+   */
+  by_session: HistoryTally[];
+  by_project: HistoryTally[];
 }

@@ -41,6 +41,35 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
+// Counts across the whole match set, each a filter. This is the row that
+// actually answers "which session said it" when there are 973 hits.
+.tallies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+
+  button {
+    border: 1px solid var(--mat-sys-outline-variant);
+    background: none;
+    color: inherit;
+    border-radius: 999px;
+    padding: 2px 10px;
+    font: var(--mat-sys-label-medium);
+    cursor: pointer;
+
+    &.on {
+      background: var(--mat-sys-secondary-container);
+      color: var(--mat-sys-on-secondary-container);
+      border-color: transparent;
+    }
+  }
+
+  .n {
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
 .turns {
   list-style: none;
   padding: 0;

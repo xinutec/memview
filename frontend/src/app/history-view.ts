@@ -11,7 +11,25 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { Subject, catchError, of, switchMap } from 'rxjs';
 
 import { MemviewApi } from './memview-api';
-import { HistoryHit, HistoryProject, HistorySummary } from './models';
+import {
+  HistoryHit,
+  HistoryProject,
+  HistorySearchResult,
+  HistorySummary,
+  HistoryTally,
+} from './models';
+
+/**
+ * What a failed search yields. Spelled out as a whole result rather than a
+ * partial literal so the type stays exact — a fallback missing a field makes
+ * every read of it `any`, which is how a rename would slip through the gate.
+ */
+const EMPTY_RESULT: HistorySearchResult = {
+  hits: [],
+  total: 0,
+  by_session: [],
+  by_project: [],
+};
 
 /** A project as the list shows it: who worked on it and when. */
 interface ProjectRow {
@@ -64,9 +82,13 @@ export class HistoryView {
   readonly project = signal<string | null>(null);
   readonly hits = signal<HistoryHit[] | null>(null);
   readonly total = signal(0);
+  /** Which sessions and projects the whole match set lives in. */
+  readonly bySession = signal<HistoryTally[]>([]);
+  readonly byProject = signal<HistoryTally[]>([]);
+  readonly session = signal<string | null>(null);
   readonly searching = signal(false);
 
-  private search$ = new Subject<{ q: string; project: string | null }>();
+  private search$ = new Subject<{ q: string; project: string | null; session: string | null }>();
 
   /** Session name by index, for resolving a project's hands. */
   private readonly sessionNames = computed(() =>
@@ -114,16 +136,21 @@ export class HistoryView {
 
     this.search$
       .pipe(
-        switchMap(({ q, project }) =>
+        switchMap(({ q, project, session }) =>
           this.api
-            .historySearch(q, project ?? undefined)
-            .pipe(catchError(() => of({ hits: [] as HistoryHit[], total: 0 }))),
+            .historySearch(q, project ?? undefined, session ?? undefined)
+            .pipe(catchError(() => of(EMPTY_RESULT))),
         ),
         takeUntilDestroyed(),
       )
       .subscribe((res) => {
         this.hits.set(res.hits);
         this.total.set(res.total);
+        // dev-lint: allow-component-list search results belong to the current
+        // query — surviving navigation would show one search's tallies beside
+        // another's hits, which is worse than re-fetching.
+        this.bySession.set(res.by_session);
+        this.byProject.set(res.by_project);
         this.searching.set(false);
       });
 
@@ -132,19 +159,23 @@ export class HistoryView {
     this.route.queryParamMap.pipe(takeUntilDestroyed()).subscribe((pm) => {
       const q = pm.get('q') ?? '';
       const project = pm.get('project');
+      const session = pm.get('session');
       this.query.set(q);
       this.project.set(project);
-      if (q || project) {
+      this.session.set(session);
+      if (q || project || session) {
         this.searching.set(true);
-        this.search$.next({ q, project });
+        this.search$.next({ q, project, session });
       } else {
         this.hits.set(null);
         this.total.set(0);
+        this.bySession.set([]);
+        this.byProject.set([]);
       }
     });
   }
 
-  private go(q: string, project: string | null): void {
+  private go(q: string, project: string | null, session: string | null): void {
     void this.router.navigate([], {
       relativeTo: this.route,
       // Length-tested, not `??`: the empty string has to become null so the URL
@@ -152,22 +183,28 @@ export class HistoryView {
       queryParams: {
         q: q.length ? q : null,
         project: project?.length ? project : null,
+        session: session?.length ? session : null,
       },
       queryParamsHandling: 'merge',
     });
   }
 
   submit(): void {
-    this.go(this.query().trim(), this.project());
+    this.go(this.query().trim(), this.project(), this.session());
   }
 
   /** Clicking a project filters to it; clicking it again clears the filter. */
   pickProject(name: string): void {
-    this.go(this.query(), this.project() === name ? null : name);
+    this.go(this.query(), this.project() === name ? null : name, this.session());
+  }
+
+  /** Same for a session — this is how a tally row becomes a drill-down. */
+  pickSession(name: string): void {
+    this.go(this.query(), this.project(), this.session() === name ? null : name);
   }
 
   clear(): void {
     this.query.set('');
-    this.go('', this.project());
+    this.go('', this.project(), this.session());
   }
 }

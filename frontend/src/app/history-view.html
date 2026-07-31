@@ -34,8 +34,14 @@
 
     @if (project(); as p) {
       <p class="filter">
-        filtered to <strong>{{ p }}</strong>
+        project <strong>{{ p }}</strong>
         <button mat-button (click)="pickProject(p)">clear</button>
+      </p>
+    }
+    @if (session(); as sn) {
+      <p class="filter">
+        session <strong>{{ sn }}</strong>
+        <button mat-button (click)="pickSession(sn)">clear</button>
       </p>
     }
 
@@ -47,9 +53,25 @@
       <h3 class="section">
         {{ total() }} matching turn{{ total() === 1 ? '' : 's' }}
         @if (truncated()) {
-          <span class="count">showing {{ rows.length }}</span>
+          <span class="count">best {{ rows.length }}, one session at a time</span>
         }
       </h3>
+
+      <!-- Where the WHOLE match set lives, not just this page. For a broad
+           term no page of turns can say which session said it; this can. -->
+      @if (bySession().length > 1) {
+        <div class="tallies">
+          @for (t of bySession(); track t.name) {
+            <button
+              type="button"
+              [class.on]="session() === t.name"
+              (click)="pickSession(t.name)"
+            >
+              {{ t.name }} <span class="n">{{ t.hits }}</span>
+            </button>
+          }
+        </div>
+      }
       <ul class="turns">
         @for (hit of rows; track hit.at + hit.prompt) {
           <li>

@@ -1,6 +1,8 @@
 //! JSON API. All corpus reads admit the owner or a share-token holder;
 //! share management is owner-only.
 
+use std::collections::BTreeMap;
+
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use serde::{Deserialize, Serialize};
@@ -191,6 +193,9 @@ pub struct HistoryHit {
     pub reply: String,
     /// Which field matched, so the row can say why it is here.
     pub matched: &'static str,
+    /// BM25 score, rounded. Exposed so a ranking regression is visible in the
+    /// response rather than only in how the page happens to feel.
+    pub score: f64,
 }
 
 /// Characters of context on each side of a match.
@@ -245,11 +250,6 @@ pub async fn history(
     }))
 }
 
-/// How many hits to return. A search that answers with two thousand rows has
-/// not answered anything, and the count is reported separately so a truncated
-/// result never reads as a complete one.
-const MAX_HITS: usize = 100;
-
 #[derive(serde::Deserialize)]
 pub struct HistoryQuery {
     pub q: Option<String>,
@@ -257,82 +257,170 @@ pub struct HistoryQuery {
     pub session: Option<String>,
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Default)]
 pub struct HistorySearch {
     pub hits: Vec<HistoryHit>,
     /// Total matches, which may exceed `hits.len()`.
     pub total: usize,
+    /// Every session the match set touches, most hits first — the answer to
+    /// "which one said it" when the page cannot show them all.
+    pub by_session: Vec<Tally>,
+    pub by_project: Vec<Tally>,
+}
+
+/// How many turns come back. A search that answers with two thousand rows has
+/// not answered anything; the totals below say what was left out.
+const MAX_HITS: usize = 60;
+
+/// Where the whole match set lives, regardless of what fitted on the page.
+///
+/// The page's question is often "WHICH session talked about this", and for a
+/// common term no page of individual turns can answer it — "backup" matches 984
+/// turns across nine sessions. A count per session answers it in one line.
+#[derive(serde::Serialize)]
+pub struct Tally {
+    pub name: String,
+    pub hits: usize,
 }
 
 /// GET /api/history/search — turns matching a query (owner only).
 ///
-/// Searched on the server rather than shipped to the client: the turn list is
-/// ~13 MB, and a plain substring scan over it in Rust costs single-digit
-/// milliseconds, so sending it to a phone over the VPN would be the slow half
-/// of an otherwise instant answer.
+/// Every match is scored and the best are returned; the cap is applied AFTER
+/// ranking. The first version applied it during the scan, so a common term came
+/// back as an arbitrary slice of whichever sessions were read first — 984
+/// matches for "backup" reduced to 100 rows from two sessions.
 pub async fn history_search(
     State(app): State<AppState>,
     OwnerOnly(_): OwnerOnly,
     axum::extract::Query(query): axum::extract::Query<HistoryQuery>,
 ) -> Result<Json<HistorySearch>, AppError> {
     let Some(h) = load_history(&app) else {
-        return Ok(Json(HistorySearch {
-            hits: Vec::new(),
-            total: 0,
-        }));
+        return Ok(Json(HistorySearch::default()));
     };
-    let needle = query.q.unwrap_or_default().to_lowercase();
-    let mut hits = Vec::new();
-    let mut total = 0;
-    for turn in &h.turns {
+    let needle = query.q.unwrap_or_default();
+
+    // Filters first: they define the candidate set the ranking scores against,
+    // so a term's rarity is measured within the project being looked at rather
+    // than across the whole corpus.
+    let mut candidates: Vec<usize> = Vec::new();
+    for (i, turn) in h.turns.iter().enumerate() {
         let project = turn
             .project
-            .and_then(|i| h.projects.get(i))
-            .map(|p| p.name.clone());
+            .and_then(|p| h.projects.get(p))
+            .map(|p| &p.name);
         if let Some(want) = &query.project
-            && project.as_deref() != Some(want.as_str())
+            && project != Some(want)
         {
             continue;
         }
-        let session = h
-            .sessions
+        if let Some(want) = &query.session
+            && h.sessions.get(turn.session).map(|s| &s.name) != Some(want)
+        {
+            continue;
+        }
+        if turn.prompt.is_empty() && turn.reply.is_empty() {
+            continue;
+        }
+        candidates.push(i);
+    }
+
+    let name_of = |turn: &crate::history::Turn| {
+        h.sessions
             .get(turn.session)
             .map(|s| s.name.clone())
-            .unwrap_or_default();
-        if let Some(want) = &query.session
-            && session != *want
-        {
-            continue;
+            .unwrap_or_default()
+    };
+    let project_of = |turn: &crate::history::Turn| {
+        turn.project
+            .and_then(|p| h.projects.get(p))
+            .map(|p| p.name.clone())
+    };
+
+    // An empty query lists the filtered set newest first — that is what makes
+    // "show me everything heatcam" a query rather than a special case.
+    let ordered: Vec<(usize, f64, bool)> = if needle.trim().is_empty() {
+        let mut rows: Vec<usize> = candidates.clone();
+        rows.sort_by(|a, b| h.turns[*b].at.cmp(&h.turns[*a].at));
+        rows.into_iter().map(|i| (i, 0.0, false)).collect()
+    } else {
+        let docs: Vec<crate::rank::Doc<'_>> = candidates
+            .iter()
+            .map(|&i| crate::rank::Doc {
+                prompt: &h.turns[i].prompt,
+                reply: &h.turns[i].reply,
+                at: &h.turns[i].at,
+            })
+            .collect();
+        crate::rank::rank(&docs, &needle)
+            .into_iter()
+            .map(|s| (candidates[s.index], s.score, s.in_prompt))
+            .collect()
+    };
+
+    let total = ordered.len();
+
+    // Which sessions and projects the WHOLE match set lives in, before the page
+    // cap. This is the part that answers "which one said it" for a broad term.
+    let mut by_session: BTreeMap<String, usize> = BTreeMap::new();
+    let mut by_project: BTreeMap<String, usize> = BTreeMap::new();
+    for (i, _, _) in &ordered {
+        *by_session.entry(name_of(&h.turns[*i])).or_insert(0) += 1;
+        if let Some(p) = project_of(&h.turns[*i]) {
+            *by_project.entry(p).or_insert(0) += 1;
         }
-        // Both sides are searched. Asking "what did I say" is the easy recall
-        // problem; "I remember it SAYING something, but not which session" is
-        // the common one, and prompts alone cannot answer it.
-        let mut reply = String::new();
-        let matched = if needle.is_empty() {
-            // An empty query lists the filtered set, which is what makes "show
-            // me everything heatcam" a query rather than a special case.
-            "all"
-        } else if turn.prompt.to_lowercase().contains(&needle) {
-            "prompt"
-        } else if let Some(at) = turn.reply.to_lowercase().find(&needle) {
-            reply = snippet(&turn.reply, at, needle.len());
-            "reply"
-        } else {
-            continue;
-        };
-        total += 1;
-        if hits.len() < MAX_HITS {
-            hits.push(HistoryHit {
-                session,
-                project,
+    }
+    let tally = |m: BTreeMap<String, usize>| {
+        let mut v: Vec<Tally> = m
+            .into_iter()
+            .map(|(name, hits)| Tally { name, hits })
+            .collect();
+        v.sort_by(|a, b| b.hits.cmp(&a.hits).then(a.name.cmp(&b.name)));
+        v
+    };
+
+    // Interleaved by session so one talkative session cannot fill the page.
+    let picked = crate::rank::diversify(ordered, |(i, _, _)| name_of(&h.turns[*i]), MAX_HITS);
+
+    let hits = picked
+        .into_iter()
+        .map(|(i, score, in_prompt)| {
+            let turn = &h.turns[i];
+            let (matched, reply) = if needle.trim().is_empty() {
+                ("all", String::new())
+            } else if in_prompt {
+                ("prompt", String::new())
+            } else {
+                let at = turn
+                    .reply
+                    .to_lowercase()
+                    .find(&needle.to_lowercase())
+                    .or_else(|| {
+                        // Fall back to the first term when the whole query is
+                        // not literally present — the ranking matched on terms,
+                        // so a snippet has to be found the same way.
+                        crate::rank::tokenize(&needle)
+                            .first()
+                            .and_then(|t| turn.reply.to_lowercase().find(t.as_str()))
+                    })
+                    .unwrap_or(0);
+                ("reply", snippet(&turn.reply, at, needle.len()))
+            };
+            HistoryHit {
+                session: name_of(turn),
+                project: project_of(turn),
                 at: turn.at.clone(),
                 prompt: turn.prompt.clone(),
                 reply,
                 matched,
-            });
-        }
-    }
-    // Newest first: looking for something you did recently is the common case.
-    hits.sort_by(|a, b| b.at.cmp(&a.at));
-    Ok(Json(HistorySearch { hits, total }))
+                score: (score * 100.0).round() / 100.0,
+            }
+        })
+        .collect();
+
+    Ok(Json(HistorySearch {
+        hits,
+        total,
+        by_session: tally(by_session),
+        by_project: tally(by_project),
+    }))
 }
