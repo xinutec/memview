@@ -7,6 +7,5 @@ cd "$(dirname "$0")/.."
 
 MEMORY_DIR="${MEMORY_DIR:-$HOME/.claude/projects/-Users-pippijn-Code/memory}" \
   COUSE_FILE="${COUSE_FILE:-$HOME/.claude/projects/-Users-pippijn-Code/couse.json}" \
-  HISTORY_FILE="${HISTORY_FILE:-$HOME/.claude/history.json}" \
   STATIC_DIR="${STATIC_DIR:-frontend/dist/memview-web/browser}" \
   exec nix develop -c cargo run

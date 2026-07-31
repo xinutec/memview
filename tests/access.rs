@@ -1,10 +1,11 @@
 //! Who may reach what, exercised through the real router.
 //!
-//! The history endpoints are `OwnerOnly` while the corpus is `ReadAccess`, and
-//! the difference is the whole reason a share link is safe to hand out: it
-//! shows somebody the memories without also handing them every prompt and
-//! reply ever exchanged. That is a claim about behaviour, so it is tested
-//! against the router rather than asserted from the extractor's name.
+//! The share endpoints are `OwnerOnly` while the corpus is `ReadAccess`, and
+//! the difference is what makes a share link safe to hand out: it shows
+//! somebody the memories without also letting them rotate or revoke the link
+//! they were given, or read the token out of the API. That is a claim about
+//! behaviour, so it is tested against the router rather than asserted from the
+//! extractor's name.
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use memview::access::SHARE_HEADER;
@@ -34,7 +35,6 @@ fn app(dir: &std::path::Path) -> (AppState, String) {
         }),
         static_dir: None,
         couse_file: None,
-        history_file: None,
     };
     let state = AppState::new(cfg, reqwest::Client::new(), share);
     (state, token)
@@ -53,7 +53,7 @@ async fn status(state: &AppState, path: &str, token: Option<&str>) -> StatusCode
 }
 
 #[tokio::test]
-async fn a_share_token_reads_the_corpus_but_never_the_history() {
+async fn a_share_token_reads_the_corpus_but_never_the_owner_surface() {
     let dir = tempfile::tempdir().expect("tempdir");
     std::fs::create_dir_all(dir.path().join("corpus")).expect("corpus dir");
     std::fs::write(dir.path().join("corpus/MEMORY.md"), "# Memory index\n").expect("index");
@@ -65,15 +65,11 @@ async fn a_share_token_reads_the_corpus_but_never_the_history() {
         StatusCode::OK,
     );
 
-    // The history is not. A share recipient must be refused even though their
-    // token is perfectly valid — this is the property that lets a link be sent
-    // to somebody without sending them 14k prompts and replies.
+    // The link's own management is not. A share recipient must be refused even
+    // though their token is perfectly valid — otherwise the person you sent a
+    // link to could revoke it, or mint themselves a fresh one after you did.
     assert_eq!(
-        status(&state, "/api/history", Some(&token)).await,
-        StatusCode::FORBIDDEN,
-    );
-    assert_eq!(
-        status(&state, "/api/history/search?q=x", Some(&token)).await,
+        status(&state, "/api/share", Some(&token)).await,
         StatusCode::FORBIDDEN,
     );
 }
@@ -85,7 +81,7 @@ async fn no_credential_reaches_nothing() {
     std::fs::write(dir.path().join("corpus/MEMORY.md"), "# Memory index\n").expect("index");
     let (state, _token) = app(dir.path());
 
-    for path in ["/api/graph", "/api/history", "/api/history/search?q=x"] {
+    for path in ["/api/graph", "/api/search?q=x", "/api/share"] {
         assert_eq!(
             status(&state, path, None).await,
             StatusCode::UNAUTHORIZED,

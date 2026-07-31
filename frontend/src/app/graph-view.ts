@@ -78,9 +78,14 @@ const READABLE_CLUSTERS = 20;
  * answer, and each is a different reading of one picture rather than a
  * different picture.
  */
-export type Metric = 'use' | 'reads' | 'edits' | 'age' | 'links';
+export type Metric = 'standing' | 'use' | 'reads' | 'edits' | 'reach' | 'age' | 'links';
 
 export const METRICS: readonly { key: Metric; label: string; hint: string }[] = [
+  {
+    key: 'standing',
+    label: 'standing',
+    hint: 'bigger = more load-bearing overall: consulted across sessions, opened on purpose, used in several projects, still current',
+  },
   { key: 'use', label: 'used', hint: 'bigger = came up in more separate sessions' },
   {
     key: 'reads',
@@ -88,6 +93,11 @@ export const METRICS: readonly { key: Metric; label: string; hint: string }[] = 
     hint: 'bigger = deliberately opened more often; small = only ever came up in passing',
   },
   { key: 'edits', label: 'edited', hint: 'bigger = rewritten more often' },
+  {
+    key: 'reach',
+    label: 'reach',
+    hint: 'bigger = consulted in more different projects; small = matters in exactly one place',
+  },
   { key: 'age', label: 'fresh', hint: 'bigger = used recently; small = long untouched' },
   { key: 'links', label: 'linked', hint: 'bigger = more links in and out' },
 ];
@@ -674,13 +684,73 @@ export class GraphView {
     if (metric === 'edits') {
       return Math.min(1, Math.log10(1 + usage.edits) / 2.1);
     }
-    // Freshness, measured against the most recent use anywhere in the corpus
-    // rather than against today — the transcripts have an end date, and scoring
-    // against now would fade the whole picture uniformly as they age.
+    if (metric === 'reach') {
+      return this.reach(usage);
+    }
+    if (metric === 'standing') {
+      return this.standing(node, usage);
+    }
+    return this.freshness(usage);
+  }
+
+  /**
+   * How many separate projects consult this memory, normalised.
+   *
+   * A different question from how *often* it is used, and the two disagree in
+   * the way that matters: a memory hammered all week inside one repository is
+   * local knowledge, while one consulted twice in each of six projects is a
+   * rule the whole body of work leans on. Only the second should read as
+   * load-bearing.
+   *
+   * Six projects saturates it. Beyond that the distinction stops meaning
+   * anything — everything that broad is simply general.
+   */
+  private reach(usage: Usage): number {
+    const count = Object.keys(usage.projects).length;
+    if (count === 0) return 0.05;
+    return Math.min(1, Math.sqrt(count) / Math.sqrt(6));
+  }
+
+  /**
+   * Freshness against the most recent use anywhere in the corpus rather than
+   * against today — the transcripts have an end date, and scoring against now
+   * would fade the whole picture uniformly as they age.
+   */
+  private freshness(usage: Usage): number {
     const newest = this.newest();
     if (!usage.last || newest === 0) return 0.05;
     const days = (newest - Date.parse(usage.last)) / 86_400_000;
     return Math.max(0.05, 1 - Math.min(1, days / 30));
+  }
+
+  /**
+   * One number for how load-bearing a memory actually is.
+   *
+   * The other metrics each answer one question and can each be gamed by a
+   * single accident of how the work happened to go — a memory rewritten five
+   * times in one afternoon looks busy under `edits`, and one injected into
+   * every session looks universal under `use` without anyone ever having read
+   * it. This combines the independent signals so that no single accident can
+   * carry a memory to the top: it has to come up across sessions, be opened on
+   * purpose, matter in more than one project, and still be current.
+   *
+   * The weights are a judgement, not a measurement, so they are stated rather
+   * than buried: breadth of use and deliberate opening carry the most, reach
+   * across projects next, freshness least — a rule can be entirely correct and
+   * simply not have come up lately, and that is not a demotion.
+   *
+   * Deliberately NOT the only view. Every input remains selectable on its own,
+   * because a composite that cannot be taken apart is one nobody can argue
+   * with when it is wrong.
+   */
+  private standing(node: GraphNode, usage: Usage): number {
+    const sessions = Math.min(1, Math.sqrt(usage.sessions) / 3.6);
+    const reads = Math.min(1, Math.sqrt(usage.reads) / 5.5);
+    const degree = Math.min(1, Math.sqrt(node.in_degree + node.out_degree) / 5.5);
+    return Math.min(
+      1,
+      0.3 * sessions + 0.25 * reads + 0.2 * this.reach(usage) + 0.15 * degree + 0.1 * this.freshness(usage),
+    );
   }
 
   /**

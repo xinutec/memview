@@ -63,6 +63,16 @@ export interface Usage {
   edits: number;
   /** Most recent mention, ISO-8601, or null if never seen. */
   last: string | null;
+  /**
+   * Mentions per project, from the working directory of the line that named it.
+   *
+   * The context a memory is actually consulted in, which its own text does not
+   * say — a rule filed under "rules" may in practice be a health-sync rule.
+   * Empty for a memory never seen in a project directory, and empty for every
+   * memory when the artefact predates this field — never absent, because the
+   * server fills it in either way.
+   */
+  projects: Record<string, number>;
 }
 
 export interface GraphData {
@@ -106,75 +116,4 @@ export interface ShareInfo {
   url?: string | null;
   created_at?: string;
   last_accessed_at?: string | null;
-}
-
-/** Session/project history mined from the transcripts — mirrors history.rs. */
-export interface HistorySession {
-  id: string;
-  /** The name the session goes by ("home"), or its id when never named. */
-  name: string;
-  first: string;
-  last: string;
-  turns: number;
-}
-
-/** One session's share of one project — index into HistorySummary.sessions. */
-export interface HistoryHand {
-  session: number;
-  turns: number;
-  first: string;
-  last: string;
-}
-
-export interface HistoryProject {
-  name: string;
-  turns: number;
-  first: string;
-  last: string;
-  /** Who worked on it, most turns first. */
-  hands: HistoryHand[];
-  files: string[];
-  /** Days with at least one turn. */
-  days: string[];
-}
-
-export interface HistorySummary {
-  generated: string;
-  sessions: HistorySession[];
-  projects: HistoryProject[];
-  /** Total turns indexed; the turns themselves come from the search endpoint. */
-  turns: number;
-}
-
-export interface HistoryHit {
-  session: string;
-  project: string | null;
-  at: string;
-  /** What was asked. */
-  prompt: string;
-  /** A window around the match in what Claude said; empty unless it matched. */
-  reply: string;
-  /** Which field matched: 'prompt', 'reply', or 'all' for an unfiltered list. */
-  matched: string;
-  /** BM25 score. Exposed so a ranking regression is visible, not just felt. */
-  score: number;
-}
-
-/** How many matches a session or project holds, across the WHOLE match set. */
-export interface HistoryTally {
-  name: string;
-  hits: number;
-}
-
-export interface HistorySearchResult {
-  hits: HistoryHit[];
-  /** Total matches, which may exceed hits.length. */
-  total: number;
-  /**
-   * Where the whole match set lives, most hits first. For a broad term no page
-   * of turns can answer "which session said this" — 973 matches for "backup"
-   * span every session — but a count per session answers it in one line.
-   */
-  by_session: HistoryTally[];
-  by_project: HistoryTally[];
 }

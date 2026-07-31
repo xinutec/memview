@@ -31,7 +31,18 @@ fn main() -> Result<()> {
     let names: BTreeSet<String> = corpus.docs.keys().cloned().collect();
     println!("{} memories, scanning {}", names.len(), dir.display());
 
-    let found = couse::scan(&dir, &names)?;
+    // Where projects live, so a mention can be attributed to the work it was
+    // consulted for. Overridable so the miner is not welded to one machine's
+    // layout, and so nothing publishes a home directory.
+    let code_root = std::env::var("CODE_ROOT").unwrap_or_else(|_| format!("{home}/Code"));
+    let generated = couse::stamp(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+    );
+
+    let found = couse::scan(&dir, &names, &code_root, &generated)?;
     let out = dir.join("couse.json");
     found.save(&out)?;
 

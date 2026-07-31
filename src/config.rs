@@ -32,8 +32,6 @@ pub struct Config {
     /// inside `memory_dir` — the sync replaces that directory wholesale, and
     /// this is not a memory.
     pub couse_file: Option<String>,
-    /// Path to `history.json`. Absent on any machine without the transcripts.
-    pub history_file: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -102,7 +100,6 @@ impl Config {
             auth,
             static_dir: std::env::var("STATIC_DIR").ok(),
             couse_file: std::env::var("COUSE_FILE").ok(),
-            history_file: std::env::var("HISTORY_FILE").ok(),
         })
     }
 

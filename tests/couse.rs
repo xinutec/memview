@@ -16,14 +16,27 @@ fn names(list: &[&str]) -> BTreeSet<String> {
 
 /// A message line. `parent` of None makes it a root.
 fn msg(uuid: &str, parent: Option<&str>, prompt: Option<&str>, text: &str) -> String {
+    msg_in(uuid, parent, prompt, text, None)
+}
+
+/// The same, in a working directory — which is how a mention gets attributed
+/// to a project.
+fn msg_in(
+    uuid: &str,
+    parent: Option<&str>,
+    prompt: Option<&str>,
+    text: &str,
+    cwd: Option<&str>,
+) -> String {
     let parent = parent
         .map(|p| format!(",\"parentUuid\":\"{p}\""))
         .unwrap_or_default();
     let prompt = prompt
         .map(|p| format!(",\"promptId\":\"{p}\""))
         .unwrap_or_default();
+    let cwd = cwd.map(|c| format!(",\"cwd\":\"{c}\"")).unwrap_or_default();
     format!(
-        "{{\"type\":\"assistant\",\"uuid\":\"{uuid}\"{parent}{prompt},\"message\":{{\"content\":\"{text}\"}}}}"
+        "{{\"type\":\"assistant\",\"uuid\":\"{uuid}\"{parent}{prompt}{cwd},\"message\":{{\"content\":\"{text}\"}}}}"
     )
 }
 
@@ -39,7 +52,7 @@ fn mine(sessions: &[Vec<String>], corpus: &[&str]) -> memview::couse::CoUse {
     for (i, lines) in sessions.iter().enumerate() {
         std::fs::write(dir.join(format!("s{i}.jsonl")), lines.join("\n")).unwrap();
     }
-    let found = scan(&dir, &names(corpus)).unwrap();
+    let found = scan(&dir, &names(corpus), "/code", "2026-07-31T00:00:00Z").unwrap();
     std::fs::remove_dir_all(&dir).unwrap();
     found
 }
@@ -212,4 +225,63 @@ fn unlinked_leaves_out_pairs_the_corpus_already_links() {
             .collect();
     assert!(found.unlinked(&linked).is_empty());
     assert_eq!(found.unlinked(&BTreeSet::new()).len(), 1);
+}
+
+// -- project attribution ---------------------------------------------------
+
+#[test]
+fn a_mention_is_credited_to_the_directory_it_was_made_in() {
+    // Two sessions consulting the same memory in different repositories. The
+    // document says nothing about either — `cwd` is the only evidence, which is
+    // exactly why it is the signal: MEMORY.md names every project and is
+    // injected everywhere, so any text test would match both.
+    let sessions = vec![
+        vec![
+            msg_in(
+                "a0",
+                None,
+                Some("p1"),
+                "project_alpha",
+                Some("/code/health/src"),
+            ),
+            msg_in("a1", Some("a0"), Some("p1"), "reference_beta", None),
+        ],
+        vec![
+            msg_in("b0", None, Some("p2"), "project_alpha", Some("/code/life")),
+            msg_in("b1", Some("b0"), Some("p2"), "reference_beta", None),
+        ],
+    ];
+    let found = mine(&sessions, &["project_alpha", "reference_beta"]);
+    let alpha = &found.usage["project_alpha"];
+    assert_eq!(alpha.projects.get("health"), Some(&1));
+    assert_eq!(alpha.projects.get("life"), Some(&1));
+    // A line with no cwd contributes no project rather than a guessed one: an
+    // unattributed mention must not inflate whichever project happens to be
+    // nearby, or the clustering it feeds would be confidently wrong.
+    assert!(found.usage["reference_beta"].projects.is_empty());
+}
+
+#[test]
+fn work_outside_the_code_root_has_no_project() {
+    // Not every session is in a repository — the corpus itself lives elsewhere.
+    // None, rather than the last path element, which would invent projects
+    // named after home directories and scratch folders.
+    assert_eq!(
+        memview::couse::project_of("/code/health", "/code"),
+        Some("health".into())
+    );
+    assert_eq!(
+        memview::couse::project_of("/code/health/a/b", "/code"),
+        Some("health".into())
+    );
+    assert_eq!(
+        memview::couse::project_of("/elsewhere/health", "/code"),
+        None
+    );
+    assert_eq!(memview::couse::project_of("/code", "/code"), None);
+    // A trailing slash on the root must not change the answer.
+    assert_eq!(
+        memview::couse::project_of("/code/health", "/code/"),
+        Some("health".into())
+    );
 }

@@ -23,9 +23,16 @@
 //!
 //! **Nothing but names and counts leaves this module.** The transcripts contain
 //! everything — the whole of the medical case file, every credential ever
-//! pasted, every private conversation. The artefact is a list of memory names
-//! and integers, and it is worth keeping it that way even though it never
-//! leaves the Mac today.
+//! pasted, every private conversation. The artefact is a list of memory names,
+//! project names and integers.
+//!
+//! That constraint is the design, not a precaution. memview exists to give good
+//! access to the *memory documents*; the transcripts are evidence used to rank
+//! and cluster them, and nothing more. A viewer that also served the literal
+//! history would make the corpus depend on the transcripts rather than distil
+//! them — so the full history is read here, in bulk, and only counts come out.
+//! An earlier version of this project did serve the literal history and was
+//! removed for exactly that reason.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -69,10 +76,31 @@ pub struct Usage {
     pub edits: usize,
     /// Most recent mention, ISO-8601, or absent if never seen.
     pub last: Option<String>,
+    /// Mentions per project, from the `cwd` of the line that named it.
+    ///
+    /// The context a memory is actually consulted in, which its text does not
+    /// say: a rule filed under "rules" may in practice be a health-sync rule.
+    /// This is what lets the graph cluster by where work happens rather than
+    /// by what a document calls itself.
+    ///
+    /// `cwd` is used rather than any text signal, and that is the whole point.
+    /// MEMORY.md names every project and is injected into every session, so
+    /// searching a transcript for a project name matches nearly everything.
+    /// Where a session *was* cannot be faked by injected context.
+    #[serde(default)]
+    pub projects: BTreeMap<String, usize>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct CoUse {
+    /// When this was mined, ISO-8601.
+    ///
+    /// The artefact's own account of its age, because the file's mtime is when
+    /// it was last *copied* — a push without a re-mine would report month-old
+    /// content as fresh, and the whole value of a derived artefact is that
+    /// someone can tell when it stopped being derived.
+    #[serde(default)]
+    pub generated: String,
     /// Turns that used at least two memories — the denominator.
     pub turns: usize,
     /// Pairs above the session floor, strongest first.
@@ -198,11 +226,24 @@ fn names_in(line: &[u8], corpus: &BTreeSet<String>) -> BTreeSet<String> {
     found
 }
 
+/// The project a working directory belongs to: the first path element under
+/// the code root, or `None` for anywhere else.
+///
+/// `code_root` is a parameter rather than a constant because this is a public
+/// repo and a home directory must not be compiled into it.
+pub fn project_of(cwd: &str, code_root: &str) -> Option<String> {
+    let root = code_root.trim_end_matches('/');
+    let rest = cwd.strip_prefix(root)?.strip_prefix('/')?;
+    let name = rest.split('/').next()?;
+    (!name.is_empty()).then(|| name.to_string())
+}
+
 /// Scan one transcript into `(turn key) -> names used`.
 fn scan_session(
     path: &Path,
     corpus: &BTreeSet<String>,
     session: usize,
+    code_root: &str,
     out: &mut Vec<(usize, BTreeSet<String>)>,
     usage: &mut BTreeMap<String, Usage>,
 ) -> Result<()> {
@@ -241,6 +282,13 @@ fn scan_session(
             || find_at(line, b"\"name\":\"Edit\"", 0).is_some();
         let stamp =
             field(line, "timestamp").and_then(|t| std::str::from_utf8(t).ok().map(str::to_string));
+        // Attributed per line rather than per turn. A turn can move between
+        // directories, and the line that names a memory is the one that says
+        // where it was consulted; rolling that up to a turn's first `cwd` would
+        // credit the wrong project every time work crosses repositories.
+        let project = field(line, "cwd")
+            .and_then(|c| std::str::from_utf8(c).ok())
+            .and_then(|c| project_of(c, code_root));
         for name in named {
             let entry = usage.entry(name.clone()).or_default();
             entry.turns += 1;
@@ -249,6 +297,9 @@ fn scan_session(
             }
             if written {
                 entry.edits += 1;
+            }
+            if let Some(project) = &project {
+                *entry.projects.entry(project.clone()).or_insert(0) += 1;
             }
             // Kept as the maximum rather than the last seen: transcripts are
             // scanned in filename order, which is not chronological order.
@@ -306,7 +357,12 @@ fn scan_session(
 }
 
 /// Mine every transcript in `dir` for memories used together.
-pub fn scan(dir: &Path, corpus: &BTreeSet<String>) -> Result<CoUse> {
+pub fn scan(
+    dir: &Path,
+    corpus: &BTreeSet<String>,
+    code_root: &str,
+    generated: &str,
+) -> Result<CoUse> {
     let mut baskets: Vec<(usize, BTreeSet<String>)> = Vec::new();
     let mut usage: BTreeMap<String, Usage> = BTreeMap::new();
     let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
@@ -317,12 +373,15 @@ pub fn scan(dir: &Path, corpus: &BTreeSet<String>) -> Result<CoUse> {
     paths.sort();
     let session_count = paths.len();
     for (i, path) in paths.iter().enumerate() {
-        scan_session(path, corpus, i, &mut baskets, &mut usage)?;
+        scan_session(path, corpus, i, code_root, &mut baskets, &mut usage)?;
     }
 
     let total = baskets.len();
     if total == 0 {
-        return Ok(CoUse::default());
+        return Ok(CoUse {
+            generated: generated.to_string(),
+            ..CoUse::default()
+        });
     }
     // Sessions per memory, which is the honest "how often is this used" — turns
     // inside one session are one piece of work, so a memory hammered for a week
@@ -383,8 +442,54 @@ pub fn scan(dir: &Path, corpus: &BTreeSet<String>) -> Result<CoUse> {
             .then(x.a.cmp(&y.a))
     });
     Ok(CoUse {
+        generated: generated.to_string(),
         turns: total,
         pairs,
         usage,
     })
+}
+
+/// ISO-8601 UTC from a unix timestamp, without pulling in a date crate for one
+/// string. The artefact carries it purely so a reader can tell how stale it is.
+pub fn stamp(secs: u64) -> String {
+    let days = secs / 86_400;
+    let rem = secs % 86_400;
+    let (mut y, mut d) = (1970i64, days as i64);
+    loop {
+        let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+        let len = if leap { 366 } else { 365 };
+        if d < len {
+            break;
+        }
+        d -= len;
+        y += 1;
+    }
+    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let months = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    let mut m = 0;
+    while d >= months[m] {
+        d -= months[m];
+        m += 1;
+    }
+    format!(
+        "{y:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        m + 1,
+        d + 1,
+        rem / 3600,
+        (rem % 3600) / 60,
+        rem % 60
+    )
 }
