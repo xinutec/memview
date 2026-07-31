@@ -102,6 +102,16 @@ export const METRICS: readonly { key: Metric; label: string; hint: string }[] = 
   { key: 'links', label: 'linked', hint: 'bigger = more links in and out' },
 ];
 
+/**
+ * What node size means until somebody says otherwise.
+ *
+ * Sessions-came-up, because it is the one metric that needs no explanation and
+ * is hardest to mislead with: it survives on a machine with no transcripts
+ * (falling back to links), and it does not reward a memory for being long,
+ * rewritten, or recently touched.
+ */
+const DEFAULT_METRIC: Metric = 'use';
+
 /** A cluster as the legend shows it: what it is called, how big, what colour. */
 interface ClusterRow {
   /** Position in the sorted legend — also the hue index. */
@@ -206,7 +216,7 @@ export class GraphView {
   readonly hovered = signal<GraphNode | null>(null);
   /** Hops of the selected memory's neighbourhood to keep lit. */
   readonly focusDepth = signal(1);
-  readonly metric = signal<Metric>('use');
+  readonly metric = signal<Metric>(DEFAULT_METRIC);
   /** Which cluster is being read as a whole, by legend index. */
   readonly focusedCluster = signal<number | null>(null);
 
@@ -469,6 +479,16 @@ export class GraphView {
     // so the browser's own back gesture — the one a phone reader will reach for
     // — undoes a step rather than leaving the graph entirely.
     this.route.queryParamMap.pipe(takeUntilDestroyed()).subscribe((params) => {
+      // Validated against the table rather than cast: ?metric= is whatever a
+      // URL happens to carry, and an unknown value must fall back to the
+      // default instead of sizing every node by a metric that does not exist.
+      const asked = params.get('metric');
+      const metric = METRICS.find((m) => m.key === asked)?.key ?? DEFAULT_METRIC;
+      if (metric !== this.metric()) {
+        this.metric.set(metric);
+        this.requestDraw();
+      }
+
       const walk = (params.get('walk') ?? '').split(',').filter(Boolean);
       // Guard against the write below bouncing straight back in as a read.
       if (walk.join(',') === this.trail().join(',')) return;
@@ -1175,9 +1195,24 @@ export class GraphView {
     this.rebuildLayout();
   }
 
+  /**
+   * Change what node size means, and record it in the URL.
+   *
+   * The metric is half of what the picture is saying — the same graph under
+   * `reach` and under `used` makes opposite claims about which memories carry
+   * the work. A link that drops it points somebody at a different picture from
+   * the one being described, which is worse than not linking at all.
+   */
   setMetric(metric: Metric): void {
     this.metric.set(metric);
     this.requestDraw();
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      // The default is left off the URL rather than spelled out, so an
+      // unremarkable link stays clean and `?metric=` never appears bare.
+      queryParams: { metric: metric === DEFAULT_METRIC ? null : metric },
+      queryParamsHandling: 'merge',
+    });
   }
 
   setDepth(depth: number): void {

@@ -14,7 +14,7 @@ import { SharingView } from './sharing-view';
  *   /              → MEMORY.md index (the curated map)
  *   /m/:name       → one memory, rendered
  *   /all           → every memory, grouped by type
- *   /graph         → the corpus as a 3D link graph
+ *   /graph         → the corpus as a 3D link graph (?metric=, ?walk=)
  *   /search        → full-text search of the memories (?q=)
  *   /sharing       → owner-only share-link management
  *   /share/:token  → share-link landing: stores the token, then → /
