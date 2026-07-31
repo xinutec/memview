@@ -551,7 +551,9 @@ describe('planLabels', () => {
     expect(plan.overBudget).toBe(30);
   });
 
-  it('labels the highest-degree nodes', () => {
+  it('falls back to degree when every node is drawn the same size', () => {
+    // What a corpus with no usage mined looks like: sized by links alone, so
+    // radius carries no information and degree has to decide.
     const nodes = [
       candidate('quiet', 20, 10, 1),
       candidate('hub', 20, 60, 99),
@@ -561,6 +563,21 @@ describe('planLabels', () => {
     const plan = planLabels(nodes, measure, 1000, 2);
 
     expect(plan.drawn.map((l) => l.name)).toEqual(['hub', 'middling']);
+  });
+
+  it('names what the metric made big, not what has the most links', () => {
+    // The fault this fixes: size said one thing and the text named another.
+    // Under `reach` the live graph labelled a memory used in five projects and
+    // left six of the ten widest-reaching ones nameless — they were references
+    // and feedback rules, which carry few links but are used everywhere.
+    const nodes = [
+      { ...candidate('link_hub', 20, 10, 99), radius: 2 },
+      { ...candidate('used_everywhere', 20, 60, 3), radius: 6 },
+    ];
+
+    const plan = planLabels(nodes, measure, 1000, 1);
+
+    expect(plan.drawn.map((l) => l.name)).toEqual(['used_everywhere']);
   });
 
   it('moves a label that would overprint one already placed', () => {

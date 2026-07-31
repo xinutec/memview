@@ -936,7 +936,26 @@ export function planLabels(
   // comment there claimed these were labelled "whatever their degree"; they were
   // only guaranteed to be *considered*, which is not the same promise.
   const pinned = candidates.filter((c) => c.pinned);
-  const ranked = candidates.filter((c) => !c.pinned).sort((a, b) => b.degree - a.degree);
+  // Ranked by drawn RADIUS — which is to say by the metric the reader selected —
+  // and only then by degree.
+  //
+  // Degree alone was the rule, and it made the picture contradict itself: size
+  // said one thing while the text named another set entirely. Under `reach` the
+  // graph labelled a memory used in five projects and left six of the ten
+  // widest-reaching ones nameless, every one of them a reference or a feedback.
+  // The project_* memories won every label because they are LINK hubs, which is
+  // a fact about how the corpus is written, not about how it is used — so the
+  // one view built to show the difference was reporting the written structure
+  // anyway.
+  //
+  // The cost is that switching metrics reshuffles the text instead of leaving it
+  // put. That is the point: a metric that only resizes dots, while the reader
+  // goes on reading the same nine names, has not changed what the picture says.
+  // Degree remains the tiebreak, so a view with no usage mined (every radius
+  // equal, sized by links) behaves exactly as it did before.
+  const ranked = candidates
+    .filter((c) => !c.pinned)
+    .sort((a, b) => b.radius - a.radius || b.degree - a.degree);
   const considered = ranked.slice(0, budget);
   const queue = [...pinned, ...considered];
 
