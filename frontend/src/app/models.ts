@@ -134,12 +134,11 @@ export interface ShareInfo {
 /**
  * How one agent uses one memory — mirrors agents.rs.
  *
- * Mentions are the signal; reads and edits are the deliberate subset. A memory
- * usually arrives by being recalled into context rather than opened, so
- * counting opens alone would measure the rare case.
+ * Deliberate opens and edits of the file, not mentions of its name: a name is
+ * mostly re-injected context, and counting those measures what recall pushed
+ * into a session rather than what anyone worked with.
  */
 export interface MemoryUse {
-  mentions: number;
   reads: number;
   edits: number;
 }

@@ -144,12 +144,7 @@ const MAX_BASKET: usize = 40;
 /// share one bullet in the index and are otherwise unconnected.
 ///
 /// The per-turn cap does not catch it, because seventeen is well under forty.
-///
-/// Public so [`crate::agents`] applies the same cap to the same lines. Every
-/// consumer of [`names_in`] needs it — a listing is a listing whoever is
-/// counting — and a second, differently-tuned copy would let the two artefacts
-/// disagree about what a mention is.
-pub const MAX_PER_LINE: usize = 6;
+const MAX_PER_LINE: usize = 6;
 
 impl CoUse {
     pub fn load(path: &Path) -> Option<Self> {
@@ -208,12 +203,11 @@ pub(crate) fn field<'a>(line: &'a [u8], key: &str) -> Option<&'a [u8]> {
 /// context, never by being opened. A name written in prose or in reasoning is
 /// the memory having been *thought about*, which is the thing being measured.
 ///
-/// Public for [`crate::agents`], which asks a different question of the same
-/// evidence — *which* agent thought about it, not which memories were thought
-/// about together. One detector, for the reason the wikilink parsers are also
-/// shared: three hand-rolled scanners that disagreed with each other is a
-/// mistake this repo has already made once.
-pub fn names_in(line: &[u8], corpus: &BTreeSet<String>) -> BTreeSet<String> {
+/// Sound here because a pair needs two memories in ONE turn, which re-injected
+/// context does not manufacture. It does not generalise: counting mentions of a
+/// single memory measures what recall injected, not what was thought about —
+/// see [`crate::agents::MemoryUse`], which counts opened files instead.
+fn names_in(line: &[u8], corpus: &BTreeSet<String>) -> BTreeSet<String> {
     let mut found = BTreeSet::new();
     // Candidate runs of [a-z0-9_], checked against the corpus. Cheaper than
     // searching for each of ~350 names, and it cannot invent one.

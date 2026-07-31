@@ -21,7 +21,6 @@ interface Place {
 /** One memory an agent works with, as the list draws it. */
 interface Known {
   name: string;
-  mentions: number;
   reads: number;
   edits: number;
 }
@@ -74,6 +73,11 @@ const KNOWS_SHOWN = 5;
  * share runs from none at all to a seventh depending on the session — so leaving
  * them out would not just undercount but undercount unevenly, making agents
  * incomparable.
+ *
+ * **The memories under each row answer the other half of the question.** Where
+ * an agent writes says which repository it owns; which memories it opens and
+ * maintains says what it knows, which is the better evidence when a task is
+ * unfamiliar ground for everyone.
  *
  * Owner-only, and the server enforces it. These are counts rather than text,
  * but they describe the shape of the work — which projects exist and who is
@@ -139,12 +143,16 @@ export class AgentsView {
     const strongest = Math.max(...places.map((p) => p.share), Number.MIN_VALUE);
     for (const p of places) p.share = p.share / strongest;
 
-    // What it consults, ranked by mentions rather than by opens: a memory
-    // usually arrives by recall, which no transcript line records, so opens
-    // measure the rare case.
+    // Ranked by deliberate touches, edits breaking the tie: maintaining a
+    // memory is a stronger claim to the ground it covers than consulting it.
     const knows: Known[] = Object.entries(a.memories ?? {})
       .map(([name, u]) => ({ name, ...u }))
-      .sort((x, y) => y.mentions - x.mentions || x.name.localeCompare(y.name))
+      .sort(
+        (x, y) =>
+          y.reads + y.edits - (x.reads + x.edits) ||
+          y.edits - x.edits ||
+          x.name.localeCompare(y.name),
+      )
       .slice(0, KNOWS_SHOWN);
 
     const writes = Object.values(a.writes).reduce((n, v) => n + v, 0);
