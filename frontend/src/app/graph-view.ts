@@ -112,6 +112,15 @@ export const METRICS: readonly { key: Metric; label: string; hint: string }[] = 
  */
 const DEFAULT_METRIC: Metric = 'use';
 
+/**
+ * Projects at which `reach` is full size.
+ *
+ * Set from the observed tail rather than a round number: 99.2% of the corpus
+ * reaches fourteen projects or fewer, so this spends the whole visible range
+ * on the distinction that exists and clamps only the three outliers.
+ */
+const REACH_FULL = 14;
+
 /** A cluster as the legend shows it: what it is called, how big, what colour. */
 interface ClusterRow {
   /** Position in the sorted legend — also the hue index. */
@@ -722,13 +731,25 @@ export class GraphView {
    * rule the whole body of work leans on. Only the second should read as
    * load-bearing.
    *
-   * Six projects saturates it. Beyond that the distinction stops meaning
-   * anything — everything that broad is simply general.
+   * **Scaled from one project, not from zero, and saturating at fourteen.**
+   * The first version was `sqrt(n) / sqrt(6)` — chosen by analogy with the
+   * other metrics without looking at the distribution, and wrong twice over.
+   * A single-project memory scored 0.41, so the thing the metric exists to
+   * call small was drawn at nearly half size; and everything from 6 projects
+   * to 19 clamped to exactly 1.0, flattening 19% of the corpus — including
+   * every genuinely cross-cutting rule — into one indistinguishable value.
+   *
+   * Measured on the live corpus (367 memories): 65 reach one project, 73 two,
+   * 63 three, 52 four, and the tail runs 5..19 with only three above 14.
+   * Subtracting one puts "used in exactly one place" at zero, where the radius
+   * floor still draws it; saturating at 14 keeps the whole meaningful range
+   * spread instead of spending it all below six.
    */
   private reach(usage: Usage): number {
     const count = Object.keys(usage.projects).length;
-    if (count === 0) return 0.05;
-    return Math.min(1, Math.sqrt(count) / Math.sqrt(6));
+    // Zero and one are the same statement — this memory reaches nowhere else.
+    if (count <= 1) return 0;
+    return Math.min(1, (Math.sqrt(count) - 1) / (Math.sqrt(REACH_FULL) - 1));
   }
 
   /**
