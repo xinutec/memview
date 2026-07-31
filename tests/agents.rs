@@ -75,40 +75,6 @@ fn reads_and_writes_are_counted_apart_and_per_project() {
 }
 
 #[test]
-fn where_an_agent_works_is_decided_by_writes_not_reads() {
-    // `health` reads the monorepo more than anything else while doing its work
-    // in `health`. Ranking by reads would call it a monorepo session, which is
-    // not what it is.
-    let agents = mine(
-        &[(
-            "s1",
-            vec![
-                call("Read", "/code/pippijn/a", "2026-07-01T10:00:00Z"),
-                call("Read", "/code/pippijn/b", "2026-07-01T10:00:01Z"),
-                call("Read", "/code/pippijn/c", "2026-07-01T10:00:02Z"),
-                call("Write", "/code/health/x", "2026-07-01T10:00:03Z"),
-            ],
-        )],
-        &[("100", r#"{"pid":100,"sessionId":"s1","name":"health"}"#)],
-    );
-
-    assert_eq!(agents[0].home(), Some("health"));
-}
-
-#[test]
-fn an_agent_that_has_only_read_still_reports_where() {
-    let agents = mine(
-        &[(
-            "s1",
-            vec![call("Read", "/code/observe/a", "2026-07-01T10:00:00Z")],
-        )],
-        &[("100", r#"{"pid":100,"sessionId":"s1","name":"looker"}"#)],
-    );
-
-    assert_eq!(agents[0].home(), Some("observe"));
-}
-
-#[test]
 fn work_outside_the_code_root_is_not_a_project() {
     // The scratchpad under /private/tmp is where every session writes throwaway
     // scripts, and the memory corpus is what every session reads. Counting

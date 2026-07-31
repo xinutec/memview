@@ -20,8 +20,6 @@ interface Place {
 /** An agent as the page shows it. */
 interface AgentRow {
   name: string;
-  /** Where the work lands — the project it writes to most. */
-  home: string | null;
   /** True when the name was never set, so the id is standing in for it. */
   anonymous: boolean;
   reads: number;
@@ -113,7 +111,6 @@ export class AgentsView {
     const reads = Object.values(a.reads).reduce((n, v) => n + v, 0);
     return {
       name: a.name,
-      home: places.find((p) => p.writes > 0)?.project ?? places[0]?.project ?? null,
       // A session that was never named keeps its id — 36 characters of hex,
       // which is worth saying out loud rather than letting it read as a name.
       anonymous: /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(a.name),

@@ -47,29 +47,6 @@ pub struct Agent {
     pub last: String,
 }
 
-impl Agent {
-    /// Where this agent does its work: the project it writes to most, falling
-    /// back to the one it reads most when it has written nothing.
-    ///
-    /// Writes decide, because writing is the stronger claim. A session that has
-    /// only ever read a repository has been consulting it, not working on it.
-    pub fn home(&self) -> Option<&str> {
-        let best = |m: &BTreeMap<String, usize>| {
-            m.iter()
-                .max_by_key(|(name, n)| (**n, std::cmp::Reverse(name.as_str().len())))
-                .map(|(name, _)| name.clone())
-        };
-        // Cloned into an Option<String> then leaked back as &str would be a
-        // lifetime knot; find the key again instead. The maps are tiny.
-        let key = best(&self.writes).or_else(|| best(&self.reads))?;
-        self.writes
-            .keys()
-            .chain(self.reads.keys())
-            .find(|k| **k == key)
-            .map(String::as_str)
-    }
-}
-
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Agents {
     /// When this was mined, ISO-8601 — the artefact's own account of its age,
