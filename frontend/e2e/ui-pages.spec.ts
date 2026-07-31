@@ -155,8 +155,9 @@ test("index — dense link runs lay out cleanly @ phone width", async ({ page },
   await mockApi(page);
   await page.goto("/");
   await page.getByText("Memory index").waitFor();
-  // The toolbar is where an icon-font fallback shows up as the literal words
-  // "search"/"list"/"share"/"logout".
+  // The toolbar is where an icon-font fallback shows up as a literal word —
+  // now "menu", since the destinations moved inside it and a closed mat-menu
+  // renders nothing.
   await expectIconFontLoaded(page);
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);

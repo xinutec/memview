@@ -8,27 +8,40 @@
   <mat-progress-bar mode="indeterminate" />
 } @else {
   <mat-toolbar class="bar">
-    <a routerLink="/" class="brand">memory</a>
-    <span class="spacer"></span>
-    <a mat-icon-button routerLink="/search" aria-label="Search">
-      <mat-icon>search</mat-icon>
-    </a>
-    <a mat-icon-button routerLink="/all" aria-label="All memories">
-      <mat-icon>list</mat-icon>
-    </a>
-    <a mat-icon-button routerLink="/graph" aria-label="Link graph">
-      <mat-icon>hub</mat-icon>
-    </a>
-    @if (me(); as user) {
-      @if (!user.shared && user.auth_enabled) {
-        <a mat-icon-button routerLink="/sharing" aria-label="Share link">
-          <mat-icon>share</mat-icon>
-        </a>
-        <button mat-icon-button (click)="signOut()" aria-label="Sign out">
-          <mat-icon>logout</mat-icon>
-        </button>
+    <button mat-icon-button [matMenuTriggerFor]="nav" aria-label="Menu">
+      <mat-icon>menu</mat-icon>
+    </button>
+    <!-- One trigger rather than a row of icons: the bar had five, each readable
+         only by guessing what its glyph meant, and every new destination made
+         the brand and the icons compete for the same phone-width line. A menu
+         also affords the thing icons cannot — a written label. -->
+    <mat-menu #nav="matMenu">
+      <a mat-menu-item routerLink="/search">
+        <mat-icon>search</mat-icon>
+        <span>Search</span>
+      </a>
+      <a mat-menu-item routerLink="/all">
+        <mat-icon>list</mat-icon>
+        <span>All memories</span>
+      </a>
+      <a mat-menu-item routerLink="/graph">
+        <mat-icon>hub</mat-icon>
+        <span>Link graph</span>
+      </a>
+      @if (me(); as user) {
+        @if (!user.shared && user.auth_enabled) {
+          <a mat-menu-item routerLink="/sharing">
+            <mat-icon>share</mat-icon>
+            <span>Share link</span>
+          </a>
+          <button mat-menu-item (click)="signOut()">
+            <mat-icon>logout</mat-icon>
+            <span>Sign out</span>
+          </button>
+        }
       }
-    }
+    </mat-menu>
+    <a routerLink="/" class="brand">memory</a>
   </mat-toolbar>
 
   <main class="content">
