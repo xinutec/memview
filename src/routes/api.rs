@@ -191,6 +191,21 @@ pub async fn agents(
     Ok(Json(roster(&app)))
 }
 
+/// GET /api/work?q= — who has been changing the files a query names (owner only).
+///
+/// The companion to `/api/search`, which searches what was *written down*. This
+/// searches what was *worked on*, and they answer different questions: a subtree
+/// nobody has documented still has somebody who knows it.
+///
+/// Owner-only for the same reason as [`agents`] — it is the roster, sliced.
+pub async fn work(
+    State(app): State<AppState>,
+    OwnerOnly(_): OwnerOnly,
+    Query(query): Query<SearchQuery>,
+) -> Result<Json<Vec<crate::agents::WorkMatch>>, AppError> {
+    Ok(Json(roster(&app).who_works_on(&query.q)))
+}
+
 fn share_json(app: &AppState) -> Value {
     match app.share.get() {
         Some(s) => {

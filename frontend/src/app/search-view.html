@@ -14,6 +14,50 @@
   <mat-progress-bar mode="indeterminate" />
 }
 
+@if (workers(); as found) {
+  @if (found.length) {
+    <section class="workers">
+      <h2>Who works on this</h2>
+      <!-- Ranked by changes, because the question is who does this work. Reads sit
+           beside that number rather than inside it: consulting a subtree and being
+           responsible for it are different claims. -->
+      <ul class="worker-list">
+        @for (w of found; track w.name) {
+          <li>
+            <button
+              type="button"
+              class="worker"
+              (click)="toggle(w.name)"
+              [attr.aria-expanded]="opened().has(w.name)"
+            >
+              <span class="who">{{ w.name }}</span>
+              <span class="counts">
+                <span class="edits">{{ w.edits }} changed</span>
+                <span class="reads">{{ w.reads }} read</span>
+                <span class="files">{{ w.files.length }} files</span>
+              </span>
+              <mat-icon class="chevron">{{
+                opened().has(w.name) ? 'expand_less' : 'expand_more'
+              }}</mat-icon>
+            </button>
+            @if (opened().has(w.name)) {
+              <!-- The evidence, so a ranking can be checked instead of believed. -->
+              <ul class="file-list">
+                @for (f of w.files; track f.path) {
+                  <li>
+                    <code>{{ f.path }}</code>
+                    <span class="counts">{{ f.edits }}×w · {{ f.reads }}×r</span>
+                  </li>
+                }
+              </ul>
+            }
+          </li>
+        }
+      </ul>
+    </section>
+  }
+}
+
 @if (results(); as hits) {
   @if (relaxed()) {
     <!-- Never silent. Widening the query changes the question being answered,

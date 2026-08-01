@@ -158,6 +158,30 @@ export interface MemoryUse {
   edits: number;
 }
 
+/**
+ * Who has been changing the files a query names — mirrors agents.rs.
+ *
+ * The companion to a memory search: that one asks what was written down, this
+ * asks what was worked on, and a subtree nobody documented still has somebody
+ * who knows it.
+ */
+export interface WorkMatch {
+  name: string;
+  /** Writes and edits across the matching files — what the ranking is on. */
+  edits: number;
+  /** Reads across the same files. Beside `edits`, never added to it. */
+  reads: number;
+  /** The matching files, heaviest first: the evidence for the row. */
+  files: WorkFile[];
+}
+
+/** One file a query matched, and how one agent used it. */
+export interface WorkFile {
+  path: string;
+  reads: number;
+  edits: number;
+}
+
 /** One named session and where its work landed — mirrors agents.rs. */
 export interface Agent {
   name: string;
@@ -173,6 +197,12 @@ export interface Agent {
    * memory records the `originSessionId` that wrote it.
    */
   sessions: string[];
+  /**
+   * Every file touched under the code root, keyed by path relative to it.
+   * `reads`/`writes` keep only the repository; this keeps the subtree, which is
+   * what makes "who works on the Dhall configs" a question with an answer.
+   */
+  paths: Record<string, MemoryUse>;
   /** Files opened, per project directory. Lifetime totals, undecayed. */
   reads: Record<string, number>;
   /** Files written or edited, per project directory. Lifetime, undecayed. */

@@ -50,3 +50,102 @@
   color: var(--mat-sys-on-surface-variant);
   margin: 0 0 8px;
 }
+
+// Who works on this — the roster sliced by the query, above the memories
+// because it answers a question the corpus often cannot: a subtree nobody
+// documented still has somebody who knows it.
+.workers {
+  margin: 1.2em 0 1.6em;
+
+  h2 {
+    font: var(--mat-sys-title-small);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--mat-sys-on-surface-variant);
+    margin-bottom: 0.4em;
+  }
+
+  .worker-list,
+  .file-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .worker {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--mat-sys-surface-container);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--mat-sys-surface-container-high);
+    }
+  }
+
+  .who {
+    font: var(--mat-sys-body-medium);
+    font-weight: 500;
+    // The names are short; let the counts take the slack so they line up.
+    flex: 0 0 auto;
+  }
+
+  .counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    margin-left: auto;
+    font: var(--mat-sys-body-small);
+    color: var(--mat-sys-on-surface-variant);
+    // Digits in a column, so two rows can be compared at a glance.
+    font-variant-numeric: tabular-nums;
+  }
+
+  .edits {
+    color: var(--mat-sys-primary);
+  }
+
+  // How wide the match is, as against how heavy it is. Dimmer than both counts,
+  // because it qualifies them rather than competing: 35 changes across 9 files
+  // is a different shape of answer from 35 across one.
+  .files {
+    opacity: 0.75;
+  }
+
+  .chevron {
+    flex: 0 0 auto;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  .file-list {
+    margin: 4px 0 10px;
+    padding: 0 10px;
+
+    li {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      padding: 2px 0;
+    }
+
+    code {
+      font: var(--mat-sys-body-small);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      // A path is the one thing here that can be long; let it wrap rather than
+      // widen the page.
+      overflow-wrap: anywhere;
+    }
+
+    .counts {
+      white-space: nowrap;
+    }
+  }
+}

@@ -11,6 +11,7 @@ import {
   AgentsResult,
   SearchResult,
   ShareInfo,
+  WorkMatch,
 } from './models';
 
 /** Thin client over the memview backend. Same-origin in prod; via the dev
@@ -44,6 +45,14 @@ export class MemviewApi {
 
   search(q: string): Observable<SearchResult> {
     return this.http.get<SearchResult>('/api/search', { params: { q } });
+  }
+
+  /**
+   * Who has been changing the files a query names. Owner-only; a share token
+   * gets 403, which the search view treats as "no panel" rather than an error.
+   */
+  work(q: string): Observable<WorkMatch[]> {
+    return this.http.get<WorkMatch[]>('/api/work', { params: { q } });
   }
 
   shareGet(): Observable<ShareInfo> {

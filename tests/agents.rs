@@ -144,6 +144,69 @@ fn reads_and_writes_are_counted_apart_and_per_project() {
 }
 
 #[test]
+fn the_path_below_the_project_is_kept_so_a_subtree_can_be_asked_about() {
+    // The project counters answer "which repo" and stop there, which is why
+    // "who built the Dhall reconciler" was unanswerable from them: every file in
+    // xinutec-infra/plan/ is filed under `xinutec-infra`, indistinguishable from
+    // a firewall tweak. The path below the project is what makes a subtree — or
+    // a file extension — a thing you can ask about.
+    let agents = mine(
+        &[(
+            "s1",
+            vec![
+                call(
+                    Tool::Write,
+                    "/code/xinutec-infra/plan/backup.dhall",
+                    "2026-07-01T10:00:00Z",
+                ),
+                call(
+                    Tool::Edit,
+                    "/code/xinutec-infra/plan/backup.dhall",
+                    "2026-07-01T10:01:00Z",
+                ),
+                call(
+                    Tool::Read,
+                    "/code/xinutec-infra/plan/backup.dhall",
+                    "2026-07-01T10:02:00Z",
+                ),
+            ],
+        )],
+        &[("100", r#"{"pid":100,"sessionId":"s1","name":"infra"}"#)],
+    );
+
+    let use_ = agents[0]
+        .paths
+        .get("xinutec-infra/plan/backup.dhall")
+        .expect("the path is kept whole, project prefix included");
+    assert_eq!((use_.edits, use_.reads), (2, 1));
+    // The project counters still say what they always said.
+    assert_eq!(agents[0].writes.get("xinutec-infra"), Some(&2));
+}
+
+#[test]
+fn a_memory_is_not_indexed_as_a_working_path() {
+    // The corpus sits outside the code root and is counted per memory; letting
+    // it in here would list the file every session opens as work anyone does.
+    let agents = mine(
+        &[(
+            "s1",
+            vec![call(
+                Tool::Edit,
+                "/mem/project_alpha.md",
+                "2026-07-01T10:00:00Z",
+            )],
+        )],
+        &[],
+    );
+
+    assert!(agents[0].paths.is_empty(), "{:?}", agents[0].paths);
+    assert_eq!(
+        agents[0].memories.get("project_alpha").map(|u| u.edits),
+        Some(1)
+    );
+}
+
+#[test]
 fn work_outside_the_code_root_is_not_a_project() {
     // The scratchpad under /private/tmp is where every session writes throwaway
     // scripts, and the memory corpus is what every session reads. Counting
@@ -226,6 +289,145 @@ fn an_agent_records_the_session_ids_filed_under_it_but_not_its_subagents() {
     assert_eq!(agents[0].name, "builder");
     let ids: Vec<&str> = agents[0].sessions.iter().map(String::as_str).collect();
     assert_eq!(ids, ["s1"]);
+}
+
+/// A roster from mined agents, for the query tests.
+fn roster_of(agents: Vec<Agent>) -> Agents {
+    Agents {
+        generated: "2026-08-01T00:00:00Z".into(),
+        agents,
+    }
+}
+
+#[test]
+fn who_works_on_ranks_by_changes_and_shows_the_files_behind_the_number() {
+    let heavy = vec![
+        call(
+            Tool::Write,
+            "/code/infra/plan/a.dhall",
+            "2026-07-01T10:00:00Z",
+        ),
+        call(
+            Tool::Edit,
+            "/code/infra/plan/a.dhall",
+            "2026-07-01T10:01:00Z",
+        ),
+        call(
+            Tool::Edit,
+            "/code/infra/plan/b.dhall",
+            "2026-07-01T10:02:00Z",
+        ),
+    ];
+    // Reads the same tree constantly and changes it once: consulting is not
+    // owning, so this must not outrank the one doing the work.
+    let onlooker = vec![
+        call(
+            Tool::Read,
+            "/code/infra/plan/a.dhall",
+            "2026-07-01T10:00:00Z",
+        ),
+        call(
+            Tool::Read,
+            "/code/infra/plan/a.dhall",
+            "2026-07-01T10:01:00Z",
+        ),
+        call(
+            Tool::Read,
+            "/code/infra/plan/b.dhall",
+            "2026-07-01T10:02:00Z",
+        ),
+        call(
+            Tool::Read,
+            "/code/infra/plan/b.dhall",
+            "2026-07-01T10:03:00Z",
+        ),
+        call(
+            Tool::Write,
+            "/code/infra/plan/b.dhall",
+            "2026-07-01T10:04:00Z",
+        ),
+    ];
+    // Busy elsewhere entirely — must not appear at all, not appear as a zero.
+    let elsewhere = vec![call(
+        Tool::Write,
+        "/code/health/src/x.rs",
+        "2026-07-01T10:00:00Z",
+    )];
+    let roster = roster_of(mine(
+        &[("s1", heavy), ("s2", onlooker), ("s3", elsewhere)],
+        &[
+            ("100", r#"{"pid":100,"sessionId":"s1","name":"builder"}"#),
+            ("101", r#"{"pid":101,"sessionId":"s2","name":"reader"}"#),
+            ("102", r#"{"pid":102,"sessionId":"s3","name":"other"}"#),
+        ],
+    ));
+
+    let found = roster.who_works_on("dhall");
+    assert_eq!(
+        found.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(),
+        ["builder", "reader"],
+    );
+    assert_eq!((found[0].edits, found[0].reads), (3, 0));
+    assert_eq!((found[1].edits, found[1].reads), (1, 4));
+    // The evidence, heaviest first, so the ranking can be checked rather than
+    // believed.
+    assert_eq!(found[0].files[0].path, "infra/plan/a.dhall");
+    assert_eq!(found[0].files[0].edits, 2);
+}
+
+#[test]
+fn who_works_on_matches_a_directory_and_an_extension_alike() {
+    // "dhall" is a directory in the manifest model and a suffix in the
+    // reconciler. Both are the same question, and one substring answers it.
+    let roster = roster_of(mine(
+        &[(
+            "s1",
+            vec![
+                call(
+                    Tool::Write,
+                    "/code/pippijn/code/kubes/dhall/apps/home.dhall",
+                    "2026-07-01T10:00:00Z",
+                ),
+                call(
+                    Tool::Write,
+                    "/code/infra/plan/wire.dhall",
+                    "2026-07-01T10:01:00Z",
+                ),
+                call(
+                    Tool::Write,
+                    "/code/infra/plan/run.py",
+                    "2026-07-01T10:02:00Z",
+                ),
+            ],
+        )],
+        &[("100", r#"{"pid":100,"sessionId":"s1","name":"builder"}"#)],
+    ));
+
+    let found = roster.who_works_on("DHALL");
+    let files: Vec<&str> = found[0].files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(files.len(), 2, "{files:?}");
+    assert!(files.contains(&"infra/plan/wire.dhall"), "{files:?}");
+    assert!(!files.iter().any(|f| f.ends_with(".py")), "{files:?}");
+}
+
+#[test]
+fn an_empty_query_asks_nothing_and_is_answered_with_nothing() {
+    // Not "everyone": a blank box must not render the entire roster as though it
+    // were a result.
+    let roster = roster_of(mine(
+        &[(
+            "s1",
+            vec![call(
+                Tool::Write,
+                "/code/infra/a.dhall",
+                "2026-07-01T10:00:00Z",
+            )],
+        )],
+        &[],
+    ));
+
+    assert!(roster.who_works_on("").is_empty());
+    assert!(roster.who_works_on("   ").is_empty());
 }
 
 #[test]

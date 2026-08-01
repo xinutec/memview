@@ -79,6 +79,12 @@ async fn a_share_token_reads_the_corpus_but_never_the_owner_surface() {
         status(&state, "/api/agents", Some(&token)).await,
         StatusCode::FORBIDDEN,
     );
+    // /work is the roster sliced by a query, so it discloses the same thing one
+    // answer at a time — and a query is exactly how someone would go looking.
+    assert_eq!(
+        status(&state, "/api/work?q=dhall", Some(&token)).await,
+        StatusCode::FORBIDDEN,
+    );
 }
 
 /// A corpus of one memory that declares the session which wrote it, plus a
@@ -211,7 +217,13 @@ async fn no_credential_reaches_nothing() {
     std::fs::write(dir.path().join("corpus/MEMORY.md"), "# Memory index\n").expect("index");
     let (state, _token) = app(dir.path());
 
-    for path in ["/api/graph", "/api/search?q=x", "/api/share", "/api/agents"] {
+    for path in [
+        "/api/graph",
+        "/api/search?q=x",
+        "/api/share",
+        "/api/agents",
+        "/api/work?q=x",
+    ] {
         assert_eq!(
             status(&state, path, None).await,
             StatusCode::UNAUTHORIZED,

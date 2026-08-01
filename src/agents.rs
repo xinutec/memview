@@ -61,6 +61,22 @@ pub struct Agent {
     pub reads: BTreeMap<String, usize>,
     /// Files written or edited, per project directory. Lifetime, undecayed.
     pub writes: BTreeMap<String, usize>,
+    /// Every file this agent touched under the code root, keyed by its path
+    /// relative to that root — `xinutec-infra/plan/backup.dhall`.
+    ///
+    /// [`reads`](Self::reads) and [`writes`](Self::writes) keep only the first
+    /// segment, which answers "which repository" and refuses everything finer.
+    /// That refusal is what made *who built the Dhall reconciler* unanswerable:
+    /// its 34 commits live in `xinutec-infra/plan/`, filed under `xinutec-infra`
+    /// beside firewall tweaks and backup scripts, and the whole `pippijn`
+    /// monorepo lands in one bucket. Keeping the path is what lets a subtree, a
+    /// filename or an extension be asked about.
+    ///
+    /// Cheap, because real work is not many files: 5,500 distinct paths across
+    /// the entire history, of which three are generated (`node_modules`, `dist`).
+    /// So there is no cap here, and therefore no silent truncation to explain.
+    #[serde(default)]
+    pub paths: BTreeMap<String, MemoryUse>,
     /// Which memories this agent works with, keyed by memory name.
     ///
     /// The companion to `reads`/`writes` and a different question: those say
@@ -104,6 +120,27 @@ pub struct MemoryUse {
     pub edits: usize,
 }
 
+/// One agent's answer to "who works on this", with the evidence attached.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkMatch {
+    pub name: String,
+    /// Writes and edits across every matching file — the ranking signal.
+    pub edits: usize,
+    /// Reads across the same files. Reported, never added to `edits`: consulting
+    /// a subtree and being responsible for it are different claims.
+    pub reads: usize,
+    /// The matching files, heaviest first — the evidence for the row above.
+    pub files: Vec<WorkFile>,
+}
+
+/// One file a query matched, and how one agent used it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkFile {
+    pub path: String,
+    pub reads: usize,
+    pub edits: usize,
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Agents {
     /// When this was mined, ISO-8601 — the artefact's own account of its age,
@@ -133,6 +170,68 @@ impl Agents {
     /// 24 of the live corpus's memories name a session with no transcript left.
     /// Those keep their raw id rather than being dropped or attributed to
     /// somebody else.
+    /// Who has been working on the files a query names, busiest first.
+    ///
+    /// Substring, case-insensitive, over the whole repo-relative path — so
+    /// `dhall` finds both the `kubes/dhall/` directory and every `*.dhall` file,
+    /// which are the same question asked two ways and would need two rules to
+    /// tell apart for no gain.
+    ///
+    /// **Ranked by writes, not by total.** The question is who *makes changes of
+    /// that sort*; reading widely is a different thing and is reported beside it
+    /// rather than folded in. Agents matching nothing are dropped entirely — a
+    /// row of zeroes is noise that grows with the roster.
+    ///
+    /// The matching paths come back with the counts, because a bare ranking is
+    /// unfalsifiable: the evidence is what lets a reader see that "dhall" caught
+    /// a `.dhall` file and not a directory called `dhallium`.
+    pub fn who_works_on(&self, query: &str) -> Vec<WorkMatch> {
+        let needle = query.trim().to_lowercase();
+        if needle.is_empty() {
+            return Vec::new();
+        }
+        let mut out: Vec<WorkMatch> = self
+            .agents
+            .iter()
+            .filter_map(|agent| {
+                let mut files: Vec<WorkFile> = agent
+                    .paths
+                    .iter()
+                    .filter(|(path, _)| path.to_lowercase().contains(&needle))
+                    .map(|(path, use_)| WorkFile {
+                        path: path.clone(),
+                        reads: use_.reads,
+                        edits: use_.edits,
+                    })
+                    .collect();
+                if files.is_empty() {
+                    return None;
+                }
+                files.sort_by_key(|f| {
+                    (
+                        std::cmp::Reverse(f.edits),
+                        std::cmp::Reverse(f.reads),
+                        f.path.clone(),
+                    )
+                });
+                Some(WorkMatch {
+                    name: agent.name.clone(),
+                    edits: files.iter().map(|f| f.edits).sum(),
+                    reads: files.iter().map(|f| f.reads).sum(),
+                    files,
+                })
+            })
+            .collect();
+        out.sort_by_key(|m| {
+            (
+                std::cmp::Reverse(m.edits),
+                std::cmp::Reverse(m.reads),
+                m.name.clone(),
+            )
+        });
+        out
+    }
+
     pub fn name_of_session(&self, session: &str) -> Option<&str> {
         self.agents
             .iter()
@@ -220,6 +319,17 @@ fn project_of(path: &str, code_root: &str) -> Option<String> {
     let rest = path.strip_prefix(root)?.strip_prefix('/')?;
     let name = rest.split('/').next()?;
     (!name.is_empty()).then(|| name.to_string())
+}
+
+/// A path's position under the code root — `xinutec-infra/plan/backup.dhall`.
+///
+/// The project prefix is kept rather than stripped, so a result reads as itself
+/// with no second lookup, and so a query naming a repository works like any other
+/// substring.
+fn relative_to(path: &str, code_root: &str) -> Option<String> {
+    let root = code_root.trim_end_matches('/');
+    let rest = path.strip_prefix(root)?.strip_prefix('/')?;
+    (!rest.is_empty() && rest.contains('/')).then(|| rest.to_string())
 }
 
 /// The memory a path names, for paths inside the corpus directory.
@@ -403,6 +513,7 @@ fn scan_transcript(
         reads: agent_reads,
         writes: agent_writes,
         memories,
+        paths,
         first,
         last,
         ..
@@ -474,6 +585,14 @@ fn scan_transcript(
                         *counter.entry(project.clone()).or_insert(0) += 1;
                         if let Some(day) = day {
                             days.entry(project).or_default().insert(day);
+                        }
+                        if let Some(rel) = relative_to(path, code_root) {
+                            let use_ = paths.entry(rel).or_default();
+                            if is_write {
+                                use_.edits += 1;
+                            } else {
+                                use_.reads += 1;
+                            }
                         }
                     } else if let Some(memory) = memory_of(path, memory_root) {
                         let use_ = memories.entry(memory).or_default();
