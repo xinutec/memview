@@ -1,0 +1,210 @@
+//! The shell grammar, against the shapes the transcripts actually contain.
+//!
+//! Every case here was taken from the corpus, and the ones marked as regressions
+//! are constructs the grammar got wrong at some point — each cost a measurable
+//! slice of the 83,799 distinct commands.
+
+use memview::shell::{Simple, parse};
+
+/// The argv of every simple command, for compact assertions.
+fn argvs(script: &str) -> Vec<Vec<String>> {
+    parse(script)
+        .unwrap_or_else(|at| panic!("failed to parse, stopped at {at:?}"))
+        .into_iter()
+        .map(|c: Simple| c.argv)
+        .collect()
+}
+
+#[test]
+fn a_pipeline_of_plain_commands() {
+    assert_eq!(
+        argvs("git status --short | head -3"),
+        [vec!["git", "status", "--short"], vec!["head", "-3"]]
+    );
+}
+
+#[test]
+fn quotes_are_removed_and_adjacent_runs_are_one_word() {
+    // `--flag="a b"` is a single argument. Treating the quoted run as a separate
+    // word would split every flag the fleet's scripts pass this way.
+    assert_eq!(
+        argvs(r#"cmd --flag="a b" 'one two' "$HOME"/Code"#),
+        [vec!["cmd", "--flag=a b", "one two", "$HOME/Code"]]
+    );
+}
+
+#[test]
+fn a_hash_inside_quotes_is_not_a_comment() {
+    // REGRESSION. The quoting rules were not atomic, so pest inserted its
+    // implicit comment-skipping *inside* a string: the `#` in a nix flake
+    // reference or a sed expression started a comment that ate the closing
+    // quote. 2,058 commands — 2.5% of the corpus — failed on this one thing.
+    assert_eq!(
+        argvs(r#"nix develop "/home/example/Code/lares#android" --command true"#),
+        [vec![
+            "nix",
+            "develop",
+            "/home/example/Code/lares#android",
+            "--command",
+            "true"
+        ]]
+    );
+    assert_eq!(
+        argvs("sed 's#a#b#g' in.py > out.py"),
+        [vec!["sed", "s#a#b#g", "in.py"]]
+    );
+}
+
+#[test]
+fn a_comment_outside_quotes_still_ends_the_line() {
+    assert_eq!(
+        argvs("echo one # this is ignored\necho two"),
+        [vec!["echo", "one"], vec!["echo", "two"]]
+    );
+}
+
+#[test]
+fn a_heredoc_body_is_not_shell() {
+    // The body is data. Parsed as shell it yields commands nobody ran — here it
+    // would invent `print(1)` and `import os`.
+    assert_eq!(
+        argvs("python3 - <<'PY'\nimport os\nprint(1)\nPY\necho after"),
+        [vec!["python3", "-"], vec!["echo", "after"]]
+    );
+}
+
+#[test]
+fn a_heredoc_nested_in_a_quoted_argument_terminates_at_its_delimiter() {
+    // REGRESSION, and the corpus's commonest heredoc shape. The inner shell sees
+    // a bare `PY`, but on disk that line reads `PY'` — the closing quote of the
+    // outer argument sits on it. Requiring an exact match meant the terminator
+    // was never found, the rest of the script was eaten as body, and the quote it
+    // closed was left open.
+    // The body is stripped even here, inside the quoted argument, because the
+    // stripper works on lines and does not track quoting. That is a deliberate
+    // trade: the argument text loses data that was never shell, the quote stays
+    // balanced, and no path is affected — a heredoc body is not a filename.
+    assert_eq!(
+        argvs("bash -c 'python3 - <<PY\nprint(1)\nPY'\necho done"),
+        [vec!["bash", "-c", "python3 - <<PY\n"], vec!["echo", "done"]]
+    );
+}
+
+#[test]
+fn redirections_do_not_become_arguments() {
+    let cmds = argvs("cargo test > /tmp/log 2>&1");
+    assert_eq!(cmds, [vec!["cargo", "test"]]);
+}
+
+#[test]
+fn a_backgrounded_brace_group_is_commands_not_a_word() {
+    assert_eq!(
+        argvs("{ echo DONE; tail -2 /tmp/x; } &"),
+        [vec!["echo", "DONE"], vec!["tail", "-2", "/tmp/x"]]
+    );
+}
+
+#[test]
+fn brace_expansion_stays_part_of_its_word() {
+    // REGRESSION. `{` opens a group and also expands a word; they are told apart
+    // by whitespace, exactly as bash tells them apart. Splitting here would turn
+    // one path into a word ending in `/`.
+    assert_eq!(
+        argvs("grep -rln x {home,thoth,life}/android"),
+        [vec!["grep", "-rln", "x", "{home,thoth,life}/android"]]
+    );
+}
+
+#[test]
+fn command_substitution_is_parsed_as_the_commands_it_is() {
+    // The inner command opens files too, so it must not be swallowed as text.
+    // The inner command is emitted first — it runs first — and the outer word
+    // keeps the substitution as written. Nothing is expanded: there is no value
+    // to expand it to, and inventing one would be a guess about the past.
+    assert_eq!(
+        argvs("REV=$(git -C ~/Code/dev-lint rev-parse HEAD) nix run ."),
+        [
+            vec!["git", "-C", "~/Code/dev-lint", "rev-parse", "HEAD"],
+            vec![
+                "REV=$(git -C ~/Code/dev-lint rev-parse HEAD)",
+                "nix",
+                "run",
+                "."
+            ]
+        ]
+    );
+}
+
+#[test]
+fn arithmetic_is_not_a_command_substitution() {
+    // REGRESSION. `$((` matched as `$(` and stopped at the first `)`, leaving the
+    // second dangling — 216 `until [ $(( $(date +%s) - t0 )) -ge 10 ]` loops.
+    // Two documented limits show here, both deliberate. The arithmetic body is
+    // skipped whole rather than descended into — nothing inside `$(( ))` is a
+    // file, so the `$(date +%s)` within it is not reported. And `until`/`do`/
+    // `done` are ordinary words, because a keyword rule would have to guess
+    // whether `echo done` ends a loop. Neither names a file, so neither can put
+    // a wrong path in the index.
+    assert_eq!(
+        argvs("until [ $(( $(date +%s) - t0 )) -ge 10 ]; do sleep 1; done"),
+        [
+            vec!["until", "[", "$(( $(date +%s) - t0 ))", "-ge", "10", "]"],
+            vec!["do", "sleep", "1"],
+            vec!["done"],
+        ]
+    );
+}
+
+#[test]
+fn escaped_parens_belong_to_the_word() {
+    // REGRESSION. `find . \( … \)` — the word ended at the backslash and the bare
+    // `(` opened a group that never closed.
+    assert_eq!(
+        argvs(r"find . \( -name '*.kt' -o -name '*.rs' \)"),
+        [vec![
+            "find", ".", r"\(", "-name", "*.kt", "-o", "-name", "*.rs", r"\)"
+        ]]
+    );
+}
+
+#[test]
+fn a_find_placeholder_is_an_argument() {
+    assert_eq!(
+        argvs(r"find . -name '*.tmp' -exec rm {} \;"),
+        [vec![
+            "find", ".", "-name", "*.tmp", "-exec", "rm", "{}", r"\;"
+        ]]
+    );
+}
+
+#[test]
+fn a_subshell_runs_commands() {
+    assert_eq!(
+        argvs("(cd android && ./gradlew build)"),
+        [vec!["cd", "android"], vec!["./gradlew", "build"]]
+    );
+}
+
+#[test]
+fn process_substitution_is_a_command_too() {
+    assert_eq!(
+        argvs("diff <(ls a) <(ls b)"),
+        [vec!["ls", "a"], vec!["ls", "b"], vec!["diff"]]
+    );
+}
+
+#[test]
+fn a_line_continuation_joins_one_command() {
+    assert_eq!(
+        argvs("rsync -a \\\n  --delete \\\n  src/ dst/"),
+        [vec!["rsync", "-a", "--delete", "src/", "dst/"]]
+    );
+}
+
+#[test]
+fn an_unclosed_quote_is_an_error_not_a_silent_half_parse() {
+    // The point of a restrictive grammar: what it cannot read, it says it cannot
+    // read. A parser that accepts this would report a command list that quietly
+    // omits whatever followed.
+    assert!(parse("echo 'unterminated").is_err());
+}

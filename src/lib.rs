@@ -11,5 +11,6 @@ pub mod rank;
 pub mod routes;
 pub mod session;
 pub mod share;
+pub mod shell;
 pub mod state;
 pub mod store;

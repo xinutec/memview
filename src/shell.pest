@@ -1,0 +1,115 @@
+//! What Claude has actually typed into Bash — not a shell.
+//!
+//! Grown from a grammar too small, one construct at a time, each one added
+//! because `cargo run --bin shell-report` said it was the biggest thing failing.
+//! Restrictive on purpose: a grammar that accepts everything tells you nothing
+//! about what it read.
+//!
+//! Coverage over 83,799 distinct commands, by round:
+//!   1 words + quotes + `; && || |`      42.5%
+//!   2 redirections, comments, `\`-newline  84.1%
+//!   3 heredocs, `$( )`, backticks       94.2%
+//!   4 `&`, groups, escapes, `name() {}` 96.7%
+//!   5 atomic quoting, process subst     see the report
+
+script = { SOI ~ term* ~ (pipeline ~ term+)* ~ pipeline? ~ EOI }
+
+pipeline = { command ~ ("|" ~ !"|" ~ command)* }
+// Words and redirections in any order: `> out cat f` is as legal as
+// `cat f > out`, and the corpus writes both.
+// Words are tried BEFORE grouping, so `{home,thoth,life}/android` is one word
+// and `{ echo DONE; }` is still a group: a brace-expansion word cannot contain
+// whitespace, so the group form fails the word rule and falls through.
+command = { func_def | (redirect | word)+ | group ~ redirect* }
+
+// `name() { …; }`. Rare, but without it the empty `()` reads as a subshell
+// containing nothing and the whole command fails.
+func_def = { word ~ "(" ~ ")" ~ group }
+
+// `( … )` and `{ …; }` group commands: `{ echo DONE; tail -f log; } &`.
+//
+// No space is required before the body. Demanding one looked right and could
+// never match — pest already skips whitespace between sequence elements, so an
+// explicit `WHITESPACE+` asks for a second space that is never there. Brace
+// expansion stays whole because `bare` excludes braces only at a word's start.
+group = { "(" ~ body ~ ")" | "{" ~ body ~ "}" }
+body  = { term* ~ (pipeline ~ term+)* ~ pipeline? ~ term* }
+
+// ---- redirection ----
+
+redirect = { procsub | heredoc | herestring | fd_dup | file_redirect }
+
+// A heredoc's BODY is removed before parsing (`strip_heredocs`): it is data —
+// commit messages, Python, YAML — and reading prose as shell finds commands
+// nobody ran. What is left here is the operator and its delimiter, which is all
+// the shell part of a heredoc ever was.
+heredoc = { ("<<-" | "<<") ~ !"<" ~ word }
+// `<<<` is a here-string: its operand is a value, not a file, and has no body.
+herestring = { "<<<" ~ word }
+// `diff <(ls a) <(ls b)` — the inner commands run, so they are parsed like any
+// other group rather than skipped.
+procsub = { ("<(" | ">(") ~ body ~ ")" }
+// `2>&1` and `&>` name a descriptor, not a file. Matched only so they stop
+// being parse errors — they contribute no path.
+fd_dup = { (ASCII_DIGIT* ~ ">" ~ ">"? | "&>" | ">&") ~ "&"? ~ ASCII_DIGIT+ }
+// The direction is captured so a target can be classified without re-reading it.
+file_redirect = { ASCII_DIGIT? ~ (append | write | read) ~ word }
+append = { ">>" }
+write  = { ">" }
+read   = { "<" }
+
+// ---- words ----
+
+// Compound-atomic: adjacent runs are ONE word, so `--flag="a b"` and
+// `"$HOME"/Code/x` do not split into two. No implicit whitespace inside.
+word = ${ part+ }
+part = _{ squoted | dquoted | arith | subst | backtick | empty_braces | brace_expand | bare }
+
+// The quoting rules are ATOMIC, and that is load-bearing. Left non-atomic, pest
+// inserts its implicit whitespace/comment skipping *inside* the string: a `#` in
+// `nix develop "…/lares#android"` or in `sed 's#a#b#g'` then started a comment
+// that swallowed the closing quote, and 2,058 commands failed for it.
+squoted = @{ "'" ~ (!"'" ~ ANY)* ~ "'" }
+dquoted = @{ "\"" ~ ("\\" ~ ANY | !"\"" ~ ANY)* ~ "\"" }
+
+// `$( … )` and backticks run commands whose file use counts as much as any
+// other, so the inner text is captured whole and parsed again. Nesting is
+// handled by recursion: `$(dirname "$(readlink -f x)")`.
+// `$(( … ))` is arithmetic, not a command, and must be matched before `$(` —
+// otherwise the substitution rule stops at the first `)` and leaves the second
+// dangling, which is what 216 `until [ $(( $(date +%s) - t0 )) -ge 10 ]` loops
+// failed on. Nothing inside is a file, so the body is skipped whole.
+arith      = ${ "$((" ~ arith_body ~ "))" }
+arith_body = @{ (subst | !"))" ~ ANY)* }
+
+subst         = ${ "$(" ~ subst_body ~ ")" }
+subst_body    = @{ (subst | squoted | dquoted | !")" ~ ANY)* }
+backtick      = ${ "`" ~ backtick_body ~ "`" }
+backtick_body = @{ (!"`" ~ ANY)* }
+
+// `find . -exec rm {} \;` — the placeholder is an argument, not a group.
+empty_braces = @{ "{}" }
+
+// Brace expansion — `{home,thoth,life}/android`, `dash/{config,state}`. It can
+// hold no whitespace, which is exactly what separates it from a brace *group*
+// and lets the two share an opening character without ambiguity.
+brace_expand = @{ "{" ~ (!("}" | WHITESPACE | NEWLINE) ~ ANY)+ ~ "}" }
+
+// A bare word runs until whitespace or an operator. A backslash escapes the next
+// character, which is how `find . \( -name x \)` gets its parens past the shell.
+bare    = @{ !opener ~ (escaped | !(WHITESPACE | NEWLINE | operator | "'" | "\"" | "`") ~ ANY)+ }
+escaped = _{ "\\" ~ !NEWLINE ~ ANY }
+
+opener   = _{ "{" | "}" | "(" | ")" }
+operator = _{ "|" | "&" | ";" | "(" | ")" | "<" | ">" | "$(" }
+
+// `&` ends a command by backgrounding it: `nohup … > log 2>&1 &`. The fd forms
+// are matched before this by `fd_dup`.
+term = _{ ";" | "&&" | "||" | "&" | NEWLINE }
+
+WHITESPACE = _{ " " | "\t" | line_continuation }
+// A backslash-newline joins two lines into one command.
+line_continuation = _{ "\\" ~ NEWLINE }
+// A comment runs to end of line. Trivia, so it may appear anywhere a space can —
+// which is where the corpus puts it, including on its own line mid-script.
+COMMENT = _{ "#" ~ (!NEWLINE ~ ANY)* }
