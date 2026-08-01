@@ -3,16 +3,15 @@
 # build needs — these four fetch or compile a platform binary and do not work
 # without it.
 #
-# The harness key must carry the resolved codeload URL, not the package name:
-# pnpm keys a git dependency by its full spec, and a name-only entry fails to
-# match while reporting the identical error, so it reads as though nothing was
-# configured. Move this line whenever the harness commit moves.
+# It is exactly what pnpm named as ignored on a bare install. @xinutec/ui-harness
+# is deliberately absent: it is a git dependency, but it has no install script,
+# so it needs no entry — and an entry for it would have to carry the resolved
+# codeload URL and be moved every time the harness commit moved.
 allowBuilds:
   esbuild: true
   "@parcel/watcher": true
   lmdb: true
   msgpackr-extract: true
-  "@xinutec/ui-harness@https://codeload.github.com/xinutec/ui-harness/tar.gz/0350a0577078dc26f40dfdd1c3a6279e7ff95a5c": true
 
 # Carried across from package.json's npm-format `overrides`, which pnpm does not
 # read. Here and nowhere else: two lists of one constraint drift.
