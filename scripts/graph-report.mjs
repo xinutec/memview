@@ -19,8 +19,14 @@ import { join } from 'node:path';
 
 const here = new URL('..', import.meta.url).pathname;
 
-// Bundle the TypeScript through the esbuild that Angular already depends on,
-// rather than adding a loader or duplicating the maths in JavaScript.
+// Bundle the TypeScript through esbuild rather than adding a loader or
+// duplicating the maths in JavaScript.
+//
+// esbuild is a declared devDependency of the frontend because of this line. It
+// used to be borrowed from Angular's transitive tree, which npm hoists flat and
+// pnpm does not: under a strict node_modules the binary simply was not there,
+// and an undeclared dependency that happens to be reachable is a build that
+// works by accident.
 const out = join(mkdtempSync(join(tmpdir(), 'graph-report-')), 'layout.mjs');
 const build = spawnSync(
   join(here, 'frontend/node_modules/.bin/esbuild'),
@@ -32,8 +38,11 @@ const build = spawnSync(
   ],
   { encoding: 'utf8' },
 );
-if (build.status !== 0) {
-  console.error(build.stderr || 'esbuild failed');
+// build.error is the spawn itself failing — a missing binary lands here with
+// stderr null, so reporting only stderr prints a bare "esbuild failed" and
+// throws away the one fact that identifies it. That is exactly what it did.
+if (build.error || build.status !== 0) {
+  console.error(build.error?.message ?? build.stderr ?? `esbuild exited ${build.status}`);
   process.exit(1);
 }
 

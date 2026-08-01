@@ -1,0 +1,30 @@
+# pnpm runs a dependency's install script only if it is listed here; npm runs
+# them all silently. Keeping that default means the list stays as short as the
+# build needs — these four fetch or compile a platform binary and do not work
+# without it.
+#
+# The harness key must carry the resolved codeload URL, not the package name:
+# pnpm keys a git dependency by its full spec, and a name-only entry fails to
+# match while reporting the identical error, so it reads as though nothing was
+# configured. Move this line whenever the harness commit moves.
+allowBuilds:
+  esbuild: true
+  "@parcel/watcher": true
+  lmdb: true
+  msgpackr-extract: true
+  "@xinutec/ui-harness@https://codeload.github.com/xinutec/ui-harness/tar.gz/0350a0577078dc26f40dfdd1c3a6279e7ff95a5c": true
+
+# Carried across from package.json's npm-format `overrides`, which pnpm does not
+# read. Here and nowhere else: two lists of one constraint drift.
+#
+# esbuild is also a declared devDependency, for scripts/graph-report.mjs; this
+# entry is what keeps the toolchain's transitive copies on that same version
+# rather than resolving a second one beside it.
+#
+# The @babel/core floor is inherited from the fleet's Angular scaffold rather
+# than reasoned from this app, and may be vestigial. Settling that means
+# resolving without it and diffing the version set — a separate question from
+# the package-manager move.
+overrides:
+  esbuild: ^0.28.1
+  "@babel/core": ^7.29.6

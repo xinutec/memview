@@ -1,0 +1,20 @@
+# Build outputs and installed trees. These are regenerated inside the image, and
+# the frontend stage installs dependencies in a layer of its own — without this
+# file the later `COPY frontend/ .` puts the host's node_modules straight back on
+# top of it, so the image ships whatever the developer happened to have. CI never
+# saw it because a fresh checkout has none of these; a local build did.
+#
+# pnpm's node_modules is a tree of symlinks into node_modules/.pnpm, which does
+# not survive being copied out of context, so this stops being a wasted layer and
+# starts being a broken build.
+node_modules/
+target/
+dist/
+.angular/
+
+# Test artefacts, never part of a release image.
+test-results/
+playwright-report/
+
+.git/
+result

@@ -39,16 +39,29 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v6
+      # Before setup-node, which is what this action is for: setup-node's
+      # `cache: pnpm` shells out to `pnpm store path`, so pnpm has to exist
+      # first. The major is floating rather than pinned — pinning it here would
+      # be a second version number held level with the flake's by hand, and the
+      # lockfile is the thing that actually has to match.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      # The store is content-addressed here too, so caching it shares packages
+      # across runs the same way the machine-wide store shares them across repos.
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-      - run: npm ci
-      - run: npm run lint
-      - run: npm test
-      - run: npx ng build --configuration production
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      # pnpm's ci: install exactly the lockfile, or fail.
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      - run: pnpm test
+      - run: pnpm exec ng build --configuration production
       # Real-browser render check: icon fonts load, no text overlaps or overflow.
-      - run: npx playwright install --with-deps chromium
-      - run: npm run ui-check
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm run ui-check
       # The graph layout, measured. Runs against a synthetic corpus-scale graph
       # because the real corpus is deliberately absent from CI.
       - run: node ../scripts/graph-report.mjs

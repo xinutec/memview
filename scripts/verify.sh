@@ -20,13 +20,20 @@ nix develop -c bash -c '
   cargo test
 
   cd frontend
-  npm run lint
-  npm test
-  npm run build || true
+  # `--frozen-lockfile` is pnpm ci: install exactly pnpm-lock.yaml, or fail. The
+  # guard is not just a speed-up — without it a node_modules left behind by npm
+  # still has a working .bin, so verify would pass against packages the lockfile
+  # no longer describes.
+  if [ ! -x node_modules/.bin/eslint ] || [ pnpm-lock.yaml -nt node_modules ]; then
+    pnpm install --frozen-lockfile
+  fi
+  pnpm run lint
+  pnpm test
+  pnpm run build || true
   # Authoritative build check: an empty/missing index.html means the bundle
   # really failed; a nonzero exit with a good bundle was the kqueue flake.
   test -s dist/memview-web/browser/index.html
-  npm run ui-check
+  pnpm run ui-check
 
   cd ..
   # The graph layout, measured rather than looked at. Every bug this view has had
