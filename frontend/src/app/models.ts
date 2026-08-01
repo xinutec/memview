@@ -15,12 +15,27 @@ export interface MemoryMeta {
   modified: string | null;
 }
 
+/**
+ * Which session wrote a memory, from its `originSessionId` frontmatter, and
+ * the agent that session belongs to.
+ *
+ * Owner-only: the server omits it entirely for a share-link recipient, so its
+ * presence is the permission check — there is nothing for the template to gate.
+ */
+export interface Origin {
+  session: string;
+  /** Absent when the session's transcript has been pruned since. */
+  agent?: string | null;
+}
+
 export interface MemoryPage extends MemoryMeta {
   html: string;
   backlinks: MemoryMeta[];
   outlinks: MemoryMeta[];
   /** Wikilink targets not written yet. */
   dangling: string[];
+  /** Owner-only; absent for a share-link recipient. */
+  origin?: Origin;
 }
 
 export interface IndexPage {
@@ -153,6 +168,11 @@ export interface Agent {
    * Their work counts as this agent's — it asked for it.
    */
   delegated: number;
+  /**
+   * The session ids filed under this name — the join to the corpus, where each
+   * memory records the `originSessionId` that wrote it.
+   */
+  sessions: string[];
   /** Files opened, per project directory. Lifetime totals, undecayed. */
   reads: Record<string, number>;
   /** Files written or edited, per project directory. Lifetime, undecayed. */

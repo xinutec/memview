@@ -7,7 +7,10 @@
 
   .meta {
     display: flex;
-    gap: 12px;
+    // Three items — pill, date, author — do not fit a phone on one line, and
+    // the row is the page header, so it would push the whole document sideways.
+    flex-wrap: wrap;
+    gap: 4px 12px;
     align-items: baseline;
 
     .type {
@@ -23,6 +26,21 @@
     .modified {
       font: var(--mat-sys-body-small);
       color: var(--mat-sys-on-surface-variant);
+    }
+
+    .origin {
+      font: var(--mat-sys-body-small);
+      color: var(--mat-sys-on-surface-variant);
+
+      a {
+        color: var(--mat-sys-primary);
+      }
+
+      // Named after what it is, not styled to look broken: a pruned session is
+      // an ordinary outcome, not a defect in the memory.
+      .pruned {
+        font-style: italic;
+      }
     }
   }
 

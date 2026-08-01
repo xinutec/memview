@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use memview::agents::{Agent, scan};
+use memview::agents::{Agent, Agents, scan};
 
 /// A tool whose calls the miner counts.
 #[derive(Clone, Copy)]
@@ -206,6 +206,44 @@ fn a_session_the_registry_forgot_falls_back_to_the_transcript_then_the_id() {
     // several distinct agents under a single "unknown" label would be a claim
     // about the work that nothing supports.
     assert!(names.contains(&"s2"), "{names:?}");
+}
+
+#[test]
+fn an_agent_records_the_session_ids_filed_under_it_but_not_its_subagents() {
+    // The join to the corpus. Every memory records the `originSessionId` that
+    // wrote it, which stays a raw uuid unless the roster can say whose it was.
+    // A dispatched transcript must NOT contribute an id of its own: its work is
+    // already counted here, and a subagent never writes a memory under its own
+    // identity, so an extra id could only ever resolve to the wrong thing.
+    let own = vec![call(Tool::Write, "/code/thing/x", "2026-07-01T10:00:00Z")];
+    let dispatched = vec![call(Tool::Write, "/code/thing/y", "2026-07-01T10:00:00Z")];
+    let agents = mine_with(
+        &[("s1", own)],
+        &[("s1/subagents/agent-a.jsonl", dispatched)],
+        &[("100", r#"{"pid":100,"sessionId":"s1","name":"builder"}"#)],
+    );
+
+    assert_eq!(agents[0].name, "builder");
+    let ids: Vec<&str> = agents[0].sessions.iter().map(String::as_str).collect();
+    assert_eq!(ids, ["s1"]);
+}
+
+#[test]
+fn a_session_resolves_to_its_agent_and_a_forgotten_one_to_nobody() {
+    let lines = vec![call(Tool::Write, "/code/thing/x", "2026-07-01T10:00:00Z")];
+    let roster = Agents {
+        generated: "2026-07-31T00:00:00Z".into(),
+        agents: mine(
+            &[("s1", lines)],
+            &[("100", r#"{"pid":100,"sessionId":"s1","name":"builder"}"#)],
+        ),
+    };
+
+    assert_eq!(roster.name_of_session("s1"), Some("builder"));
+    // Claude Code prunes its own old sessions, so a memory outlives the
+    // transcript that wrote it. That is an ordinary answer, not a failure —
+    // the alternative is attributing it to whoever happens to sort first.
+    assert_eq!(roster.name_of_session("s-pruned"), None);
 }
 
 #[test]

@@ -26,7 +26,7 @@
 //! Only names, project names and integers leave this module — the same rule the
 //! rest of the mining follows, for the same reason
 //! (see the module docs on [`crate::couse`]).
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -47,6 +47,15 @@ pub struct Agent {
     /// Their work is counted as this agent's — see [`transcripts_under`].
     #[serde(default)]
     pub delegated: usize,
+    /// The session ids filed under this name.
+    ///
+    /// More than one when a name has been reused, and the reason this is kept
+    /// at all: every memory records the `originSessionId` that wrote it, which
+    /// is a raw uuid until something can say which agent that was. Without this
+    /// the corpus and the roster are two datasets about the same sessions with
+    /// no join between them.
+    #[serde(default)]
+    pub sessions: BTreeSet<String>,
     /// Files opened, per project directory. Lifetime totals, undecayed — the
     /// honest record of what happened, and what the totals line reports.
     pub reads: BTreeMap<String, usize>,
@@ -114,6 +123,21 @@ impl Agents {
         std::fs::write(path, serde_json::to_string_pretty(self)?)
             .with_context(|| format!("writing {}", path.display()))?;
         Ok(())
+    }
+
+    /// The agent a session id belongs to, for resolving a memory's
+    /// `originSessionId` to a name.
+    ///
+    /// `None` is an ordinary answer, not a failure: Claude Code prunes its own
+    /// old sessions, so a memory can outlive the transcript that wrote it —
+    /// 24 of the live corpus's memories name a session with no transcript left.
+    /// Those keep their raw id rather than being dropped or attributed to
+    /// somebody else.
+    pub fn name_of_session(&self, session: &str) -> Option<&str> {
+        self.agents
+            .iter()
+            .find(|a| a.sessions.contains(session))
+            .map(|a| a.name.as_str())
     }
 }
 
@@ -525,6 +549,11 @@ pub fn scan(
             name,
             ..Agent::default()
         });
+        // The owner id, so a delegated transcript records the session that
+        // dispatched it rather than the subagent's own id — the same identity
+        // the rest of the row is counted under, and the one a memory's
+        // `originSessionId` will name.
+        agent.sessions.insert(transcript.owner.clone());
         if transcript.delegated {
             agent.delegated += 1;
         } else {

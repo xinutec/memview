@@ -24,6 +24,10 @@ use crate::rank;
 struct FrontmatterMeta {
     #[serde(rename = "type")]
     mtype: Option<String>,
+    /// The session that wrote this memory, as the memory instructions record
+    /// it. Camel-case on disk, so it is renamed rather than relied on.
+    #[serde(rename = "originSessionId")]
+    origin_session: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -54,6 +58,16 @@ pub struct MemoryDoc {
     /// it produced — a `name:` that disagrees with the filename is invisible
     /// once the parse has already preferred the filename.
     pub raw: String,
+    /// The session that wrote this memory (`metadata.originSessionId`), if it
+    /// declares one.
+    ///
+    /// Deliberately NOT part of [`MemoryMeta`]. That struct is serialised into
+    /// every list, backlink, outlink, search hit and graph node, all of which a
+    /// share-link recipient may read — and resolving a session to the agent
+    /// that owns it is exactly the roster `/api/agents` is owner-only to
+    /// protect. Keeping it on the doc means the leak cannot happen by
+    /// forgetting, only by writing a handler that opts in.
+    pub origin_session: Option<String>,
 }
 
 pub struct Corpus {
@@ -105,10 +119,13 @@ impl Corpus {
                 Some(y) => serde_yaml::from_str(y).unwrap_or_default(),
                 None => Frontmatter::default(),
             };
-            let mtype = fm
-                .metadata
-                .and_then(|m| m.mtype)
+            let meta = fm.metadata.unwrap_or_default();
+            let mtype = meta
+                .mtype
                 .unwrap_or_else(|| name.split('_').next().unwrap_or("other").to_string());
+            // An empty value is absent: an origin that resolves to nothing is
+            // worse than none, because it renders as an agent that never was.
+            let origin_session = meta.origin_session.filter(|s| !s.trim().is_empty());
             let modified = entry
                 .metadata()
                 .ok()
@@ -127,6 +144,7 @@ impl Corpus {
                     },
                     body: body.to_string(),
                     raw: text.clone(),
+                    origin_session,
                 },
             );
         }

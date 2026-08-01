@@ -8,6 +8,17 @@
       @if (p.modified) {
         <span class="modified">updated {{ p.modified | date: 'mediumDate' }}</span>
       }
+      @if (p.origin; as o) {
+        <span class="origin">
+          @if (o.agent) {
+            written by <a routerLink="/agents">{{ o.agent }}</a>
+          } @else {
+            <!-- No name to give: the transcript was pruned. The id is still the
+                 honest answer, and the full one is there on hover. -->
+            <span class="pruned" [title]="o.session">written by a session since pruned</span>
+          }
+        </span>
+      }
     </div>
     @if (p.description) {
       <p class="description">{{ p.description }}</p>

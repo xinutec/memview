@@ -47,6 +47,27 @@ fn reads_description_and_type_from_frontmatter() {
 }
 
 #[test]
+fn the_origin_session_is_read_from_frontmatter_when_the_memory_declares_one() {
+    let corpus = corpus();
+    let alpha = corpus.get("project_alpha").expect("alpha present");
+    assert_eq!(
+        alpha.origin_session.as_deref(),
+        Some("00000000-0000-0000-0000-000000000000")
+    );
+    // Frontmatter without the key, and no frontmatter at all, are both simply
+    // absent — 10 of the live corpus's 384 memories predate the field, and an
+    // empty string would render as an origin nothing can resolve.
+    assert_eq!(
+        corpus.get("reference_beta").expect("beta").origin_session,
+        None
+    );
+    assert_eq!(
+        corpus.get("feedback_gamma").expect("gamma").origin_session,
+        None
+    );
+}
+
+#[test]
 fn type_falls_back_to_the_filename_prefix_without_frontmatter() {
     let corpus = corpus();
     let gamma = corpus.get("feedback_gamma").expect("gamma present");

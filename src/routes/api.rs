@@ -56,6 +56,21 @@ pub async fn memories(
     Ok(Json(load_corpus(&app)?.list()))
 }
 
+/// Who wrote a memory: the session its frontmatter names, and the agent that
+/// session belongs to when the roster still knows.
+///
+/// The name is the point — a uuid answers "which session" without answering
+/// "which of my agents". It stays optional because Claude Code prunes its own
+/// old sessions, so a memory routinely outlives the transcript that wrote it;
+/// the id is still shown then, since "written by a session I no longer have"
+/// is a truer answer than silence.
+#[derive(Serialize)]
+pub struct Origin {
+    session: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent: Option<String>,
+}
+
 #[derive(Serialize)]
 pub struct MemoryPage {
     #[serde(flatten)]
@@ -66,23 +81,53 @@ pub struct MemoryPage {
     /// Wikilink targets not written yet — surfaced, not hidden; a dangling
     /// link marks something worth writing.
     dangling: Vec<String>,
+    /// Owner-only, and absent for a share-link recipient. Same reason
+    /// `/api/agents` is owner-only: a link to one memory must not also hand
+    /// over who is working on what. Absent here means "not shown to you",
+    /// which is indistinguishable from "the memory declares none" — deliberately,
+    /// since the count of memories an agent wrote is itself part of the roster.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    origin: Option<Origin>,
+}
+
+/// The agent roster, or an empty one when nothing has been mined.
+///
+/// Absent is normal — a fresh checkout or CI has no transcripts — and it
+/// degrades to showing the bare session id rather than to an error.
+fn roster(app: &AppState) -> crate::agents::Agents {
+    app.cfg
+        .agents_file
+        .as_deref()
+        .and_then(|p| crate::agents::Agents::load(std::path::Path::new(p)))
+        .unwrap_or_default()
 }
 
 /// GET /api/memory/{name}
 pub async fn memory(
     State(app): State<AppState>,
-    ReadAccess(_): ReadAccess,
+    ReadAccess(viewer): ReadAccess,
     Path(name): Path<String>,
 ) -> Result<Json<MemoryPage>, AppError> {
     let corpus = load_corpus(&app)?;
     let doc = corpus.get(&name).ok_or(AppError::NotFound)?;
     let (outlinks, dangling) = corpus.outlinks(doc);
+    // Resolved only for the owner, and only when the memory declares one. The
+    // roster is loaded inside the match so a share request does not pay to read
+    // an artefact it may not see.
+    let origin = match viewer {
+        Viewer::Owner(_) => doc.origin_session.as_ref().map(|session| Origin {
+            agent: roster(&app).name_of_session(session).map(str::to_string),
+            session: session.clone(),
+        }),
+        Viewer::Shared => None,
+    };
     Ok(Json(MemoryPage {
         meta: doc.meta.clone(),
         html: render_markdown(&doc.body)?,
         backlinks: corpus.backlinks(&name),
         outlinks,
         dangling,
+        origin,
     }))
 }
 
@@ -143,13 +188,7 @@ pub async fn agents(
     State(app): State<AppState>,
     OwnerOnly(_): OwnerOnly,
 ) -> Result<Json<crate::agents::Agents>, AppError> {
-    let found = app
-        .cfg
-        .agents_file
-        .as_deref()
-        .and_then(|p| crate::agents::Agents::load(std::path::Path::new(p)))
-        .unwrap_or_default();
-    Ok(Json(found))
+    Ok(Json(roster(&app)))
 }
 
 fn share_json(app: &AppState) -> Value {
