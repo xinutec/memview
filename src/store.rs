@@ -629,7 +629,7 @@ fn snippet_around(body: &str, pos: usize, match_len: usize) -> String {
     s
 }
 
-fn markdown_options() -> Options<'static> {
+pub(crate) fn markdown_options() -> Options<'static> {
     let mut options = Options::default();
     options.extension.table = true;
     options.extension.strikethrough = true;

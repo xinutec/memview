@@ -129,3 +129,66 @@ fn an_unreadable_root_reports_rather_than_passing_silently() {
     assert_eq!(findings[0].rule, "unresolvable-code-root");
     assert_eq!(findings[0].severity, Severity::Error);
 }
+
+#[test]
+fn a_url_that_merely_contains_the_root_path_is_not_a_repo_claim() {
+    // The reason this pass parses markdown instead of scanning bytes. A link
+    // destination is not a claim about a checkout, and `store.rs` already
+    // carries the scar from a line-scanner that could not tell the difference.
+    let corpus_dir = tempfile::tempdir().expect("tempdir");
+    let code = tempfile::tempdir().expect("tempdir");
+
+    let corpus = corpus_saying(
+        corpus_dir.path(),
+        &format!(
+            "See [the plan](https://example.invalid{}/lares/plan.md).",
+            code.path().display()
+        ),
+    );
+    assert!(
+        check_world(&corpus, code.path()).is_empty(),
+        "a URL was read as a repo path claim"
+    );
+}
+
+#[test]
+fn a_command_inside_a_fenced_block_is_still_a_claim() {
+    // Deliberately the opposite call from the index parser: there a link inside
+    // a fence was noise, here a command in a fence is the most actionable thing
+    // a memory can say.
+    let corpus_dir = tempfile::tempdir().expect("tempdir");
+    let code = tempfile::tempdir().expect("tempdir");
+
+    let corpus = corpus_saying(
+        corpus_dir.path(),
+        "Run it:\n\n```sh\n~/Code/lares/deploy.sh\n```\n",
+    );
+    let findings = check_world(&corpus, code.path());
+
+    assert_eq!(findings.len(), 1, "{findings:?}");
+    assert!(findings[0].detail.contains("lares"), "{findings:?}");
+}
+
+#[test]
+fn a_dead_path_named_only_in_the_description_is_caught() {
+    // No markdown node covers frontmatter, so it is appended explicitly — and it
+    // matters: the description is the half a reader sees first.
+    let corpus_dir = tempfile::tempdir().expect("tempdir");
+    let code = tempfile::tempdir().expect("tempdir");
+
+    std::fs::write(
+        corpus_dir.path().join("MEMORY.md"),
+        "# Memory index\n- [p](project_thing.md)\n",
+    )
+    .expect("write index");
+    std::fs::write(
+        corpus_dir.path().join("project_thing.md"),
+        "---\nname: project_thing\ndescription: \"captures at ~/Code/lares/captures\"\nmetadata:\n  type: project\n---\n\nNothing in the body.\n",
+    )
+    .expect("write memory");
+    let corpus = Corpus::load(corpus_dir.path()).expect("loads");
+
+    let findings = check_world(&corpus, code.path());
+    assert_eq!(findings.len(), 1, "{findings:?}");
+    assert!(findings[0].detail.contains("lares"), "{findings:?}");
+}

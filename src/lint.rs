@@ -348,6 +348,40 @@ const NOT_A_REPO: &[&str] = &[
     "check",
 ];
 
+/// The text of a memory a path claim can live in — prose, inline code and
+/// fenced blocks — with link destinations left out.
+///
+/// Parsed with comrak, like everything else that reads corpus markdown. A raw
+/// substring scan is what this replaced, and the reason not to keep one is
+/// written into `store.rs::index_sections`: the line scanner there mis-read any
+/// link whose title contained `](`. The same hazard applies here — a URL that
+/// happens to contain the root's path would read as a claim about a repo.
+///
+/// Code spans and fenced blocks are deliberately KEPT, which is the opposite
+/// call from the index parser. There a link inside a fence was noise; here a
+/// command in a fence is the most actionable kind of claim a memory can make —
+/// `run ~/Code/x/deploy.sh` is an instruction whether or not it is fenced.
+fn claimable_text(doc: &crate::store::MemoryDoc) -> String {
+    let options = crate::store::markdown_options();
+    let arena = comrak::Arena::new();
+    let root = comrak::parse_document(&arena, &doc.body, &options);
+    let mut out = String::new();
+    for node in root.descendants() {
+        match &node.data.borrow().value {
+            comrak::nodes::NodeValue::Text(t) => out.push_str(t),
+            comrak::nodes::NodeValue::Code(c) => out.push_str(&c.literal),
+            comrak::nodes::NodeValue::CodeBlock(c) => out.push_str(&c.literal),
+            _ => {}
+        }
+        out.push('\n');
+    }
+    // The description is frontmatter, so no markdown node covers it — and it is
+    // load-bearing: `project_lares_recon` named the dead path there as well as in
+    // its body, and the description is the half a reader sees first.
+    out.push_str(&doc.meta.description);
+    out
+}
+
 /// Every `~/Code/<segment>` a memory names.
 ///
 /// Memories write the checkout root both ways — `~/Code/x` and the absolute
@@ -359,12 +393,12 @@ const NOT_A_REPO: &[&str] = &[
 /// Only the first segment is taken: a repo either exists or it does not, whereas
 /// a file inside one moves for ordinary reasons and checking those would report
 /// churn as rot.
-fn code_repos_named(raw: &str, code_root: &std::path::Path) -> BTreeSet<String> {
+fn code_repos_named(text: &str, code_root: &std::path::Path) -> BTreeSet<String> {
     let absolute = format!("{}/", code_root.display());
     let prefixes = ["~/Code/", absolute.as_str()];
     let mut found = BTreeSet::new();
     for prefix in prefixes {
-        let mut rest = raw;
+        let mut rest = text;
         while let Some(at) = rest.find(prefix) {
             rest = &rest[at + prefix.len()..];
             let seg: String = rest
@@ -413,14 +447,15 @@ pub fn check_world(corpus: &Corpus, code_root: &std::path::Path) -> Vec<Finding>
     }
 
     for (name, doc) in &corpus.docs {
-        for repo in code_repos_named(&doc.raw, code_root) {
+        let claimed = claimable_text(doc);
+        for repo in code_repos_named(&claimed, code_root) {
             if code_root.join(&repo).exists() {
                 continue;
             }
             // Naming the archive location IS the retirement record. Checked per
             // repo rather than per document so a memory that retires one repo
             // cannot accidentally excuse a stale reference to another.
-            if doc.raw.contains(&format!("~/Archive/{repo}")) {
+            if claimed.contains(&format!("~/Archive/{repo}")) {
                 continue;
             }
             findings.push(Finding {
