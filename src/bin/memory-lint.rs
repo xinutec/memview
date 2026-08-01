@@ -61,7 +61,23 @@ fn main() -> Result<()> {
         .parent()
         .map(|p| p.join("couse.json"))
         .and_then(|p| CoUse::load(&p));
-    let (corpus, findings) = settle(corpus, &dir, couse.as_ref())?;
+    let (corpus, mut findings) = settle(corpus, &dir, couse.as_ref())?;
+
+    // The one pass that leaves the corpus and asks whether what it says is still
+    // true. `CODE_ROOT` overrides for a checkout somewhere else; the default is
+    // the tree every memory writes paths against.
+    let code_root = std::env::var("CODE_ROOT").unwrap_or_else(|_| {
+        let home = std::env::var("HOME").unwrap_or_default();
+        format!("{home}/Code")
+    });
+    findings.extend(lint::check_world(&corpus, std::path::Path::new(&code_root)));
+    findings.sort_by(|a, b| {
+        b.severity
+            .cmp(&a.severity)
+            .then(a.rule.cmp(b.rule))
+            .then(a.memory.cmp(&b.memory))
+    });
+
     let reasons = lint::rule_reasons();
 
     println!("{} memories in {dir}\n", corpus.docs.len());

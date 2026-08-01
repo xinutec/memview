@@ -140,6 +140,16 @@ const RULES: &[(&str, Severity, &str)] = &[
         Severity::Warning,
         "no link declares a relation, so the structure says only \"related\"",
     ),
+    (
+        "dead-repo-path",
+        Severity::Error,
+        "names a `~/Code/<repo>` that does not exist, and does not say where it went",
+    ),
+    (
+        "unresolvable-code-root",
+        Severity::Error,
+        "the checkout root could not be read, so no path claim was actually verified",
+    ),
 ];
 
 fn severity_of(rule: &str) -> Severity {
@@ -325,6 +335,104 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
             .then(a.rule.cmp(b.rule))
             .then(a.memory.cmp(&b.memory))
     });
+    findings
+}
+
+/// Repo names that legitimately appear under `~/Code/` without being checkouts.
+///
+/// Enumerated rather than pattern-matched on purpose: an explicit list is
+/// auditable and fails safe — a missing entry is a visible finding, where a
+/// clever rule would silently swallow the case it did not anticipate.
+const NOT_A_REPO: &[&str] = &[
+    // The fleet-consistency conductor: a bare script, not a checkout.
+    "check",
+];
+
+/// Every `~/Code/<segment>` a memory names.
+///
+/// Memories write the checkout root both ways — `~/Code/x` and the absolute
+/// `/path/to/Code/x` — and they mean the same place, so both are read. The
+/// absolute form is derived from `code_root` rather than written down, so no
+/// personal home path is baked into the source and a different root checks
+/// correctly instead of silently matching nothing.
+///
+/// Only the first segment is taken: a repo either exists or it does not, whereas
+/// a file inside one moves for ordinary reasons and checking those would report
+/// churn as rot.
+fn code_repos_named(raw: &str, code_root: &std::path::Path) -> BTreeSet<String> {
+    let absolute = format!("{}/", code_root.display());
+    let prefixes = ["~/Code/", absolute.as_str()];
+    let mut found = BTreeSet::new();
+    for prefix in prefixes {
+        let mut rest = raw;
+        while let Some(at) = rest.find(prefix) {
+            rest = &rest[at + prefix.len()..];
+            let seg: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+                .collect();
+            let seg = seg.trim_end_matches('.').to_string();
+            if !seg.is_empty() && !NOT_A_REPO.contains(&seg.as_str()) {
+                found.insert(seg);
+            }
+        }
+    }
+    found
+}
+
+/// Checks that reach outside the corpus, to the checkout root the memories describe.
+///
+/// Kept separate from [`check`] because that function is pure over the corpus and
+/// worth keeping that way; this one is the only part that touches a filesystem.
+///
+/// **Why this exists.** On 2026-08-01 an audit found that `lares` had been retired
+/// to `~/Archive/lares` and recorded in exactly one memory, while fifteen others —
+/// four of them feedback rules, the highest-authority documents here — still sent a
+/// reader to `~/Code/lares`. Every rule in the table above passed the whole time,
+/// because all of them ask whether the document graph is well-formed and none of
+/// them ask whether it is true. A corpus can be perfectly consistent with itself
+/// and still be describing a machine that no longer exists.
+///
+/// The escape hatch is naming the new location: a memory that says `~/Archive/<repo>`
+/// has recorded the retirement and is exempt. That makes the fix for a true positive
+/// either update the path or state where it went — never just silence the check.
+pub fn check_world(corpus: &Corpus, code_root: &std::path::Path) -> Vec<Finding> {
+    let mut findings = Vec::new();
+
+    // A root that cannot be read must report that, not pass. A check that answers
+    // "no findings" because it could not look is worse than no check: it reads as
+    // a clean bill and there is nothing in the output to say otherwise.
+    if !code_root.is_dir() {
+        findings.push(Finding {
+            severity: severity_of("unresolvable-code-root"),
+            rule: "unresolvable-code-root",
+            memory: "(corpus)".to_string(),
+            detail: format!("{} is not a readable directory", code_root.display()),
+        });
+        return findings;
+    }
+
+    for (name, doc) in &corpus.docs {
+        for repo in code_repos_named(&doc.raw, code_root) {
+            if code_root.join(&repo).exists() {
+                continue;
+            }
+            // Naming the archive location IS the retirement record. Checked per
+            // repo rather than per document so a memory that retires one repo
+            // cannot accidentally excuse a stale reference to another.
+            if doc.raw.contains(&format!("~/Archive/{repo}")) {
+                continue;
+            }
+            findings.push(Finding {
+                severity: severity_of("dead-repo-path"),
+                rule: "dead-repo-path",
+                memory: name.clone(),
+                detail: format!("~/Code/{repo} does not exist"),
+            });
+        }
+    }
+
+    findings.sort_by(|a, b| a.memory.cmp(&b.memory).then(a.detail.cmp(&b.detail)));
     findings
 }
 
