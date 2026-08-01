@@ -1,0 +1,42 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- The corpus as a link graph — the same mark as the web app's
+         frontend/public/icon.svg, which is the app's own thesis: memories are
+         nodes and what matters is what connects them.
+
+         Ported rather than reused. A vector drawable has no <circle>, so each
+         node is two half-arcs, and the SVG's two-tone fill (#fff + #d1c4e9)
+         collapses to solid white: this same drawable is the <monochrome> layer
+         for themed icons, where a tinted second colour would wash out.
+
+         The source viewBox is 0 0 64 64 and the adaptive-icon safe zone is the
+         middle 72 of 108, so the group scales by 72/64 = 1.125 and is offset by
+         (108 - 64 * 1.125) / 2 = 18. -->
+    <group
+        android:scaleX="1.125"
+        android:scaleY="1.125"
+        android:translateX="18"
+        android:translateY="18">
+        <!-- Edges first, so the nodes sit on top of the joins. -->
+        <path
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="3"
+            android:strokeLineJoin="round"
+            android:pathData="M22,24 L44,32 L26,46 Z" />
+        <!-- Node at (22,24), r=6. -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M16,24a6,6 0 1,0 12,0a6,6 0 1,0 -12,0" />
+        <!-- Node at (44,32), r=6. -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M38,32a6,6 0 1,0 12,0a6,6 0 1,0 -12,0" />
+        <!-- Node at (26,46), r=6. -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M20,46a6,6 0 1,0 12,0a6,6 0 1,0 -12,0" />
+    </group>
+</vector>

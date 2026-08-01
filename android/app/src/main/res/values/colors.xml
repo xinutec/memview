@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Adaptive-icon background: the deep purple the web icon and the page's
+         theme-color already use (frontend/public/icon.svg), so the launcher and
+         the app agree — and distinct on the launcher from the other web apps. -->
+    <color name="ic_launcher_background">#5E35B1</color>
+</resources>
