@@ -72,11 +72,28 @@ pub struct Agent {
     /// monorepo lands in one bucket. Keeping the path is what lets a subtree, a
     /// filename or an extension be asked about.
     ///
-    /// Cheap, because real work is not many files: 5,500 distinct paths across
-    /// the entire history, of which three are generated (`node_modules`, `dist`).
-    /// So there is no cap here, and therefore no silent truncation to explain.
+    /// Cheap, because real work is not many files: about 7,300 distinct paths
+    /// across the entire history. So there is no cap here, and therefore no
+    /// silent truncation to explain. Build output and dependency trees are left
+    /// out — see [`attributable`].
     #[serde(default)]
     pub paths: BTreeMap<String, MemoryUse>,
+    /// The same, for files used by shell commands rather than by tool calls —
+    /// `sed -i`, `cp`, a `>` redirect. Keyed identically, so the two are unioned
+    /// by [`Agents::who_works_on`] at query time.
+    ///
+    /// **A separate map, and deliberately so.** Folding shell use into
+    /// [`paths`](Self::paths) would move every existing figure on the agents
+    /// page at once, and would retroactively reward the habit of editing through
+    /// `sed` over the habit of editing through `Edit` — a change to what the
+    /// numbers have always meant, made silently. Kept apart, the old numbers go
+    /// on meaning what they meant and the new evidence is visible as its own
+    /// claim.
+    ///
+    /// Not a small addition: two thirds of the fleet's shell commands touch
+    /// files, and the `Write`/`Edit` miner sees none of it.
+    #[serde(default)]
+    pub shell_paths: BTreeMap<String, MemoryUse>,
     /// Which memories this agent works with, keyed by memory name.
     ///
     /// The companion to `reads`/`writes` and a different question: those say
@@ -137,8 +154,15 @@ pub struct WorkMatch {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkFile {
     pub path: String,
+    /// Every use, tool call and shell command together.
     pub reads: usize,
     pub edits: usize,
+    /// How much of the above came from the shell rather than from `Write` and
+    /// `Edit`. Reported so the evidence can be checked: a file with forty
+    /// changes and no tool edits is not a mistake, it is somebody working
+    /// through `sed` — and without this split there is no way to see that.
+    pub shell_reads: usize,
+    pub shell_edits: usize,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -194,16 +218,38 @@ impl Agents {
             .agents
             .iter()
             .filter_map(|agent| {
-                let mut files: Vec<WorkFile> = agent
-                    .paths
-                    .iter()
-                    .filter(|(path, _)| path.to_lowercase().contains(&needle))
-                    .map(|(path, use_)| WorkFile {
+                // The two dimensions are unioned here rather than at mining
+                // time, so a file used both ways is one row and not two.
+                let mut merged: BTreeMap<&String, WorkFile> = BTreeMap::new();
+                let matching = |(path, _): &(&String, &MemoryUse)| -> bool {
+                    path.to_lowercase().contains(&needle)
+                };
+                for (path, use_) in agent.paths.iter().filter(matching) {
+                    merged.insert(
+                        path,
+                        WorkFile {
+                            path: path.clone(),
+                            reads: use_.reads,
+                            edits: use_.edits,
+                            shell_reads: 0,
+                            shell_edits: 0,
+                        },
+                    );
+                }
+                for (path, use_) in agent.shell_paths.iter().filter(matching) {
+                    let file = merged.entry(path).or_insert_with(|| WorkFile {
                         path: path.clone(),
-                        reads: use_.reads,
-                        edits: use_.edits,
-                    })
-                    .collect();
+                        reads: 0,
+                        edits: 0,
+                        shell_reads: 0,
+                        shell_edits: 0,
+                    });
+                    file.reads += use_.reads;
+                    file.edits += use_.edits;
+                    file.shell_reads = use_.reads;
+                    file.shell_edits = use_.edits;
+                }
+                let mut files: Vec<WorkFile> = merged.into_values().collect();
                 if files.is_empty() {
                     return None;
                 }
@@ -330,6 +376,41 @@ fn relative_to(path: &str, code_root: &str) -> Option<String> {
     let root = code_root.trim_end_matches('/');
     let rest = path.strip_prefix(root)?.strip_prefix('/')?;
     (!rest.is_empty() && rest.contains('/')).then(|| rest.to_string())
+}
+
+/// Whether a path is one that work can be attributed to at all.
+///
+/// Build output, dependency trees, logs and editor leftovers are files an agent
+/// touches *because* of the work rather than *as* the work — `rm -rf dist`
+/// changes forty files and says nothing about who owns the code that built
+/// them.
+///
+/// Measured before it was written, on the live corpus: generated paths are 0.1%
+/// of tool-call use and **4.3% of shell use**, because `Write` and `Edit`
+/// hardly ever address a build directory and `rm`, `>` and `cp` constantly do.
+/// The same rule applies to both dimensions even so — one definition of a file
+/// worth attributing, not one per source of evidence — and on the tool side it
+/// removes 44 uses out of 49,699.
+fn attributable(rel: &str) -> bool {
+    const GENERATED: [&str; 14] = [
+        "node_modules",
+        "dist",
+        "build",
+        "target",
+        "coverage",
+        "logs",
+        "log",
+        ".venv",
+        "venv",
+        "__pycache__",
+        ".gradle",
+        ".angular",
+        ".next",
+        ".cache",
+    ];
+    const LEFTOVER: [&str; 5] = [".log", ".bak", ".tmp", ".orig", ".rej"];
+    let mut segments = rel.split('/');
+    !segments.any(|s| GENERATED.contains(&s)) && !LEFTOVER.iter().any(|s| rel.ends_with(s))
 }
 
 /// The memory a path names, for paths inside the corpus directory.
@@ -498,11 +579,39 @@ fn named_in_transcript(text: &[u8]) -> Option<String> {
 /// The key holding the path, inside a tool call's `input` object.
 const PATH_KEY: &[u8] = b"\"file_path\":\"";
 
+/// The `Bash` commands on one transcript line, and the directory they ran in.
+///
+/// Parsed as JSON rather than scanned for a needle, because a command is a JSON
+/// string full of escapes — `\"`, `\n`, `\\` — and reading the raw bytes would
+/// hand the shell parser text nobody typed. The cheap byte test comes first: the
+/// corpus is gigabytes and about one line in forty carries a `Bash` call, so
+/// parsing every line would cost minutes to no purpose.
+///
+/// The `cwd` is the line's own, and is what a relative path in the command is
+/// resolved against. `None` where the transcript does not record one, which
+/// makes relative paths unusable rather than guessed at.
+pub fn bash_calls(line: &[u8]) -> Option<(Option<String>, Vec<String>)> {
+    find_at(line, b"\"name\":\"Bash\"", 0)?;
+    let row: serde_json::Value = serde_json::from_slice(line).ok()?;
+    let cwd = row["cwd"]
+        .as_str()
+        .filter(|c| !c.is_empty())
+        .map(str::to_string);
+    let content = row["message"]["content"].as_array()?;
+    let commands = content
+        .iter()
+        .filter(|item| item["type"] == "tool_use" && item["name"] == "Bash")
+        .filter_map(|item| item["input"]["command"].as_str().map(str::to_string))
+        .collect();
+    Some((cwd, commands))
+}
+
 /// Count one transcript's tool calls into `agent`, and note the days.
 fn scan_transcript(
     text: &[u8],
     code_root: &str,
     memory_root: &str,
+    home: &str,
     agent: &mut Agent,
     seen: &mut DaysSeen,
 ) {
@@ -514,6 +623,7 @@ fn scan_transcript(
         writes: agent_writes,
         memories,
         paths,
+        shell_paths,
         first,
         last,
         ..
@@ -542,6 +652,32 @@ fn scan_transcript(
                 *last = stamp.to_string();
             }
             day = day_number(stamp);
+        }
+        // What the shell did, beside what the tools did. Counted into its own
+        // map and into no project or recency counter: this is a new dimension,
+        // not a correction to the old ones.
+        //
+        // A command the grammar cannot read contributes nothing and is not
+        // reported here — `shell-report` is where that is measured, against a
+        // corpus, rather than buried in a mine that takes minutes to run.
+        if let Some((cwd, commands)) = bash_calls(line) {
+            for command in commands {
+                let Ok(parsed) = crate::shell::parse(&command) else {
+                    continue;
+                };
+                for used in crate::shell_files::extract(&parsed, cwd.as_deref(), home).files {
+                    let Some(rel) = relative_to(&used.path, code_root).filter(|p| attributable(p))
+                    else {
+                        continue;
+                    };
+                    let use_ = shell_paths.entry(rel).or_default();
+                    if used.write {
+                        use_.edits += 1;
+                    } else {
+                        use_.reads += 1;
+                    }
+                }
+            }
         }
         // A line can carry more than one tool call, so every occurrence is
         // walked rather than only the first — a batched turn that opens six
@@ -586,7 +722,8 @@ fn scan_transcript(
                         if let Some(day) = day {
                             days.entry(project).or_default().insert(day);
                         }
-                        if let Some(rel) = relative_to(path, code_root) {
+                        if let Some(rel) = relative_to(path, code_root).filter(|p| attributable(p))
+                        {
                             let use_ = paths.entry(rel).or_default();
                             if is_write {
                                 use_.edits += 1;
@@ -624,6 +761,7 @@ pub fn scan(
     sessions_dir: &Path,
     code_root: &str,
     memory_root: &str,
+    home: &str,
     generated: &str,
 ) -> Result<Agents> {
     let names = registry_names(sessions_dir);
@@ -682,6 +820,7 @@ pub fn scan(
             &text,
             code_root,
             memory_root,
+            home,
             agent,
             days.entry(agent.name.clone()).or_default(),
         );

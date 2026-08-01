@@ -13,6 +13,8 @@
 
 use std::io::Write;
 
+use memview::agents;
+
 fn main() -> anyhow::Result<()> {
     let home = std::env::var("HOME").unwrap_or_default();
     let root = std::env::args()
@@ -30,20 +32,13 @@ fn main() -> anyhow::Result<()> {
         };
         files += 1;
         for line in text.lines() {
-            let Ok(row) = serde_json::from_str::<serde_json::Value>(line) else {
+            // The same reader the miner uses, so the corpus a coverage figure is
+            // measured against cannot drift from the text the miner parses.
+            let Some((cwd, commands)) = agents::bash_calls(line.as_bytes()) else {
                 continue;
             };
-            let cwd = row["cwd"].as_str().unwrap_or_default();
-            let Some(content) = row["message"]["content"].as_array() else {
-                continue;
-            };
-            for item in content {
-                if item["type"] != "tool_use" || item["name"] != "Bash" {
-                    continue;
-                }
-                let Some(cmd) = item["input"]["command"].as_str() else {
-                    continue;
-                };
+            let cwd = cwd.unwrap_or_default();
+            for cmd in commands {
                 writeln!(out, "{}", serde_json::json!({ "cmd": cmd, "cwd": cwd }))?;
                 calls += 1;
             }

@@ -1,11 +1,14 @@
 //! A parser for the shell Claude has actually written, and nothing more.
 //!
-//! Two thirds of the fleet's file changes never pass through the `Write` or
-//! `Edit` tools: the history holds 40,241 `Bash` calls against 36,371 Write and
-//! Edit ones, and a `sed -i`, a heredoc or a `cp` changes a file as surely as
-//! any of them. Counting only the tools that announce themselves undercounts,
-//! and undercounts *unevenly* — an agent that reaches for `sed` loses work an
-//! agent that reaches for `Edit` keeps.
+//! Much of the fleet's file use never passes through the `Write` or `Edit`
+//! tools: the history holds 87,918 `Bash` calls against 36,371 Write and Edit
+//! ones, and a `sed -i`, a heredoc or a `cp` changes a file as surely as any of
+//! them. Counting only the tools that announce themselves undercounts, and
+//! undercounts *unevenly* — an agent that reaches for `sed` loses work an agent
+//! that reaches for `Edit` keeps.
+//!
+//! This module reads the syntax; [`crate::shell_files`] reads what the commands
+//! mean, and is where a path is finally attributed to anybody.
 //!
 //! **This is not a shell and does not aim to become one.** It runs nothing and
 //! expands nothing. The grammar (`shell.pest`) starts as the smallest thing that
@@ -27,6 +30,21 @@ struct ShellParser;
 pub struct Simple {
     /// The command and its arguments, quotes removed, expansions left alone.
     pub argv: Vec<String>,
+    /// The subshells enclosing this command, outermost first — `[]` at the top
+    /// level, `[1]` inside the first `( … )`, `[1, 2]` inside a group within it.
+    ///
+    /// The commands come back as a flat list, which loses the one thing a
+    /// subshell is *for*: `(cd android && ./gradlew build)` must not move the
+    /// script's directory. Without this, every command after that group resolves
+    /// against `android/` and names files that were never touched — exactly the
+    /// invented path the whole exercise exists to avoid.
+    ///
+    /// Ids rather than a depth, because depth alone cannot tell
+    /// `(cd a && x); (cd b && y)` from one group containing both: the second
+    /// group would inherit the first's directory. A brace group gets no id,
+    /// because in bash it forks no shell — `{ cd x; }` really does move the
+    /// caller.
+    pub scope: Vec<usize>,
     /// Files named by `>`, `>>` or `<` on this command. Kept apart from `argv`
     /// because a redirect target is a file the command *uses* without ever being
     /// passed it — and because leaving it in argv makes `> /tmp/log` look like an
@@ -153,7 +171,7 @@ pub fn parse(script: &str) -> Result<Vec<Simple>, String> {
         })?
         .next()
         .expect("script always yields one pair");
-    walk(top, &mut out);
+    walk(top, &[], &mut 0, &mut out);
     Ok(out)
 }
 
@@ -161,11 +179,20 @@ pub fn parse(script: &str) -> Result<Vec<Simple>, String> {
 ///
 /// Order is the running order: the commands inside `$( … )`, `<( … )` and a
 /// subshell run before the command they belong to, so they are emitted first.
-fn walk(pair: pest::iterators::Pair<Rule>, out: &mut Vec<Simple>) {
+///
+/// `scope` is the chain of subshells the node sits in, and `next` hands out the
+/// ids, so two sibling groups are never confused for one.
+fn walk(
+    pair: pest::iterators::Pair<Rule>,
+    scope: &[usize],
+    next: &mut usize,
+    out: &mut Vec<Simple>,
+) {
     match pair.as_rule() {
         Rule::command => {
             let mut cmd = Simple {
                 argv: Vec::new(),
+                scope: scope.to_vec(),
                 redirects: Vec::new(),
             };
             for part in pair.into_inner() {
@@ -175,14 +202,22 @@ fn walk(pair: pest::iterators::Pair<Rule>, out: &mut Vec<Simple>) {
                         // first and are emitted before this one.
                         for inner in part.clone().into_inner() {
                             if matches!(inner.as_rule(), Rule::subst | Rule::backtick) {
-                                nested(inner, out);
+                                nested(inner, scope, next, out);
                             }
                         }
                         cmd.argv.push(unquote(part.as_str()));
                     }
-                    Rule::redirect => collect_redirect(part, &mut cmd, out),
+                    Rule::redirect => collect_redirect(part, scope, next, &mut cmd, out),
                     // A group or a function body: its commands are the commands.
-                    _ => walk(part, out),
+                    // `( … )` is a subshell and holds its own directory; `{ … }`
+                    // shares the caller's, in bash and so here.
+                    _ => {
+                        if subshell(&part) {
+                            walk(part, &descend(scope, next), next, out);
+                        } else {
+                            walk(part, scope, next, out);
+                        }
+                    }
                 }
             }
             if !cmd.argv.is_empty() || !cmd.redirects.is_empty() {
@@ -191,15 +226,35 @@ fn walk(pair: pest::iterators::Pair<Rule>, out: &mut Vec<Simple>) {
         }
         _ => {
             for inner in pair.into_inner() {
-                walk(inner, out);
+                walk(inner, scope, next, out);
             }
         }
     }
 }
 
+/// Whether a group is `( … )` rather than `{ … }` — the grammar matches both
+/// with one rule, and only the paren form forks a shell.
+fn subshell(pair: &pest::iterators::Pair<Rule>) -> bool {
+    pair.as_rule() == Rule::group && pair.as_str().starts_with('(')
+}
+
+/// A fresh scope one level inside `outer`.
+fn descend(outer: &[usize], next: &mut usize) -> Vec<usize> {
+    *next += 1;
+    let mut inner = outer.to_vec();
+    inner.push(*next);
+    inner
+}
+
 /// A redirection: a file target, a descriptor form that names none, or a process
 /// substitution, which is commands rather than a file.
-fn collect_redirect(pair: pest::iterators::Pair<Rule>, cmd: &mut Simple, out: &mut Vec<Simple>) {
+fn collect_redirect(
+    pair: pest::iterators::Pair<Rule>,
+    scope: &[usize],
+    next: &mut usize,
+    cmd: &mut Simple,
+    out: &mut Vec<Simple>,
+) {
     for part in pair.into_inner() {
         match part.as_rule() {
             Rule::file_redirect => {
@@ -219,7 +274,7 @@ fn collect_redirect(pair: pest::iterators::Pair<Rule>, cmd: &mut Simple, out: &m
             // `<<'PY'` names a delimiter, `<<<x` a value, `2>&1` a descriptor:
             // none of them is a file, and none belongs in argv either.
             Rule::heredoc | Rule::herestring | Rule::fd_dup => {}
-            Rule::procsub => walk(part, out),
+            Rule::procsub => walk(part, &descend(scope, next), next, out),
             _ => {}
         }
     }
@@ -230,7 +285,12 @@ fn collect_redirect(pair: pest::iterators::Pair<Rule>, cmd: &mut Simple, out: &m
 /// A body that cannot be read contributes nothing rather than failing the
 /// command around it — the outer command was still run, and its own files are
 /// still worth having.
-fn nested(pair: pest::iterators::Pair<Rule>, out: &mut Vec<Simple>) {
+fn nested(
+    pair: pest::iterators::Pair<Rule>,
+    scope: &[usize],
+    next: &mut usize,
+    out: &mut Vec<Simple>,
+) {
     let text = pair.as_str();
     let inner = text
         .strip_prefix("$(")
@@ -238,7 +298,15 @@ fn nested(pair: pest::iterators::Pair<Rule>, out: &mut Vec<Simple>) {
         .or_else(|| text.strip_prefix('`').and_then(|t| t.strip_suffix('`')))
         .unwrap_or("");
     if let Ok(cmds) = parse(inner) {
-        out.extend(cmds);
+        // A substitution is a subshell like any other, so it gets an id — and
+        // re-parsing numbered its own groups from scratch, so those are hung
+        // below it. Two levels of the same number cannot collide: the prefix is
+        // unique even when the suffix is not.
+        let own = descend(scope, next);
+        out.extend(cmds.into_iter().map(|c| Simple {
+            scope: own.iter().copied().chain(c.scope).collect(),
+            ..c
+        }));
     }
 }
 

@@ -146,6 +146,16 @@
 
     .counts {
       white-space: nowrap;
+      // Two figures for one file, so they need telling apart at a glance: the
+      // total leads, its shell share follows in the quieter colour.
+      display: flex;
+      gap: 8px;
+      margin-left: auto;
+    }
+
+    .via-shell {
+      color: var(--mat-sys-on-surface-variant);
+      font: var(--mat-sys-body-small);
     }
   }
 }

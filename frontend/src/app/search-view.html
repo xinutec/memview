@@ -46,7 +46,18 @@
                 @for (f of w.files; track f.path) {
                   <li>
                     <code>{{ f.path }}</code>
-                    <span class="counts">{{ f.edits }}×w · {{ f.reads }}×r</span>
+                    <span class="counts">
+                      {{ f.edits }}×w · {{ f.reads }}×r
+                      <!-- Where the numbers came from, when some of them came
+                           from the shell. A file changed forty times with no
+                           Edit behind it is somebody working through sed, and
+                           unlabelled it reads as a bug in the counting. -->
+                      @if (f.shell_edits || f.shell_reads) {
+                        <span class="via-shell"
+                          >{{ f.shell_edits }}×w · {{ f.shell_reads }}×r in the shell</span
+                        >
+                      }
+                    </span>
                   </li>
                 }
               </ul>

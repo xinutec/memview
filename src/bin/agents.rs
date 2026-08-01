@@ -42,6 +42,7 @@ fn main() -> Result<()> {
         std::path::Path::new(&sessions),
         &code_root,
         &memory_dir,
+        &home,
         &generated,
     )?;
 

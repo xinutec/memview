@@ -47,6 +47,18 @@ fn call(tool: Tool, path: &str, stamp: &str) -> String {
     )
 }
 
+/// A `Bash` call line, with the directory it ran in.
+///
+/// `cwd` is a top-level field of the transcript line rather than part of the
+/// tool input, and the command is a JSON string — both are why the miner parses
+/// these lines instead of scanning them for a needle.
+fn bash(command: &str, cwd: &str, stamp: &str) -> String {
+    let input = serde_json::json!({ "command": command });
+    format!(
+        "{{\"type\":\"assistant\",\"cwd\":\"{cwd}\",\"timestamp\":\"{stamp}\",\"message\":{{\"content\":[{{\"type\":\"tool_use\",\"name\":\"Bash\",\"input\":{input}}}]}}}}"
+    )
+}
+
 /// Write transcripts into a fresh tree and mine them.
 ///
 /// `sessions` maps a transcript id to its lines; the registry is a separate
@@ -101,6 +113,7 @@ fn mine_corpus(
         &sessions,
         "/code",
         "/mem",
+        "/home/example",
         "2026-07-31T00:00:00Z",
     )
     .unwrap();
@@ -813,4 +826,79 @@ fn one_name_over_several_transcripts_is_one_agent() {
     assert_eq!(agents[0].writes.get("thing"), Some(&2));
     assert_eq!(agents[0].first, "2026-07-01T10:00:00Z");
     assert_eq!(agents[0].last, "2026-07-02T10:00:00Z");
+}
+
+#[test]
+fn a_file_changed_from_the_shell_is_counted_as_its_own_dimension() {
+    // The whole point of reading Bash: `Write` and `Edit` see none of this, so
+    // the agent doing its editing through the shell loses the work.
+    let agents = mine(
+        &[(
+            "s1",
+            vec![
+                bash(
+                    "sed -i '' 's/a/b/' src/geo/osm.ts",
+                    "/code/health",
+                    "2026-07-01T10:00:00Z",
+                ),
+                bash(
+                    "grep -rn hsmm src/geo/velocity.ts",
+                    "/code/health",
+                    "2026-07-01T10:01:00Z",
+                ),
+                call(
+                    Tool::Edit,
+                    "/code/health/src/geo/osm.ts",
+                    "2026-07-01T10:02:00Z",
+                ),
+            ],
+        )],
+        &[("100", r#"{"sessionId":"s1","name":"health"}"#)],
+    );
+    let health = &agents[0];
+    // Shell use is kept apart from tool use, so nothing that was already on the
+    // page moves. The union happens at query time, and only there.
+    assert_eq!(health.paths["health/src/geo/osm.ts"].edits, 1);
+    assert_eq!(health.shell_paths["health/src/geo/osm.ts"].edits, 1);
+    assert_eq!(health.shell_paths["health/src/geo/velocity.ts"].reads, 1);
+    assert!(!health.paths.contains_key("health/src/geo/velocity.ts"));
+
+    // ...and the query sums them, reporting the shell's share separately so the
+    // evidence can be checked rather than believed.
+    let roster = Agents {
+        generated: String::new(),
+        agents: agents.clone(),
+    };
+    let found = roster.who_works_on("osm.ts");
+    assert_eq!(found[0].edits, 2);
+    assert_eq!(found[0].files[0].edits, 2);
+    assert_eq!(found[0].files[0].shell_edits, 1);
+}
+
+#[test]
+fn build_output_is_not_work_anyone_is_credited_with() {
+    // `rm -rf dist` changes a great many files and says nothing about who owns
+    // the code that built them. Generated paths are 0.1% of tool-call use and
+    // 4.3% of shell use on the live corpus, which is why this matters here and
+    // barely showed before.
+    let agents = mine(
+        &[(
+            "s1",
+            vec![
+                bash(
+                    "rm -rf frontend/dist/main.js && cp x.ts src/a.ts",
+                    "/code/health",
+                    "2026-07-01T10:00:00Z",
+                ),
+                bash(
+                    "cat frontend/logs/build.log node_modules/x/index.js",
+                    "/code/health",
+                    "2026-07-01T10:01:00Z",
+                ),
+            ],
+        )],
+        &[("100", r#"{"sessionId":"s1","name":"health"}"#)],
+    );
+    let paths: Vec<&String> = agents[0].shell_paths.keys().collect();
+    assert_eq!(paths, ["health/src/a.ts", "health/x.ts"]);
 }

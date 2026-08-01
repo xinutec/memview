@@ -178,8 +178,16 @@ export interface WorkMatch {
 /** One file a query matched, and how one agent used it. */
 export interface WorkFile {
   path: string;
+  /** Every use, tool call and shell command together. */
   reads: number;
   edits: number;
+  /**
+   * How much of the above came from the shell rather than `Write`/`Edit`. A
+   * file with changes and no tool edits is somebody working through `sed`, not
+   * a mistake — without the split there is no way to see which.
+   */
+  shell_reads: number;
+  shell_edits: number;
 }
 
 /** One named session and where its work landed — mirrors agents.rs. */
@@ -203,6 +211,13 @@ export interface Agent {
    * what makes "who works on the Dhall configs" a question with an answer.
    */
   paths: Record<string, MemoryUse>;
+  /**
+   * The same, for files used by shell commands rather than tool calls — a
+   * `sed -i`, a `cp`, a `>` redirect. Kept apart from `paths` so the figures
+   * that were always there go on meaning what they meant, and unioned with it
+   * only when a query asks who works on something.
+   */
+  shell_paths: Record<string, MemoryUse>;
   /** Files opened, per project directory. Lifetime totals, undecayed. */
   reads: Record<string, number>;
   /** Files written or edited, per project directory. Lifetime, undecayed. */

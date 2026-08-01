@@ -15,11 +15,18 @@ const WORKERS: WorkMatch[] = [
     edits: 35,
     reads: 1,
     files: [
-      { path: 'xinutec-infra/plan/types.dhall', reads: 0, edits: 7 },
-      { path: 'xinutec-infra/plan/deploy.dhall', reads: 1, edits: 2 },
+      { path: 'xinutec-infra/plan/types.dhall', reads: 0, edits: 7, shell_reads: 0, shell_edits: 0 },
+      // Changed from the shell as well as from `Edit`, which is what the
+      // provenance line beside the totals exists to show.
+      { path: 'xinutec-infra/plan/deploy.dhall', reads: 1, edits: 2, shell_reads: 1, shell_edits: 1 },
     ],
   },
-  { name: 'home', edits: 25, reads: 2, files: [{ path: 'k/dhall/home.dhall', reads: 2, edits: 25 }] },
+  {
+    name: 'home',
+    edits: 25,
+    reads: 2,
+    files: [{ path: 'k/dhall/home.dhall', reads: 2, edits: 25, shell_reads: 0, shell_edits: 0 }],
+  },
 ];
 
 describe('SearchView — who works on this', () => {
@@ -74,6 +81,21 @@ describe('SearchView — who works on this', () => {
 
     const paths = [...el.querySelectorAll('.workers .file-list code')].map((n) => n.textContent);
     expect(paths).toEqual(['xinutec-infra/plan/types.dhall', 'xinutec-infra/plan/deploy.dhall']);
+  });
+
+  it('says which of a file’s changes came from the shell, and only where some did', async () => {
+    // The totals include shell work, so a file can show changes no `Edit` ever
+    // made. Unlabelled that reads as a counting bug rather than as somebody
+    // working through `sed` — and the label must not appear where it would be
+    // two zeroes of noise.
+    const el = await search(WORKERS);
+    el.querySelector<HTMLButtonElement>('.workers .worker')!.click();
+    await fixture.whenStable();
+
+    const shell = [...el.querySelectorAll('.workers .file-list .via-shell')].map((n) =>
+      n.textContent?.trim(),
+    );
+    expect(shell).toEqual(['1×w · 1×r in the shell']);
   });
 
   it('shows no panel to a share-link recipient, and no error either', async () => {
