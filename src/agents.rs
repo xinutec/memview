@@ -874,6 +874,23 @@ fn scan_transcript(
                     else {
                         continue;
                     };
+                    // **The day counts, even though the count does not.**
+                    // Recency decides which project an agent is listed under,
+                    // and deciding that from tool calls alone was the very
+                    // unevenness this dimension exists to correct: a session
+                    // that does its editing through `sed` or a `python3 -`
+                    // heredoc was present in that repository, and ordering it
+                    // below a session that opened one file with `Edit` says
+                    // otherwise. The displayed totals stay apart; only the
+                    // ordering signal is made whole.
+                    if let (Some(project), Some(day)) = (project_of(&used.path, code_root), day) {
+                        let days = if used.write {
+                            &mut seen.writes
+                        } else {
+                            &mut seen.reads
+                        };
+                        days.entry(project).or_default().insert(day);
+                    }
                     let use_ = shell_paths.entry(rel).or_default();
                     if used.write {
                         use_.edits += 1;

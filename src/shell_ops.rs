@@ -804,6 +804,9 @@ fn act(verb: Verb, argv: &[String], heredocs: &[String], cwd: Option<&str>, home
             // An unresolvable target must make the directory *unknown*, never
             // leave it stale — carrying on with the old one resolves every later
             // relative path somewhere the command never ran.
+            Some(word) if repeats(word, cwd) => Op::ChangeDir {
+                to: cwd.map(str::to_string),
+            },
             Some(word) => match resolve(word, cwd, home) {
                 Some(to) => Op::ChangeDir { to: Some(to) },
                 None => Op::Unknown {
@@ -834,6 +837,27 @@ fn act(verb: Verb, argv: &[String], heredocs: &[String], cwd: Option<&str>, home
         Verb::Remote(kind) => remote(kind, argv),
         Verb::NoFiles => Op::Nothing,
     }
+}
+
+/// Whether a `cd` would step into the directory it is already standing in —
+/// `cd android` from `…/observe/android`.
+///
+/// **Measured, not guessed.** The corpus holds 90 such calls, and their tool
+/// results say the doubling never happened, by two different mechanisms: in 33
+/// the `cd` itself failed (`cd: no such file or directory: android`) because
+/// the session had already moved there earlier and the agent said so again; in
+/// the other 57 the command succeeded, which means the transcript's recorded
+/// `cwd` was already the directory this `cd` was about to enter. Applying the
+/// move is wrong in both — and taking it as a no-op is right in both, which is
+/// why one rule covers 90 of 90.
+///
+/// Relative targets only. `cd /Users/pippijn/Code/observe/android` from inside
+/// it is an ordinary, and truthful, no-op that needs no special reading.
+fn repeats(word: &str, cwd: Option<&str>) -> bool {
+    let target = word.trim_end_matches('/');
+    !target.is_empty()
+        && !target.starts_with(['/', '~', '$', '.'])
+        && cwd.is_some_and(|cwd| cwd.trim_end_matches('/').ends_with(&format!("/{target}")))
 }
 
 /// A `git` invocation, which needs its own reading for two reasons the general

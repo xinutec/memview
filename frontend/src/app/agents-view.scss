@@ -46,6 +46,35 @@
   font: var(--mat-sys-body-small);
   color: var(--mat-sys-on-surface-variant);
   margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+
+  // Where the numbers came from. Quieter than the totals it qualifies: it is a
+  // breakdown of them, not a fifth figure competing with them.
+  .via-shell {
+    color: var(--mat-sys-outline);
+  }
+
+  // Committed lines: a different measure from the counts, not a bigger one, so
+  // it reads as its own thing rather than as a louder version of them. The same
+  // colour the search view gives the same fact.
+  .lines {
+    color: var(--mat-sys-tertiary);
+  }
+}
+
+// The other machines. Coloured, because "this work did not happen on this
+// computer" is the single most misreadable thing on the page.
+.machines {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  margin-top: 2px;
+  font: var(--mat-sys-body-small);
+  font-variant-numeric: tabular-nums;
+
+  .host {
+    color: var(--mat-sys-secondary);
+  }
 }
 
 .places {
@@ -81,6 +110,17 @@
     font: var(--mat-sys-body-small);
     color: var(--mat-sys-on-surface-variant);
     font-variant-numeric: tabular-nums;
+    display: flex;
+    gap: 8px;
+    white-space: nowrap;
+
+    .via-shell {
+      color: var(--mat-sys-outline);
+    }
+
+    .lines {
+      color: var(--mat-sys-tertiary);
+    }
   }
 }
 

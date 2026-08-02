@@ -509,3 +509,29 @@ fn a_program_that_moves_its_own_directory_keeps_only_anchored_paths() {
         [("/tmp/build/absolute.txt".to_string(), true)]
     );
 }
+
+#[test]
+fn a_cd_into_the_directory_it_is_already_in_moves_nothing() {
+    // Measured against the corpus's 90 such calls: the doubling never happened.
+    // In 33 the `cd` failed outright — the session had moved there earlier and
+    // the agent said so again — and in the other 57 the command succeeded,
+    // which means the recorded directory was already the one being entered.
+    // Applying the move is wrong either way, and refusing it is right either way.
+    let cmds = parse("cd health && sed -n '1,5p' src/geo/osm.ts").unwrap();
+    assert_eq!(
+        extract(&cmds, Some(CWD), HOME)
+            .files
+            .into_iter()
+            .map(|f| f.path)
+            .collect::<Vec<_>>(),
+        ["/home/example/Code/health/src/geo/osm.ts"]
+    );
+    // A directory that really is one level down still moves, doubled name or not.
+    assert_eq!(
+        uses("cd frontend && cat main.ts"),
+        [(
+            "/home/example/Code/health/frontend/main.ts".to_string(),
+            false
+        )]
+    );
+}

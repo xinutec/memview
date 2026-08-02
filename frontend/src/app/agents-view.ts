@@ -7,15 +7,29 @@ import { RouterLink } from '@angular/router';
 import { catchError, of } from 'rxjs';
 
 import { MemviewApi } from './memview-api';
-import { Agent, AgentsResult } from './models';
+import { Agent, AgentsResult, MemoryUse } from './models';
 
 /** One project's share of an agent's work, as the list draws it. */
 interface Place {
   project: string;
+  /** Every use, tool call and Bash call together. */
   reads: number;
   writes: number;
+  /** How much of the above came from a Bash call rather than `Write`/`Edit`. */
+  shellReads: number;
+  shellWrites: number;
+  /** Lines committed here — size, where the counts beside it are frequency. */
+  added: number;
+  deleted: number;
   /** Width of the bar, 0..1, against this agent's strongest project. */
   share: number;
+}
+
+/** Another machine this agent works on, from the `ssh` payloads it sent. */
+interface Machine {
+  host: string;
+  reads: number;
+  writes: number;
 }
 
 /** One memory an agent works with, as the list draws it. */
@@ -36,8 +50,30 @@ interface AgentRow {
   delegated: number;
   first: string;
   last: string;
+  /** The Bash share of the totals above, kept beside them and never inside. */
+  shellReads: number;
+  shellWrites: number;
+  added: number;
+  deleted: number;
+  commits: number;
   places: Place[];
+  machines: Machine[];
   knows: Known[];
+}
+
+/** Machines listed per agent. */
+const MACHINES_SHOWN = 4;
+
+/**
+ * The project a mined path belongs to — its first segment.
+ *
+ * A glob is recorded as it was written (`*​/*​/android`), which is honest for a
+ * file list and useless as a project name, so those are dropped rather than
+ * shown as a project called `*`.
+ */
+function projectOf(path: string): string | null {
+  const head = path.split('/')[0];
+  return head && !/[*?\[]/.test(head) ? head : null;
 }
 
 /** Projects listed per agent. Beyond this the tail is one-offs. */
@@ -122,19 +158,38 @@ export class AgentsView {
   }
 
   private row(a: Agent): AgentRow {
-    const projects = new Set([...Object.keys(a.reads), ...Object.keys(a.writes)]);
+    // Four dimensions of evidence, mined apart and unioned here — the same rule
+    // /api/work follows. Kept apart in the artefact so the figures that were
+    // always there go on meaning what they meant; unioned at the moment
+    // somebody asks where an agent works, because that question wants all of it.
+    const shell = this.byProject(a.shell_paths);
+    const lines = this.linesByProject(a);
+    const projects = new Set([
+      ...Object.keys(a.reads),
+      ...Object.keys(a.writes),
+      ...shell.keys(),
+      ...lines.keys(),
+    ]);
     const weight = (project: string) =>
       // Recent writing decides the ordering; recent reading only separates
       // places the agent has consulted without ever being responsible for.
       (a.recent_writes[project] ?? 0) + (a.recent_reads[project] ?? 0) / 1000;
     const places: Place[] = [...projects]
-      .map((project) => ({
-        project,
-        reads: a.reads[project] ?? 0,
-        writes: a.writes[project] ?? 0,
-        share: weight(project),
-      }))
-      .sort((x, y) => y.share - x.share)
+      .map((project) => {
+        const s = shell.get(project) ?? { reads: 0, writes: 0 };
+        const l = lines.get(project) ?? { added: 0, deleted: 0 };
+        return {
+          project,
+          reads: (a.reads[project] ?? 0) + s.reads,
+          writes: (a.writes[project] ?? 0) + s.writes,
+          shellReads: s.reads,
+          shellWrites: s.writes,
+          added: l.added,
+          deleted: l.deleted,
+          share: weight(project),
+        };
+      })
+      .sort((x, y) => y.share - x.share || y.writes - x.writes)
       .slice(0, PLACES_SHOWN);
 
     // Bars are scaled within the agent, not across all of them. Across, one
@@ -155,20 +210,81 @@ export class AgentsView {
       )
       .slice(0, KNOWS_SHOWN);
 
-    const writes = Object.values(a.writes).reduce((n, v) => n + v, 0);
-    const reads = Object.values(a.reads).reduce((n, v) => n + v, 0);
+    const machines: Machine[] = [...this.byHost(a.remote_paths).entries()]
+      .map(([host, use]) => ({ host, ...use }))
+      .sort((x, y) => y.writes + y.reads - (x.writes + x.reads))
+      .slice(0, MACHINES_SHOWN);
+
+    const total = (m: Record<string, number>) =>
+      Object.values(m).reduce((n, v) => n + v, 0);
+    const shellTotal = [...shell.values()].reduce(
+      (t, u) => ({ reads: t.reads + u.reads, writes: t.writes + u.writes }),
+      { reads: 0, writes: 0 },
+    );
+    const committed = Object.values(a.commit_lines ?? {}).reduce(
+      (t, l) => ({ added: t.added + l.added, deleted: t.deleted + l.deleted }),
+      { added: 0, deleted: 0 },
+    );
     return {
       name: a.name,
       // A session that was never named keeps its id — 36 characters of hex,
       // which is worth saying out loud rather than letting it read as a name.
       anonymous: /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(a.name),
-      reads,
-      writes,
+      reads: total(a.reads) + shellTotal.reads,
+      writes: total(a.writes) + shellTotal.writes,
+      shellReads: shellTotal.reads,
+      shellWrites: shellTotal.writes,
+      added: committed.added,
+      deleted: committed.deleted,
+      commits: a.commits ?? 0,
       delegated: a.delegated,
       first: a.first,
       last: a.last,
       places,
+      machines,
       knows,
     };
+  }
+
+  /** Path-keyed uses, folded onto the project each path sits in. */
+  private byProject(paths: Record<string, MemoryUse> | undefined) {
+    const out = new Map<string, { reads: number; writes: number }>();
+    for (const [path, use] of Object.entries(paths ?? {})) {
+      const project = projectOf(path);
+      if (!project) continue;
+      const at = out.get(project) ?? { reads: 0, writes: 0 };
+      at.reads += use.reads;
+      at.writes += use.edits;
+      out.set(project, at);
+    }
+    return out;
+  }
+
+  /** Committed lines, folded the same way. */
+  private linesByProject(a: Agent) {
+    const out = new Map<string, { added: number; deleted: number }>();
+    for (const [path, delta] of Object.entries(a.commit_lines ?? {})) {
+      const project = projectOf(path);
+      if (!project) continue;
+      const at = out.get(project) ?? { added: 0, deleted: 0 };
+      at.added += delta.added;
+      at.deleted += delta.deleted;
+      out.set(project, at);
+    }
+    return out;
+  }
+
+  /** Remote uses are keyed `host:/absolute/path`; the machine is the head. */
+  private byHost(paths: Record<string, MemoryUse> | undefined) {
+    const out = new Map<string, { reads: number; writes: number }>();
+    for (const [key, use] of Object.entries(paths ?? {})) {
+      const host = key.slice(0, key.indexOf(':'));
+      if (!host) continue;
+      const at = out.get(host) ?? { reads: 0, writes: 0 };
+      at.reads += use.reads;
+      at.writes += use.edits;
+      out.set(host, at);
+    }
+    return out;
   }
 }

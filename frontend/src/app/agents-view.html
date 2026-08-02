@@ -11,8 +11,11 @@
   </p>
 } @else {
   <p class="lede">
-    Where each named session actually works, from the files it opens and
-    changes, including the subagents it dispatched. Ordered by recent days
+    Where each named session actually works, from every kind of evidence there
+    is: the files it opens with a tool, the ones it changes through the shell —
+    a <code>sed</code>, a <code>cp</code>, a <code>python3 -</code> heredoc —
+    the lines it commits, and the machines it reaches over <code>ssh</code>.
+    Subagents count as the session that dispatched them. Ordered by recent days
     present, so a single busy afternoon does not outrank steady work; the counts
     are lifetime totals. Bars are scaled within an agent, not between them.
   </p>
@@ -25,17 +28,51 @@
         </div>
         <div class="totals">
           {{ a.reads }} read · {{ a.writes }} written ·
+          <!-- Where the numbers came from, when some came from a Bash call: a
+               `sed -i`, a `cp`, a `python3 -` heredoc. Two thirds of the fleet's
+               file changes never pass through Write or Edit, and unlabelled they
+               would read as a jump in the counting rather than as what they are. -->
+          @if (a.shellReads || a.shellWrites) {
+            <span class="via-shell"
+              >{{ a.shellReads }}r {{ a.shellWrites }}w through the shell ·</span
+            >
+          }
+          <!-- Size, where everything beside it is frequency: a 300-line Write
+               and a one-character Edit both count 1 above. Absent for work that
+               was never committed, which is not zero — it is a question git
+               cannot answer. -->
+          @if (a.commits) {
+            <span class="lines">+{{ a.added }}/−{{ a.deleted }} in {{ a.commits }} commits ·</span>
+          }
           @if (a.delegated) {
             {{ a.delegated }} delegated runs ·
           }
           {{ a.last | date: 'd MMM' }}
         </div>
+        @if (a.machines.length) {
+          <!-- Other machines, from the ssh payloads this agent sent. Their files
+               are counted here and never in a project above: the path exists on
+               that host, not on this one. -->
+          <div class="machines">
+            @for (m of a.machines; track m.host) {
+              <span class="host">{{ m.host }} {{ m.reads }}r {{ m.writes }}w</span>
+            }
+          </div>
+        }
         <ul class="places">
           @for (p of a.places; track p.project) {
             <li>
               <span class="project">{{ p.project }}</span>
               <span class="bar" [style.width.%]="p.share * 100"></span>
-              <span class="counts">{{ p.reads }}r {{ p.writes }}w</span>
+              <span class="counts">
+                {{ p.reads }}r {{ p.writes }}w
+                @if (p.shellWrites) {
+                  <span class="via-shell">{{ p.shellWrites }}w in the shell</span>
+                }
+                @if (p.added || p.deleted) {
+                  <span class="lines">+{{ p.added }}/−{{ p.deleted }}</span>
+                }
+              </span>
             </li>
           }
         </ul>
