@@ -63,6 +63,18 @@ class MainActivity : WebShellActivity() {
     /** The tap-to-retry notice, present only while something is wrong. */
     private var notice: TextView? = null
 
+    /**
+     * Whether the page on screen is a failure rather than the console.
+     *
+     * Drives the retry in [onResume], which exists because the commonest failure
+     * here heals itself while the app is in the background: the key's
+     * authentication window runs out, the handshake is refused, and then the phone
+     * is unlocked to look at it — at which point the key works again and the app
+     * is still showing the error it hit a minute ago. Waiting to be told to retry,
+     * by someone who can see nothing but the error, is the wrong way round.
+     */
+    private var failed = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (BuildConfig.CONSOLE_URL.isEmpty() || BuildConfig.SERVER_PIN.isEmpty()) {
@@ -78,6 +90,14 @@ class MainActivity : WebShellActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         enrol(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Only after a failure: a reload on every resume would throw away the
+        // session's scroll position and re-open the event stream every time the
+        // app is glanced at.
+        if (failed) retry()
     }
 
     // Nothing deep-links into the console, and an intent is an external input: a
@@ -123,7 +143,7 @@ class MainActivity : WebShellActivity() {
                     request.proceed(key, chain)
                 } else {
                     request.cancel()
-                    show("Locked.\n\nTap to unlock and try again.")
+                    show("Locked.\n\nUnlock the phone, or tap here.")
                 }
             }
         }
@@ -173,7 +193,10 @@ class MainActivity : WebShellActivity() {
 
         override fun onPageFinished(view: WebView, url: String) {
             super.onPageFinished(view, url)
-            if (url != UNCONFIGURED_URL) hide()
+            // A load that reached the console clears both the notice and the reason
+            // to retry. Chromium's error page finishes too, so this cannot be the
+            // only place `failed` is written — the callbacks that set it run first.
+            if (!failed && url != UNCONFIGURED_URL) hide()
         }
     }
 
@@ -209,8 +232,16 @@ class MainActivity : WebShellActivity() {
         }
     }
 
+    /** Load the console again, from whatever went wrong. */
+    private fun retry() {
+        failed = false
+        hide()
+        web.reload()
+    }
+
     /** Cover the page with something that says what is wrong; tapping retries. */
     private fun show(text: String) {
+        failed = true
         notice?.let { root.removeView(it) }
         val panel =
             TextView(this).apply {
@@ -225,10 +256,7 @@ class MainActivity : WebShellActivity() {
                         FrameLayout.LayoutParams.MATCH_PARENT,
                         FrameLayout.LayoutParams.MATCH_PARENT,
                     )
-                setOnClickListener {
-                    hide()
-                    web.reload()
-                }
+                setOnClickListener { retry() }
             }
         notice = panel
         root.addView(panel)
