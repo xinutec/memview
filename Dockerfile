@@ -42,11 +42,15 @@ COPY console/Cargo.toml console/
 RUN mkdir -p src console/src \
     && echo 'fn main() {}' > src/main.rs && echo '' > src/lib.rs \
     && echo '' > console/src/lib.rs \
-    && cargo build --release --bin memview && rm -rf src console/src
+    && cargo build --release --bin memview && rm -rf src
 COPY src/ src/
 # --bin memview, never a bare build: the workspace also holds the console, which
 # runs Claude Code subprocesses on the Mac and must never be inside an image
 # that runs on an internet-facing host. See docs/agent-console.md.
+# The console keeps its stub source from the layer above rather than getting the
+# real one: a manifest with no target at all fails to parse, and copying the code
+# in would put a way to run Claude Code inside the image. `touch` so the viewer's
+# real sources are newer than the primed artefacts and actually rebuild.
 RUN touch src/main.rs src/lib.rs && cargo build --release --bin memview
 
 # --- runtime ---
