@@ -154,7 +154,12 @@ pub const SHORT: usize = 7;
 ///   a git hash at all, which excludes every 64-character sha256 in the corpus
 ///   — and there are a great many, in lockfiles and nix output.
 /// - **At least one letter.** `1234567` is valid hex and is nearly always a
-///   line number, a timestamp or a byte count.
+///   line number, a timestamp or a byte count. This has a measured cost: **162
+///   of the fleet's 4,697 commits (3.4%) have an all-digit short hash** and can
+///   never be attributed. They are counted in `Agents::unattributed` like any
+///   other miss, so the gap is reported rather than hidden — and it is the
+///   right side of the trade, since the alternative credits one agent with
+///   another's work every time a seven-digit number happens to collide.
 /// - **Bounded by non-alphanumerics**, so a hex-looking run inside a longer
 ///   base64 blob is not mistaken for a hash.
 pub fn hash_candidates(line: &[u8]) -> Vec<&str> {

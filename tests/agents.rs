@@ -920,6 +920,13 @@ fn one_commit(dir: &std::path::Path, file: &str, body: &str) -> String {
             .env("GIT_AUTHOR_EMAIL", "test@example.com")
             .env("GIT_COMMITTER_NAME", "Test")
             .env("GIT_COMMITTER_EMAIL", "test@example.com")
+            // **Fixed dates, or the hash differs every run.** It did, and the
+            // test flaked in CI about one run in thirty: a short hash of seven
+            // digits and no letter is refused on purpose (see
+            // `commits::hash_candidates`), so a hash that came out all-digit
+            // attributed nothing. Pinning the dates pins the hash.
+            .env("GIT_AUTHOR_DATE", "2026-07-01T10:00:00Z")
+            .env("GIT_COMMITTER_DATE", "2026-07-01T10:00:00Z")
             .output()
             .expect("git runs in the devshell")
     };
