@@ -15,7 +15,7 @@ fn ops(script: &str) -> Vec<Op> {
     parse(script)
         .unwrap_or_else(|at| panic!("failed to parse, stopped at {at:?}"))
         .iter()
-        .map(|cmd| classify(&cmd.argv, Some(CWD), HOME))
+        .map(|cmd| classify(&cmd.argv, &cmd.heredocs, Some(CWD), HOME))
         .collect()
 }
 
@@ -162,6 +162,45 @@ fn a_directory_change_is_an_operation_not_a_file() {
         one("cd \"$WORKDIR\""),
         Op::Unknown {
             name: "cd".to_string(),
+        }
+    );
+}
+
+#[test]
+fn python_is_carried_as_a_program_rather_than_run_as_a_shell() {
+    // `-c` holds Python, not shell. Read as shell it invents commands nobody
+    // ran; refused entirely, 2,931 calls say nothing at all.
+    assert_eq!(
+        one("python3 -c 'open(\"x.ts\",\"w\").write(1)'"),
+        Op::Python {
+            source: "open(\"x.ts\",\"w\").write(1)".to_string(),
+        }
+    );
+    // A heredoc feeding stdin is the same thing written the long way, and is
+    // the commoner half of the corpus's Python.
+    assert_eq!(
+        one("python3 - <<'PY'\nprint(1)\nPY"),
+        Op::Python {
+            source: "print(1)\n".to_string(),
+        }
+    );
+    assert_eq!(
+        one("python3 <<'PY'\nprint(1)\nPY"),
+        Op::Python {
+            source: "print(1)\n".to_string(),
+        }
+    );
+}
+
+#[test]
+fn a_python_script_file_keeps_its_heredoc_as_input() {
+    // The body here is the program's *data*, not its source. Reading it as
+    // source would attribute the data's paths to a program that never named
+    // them.
+    assert_eq!(
+        one("python3 scripts/load.py <<'ROWS'\nsrc/a.ts\nROWS"),
+        Op::Run {
+            script: "/home/example/Code/health/scripts/load.py".to_string(),
         }
     );
 }

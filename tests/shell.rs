@@ -6,6 +6,11 @@
 
 use memview::shell::{Simple, parse};
 
+/// One command's argv, for compact assertions.
+fn argv(cmd: &Simple) -> &[String] {
+    &cmd.argv
+}
+
 /// The argv of every simple command, for compact assertions.
 fn argvs(script: &str) -> Vec<Vec<String>> {
     parse(script)
@@ -74,20 +79,42 @@ fn a_heredoc_body_is_not_shell() {
 }
 
 #[test]
+fn a_heredoc_body_reaches_the_command_that_opened_it() {
+    // Not shell, but not thrown away either: it is the program `python3 -` was
+    // given, and 3,547 file writes live in bodies like it.
+    let cmds = parse("python3 - <<'PY'\nimport os\nprint(1)\nPY\necho after").unwrap();
+    assert_eq!(cmds[0].heredocs, ["import os\nprint(1)\n"]);
+    assert!(cmds[1].heredocs.is_empty());
+}
+
+#[test]
+fn two_heredocs_on_one_line_keep_their_own_bodies() {
+    let cmds = parse("diff <(cat <<'A'\none\nA\n) <(cat <<'B'\ntwo\nB\n)").unwrap();
+    let bodies: Vec<&[String]> = cmds.iter().map(|cmd| cmd.heredocs.as_slice()).collect();
+    assert!(
+        bodies.iter().any(|b| b == &["one\n"]) && bodies.iter().any(|b| b == &["two\n"]),
+        "each body went to its own command, got {bodies:?}"
+    );
+}
+
+#[test]
 fn a_heredoc_nested_in_a_quoted_argument_terminates_at_its_delimiter() {
     // REGRESSION, and the corpus's commonest heredoc shape. The inner shell sees
     // a bare `PY`, but on disk that line reads `PY'` — the closing quote of the
     // outer argument sits on it. Requiring an exact match meant the terminator
     // was never found, the rest of the script was eaten as body, and the quote it
     // closed was left open.
-    // The body is stripped even here, inside the quoted argument, because the
-    // stripper works on lines and does not track quoting. That is a deliberate
-    // trade: the argument text loses data that was never shell, the quote stays
-    // balanced, and no path is affected — a heredoc body is not a filename.
-    assert_eq!(
-        argvs("bash -c 'python3 - <<PY\nprint(1)\nPY'\necho done"),
-        [vec!["bash", "-c", "python3 - <<PY\n"], vec!["echo", "done"]]
-    );
+    // The body is taken out of the line even here, inside the quoted argument,
+    // because that pass works on lines and does not track quoting. It is
+    // **carried in the delimiter** rather than dropped, and that is why: the
+    // body belongs to the inner `python3 -`, which is not parsed until this
+    // argument is re-read as a script, and a marker in the text is the only
+    // thing that survives the trip.
+    let cmds = parse("bash -c 'python3 - <<PY\nprint(1)\nPY'\necho done").unwrap();
+    assert_eq!(argv(&cmds[1]), ["echo", "done"]);
+    let inner = parse(&cmds[0].argv[2]).unwrap();
+    assert_eq!(argv(&inner[0]), ["python3", "-"]);
+    assert_eq!(inner[0].heredocs, ["print(1)\n"]);
 }
 
 #[test]

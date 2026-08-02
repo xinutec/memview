@@ -60,6 +60,16 @@ pub enum Op {
     /// **`ssh host '…'` is [`Op::Remote`], not this** — the difference is which
     /// machine's filesystem the paths belong to.
     Nested { script: String },
+    /// Runs Python: `python3 -c '…'`, or a program fed in on stdin by a
+    /// heredoc — `python3 - <<'PY' … PY`.
+    ///
+    /// **The one non-shell language this reads**, and it is here because
+    /// refusing to was costing the most: 7,494 calls, and 3,547 file writes
+    /// inside them that nothing else in the fleet could see. Read by
+    /// [`crate::python`], which is as restrictive about Python as this module is
+    /// about the shell. `node -e` is still refused — nobody has measured a
+    /// reason to read it.
+    Python { source: String },
     /// A command run on another machine: `ssh host '…'`, `kubectl exec … -- …`,
     /// `docker exec …`.
     ///
@@ -434,12 +444,18 @@ enum Verb {
     /// Runs its first operand, which is a script — unless one of `inline` is
     /// given, in which case its value is shell text to be read in turn.
     ///
-    /// `inline` is empty for `python`/`node`: their `-c` carries Python and
-    /// JavaScript, and reading that as shell would invent commands nobody ran.
+    /// `inline` is empty for `node`: its `-e` carries JavaScript, and reading
+    /// that as shell would invent commands nobody ran.
     Interpreter {
         flags: Flags,
         inline: &'static [&'static str],
     },
+    /// Runs Python — from `-c`, from a heredoc, or from a script file.
+    ///
+    /// Its own verb rather than an [`Verb::Interpreter`] with a flag, because
+    /// what it does with a file is decided by reading the *program*, and no
+    /// other interpreter here is read at all.
+    Python,
     /// Runs shell text given as the value of a flag: `nix-shell --run '…'`.
     Script(&'static [&'static str]),
     /// The words *after* one of these flags are themselves a command:
@@ -526,11 +542,8 @@ fn verb(name: &str) -> Option<Verb> {
         }
         "mv" => Verb::Move(Flags::NONE),
 
+        "python" | "python3" => Verb::Python,
         // An interpreter's flags carry code or a module name, never a path.
-        "python" | "python3" => Verb::Interpreter {
-            flags: Flags::valued(&["-c", "-m", "-W"]),
-            inline: &[],
-        },
         "node" | "deno" | "bun" => Verb::Interpreter {
             flags: Flags::valued(&["-e", "-p", "--eval"]),
             inline: &[],
@@ -629,7 +642,11 @@ fn verb(name: &str) -> Option<Verb> {
 ///
 /// One command in, one operation out. Wrappers and assignments are stripped
 /// first, so `sudo nohup rm -rf x` is the `rm` it is.
-pub fn classify(argv: &[String], cwd: Option<&str>, home: &str) -> Op {
+///
+/// `heredocs` are the bodies the command was given on stdin. For nearly every
+/// command they are data and go unread; for `python3 -` the body *is* the
+/// program, and that is the only reason they are carried this far.
+pub fn classify(argv: &[String], heredocs: &[String], cwd: Option<&str>, home: &str) -> Op {
     let argv = unwrap_command(argv);
     let Some(head) = argv.first() else {
         return Op::Nothing;
@@ -652,20 +669,23 @@ pub fn classify(argv: &[String], cwd: Option<&str>, home: &str) -> Op {
             },
         };
     };
-    match (act(verb, argv, cwd, home), invoked_by_path) {
+    match (act(verb, argv, heredocs, cwd, home), invoked_by_path) {
         (Op::Nothing, Some(script)) => Op::Run { script },
         (op, _) => op,
     }
 }
 
 /// The operation a verb performs on these arguments.
-fn act(verb: Verb, argv: &[String], cwd: Option<&str>, home: &str) -> Op {
+fn act(verb: Verb, argv: &[String], heredocs: &[String], cwd: Option<&str>, home: &str) -> Op {
     // A program given by a flag leaves every operand a file, and the file it was
     // given from is itself read.
     let flags = match verb {
         Verb::Search(flags) | Verb::Stream { flags, .. } | Verb::Check { flags, .. } => flags,
         Verb::Interpreter { flags, .. } | Verb::Walk(flags) => flags,
         Verb::Copy(flags) | Verb::Move(flags) => flags,
+        // `-c` is the program, `-m` a module, `-W` a warning filter: none of
+        // them is an operand, and the first is the whole point.
+        Verb::Python => Flags::valued(&["-c", "-m", "-W"]),
         _ => Flags::NONE,
     };
     let from_flag = has_flag(argv, flags.script);
@@ -734,10 +754,37 @@ fn act(verb: Verb, argv: &[String], cwd: Option<&str>, home: &str) -> Op {
         },
         Verb::Carries(flags) => match after_flag(argv, flags) {
             // The rest of the line is a command in its own right. Classified
-            // rather than re-parsed: it is already words.
-            Some(rest) if !rest.is_empty() => classify(rest, cwd, home),
+            // rather than re-parsed: it is already words. The heredoc travels
+            // with it — `nix develop -c python3 - <<'PY'` opens the body for
+            // the python, not for the wrapper.
+            Some(rest) if !rest.is_empty() => classify(rest, heredocs, cwd, home),
             _ => Op::Nothing,
         },
+        Verb::Python => {
+            // A script file is the program, and a heredoc alongside it is that
+            // program's *input* — reading it as source would attribute the
+            // data's own paths to a program that never named them.
+            if let Some(code) = flag_values(argv, &["-c"]).first() {
+                return Op::Python {
+                    source: (*code).to_string(),
+                };
+            }
+            match words
+                .first()
+                .filter(|word| looks_like_path(word))
+                .and_then(|word| resolve(word, cwd, home))
+            {
+                Some(script) => Op::Run { script },
+                // `python3 - <<'PY'`, and `python3 <<'PY'` — with no file to
+                // run, the body on stdin is the program.
+                None => match heredocs.first() {
+                    Some(source) => Op::Python {
+                        source: source.clone(),
+                    },
+                    None => Op::Nothing,
+                },
+            }
+        }
         Verb::Interpreter { inline, .. } if !flag_values(argv, inline).is_empty() => Op::Nested {
             script: flag_values(argv, inline)
                 .first()

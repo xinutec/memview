@@ -18,6 +18,8 @@
 //! asked for. Restrictive on purpose — a grammar that accepts everything tells
 //! you nothing about what it read.
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use pest::Parser;
 use pest_derive::Parser;
 
@@ -50,6 +52,14 @@ pub struct Simple {
     /// passed it — and because leaving it in argv makes `> /tmp/log` look like an
     /// argument, which is what the first version did.
     pub redirects: Vec<Redirect>,
+    /// The bodies of the heredocs this command opened, in order.
+    ///
+    /// Data rather than shell — a commit message, YAML, a SQL script — and never
+    /// parsed as shell. It is kept because some of that data is *itself* a
+    /// program that changes files: 4,563 of the corpus's heredocs feed
+    /// `python3 -`. Whether a body is worth reading, and in what language, is
+    /// [`crate::shell_ops`]'s decision; this layer only refuses to lose it.
+    pub heredocs: Vec<String>,
 }
 
 /// A file named by a redirection, and which way it went.
@@ -60,26 +70,53 @@ pub struct Redirect {
     pub write: bool,
 }
 
-/// Remove heredoc *bodies* before the grammar sees the text.
+/// What a hidden heredoc's delimiter is replaced by, in front of its encoded
+/// body. Unmistakable on sight in a parse tree, and — the part that matters —
+/// recognisable again on a second pass over the same text.
+const HEREDOC_MARK: &str = "HEREDOC\u{1}";
+
+/// Move heredoc *bodies* out of the shell text and onto the command that opened
+/// them.
 ///
-/// A body is data, not shell — commit messages, Python, YAML — and parsing prose
-/// as shell finds commands nobody ran. It is stripped here rather than in the
+/// A body is not shell — commit messages, Python, YAML — and parsing prose as
+/// shell finds commands nobody ran. It is taken out here rather than in the
 /// grammar because a heredoc is the one construct whose terminator is chosen at
 /// runtime, and the body does not even begin until the *line* ends, so it cannot
 /// be expressed where it appears.
 ///
+/// It is **encoded into the delimiter** rather than discarded, because some of
+/// that data is a program in its own right: `python3 - <<'PY'` changes files as
+/// surely as `sed -i` does, and 3,547 such writes were invisible while the body
+/// went in the bin. Encoded into the text rather than set aside in a table,
+/// because the corpus's commonest heredoc is `bash -c 'python3 - <<PY … PY'` —
+/// the body belongs to the *inner* command, whose script is re-parsed later from
+/// a substring of this very text. A table keyed on this pass would be out of
+/// reach by then; a marker travels with the text it belongs to.
+///
 /// Honours the quoted (`<<'EOF'`) and indented (`<<-`) forms, both of which the
 /// corpus uses, and leaves `<<<` alone: a here-string has no body.
-fn strip_heredocs(script: &str) -> String {
+fn hide_heredocs(script: &str) -> String {
     let mut out = String::with_capacity(script.len());
-    let mut lines = script.lines().peekable();
+    let mut lines = script.lines();
     while let Some(line) = lines.next() {
-        out.push_str(line);
-        out.push('\n');
-        for (delim, indented) in heredoc_delimiters(line) {
-            for body in lines.by_ref() {
-                let candidate = if indented { body.trim_start() } else { body };
-                if let Some(residue) = terminator_residue(candidate, &delim) {
+        let openers = heredoc_openers(line);
+        if openers.is_empty() {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        let mut rewritten = String::with_capacity(line.len());
+        let mut residues = Vec::new();
+        let mut cut = 0;
+        for opener in &openers {
+            let mut body = String::new();
+            for text in lines.by_ref() {
+                let candidate = if opener.indented {
+                    text.trim_start()
+                } else {
+                    text
+                };
+                if let Some(residue) = terminator_residue(candidate, &opener.delim) {
                     // **Keep what FOLLOWS the delimiter, not the delimiter.**
                     // Dropping the whole line broke the corpus's commonest
                     // heredoc shape, `bash -c 'python3 - <<PY … PY'`, where the
@@ -87,14 +124,37 @@ fn strip_heredocs(script: &str) -> String {
                     // Keeping the whole line instead left the delimiter behind as
                     // a command named `PY` that nobody ran. Only the punctuation
                     // is shell; the word is the heredoc's own bookkeeping.
-                    out.push_str(residue);
-                    out.push('\n');
+                    residues.push(residue.to_string());
                     break;
                 }
+                body.push_str(text);
+                body.push('\n');
             }
+            rewritten.push_str(&line[cut..opener.at.start]);
+            rewritten.push_str("<<");
+            rewritten.push_str(HEREDOC_MARK);
+            rewritten.push_str(&BASE64.encode(&body));
+            cut = opener.at.end;
+        }
+        rewritten.push_str(&line[cut..]);
+        out.push_str(&rewritten);
+        out.push('\n');
+        for residue in residues {
+            out.push_str(&residue);
+            out.push('\n');
         }
     }
     out
+}
+
+/// The body an already-hidden heredoc carries, from the delimiter the grammar
+/// matched. `None` for a delimiter that is not one of ours.
+fn heredoc_body(operator: &str) -> Option<String> {
+    let encoded = operator
+        .trim_start_matches('<')
+        .trim_start_matches('-')
+        .strip_prefix(HEREDOC_MARK)?;
+    String::from_utf8(BASE64.decode(encoded).ok()?).ok()
 }
 
 /// Whether this line ends the heredoc, and what shell text it leaves behind.
@@ -114,8 +174,21 @@ fn terminator_residue<'a>(line: &'a str, delim: &str) -> Option<&'a str> {
         .then_some(rest)
 }
 
-/// The heredoc delimiters opened on one line, in order — a line may open two.
-fn heredoc_delimiters(line: &str) -> Vec<(String, bool)> {
+/// A heredoc opened on one line: where its `<<…delimiter` sits, what the
+/// delimiter is, and whether the `<<-` form lets the terminator be indented.
+struct Opener {
+    at: std::ops::Range<usize>,
+    delim: String,
+    indented: bool,
+}
+
+/// The heredocs opened on one line, in order — a line may open two.
+///
+/// A delimiter already carrying a hidden body is **not** one of them. Without
+/// that, re-parsing a nested script — which is a substring of text this has
+/// already been over — would take the marker for a fresh opener and swallow the
+/// rest of the script hunting a terminator that was consumed on the first pass.
+fn heredoc_openers(line: &str) -> Vec<Opener> {
     let mut found = Vec::new();
     let bytes = line.as_bytes();
     let mut i = 0;
@@ -124,6 +197,7 @@ fn heredoc_delimiters(line: &str) -> Vec<(String, bool)> {
             i += 1;
             continue;
         }
+        let at = i;
         let mut j = i + 2;
         if bytes.get(j) == Some(&b'<') {
             i = j + 1; // `<<<` is a here-string.
@@ -136,7 +210,8 @@ fn heredoc_delimiters(line: &str) -> Vec<(String, bool)> {
         while bytes.get(j) == Some(&b' ') {
             j += 1;
         }
-        if matches!(bytes.get(j), Some(b'\'') | Some(b'"')) {
+        let quoted = matches!(bytes.get(j), Some(b'\'') | Some(b'"'));
+        if quoted {
             j += 1;
         }
         let start = j;
@@ -146,8 +221,15 @@ fn heredoc_delimiters(line: &str) -> Vec<(String, bool)> {
         {
             j += 1;
         }
-        if start < j {
-            found.push((line[start..j].to_string(), indented));
+        let delim = &line[start..j];
+        if start < j && !delim.starts_with(HEREDOC_MARK) {
+            found.push(Opener {
+                // The closing quote is part of the opener, so replacing the
+                // range leaves none of it behind: `<<'EOF'` goes whole.
+                at: at..j + usize::from(quoted && bytes.get(j) == Some(&bytes[start - 1])),
+                delim: delim.to_string(),
+                indented,
+            });
         }
         i = j.max(i + 2);
     }
@@ -156,7 +238,7 @@ fn heredoc_delimiters(line: &str) -> Vec<(String, bool)> {
 
 /// Every simple command in one script, or why it could not be read.
 pub fn parse(script: &str) -> Result<Vec<Simple>, String> {
-    let stripped = strip_heredocs(script);
+    let stripped = hide_heredocs(script);
     let mut out = Vec::new();
     let top = ShellParser::parse(Rule::script, &stripped)
         // The position the parser gave up at, with the text from there — the
@@ -194,6 +276,7 @@ fn walk(
                 argv: Vec::new(),
                 scope: scope.to_vec(),
                 redirects: Vec::new(),
+                heredocs: Vec::new(),
             };
             for part in pair.into_inner() {
                 match part.as_rule() {
@@ -220,7 +303,7 @@ fn walk(
                     }
                 }
             }
-            if !cmd.argv.is_empty() || !cmd.redirects.is_empty() {
+            if !cmd.argv.is_empty() || !cmd.redirects.is_empty() || !cmd.heredocs.is_empty() {
                 out.push(cmd);
             }
         }
@@ -271,9 +354,17 @@ fn collect_redirect(
                     cmd.redirects.push(Redirect { target, write });
                 }
             }
-            // `<<'PY'` names a delimiter, `<<<x` a value, `2>&1` a descriptor:
-            // none of them is a file, and none belongs in argv either.
-            Rule::heredoc | Rule::herestring | Rule::fd_dup => {}
+            // A heredoc's delimiter is carrying its body — hand it to the
+            // command, which is the only thing that knows whether it is a
+            // commit message or a program.
+            Rule::heredoc => {
+                if let Some(body) = heredoc_body(part.as_str()) {
+                    cmd.heredocs.push(body);
+                }
+            }
+            // `<<<x` is a value and `2>&1` a descriptor: neither is a file, and
+            // neither belongs in argv either.
+            Rule::herestring | Rule::fd_dup => {}
             Rule::procsub => walk(part, &descend(scope, next), next, out),
             _ => {}
         }

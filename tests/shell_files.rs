@@ -367,9 +367,13 @@ fn a_cd_inside_a_nested_shell_does_not_escape_it() {
 #[test]
 fn only_a_shells_inline_flag_is_shell() {
     // `python -c` carries Python and `node -e` carries JavaScript. Read as
-    // shell they would invent commands nobody ran — the same reason a heredoc
-    // body is stripped before parsing.
-    assert!(uses("python3 -c 'import os; os.remove(\"src/a.py\")'").is_empty());
+    // *shell* either would invent commands nobody ran. Python is read as
+    // Python, by a reader that knows it; JavaScript is not read at all, and
+    // says so by contributing nothing rather than by contributing nonsense.
+    assert_eq!(
+        uses("python3 -c 'import os; os.remove(\"src/a.py\")'"),
+        [("/home/example/Code/health/src/a.py".to_string(), true)]
+    );
     assert!(uses("node -e 'require(\"fs\").readFileSync(\"src/a.ts\")'").is_empty());
 }
 
@@ -436,4 +440,72 @@ fn a_container_is_another_machine_too() {
     assert_eq!(found.remote.len(), 1);
     assert_eq!(found.remote[0].host, "deploy/home-db");
     assert_eq!(found.remote[0].path, "/etc/my.cnf");
+}
+
+#[test]
+fn a_python_heredoc_changes_files_like_any_other_command() {
+    // The shape this whole reader exists for, and one no `Write`, `Edit` or
+    // `sed` records: 3,547 writes in the corpus are inside a body like this.
+    assert_eq!(
+        uses(
+            "python3 - <<'PY'\nfrom pathlib import Path\np = Path('src/geo/velocity.ts')\np.write_text(p.read_text().upper())\nPY"
+        ),
+        [
+            // The read happens first: it is the argument the write is given.
+            (
+                "/home/example/Code/health/src/geo/velocity.ts".to_string(),
+                false
+            ),
+            (
+                "/home/example/Code/health/src/geo/velocity.ts".to_string(),
+                true
+            ),
+        ]
+    );
+}
+
+#[test]
+fn python_inside_a_devshell_wrapper_is_still_python() {
+    // A third of the corpus runs through one of these, and the heredoc body has
+    // to survive being quoted, re-parsed and classified again to get here.
+    assert_eq!(
+        uses("nix develop -c bash -c 'python3 - <<PY\nopen(\"notes/out.md\", \"w\").write(x)\nPY'"),
+        [("/home/example/Code/health/notes/out.md".to_string(), true)]
+    );
+}
+
+#[test]
+fn a_heredoc_that_is_not_python_is_not_read_as_python() {
+    // `cat > f <<EOF` is already a write, recorded through the redirect. Reading
+    // the body as a program as well would count the same work twice and would
+    // read prose as code.
+    assert_eq!(
+        uses("cat > notes/plan.md <<'EOF'\nopen('src/other.ts', 'w')\nEOF"),
+        [("/home/example/Code/health/notes/plan.md".to_string(), true)]
+    );
+}
+
+#[test]
+fn python_run_on_another_machine_stays_on_that_machine() {
+    let cmds =
+        parse("ssh root@isis.xinutec.org 'python3 - <<PY\nopen(\"/etc/nixos/x.nix\", \"w\")\nPY'")
+            .unwrap();
+    let found = extract(&cmds, Some(CWD), HOME);
+    assert!(found.files.is_empty(), "no local file was touched");
+    assert_eq!(found.remote.len(), 1);
+    assert_eq!(found.remote[0].host, "isis");
+    assert_eq!(found.remote[0].path, "/etc/nixos/x.nix");
+    assert!(found.remote[0].write);
+}
+
+#[test]
+fn a_program_that_moves_its_own_directory_keeps_only_anchored_paths() {
+    // `os.chdir` cannot be followed, so a relative path after one is a guess —
+    // and a wrong directory is how a real path becomes an invented one.
+    assert_eq!(
+        uses(
+            "python3 - <<'PY'\nimport os\nos.chdir('/tmp/build')\nopen('relative.txt', 'w')\nopen('/tmp/build/absolute.txt', 'w')\nPY"
+        ),
+        [("/tmp/build/absolute.txt".to_string(), true)]
+    );
 }

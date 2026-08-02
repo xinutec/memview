@@ -31,6 +31,7 @@ fn op_name(op: &Op) -> &'static str {
         Op::Transform { .. } => "transform",
         Op::Run { .. } => "run a script",
         Op::Nested { .. } => "open a shell (bash -c, nix --run)",
+        Op::Python { .. } => "run python (-c, or a heredoc)",
         Op::Remote { .. } => "reach another machine (ssh, kubectl exec)",
         Op::ChangeDir { .. } => "cd",
         Op::Git(GitOp::Stage { .. }) => "git stage",

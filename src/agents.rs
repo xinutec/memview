@@ -92,6 +92,10 @@ pub struct Agent {
     ///
     /// Not a small addition: two thirds of the fleet's shell commands touch
     /// files, and the `Write`/`Edit` miner sees none of it.
+    ///
+    /// "Shell" means *the Bash call*, not only the shell language: the Python of
+    /// a `python3 - <<'PY'` heredoc lands here too, and it is the single biggest
+    /// file-changer in the corpus at 3,048 writes.
     #[serde(default)]
     pub shell_paths: BTreeMap<String, MemoryUse>,
     /// Lines committed, per repo-relative path — the third dimension, and the
@@ -219,10 +223,12 @@ pub struct WorkFile {
     /// Every use, tool call and shell command together.
     pub reads: usize,
     pub edits: usize,
-    /// How much of the above came from the shell rather than from `Write` and
-    /// `Edit`. Reported so the evidence can be checked: a file with forty
-    /// changes and no tool edits is not a mistake, it is somebody working
-    /// through `sed` — and without this split there is no way to see that.
+    /// How much of the above came from a `Bash` call rather than from `Write`
+    /// and `Edit` — including the Python and the other machines' shells inside
+    /// one. Reported so the evidence can be checked: a file with forty changes
+    /// and no tool edits is not a mistake, it is somebody working through `sed`
+    /// or a `python3 -` heredoc, and without this split there is no way to see
+    /// that.
     pub shell_reads: usize,
     pub shell_edits: usize,
     /// The machine this file is on, when it is not this one. `None` is local.

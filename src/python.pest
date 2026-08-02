@@ -1,0 +1,106 @@
+//! The Python Claude has actually written — expressions, not a language.
+//!
+//! The awkward part of Python for a parser generator is **indentation**, since
+//! `INDENT`/`DEDENT` are lexer state rather than syntax. It is not out of reach
+//! — pest's stack (`PUSH`/`PEEK_ALL`) can match a nested block's leading
+//! whitespace against the line that opened it, and generator-based Python
+//! parsers usually pair the generator with a hand-written lexer that emits the
+//! two tokens. **It is simply not needed here**: block structure is the one
+//! thing this never asks about, because nothing about *which file was written*
+//! depends on which `if` a line sits under. So a newline is an ordinary
+//! separator and the grammar describes expressions and assignments only.
+//!
+//! Like `shell.pest`, it is restrictive where meaning is taken and generous
+//! where it is not: `stray` accepts any punctuation it has no reading for, so a
+//! program is never rejected whole. The measure of coverage is therefore not
+//! "does it parse" but "was the call understood" — `python-report` ranks the
+//! calls this could not read, and that list is what grows the reader.
+
+program = { SOI ~ element* ~ EOI }
+
+// Statement shapes worth telling apart, then anything else.
+//
+// `binder` and `assign` come first because they decide whether a name may be
+// trusted as a constant later, and both start with something `expr` would
+// happily swallow as an ordinary name.
+element = _{ NEWLINE | binder | assign | augmented | expr | stray }
+
+// `p = 'src/x.ts'`. The lookahead is what makes it an assignment rather than a
+// comparison, and `value` is the WHOLE right-hand side: a statement that goes on
+// past its literal — `p = base + name` — is not a constant, and the only way to
+// know is to have read to the end of it.
+assign = { name ~ "=" ~ !"=" ~ value ~ &end }
+end    = _{ NEWLINE | ";" | EOI }
+
+// `p += x` — a name being built up is not a constant, whatever it started as.
+augmented = { name ~ augment }
+augment   = @{ ("//" | "**" | "+" | "-" | "*" | "/" | "%" | "|" | "&" | "^") ~ "=" ~ !"=" }
+
+// `for p in files`, `with open(x) as f`, `import json`. Every name bound this
+// way is bound to something unknowable — `for p in files` names every file and
+// therefore none.
+binder    = { binder_kw ~ target }
+binder_kw = @{ ("for" | "as" | "def" | "class" | "lambda" | "global" | "nonlocal" | "import") ~ !name_char }
+target    = { name ~ ("," ~ name)* }
+
+// ---- expressions ----
+
+// A value and everything chained onto it: `Path(p).read_text()`.
+expr    = { atom ~ trailer* }
+atom    = _{ string | number | name | paren | list | dict }
+trailer = _{ call | subscript | attr }
+
+call      = { "(" ~ args ~ ")" }
+subscript = { "[" ~ args ~ "]" }
+attr      = { "." ~ name }
+
+paren = { "(" ~ args ~ ")" }
+list  = { "[" ~ args ~ "]" }
+dict  = { "{" ~ args ~ "}" }
+
+args    = { arg? ~ ("," ~ arg?)* }
+arg     = { keyword? ~ value }
+keyword = { name ~ "=" ~ !"=" }
+
+// An argument, or the right-hand side of an assignment, as its operands.
+//
+// **More than one operand means the value is computed**, and a computed value
+// names no file: `open(root + name)` must not be recorded as a use of `root`.
+// Juxtaposition is allowed (`binop?`) so that `lambda a: a.b` and the other
+// shapes this has no syntax for still parse — they are computed either way, and
+// a grammar that fails on them would lose the calls around them too.
+value   = { operand ~ (binop? ~ operand)* }
+operand = { unary* ~ expr }
+unary   = @{ "**" | "*" | "-" | "+" | "~" }
+
+// `:` covers dict entries, slices and `lambda`; the word operators cover
+// comprehensions and conditionals, which are computed like any other operator.
+binop   = @{ "//" | "**" | "==" | "!=" | "<=" | ">=" | ":=" | "+" | "-" | "*" | "/" | "%" | "<" | ">" | "|" | "&" | "^" | "@" | ":" | word_op }
+word_op = @{ ("in" | "not" | "and" | "or" | "is" | "if" | "else" | "for") ~ !name_char }
+
+// ---- atoms ----
+
+name      = @{ (ASCII_ALPHA | "_") ~ name_char* }
+name_char = _{ ASCII_ALPHANUMERIC | "_" }
+number    = @{ ASCII_DIGIT ~ (ASCII_ALPHANUMERIC | "." | "_")* }
+
+// The string rules are ATOMIC, the lesson `shell.pest` paid for twice: left
+// open, pest's implicit whitespace and comment skipping runs *inside* the
+// literal, and the first `#` in a path starts a comment that eats the closing
+// quote.
+string        = ${ prefix? ~ (triple_single | triple_double | single | double) }
+prefix        = @{ ("r" | "R" | "b" | "B" | "u" | "U" | "f" | "F"){1,2} }
+triple_single = @{ "'''" ~ (!"'''" ~ ANY)* ~ "'''" }
+triple_double = @{ "\"\"\"" ~ (!"\"\"\"" ~ ANY)* ~ "\"\"\"" }
+// A one-line literal stops at the line's end: a heredoc cut short by a missing
+// terminator must not swallow the rest of the program as a string.
+single = @{ "'" ~ (escape | !("'" | NEWLINE) ~ ANY)* ~ "'" }
+double = @{ "\"" ~ (escape | !("\"" | NEWLINE) ~ ANY)* ~ "\"" }
+escape = _{ "\\" ~ ANY }
+
+// Punctuation with no reading — a `->`, a stray `:`, a decorator's `@`. Matched
+// so that nothing is ever rejected whole.
+stray = @{ !NEWLINE ~ ANY }
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\\" ~ NEWLINE }
+COMMENT    = _{ "#" ~ (!NEWLINE ~ ANY)* }

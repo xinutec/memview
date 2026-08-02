@@ -65,6 +65,10 @@ pub struct Extract {
     /// Files used on another machine, by host. Reported, never mined into the
     /// local index — see [`RemoteUse`].
     pub remote: Vec<RemoteUse>,
+    /// What the Python inside the shell did. Its file uses are already in
+    /// `files`; this is what could not be read, and is the worklist for
+    /// [`crate::python`] exactly as `unhandled` is for the table above.
+    pub python: crate::python::Tally,
     /// Nested scripts the grammar could not read. Reported rather than dropped:
     /// a devshell wrapper whose inner shell fails to parse is a silent hole in
     /// exactly the third of the corpus that runs through one.
@@ -103,6 +107,7 @@ impl Extract {
         self.ops.extend(inner.ops);
         self.handled += inner.handled;
         self.nested_unparsed += inner.nested_unparsed;
+        self.python.merge(inner.python);
         for (name, n) in inner.unhandled {
             *self.unhandled.entry(name).or_insert(0) += n;
         }
@@ -173,8 +178,10 @@ pub fn files_of(op: &Op) -> Vec<FileUse> {
             out
         }
         // A script's own files are collected when it is read, not here — this
-        // is one command's operands, and a script is not one.
-        Op::Nested { .. } | Op::Remote { .. } => Vec::new(),
+        // is one command's operands, and a script is not one. Python is read the
+        // same way, in [`extract_nested`], because resolving what it names needs
+        // the working directory this function does not have.
+        Op::Nested { .. } | Op::Remote { .. } | Op::Python { .. } => Vec::new(),
         Op::Run { script } => vec![FileUse {
             path: script.clone(),
             write: false,
@@ -237,7 +244,7 @@ fn extract_nested(
             continue;
         }
 
-        let op = classify(&cmd.argv, here.as_deref(), home);
+        let op = classify(&cmd.argv, &cmd.heredocs, here.as_deref(), home);
         // The name to file this under is the real command's, not the wrapper's.
         let name = unwrap_command(&cmd.argv)
             .first()
@@ -292,6 +299,31 @@ fn extract_nested(
                     Ok(_) => {}
                     Err(_) => out.nested_unparsed += 1,
                 }
+            }
+            // A program in another language, read by another reader — and
+            // resolved here, where the working directory is, by exactly the
+            // rules a shell operand goes through.
+            Op::Python { source } => {
+                out.handled += 1;
+                let program = crate::python::read(source);
+                let mut kept = 0;
+                for used in &program.uses {
+                    // A program that moved its own directory makes every
+                    // relative path in it a guess, so only the paths that need
+                    // no directory survive. `os.chdir` cannot be followed —
+                    // its argument is usually computed — and a wrong directory
+                    // is how a real path becomes an invented one.
+                    let anchored = used.path.starts_with('/') || used.path.starts_with('~');
+                    if (anchored || !program.chdir)
+                        && looks_like_path(&used.path)
+                        && let Some(path) = resolve(&used.path, here.as_deref(), home)
+                    {
+                        out.push(host, "python", path, used.write);
+                        kept += 1;
+                    }
+                }
+                out.python.kept += kept;
+                out.python.absorb(program);
             }
             _ => {
                 out.handled += 1;

@@ -206,9 +206,11 @@ export interface WorkFile {
   reads: number;
   edits: number;
   /**
-   * How much of the above came from the shell rather than `Write`/`Edit`. A
-   * file with changes and no tool edits is somebody working through `sed`, not
-   * a mistake — without the split there is no way to see which.
+   * How much of the above came from a `Bash` call rather than `Write`/`Edit` —
+   * the shell, the Python inside a heredoc, and the other machines' shells
+   * alike. A file with changes and no tool edits is somebody working through
+   * `sed` or `python3 -`, not a mistake — without the split there is no way to
+   * see which.
    */
   shell_reads: number;
   shell_edits: number;
