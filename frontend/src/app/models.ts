@@ -179,6 +179,11 @@ export interface WorkMatch {
    * files counts four. Named for what it measures.
    */
   file_commits: number;
+  /**
+   * Machines this row's evidence touches, other than this one — so a total that
+   * includes another host says so before the files are opened.
+   */
+  hosts: string[];
   /** The matching files, heaviest first: the evidence for the row. */
   files: WorkFile[];
 }
@@ -207,6 +212,12 @@ export interface WorkFile {
    */
   shell_reads: number;
   shell_edits: number;
+  /**
+   * The machine this file is on, absent when it is this one. Remote use can
+   * only come from an `ssh` payload, so `shell_*` already says where the
+   * numbers came from and this says where the *file* is.
+   */
+  host?: string | null;
   /**
    * Lines this agent committed to the file, and in how many commits. The same
    * work measured a second way — never added to the counts above, which would
@@ -245,6 +256,12 @@ export interface Agent {
    * only when a query asks who works on something.
    */
   shell_paths: Record<string, MemoryUse>;
+  /**
+   * Files used on other machines, keyed `host:/absolute/path`. Entirely from
+   * `ssh`/`kubectl exec` payloads; git cannot attribute these, because the
+   * commits are made over there.
+   */
+  remote_paths: Record<string, MemoryUse>;
   /**
    * Lines committed per path, attributed by the earliest mention of the commit
    * hash — the only join available when every commit shares one git author.

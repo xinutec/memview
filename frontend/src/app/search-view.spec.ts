@@ -17,11 +17,24 @@ const WORKERS: WorkMatch[] = [
     added: 2126,
     deleted: 433,
     file_commits: 12,
+    hosts: ['odin'],
     files: [
       { path: 'xinutec-infra/plan/types.dhall', reads: 0, edits: 7, shell_reads: 0, shell_edits: 0, added: 300, deleted: 12, commits: 4 },
       // Changed from the shell as well as from `Edit`, which is what the
       // provenance line beside the totals exists to show.
       { path: 'xinutec-infra/plan/deploy.dhall', reads: 1, edits: 2, shell_reads: 1, shell_edits: 1, added: 0, deleted: 0, commits: 0 },
+      // On another machine entirely — the row must say so.
+      {
+        path: '/etc/nixos/flake.nix',
+        host: 'odin',
+        reads: 3,
+        edits: 1,
+        shell_reads: 3,
+        shell_edits: 1,
+        added: 0,
+        deleted: 0,
+        commits: 0,
+      },
     ],
   },
   {
@@ -31,6 +44,7 @@ const WORKERS: WorkMatch[] = [
     added: 0,
     deleted: 0,
     file_commits: 0,
+    hosts: [],
     files: [{ path: 'k/dhall/home.dhall', reads: 2, edits: 25, shell_reads: 0, shell_edits: 0, added: 0, deleted: 0, commits: 0 }],
   },
 ];
@@ -86,7 +100,11 @@ describe('SearchView — who works on this', () => {
     await fixture.whenStable();
 
     const paths = [...el.querySelectorAll('.workers .file-list code')].map((n) => n.textContent);
-    expect(paths).toEqual(['xinutec-infra/plan/types.dhall', 'xinutec-infra/plan/deploy.dhall']);
+    expect(paths.map((p) => p?.replace(/\s+/g, ''))).toEqual([
+      'xinutec-infra/plan/types.dhall',
+      'xinutec-infra/plan/deploy.dhall',
+      'odin:/etc/nixos/flake.nix',
+    ]);
   });
 
   it('says which of a file’s changes came from the shell, and only where some did', async () => {
@@ -148,6 +166,18 @@ describe('SearchView — who works on this', () => {
     // ...and no leftover markers anywhere in the rendered hit.
     expect(el.querySelector('.hit-list')?.textContent).not.toContain('`');
     expect(el.querySelector('.hit-list')?.textContent).not.toContain('**');
+  });
+
+  it('says which machine a file is on, and only when it is not this one', async () => {
+    // "This path is not on this computer" is the single most misreadable thing
+    // in the list: /etc/nixos/flake.nix looks local and is not.
+    const el = await search(WORKERS);
+    expect(el.querySelector('.workers .hosts')?.textContent?.trim()).toBe('on odin');
+
+    el.querySelector<HTMLButtonElement>('.workers .worker')!.click();
+    await fixture.whenStable();
+    const hosts = [...el.querySelectorAll('.workers .file-list .host')].map((n) => n.textContent);
+    expect(hosts).toEqual(['odin:']);
   });
 
   it('shows no panel to a share-link recipient, and no error either', async () => {

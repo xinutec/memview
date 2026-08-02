@@ -107,6 +107,19 @@ pub struct Agent {
     /// unattributed rather than assigned to a guess.
     #[serde(default)]
     pub commit_lines: BTreeMap<String, LineDelta>,
+    /// Files used on **other machines**, keyed `host:/absolute/path` — where
+    /// this agent's work lands when it is not on this one.
+    ///
+    /// A fourth dimension, and the only one about somewhere else. It comes
+    /// entirely from `ssh`/`kubectl exec` payloads, so it is shell-derived by
+    /// construction; git cannot attribute it, because those commits are made on
+    /// the remote host and never appear in a repository here.
+    ///
+    /// Kept apart from [`paths`](Self::paths) for the obvious reason: a path
+    /// under `/etc/nixos` exists on odin and not here, and merging the two would
+    /// make every local answer wrong.
+    #[serde(default)]
+    pub remote_paths: BTreeMap<String, MemoryUse>,
     /// Commits attributed to this agent, across every repository.
     #[serde(default)]
     pub commits: usize,
@@ -190,6 +203,11 @@ pub struct WorkMatch {
     /// Named for what it measures rather than for what a reader might assume.
     #[serde(default)]
     pub file_commits: usize,
+    /// Machines this row's evidence touches, other than this one. Empty for
+    /// work done entirely here — so a reader can see at a glance that a total
+    /// includes another host before reading the files.
+    #[serde(default)]
+    pub hosts: Vec<String>,
     /// The matching files, heaviest first — the evidence for the row above.
     pub files: Vec<WorkFile>,
 }
@@ -207,6 +225,13 @@ pub struct WorkFile {
     /// through `sed` — and without this split there is no way to see that.
     pub shell_reads: usize,
     pub shell_edits: usize,
+    /// The machine this file is on, when it is not this one. `None` is local.
+    ///
+    /// Remote use is shell-derived by construction — it can only come from an
+    /// `ssh` or `kubectl exec` payload — so `shell_reads`/`shell_edits` already
+    /// say where the numbers came from, and this says where the *file* is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
     /// Lines this agent committed to the file, and in how many commits.
     #[serde(default)]
     pub added: usize,
@@ -289,6 +314,7 @@ impl Agents {
                 };
                 let blank = |path: &String| WorkFile {
                     path: path.clone(),
+                    host: None,
                     reads: 0,
                     edits: 0,
                     shell_reads: 0,
@@ -324,6 +350,35 @@ impl Agents {
                     file.commits = delta.commits;
                 }
                 let mut files: Vec<WorkFile> = merged.into_values().collect();
+                // Work on other machines, each row saying which one. A remote
+                // path is a different path — `/etc/nixos/flake.nix` on odin is
+                // not a file here — so it gets its own row rather than being
+                // merged into a local one that happens to share a name.
+                let mut hosts: BTreeSet<String> = BTreeSet::new();
+                for (key, use_) in agent
+                    .remote_paths
+                    .iter()
+                    .filter(|(key, _)| key.to_lowercase().contains(&needle))
+                {
+                    let (host, path) = match key.split_once(':') {
+                        Some((host, path)) => (host.to_string(), path.to_string()),
+                        None => (String::new(), key.clone()),
+                    };
+                    hosts.insert(host.clone());
+                    files.push(WorkFile {
+                        path,
+                        host: Some(host),
+                        reads: use_.reads,
+                        edits: use_.edits,
+                        // Remote use can only have come from an `ssh` payload,
+                        // so it is shell-derived by construction.
+                        shell_reads: use_.reads,
+                        shell_edits: use_.edits,
+                        added: 0,
+                        deleted: 0,
+                        commits: 0,
+                    });
+                }
                 if files.is_empty() {
                     return None;
                 }
@@ -336,6 +391,7 @@ impl Agents {
                 });
                 Some(WorkMatch {
                     name: agent.name.clone(),
+                    hosts: hosts.into_iter().collect(),
                     edits: files.iter().map(|f| f.edits).sum(),
                     reads: files.iter().map(|f| f.reads).sum(),
                     added: files.iter().map(|f| f.added).sum(),
@@ -488,6 +544,19 @@ fn attributable(rel: &str) -> bool {
     const LEFTOVER: [&str; 5] = [".log", ".bak", ".tmp", ".orig", ".rej"];
     let mut segments = rel.split('/');
     !segments.any(|s| GENERATED.contains(&s)) && !LEFTOVER.iter().any(|s| rel.ends_with(s))
+}
+
+/// Whether a path on another machine is one work can be attributed to.
+///
+/// The same idea as [`attributable`] and a different list, because a remote path
+/// is absolute and answers to no code root. Scratch and kernel filesystems go:
+/// `/tmp` is where every session drops a throwaway, and reading `/proc` is not
+/// work on a file. Logs go for the same reason they do locally — the busiest
+/// remote path in the corpus is a drill run's log at 90 reads and 17 writes, and
+/// none of that is authorship.
+fn remotely_attributable(path: &str) -> bool {
+    const SCRATCH: [&str; 5] = ["/tmp/", "/var/tmp/", "/proc/", "/sys/", "/dev/"];
+    !SCRATCH.iter().any(|dir| path.starts_with(dir)) && attributable(path)
 }
 
 /// The memory a path names, for paths inside the corpus directory.
@@ -744,6 +813,7 @@ fn scan_transcript(
         memories,
         paths,
         shell_paths,
+        remote_paths,
         first: earliest,
         last,
         ..
@@ -792,12 +862,30 @@ fn scan_transcript(
                 let Ok(parsed) = crate::shell::parse(&command) else {
                     continue;
                 };
-                for used in crate::shell_files::extract(&parsed, cwd.as_deref(), home).files {
+                let found = crate::shell_files::extract(&parsed, cwd.as_deref(), home);
+                for used in found.files {
                     let Some(rel) = relative_to(&used.path, code_root).filter(|p| attributable(p))
                     else {
                         continue;
                     };
                     let use_ = shell_paths.entry(rel).or_default();
+                    if used.write {
+                        use_.edits += 1;
+                    } else {
+                        use_.reads += 1;
+                    }
+                }
+                // Work on another machine, kept under its host. No code-root
+                // filter: `/etc/nixos` is where odin's work lives and there is
+                // no `~/Code` there — the shape of the filesystem is the remote
+                // machine's business, not this one's.
+                for used in found.remote {
+                    if !remotely_attributable(&used.path) {
+                        continue;
+                    }
+                    let use_ = remote_paths
+                        .entry(format!("{}:{}", used.host, used.path))
+                        .or_default();
                     if used.write {
                         use_.edits += 1;
                     } else {

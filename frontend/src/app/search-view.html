@@ -41,6 +41,11 @@
                 @if (w.added || w.deleted) {
                   <span class="lines">+{{ w.added }}/−{{ w.deleted }}</span>
                 }
+                <!-- Another machine in the total, said before the evidence is
+                     opened rather than discovered inside it. -->
+                @if (w.hosts.length) {
+                  <span class="hosts">on {{ w.hosts.join(', ') }}</span>
+                }
                 <span class="files">{{ w.files.length }} files</span>
               </span>
               <mat-icon class="chevron">{{
@@ -52,14 +57,20 @@
               <ul class="file-list">
                 @for (f of w.files; track f.path) {
                   <li>
-                    <code>{{ f.path }}</code>
+                    <code>
+                      @if (f.host) {
+                        <span class="host">{{ f.host }}:</span>
+                      }{{ f.path }}</code
+                    >
                     <span class="counts">
                       {{ f.edits }}×w · {{ f.reads }}×r
                       <!-- Where the numbers came from, when some of them came
                            from the shell. A file changed forty times with no
                            Edit behind it is somebody working through sed, and
                            unlabelled it reads as a bug in the counting. -->
-                      @if (f.shell_edits || f.shell_reads) {
+                      <!-- Not shown for a remote file: all remote use comes
+                           from an ssh payload, so the host already says it. -->
+                      @if ((f.shell_edits || f.shell_reads) && !f.host) {
                         <span class="via-shell"
                           >{{ f.shell_edits }}×w · {{ f.shell_reads }}×r in the shell</span
                         >

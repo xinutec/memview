@@ -998,3 +998,61 @@ fn a_commit_belongs_to_whoever_saw_its_hash_first() {
     assert_eq!(reader.commits, 0);
     assert!(reader.commit_lines.is_empty());
 }
+
+#[test]
+fn work_on_another_machine_is_kept_under_that_machine() {
+    // Where an agent's work lands when it is not on this one. It cannot go in
+    // `paths`: `/etc/nixos/flake.nix` exists on odin and not here, and merging
+    // the two would make every local answer wrong.
+    let agents = mine(
+        &[(
+            "s1",
+            vec![
+                bash(
+                    "ssh root@odin.xinutec.org 'cd /etc/nixos && sed -i s/a/b/ flake.nix'",
+                    "/code/health",
+                    "2026-07-01T10:00:00Z",
+                ),
+                bash(
+                    "ssh odin 'cat /etc/nixos/machines/odin/drill.nix'",
+                    "/code/health",
+                    "2026-07-01T10:01:00Z",
+                ),
+                // Scratch and logs are not work, there as much as here.
+                bash(
+                    "ssh odin 'cat /tmp/out.txt; cat /var/log/drill.log'",
+                    "/code/health",
+                    "2026-07-01T10:02:00Z",
+                ),
+            ],
+        )],
+        &[("100", r#"{"sessionId":"s1","name":"fleet"}"#)],
+    );
+    let fleet = &agents[0];
+    assert!(fleet.paths.is_empty(), "nothing local: {:?}", fleet.paths);
+    assert!(fleet.shell_paths.is_empty());
+    let keys: Vec<&String> = fleet.remote_paths.keys().collect();
+    assert_eq!(
+        keys,
+        [
+            "odin:/etc/nixos/flake.nix",
+            "odin:/etc/nixos/machines/odin/drill.nix"
+        ]
+    );
+    assert_eq!(fleet.remote_paths["odin:/etc/nixos/flake.nix"].edits, 1);
+
+    // ...and a query finds it, saying which machine it is on.
+    let roster = roster_of(agents.clone());
+    let found = roster.who_works_on("nixos");
+    assert_eq!(found[0].name, "fleet");
+    assert_eq!(found[0].hosts, ["odin"]);
+    let remote = found[0]
+        .files
+        .iter()
+        .find(|f| f.path == "/etc/nixos/flake.nix")
+        .expect("the remote file is evidence like any other");
+    assert_eq!(remote.host.as_deref(), Some("odin"));
+    assert_eq!(remote.edits, 1);
+    // Remote use can only have come from a shell payload.
+    assert_eq!(remote.shell_edits, 1);
+}
