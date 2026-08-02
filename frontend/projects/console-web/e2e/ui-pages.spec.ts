@@ -48,6 +48,7 @@ const STATE = {
       busy: "requesting",
       turns: 12,
       cost_usd: 4.2137,
+      waiting: 1,
       asked: "Port the remaining matcher gate to Lean and prove it bit-exact against the TypeScript quant twin, then run the golden set and report which journeys moved.",
     },
     {
@@ -58,6 +59,7 @@ const STATE = {
       model: "claude-haiku-4-5-20251001",
       turns: 3,
       cost_usd: 0.0084,
+      waiting: 0,
       asked: "check the corpus",
     },
   ],
@@ -93,6 +95,15 @@ const TRANSCRIPT = [
   { kind: "text", text: "The build fails on `quantiseLegCost`: the Lean version rounds half-to-even and " },
   { kind: "text", text: "the TypeScript one rounds half-away-from-zero, so the two disagree on exactly the ties." },
   { kind: "turn", cost_usd: 0.3312, turns: 1, duration_ms: 48210 },
+  // A question, undecided: the widest thing on the page, since it carries a
+  // whole command AND two buttons on one 412px line.
+  {
+    kind: "ask",
+    id: "8ed3af09-323c-404b-8368-9682dca75d26",
+    tool: "Bash",
+    title: "Claude wants to run nix develop -c lake build --verbose 2>&1 | tee /tmp/lean.log",
+    input: { command: "nix develop -c lake build --verbose 2>&1 | tee /tmp/lean.log" },
+  },
 ];
 
 /** Mock every backend call. Catch-all FIRST — Playwright runs handlers
@@ -136,6 +147,26 @@ test("transcript — tool arguments and a fixed composer @ phone width", async (
   await page.getByText("verified_cli").first().waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+});
+
+test("transcript — an undecided question with its two buttons @ phone width", async ({
+  page,
+}, testInfo) => {
+  // The one screen that must work under a thumb on a train: a long command and
+  // two controls, on a narrow screen, with nothing pushed off the edge.
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.getByRole("button", { name: "allow" }).waitFor();
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+});
+
+test("session list — a blocked session says so first @ phone width", async ({ page }, testInfo) => {
+  await mockRunner(page);
+  await page.goto("/");
+  await page.getByText("waiting for you").waitFor();
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
 });
 
 test("transcript — thinking unfolded is the longest the page gets @ phone width", async ({

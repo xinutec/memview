@@ -95,6 +95,21 @@ export class SessionView implements OnDestroy {
     });
   }
 
+  /** Approve or refuse one question.
+   *
+   *  The verdict is not written into the entry here — the runner echoes an
+   *  `answered` event to every listener, and letting that do it means a second
+   *  window showing the same session stops offering a decision that was already
+   *  taken.
+   */
+  decide(entry: Entry, allow: boolean): void {
+    if (!entry.ask || entry.allowed !== undefined) return;
+    this.api.decide(this.id(), entry.ask, allow).subscribe({
+      error: (err: { error?: string }) =>
+        this.trouble.set(err.error ?? 'that decision did not land'),
+    });
+  }
+
   stop(): void {
     this.api.stop(this.id()).subscribe({
       next: (summary) => this.session.set(summary),

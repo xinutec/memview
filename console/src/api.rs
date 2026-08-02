@@ -33,6 +33,7 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/state", get(state))
         .route("/api/sessions", post(start))
         .route("/api/sessions/{id}/input", post(input))
+        .route("/api/sessions/{id}/decide", post(decide))
         .route("/api/sessions/{id}/stop", post(stop))
         .route("/api/sessions/{id}", delete(forget))
         .route("/api/sessions/{id}/events", get(events))
@@ -109,6 +110,37 @@ async fn input(
     session
         .send(&body.text)
         .await
+        .map_err(|err| (StatusCode::CONFLICT, format!("{err:#}")))?;
+    Ok(Json(session.summary()))
+}
+
+/// What to do about one question.
+#[derive(Debug, Deserialize)]
+pub struct Decision {
+    /// The control-request id from the `ask` event.
+    pub id: String,
+    pub allow: bool,
+    /// Why not. Ignored on an allow; the session is told it on a refusal.
+    #[serde(default)]
+    pub why: Option<String>,
+}
+
+/// The refusal a client sends when it does not say why.
+const REFUSED: &str = "Refused from the console.";
+
+async fn decide(
+    State(roster): State<Arc<Roster>>,
+    Path(id): Path<String>,
+    Json(body): Json<Decision>,
+) -> Result<Json<Summary>, (StatusCode, String)> {
+    let session = roster
+        .get(&id)
+        .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
+    session
+        .decide(&body.id, body.allow, body.why.as_deref().unwrap_or(REFUSED))
+        .await
+        // CONFLICT rather than NOT_FOUND: the usual cause is that the question
+        // was answered a moment ago, on another screen.
         .map_err(|err| (StatusCode::CONFLICT, format!("{err:#}")))?;
     Ok(Json(session.summary()))
 }

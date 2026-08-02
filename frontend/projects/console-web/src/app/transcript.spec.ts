@@ -76,3 +76,42 @@ describe('transcript', () => {
     expect(transcript({ kind: 'exited' })[0].text).toContain('killed');
   });
 });
+
+describe('questions', () => {
+  it('shows a question as undecided until it is answered', () => {
+    // The undecided state is what the UI turns into a pair of buttons, so it has
+    // to be distinguishable from both verdicts rather than defaulting to one.
+    const [ask] = transcript({
+      kind: 'ask',
+      id: 'q1',
+      tool: 'Bash',
+      title: 'Claude wants to run rm -rf build',
+      input: { command: 'rm -rf build' },
+    });
+    expect(ask.kind).toBe('ask');
+    expect(ask.ask).toBe('q1');
+    expect(ask.allowed).toBeUndefined();
+    // The CLI's own sentence beats one reassembled from the arguments.
+    expect(ask.text).toBe('Claude wants to run rm -rf build');
+  });
+
+  it('falls back to the arguments when the CLI offers no sentence', () => {
+    const [ask] = transcript({ kind: 'ask', id: 'q1', tool: 'Write', input: { file_path: '/tmp/x' } });
+    expect(ask.text).toBe('/tmp/x');
+  });
+
+  it('records the verdict against the question it answers', () => {
+    // Two questions can be open at once, and the answer names which one — the
+    // reason `answered` carries an id rather than being positional.
+    const seen = transcript(
+      { kind: 'ask', id: 'q1', tool: 'Bash', input: { command: 'ls' } },
+      { kind: 'ask', id: 'q2', tool: 'Write', input: { file_path: '/tmp/y' } },
+      { kind: 'answered', id: 'q2', allowed: false },
+    );
+    const asks = seen.filter((e) => e.kind === 'ask');
+    expect(asks.map((a) => [a.ask, a.allowed])).toEqual([
+      ['q1', undefined],
+      ['q2', false],
+    ]);
+  });
+});

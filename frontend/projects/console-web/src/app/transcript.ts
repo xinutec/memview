@@ -41,6 +41,21 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
       if (call) call.ok = event.ok;
       break;
     }
+    case 'ask':
+      entries.push({
+        kind: 'ask',
+        ask: event.id,
+        tool: event.tool ?? 'tool',
+        // The CLI's own sentence when it offers one; it reads better than
+        // anything reassembled from the arguments.
+        text: event.title ?? describe(event.tool, event.input),
+      });
+      break;
+    case 'answered': {
+      const question = entries.find((e) => e.kind === 'ask' && e.ask === event.id);
+      if (question) question.allowed = event.allowed;
+      break;
+    }
     case 'turn':
       entries.push({
         kind: 'turn',

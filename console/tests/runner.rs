@@ -217,3 +217,103 @@ fn a_symlink_out_of_an_allowed_directory_does_not_escape_it() {
     // will not go is not a reason to fail it.
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[tokio::test]
+async fn a_question_blocks_the_session_until_it_is_answered() {
+    // The property approvals exist for: the session stops, says what it wants to
+    // run, and does nothing until a person decides.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Started { .. }))
+    })
+    .await;
+
+    session.send("may i run something").await.expect("send");
+    let seen = until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Ask { .. }))
+    })
+    .await;
+
+    let Some(Event::Ask { id, tool, .. }) = seen.iter().find(|e| matches!(e, Event::Ask { .. }))
+    else {
+        panic!("no question in {seen:?}");
+    };
+    assert_eq!(tool, "Bash");
+    // Nothing has happened yet, and the summary says so — this is what a list of
+    // sessions shows as "waiting for you".
+    assert_eq!(session.summary().waiting, 1);
+    assert!(
+        !seen.iter().any(|e| matches!(e, Event::Turn { .. })),
+        "the turn has not finished while the question stands: {seen:?}"
+    );
+
+    session.decide(id, true, "").await.expect("approve");
+    let after = until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Turn { .. }))
+    })
+    .await;
+    assert!(
+        after
+            .iter()
+            .any(|e| matches!(e, Event::Text { text } if text == "allowed")),
+        "the session was told it may: {after:?}"
+    );
+    assert_eq!(session.summary().waiting, 0, "no longer waiting");
+}
+
+#[tokio::test]
+async fn a_refusal_carries_a_reason_and_the_session_goes_on() {
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    session.send("may i run something").await.expect("send");
+    let seen = until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Ask { .. }))
+    })
+    .await;
+    let Some(Event::Ask { id, .. }) = seen.iter().find(|e| matches!(e, Event::Ask { .. })) else {
+        panic!("no question");
+    };
+
+    session
+        .decide(id, false, "not that directory")
+        .await
+        .expect("refuse");
+    let after = until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Turn { .. }))
+    })
+    .await;
+    assert!(
+        after
+            .iter()
+            .any(|e| matches!(e, Event::Text { text } if text == "refused")),
+        "the refusal reached the session: {after:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_question_can_only_be_answered_once() {
+    // Two people can have the same session open. The second answer must be
+    // refused rather than sent, or the CLI is told twice about one question.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    session.send("may i run something").await.expect("send");
+    let seen = until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Ask { .. }))
+    })
+    .await;
+    let Some(Event::Ask { id, .. }) = seen.iter().find(|e| matches!(e, Event::Ask { .. })) else {
+        panic!("no question");
+    };
+
+    session.decide(id, true, "").await.expect("first answer");
+    let again = session.decide(id, false, "changed my mind").await;
+    assert!(again.is_err(), "the second answer is refused");
+    assert!(
+        format!("{:#}", again.unwrap_err()).contains("already"),
+        "and says why"
+    );
+}

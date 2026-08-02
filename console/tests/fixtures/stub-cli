@@ -1,10 +1,10 @@
 #!/bin/sh
 # A stand-in for `claude -p --input-format stream-json --output-format stream-json`.
 #
-# It exists so the session machinery — spawn, streaming, sending, clean exit on
-# stdin close — can be tested without spending a token or depending on the model
-# being reachable. It answers every message the same way and understands only
-# --session-id; the *protocol* is covered against a real capture in protocol.rs.
+# It exists so the session machinery — spawn, streaming, sending, asking for
+# permission, clean exit on stdin close — can be tested without spending a token
+# or depending on the model being reachable. It understands only --session-id;
+# the *protocol* is covered against a real capture in protocol.rs.
 
 session="unknown"
 while [ $# -gt 0 ]; do
@@ -19,8 +19,29 @@ printf '{"type":"system","subtype":"init","model":"stub","cwd":"%s","tools":["Ba
 
 # One reply per line of input, then exit 0 when stdin closes — the behaviour the
 # runner relies on for a session that lives across many turns.
-while IFS= read -r _line; do
-  printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"replayed"}]},"session_id":"%s"}\n' "$session"
-  printf '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ack"}},"session_id":"%s"}\n' "$session"
-  printf '{"type":"result","subtype":"success","total_cost_usd":0.25,"num_turns":1,"duration_ms":5,"session_id":"%s"}\n' "$session"
+while IFS= read -r line; do
+  case "$line" in
+    # An ANSWER to the question below. It reports what it was told, which is what
+    # lets a test drive a whole approval round trip and see the verdict land.
+    *'"control_response"'*)
+      case "$line" in
+        *'"allow"'*) verdict="allowed" ;;
+        *) verdict="refused" ;;
+      esac
+      printf '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"%s"}},"session_id":"%s"}\n' \
+        "$verdict" "$session"
+      printf '{"type":"result","subtype":"success","total_cost_usd":0,"num_turns":1,"duration_ms":1,"session_id":"%s"}\n' "$session"
+      ;;
+    # An instruction that wants to run something dangerous: ask, and say nothing
+    # more until answered — a real session blocks here too.
+    *'may i'*)
+      printf '{"type":"control_request","request_id":"ask-1","request":{"subtype":"can_use_tool","tool_name":"Bash","display_name":"Bash","input":{"command":"rm -rf /tmp/x"},"description":"delete a directory","tool_use_id":"toolu_stub"}}\n'
+      ;;
+    # Any other instruction: acknowledged, answered, done.
+    *)
+      printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"replayed"}]},"session_id":"%s"}\n' "$session"
+      printf '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ack"}},"session_id":"%s"}\n' "$session"
+      printf '{"type":"result","subtype":"success","total_cost_usd":0.25,"num_turns":1,"duration_ms":5,"session_id":"%s"}\n' "$session"
+      ;;
+  esac
 done

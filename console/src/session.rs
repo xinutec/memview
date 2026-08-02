@@ -12,7 +12,7 @@
 //! than once the CLI has announced itself — which means a client can subscribe
 //! to a session that is still starting, and `--resume` later takes the same id.
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -60,12 +60,19 @@ pub struct Summary {
     /// The first thing this session was asked to do, kept as its name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub asked: Option<String>,
+    /// How many questions it is blocked on. The one number that means "this
+    /// session cannot go on without you", so it belongs in the list of sessions
+    /// and not only on the page of one.
+    pub waiting: usize,
 }
 
 /// The mutable half of a session, behind one lock.
 #[derive(Debug, Default)]
 struct State {
     log: VecDeque<Event>,
+    /// Questions the session is blocked on, by control-request id, with the
+    /// arguments it asked about — an allow has to echo them back.
+    pending: BTreeMap<String, serde_json::Value>,
     alive: bool,
     model: Option<String>,
     busy: Option<String>,
@@ -119,6 +126,13 @@ impl Session {
             // landed; see `protocol::Event::Prompt`.
             .arg("--replay-user-messages")
             .args(["--session-id", &id])
+            // **The switch that makes approvals possible at all.** Undocumented
+            // in `--help` at 2.1.220 and found by reading the TypeScript SDK,
+            // which passes exactly this: without it a session in `manual` mode
+            // refuses every tool call outright and reports it in
+            // `permission_denials`, and no question ever reaches the client.
+            // With it, the CLI asks over the same stream it answers on.
+            .args(["--permission-prompt-tool", "stdio"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -216,6 +230,42 @@ impl Session {
         Ok(())
     }
 
+    /// Answer a question the session is blocked on.
+    ///
+    /// Refusing carries a reason, because the session is told it and can act on
+    /// it — "not now, do the read-only part first" is a useful thing to say to
+    /// an agent, and a bare denial is not.
+    ///
+    /// Answering an unknown id is an error rather than a silent success: the
+    /// likeliest cause is two people looking at the same session, and the second
+    /// one deserves to be told that the decision was already taken.
+    pub async fn decide(&self, id: &str, allowed: bool, why: &str) -> Result<()> {
+        let input = {
+            let state = self.state.lock().expect("session state poisoned");
+            state
+                .pending
+                .get(id)
+                .cloned()
+                .context("that question is not open — it may already have been answered")?
+        };
+        let line = protocol::decision(id, allowed, &input, why);
+        let mut held = self.stdin.lock().await;
+        let stdin = held
+            .as_mut()
+            .context("session is no longer accepting input")?;
+        stdin
+            .write_all(format!("{line}\n").as_bytes())
+            .await
+            .context("answering the session")?;
+        stdin.flush().await.context("flushing the answer")?;
+        drop(held);
+        self.push(Event::Answered {
+            id: id.to_string(),
+            allowed,
+        });
+        Ok(())
+    }
+
     /// End the session: close stdin, and kill it if it has not gone on its own.
     ///
     /// Closing stdin is the exit the CLI is built for. The timer behind it is
@@ -254,7 +304,19 @@ impl Session {
                 Event::Prompt { text } if state.asked.is_none() => {
                     state.asked = Some(text.clone());
                 }
-                Event::Exited { .. } => state.busy = None,
+                Event::Ask { id, input, .. } => {
+                    state.pending.insert(id.clone(), input.clone());
+                }
+                Event::Answered { id, .. } => {
+                    state.pending.remove(id);
+                }
+                Event::Exited { .. } => {
+                    state.busy = None;
+                    // Nothing can be approved for a process that has gone, and a
+                    // question left standing would keep saying the session is
+                    // waiting for someone.
+                    state.pending.clear();
+                }
                 _ => {}
             }
             if state.log.len() >= SCROLLBACK {
@@ -321,6 +383,7 @@ impl Session {
             turns: state.turns,
             cost_usd: state.cost_usd,
             asked: state.asked.clone(),
+            waiting: state.pending.len(),
         }
     }
 }

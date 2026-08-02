@@ -3,9 +3,10 @@
 A front end for talking to live Claude Code sessions on the Mac: read what they
 are doing, send new instructions, approve what they want to run.
 
-**Phase 1 is built** — `console/` (the runner) and `frontend/projects/console-web`
-(the UI), run with `scripts/console.sh`. Phases 2 and 3, which are the whole
-security argument, are not. This document records the decisions and the reasoning
+**Phase 1 and the approvals half of phase 2 are built** — `console/` (the runner)
+and `frontend/projects/console-web` (the UI), run with `scripts/console.sh`. What
+is not built is the part the security argument rests on: the client-certificate
+gate, and the phone. This document records the decisions and the reasoning
 behind them, so the parts that are not obvious from the code do not have to be
 re-derived.
 
@@ -99,6 +100,16 @@ one changed the design:
 - **Text arrives twice**: streamed as deltas and repeated in the completed
   message. Taking both shows every answer twice, so text comes from the deltas
   and tool calls from the completed message.
+- ⚠⚠ **`--permission-prompt-tool stdio` is the switch that makes approvals
+  possible, and `--help` does not mention it.** Found by reading the TypeScript
+  SDK, which passes exactly that when given a `canUseTool` callback. Without it a
+  `manual` session refuses every tool call outright and records it in
+  `permission_denials` — no question ever reaches the client, and an `initialize`
+  control request is accepted but changes nothing. With it, the CLI sends
+  `control_request`/`can_use_tool` on stdout carrying the tool, its arguments and
+  often its own one-line sentence, and waits for a `control_response` of
+  `{behavior: allow, updatedInput}` or `{behavior: deny, message}`. The console
+  speaks that directly; no SDK and no MCP server in the path.
 - ⚠ **In headless mode, the default permission mode refuses every tool call that
   needs permission.** A `Write` in a fresh session came back as an error with no
   file created; the same prompt under `--permission-mode acceptEdits` wrote the
@@ -119,16 +130,22 @@ claude -p --input-format stream-json --output-format stream-json \
 ```
 
 User messages go in as JSON lines on stdin; assistant messages, tool calls, tool
-results and partial deltas come back as JSON lines on stdout. Use
-`@anthropic-ai/claude-agent-sdk` rather than parsing the stream by hand — it is a
-typed wrapper over this protocol and is versioned in lockstep with the CLI
-(checked 2026-08-02: SDK 0.3.220 against CLI 2.1.220).
+results and partial deltas come back as JSON lines on stdout.
+
+**The runner reads this stream itself, in Rust** — Pippijn's call, 2026-08-02,
+over the TypeScript SDK. The SDK is a typed wrapper versioned in lockstep with
+the CLI (0.3.220 against 2.1.220), and the cost of declining it was accepted
+knowingly: the control protocol behind approvals had to be read off the wire
+rather than handed over. It was, and `protocol.rs` speaks it in about thirty
+lines. The SDK is still worth *reading* — it is where
+`--permission-prompt-tool stdio` was found.
 
 Authentication comes from the subprocess inheriting whatever `claude` already
 uses, so sessions stay on the subscription. Building against the Messages API
 instead would mean API billing and rebuilding the agent loop.
 
 Relevant flags: `--session-id`, `--resume`, `--fork-session`, `--permission-mode`,
+`--permission-prompt-tool stdio` (see above — undocumented and load-bearing),
 `--settings`, `--include-hook-events`, `--forward-subagent-text`.
 
 ### Where the percentages come from
@@ -346,11 +363,14 @@ phase is declined.
    this Mac.
    **Not done in phase 1:** the statusLine socket for the context and rate-limit
    percentages.
-2. **The gate: mTLS, key pinning, permission-mode approvals.** Provable with a
-   test key and `curl --cert` before any phone exists. Nothing binds off loopback
-   until this passes — the LAN is not a trusted network and the runner does not
-   listen on it unauthenticated for a single release. With the gate in place the
-   listener moves to the LAN address and the phone at home works.
+2. **Approvals ✅, then the gate.** Approvals are built: a session in
+   `--permission-mode manual` asks, the console shows the question, and nothing
+   runs until someone answers. What remains of this phase is **mTLS and key
+   pinning** — provable with a test key and `curl --cert` before any phone
+   exists. Nothing binds off loopback until that passes: the LAN is not a trusted
+   network and the runner does not listen on it unauthenticated for a single
+   release. With the gate in place the listener moves to the LAN address and the
+   phone at home works.
 3. **The phone path.** The Android client, StrongBox enrolment and attestation
    check, then the offsite half: the two firewall rules and whatever certificate
    the client shape ends up needing.

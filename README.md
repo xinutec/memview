@@ -136,11 +136,16 @@ design and the threat model.
 | `CLAUDE_BIN` | `claude` | the CLI to spawn |
 | `BIND_ADDR` | `127.0.0.1:8097` | must be loopback |
 
-⚠ **In headless mode the CLI's default permission mode refuses every tool call
-that needs permission** — measured, not assumed. Until the approval channel of
-phase 2 exists, a console left on the default can converse and little else;
-`CONSOLE_PERMISSION_MODE=acceptEdits` is what makes it useful in a directory you
-trust.
+**Approvals.** With `CONSOLE_PERMISSION_MODE=manual` the session asks before it
+runs anything, the console shows the question — the tool, its arguments, the
+CLI's own sentence — and nothing happens until someone answers; a refusal carries
+a reason the session is told. Sessions blocked on a question say *waiting for
+you* in the list.
+
+⚠ Left on the CLI's **default** mode a headless session refuses every tool call
+that needs permission and asks nobody, so it can converse and little else —
+measured, not assumed. `manual` is the useful setting now that approvals exist;
+`acceptEdits` still means a blanket yes for edits.
 
 ## Run (dev, Mac)
 

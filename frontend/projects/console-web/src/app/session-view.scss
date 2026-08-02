@@ -94,6 +94,34 @@
   flex: 1;
 }
 
+// A question is the one thing on this page that stops everything until it is
+// answered, so it is the only thing allowed to shout.
+.question {
+  border: 1px solid var(--mat-sys-primary);
+  border-radius: 0.5rem;
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: var(--mat-sys-surface-container-high);
+}
+
+.wants {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.choose {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.verdict {
+  font: var(--mat-sys-label-small);
+  color: var(--mat-sys-on-surface-variant);
+}
+
 .running {
   font: var(--mat-sys-label-small);
   opacity: 0.7;

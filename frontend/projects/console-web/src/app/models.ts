@@ -12,6 +12,8 @@ export interface Summary {
   busy?: string;
   turns: number;
   cost_usd: number;
+  /** Questions it is blocked on. Nonzero means it cannot go on without you. */
+  waiting: number;
   /** The first instruction, kept as the session's name. */
   asked?: string;
 }
@@ -36,6 +38,8 @@ export const KINDS = [
   'busy',
   'exited',
   'trouble',
+  'ask',
+  'answered',
 ] as const;
 
 export type Kind = (typeof KINDS)[number];
@@ -61,6 +65,10 @@ export interface SessionEvent {
   resets_at?: number;
   code?: number;
   detail?: string;
+  /** `ask` only: the tool it wants to run, and the question's own id. */
+  tool?: string;
+  title?: string;
+  allowed?: boolean;
 }
 
 /** What the transcript is drawn from.
@@ -69,9 +77,13 @@ export interface SessionEvent {
  *  screen, and a tool's result belongs with the call it answers rather than
  *  wherever it happened to arrive. */
 export interface Entry {
-  kind: 'said' | 'asked' | 'thought' | 'tool' | 'turn' | 'note';
+  kind: 'said' | 'asked' | 'thought' | 'tool' | 'turn' | 'note' | 'ask';
   text: string;
   /** Tool entries only, once the result comes back. */
   ok?: boolean;
   tool?: string;
+  /** `ask` entries only: the control-request id to answer with, and the verdict
+   *  once there is one. Undecided is the state that needs a person. */
+  ask?: string;
+  allowed?: boolean;
 }

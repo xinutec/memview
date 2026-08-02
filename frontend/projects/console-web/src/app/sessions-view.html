@@ -36,7 +36,11 @@
         <mat-card-content>
           <div class="head">
             <span class="place">{{ place(session) }}</span>
-            @if (session.alive) {
+            @if (session.waiting) {
+              <!-- Ahead of every other state: a blocked session is the only one
+                   that needs the reader to do something. -->
+              <span class="waiting">waiting for you</span>
+            } @else if (session.alive) {
               <span class="live" [class.working]="session.busy">
                 {{ session.busy ?? 'idle' }}
               </span>

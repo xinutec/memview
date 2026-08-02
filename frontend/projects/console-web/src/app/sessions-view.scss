@@ -31,6 +31,15 @@
   font: var(--mat-sys-title-small);
 }
 
+.waiting {
+  font: var(--mat-sys-label-small);
+  padding: 0.1rem 0.5rem;
+  border-radius: 1rem;
+  background: var(--mat-sys-tertiary-container);
+  color: var(--mat-sys-on-tertiary-container);
+  font-weight: 600;
+}
+
 .live,
 .ended {
   font: var(--mat-sys-label-small);

@@ -40,6 +40,22 @@
   @for (entry of visible(); track $index) {
     <li class="entry" [class]="entry.kind">
       @switch (entry.kind) {
+        @case ('ask') {
+          <div class="question">
+            <div class="wants">
+              <span class="tool-name">{{ entry.tool }}</span>
+              <span class="tool-arg">{{ entry.text }}</span>
+            </div>
+            @if (entry.allowed === undefined) {
+              <div class="choose">
+                <button matButton="filled" (click)="decide(entry, true)">allow</button>
+                <button matButton (click)="decide(entry, false)">refuse</button>
+              </div>
+            } @else {
+              <span class="verdict">{{ entry.allowed ? 'allowed' : 'refused' }}</span>
+            }
+          </div>
+        }
         @case ('tool') {
           <span class="tool-name">{{ entry.tool }}</span>
           <span class="tool-arg">{{ entry.text }}</span>

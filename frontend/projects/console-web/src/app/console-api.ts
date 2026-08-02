@@ -22,6 +22,15 @@ export class ConsoleApi {
     return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/input`, { text });
   }
 
+  /** Answer a question the session is blocked on. */
+  decide(session: string, id: string, allow: boolean, why?: string): Observable<Summary> {
+    return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(session)}/decide`, {
+      id,
+      allow,
+      why,
+    });
+  }
+
   stop(id: string): Observable<Summary> {
     return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/stop`, {});
   }

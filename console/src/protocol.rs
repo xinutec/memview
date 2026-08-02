@@ -79,6 +79,27 @@ pub enum Event {
     Busy {
         status: String,
     },
+    /// The session wants to run something and is waiting to be told whether it
+    /// may. Nothing else happens in that session until it is answered.
+    Ask {
+        /// The control request's id, which the answer must carry back.
+        id: String,
+        tool: String,
+        /// The CLI's own one-line rendering of the question, when it offers one
+        /// — better than anything reconstructed from the arguments.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        detail: Option<String>,
+        input: serde_json::Value,
+    },
+    /// A question that has been answered, by whom and how. Sent so that a second
+    /// client watching the same session stops offering a decision that has
+    /// already been taken.
+    Answered {
+        id: String,
+        allowed: bool,
+    },
     /// The subprocess ended. Terminal: nothing follows it.
     Exited {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -109,6 +130,28 @@ enum Line {
     Result(Turn),
     RateLimitEvent {
         rate_limit_info: Limit,
+    },
+    ControlRequest {
+        request_id: String,
+        request: Control,
+    },
+    #[serde(other)]
+    Other,
+}
+
+/// A question from the CLI. Only one subtype is answered here; the rest are for
+/// clients that offer more than this one does.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "subtype", rename_all = "snake_case")]
+enum Control {
+    CanUseTool {
+        tool_name: String,
+        #[serde(default)]
+        input: serde_json::Value,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        description: Option<String>,
     },
     #[serde(other)]
     Other,
@@ -268,8 +311,45 @@ pub fn read(line: &str) -> Vec<Event> {
             status: rate_limit_info.status,
             resets_at: rate_limit_info.resets_at,
         }],
+        Line::ControlRequest {
+            request_id,
+            request:
+                Control::CanUseTool {
+                    tool_name,
+                    input,
+                    title,
+                    description,
+                },
+        } => vec![Event::Ask {
+            id: request_id,
+            tool: tool_name,
+            title,
+            detail: description,
+            input,
+        }],
+        Line::ControlRequest { .. } => Vec::new(),
         Line::Other => Vec::new(),
     }
+}
+
+/// The answer to a `can_use_tool` question, in the shape the CLI reads.
+///
+/// **An allow must carry the arguments back.** The protocol lets a client edit
+/// what it is approving — that is what `updatedInput` is for — and the console
+/// approves what was asked, so it echoes the input unchanged rather than
+/// omitting it. A deny carries a message, which the session sees as the reason
+/// and can act on.
+pub fn decision(id: &str, allowed: bool, input: &serde_json::Value, why: &str) -> String {
+    let response = if allowed {
+        serde_json::json!({"behavior": "allow", "updatedInput": input})
+    } else {
+        serde_json::json!({"behavior": "deny", "message": why})
+    };
+    serde_json::json!({
+        "type": "control_response",
+        "response": {"subtype": "success", "request_id": id, "response": response},
+    })
+    .to_string()
 }
 
 /// One user message, in the shape the CLI reads on stdin.
