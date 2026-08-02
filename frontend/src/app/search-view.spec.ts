@@ -19,7 +19,10 @@ const WORKERS: WorkMatch[] = [
     file_commits: 12,
     hosts: ['odin'],
     files: [
-      { path: 'xinutec-infra/plan/types.dhall', reads: 0, edits: 7, shell_reads: 0, shell_edits: 0, added: 300, deleted: 12, commits: 4 },
+      // Renamed, and carrying the history of the name it had before — which
+      // the row must say, or a file created last week appears to have a year of
+      // work behind it out of nowhere.
+      { path: 'xinutec-infra/plan/types.dhall', was: ['xinutec-infra/plan/schema.dhall'], reads: 0, edits: 7, shell_reads: 0, shell_edits: 0, added: 300, deleted: 12, commits: 4 },
       // Changed from the shell as well as from `Edit`, which is what the
       // provenance line beside the totals exists to show.
       { path: 'xinutec-infra/plan/deploy.dhall', reads: 1, edits: 2, shell_reads: 1, shell_edits: 1, added: 0, deleted: 0, commits: 0 },
@@ -101,10 +104,24 @@ describe('SearchView — who works on this', () => {
 
     const paths = [...el.querySelectorAll('.workers .file-list code')].map((n) => n.textContent);
     expect(paths.map((p) => p?.replace(/\s+/g, ''))).toEqual([
-      'xinutec-infra/plan/types.dhall',
+      // The first carries its former name, which is part of what the file IS.
+      'xinutec-infra/plan/types.dhallwasxinutec-infra/plan/schema.dhall',
       'xinutec-infra/plan/deploy.dhall',
       'odin:/etc/nixos/flake.nix',
     ]);
+  });
+
+  it('names a file that used to be called something else', async () => {
+    // Git is the only evidence that two names are one file. Without saying so,
+    // a file created last week appears to carry a year of history from nowhere.
+    const el = await search(WORKERS);
+    el.querySelector<HTMLButtonElement>('.workers .worker')!.click();
+    await fixture.whenStable();
+
+    const was = [...el.querySelectorAll('.workers .file-list .was')].map((n) =>
+      n.textContent?.trim(),
+    );
+    expect(was).toEqual(['was xinutec-infra/plan/schema.dhall']);
   });
 
   it('says which of a file’s changes came from the shell, and only where some did', async () => {

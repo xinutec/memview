@@ -202,6 +202,12 @@ export interface LineDelta {
 /** One file a query matched, and how one agent used it. */
 export interface WorkFile {
   path: string;
+  /**
+   * The names this file used to have, newest last. Absent for the ordinary
+   * case; present, it is why a file created last week can carry a year of
+   * history — and unsaid, that history reads as a counting bug.
+   */
+  was?: string[];
   /** Every use, tool call and shell command together. */
   reads: number;
   edits: number;
@@ -293,6 +299,8 @@ export interface Agent {
 
 export interface AgentsResult {
   generated: string;
+  /** Where each renamed file ended up, old name to current. */
+  renames: Record<string, string>;
   /**
    * Commits found under the code root, and how many no transcript mentions.
    * Reported rather than dropped: Claude Code prunes old sessions, so anything

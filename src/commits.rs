@@ -25,11 +25,17 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// One commit's effect on one file.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileDelta {
     /// Repo-relative to the code root — `xinutec-infra/plan/backup.dhall`, the
     /// same key the tool-call and shell dimensions use.
     pub path: String,
+    /// What the file was called before this commit, when the commit renamed it.
+    ///
+    /// The only place in the fleet's evidence where a file's two names are known
+    /// to be one file. Without it every rename splits a file's history in two
+    /// and says nothing about the join.
+    pub was: Option<String>,
     pub added: usize,
     pub deleted: usize,
 }
@@ -66,9 +72,15 @@ pub fn repositories(code_root: &Path) -> Vec<PathBuf> {
 
 /// Every commit in one repository, with per-file line counts.
 ///
-/// `--no-renames` on purpose: a rename reported as one is 0 added and 0
-/// deleted, and the file then vanishes from the record of who worked on it.
-/// Split into a delete and an add, both agents' work stays visible.
+/// **Renames are detected, and that was a correction** (2026-08-02). This ran
+/// with `--no-renames` on the reasoning that a rename reported as one is 0
+/// added and 0 deleted, so the file would vanish from the record. It does not:
+/// `--numstat` still emits a row for it, carrying the touch without the lines.
+/// What `--no-renames` actually did was **restate every moved file as a whole
+/// deletion and a whole addition** — so a directory reshuffle read as writing
+/// the tree from scratch. Measured across four repositories, it inflated lines
+/// added by 6–17% and lines *deleted* by 33–41%, and it landed on whoever ran
+/// `git mv` rather than on whoever wrote the code.
 ///
 /// Merges are skipped (`--no-merges`): a merge commit's diff restates changes
 /// already counted against whoever actually made them.
@@ -86,7 +98,7 @@ pub fn history(repo: &Path, code_root: &Path) -> Vec<Commit> {
         .args([
             "log",
             "--numstat",
-            "--no-renames",
+            "--find-renames",
             "--no-merges",
             "--format=\x01%H\x01%cI",
         ])
@@ -123,13 +135,43 @@ pub fn history(repo: &Path, code_root: &Path) -> Vec<Commit> {
         let (Ok(added), Ok(deleted)) = (added.parse(), deleted.parse()) else {
             continue;
         };
+        let (was, path) = renamed(path);
         commit.files.push(FileDelta {
             path: format!("{prefix}/{path}"),
+            was: was.map(|old| format!("{prefix}/{old}")),
             added,
             deleted,
         });
     }
     commits
+}
+
+/// The old and new names in a `--numstat` path, when it reports a rename.
+///
+/// Git writes the common parts once and brackets what changed:
+/// `code/kubes/ircd/{inspircd => k8s}/ircd.yaml`, and with an empty side when a
+/// file moved into or out of a directory — `code/kubes/ircd/{ => k8s}/x.yaml`.
+/// When nothing at all is shared it drops the braces: `old.rs => new.rs`.
+///
+/// Returns `(None, path)` for an ordinary change, so a caller need not ask
+/// which shape it got.
+pub fn renamed(path: &str) -> (Option<String>, String) {
+    let Some((open, rest)) = path.split_once('{') else {
+        return match path.split_once(" => ") {
+            Some((from, to)) => (Some(from.to_string()), to.to_string()),
+            None => (None, path.to_string()),
+        };
+    };
+    let Some((from, rest)) = rest.split_once(" => ") else {
+        return (None, path.to_string());
+    };
+    let Some((to, close)) = rest.split_once('}') else {
+        return (None, path.to_string());
+    };
+    // An empty side leaves a doubled separator — `a/{ => b}/c` is `a//c` — which
+    // is a different path from the one git meant.
+    let join = |middle: &str| format!("{open}{middle}{close}").replace("//", "/");
+    (Some(join(from)), join(to))
 }
 
 /// Every commit under the code root, newest first within each repository.

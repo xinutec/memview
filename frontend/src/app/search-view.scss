@@ -174,5 +174,13 @@
       color: var(--mat-sys-on-surface-variant);
       font: var(--mat-sys-body-small);
     }
+
+    // The old name, on the path itself rather than among the counts: it is part
+    // of what this file IS, not of how much was done to it.
+    .was {
+      color: var(--mat-sys-outline);
+      font-style: italic;
+      margin-left: 6px;
+    }
   }
 }

@@ -49,3 +49,55 @@ fn each_segment_of_a_uuid_is_offered_separately() {
     let ids = hash_candidates(b"7c0202eb-080b-40a5-a654-8758b4ca723e a4f4b7c");
     assert!(ids.contains(&"a4f4b7c"), "the real hash survives: {ids:?}");
 }
+
+/// The `--numstat` rename forms, which are the only place in the fleet's
+/// evidence where two names are known to be one file.
+#[test]
+fn a_renamed_path_gives_both_of_its_names() {
+    use memview::commits::renamed;
+    let owned = |(was, path): (Option<String>, String)| (was.unwrap_or_default(), path);
+
+    // Nothing in common: git drops the braces.
+    assert_eq!(
+        owned(renamed("src/geo/osm.ts => src/geo/overpass.ts")),
+        (
+            "src/geo/osm.ts".to_string(),
+            "src/geo/overpass.ts".to_string()
+        )
+    );
+    // A shared prefix and suffix, written once.
+    assert_eq!(
+        owned(renamed("code/kubes/ircd/{inspircd => k8s}/ircd.yaml")),
+        (
+            "code/kubes/ircd/inspircd/ircd.yaml".to_string(),
+            "code/kubes/ircd/k8s/ircd.yaml".to_string()
+        )
+    );
+    // Moved INTO a directory: the old side is empty, and the doubled separator
+    // it leaves behind is a different path from the one git meant.
+    assert_eq!(
+        owned(renamed("code/kubes/ircd/{ => k8s}/net.yaml")),
+        (
+            "code/kubes/ircd/net.yaml".to_string(),
+            "code/kubes/ircd/k8s/net.yaml".to_string()
+        )
+    );
+    // …and out of one.
+    assert_eq!(
+        owned(renamed("plan/{old => }/types.dhall")),
+        (
+            "plan/old/types.dhall".to_string(),
+            "plan/types.dhall".to_string()
+        )
+    );
+}
+
+#[test]
+fn an_ordinary_path_is_left_alone() {
+    use memview::commits::renamed;
+    // Including one with a brace in it, which is a filename and not a rename.
+    for path in ["src/geo/osm.ts", "frontend/src/app/{weird}.ts"] {
+        let (was, out) = renamed(path);
+        assert_eq!((was, out), (None, path.to_string()));
+    }
+}

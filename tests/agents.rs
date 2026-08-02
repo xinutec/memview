@@ -307,6 +307,7 @@ fn an_agent_records_the_session_ids_filed_under_it_but_not_its_subagents() {
 /// A roster from mined agents, for the query tests.
 fn roster_of(agents: Vec<Agent>) -> Agents {
     Agents {
+        renames: Default::default(),
         generated: "2026-08-01T00:00:00Z".into(),
         commits: 0,
         unattributed: 0,
@@ -449,6 +450,7 @@ fn an_empty_query_asks_nothing_and_is_answered_with_nothing() {
 fn a_session_resolves_to_its_agent_and_a_forgotten_one_to_nobody() {
     let lines = vec![call(Tool::Write, "/code/thing/x", "2026-07-01T10:00:00Z")];
     let roster = Agents {
+        renames: Default::default(),
         generated: "2026-07-31T00:00:00Z".into(),
         commits: 0,
         unattributed: 0,
@@ -870,6 +872,7 @@ fn a_file_changed_from_the_shell_is_counted_as_its_own_dimension() {
     // ...and the query sums them, reporting the shell's share separately so the
     // evidence can be checked rather than believed.
     let roster = Agents {
+        renames: Default::default(),
         generated: String::new(),
         commits: 0,
         unattributed: 0,
@@ -1055,4 +1058,124 @@ fn work_on_another_machine_is_kept_under_that_machine() {
     assert_eq!(remote.edits, 1);
     // Remote use can only have come from a shell payload.
     assert_eq!(remote.shell_edits, 1);
+}
+
+/// A repository whose one file was written, then renamed, in two commits.
+/// Returns both hashes, newest last.
+fn commit_then_rename(dir: &std::path::Path, from: &str, to: &str) -> (String, String) {
+    let run = |args: &[&str]| {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .env("GIT_AUTHOR_NAME", "Test")
+            .env("GIT_AUTHOR_EMAIL", "test@example.com")
+            .env("GIT_COMMITTER_NAME", "Test")
+            .env("GIT_COMMITTER_EMAIL", "test@example.com")
+            // Fixed dates pin the hashes, for the reason `one_commit` explains.
+            .env("GIT_AUTHOR_DATE", "2026-07-01T10:00:00Z")
+            .env("GIT_COMMITTER_DATE", "2026-07-01T10:00:00Z")
+            .output()
+            .expect("git runs in the devshell")
+    };
+    let head = || {
+        String::from_utf8(run(&["rev-parse", "HEAD"]).stdout)
+            .unwrap()
+            .trim()
+            .to_string()
+    };
+    std::fs::create_dir_all(dir.join(from).parent().unwrap()).unwrap();
+    run(&["init", "-q"]);
+    std::fs::write(dir.join(from), "one\ntwo\nthree\n").unwrap();
+    run(&["add", from]);
+    run(&["commit", "-qm", "write"]);
+    let first = head();
+    run(&["mv", from, to]);
+    run(&["commit", "-qm", "rename"]);
+    (first, head())
+}
+
+#[test]
+fn a_renamed_file_keeps_the_history_it_had_under_its_old_name() {
+    // The failure this pins is silent: ask who works on the file and you are
+    // told about the days since it was renamed, with no sign that the rest
+    // exists. Git is the only one of the three dimensions that knows the two
+    // names are one file, so its answer is applied to all of them.
+    //
+    // And a pure move must not read as writing the file: `git mv` of a
+    // three-line file used to count three lines added and three deleted.
+    let dir = std::env::temp_dir().join(format!("renames-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let code = dir.join("code");
+    let (wrote, moved) = commit_then_rename(&code.join("demo"), "src/osm.ts", "src/overpass.ts");
+
+    let projects = dir.join("projects/-code");
+    let sessions = dir.join("sessions");
+    std::fs::create_dir_all(&projects).unwrap();
+    std::fs::create_dir_all(&sessions).unwrap();
+    // One session: it edited the file under its old name, then made both
+    // commits, so every dimension has evidence under both names.
+    let line = |stamp: &str, text: &str| {
+        format!(
+            "{{\"type\":\"assistant\",\"timestamp\":\"{stamp}\",\"message\":{{\"content\":[{{\"type\":\"text\",\"text\":\"{text}\"}}]}}}}"
+        )
+    };
+    // The path has to sit under the temporary code root, or the miner drops it
+    // as work outside the fleet — which is exactly what it should do.
+    let edit = format!(
+        "{{\"type\":\"assistant\",\"timestamp\":\"2026-07-01T09:00:00Z\",\"cwd\":\"{root}/demo\",\"message\":{{\"content\":[{{\"type\":\"tool_use\",\"name\":\"Edit\",\"input\":{{\"replace_all\":false,\"file_path\":\"{root}/demo/src/osm.ts\"}}}}]}}}}",
+        root = code.display()
+    );
+    std::fs::write(
+        projects.join("s1.jsonl"),
+        format!(
+            "{edit}\n{}\n{}\n",
+            line(
+                "2026-07-01T10:00:00Z",
+                &format!("[main {}] write", &wrote[..7])
+            ),
+            line(
+                "2026-07-01T11:00:00Z",
+                &format!("[main {}] rename", &moved[..7])
+            ),
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        sessions.join("1.json"),
+        r#"{"sessionId":"s1","name":"geo"}"#,
+    )
+    .unwrap();
+
+    let found = scan(
+        &dir.join("projects"),
+        &sessions,
+        code.to_str().unwrap(),
+        "/mem",
+        "/home/example",
+        "2026-07-31T00:00:00Z",
+    )
+    .unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+
+    assert_eq!(
+        found.renames.get("demo/src/osm.ts"),
+        Some(&"demo/src/overpass.ts".to_string()),
+        "git knows the two names are one file"
+    );
+    let agent = &found.agents[0];
+    // The tool edit was filed under the old name and now belongs to the new one.
+    assert!(!agent.paths.contains_key("demo/src/osm.ts"));
+    assert_eq!(agent.paths["demo/src/overpass.ts"].edits, 1);
+    // Three lines written once — not written twice and deleted once, which is
+    // what a rename read as a delete-plus-add came to.
+    let lines = &agent.commit_lines["demo/src/overpass.ts"];
+    assert_eq!((lines.added, lines.deleted), (3, 0));
+
+    // Asked about the name it no longer has, the file still answers.
+    let old = found.who_works_on("osm.ts");
+    assert_eq!(old.len(), 1, "the old name finds the work");
+    assert_eq!(old[0].files[0].path, "demo/src/overpass.ts");
+    assert_eq!(old[0].files[0].was, ["demo/src/osm.ts"]);
+    assert_eq!(found.who_works_on("overpass").len(), 1);
 }

@@ -98,6 +98,7 @@ fn corpus_with_an_origin(dir: &std::path::Path) -> String {
     )
     .expect("memory");
     let agents = memview::agents::Agents {
+        renames: Default::default(),
         generated: "2026-08-01T00:00:00Z".into(),
         commits: 0,
         unattributed: 0,

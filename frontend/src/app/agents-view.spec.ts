@@ -45,6 +45,7 @@ const AGENT: Agent = {
 
 const RESULT: AgentsResult = {
   generated: '2026-08-02T12:00:00Z',
+  renames: {},
   commits: 10,
   unattributed: 1,
   agents: [AGENT],

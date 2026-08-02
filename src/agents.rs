@@ -220,6 +220,13 @@ pub struct WorkMatch {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkFile {
     pub path: String,
+    /// The names this file used to have, newest last.
+    ///
+    /// Empty for the ordinary case. Present, it is the reason a file created
+    /// last week can carry a year of history — and without saying so, that
+    /// history reads as a counting bug.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub was: Vec<String>,
     /// Every use, tool call and shell command together.
     pub reads: usize,
     pub edits: usize,
@@ -265,6 +272,14 @@ pub struct Agents {
     pub commits: usize,
     #[serde(default)]
     pub unattributed: usize,
+    /// Where each renamed file ended up, old name to current.
+    ///
+    /// Kept in the artefact rather than applied and forgotten, for two reasons:
+    /// a query for the name a file *used* to have must still find it, and a
+    /// reader looking at forty changes to a file created last week deserves to
+    /// be told the history came from somewhere else.
+    #[serde(default)]
+    pub renames: BTreeMap<String, String>,
     /// Named sessions, busiest first.
     pub agents: Vec<Agent>,
 }
@@ -308,6 +323,19 @@ impl Agents {
         if needle.is_empty() {
             return Vec::new();
         }
+        // A file keeps the evidence filed under the names it used to have, so a
+        // query for one of those names must find it — otherwise renaming a file
+        // hides its own history from the only person looking for it.
+        let mut aliases: BTreeMap<&String, Vec<&String>> = BTreeMap::new();
+        for (was, now) in &self.renames {
+            aliases.entry(now).or_default().push(was);
+        }
+        let named = |path: &String| -> bool {
+            path.to_lowercase().contains(&needle)
+                || aliases
+                    .get(path)
+                    .is_some_and(|was| was.iter().any(|old| old.to_lowercase().contains(&needle)))
+        };
         let mut out: Vec<WorkMatch> = self
             .agents
             .iter()
@@ -315,11 +343,13 @@ impl Agents {
                 // The two dimensions are unioned here rather than at mining
                 // time, so a file used both ways is one row and not two.
                 let mut merged: BTreeMap<&String, WorkFile> = BTreeMap::new();
-                let matching = |(path, _): &(&String, &MemoryUse)| -> bool {
-                    path.to_lowercase().contains(&needle)
-                };
+                let matching = |(path, _): &(&String, &MemoryUse)| -> bool { named(path) };
                 let blank = |path: &String| WorkFile {
                     path: path.clone(),
+                    was: aliases
+                        .get(path)
+                        .map(|was| was.iter().map(|s| (*s).clone()).collect())
+                        .unwrap_or_default(),
                     host: None,
                     reads: 0,
                     edits: 0,
@@ -345,11 +375,7 @@ impl Agents {
                 // they are attached to the row and never added to its counts. A
                 // file can appear here having never been opened by a tool call
                 // at all — created by a script, or edited on another machine.
-                for (path, delta) in agent
-                    .commit_lines
-                    .iter()
-                    .filter(|(path, _)| path.to_lowercase().contains(&needle))
-                {
+                for (path, delta) in agent.commit_lines.iter().filter(|(path, _)| named(path)) {
                     let file = merged.entry(path).or_insert_with(|| blank(path));
                     file.added = delta.added;
                     file.deleted = delta.deleted;
@@ -373,6 +399,9 @@ impl Agents {
                     hosts.insert(host.clone());
                     files.push(WorkFile {
                         path,
+                        // Renames are git's knowledge, and git is not watching
+                        // the other machine.
+                        was: Vec::new(),
                         host: Some(host),
                         reads: use_.reads,
                         edits: use_.edits,
@@ -1122,7 +1151,18 @@ pub fn scan(
         }
     }
 
+    // A file that was renamed has been filed under both of its names all along
+    // — by the tool calls that edited it before the move, by the shell that
+    // touched it after, and by git on either side. Git is the only one of the
+    // three that knows the two are one file, so its answer is applied to all of
+    // them here, at the end, where every dimension is complete.
+    let renames = renames(&history);
     let mut agents: Vec<Agent> = by_name.into_values().collect();
+    for agent in &mut agents {
+        agent.paths = rename_keys(std::mem::take(&mut agent.paths), &renames);
+        agent.shell_paths = rename_keys(std::mem::take(&mut agent.shell_paths), &renames);
+        agent.commit_lines = rename_keys(std::mem::take(&mut agent.commit_lines), &renames);
+    }
     agents.sort_by_key(|a| {
         let total: usize = a.reads.values().sum::<usize>() + a.writes.values().sum::<usize>();
         (std::cmp::Reverse(total), a.name.clone())
@@ -1131,6 +1171,75 @@ pub fn scan(
         generated: generated.to_string(),
         commits: history.len(),
         unattributed,
+        renames,
         agents,
     })
+}
+
+/// Where each old path ended up, following a chain of renames to the end.
+///
+/// The history arrives newest-first, so a file renamed twice is met at its
+/// latest name first and the chain is walked forward from each entry rather
+/// than assumed to be one step. Bounded, because a rename cycle — `a → b` in
+/// one commit and `b → a` in another — is a thing git will happily record.
+fn renames(history: &[crate::commits::Commit]) -> BTreeMap<String, String> {
+    let mut step: BTreeMap<String, String> = BTreeMap::new();
+    for commit in history {
+        for file in &commit.files {
+            if let Some(was) = &file.was
+                && was != &file.path
+            {
+                // Newest first, so an earlier commit's rename of the same name
+                // is the *older* fact and must not overwrite the newer one.
+                step.entry(was.clone()).or_insert_with(|| file.path.clone());
+            }
+        }
+    }
+    step.keys()
+        .map(|from| {
+            let mut to = from;
+            for _ in 0..8 {
+                match step.get(to) {
+                    Some(next) if next != from => to = next,
+                    _ => break,
+                }
+            }
+            (from.clone(), to.clone())
+        })
+        .filter(|(from, to)| from != to)
+        .collect()
+}
+
+/// Re-key a path map onto the names those files now have.
+fn rename_keys<T: Default + Merge>(
+    map: BTreeMap<String, T>,
+    renames: &BTreeMap<String, String>,
+) -> BTreeMap<String, T> {
+    let mut out: BTreeMap<String, T> = BTreeMap::new();
+    for (path, value) in map {
+        let key = renames.get(&path).cloned().unwrap_or(path);
+        out.entry(key).or_default().merge(value);
+    }
+    out
+}
+
+/// Adding one file's figures to another's — what re-keying two names onto one
+/// file has to do with the two sets of counts it finds there.
+pub trait Merge {
+    fn merge(&mut self, other: Self);
+}
+
+impl Merge for MemoryUse {
+    fn merge(&mut self, other: Self) {
+        self.reads += other.reads;
+        self.edits += other.edits;
+    }
+}
+
+impl Merge for LineDelta {
+    fn merge(&mut self, other: Self) {
+        self.added += other.added;
+        self.deleted += other.deleted;
+        self.commits += other.commits;
+    }
 }
