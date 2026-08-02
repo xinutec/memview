@@ -94,6 +94,22 @@ pub struct Agent {
     /// files, and the `Write`/`Edit` miner sees none of it.
     #[serde(default)]
     pub shell_paths: BTreeMap<String, MemoryUse>,
+    /// Lines committed, per repo-relative path — the third dimension, and the
+    /// only one that measures *size* rather than counting operations.
+    ///
+    /// A `Write` of three hundred lines and a one-character `Edit` are both
+    /// worth 1 to the maps above. This is what tells them apart, and it is also
+    /// the only evidence that survived review: an experiment written and thrown
+    /// away leaves tool calls behind and leaves nothing here.
+    ///
+    /// Attributed by [`crate::commits`]'s earliest-mention rule, so a commit
+    /// nobody's transcript mentions is counted nowhere and reported as
+    /// unattributed rather than assigned to a guess.
+    #[serde(default)]
+    pub commit_lines: BTreeMap<String, LineDelta>,
+    /// Commits attributed to this agent, across every repository.
+    #[serde(default)]
+    pub commits: usize,
     /// Which memories this agent works with, keyed by memory name.
     ///
     /// The companion to `reads`/`writes` and a different question: those say
@@ -137,6 +153,21 @@ pub struct MemoryUse {
     pub edits: usize,
 }
 
+/// What one agent's commits did to one file.
+///
+/// Added and deleted stay apart: a rewrite that removes 181 lines and adds 594
+/// is not the same work as writing 413 from nothing, and one net figure would
+/// call them equal. Deletion is work too — the largest single change to the
+/// Dhall configs in this corpus is the removal of a file that had rotted.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LineDelta {
+    pub added: usize,
+    pub deleted: usize,
+    /// Commits touching this path — so a thousand lines in one sitting reads
+    /// differently from a thousand across twenty.
+    pub commits: usize,
+}
+
 /// One agent's answer to "who works on this", with the evidence attached.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkMatch {
@@ -146,6 +177,19 @@ pub struct WorkMatch {
     /// Reads across the same files. Reported, never added to `edits`: consulting
     /// a subtree and being responsible for it are different claims.
     pub reads: usize,
+    /// Lines committed across the matching files, and the commits that carried
+    /// them. Reported beside the counts, never folded in: this is the same work
+    /// measured a second way, and adding the two would count it twice.
+    #[serde(default)]
+    pub added: usize,
+    #[serde(default)]
+    pub deleted: usize,
+    /// **File changes committed, not commits.** One commit touching four
+    /// matching files counts four, because the per-path record does not keep
+    /// which commit was which and a distinct count cannot be recovered from it.
+    /// Named for what it measures rather than for what a reader might assume.
+    #[serde(default)]
+    pub file_commits: usize,
     /// The matching files, heaviest first — the evidence for the row above.
     pub files: Vec<WorkFile>,
 }
@@ -163,6 +207,13 @@ pub struct WorkFile {
     /// through `sed` — and without this split there is no way to see that.
     pub shell_reads: usize,
     pub shell_edits: usize,
+    /// Lines this agent committed to the file, and in how many commits.
+    #[serde(default)]
+    pub added: usize,
+    #[serde(default)]
+    pub deleted: usize,
+    #[serde(default)]
+    pub commits: usize,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -171,6 +222,18 @@ pub struct Agents {
     /// because an mtime records the last copy rather than the last derivation.
     #[serde(default)]
     pub generated: String,
+    /// Commits found under the code root, and how many of them no transcript
+    /// mentions.
+    ///
+    /// Reported rather than quietly dropped. Claude Code prunes its own old
+    /// sessions and plenty of this history predates the corpus entirely, so an
+    /// unattributed commit is the ordinary case for anything old — and a reader
+    /// comparing these line counts against `git log` needs to know how much of
+    /// the history they cover before concluding somebody did less than they did.
+    #[serde(default)]
+    pub commits: usize,
+    #[serde(default)]
+    pub unattributed: usize,
     /// Named sessions, busiest first.
     pub agents: Vec<Agent>,
 }
@@ -224,30 +287,41 @@ impl Agents {
                 let matching = |(path, _): &(&String, &MemoryUse)| -> bool {
                     path.to_lowercase().contains(&needle)
                 };
+                let blank = |path: &String| WorkFile {
+                    path: path.clone(),
+                    reads: 0,
+                    edits: 0,
+                    shell_reads: 0,
+                    shell_edits: 0,
+                    added: 0,
+                    deleted: 0,
+                    commits: 0,
+                };
                 for (path, use_) in agent.paths.iter().filter(matching) {
-                    merged.insert(
-                        path,
-                        WorkFile {
-                            path: path.clone(),
-                            reads: use_.reads,
-                            edits: use_.edits,
-                            shell_reads: 0,
-                            shell_edits: 0,
-                        },
-                    );
+                    let file = merged.entry(path).or_insert_with(|| blank(path));
+                    file.reads += use_.reads;
+                    file.edits += use_.edits;
                 }
                 for (path, use_) in agent.shell_paths.iter().filter(matching) {
-                    let file = merged.entry(path).or_insert_with(|| WorkFile {
-                        path: path.clone(),
-                        reads: 0,
-                        edits: 0,
-                        shell_reads: 0,
-                        shell_edits: 0,
-                    });
+                    let file = merged.entry(path).or_insert_with(|| blank(path));
                     file.reads += use_.reads;
                     file.edits += use_.edits;
                     file.shell_reads = use_.reads;
                     file.shell_edits = use_.edits;
+                }
+                // Committed lines are the same work measured a second way, so
+                // they are attached to the row and never added to its counts. A
+                // file can appear here having never been opened by a tool call
+                // at all — created by a script, or edited on another machine.
+                for (path, delta) in agent
+                    .commit_lines
+                    .iter()
+                    .filter(|(path, _)| path.to_lowercase().contains(&needle))
+                {
+                    let file = merged.entry(path).or_insert_with(|| blank(path));
+                    file.added = delta.added;
+                    file.deleted = delta.deleted;
+                    file.commits = delta.commits;
                 }
                 let mut files: Vec<WorkFile> = merged.into_values().collect();
                 if files.is_empty() {
@@ -264,6 +338,9 @@ impl Agents {
                     name: agent.name.clone(),
                     edits: files.iter().map(|f| f.edits).sum(),
                     reads: files.iter().map(|f| f.reads).sum(),
+                    added: files.iter().map(|f| f.added).sum(),
+                    deleted: files.iter().map(|f| f.deleted).sum(),
+                    file_commits: files.iter().map(|f| f.commits).sum(),
                     files,
                 })
             })
@@ -606,12 +683,54 @@ pub fn bash_calls(line: &[u8]) -> Option<(Option<String>, Vec<String>)> {
     Some((cwd, commands))
 }
 
+/// The first time each commit hash was mentioned, and by whom.
+///
+/// A hash does not exist until the commit is made, so the earliest mention is
+/// the session that made it. Keyed by full sha; the value is the timestamp and
+/// the agent name.
+type FirstSeen = BTreeMap<String, (String, String)>;
+
+/// Full hashes by their seven-character prefix, for recognising a mention.
+type ShaIndex = BTreeMap<String, Vec<String>>;
+
+/// Note any commit hash this line mentions, keeping the earliest sighting.
+fn note_hashes(
+    line: &[u8],
+    stamp: Option<&str>,
+    index: &ShaIndex,
+    name: &str,
+    first: &mut FirstSeen,
+) {
+    let Some(stamp) = stamp else {
+        return;
+    };
+    for candidate in crate::commits::hash_candidates(line) {
+        let Some(shas) = index.get(&candidate[..crate::commits::SHORT]) else {
+            continue;
+        };
+        // The whole candidate must prefix the hash, not just its first seven
+        // characters — a longer mention is a stronger claim, and checking it is
+        // what keeps a `git log` printing nine from matching the wrong commit.
+        for sha in shas.iter().filter(|sha| sha.starts_with(candidate)) {
+            match first.get(sha) {
+                Some((seen, _)) if seen.as_str() <= stamp => {}
+                _ => {
+                    first.insert(sha.clone(), (stamp.to_string(), name.to_string()));
+                }
+            }
+        }
+    }
+}
+
 /// Count one transcript's tool calls into `agent`, and note the days.
+#[allow(clippy::too_many_arguments)]
 fn scan_transcript(
     text: &[u8],
     code_root: &str,
     memory_root: &str,
     home: &str,
+    index: &ShaIndex,
+    first: &mut FirstSeen,
     agent: &mut Agent,
     seen: &mut DaysSeen,
 ) {
@@ -619,12 +738,13 @@ fn scan_transcript(
     // or a memory counter, and the compiler cannot see they are disjoint
     // through `agent`.
     let Agent {
+        name: agent_name,
         reads: agent_reads,
         writes: agent_writes,
         memories,
         paths,
         shell_paths,
-        first,
+        first: earliest,
         last,
         ..
     } = agent;
@@ -644,14 +764,21 @@ fn scan_transcript(
             continue;
         }
         let mut day = None;
-        if let Some(stamp) = field(line, "timestamp").and_then(|t| std::str::from_utf8(t).ok()) {
-            if first.is_empty() || stamp < first.as_str() {
-                *first = stamp.to_string();
+        let stamp = field(line, "timestamp").and_then(|t| std::str::from_utf8(t).ok());
+        if let Some(stamp) = stamp {
+            if earliest.is_empty() || stamp < earliest.as_str() {
+                *earliest = stamp.to_string();
             }
             if stamp > last.as_str() {
                 *last = stamp.to_string();
             }
             day = day_number(stamp);
+        }
+        // Which commits this session knew about, and when. Attribution happens
+        // after every transcript has been read, because "first" is a claim about
+        // all of them and cannot be settled one at a time.
+        if !index.is_empty() {
+            note_hashes(line, stamp, index, agent_name, first);
         }
         // What the shell did, beside what the tools did. Counted into its own
         // map and into no project or recency counter: this is a new dimension,
@@ -767,6 +894,20 @@ pub fn scan(
     let names = registry_names(sessions_dir);
     let mut by_name: BTreeMap<String, Agent> = BTreeMap::new();
     let mut days: BTreeMap<String, DaysSeen> = BTreeMap::new();
+    // Read before the transcripts, because recognising a hash in one needs the
+    // set of hashes to look for. Empty when the code root has no repositories,
+    // in which case the whole dimension is skipped rather than half-built.
+    let history = crate::commits::all(Path::new(code_root));
+    let mut index: ShaIndex = BTreeMap::new();
+    for commit in &history {
+        if commit.sha.len() >= crate::commits::SHORT {
+            index
+                .entry(commit.sha[..crate::commits::SHORT].to_string())
+                .or_default()
+                .push(commit.sha.clone());
+        }
+    }
+    let mut first_seen: FirstSeen = BTreeMap::new();
     // "Now" is the mine's own stamp, not the wall clock, so the weights are a
     // property of the artefact and re-reading it never changes what it says.
     let today = day_number(generated).unwrap_or(0);
@@ -821,6 +962,8 @@ pub fn scan(
             code_root,
             memory_root,
             home,
+            &index,
+            &mut first_seen,
             agent,
             days.entry(agent.name.clone()).or_default(),
         );
@@ -842,6 +985,32 @@ pub fn scan(
         }
     }
 
+    // Every transcript has now been read, so "who saw this hash first" is a
+    // question with an answer. A commit nobody mentioned goes to nobody: the
+    // transcripts are pruned by Claude Code, and work predating the corpus has
+    // no session left to credit.
+    let mut unattributed = 0usize;
+    for commit in &history {
+        let Some((_, who)) = first_seen.get(&commit.sha) else {
+            unattributed += 1;
+            continue;
+        };
+        let Some(agent) = by_name.get_mut(who) else {
+            unattributed += 1;
+            continue;
+        };
+        agent.commits += 1;
+        for file in &commit.files {
+            if !attributable(&file.path) {
+                continue;
+            }
+            let delta = agent.commit_lines.entry(file.path.clone()).or_default();
+            delta.added += file.added;
+            delta.deleted += file.deleted;
+            delta.commits += 1;
+        }
+    }
+
     let mut agents: Vec<Agent> = by_name.into_values().collect();
     agents.sort_by_key(|a| {
         let total: usize = a.reads.values().sum::<usize>() + a.writes.values().sum::<usize>();
@@ -849,6 +1018,8 @@ pub fn scan(
     });
     Ok(Agents {
         generated: generated.to_string(),
+        commits: history.len(),
+        unattributed,
         agents,
     })
 }

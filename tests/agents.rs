@@ -308,6 +308,8 @@ fn an_agent_records_the_session_ids_filed_under_it_but_not_its_subagents() {
 fn roster_of(agents: Vec<Agent>) -> Agents {
     Agents {
         generated: "2026-08-01T00:00:00Z".into(),
+        commits: 0,
+        unattributed: 0,
         agents,
     }
 }
@@ -448,6 +450,8 @@ fn a_session_resolves_to_its_agent_and_a_forgotten_one_to_nobody() {
     let lines = vec![call(Tool::Write, "/code/thing/x", "2026-07-01T10:00:00Z")];
     let roster = Agents {
         generated: "2026-07-31T00:00:00Z".into(),
+        commits: 0,
+        unattributed: 0,
         agents: mine(
             &[("s1", lines)],
             &[("100", r#"{"pid":100,"sessionId":"s1","name":"builder"}"#)],
@@ -867,6 +871,8 @@ fn a_file_changed_from_the_shell_is_counted_as_its_own_dimension() {
     // evidence can be checked rather than believed.
     let roster = Agents {
         generated: String::new(),
+        commits: 0,
+        unattributed: 0,
         agents: agents.clone(),
     };
     let found = roster.who_works_on("osm.ts");
@@ -901,4 +907,87 @@ fn build_output_is_not_work_anyone_is_credited_with() {
     );
     let paths: Vec<&String> = agents[0].shell_paths.keys().collect();
     assert_eq!(paths, ["health/src/a.ts", "health/x.ts"]);
+}
+
+/// A throwaway git repository with one commit, and the hash it produced.
+fn one_commit(dir: &std::path::Path, file: &str, body: &str) -> String {
+    let run = |args: &[&str]| {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .env("GIT_AUTHOR_NAME", "Test")
+            .env("GIT_AUTHOR_EMAIL", "test@example.com")
+            .env("GIT_COMMITTER_NAME", "Test")
+            .env("GIT_COMMITTER_EMAIL", "test@example.com")
+            .output()
+            .expect("git runs in the devshell")
+    };
+    std::fs::create_dir_all(dir).unwrap();
+    run(&["init", "-q"]);
+    std::fs::write(dir.join(file), body).unwrap();
+    run(&["add", file]);
+    run(&["commit", "-qm", "one"]);
+    String::from_utf8(run(&["rev-parse", "HEAD"]).stdout)
+        .unwrap()
+        .trim()
+        .to_string()
+}
+
+#[test]
+fn a_commit_belongs_to_whoever_saw_its_hash_first() {
+    // Every commit here has the same git author, so the repository cannot say
+    // who wrote it. The hash does not exist until the commit is made, which
+    // makes the earliest mention the author and every later one a quotation.
+    //
+    // Both wrong versions of this rule looked fine. Matching nine characters
+    // found almost nothing, because `git commit` prints seven. Matching *any*
+    // mention put five agents on one commit — including the session that was
+    // only reading the history that afternoon, which is what this test pins.
+    let dir = std::env::temp_dir().join(format!("commits-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let code = dir.join("code");
+    let sha = one_commit(&code.join("demo"), "a.rs", "one\ntwo\nthree\n");
+    let short = &sha[..7];
+
+    let projects = dir.join("projects/-code");
+    let sessions = dir.join("sessions");
+    std::fs::create_dir_all(&projects).unwrap();
+    std::fs::create_dir_all(&sessions).unwrap();
+    let mention = |stamp: &str| {
+        format!(
+            "{{\"type\":\"assistant\",\"timestamp\":\"{stamp}\",\"message\":{{\"content\":[{{\"type\":\"text\",\"text\":\"[main {short}] one\"}}]}}}}"
+        )
+    };
+    // The reader quotes the hash later, and at greater length.
+    std::fs::write(projects.join("s1.jsonl"), mention("2026-07-01T12:00:00Z")).unwrap();
+    std::fs::write(projects.join("s2.jsonl"), mention("2026-07-01T10:00:00Z")).unwrap();
+    for (pid, id, name) in [("1", "s1", "reader"), ("2", "s2", "author")] {
+        std::fs::write(
+            sessions.join(format!("{pid}.json")),
+            format!(r#"{{"sessionId":"{id}","name":"{name}"}}"#),
+        )
+        .unwrap();
+    }
+
+    let found = scan(
+        &dir.join("projects"),
+        &sessions,
+        code.to_str().unwrap(),
+        "/mem",
+        "/home/example",
+        "2026-07-31T00:00:00Z",
+    )
+    .unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+
+    assert_eq!(found.commits, 1);
+    assert_eq!(found.unattributed, 0);
+    let author = found.agents.iter().find(|a| a.name == "author").unwrap();
+    let reader = found.agents.iter().find(|a| a.name == "reader").unwrap();
+    assert_eq!(author.commits, 1);
+    assert_eq!(author.commit_lines["demo/a.rs"].added, 3);
+    // The reader mentioned the same hash and is credited with nothing.
+    assert_eq!(reader.commits, 0);
+    assert!(reader.commit_lines.is_empty());
 }

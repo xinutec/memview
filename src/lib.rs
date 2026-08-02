@@ -2,6 +2,7 @@
 
 pub mod access;
 pub mod agents;
+pub mod commits;
 pub mod config;
 pub mod couse;
 pub mod error;

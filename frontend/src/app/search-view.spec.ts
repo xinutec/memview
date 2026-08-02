@@ -14,18 +14,24 @@ const WORKERS: WorkMatch[] = [
     name: 'hardware',
     edits: 35,
     reads: 1,
+    added: 2126,
+    deleted: 433,
+    file_commits: 12,
     files: [
-      { path: 'xinutec-infra/plan/types.dhall', reads: 0, edits: 7, shell_reads: 0, shell_edits: 0 },
+      { path: 'xinutec-infra/plan/types.dhall', reads: 0, edits: 7, shell_reads: 0, shell_edits: 0, added: 300, deleted: 12, commits: 4 },
       // Changed from the shell as well as from `Edit`, which is what the
       // provenance line beside the totals exists to show.
-      { path: 'xinutec-infra/plan/deploy.dhall', reads: 1, edits: 2, shell_reads: 1, shell_edits: 1 },
+      { path: 'xinutec-infra/plan/deploy.dhall', reads: 1, edits: 2, shell_reads: 1, shell_edits: 1, added: 0, deleted: 0, commits: 0 },
     ],
   },
   {
     name: 'home',
     edits: 25,
     reads: 2,
-    files: [{ path: 'k/dhall/home.dhall', reads: 2, edits: 25, shell_reads: 0, shell_edits: 0 }],
+    added: 0,
+    deleted: 0,
+    file_commits: 0,
+    files: [{ path: 'k/dhall/home.dhall', reads: 2, edits: 25, shell_reads: 0, shell_edits: 0, added: 0, deleted: 0, commits: 0 }],
   },
 ];
 
@@ -96,6 +102,21 @@ describe('SearchView — who works on this', () => {
       n.textContent?.trim(),
     );
     expect(shell).toEqual(['1×w · 1×r in the shell']);
+  });
+
+  it('reports committed lines as their own measure, only where there are any', async () => {
+    // Lines are size; the counts beside them are frequency. They are never
+    // added together — that would count the same work twice — and an agent
+    // whose work was never committed shows nothing rather than a zero, which
+    // would read as "committed nothing" instead of "git cannot say".
+    const el = await search(WORKERS);
+    const rows = [...el.querySelectorAll('.workers .worker .lines')].map((n) => n.textContent);
+    expect(rows).toEqual(['+2126/\u2212433']);
+
+    el.querySelector<HTMLButtonElement>('.workers .worker')!.click();
+    await fixture.whenStable();
+    const files = [...el.querySelectorAll('.workers .file-list .lines')].map((n) => n.textContent);
+    expect(files).toEqual(['+300/\u221212 in 4 commits']);
   });
 
   it('shows no panel to a share-link recipient, and no error either', async () => {

@@ -47,6 +47,19 @@ fn main() -> Result<()> {
     )?;
 
     println!("{} agents", found.agents.len());
+    // What the commit join could and could not do. An unattributed commit is
+    // the ordinary case for anything predating the corpus — Claude Code prunes
+    // its own old sessions — but the share has to be visible, or these line
+    // counts read as a complete account of the history when they are not.
+    if found.commits > 0 {
+        let joined = found.commits - found.unattributed;
+        println!(
+            "{joined} of {} commits attributed ({:.0}%); {} have no session left to credit",
+            found.commits,
+            100.0 * joined as f64 / found.commits as f64,
+            found.unattributed
+        );
+    }
     for agent in &found.agents {
         let reads: usize = agent.reads.values().sum();
         let writes: usize = agent.writes.values().sum();
@@ -63,14 +76,13 @@ fn main() -> Result<()> {
                 })
                 .collect()
         };
+        let added: usize = agent.commit_lines.values().map(|d| d.added).sum();
+        let deleted: usize = agent.commit_lines.values().map(|d| d.deleted).sum();
         println!(
-            "  {:<18} {:>6} reads {:>6} writes {:>5} deleg   recent: {}",
-            agent.name,
-            reads,
-            writes,
-            agent.delegated,
-            top.join(" ")
+            "  {:<18} {:>6} reads {:>6} writes {:>5} deleg  {:>4} commits +{}/-{}",
+            agent.name, reads, writes, agent.delegated, agent.commits, added, deleted
         );
+        println!("        recent: {}", top.join(" "));
         // What it consults, beside where it works — the two answer different
         // questions and routing a task wants both.
         let mut mem: Vec<(&String, &agents::MemoryUse)> = agent.memories.iter().collect();

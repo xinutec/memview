@@ -99,6 +99,8 @@ fn corpus_with_an_origin(dir: &std::path::Path) -> String {
     .expect("memory");
     let agents = memview::agents::Agents {
         generated: "2026-08-01T00:00:00Z".into(),
+        commits: 0,
+        unattributed: 0,
         agents: vec![memview::agents::Agent {
             name: "builder".into(),
             sessions: ["s1".to_string()].into_iter().collect(),

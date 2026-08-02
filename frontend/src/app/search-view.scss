@@ -120,6 +120,13 @@
     opacity: 0.75;
   }
 
+  // Committed lines: a different measure from the counts, not a bigger one, so
+  // it reads as its own thing rather than as a louder version of `.edits`.
+  .lines {
+    color: var(--mat-sys-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+
   .chevron {
     flex: 0 0 auto;
     color: var(--mat-sys-on-surface-variant);

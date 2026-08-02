@@ -171,8 +171,27 @@ export interface WorkMatch {
   edits: number;
   /** Reads across the same files. Beside `edits`, never added to it. */
   reads: number;
+  /** Lines committed across the matching files — size, where the counts above are frequency. */
+  added: number;
+  deleted: number;
+  /**
+   * File changes committed, NOT commits: one commit touching four matching
+   * files counts four. Named for what it measures.
+   */
+  file_commits: number;
   /** The matching files, heaviest first: the evidence for the row. */
   files: WorkFile[];
+}
+
+/**
+ * What one agent's commits did to one file. Added and deleted stay apart: a
+ * rewrite removing 181 lines and adding 594 is not the same work as writing 413
+ * from nothing, and deletion is work too.
+ */
+export interface LineDelta {
+  added: number;
+  deleted: number;
+  commits: number;
 }
 
 /** One file a query matched, and how one agent used it. */
@@ -188,6 +207,14 @@ export interface WorkFile {
    */
   shell_reads: number;
   shell_edits: number;
+  /**
+   * Lines this agent committed to the file, and in how many commits. The same
+   * work measured a second way — never added to the counts above, which would
+   * count it twice.
+   */
+  added: number;
+  deleted: number;
+  commits: number;
 }
 
 /** One named session and where its work landed — mirrors agents.rs. */
@@ -218,6 +245,13 @@ export interface Agent {
    * only when a query asks who works on something.
    */
   shell_paths: Record<string, MemoryUse>;
+  /**
+   * Lines committed per path, attributed by the earliest mention of the commit
+   * hash — the only join available when every commit shares one git author.
+   */
+  commit_lines: Record<string, LineDelta>;
+  /** Commits attributed to this agent, across every repository. */
+  commits: number;
   /** Files opened, per project directory. Lifetime totals, undecayed. */
   reads: Record<string, number>;
   /** Files written or edited, per project directory. Lifetime, undecayed. */
@@ -240,5 +274,13 @@ export interface Agent {
 
 export interface AgentsResult {
   generated: string;
+  /**
+   * Commits found under the code root, and how many no transcript mentions.
+   * Reported rather than dropped: Claude Code prunes old sessions, so anything
+   * predating the corpus has nobody left to credit — and a reader comparing
+   * these lines against `git log` needs to know the coverage first.
+   */
+  commits: number;
+  unattributed: number;
   agents: Agent[];
 }
