@@ -45,8 +45,15 @@
             <!-- One line: the name carries the meaning and the facts are a
                  footnote, so stacking them doubled the height of a list whose
                  whole job is to be scanned. -->
+            <!-- role and aria-label together, and both are load-bearing. A
+                 clickable row that is not a control is invisible to a screen
+                 reader AND to the activity trace, which only records taps that
+                 landed on something interactive — so these rows were being
+                 tapped and never recorded at all. -->
             <mat-list-item
               class="conversation"
+              role="button"
+              [attr.aria-label]="'resume ' + (conversation.name ?? conversation.id.slice(0, 8))"
               [class.disabled]="starting() || conversation.busy"
               (click)="resume(conversation)"
             >
@@ -73,7 +80,15 @@
     <p class="empty">No sessions yet.</p>
   }
   @for (session of state.sessions; track session.id) {
-    <a class="session" [routerLink]="['/s', session.id]">
+    <!-- Named, because without it the trace logs the card's whole text — a real
+         line from the log: `label=Code idle nothing asked yet29m ago0 turns$0.0000`.
+         The accessible name is what the harness prefers, so one attribute fixes
+         both the trace and what a screen reader announces. -->
+    <a
+      class="session"
+      [routerLink]="['/s', session.id]"
+      [attr.aria-label]="'open ' + place(session) + ' ' + session.id.slice(0, 8)"
+    >
       <mat-card appearance="outlined">
         <mat-card-content>
           <div class="head">

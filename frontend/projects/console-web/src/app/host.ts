@@ -1,5 +1,8 @@
 import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
+import { inject } from '@angular/core';
 import { catchError, throwError } from 'rxjs';
+
+import { Telemetry } from './telemetry';
 
 /**
  * The Android wrapper, when this page is running inside it.
@@ -45,13 +48,24 @@ declare global {
  * Safe to call when the key is fine: the app checks before prompting, so an
  * ordinary outage — a sleeping Mac, a dropped tunnel — asks the person for
  * nothing.
+ *
+ * Every failure is traced on the way past, not only the ones that renew. The
+ * trace recorded what was tapped and where the reader went, and nothing at all
+ * about requests that did not come back — so an evening of the app failing left
+ * a log showing a person browsing contentedly. What went wrong is the part worth
+ * keeping.
  */
-export const renewOnRefusal: HttpInterceptorFn = (req, next) =>
-  next(req).pipe(
+export const traceAndRenew: HttpInterceptorFn = (req, next) => {
+  const telemetry = inject(Telemetry);
+  return next(req).pipe(
     catchError((err: unknown) => {
-      if (err instanceof HttpErrorResponse && err.status === 0) {
-        window.consoleHost?.renew();
+      if (err instanceof HttpErrorResponse) {
+        // The status is the label, and 0 is the interesting one: it is the value
+        // that means "no answer", which is the failure that has no other record.
+        telemetry.failure(req.url, err.status);
+        if (err.status === 0) window.consoleHost?.renew();
       }
       return throwError(() => err);
     }),
   );
+};

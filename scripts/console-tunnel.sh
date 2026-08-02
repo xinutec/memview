@@ -30,6 +30,24 @@ LOCAL="${CONSOLE_TUNNEL_LOCAL:-127.0.0.1:8097}"
 
 [ -r "$KEY" ] || { echo "no tunnel key at $KEY — see docs/agent-console.md" >&2; exit 1; }
 
+# ⚠ Take the ssh with us. `ssh` here is a child of this script, and killing the
+# script while ssh runs in the foreground orphans it: it keeps the listener on
+# isis, so the next tunnel cannot bind, `ExitOnForwardFailure` does its job, and
+# the console redials in a loop against its own predecessor. Observed exactly
+# that — `remote port forwarding failed for listen port 8097` every ten seconds,
+# with a healthy-looking `ssh` from a console stopped an hour earlier still
+# holding the port. So it is backgrounded and waited on, with a trap that ends
+# it.
+cleanup() {
+  # Guarded rather than chained with &&: under `set -e` a false test is a failed
+  # command, and the trap would leave before doing the one thing it exists for.
+  if [ -n "${SSH_PID:-}" ]; then
+    kill "$SSH_PID" 2>/dev/null || true
+  fi
+  exit 0
+}
+trap cleanup EXIT INT TERM
+
 # Redialled rather than run once. A tunnel is only useful while it is up, and the
 # things that end it — sleep, a changed address, isis restarting sshd — are all
 # ordinary. Each attempt is announced, so a tunnel that is failing for a real
@@ -43,7 +61,9 @@ while true; do
     -o ServerAliveInterval=30 \
     -o ServerAliveCountMax=3 \
     -R "${LISTEN}:${LOCAL}" \
-    "$HOST" || echo "console tunnel: dropped ($?) — redialling in ${RETRY:=10}s"
+    "$HOST" &
+  SSH_PID=$!
+  wait "$SSH_PID" || echo "console tunnel: dropped ($?) — redialling in ${RETRY:=10}s"
   sleep "${RETRY:-10}"
 done
 

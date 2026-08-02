@@ -32,8 +32,11 @@ impl Roster {
 
     /// Start a session in `dir`, which must be one the config allows.
     pub fn start(&self, dir: &str) -> Result<Arc<Session>, String> {
-        let real = self.config.resolve(dir)?;
+        let real = self.config.resolve(dir).inspect_err(|why| {
+            tracing::warn!("refused a session in {dir}: {why}");
+        })?;
         let id = uuid::Uuid::new_v4().to_string();
+        tracing::info!("starting {id} in {}", real.display());
         self.hold(id.clone(), Session::start(id, &real, &self.config.spawn))
     }
 
@@ -45,8 +48,11 @@ impl Roster {
     /// terminal, which the console has no way to see, so the guard is a rail and
     /// not a boundary.
     pub fn resume(&self, dir: &str, id: &str) -> Result<Arc<Session>, String> {
-        let real = self.config.resolve(dir)?;
+        let real = self.config.resolve(dir).inspect_err(|why| {
+            tracing::warn!("refused a resume of {id} in {dir}: {why}");
+        })?;
         if self.get(id).is_some_and(|session| session.alive()) {
+            tracing::info!("refused {id}: this console already has it open");
             return Err(format!("{id} is already open here"));
         }
         // And refused when anything *else* appears to be using it. This is the
@@ -58,11 +64,18 @@ impl Roster {
             .iter()
             .any(|conversation| conversation.id == id && conversation.busy)
         {
+            // Logged with its own reason, because from the phone a refusal is one
+            // sentence with nothing behind it. The check has two arms — a process
+            // that names the conversation, and a transcript written moments ago —
+            // and which one fired is the whole difference between "wait a minute"
+            // and "close the other window". This is where that survives.
+            tracing::info!("refused {id}: past::in_use says something is already there");
             return Err(format!(
                 "{id} looks like it is still in use — close it first. Two processes \
                  on one transcript both append, and neither sees the other's turns."
             ));
         }
+        tracing::info!("resuming {id} in {}", real.display());
         self.hold(
             id.to_string(),
             Session::resume(id.to_string(), &real, &self.config.spawn),
@@ -74,7 +87,9 @@ impl Roster {
         id: String,
         started: anyhow::Result<Arc<Session>>,
     ) -> Result<Arc<Session>, String> {
-        let session = started.map_err(|err| format!("{err:#}"))?;
+        let session = started
+            .inspect_err(|err| tracing::error!("could not start {id}: {err:#}"))
+            .map_err(|err| format!("{err:#}"))?;
         self.sessions
             .write()
             .expect("roster poisoned")
@@ -93,6 +108,7 @@ impl Roster {
     /// the next console that starts.
     pub fn shut_down(&self) {
         for session in self.sessions.read().expect("roster poisoned").values() {
+            tracing::info!("killing {}", session.id);
             session.force();
         }
     }
@@ -118,8 +134,10 @@ impl Roster {
     /// its handle.
     pub fn forget(&self, id: &str) -> bool {
         let Some(session) = self.sessions.write().expect("roster poisoned").remove(id) else {
+            tracing::info!("asked to forget {id}, which this console does not have");
             return false;
         };
+        tracing::info!("forgetting {id} — killing it first if it is still running");
         session.force();
         true
     }

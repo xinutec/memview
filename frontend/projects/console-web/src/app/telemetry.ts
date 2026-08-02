@@ -38,4 +38,15 @@ export class Telemetry {
 
     this.core.start();
   }
+
+  /**
+   * A request that did not come back, or came back refused.
+   *
+   * Its own kind rather than a tap, because it is the one thing in the trace
+   * nobody did — and because reading a log for "what went wrong" should not mean
+   * inferring it from a gap between two navigations.
+   */
+  failure(url: string, status: number): void {
+    this.core.record('fail', url, String(status));
+  }
 }
