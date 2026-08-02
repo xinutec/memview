@@ -5,11 +5,12 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve",
-    "build": "ng build",
+    "build": "ng build && ng build console-web",
     "watch": "ng build --watch --configuration development",
-    "lint": "eslint src",
-    "test": "ng test --watch=false",
-    "ui-check": "playwright test"
+    "lint": "eslint src projects/*/src",
+    "test": "ng test --watch=false && ng test console-web --watch=false",
+    "ui-check": "playwright test && playwright test -c projects/console-web/playwright.config.ts",
+    "start:console": "ng serve console-web"
   },
   "dependencies": {
     "@angular/cdk": "^22.0.3",
@@ -21,7 +22,7 @@
     "@angular/platform-browser": "^22.0.4",
     "@angular/router": "^22.0.4",
     "@fontsource/roboto": "^5.2.10",
-    "@xinutec/ui-harness": "github:xinutec/ui-harness#8d8340ff672392ac472c1fb16e0d8fdfecbd710d",
+    "@xinutec/ui-harness": "github:xinutec/ui-harness#36b57a265ef372a096d1413e90f2c0bd5cb31bd5",
     "material-icons": "^1.13.14",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"

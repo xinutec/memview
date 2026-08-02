@@ -1,3 +1,9 @@
+# The console is a workspace member and NOT a feature of this package, so that
+# no configuration of the viewer can turn into a way to execute code on the Mac.
+# It links nothing from here and ships in no image; see docs/agent-console.md.
+[workspace]
+members = ["console"]
+
 [package]
 # Adding src/bin/memory-lint.rs made `cargo run` ambiguous, which silently broke
 # scripts/dev.sh — it exec'd `cargo run`, cargo refused to choose, and the dev

@@ -1,0 +1,26 @@
+#!/bin/sh
+# A stand-in for `claude -p --input-format stream-json --output-format stream-json`.
+#
+# It exists so the session machinery — spawn, streaming, sending, clean exit on
+# stdin close — can be tested without spending a token or depending on the model
+# being reachable. It answers every message the same way and understands only
+# --session-id; the *protocol* is covered against a real capture in protocol.rs.
+
+session="unknown"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --session-id) session="$2"; shift ;;
+  esac
+  shift
+done
+
+printf '{"type":"system","subtype":"init","model":"stub","cwd":"%s","tools":["Bash"],"session_id":"%s"}\n' \
+  "$PWD" "$session"
+
+# One reply per line of input, then exit 0 when stdin closes — the behaviour the
+# runner relies on for a session that lives across many turns.
+while IFS= read -r _line; do
+  printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"replayed"}]},"session_id":"%s"}\n' "$session"
+  printf '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ack"}},"session_id":"%s"}\n' "$session"
+  printf '{"type":"result","subtype":"success","total_cost_usd":0.25,"num_turns":1,"duration_ms":5,"session_id":"%s"}\n' "$session"
+done

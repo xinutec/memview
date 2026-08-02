@@ -1,0 +1,37 @@
+@use '@angular/material' as mat;
+
+// Teal rather than memview's violet, and that is not decoration: these two apps
+// have different privileges and are open side by side. The colour is how you
+// know at a glance whether the thing on screen can only read documents or can
+// run commands on this machine.
+html {
+  color-scheme: light dark;
+  @include mat.theme(
+    (
+      color: mat.$spring-green-palette,
+      typography: Roboto,
+      density: 0,
+    )
+  );
+}
+
+// Universal border-box reset (fleet convention, DL-ANGULAR-BOX-SIZING-RESET):
+// without it `width: 100%` + side padding renders wider than the viewport and
+// the page scrolls sideways on a phone.
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: Roboto, sans-serif;
+  background: var(--mat-sys-surface);
+  color: var(--mat-sys-on-surface);
+}

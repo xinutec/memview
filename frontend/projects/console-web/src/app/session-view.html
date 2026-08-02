@@ -1,0 +1,76 @@
+@if (session(); as session) {
+  <header class="head">
+    <div class="where">{{ session.dir }}</div>
+    <div class="facts">
+      @if (session.alive) {
+        <span class="live" [class.working]="session.busy">{{ session.busy ?? 'idle' }}</span>
+      } @else {
+        <span class="ended">ended</span>
+      }
+      <span>{{ session.turns }} turns</span>
+      <span>${{ session.cost_usd.toFixed(4) }}</span>
+      @if (session.model) {
+        <span class="model">{{ session.model }}</span>
+      }
+      @if (session.alive) {
+        <button matButton (click)="stop()">
+          <mat-icon>stop</mat-icon>
+          stop
+        </button>
+      }
+    </div>
+  </header>
+  @if (session.busy) {
+    <mat-progress-bar mode="indeterminate" />
+  }
+}
+
+@if (trouble()) {
+  <p class="trouble">{{ trouble() }}</p>
+}
+
+@if (thoughts()) {
+  <button matButton (click)="showThinking.set(!showThinking())">
+    <mat-icon>{{ showThinking() ? 'visibility_off' : 'visibility' }}</mat-icon>
+    {{ showThinking() ? 'hide' : 'show' }} thinking ({{ thoughts() }})
+  </button>
+}
+
+<ol class="transcript">
+  @for (entry of visible(); track $index) {
+    <li class="entry" [class]="entry.kind">
+      @switch (entry.kind) {
+        @case ('tool') {
+          <span class="tool-name">{{ entry.tool }}</span>
+          <span class="tool-arg">{{ entry.text }}</span>
+          @if (entry.ok === undefined) {
+            <span class="running">running</span>
+          } @else if (entry.ok) {
+            <mat-icon class="ok" aria-label="succeeded">check</mat-icon>
+          } @else {
+            <mat-icon class="bad" aria-label="failed">error_outline</mat-icon>
+          }
+        }
+        @default {
+          {{ entry.text }}
+        }
+      }
+    </li>
+  }
+</ol>
+
+<form class="composer" (submit)="$event.preventDefault(); send()">
+  <mat-form-field appearance="outline" class="box">
+    <mat-label>say something</mat-label>
+    <textarea
+      matInput
+      rows="1"
+      [(ngModel)]="text"
+      name="text"
+      (keydown.control.enter)="send()"
+    ></textarea>
+  </mat-form-field>
+  <button matButton="filled" type="submit" [disabled]="sending() || !text()">
+    <mat-icon>send</mat-icon>
+  </button>
+</form>

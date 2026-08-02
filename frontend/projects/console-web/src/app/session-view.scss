@@ -1,0 +1,132 @@
+.head {
+  margin-bottom: 0.5rem;
+}
+
+.where {
+  font-family: ui-monospace, monospace;
+  font: var(--mat-sys-body-medium);
+  color: var(--mat-sys-on-surface-variant);
+  overflow-wrap: anywhere;
+}
+
+.facts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+  font-variant-numeric: tabular-nums;
+}
+
+.live,
+.ended {
+  padding: 0.1rem 0.5rem;
+  border-radius: 1rem;
+  background: var(--mat-sys-surface-container-highest);
+}
+
+.live.working {
+  background: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
+}
+
+.model {
+  font-family: ui-monospace, monospace;
+}
+
+.transcript {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.entry {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+// What was asked reads as the reader's own voice: indented, quieter, and
+// visibly not the answer.
+.asked {
+  border-left: 3px solid var(--mat-sys-primary);
+  padding-left: 0.75rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.thought {
+  font: var(--mat-sys-body-medium);
+  color: var(--mat-sys-on-surface-variant);
+  font-style: italic;
+}
+
+.turn,
+.note {
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+  font-variant-numeric: tabular-nums;
+}
+
+.tool {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font: var(--mat-sys-body-medium);
+  background: var(--mat-sys-surface-container);
+  border-radius: 0.5rem;
+  padding: 0.35rem 0.6rem;
+}
+
+.tool-name {
+  font-weight: 500;
+}
+
+.tool-arg {
+  font-family: ui-monospace, monospace;
+  color: var(--mat-sys-on-surface-variant);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.running {
+  font: var(--mat-sys-label-small);
+  opacity: 0.7;
+}
+
+.ok {
+  color: var(--mat-sys-primary);
+}
+
+.bad {
+  color: var(--mat-sys-error);
+}
+
+// Fixed rather than in flow: on a phone the whole point is that the way to
+// answer is under your thumb wherever you are in the transcript.
+.composer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem calc(0.5rem + env(safe-area-inset-bottom));
+  background: var(--mat-sys-surface-container);
+  max-width: 60rem;
+  margin: 0 auto;
+}
+
+.box {
+  flex: 1;
+}
+
+.trouble {
+  color: var(--mat-sys-error);
+}

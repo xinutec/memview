@@ -1,0 +1,79 @@
+.start {
+  margin-bottom: 1.5rem;
+
+  mat-card-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+}
+
+.where,
+.what {
+  width: 100%;
+}
+
+.session {
+  display: block;
+  margin-bottom: 0.75rem;
+  text-decoration: none;
+  color: inherit;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.place {
+  font-weight: 500;
+  font: var(--mat-sys-title-small);
+}
+
+.live,
+.ended {
+  font: var(--mat-sys-label-small);
+  padding: 0.1rem 0.5rem;
+  border-radius: 1rem;
+  background: var(--mat-sys-surface-container-highest);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+// A working session is the one the eye should find first in a list of ten.
+.live.working {
+  background: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
+}
+
+.asked {
+  margin: 0.35rem 0;
+  color: var(--mat-sys-on-surface-variant);
+  // Two lines of intent: enough to recognise a session, never enough to push
+  // the next one off a phone screen.
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+  font-variant-numeric: tabular-nums;
+}
+
+.model {
+  font-family: ui-monospace, monospace;
+}
+
+.trouble {
+  color: var(--mat-sys-error);
+}
+
+.empty {
+  color: var(--mat-sys-on-surface-variant);
+}

@@ -106,6 +106,42 @@ them rather than trusting a number written down here.
    rows already carry session, minute, agent, repository and verdict, so it needs
    no re-mining.
 
+## The console
+
+A second application in this repository: a front end for the *live* Claude Code
+sessions on the Mac — start one, watch it work, send it instructions.
+
+```sh
+./scripts/console.sh          # → http://127.0.0.1:8097, loopback only
+```
+
+It is deliberately **not** part of the viewer. memview is read-only over
+documents and runs on an internet-facing host; the console runs subprocesses on
+the root-of-truth machine. They share a repository, a toolchain and a gate, and
+nothing else: `console/` is its own crate that links nothing from `src/`, the
+image builds `--bin memview` so the console binary cannot ride along into a
+container, and the UI is its own Angular project.
+
+It refuses to listen anywhere but loopback, because it has no client
+authentication yet — the house LAN is not a trusted network. The client
+certificate gate and the phone are phases 2 and 3 of
+[docs/agent-console.md](docs/agent-console.md), which is the authority on the
+design and the threat model.
+
+| var | default | meaning |
+| --- | --- | --- |
+| `CONSOLE_DIRS` | `~/Code` | colon-separated roots a session may start in |
+| `CONSOLE_MODEL` | unset | model for spawned sessions; unset = the CLI's own |
+| `CONSOLE_PERMISSION_MODE` | unset | see below |
+| `CLAUDE_BIN` | `claude` | the CLI to spawn |
+| `BIND_ADDR` | `127.0.0.1:8097` | must be loopback |
+
+⚠ **In headless mode the CLI's default permission mode refuses every tool call
+that needs permission** — measured, not assumed. Until the approval channel of
+phase 2 exists, a console left on the default can converse and little else;
+`CONSOLE_PERMISSION_MODE=acceptEdits` is what makes it useful in a directory you
+trust.
+
 ## Run (dev, Mac)
 
 ```sh

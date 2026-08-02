@@ -1,0 +1,25 @@
+[package]
+name = "console"
+version = "0.1.0"
+edition = "2024"
+
+# A front end for the live Claude Code sessions on this Mac: read what they are
+# doing, send them instructions, and (later) approve what they want to run.
+#
+# It deliberately depends on nothing from the `memview` package beside it. The
+# viewer is read-only over documents and runs on an internet-facing host; this
+# spawns subprocesses on the root-of-truth machine. Sharing a repository is fine
+# — sharing a binary or a library would put the two privilege levels one
+# configuration mistake apart. See ../docs/agent-console.md.
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+axum = "0.8"
+tower-http = { version = "0.7", features = ["fs", "trace"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4"] }

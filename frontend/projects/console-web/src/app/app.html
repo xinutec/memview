@@ -1,0 +1,14 @@
+<mat-toolbar color="primary" class="bar">
+  <a routerLink="/" class="home" aria-label="all sessions">
+    <mat-icon>terminal</mat-icon>
+    <span class="title">console</span>
+  </a>
+  <span class="spacer"></span>
+  <!-- Stated rather than implied: this app runs commands on the Mac, and a
+       glance should say so. -->
+  <span class="where">this Mac</span>
+</mat-toolbar>
+
+<main class="page">
+  <router-outlet />
+</main>

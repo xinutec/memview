@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# memview verify — Rust backend (fmt + clippy + tests) + Angular frontend (lint
-# + unit tests + build + phone-width layout harness) + the shared dev-lint
-# rules. Toolchain comes from the flake devshell (rev-pinned via flake.lock),
+# memview verify — the Rust workspace (fmt + clippy + tests, viewer and console)
+# + both Angular apps (lint + unit tests + build + phone-width layout harness)
+# + the shared dev-lint rules. Toolchain comes from the flake devshell (rev-pinned via flake.lock),
 # so it's reproducible without cargo/npm on PATH.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -16,8 +16,10 @@ nix develop -c bash -c '
   export NG_BUILD_MAX_WORKERS=1
 
   cargo fmt --all --check
-  cargo clippy --all-targets -- -D warnings
-  cargo test
+  # --workspace: the console is a member crate, and without this its clippy and
+  # its tests are simply not run.
+  cargo clippy --workspace --all-targets -- -D warnings
+  cargo test --workspace
 
   cd frontend
   # `--frozen-lockfile` is pnpm ci: install exactly pnpm-lock.yaml, or fail. The
@@ -33,6 +35,7 @@ nix develop -c bash -c '
   # Authoritative build check: an empty/missing index.html means the bundle
   # really failed; a nonzero exit with a good bundle was the kqueue flake.
   test -s dist/memview-web/browser/index.html
+  test -s dist/console-web/browser/index.html
   pnpm run ui-check
 
   cd ..

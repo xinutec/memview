@@ -31,9 +31,12 @@ FROM rust:1-bookworm AS backend
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo 'fn main() {}' > src/main.rs && echo '' > src/lib.rs \
-    && cargo build --release && rm -rf src
+    && cargo build --release --bin memview && rm -rf src
 COPY src/ src/
-RUN touch src/main.rs src/lib.rs && cargo build --release
+# --bin memview, never a bare build: the workspace also holds the console, which
+# runs Claude Code subprocesses on the Mac and must never be inside an image
+# that runs on an internet-facing host. See docs/agent-console.md.
+RUN touch src/main.rs src/lib.rs && cargo build --release --bin memview
 
 # --- runtime ---
 FROM debian:bookworm-slim

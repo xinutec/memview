@@ -1,0 +1,35 @@
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.home {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.title {
+  font-weight: 500;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.where {
+  font: var(--mat-sys-body-small);
+  opacity: 0.8;
+}
+
+.page {
+  // The composer is fixed to the bottom of the session view, so the page needs
+  // room under it — otherwise the last paragraph sits behind the input on a
+  // phone, which is exactly where the eye goes.
+  padding: 1rem 1rem 6rem;
+  max-width: 60rem;
+  margin: 0 auto;
+}

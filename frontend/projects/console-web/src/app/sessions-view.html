@@ -1,0 +1,62 @@
+@if (trouble()) {
+  <p class="trouble">{{ trouble() }}</p>
+}
+
+<mat-card class="start" appearance="outlined">
+  <mat-card-content>
+    <mat-form-field appearance="outline" class="where">
+      <mat-label>where</mat-label>
+      <input matInput [(ngModel)]="dir" list="repos" placeholder="/path/to/a/repository" />
+    </mat-form-field>
+    <datalist id="repos">
+      @for (repo of state()?.repos ?? []; track repo) {
+        <option [value]="repo"></option>
+      }
+    </datalist>
+
+    <mat-form-field appearance="outline" class="what">
+      <mat-label>what to do (optional)</mat-label>
+      <textarea matInput rows="2" [(ngModel)]="prompt" (keydown.control.enter)="start()"></textarea>
+    </mat-form-field>
+
+    <button matButton="filled" (click)="start()" [disabled]="starting() || !dir()">
+      <mat-icon>play_arrow</mat-icon>
+      start a session
+    </button>
+  </mat-card-content>
+</mat-card>
+
+@if (state(); as state) {
+  @if (state.sessions.length === 0) {
+    <p class="empty">No sessions yet.</p>
+  }
+  @for (session of state.sessions; track session.id) {
+    <a class="session" [routerLink]="['/s', session.id]">
+      <mat-card appearance="outlined">
+        <mat-card-content>
+          <div class="head">
+            <span class="place">{{ place(session) }}</span>
+            @if (session.alive) {
+              <span class="live" [class.working]="session.busy">
+                {{ session.busy ?? 'idle' }}
+              </span>
+            } @else {
+              <span class="ended">ended</span>
+            }
+          </div>
+          <div class="asked">{{ session.asked ?? 'nothing asked yet' }}</div>
+          <div class="facts">
+            <span>{{ since(session) }}</span>
+            <span>{{ session.turns }} turns</span>
+            <span>{{ cost(session) }}</span>
+            @if (session.model) {
+              <span class="model">{{ session.model }}</span>
+            }
+          </div>
+        </mat-card-content>
+      </mat-card>
+    </a>
+  }
+} @else {
+  <mat-progress-bar mode="indeterminate" />
+}

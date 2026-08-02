@@ -6,3 +6,12 @@
 /playwright-report
 # Per-run eye-check screenshots left by the ui-harness layout checks.
 /ui-snapshots/
+# The same three for every application of the workspace: Playwright writes its
+# artifacts beside the config that ran it, and the console's config lives in its
+# own project directory. The entries above are anchored here and do not reach it.
+# Spelled out rather than globbed: an anchored pattern is matched literally by
+# the gate that checks this file, so a new application of the workspace adds its
+# own three lines.
+/projects/console-web/test-results
+/projects/console-web/playwright-report
+/projects/console-web/ui-snapshots/

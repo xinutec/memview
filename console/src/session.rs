@@ -1,0 +1,326 @@
+//! One live Claude Code session: the subprocess, its transcript, its listeners.
+//!
+//! **A session is one long-lived process, not a chain of resumed ones.** Probed
+//! against CLI 2.1.220: with `--input-format stream-json` the process serves
+//! turn after turn on an open stdin, keeps one session id throughout, and exits
+//! 0 when stdin closes. So the console holds the process open and writes to it,
+//! which is what makes "send them a new instruction" a message rather than a
+//! cold start — and it is why closing stdin is the polite way to end a session.
+//!
+//! **The id is ours, chosen before the process exists.** `--session-id` takes a
+//! UUID we generate, so a session has a name the moment it is asked for rather
+//! than once the CLI has announced itself — which means a client can subscribe
+//! to a session that is still starting, and `--resume` later takes the same id.
+
+use std::collections::VecDeque;
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use anyhow::{Context, Result};
+use serde::Serialize;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, ChildStdin, Command};
+use tokio::sync::{broadcast, oneshot};
+
+use crate::protocol::{self, Event};
+
+/// How much transcript one session keeps in memory.
+///
+/// The console holds no database in phase 1 and the transcripts on disk are the
+/// durable record, so this is a scrollback, not an archive.
+const SCROLLBACK: usize = 5000;
+
+/// How long a session gets to finish after its stdin closes, before it is killed.
+///
+/// Generous on purpose: the process may be mid-tool-call, and the clean exit is
+/// worth waiting for because it is the one that flushes the transcript.
+const GRACE: Duration = Duration::from_secs(30);
+
+/// How much of the child's stderr to keep for diagnosis.
+const STDERR_KEPT: usize = 4000;
+
+/// What a client sees of a session without reading its transcript.
+#[derive(Debug, Clone, Serialize)]
+pub struct Summary {
+    pub id: String,
+    pub dir: String,
+    /// Seconds since the epoch.
+    pub started: u64,
+    pub alive: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// What the CLI last said it was doing, when it is doing anything.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub busy: Option<String>,
+    pub turns: u32,
+    pub cost_usd: f64,
+    /// The first thing this session was asked to do, kept as its name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub asked: Option<String>,
+}
+
+/// The mutable half of a session, behind one lock.
+#[derive(Debug, Default)]
+struct State {
+    log: VecDeque<Event>,
+    alive: bool,
+    model: Option<String>,
+    busy: Option<String>,
+    turns: u32,
+    cost_usd: f64,
+    asked: Option<String>,
+    stderr: String,
+}
+
+#[derive(Debug)]
+pub struct Session {
+    pub id: String,
+    pub dir: PathBuf,
+    started: SystemTime,
+    state: Mutex<State>,
+    stdin: tokio::sync::Mutex<Option<ChildStdin>>,
+    kill: Mutex<Option<oneshot::Sender<()>>>,
+    tx: broadcast::Sender<Event>,
+}
+
+/// How to spawn the CLI. Held by the roster and handed to each session.
+#[derive(Debug, Clone)]
+pub struct Spawn {
+    pub binary: String,
+    pub model: Option<String>,
+    /// What the session may do without being asked.
+    ///
+    /// This matters more than it looks. In headless mode there is nobody to
+    /// answer a permission prompt, so under the CLI's default mode **every tool
+    /// call that needs permission is refused** — measured, not assumed: a
+    /// `Write` in a fresh session came back `is_error` with no file created. A
+    /// console left on the default is therefore a console that can converse and
+    /// nothing else, until the approval channel of phase 2 exists.
+    pub permission_mode: Option<String>,
+}
+
+impl Session {
+    /// Start a session in `dir`, with `id` as both our handle and its session id.
+    pub fn start(id: String, dir: &Path, spawn: &Spawn) -> Result<Arc<Self>> {
+        let mut command = Command::new(&spawn.binary);
+        command
+            .current_dir(dir)
+            .arg("-p")
+            // stream-json output is refused without --verbose, which is a CLI
+            // validation rule rather than a preference of ours.
+            .arg("--verbose")
+            .args(["--input-format", "stream-json"])
+            .args(["--output-format", "stream-json"])
+            .arg("--include-partial-messages")
+            // The echo of our own prompt is how a client knows the message
+            // landed; see `protocol::Event::Prompt`.
+            .arg("--replay-user-messages")
+            .args(["--session-id", &id])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            // Without this the child keeps running when the console is killed,
+            // holding the session id and the working directory.
+            .kill_on_drop(true);
+        if let Some(model) = &spawn.model {
+            command.args(["--model", model]);
+        }
+        if let Some(mode) = &spawn.permission_mode {
+            command.args(["--permission-mode", mode]);
+        }
+
+        let mut child = command
+            .spawn()
+            .with_context(|| format!("spawning {} in {}", spawn.binary, dir.display()))?;
+        let stdin = child.stdin.take().context("child has no stdin")?;
+        let (kill_tx, kill_rx) = oneshot::channel();
+        let (tx, _) = broadcast::channel(256);
+
+        let session = Arc::new(Self {
+            id,
+            dir: dir.to_path_buf(),
+            started: SystemTime::now(),
+            state: Mutex::new(State {
+                alive: true,
+                ..State::default()
+            }),
+            stdin: tokio::sync::Mutex::new(Some(stdin)),
+            kill: Mutex::new(Some(kill_tx)),
+            tx,
+        });
+
+        session.clone().watch(child, kill_rx);
+        Ok(session)
+    }
+
+    /// Read the child's streams until it ends, then record how it ended.
+    fn watch(self: Arc<Self>, mut child: Child, kill: oneshot::Receiver<()>) {
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+
+        if let Some(stdout) = stdout {
+            let session = self.clone();
+            tokio::spawn(async move {
+                let mut lines = BufReader::new(stdout).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    for event in protocol::read(&line) {
+                        session.push(event);
+                    }
+                }
+            });
+        }
+        if let Some(stderr) = stderr {
+            let session = self.clone();
+            tokio::spawn(async move {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    session.note_stderr(&line);
+                }
+            });
+        }
+
+        tokio::spawn(async move {
+            let code = tokio::select! {
+                status = child.wait() => status.ok().and_then(|s| s.code()),
+                _ = kill => {
+                    let _ = child.kill().await;
+                    None
+                }
+            };
+            self.push(Event::Exited { code });
+            self.state.lock().expect("session state poisoned").alive = false;
+        });
+    }
+
+    /// Send a message to the session.
+    pub async fn send(&self, text: &str) -> Result<()> {
+        let mut held = self.stdin.lock().await;
+        let stdin = held
+            .as_mut()
+            .context("session is no longer accepting input")?;
+        stdin
+            .write_all(format!("{}\n", protocol::prompt(text)).as_bytes())
+            .await
+            .context("writing to the session")?;
+        stdin.flush().await.context("flushing to the session")?;
+        drop(held);
+        // Held even if the CLI never echoes it, so the record of what was asked
+        // does not depend on the CLI's replay behaviour.
+        let mut state = self.state.lock().expect("session state poisoned");
+        if state.asked.is_none() {
+            state.asked = Some(text.to_string());
+        }
+        Ok(())
+    }
+
+    /// End the session: close stdin, and kill it if it has not gone on its own.
+    ///
+    /// Closing stdin is the exit the CLI is built for. The timer behind it is
+    /// there because a session that will not end must not be able to keep the
+    /// console holding a handle to it for ever.
+    pub async fn stop(self: &Arc<Self>) {
+        self.stdin.lock().await.take();
+        let session = self.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(GRACE).await;
+            session.force();
+        });
+    }
+
+    /// Kill the session now.
+    pub fn force(&self) {
+        if let Some(kill) = self.kill.lock().expect("session kill poisoned").take() {
+            let _ = kill.send(());
+        }
+    }
+
+    /// Record an event and hand it to whoever is listening.
+    fn push(&self, event: Event) {
+        {
+            let mut state = self.state.lock().expect("session state poisoned");
+            match &event {
+                Event::Started { model, .. } => state.model = Some(model.clone()),
+                Event::Busy { status } => state.busy = Some(status.clone()),
+                Event::Turn {
+                    cost_usd, turns, ..
+                } => {
+                    state.busy = None;
+                    state.cost_usd += cost_usd;
+                    state.turns += turns;
+                }
+                Event::Prompt { text } if state.asked.is_none() => {
+                    state.asked = Some(text.clone());
+                }
+                Event::Exited { .. } => state.busy = None,
+                _ => {}
+            }
+            if state.log.len() >= SCROLLBACK {
+                state.log.pop_front();
+            }
+            state.log.push_back(event.clone());
+        }
+        // An error here means nobody is listening, which is the normal state of
+        // a session working on its own.
+        let _ = self.tx.send(event);
+    }
+
+    fn note_stderr(&self, line: &str) {
+        let mut state = self.state.lock().expect("session state poisoned");
+        state.stderr.push_str(line);
+        state.stderr.push('\n');
+        if state.stderr.len() > STDERR_KEPT {
+            let cut = state.stderr.len() - STDERR_KEPT;
+            state.stderr = state.stderr.split_off(cut);
+        }
+    }
+
+    /// The transcript so far, for a client that has just connected.
+    pub fn history(&self) -> Vec<Event> {
+        self.state
+            .lock()
+            .expect("session state poisoned")
+            .log
+            .iter()
+            .cloned()
+            .collect()
+    }
+
+    pub fn listen(&self) -> broadcast::Receiver<Event> {
+        self.tx.subscribe()
+    }
+
+    /// What the child said on stderr, for when it will not start.
+    pub fn trouble(&self) -> String {
+        self.state
+            .lock()
+            .expect("session state poisoned")
+            .stderr
+            .clone()
+    }
+
+    pub fn alive(&self) -> bool {
+        self.state.lock().expect("session state poisoned").alive
+    }
+
+    pub fn summary(&self) -> Summary {
+        let state = self.state.lock().expect("session state poisoned");
+        Summary {
+            id: self.id.clone(),
+            dir: self.dir.display().to_string(),
+            started: self
+                .started
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            alive: state.alive,
+            model: state.model.clone(),
+            busy: state.busy.clone(),
+            turns: state.turns,
+            cost_usd: state.cost_usd,
+            asked: state.asked.clone(),
+        }
+    }
+}

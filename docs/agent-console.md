@@ -3,9 +3,29 @@
 A front end for talking to live Claude Code sessions on the Mac: read what they
 are doing, send new instructions, approve what they want to run.
 
-Nothing here is built. This document records the decisions and the reasoning
+**Phase 1 is built** — `console/` (the runner) and `frontend/projects/console-web`
+(the UI), run with `scripts/console.sh`. Phases 2 and 3, which are the whole
+security argument, are not. This document records the decisions and the reasoning
 behind them, so the parts that are not obvious from the code do not have to be
-re-derived. Working name for the new app is `console`; see *Open decisions*.
+re-derived.
+
+## Where it lives
+
+In this repository, as a **workspace member and a second Angular application** —
+not its own repository, and not a mode of the viewer. The doc's original
+objection was to one *binary* holding two privilege levels, and a separate
+`main` answers it: no configuration of the memview pod can turn it into a
+console. Three things keep that true, and each is load-bearing:
+
+- `console/` depends on nothing from the `memview` package. Sharing a repository
+  is fine; sharing a library would put the privilege boundary inside a crate.
+- The image builds `--bin memview` explicitly and copies that one binary, so a
+  console binary cannot ride along into a container that runs on isis.
+- The UI is its own Angular project with its own bundle, so the console's screens
+  are never inside memview's.
+
+The name is settled by the same reasoning: it is *memview's console*, not a
+product that needs a brand of its own.
 
 ## Scope, and what stays in memview
 
@@ -51,11 +71,43 @@ upward. It is the only component that can start, stop, or send input to a
 session, and it is the policy point for what it will accept.
 
 **Console UI** — Angular, served by the runner. Same stack as memview: axum +
-Angular 22 zoneless Material, `@xinutec/ui-harness`, dev-lint gate, self-contained
-fonts. Copy the spine rather than reinventing it.
+Angular 22 zoneless Material, dev-lint gate, self-contained fonts. Copy the spine
+rather than reinventing it. It is themed teal against memview's violet on
+purpose: the two are open side by side and have different privileges, and the
+colour is how you know at a glance which one can run commands.
 
 **Android client** — the Pixel 9. See *Security model*; it is more than the usual
 WebView wrapper.
+
+### What phase 1 actually does
+
+`console/src/`: `protocol.rs` reads the CLI's stream-json into a small closed set
+of events; `session.rs` owns one subprocess and its transcript; `roster.rs` holds
+them all; `api.rs` serves them, streaming with SSE. The UI lists sessions, opens
+one, streams its transcript and sends it messages.
+
+Four things were **measured against CLI 2.1.220 rather than assumed**, and each
+one changed the design:
+
+- **One process serves many turns.** With `--input-format stream-json` the
+  process stays up on an open stdin, keeps one session id across turns, and exits
+  0 when stdin closes. So a session is a long-lived subprocess and "send a new
+  instruction" is a write, not a cold start.
+- **The stream carries a rate-limit event** (`rate_limit_event`, with the window
+  and when it resets) — but as a *status*, not a percentage. The statusLine hook
+  is still the only source of the percentages, so that part of the design stands.
+- **Text arrives twice**: streamed as deltas and repeated in the completed
+  message. Taking both shows every answer twice, so text comes from the deltas
+  and tool calls from the completed message.
+- ⚠ **In headless mode, the default permission mode refuses every tool call that
+  needs permission.** A `Write` in a fresh session came back as an error with no
+  file created; the same prompt under `--permission-mode acceptEdits` wrote the
+  file. So *phase 1 without the approval channel is a console that can converse
+  and little else*. `CONSOLE_PERMISSION_MODE` exposes the choice and defaults to
+  nothing: `acceptEdits` is the setting that makes phase 1 useful in a directory
+  you trust, `bypassPermissions` hands the machine over, and the console picks
+  neither on anybody's behalf. This is the strongest argument for doing phase 2
+  next.
 
 ### Driving Claude Code
 
@@ -286,10 +338,14 @@ argument lives in that connection.
 Each phase is usable on its own and none of the work is thrown away if a later
 phase is declined.
 
-1. **Runner and desk console, on loopback.** Runner on the Mac speaking
-   stream-json, statusLine socket wired for the percentages, Angular UI, bound to
-   `127.0.0.1`. No firewall change, no certificate, no threat-model decision, and
-   nothing off the machine can reach it. Usable from the desk on day one.
+1. ✅ **Runner and desk console, on loopback.** Runner on the Mac speaking
+   stream-json, Angular UI, bound to `127.0.0.1` — and it *refuses* to bind
+   anywhere else, which is a check in `main.rs` rather than a note in a README.
+   Sessions may only start inside `CONSOLE_DIRS` (default `~/Code`), resolved
+   through symlinks. Port 8097: 8091 is memview's and 8092 was already taken on
+   this Mac.
+   **Not done in phase 1:** the statusLine socket for the context and rate-limit
+   percentages.
 2. **The gate: mTLS, key pinning, permission-mode approvals.** Provable with a
    test key and `curl --cert` before any phone exists. Nothing binds off loopback
    until this passes — the LAN is not a trusted network and the runner does not
@@ -309,10 +365,10 @@ baked into a deploy script is a failure this fleet has already had.
 
 ## Open decisions
 
-- **Name.** `console` is a working name only. The convention is a plain
-  descriptive word, never a deity, and it must be brand-checked against existing
-  products and against names already used in the fleet before it is adopted.
-  `talk` is ruled out — it collides with Nextcloud Talk.
+- ~~**Name.**~~ Settled: `console`, as a part of memview rather than a product of
+  its own, which is why it needs no brand. `steer`, `attend` and `agentctl` were
+  brand-checked and rejected — all three are taken, `agentctl` by a control layer
+  for coding agents. (`talk` was already ruled out: Nextcloud Talk.)
 - **Approval granularity.** `--permission-mode manual` means a tap per tool call,
   which suits "give them a new instruction" and does not suit watching a long
   build. Options: per-session elevation with a timeout, an allow-list of tool

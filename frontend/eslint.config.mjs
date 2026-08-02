@@ -1,5 +1,6 @@
 // @ts-check
-// ESLint flat config for the Angular frontend. Type-aware: typescript-eslint
+// ESLint flat config for the Angular frontend: memview's app under src/, and
+// the console's under projects/ — both are held to the same rules. Type-aware: typescript-eslint
 // recommendedTypeChecked + stylisticTypeChecked (parserOptions.projectService)
 // for usage bugs tsc/syntactic-lint miss (floating/misused promises, unsafe
 // `any`, await-thenable), plus the Angular rules (forbid inline template:/styles:
@@ -10,7 +11,7 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    files: ["src/**/*.ts"],
+    files: ["src/**/*.ts", "projects/**/*.ts"],
     extends: [
       ...tseslint.configs.recommendedTypeChecked,
       ...tseslint.configs.stylisticTypeChecked,
@@ -35,13 +36,13 @@ export default tseslint.config(
     // A double asserted into the interface it stands in for is the whole point
     // of a double; getting it wrong fails a test, it never reaches a user. App
     // code stays strict.
-    files: ["src/**/*.spec.ts"],
+    files: ["src/**/*.spec.ts", "projects/**/*.spec.ts"],
     rules: {
       "@typescript-eslint/no-unsafe-type-assertion": "off",
     },
   },
   {
-    files: ["src/**/*.html"],
+    files: ["src/**/*.html", "projects/**/*.html"],
     extends: [...angular.configs.templateRecommended, ...angular.configs.templateAccessibility],
   },
 );

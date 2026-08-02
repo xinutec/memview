@@ -17,7 +17,12 @@
             "index": "src/index.html",
             "tsConfig": "tsconfig.app.json",
             "inlineStyleLanguage": "scss",
-            "assets": [{ "glob": "**/*", "input": "public" }],
+            "assets": [
+              {
+                "glob": "**/*",
+                "input": "public"
+              }
+            ],
             "styles": [
               "@fontsource/roboto/300.css",
               "@fontsource/roboto/400.css",
@@ -29,8 +34,16 @@
           "configurations": {
             "production": {
               "budgets": [
-                { "type": "initial", "maximumWarning": "800kB", "maximumError": "1.5MB" },
-                { "type": "anyComponentStyle", "maximumWarning": "4kB", "maximumError": "8kB" }
+                {
+                  "type": "initial",
+                  "maximumWarning": "800kB",
+                  "maximumError": "1.5MB"
+                },
+                {
+                  "type": "anyComponentStyle",
+                  "maximumWarning": "4kB",
+                  "maximumError": "8kB"
+                }
               ],
               "outputHashing": "all"
             },
@@ -44,10 +57,16 @@
         },
         "serve": {
           "builder": "@angular/build:dev-server",
-          "options": { "proxyConfig": "proxy.conf.json" },
+          "options": {
+            "proxyConfig": "proxy.conf.json"
+          },
           "configurations": {
-            "production": { "buildTarget": "memview-web:build:production" },
-            "development": { "buildTarget": "memview-web:build:development" }
+            "production": {
+              "buildTarget": "memview-web:build:production"
+            },
+            "development": {
+              "buildTarget": "memview-web:build:development"
+            }
           },
           "defaultConfiguration": "development"
         },
@@ -57,6 +76,77 @@
             "buildTarget": "memview-web:build:development",
             "runner": "vitest",
             "tsConfig": "tsconfig.spec.json"
+          }
+        }
+      }
+    },
+    "console-web": {
+      "projectType": "application",
+      "root": "projects/console-web",
+      "sourceRoot": "projects/console-web/src",
+      "prefix": "app",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": {
+            "outputPath": "dist/console-web",
+            "browser": "projects/console-web/src/main.ts",
+            "index": "projects/console-web/src/index.html",
+            "tsConfig": "projects/console-web/tsconfig.app.json",
+            "inlineStyleLanguage": "scss",
+            "styles": [
+              "@fontsource/roboto/300.css",
+              "@fontsource/roboto/400.css",
+              "@fontsource/roboto/500.css",
+              "material-icons/iconfont/filled.css",
+              "projects/console-web/src/styles.scss"
+            ]
+          },
+          "configurations": {
+            "production": {
+              "budgets": [
+                {
+                  "type": "initial",
+                  "maximumWarning": "800kB",
+                  "maximumError": "1.5MB"
+                },
+                {
+                  "type": "anyComponentStyle",
+                  "maximumWarning": "4kB",
+                  "maximumError": "8kB"
+                }
+              ],
+              "outputHashing": "all"
+            },
+            "development": {
+              "optimization": false,
+              "extractLicenses": false,
+              "sourceMap": true
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "serve": {
+          "builder": "@angular/build:dev-server",
+          "options": {
+            "proxyConfig": "projects/console-web/proxy.conf.json"
+          },
+          "configurations": {
+            "production": {
+              "buildTarget": "console-web:build:production"
+            },
+            "development": {
+              "buildTarget": "console-web:build:development"
+            }
+          },
+          "defaultConfiguration": "development"
+        },
+        "test": {
+          "builder": "@angular/build:unit-test",
+          "options": {
+            "buildTarget": "console-web:build:development",
+            "runner": "vitest",
+            "tsConfig": "projects/console-web/tsconfig.spec.json"
           }
         }
       }
