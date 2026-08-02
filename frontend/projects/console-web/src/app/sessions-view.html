@@ -61,21 +61,7 @@
                 {{ conversation.name ?? conversation.id.slice(0, 8) }}
               </span>
               <span matListItemMeta class="facts">
-                @if (conversation.busy && conversation.remote) {
-                  <!-- The recourse, where there is one. A conversation being
-                       driven under Remote Control cannot be picked up here — two
-                       processes on one transcript — but it can be reached, and
-                       saying only "in use" left the reader at a dead end. The
-                       shell sends an off-host link out through ACTION_VIEW, so
-                       this opens the Claude app. -->
-                  <a
-                    class="elsewhere"
-                    [href]="conversation.remote"
-                    (click)="$event.stopPropagation()"
-                    [attr.aria-label]="'open ' + (conversation.name ?? 'this conversation') + ' in Remote Control'"
-                    >live · open →</a
-                  >
-                } @else if (conversation.busy) {
+                @if (conversation.busy) {
                   <span class="busy">in use</span>
                 } @else {
                   {{ ago(conversation.modified) }} · {{ size(conversation.bytes) }}

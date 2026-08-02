@@ -489,24 +489,22 @@ to be closed later — it follows from where the stream lives. A `claude` in a
 terminal has its stdin held by the terminal; there is one, and somebody else has
 it.
 
-### Remote Control is the other answer, and it is Anthropic's
+### A session started elsewhere stays elsewhere
 
-`claude --remote-control [name]` starts an interactive session that can be driven
-from Claude Code on the web or a phone. Measured on a Mac running twelve of them:
-outbound HTTPS only, **no listening socket, and no named socket anywhere under
-`~/.claude`**. So it is a relay through Anthropic, and Anthropic's own client is
-the only thing that can reach those sessions. Nothing local can, this console
-included.
+`claude --remote-control` sessions are driven through a relay at Anthropic —
+measured on a Mac running twelve of them: outbound HTTPS only, **no listening
+socket, and no named socket anywhere under `~/.claude`**. Nothing local can reach
+them, this console included, and the same is true of a plain `claude` in a
+terminal for the simpler reason that a terminal holds its stdin.
 
-That is worth stating plainly rather than treating as a rival: it puts a third
-party in the instruction path, which is what this whole design avoids — but not a
-*new* one. Anthropic is already trusted with everything a session does, because
-the model's output is what drives the tool calls. The console's distinct claim is
-narrower than "the only way to reach a session from a phone": it is that the
-instruction path is yours end to end, and that approvals are gated by a key in
-your phone's secure element.
+The console does not try to. Its claim is narrower and supported: it owns the
+sessions it starts, over the CLI's documented `stream-json` seam, with approvals
+gated by a key in your phone's secure element. Joining a conversation whose input
+something else already holds is not a gap to close later — the door has to be
+open from the start, and for a session the console started, it is.
 
-A session is one or the other. It cannot be both.
+What follows from that is the guard below: the console cannot see those sessions,
+so it infers whether a transcript is in use rather than being told.
 
 ### Resume: the same conversation, a process of ours
 
@@ -639,7 +637,7 @@ phase is declined.
 6. ✅ **Resume.** Pick up a conversation that already exists rather than only
    starting new ones, refused when anything else appears to be using it. See
    *Reaching a conversation that already exists* — including why the console
-   cannot attach to a running session, and why Remote Control can.
+   cannot attach to a session something else already holds.
    **Not done:** seeding the view from the transcript, so a resumed session shows
    what came before it.
 7. **memview link-out** from `/agents`.

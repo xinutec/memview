@@ -42,10 +42,6 @@ pub struct Conversation {
     /// never took a name. A hex prefix identifies a transcript; only this
     /// identifies the *work*.
     pub name: Option<String>,
-    /// Where to reach it under Remote Control, when it is bridged. See
-    /// [`tail_facts`] for what this identifies, which is not quite this
-    /// conversation.
-    pub remote: Option<String>,
     /// Whether something appears to be using it already. See [`in_use`].
     pub busy: bool,
 }
@@ -83,13 +79,6 @@ pub fn projects_root() -> PathBuf {
 /// test: a conversation left open and idle for an hour looks untouched, which is
 /// why the process table is consulted as well.
 const RECENTLY_MILLIS: u64 = 120_000;
-
-/// The transcript line a bridged session writes, and the two halves of turning
-/// what it carries into an address. Named rather than spelled inline: they are
-/// Claude Code's vocabulary, not ours, and a change upstream should be findable.
-const BRIDGE_LINE: &str = "bridge-session";
-const BRIDGE_PREFIX: &str = "cse_";
-const REMOTE_CONTROL_AT: &str = "https://claude.ai/code/session_";
 
 /// Every conversation under `root`, newest first.
 pub fn conversations(root: &Path) -> Vec<Conversation> {
@@ -201,7 +190,6 @@ fn read(path: &Path) -> Option<Conversation> {
     }
     let id = path.file_stem()?.to_str()?.to_string();
     let meta = std::fs::metadata(path).ok()?;
-    let facts = tail_facts(path, meta.len(), &id);
     let modified = meta
         .modified()
         .ok()?
@@ -213,8 +201,7 @@ fn read(path: &Path) -> Option<Conversation> {
         dir: cwd_of(path)?,
         modified,
         bytes: meta.len(),
-        name: facts.0,
-        remote: facts.1,
+        name: name_of(path, meta.len()),
         // Filled in by `conversations`, which reads the process table once for
         // the whole list rather than once per file.
         busy: false,
@@ -241,55 +228,27 @@ fn cwd_of(path: &Path) -> Option<String> {
     None
 }
 
-/// What the transcript calls itself, and where it is reachable — one pass.
-///
-/// ## The name
+/// What the transcript calls itself, if anything.
 ///
 /// Two line types carry it: `custom-title` (what it was deliberately called) and
 /// `agent-name`. The first wins where both exist, because one is a decision and
 /// the other is a default.
 ///
-/// ## The Remote Control link
-///
-/// A bridged session writes a `bridge-session` line naming its `bridgeSessionId`,
-/// and does so on every turn — three thousand times in a long conversation — so
-/// the same tail that carries the name carries this. The id maps to the address
-/// by swapping one prefix: `cse_015kVu…` is `claude.ai/code/session_015kVu…`.
-/// Checked against a session's own known URL rather than inferred from the shape.
-///
-/// ⚠ **It identifies a bridge session, not a conversation.** Two of the
-/// transcripts here — `coach` and `heatcam`, different ids, different files —
-/// name the same `cse_01RSNq…`, each thousands of times. So this is offered as
-/// *where this conversation is being driven from*, which is true, and not as a
-/// unique address for it, which it is not. Lines are matched on their own
-/// `sessionId` regardless, so a transcript quoting somebody else's id cannot
-/// claim it.
-///
-/// Read from the tail — see [`TAIL_BYTES`], which reaches the bridge line in all
-/// thirteen transcripts here. A chunk taken from an arbitrary byte offset starts
+/// Read from the tail — see [`TAIL_BYTES`]. A chunk taken from an arbitrary byte offset starts
 /// mid-line and possibly mid-character, so the first line is expected to be
 /// rubbish and unparseable lines are skipped rather than treated as the end of
 /// the file.
-fn tail_facts(path: &Path, len: u64, id: &str) -> (Option<String>, Option<String>) {
+fn name_of(path: &Path, len: u64) -> Option<String> {
     use std::io::{Read, Seek, SeekFrom};
 
-    let Ok(mut file) = std::fs::File::open(path) else {
-        return (None, None);
-    };
-    if file
-        .seek(SeekFrom::Start(len.saturating_sub(TAIL_BYTES)))
-        .is_err()
-    {
-        return (None, None);
-    }
+    let mut file = std::fs::File::open(path).ok()?;
+    file.seek(SeekFrom::Start(len.saturating_sub(TAIL_BYTES)))
+        .ok()?;
     let mut tail = Vec::new();
-    if file.take(TAIL_BYTES).read_to_end(&mut tail).is_err() {
-        return (None, None);
-    }
+    file.take(TAIL_BYTES).read_to_end(&mut tail).ok()?;
 
     let mut title = None;
     let mut agent = None;
-    let mut bridge = None;
     for line in String::from_utf8_lossy(&tail).lines() {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
             continue;
@@ -300,14 +259,6 @@ fn tail_facts(path: &Path, len: u64, id: &str) -> (Option<String>, Option<String
         if let Some(found) = value.get("agentName").and_then(|v| v.as_str()) {
             agent = Some(found.to_string());
         }
-        if value.get("type").and_then(|v| v.as_str()) == Some(BRIDGE_LINE)
-            && value.get("sessionId").and_then(|v| v.as_str()) == Some(id)
-            && let Some(found) = value.get("bridgeSessionId").and_then(|v| v.as_str())
-            && let Some(rest) = found.strip_prefix(BRIDGE_PREFIX)
-        {
-            bridge = Some(format!("{REMOTE_CONTROL_AT}{rest}"));
-        }
     }
-    let name = title.or(agent).filter(|name| !name.trim().is_empty());
-    (name, bridge)
+    title.or(agent).filter(|name| !name.trim().is_empty())
 }

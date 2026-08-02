@@ -107,13 +107,4 @@ export interface Conversation {
   readonly name: string | null;
   /** Something already has it open, as far as the runner can tell. */
   readonly busy: boolean;
-  /**
-   * Where it is being driven from under Remote Control, when it is bridged.
-   *
-   * ⚠ Names a *bridge session*, which two conversations can share — so it
-   * answers "where is this being driven from", not "which conversation is this".
-   * Offered only while `busy`: the line survives in the transcript after the
-   * session ends, and a link to a session that is gone is an offer that fails.
-   */
-  readonly remote: string | null;
 }
