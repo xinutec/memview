@@ -24,6 +24,9 @@ RUN apk add --no-cache git ca-certificates \
     && npm install -g pnpm \
     && pnpm install --frozen-lockfile
 COPY frontend/ .
+# The viewer's bundle only — NOT `pnpm run build`, which would also build the
+# console. Nothing that can drive Claude Code belongs in an image that runs on
+# an internet-facing host. See docs/agent-console.md.
 RUN pnpm exec ng build --configuration production
 
 # --- backend (deps cached in their own layer) ---

@@ -58,7 +58,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run lint
       - run: pnpm test
-      - run: pnpm exec ng build --configuration production
+      # `pnpm run build`, not `ng build`: the workspace holds two applications
+      # and a bare `ng build` builds only the default one. The console's layout
+      # harness then had no bundle to serve and CI failed on a webServer
+      # timeout, which reads as an infrastructure flake and was a missing build.
+      - run: pnpm run build
       # Real-browser render check: icon fonts load, no text overlaps or overflow.
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm run ui-check

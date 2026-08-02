@@ -922,6 +922,18 @@ fn one_commit(dir: &std::path::Path, file: &str, body: &str) -> String {
             .arg("-C")
             .arg(dir)
             .args(args)
+            // `-C` sets the directory; it does NOT clear the inherited GIT_*
+            // environment, and GIT_DIR/GIT_INDEX_FILE win over it. A commit made
+            // with `git commit -a` or with explicit paths exports GIT_INDEX_FILE
+            // for its hooks, so this suite — run by the pre-commit gate — built
+            // its scratch repositories against the *committing* repository and
+            // failed two tests that pass on their own. Cleared here rather than
+            // in the gate, because a test must not care how it was invoked.
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_OBJECT_DIRECTORY")
+            .env_remove("GIT_COMMON_DIR")
             .env("GIT_AUTHOR_NAME", "Test")
             .env("GIT_AUTHOR_EMAIL", "test@example.com")
             .env("GIT_COMMITTER_NAME", "Test")
@@ -1071,6 +1083,18 @@ fn commit_then_rename(dir: &std::path::Path, from: &str, to: &str) -> (String, S
             .arg("-C")
             .arg(dir)
             .args(args)
+            // `-C` sets the directory; it does NOT clear the inherited GIT_*
+            // environment, and GIT_DIR/GIT_INDEX_FILE win over it. A commit made
+            // with `git commit -a` or with explicit paths exports GIT_INDEX_FILE
+            // for its hooks, so this suite — run by the pre-commit gate — built
+            // its scratch repositories against the *committing* repository and
+            // failed two tests that pass on their own. Cleared here rather than
+            // in the gate, because a test must not care how it was invoked.
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_INDEX_FILE")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_OBJECT_DIRECTORY")
+            .env_remove("GIT_COMMON_DIR")
             .env("GIT_AUTHOR_NAME", "Test")
             .env("GIT_AUTHOR_EMAIL", "test@example.com")
             .env("GIT_COMMITTER_NAME", "Test")

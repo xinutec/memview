@@ -95,6 +95,17 @@ pub fn history(repo: &Path, code_root: &Path) -> Vec<Commit> {
     let out = Command::new("git")
         .arg("-C")
         .arg(repo)
+        // `-C` names the directory to work in; it does NOT override an inherited
+        // GIT_DIR, which wins and would silently read a different repository.
+        // Anything started from a git hook has one set — the miner is normally
+        // run from a nightly job, but "normally" is not a guarantee, and a
+        // history read from the wrong repo is attributed to the wrong sessions
+        // with nothing to give it away.
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_OBJECT_DIRECTORY")
+        .env_remove("GIT_COMMON_DIR")
         .args([
             "log",
             "--numstat",
