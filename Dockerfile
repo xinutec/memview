@@ -39,9 +39,13 @@ COPY Cargo.toml Cargo.lock ./
 # when coach grew a second crate. A stub source is enough to prime the cache, and
 # `--bin memview` means the console is never compiled, let alone shipped.
 COPY console/Cargo.toml console/
+# The console's stub needs a main.rs as well as a lib.rs: its manifest names a
+# `default-run`, and a manifest whose default target does not exist fails to
+# parse — before any of this compiles, and with an error that names the manifest
+# rather than the missing file.
 RUN mkdir -p src console/src \
     && echo 'fn main() {}' > src/main.rs && echo '' > src/lib.rs \
-    && echo '' > console/src/lib.rs \
+    && echo '' > console/src/lib.rs && echo 'fn main() {}' > console/src/main.rs \
     && cargo build --release --bin memview && rm -rf src
 COPY src/ src/
 # --bin memview, never a bare build: the workspace also holds the console, which
