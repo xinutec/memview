@@ -314,10 +314,10 @@ to a substitute.
 
 ### Firewall changes required
 
-**Superseded — this is now a description of what to revert.** See *The bridge*: a
-Mac that dials out needs no exception at all. The hub's half is deployed
-(`nixos-config` `c8fb7f0`) and stays as the fallback until the bridge works; the
-Mac's half was written but never applied, and now will not be.
+**Superseded, and reverted.** See *The tunnel*: a Mac that dials out needs no
+exception at all. The hub's half was deployed and is gone again (`nixos-config`
+`9108db1`); the Mac's half was written and never applied (`xinutec-infra`
+`f9f0717`). What follows is kept as the record of what was tried.
 
 **Only for offsite.** On the house Wi-Fi the phone reaches the Mac's LAN address
 directly and neither rule is needed — which is why phase 3 splits, and why the
@@ -400,116 +400,87 @@ What this saves is not a few hundred lines of Kotlin. It is a second
 implementation of every screen, kept in step with the first for as long as both
 exist.
 
-## The bridge
+## The tunnel
 
-**Superseded, 2026-08-02:** phase 3 reached the phone by opening one port on the
-Mac to one VPN peer. That works and is deployed, and Pippijn's objection to it was
-not that it is unsafe but that it need not exist: *the Mac does not have to be
-reachable at all*. It can dial out to a relay and take its instructions from
-there, which fits the one-way rule as written rather than as amended. This section
-is the design that replaces it; *Firewall changes required* above becomes a
-description of something to revert.
-
-The same section also asks the Mac to stop serving the UI and do nothing but
-execute, which is the larger half of the change.
+**Supersedes the firewall exception, 2026-08-02.** Phase 3 reached the phone by
+opening one port on the Mac to one VPN peer. That works and was deployed on the
+hub, and Pippijn's objection to it was not that it is unsafe but that it need not
+exist: *the Mac does not have to be reachable at all*. It can dial out, and then
+the one-way rule stands as written rather than as amended.
 
 ### The shape
 
-Three parties, and the middle one is deliberately stupid.
+The Mac holds an outbound SSH connection to isis and asks it to listen on its VPN
+address. The phone connects there; the bytes go back down the connection the Mac
+opened; **the TLS session terminates at the Mac**, at the same pinned-key gate
+phase 2 built. isis moves ciphertext and holds no key that opens anything.
 
-- **The phone** holds the UI and the StrongBox key. It composes an instruction,
-  seals it to the Mac, and posts the sealed bytes.
-- **The bridge**, on isis, is two append-only queues and a bearer token. It never
-  holds a key that opens anything, never parses an envelope, and never serves code
-  that has not been signed elsewhere.
-- **The Mac** dials out, long-polls for envelopes, opens them, runs the sessions,
-  seals the results and posts them back. It listens on **nothing** except the
-  plaintext loopback socket the headless desk uses.
+    phone ──TLS──▶ isis:8097 ═══tunnel═══▶ Mac 127.0.0.1:8097
+                   └─ sees ciphertext ─┘   └─ terminates TLS ─┘
 
-What this buys over phase 3: no firewall exception on either side, a much smaller
-Mac, and store-and-forward for free — instructions queue while the Mac sleeps,
-results queue while the phone is in a pocket.
+- **`scripts/console-tunnel.sh`** dials it, and `scripts/console.sh` starts it
+  alongside the console and kills it with the console. A standing tunnel to a
+  console that is not running is a listening port on isis with nothing behind it.
+- **isis** sets `GatewayPorts clientspecified` and carries one key restricted to
+  `permitlisten` on exactly that address and port — `restrict,port-forwarding`, so
+  no shell, no agent, no local forwards. An unattended tunnel on the ordinary
+  admin key would give anything holding this Mac's disk a root session there.
+- **The Mac binds loopback only**, for both the gated socket and the desk one.
 
-### Why the UI cannot simply be served from isis
+Proven end to end: `openssl s_client` from isis to `10.100.0.2:8097` is answered
+by *the Mac's* self-signed certificate, and an unauthenticated `curl` to the same
+address gets nothing. The phone reaches it and logs *the console answered with the
+pinned key*.
 
-**Code delivery is control, and this is the whole of it.** A page served by isis
-runs on the near side of whatever signing bridge the app exposes; a compromised
-isis would ask the StrongBox key to authorise instructions nobody typed, and the
-key would agree, because the request arrives from the app it was enrolled to.
-End-to-end encryption is no answer when one end's *code* comes from the adversary.
-Subresource integrity and service workers are no answer either — whatever would
-enforce them also arrived from isis.
+### Why this rather than a message bridge
 
-The address was never the problem. So the bundle keeps its `memview.xinutec.org`
-URL and gains a signature: the app fetches it, checks it against a public key
-compiled into the APK, and only then lets the WebView near it. UI changes then
-ship without reinstalling the app, which is better than the phase-3 arrangement
-where a button change meant a rebuild.
+The first answer to "don't open a port" was a relay on isis holding an encrypted
+queue: the phone seals an instruction to the Mac's key, isis stores the sealed
+bytes, the Mac dials out and opens them. It is a good design and it is written up
+below, because it buys things this does not — store-and-forward, working with no
+VPN at all, and a Mac that does nothing but execute.
 
-Two constraints that come with it:
+It was rejected for one reason. **mTLS is audited and a hand-built envelope is
+not.** Key agreement, nonce uniqueness, counter persistence across restarts and
+two independent implementations agreeing are four places to be quietly wrong, and
+being quietly wrong there costs the whole security argument. The passthrough gets
+the same "nothing open on the Mac" property while keeping the construction that
+has had a decade of adversarial attention. Correctness of the plumbing is a much
+easier thing to be confident about than correctness of a protocol.
 
-- **The signing key does not live on isis.** If it did, compromising isis would
-  get you signing, and the check would certify the attacker's bundle. It lives on
-  the Mac and signs at publish time.
-- **The signed manifest carries a version the app will not move backwards**, or a
-  compromised isis can serve last month's bundle with a known hole in it.
+Worth being honest about what the tunnel does *not* buy: a compromised isis can
+still feed bytes to a TLS stack on the Mac, exactly as a compromised amun could
+have through the firewall exception. What it removes is the standing exception,
+the listening socket, and any exposure at all while the console is stopped.
 
-The first working version ships the bundle inside the APK — one less moving part
-while the envelope and the bridge are being proven — and the signed path follows
-immediately after.
+### The message bridge, if it is ever wanted
 
-This belongs in `org.xinutec:shell` eventually: all eleven wrappers currently run
+Kept because the reasoning is worth not re-deriving, not because it is queued.
+
+isis holds two append-only queues and a bearer token. The phone seals each
+instruction to the Mac's key; the Mac long-polls, opens, executes, seals the
+result and posts it back. ECIES: static-static ECDH over P-256 between the
+phone's StrongBox key and the Mac's, `HKDF-SHA256` twice with different `info`
+strings so the two directions never share a nonce space, AES-256-GCM, and a
+persisted 64-bit counter per direction forming the nonce and refused when it does
+not advance — that last part is what stops the relay replaying an instruction,
+which is the one attack a dumb queue is perfectly placed to run.
+
+It carries one requirement that is not obvious and is not negotiable. **Code
+delivery is control.** A page served by isis runs on the near side of whatever
+signing bridge the app exposes; a compromised isis would ask the StrongBox key to
+authorise instructions nobody typed, and the key would agree, because the request
+arrives from the app it was enrolled to. End-to-end encryption is no answer when
+one end's *code* comes from the adversary, and subresource integrity is no answer
+either — whatever would enforce it also arrived from isis. So the bundle would
+keep its `memview.xinutec.org` URL and gain a signature the app checks against a
+key compiled into the APK, with the signing key on the Mac and a version the app
+refuses to move backwards.
+
+That belongs in `org.xinutec:shell` eventually — all eleven wrappers currently run
 whatever JavaScript their server returns, which is fine for a viewer behind a
-login and would not be fine for `life`, which can spend money. It is **not** going
-there yet, on the fleet's own rule — extract on the second consumer, the way the
-shell itself was extracted from eight copies and the way `utterance` kept its
-microphone. It is also a bigger change to the shell than it looks: the shell's
-central abstraction is *an app is a URL*, and this makes it *an app is a signed
-bundle fetched from a URL and served locally*. So it is built inside
-`console/android`, shaped to lift — an object that knows about signatures,
-versions and unpacking, and nothing about the console.
-
-### The envelope
-
-mTLS gave all of this for free and the bridge does not, which is the honest cost
-of the change. What replaces it is ECIES, a standard construction rather than an
-invention, but ours to get right:
-
-- **Key agreement** is static-static ECDH over P-256 between the phone's StrongBox
-  key and the Mac's. The phone's key must be generated with `PURPOSE_AGREE_KEY`
-  alongside `PURPOSE_SIGN`, which means re-enrolling — the current key cannot do
-  it. No forward secrecy, and that is a deliberate trade: the phone's half cannot
-  be extracted at all, and if the Mac's half is stolen the attacker already has
-  the machine the console would have given them.
-- **Two keys, not one**: `HKDF-SHA256` twice with different `info` strings, so the
-  two directions never share a nonce space.
-- **AES-256-GCM**, because `javax.crypto` and `aes-gcm` both have it without a new
-  dependency on either side.
-- **A 64-bit counter per direction**, persisted, forming the nonce; a receiver
-  refuses any counter it has already seen. That is what stops the bridge replaying
-  an old instruction, which is the one attack a dumb relay is otherwise perfectly
-  placed to run.
-
-### What the bridge can still do
-
-It can withhold, delay, reorder and count. It cannot read, forge or replay. Denial
-of service is unavoidable for anything in the middle and is the same exposure amun
-already has.
-
-One thing that does **not** improve: a compromised server can still feed bytes to
-code on the Mac. Phase 3 let amun reach a rustls listener; this lets isis reach an
-HTTP client and an envelope parser. The parser is much smaller than a TLS stack,
-and it is ours rather than audited. Roughly a wash, and worth saying rather than
-claiming the bridge removes an attack surface it only moves.
-
-### What becomes dead
-
-`console/src/tls.rs`, `console/tests/gate.rs`, `console/src/bin/pin.rs` and
-`scripts/console-identity.sh` exist for a listener that will no longer exist. They
-stay until the bridge is proven end to end, and are cut then — not before, because
-the deployed phase-3 path is the fallback while phase 4 is being built.
-`console/src/attest.rs` survives unchanged: the phone's key still has to be
-enrolled, and now has more to prove, not less.
+login and would not be fine for `life`, which can spend money — but on the second
+consumer, not the first.
 
 ## Build order
 
@@ -555,21 +526,14 @@ phase is declined.
    completed through the gate, so it is the end-to-end claim and not an inference.
 
    This half costs no firewall change, which is the point of splitting it out.
-4. ~~**The phone, away**, by firewall exception.~~ Built and deployed on the hub
-   (`nixos-config` `c8fb7f0`); the Mac's half was never applied. Superseded by
-   *The bridge* — the exception is to be reverted once phase 5 works, and until
-   then it is the fallback.
-5. **The bridge.** In order, because each step is testable on its own and the
-   first is the one that has to be right:
-   1. **The envelope** — seal and open, both languages, with shared test vectors.
-      A cross-language vector is the point: two implementations that each pass
-      their own tests and disagree with each other is the failure this invites.
-   2. **The bridge service** on isis — two queues, a token, bounded retention.
-   3. **The Mac's dialer** — long-poll, open, execute, seal, post. The HTTP API
-      it has today becomes the loopback-only desk surface.
-   4. **The app** — bundle the UI, drop the WebView's TLS callbacks, add the
-      envelope bridge and a `PURPOSE_AGREE_KEY` re-enrolment.
-   5. **Signed bundles** served from the memview URL, and the firewall reverts.
+4. ~~**The phone, away**, by firewall exception.~~ Deployed on the hub and then
+   reverted; the Mac's half was never applied. Superseded by *The tunnel*.
+5. ✅ **The tunnel.** The Mac dials out to isis, which listens on its VPN address
+   and hands the bytes back down; the mTLS gate is untouched and terminates at the
+   Mac. Both firewall changes reverted — amun's was deployed and is gone again,
+   the Mac's was written and never applied. The Mac now binds loopback only.
+   Proven: isis answers with the Mac's certificate, an unauthenticated client gets
+   nothing, and the phone reaches it through the tunnel.
 6. **memview link-out** from `/agents`.
 
 The old ordering had phase 1 listening on the LAN with no authentication, on the
@@ -606,13 +570,13 @@ that generated the key.
 
 ## Deliberately not doing
 
-- ~~**Relaying through memview on isis.**~~ **Reversed, 2026-08-02** — see *The
-  bridge*. The objection was that it "puts a machine that is exposed to the
-  internet in a position to send arbitrary instructions to the root-of-truth
-  host", and that is true of a relay that can *read* what it carries. It is not
-  true of one that cannot: seal the instruction to the Mac's key and isis holds
-  ciphertext it can drop but not write. The original entry mistook a property of
-  one implementation for a property of the idea.
+- **Relaying *decrypted* instructions through a service on isis.** The original
+  entry rejected relaying through memview outright, on the grounds that it "puts a
+  machine that is exposed to the internet in a position to send arbitrary
+  instructions to the root-of-truth host". That is true of a relay that can read
+  what it carries and false of one that cannot — so the objection was too broad,
+  and *The tunnel* is a relay. What stands is the narrower version: isis may move
+  bytes it cannot read, and may not be told what any of them mean.
 - **A second WireGuard tunnel nested phone-to-Mac inside the hub tunnel.** It
   reaches the same end-to-end property as mTLS with more moving parts and no
   additional guarantee.

@@ -34,11 +34,23 @@ if [ -s "$DIR/server.key" ] && [ -s "$DIR/clients" ]; then
   export CONSOLE_TLS_CERT="$DIR/server.crt"
   export CONSOLE_TLS_KEY="$DIR/server.key"
   export CONSOLE_CLIENT_KEYS="$PINS"
-  export BIND_ADDR="${BIND_ADDR:-0.0.0.0:8097}"
+  # Loopback, even with the gate on. The phone arrives through a tunnel this Mac
+  # dialled out to isis (scripts/console-tunnel.sh), so the socket never has to be
+  # reachable from anywhere — and a machine nothing can connect to is a stronger
+  # statement than a machine that answers one address. See docs/agent-console.md.
+  export BIND_ADDR="${BIND_ADDR:-127.0.0.1:8097}"
+  # The tunnel lives exactly as long as the console does. Started here rather than
+  # as a launchd agent because a standing tunnel to a console that is not running
+  # is a listening port on isis with nothing behind it — and because the thing and
+  # the thing watching it should stop together.
+  ./scripts/console-tunnel.sh &
+  TUNNEL=$!
+  trap 'kill "$TUNNEL" 2>/dev/null || true' EXIT
 else
   echo "gate: not configured — loopback only (scripts/console-identity.sh sets it up)"
 fi
 
+# Not `exec`: the trap above has to survive to take the tunnel down with us.
 CONSOLE_DIRS="${CONSOLE_DIRS:-$HOME/Code}" \
   STATIC_DIR="${STATIC_DIR:-frontend/dist/console-web/browser}" \
-  exec nix develop -c cargo run -p console
+  nix develop -c cargo run -p console

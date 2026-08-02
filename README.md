@@ -149,9 +149,14 @@ key, an origin of GENERATED, and an authentication requirement the hardware
 enforces. See [console/src/attest.rs](console/src/attest.rs) and
 [console/android/README.md](console/android/README.md).
 
+**Away from the house**, the Mac dials *out*: `console.sh` opens an SSH tunnel to
+isis, which listens on its VPN address and hands the bytes back down it. The TLS
+session terminates at the Mac's own gate, so isis carries ciphertext and holds no
+key that opens anything — and the Mac binds loopback only, with no firewall
+exception anywhere.
+
 [docs/agent-console.md](docs/agent-console.md) is the authority on the design and
-the threat model. Still to do there: the two firewall rules that make the phone
-work away from the house.
+the threat model.
 
 | var | default | meaning |
 | --- | --- | --- |
