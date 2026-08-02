@@ -12,6 +12,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { Router, RouterLink } from '@angular/router';
 
 import { ConsoleApi } from './console-api';
+import { reason } from './errors';
 import { Conversation, Overview, Summary } from './models';
 import { PastStore } from './past-store';
 
@@ -67,7 +68,7 @@ export class SessionsView {
         this.state.set(state);
         if (!this.dir()) this.dir.set(state.repos[0] ?? state.dirs[0] ?? '');
       },
-      error: (err: unknown) => this.trouble.set(`cannot reach the runner: ${String(err)}`),
+      error: (err: unknown) => this.trouble.set(`cannot reach the runner: ${reason(err)}`),
     });
   }
 
@@ -96,9 +97,9 @@ export class SessionsView {
         this.prompt.set('');
         void this.router.navigate(['/s', session.id]);
       },
-      error: (err: { error?: string }) => {
+      error: (err: unknown) => {
         this.starting.set(false);
-        this.trouble.set(err.error ?? 'could not start a session');
+        this.trouble.set(reason(err));
       },
     });
   }

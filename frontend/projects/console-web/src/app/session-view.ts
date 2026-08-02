@@ -7,6 +7,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { ConsoleApi } from './console-api';
+import { reason } from './errors';
 import { Entry, SessionEvent, Summary } from './models';
 import { fold } from './transcript';
 
@@ -70,7 +71,7 @@ export class SessionView implements OnDestroy {
   private refresh(): void {
     this.api.state().subscribe({
       next: (state) => this.session.set(state.sessions.find((s) => s.id === this.id())),
-      error: () => this.trouble.set('cannot reach the runner'),
+      error: (err: unknown) => this.trouble.set(`cannot reach the runner: ${reason(err)}`),
     });
   }
 
@@ -88,9 +89,9 @@ export class SessionView implements OnDestroy {
         this.text.set('');
         this.session.set(summary);
       },
-      error: (err: { error?: string }) => {
+      error: (err: unknown) => {
         this.sending.set(false);
-        this.trouble.set(err.error ?? 'the session did not take that');
+        this.trouble.set(reason(err));
       },
     });
   }
@@ -105,15 +106,14 @@ export class SessionView implements OnDestroy {
   decide(entry: Entry, allow: boolean): void {
     if (!entry.ask || entry.allowed !== undefined) return;
     this.api.decide(this.id(), entry.ask, allow).subscribe({
-      error: (err: { error?: string }) =>
-        this.trouble.set(err.error ?? 'that decision did not land'),
+      error: (err: unknown) => this.trouble.set(reason(err)),
     });
   }
 
   stop(): void {
     this.api.stop(this.id()).subscribe({
       next: (summary) => this.session.set(summary),
-      error: () => this.trouble.set('could not stop it'),
+      error: (err: unknown) => this.trouble.set(reason(err)),
     });
   }
 

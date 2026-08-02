@@ -65,7 +65,7 @@ async fn main() -> Result<()> {
     let desk = config.desk.clone();
     let dirs = config.dirs.clone();
     let roster = Arc::new(Roster::new(config));
-    let mut app = api::router(roster);
+    let mut app = api::router(roster.clone());
     if let Some(dir) = &static_dir {
         // The SPA owns its routes, so anything the API did not answer is the
         // index and not a 404.
@@ -76,6 +76,26 @@ async fn main() -> Result<()> {
         app = app.fallback_service(
             ServeDir::new(dir).fallback(ServeFile::new(format!("{dir}/index.html"))),
         );
+    }
+
+    // Take the sessions with us. Without this, stopping the console orphans every
+    // `claude` it started: they keep running, keep their session ids, and keep
+    // appearing in the process table, where `past::in_use` reads them and refuses
+    // to resume the very conversations nobody is using any more.
+    {
+        let roster = roster.clone();
+        tokio::spawn(async move {
+            let mut term =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    .expect("SIGTERM handler");
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = term.recv() => {}
+            }
+            tracing::info!("stopping — taking the sessions with us");
+            roster.shut_down();
+            std::process::exit(0);
+        });
     }
 
     let where_sessions_run = dirs

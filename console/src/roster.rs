@@ -82,6 +82,21 @@ impl Roster {
         Ok(session)
     }
 
+    /// Kill every session this console owns.
+    ///
+    /// For shutdown, and it has to be *kill* rather than a polite stop: the
+    /// console is on its way out and has no time left to wait for a turn to
+    /// finish. `kill_on_drop` covers a clean exit and nothing else — a signalled
+    /// process never runs a destructor, and the children it leaves behind keep
+    /// their session ids, their working directories, and their place in the
+    /// process table, where they go on making their conversations look busy to
+    /// the next console that starts.
+    pub fn shut_down(&self) {
+        for session in self.sessions.read().expect("roster poisoned").values() {
+            session.force();
+        }
+    }
+
     pub fn get(&self, id: &str) -> Option<Arc<Session>> {
         self.sessions
             .read()
