@@ -124,20 +124,32 @@ container, and the UI is its own Angular project.
 
 **The gate.** Without `CONSOLE_TLS_*` set it refuses to listen anywhere but
 loopback — the house LAN is not a trusted network. With them it requires a
-client certificate whose *public key* is pinned, and serves nobody else:
-
-```sh
-cargo run -p console --bin pin -- phone.pem   # the device's fingerprint
-CONSOLE_TLS_CERT=… CONSOLE_TLS_KEY=… CONSOLE_CLIENT_KEYS=<pin>[,<pin>] ./scripts/console.sh
-```
-
-No CA and no PKI: one console, a known set of devices, and a fingerprint that
-survives the certificate being reissued because it is taken over the key. Adding
-a device is a line; revoking one is deleting it. A refused key is logged with its
+client certificate whose *public key* is pinned, and serves nobody else. No CA
+and no PKI: one console, a known set of devices, and a fingerprint that survives
+the certificate being reissued because it is taken over the key. Adding a device
+is a line; revoking one is deleting it. A refused key is logged with its
 fingerprint, which is how you enrol the next one.
 
-The phone itself is phase 3 of [docs/agent-console.md](docs/agent-console.md),
-the authority on the design and the threat model.
+**The phone.** A Pixel with a key generated in its StrongBox — non-exportable, so
+no Xinutec server ever holds a credential the console would accept. Three scripts,
+in order, and then `console.sh` finds the material on its own:
+
+```sh
+./scripts/console-identity.sh                                    # the Mac's own key
+nix develop ~/Code/recall#android --command console/android/deploy.sh
+nix develop ~/Code/recall#android --command ./scripts/enrol.sh   # checks, then pins
+```
+
+`enrol.sh` will not pin a key on a claim it has not checked: a challenge it
+generated seconds earlier, every signature in the chain, a Google root held in
+this repository, Google's revocation list, StrongBox on both the record and the
+key, an origin of GENERATED, and an authentication requirement the hardware
+enforces. See [console/src/attest.rs](console/src/attest.rs) and
+[console/android/README.md](console/android/README.md).
+
+[docs/agent-console.md](docs/agent-console.md) is the authority on the design and
+the threat model. Still to do there: the two firewall rules that make the phone
+work away from the house.
 
 | var | default | meaning |
 | --- | --- | --- |

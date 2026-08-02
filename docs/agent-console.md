@@ -279,14 +279,24 @@ No CA and no PKI. Pin raw public keys.
    phone's own claim about itself.
 
    It only delivers that if the chain is actually checked, and this happens once
-   by hand, which is exactly when a step gets skipped. Four things: the
-   attestation challenge is freshly generated for this enrolment and appears in
-   the record; the chain validates to the Google hardware attestation root; no
-   certificate in it is revoked (Google publishes the status list, and the
-   revocations that matter are the ones from key extractions); and the record's
-   security level says StrongBox with the authentication requirement present.
-   Write the check down as a script rather than a paragraph, since it has to run
-   again for the iPhone.
+   by hand, which is exactly when a step gets skipped. Written down as
+   `console/src/attest.rs` and driven by `scripts/enrol.sh` rather than left as a
+   paragraph, since it has to run again for the iPhone. Seven checks, and the
+   three added while writing it are as load-bearing as the four that were
+   specified:
+   - the challenge in the record is the one this enrolment generated on the Mac
+     seconds earlier, which is what makes it an answer rather than a recording;
+   - every signature in the chain, link by link;
+   - the top of the chain is a Google root **held in this repository** — note the
+     chain a Pixel 9 produces stops one short of the root, so "it ends at a root"
+     is not sufficient as a test;
+   - nothing in it is revoked, and a status list that could not be fetched is a
+     *failure*, not a skip;
+   - the security level is StrongBox for both the record and the key, because a
+     StrongBox claim signed at TEE level is a claim by software that does not hold
+     the key;
+   - the origin is GENERATED, so the key never existed outside the element;
+   - and the hardware — not the OS — enforces an authentication requirement.
 3. The pinned SPKI hash is a non-secret constant in the runner's config, changed
    by a commit. Revoking is deleting a line and restarting; adding the iPhone
    later is adding a line.
@@ -296,7 +306,11 @@ to a substitute.
 
 ### Firewall changes required
 
-Both narrow, both in code, both needed only for the phone path (phase 3):
+**Only for offsite.** On the house Wi-Fi the phone reaches the Mac's LAN address
+directly and neither rule is needed — which is why phase 3 splits, and why the
+half that costs a firewall exception can be declined on its own.
+
+Both narrow, both in code, both needed only for the phone away from home:
 
 - **amun** — accept forward from `10.100.0.12/32` to the Mac on the console port,
   inserted above the existing drop in `base-configuration.nix`.
@@ -309,46 +323,69 @@ mTLS layer carries the weight and these rules do not.
 
 ### TLS on the Mac
 
-The Mac has no certificate and Android refuses cleartext. Use the issuer pattern
-memview already uses for names that resolve inside the tunnel: an `A` record for
-the console's name pointing at the Mac's VPN address, with a **DNS-01**
-certificate. DNS-01 needs no inbound reachability, which is why it fits a host
-nothing may connect to (it is also why memview's `Exposure = VpnOnly` forces it —
-HTTP-01 cannot validate such a name and fails as a certificate pending forever).
+**Self-signed, and no ACME anywhere.** Settled once the client turned out to pin
+the server's key: nothing that connects here consults a trust store, so a
+publicly-issued certificate would buy nothing and cost an ACME client on the Mac,
+a Cloudflare token in the path, a renewal that can expire at 3am, and the
+console's name in a certificate transparency log. `scripts/console-identity.sh`
+makes a P-256 key with the Mac's addresses as subjectAltNames and prints the pin
+to compile into the app.
 
-The Mac is not in k8s, so this is acme on the Mac with the Cloudflare token, not
-cert-manager.
-
-**Whether a public certificate is needed at all depends on the client shape.**
-If the app terminates TLS itself and pins the server's public key — which
-*Client shape* below concludes it should, for the StrongBox key — then it is not
-validating a name against a public trust store and a self-signed server key is
-strictly better: nothing to renew, no Cloudflare token in the path, and no
-certificate transparency log recording the name. The DNS-01 certificate is what a
-*browser* needs, so it is required only if a WebView or a desktop browser ever
-points at a non-loopback address. Decide it with the client, not before.
+The alternative that was on the table — a name pointing at the Mac's VPN address
+with a **DNS-01** certificate, the pattern memview already uses for names that
+resolve inside the tunnel — is what a *browser* would need. It stays written down
+because that is the answer if a desktop browser ever points at a non-loopback
+address; DNS-01 rather than HTTP-01 because a host nothing may connect to cannot
+be validated inbound.
 
 ### Client shape
 
-A WebView can present a client certificate through
-`WebViewClient.onReceivedClientCertRequest`, but a StrongBox key that demands user
-authentication before every signature makes that handshake awkward to drive. The
-app should terminate TLS itself — OkHttp with a custom `KeyManager` — and either
-render natively or run a loopback proxy the WebView points at, with the cleartext
-exception scoped to `127.0.0.1`.
+**It is a WebView wrapper like the other ten, and the reasoning that said it could
+not be was wrong.** The original argument ran: a WebView can present a client
+certificate through `WebViewClient.onReceivedClientCertRequest`, but a StrongBox
+key that demands user authentication before every signature makes that handshake
+awkward to drive, so the app should terminate TLS itself with OkHttp and a custom
+`KeyManager`, and then either render natively or run a loopback proxy the WebView
+points at. Both halves of that turn out not to hold:
 
-**Do not take "authentication before every signature" literally.** A key built
-with `setUserAuthenticationRequired(true)` and nothing else demands a face unlock
-per signature, which is a prompt per TLS handshake and makes the app unusable for
-the thing it is for. Use `setUserAuthenticationParameters(N, AUTH_BIOMETRIC_STRONG)`
-so one unlock covers a working stretch, and hold a single long-lived connection
-for the session's stream rather than a request per exchange — then the handshake,
-and the prompt, happen once. `N` is a real security parameter: it is how long a
-snatched unlocked phone stays useful, so it belongs in the minutes, not the hours.
+- `ClientCertRequest.proceed` takes any `java.security.PrivateKey`, and an
+  AndroidKeyStore handle is one. Nothing has to leave the secure element, and no
+  second TLS stack is needed. ⚠ The key must permit `DIGEST_NONE` as well as
+  SHA-256: Chromium signs through `NONEwithECDSA` with the transcript already
+  hashed, and a key allowing only SHA-256 fails inside the network stack where
+  nothing says which key or why.
+- The awkward half was never about where TLS terminates. **Do not take
+  "authentication before every signature" literally** — a key built with
+  `setUserAuthenticationRequired(true)` and nothing else demands a face unlock per
+  signature, which is a prompt per handshake. `setUserAuthenticationParameters(N,
+  AUTH_BIOMETRIC_STRONG or AUTH_DEVICE_CREDENTIAL)` makes one authentication cover
+  a stretch. `N` is a real security parameter: it is how long a snatched unlocked
+  phone stays useful, so it belongs in the minutes, not the hours. It also means a
+  *device* unlock inside the window authorises the key, so opening the app after
+  unlocking the phone asks for nothing — which is most of the time.
 
-This is more than the ~30-line `MainActivity` the other nine apps on
-`org.xinutec:shell` use. It is worth the difference here because the security
-argument lives in that connection.
+  ⚠ **Asking whether the key is usable requires actually signing something.**
+  `initSign` alone succeeds against a key whose window ran out, because the
+  `NONEwithECDSA` implementation buffers its input and opens no keystore operation
+  until there is something to sign. The first version of this shipped that mistake:
+  measured on a locked Pixel 9, the probe said yes, the certificate was presented,
+  the signature failed inside the network stack, and the page failed *without ever
+  showing the prompt* — which is the one moment the prompt exists for. Signing 32
+  constant bytes and discarding the answer is the test.
+
+The security half of this was confirmed by the same measurement and is worth
+stating plainly: a locked phone cannot reach the console. The key refuses, and the
+console logs no request.
+
+The server is pinned in the same direction, in `onReceivedSslError`: compare the
+SubjectPublicKeyInfo hash of the certificate that arrived against a constant, and
+proceed or cancel. That closes the loop symmetrically and is what makes the
+question below — whether the Mac needs a publicly-issued certificate — answer
+itself.
+
+What this saves is not a few hundred lines of Kotlin. It is a second
+implementation of every screen, kept in step with the first for as long as both
+exist.
 
 ## Build order
 
@@ -383,17 +420,32 @@ phase is declined.
    - **macOS's openssl makes version-1 certificates**, which rustls refuses with
      `UnsupportedCertVersion` and no hint. `Gate::new` checks the version and
      says so, including the `-addext` that fixes it.
-3. **The phone path.** The Android client, StrongBox enrolment and attestation
-   check, then the offsite half: the two firewall rules and whatever certificate
-   the client shape ends up needing.
-4. **memview link-out** from `/agents`.
+3. ✅ **The phone, at home.** `console/android` — the eleventh app on
+   `org.xinutec:shell`, with the two certificate callbacks and a StrongBox key.
+   `scripts/console-identity.sh` gives the Mac a key of its own,
+   `scripts/enrol.sh` makes the phone generate one and refuses to pin it unless
+   the attestation chain holds up, and `scripts/console.sh` binds off loopback
+   once both exist. Proven on the Pixel 9 over the house Wi-Fi: all seven
+   attestation checks passed against a real 5-certificate chain, and the console
+   received the web app's own telemetry from the phone — which is a request that
+   completed through the gate, so it is the end-to-end claim and not an inference.
+
+   This half costs no firewall change, which is the point of splitting it out.
+4. **The phone, away.** The two firewall rules below, and nothing else — the app
+   and the gate do not change. The one thing that does: the URL is compiled in, so
+   a phone that should work on both sides of the door needs a name that resolves
+   to the right address in each, or a second build.
+5. **memview link-out** from `/agents`.
 
 The old ordering had phase 1 listening on the LAN with no authentication, on the
 grounds that pf blocks the VPN and leaves the LAN alone. It does — and the LAN is
 the part of the model that had not been stated. See *Security model*.
 
 Do not hardcode the Mac's LAN address in a deployment script. A dead DHCP lease
-baked into a deploy script is a failure this fleet has already had.
+baked into a deploy script is a failure this fleet has already had. The phone
+build does need *an* address, and it lives in `console/android/console.env` —
+outside the repository, beside the pin it belongs with, and written by the script
+that generated the key.
 
 ## Open decisions
 
@@ -406,9 +458,14 @@ baked into a deploy script is a failure this fleet has already had.
   build. Options: per-session elevation with a timeout, an allow-list of tool
   patterns, or `acceptEdits` for directories on the allow-list. Pick after using
   phase 1, not before.
-- **Whether phase 3 happens at all.** Phases 1 and 2 give the desk and the house.
-  Phase 3 buys offsite, and its price is the pf exception. That is a decision to
-  take deliberately.
+- **Whether the offsite half happens.** The phone works at home for nothing; going
+  further buys it away from home, and its price is the pf exception. That is a
+  decision to take deliberately, and it is now the only part of it that costs
+  anything.
+- **What the phone does about a URL that differs by network.** Compiled in today,
+  which is fine while the answer is "the house". A name resolving to the LAN
+  address at home and the VPN address elsewhere is the obvious fix and is a DNS
+  decision, not an app one.
 
 ## Deliberately not doing
 

@@ -1,0 +1,14 @@
+# Android / Gradle build artifacts
+.gradle/
+build/
+app/build/
+local.properties
+*.apk
+*.aab
+*.keystore
+captures/
+.cxx/
+
+# Where this checkout's console lives and which server key it accepts. Deployment
+# facts, and this repository is public.
+console.env
