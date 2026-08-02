@@ -1,4 +1,4 @@
-import { Component, OnDestroy, effect, inject, input, signal } from '@angular/core';
+import { Component, DestroyRef, OnDestroy, effect, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -8,6 +8,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { ConsoleApi } from './console-api';
 import { reason } from './errors';
+import { Foreground } from './foreground';
 import { Entry, SessionEvent, Summary } from './models';
 import { fold } from './transcript';
 
@@ -30,6 +31,8 @@ export class SessionView implements OnDestroy {
   readonly id = input.required<string>();
 
   private api = inject(ConsoleApi);
+  private foreground = inject(Foreground);
+  private until = inject(DestroyRef);
   private close?: () => void;
   private poll?: ReturnType<typeof setInterval>;
 
@@ -58,6 +61,11 @@ export class SessionView implements OnDestroy {
       this.refresh();
       this.poll ??= setInterval(() => this.refresh(), 5000);
     });
+    // The poll does not run while the phone is away, so the header facts on
+    // screen when it comes back are as old as the pocket it was in. The
+    // transcript below them heals itself — EventSource reconnects and replays
+    // from the top — and these totals have nothing that would.
+    this.foreground.onReturn(() => this.refresh(), this.until);
   }
 
   ngOnDestroy(): void {

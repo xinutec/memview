@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, DestroyRef, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -13,6 +13,7 @@ import { Router, RouterLink } from '@angular/router';
 
 import { ConsoleApi } from './console-api';
 import { reason } from './errors';
+import { Foreground } from './foreground';
 import { Conversation, Overview, Summary } from './models';
 import { PastStore } from './past-store';
 
@@ -39,6 +40,8 @@ export class SessionsView {
   private api = inject(ConsoleApi);
   private router = inject(Router);
   private pastStore = inject(PastStore);
+  private foreground = inject(Foreground);
+  private until = inject(DestroyRef);
 
   readonly state = signal<Overview | undefined>(undefined);
   readonly trouble = signal('');
@@ -64,6 +67,12 @@ export class SessionsView {
     }, 5000);
     // Once at the start, to know whether there is anything to offer at all.
     this.pastStore.load();
+    // And whenever the phone comes back, because the poll above did not run
+    // while it was away — see [[Foreground]].
+    this.foreground.onReturn(() => {
+      this.load();
+      this.pastStore.load();
+    }, this.until);
   }
 
   /** Show or hide the earlier conversations, refreshing them on the way open. */

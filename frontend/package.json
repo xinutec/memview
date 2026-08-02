@@ -3,14 +3,19 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "ng": "ng",
-    "start": "ng serve",
     "build": "ng build && ng build console-web",
-    "watch": "ng build --watch --configuration development",
     "lint": "eslint src projects/*/src",
+    "ng": "ng",
+    "prebuild": "node scripts/stamp-version.mjs",
+    "prelint": "node scripts/stamp-version.mjs",
+    "prestart": "node scripts/stamp-version.mjs",
+    "pretest": "node scripts/stamp-version.mjs",
+    "stamp": "node scripts/stamp-version.mjs",
+    "start": "ng serve",
+    "start:console": "ng serve console-web",
     "test": "ng test --watch=false && ng test console-web --watch=false",
     "ui-check": "playwright test && playwright test -c projects/console-web/playwright.config.ts",
-    "start:console": "ng serve console-web"
+    "watch": "ng build --watch --configuration development"
   },
   "dependencies": {
     "@angular/cdk": "^22.0.3",

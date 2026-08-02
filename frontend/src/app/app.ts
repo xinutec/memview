@@ -7,6 +7,7 @@ import { MatToolbarModule } from '@angular/material/toolbar';
 import { Router, RouterLink, RouterOutlet } from '@angular/router';
 
 import { AuthStore } from './auth';
+import { BUILD_INFO } from './build-info';
 import { MemviewApi } from './memview-api';
 import { Telemetry } from './telemetry';
 import { Me } from './models';
@@ -26,6 +27,12 @@ import { Me } from './models';
   ],
 })
 export class App {
+  /** Which build this page is — stamped into the bundle, so a cached page
+   *  shows its own age rather than the server's. `+` means an uncommitted
+   *  tree. See frontend/scripts/stamp-version.mjs. */
+  protected readonly build = BUILD_INFO;
+  protected readonly builtAt = new Date(BUILD_INFO.builtAt).toLocaleString();
+
   private api = inject(MemviewApi);
   private router = inject(Router);
   readonly auth = inject(AuthStore);

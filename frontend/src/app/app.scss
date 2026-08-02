@@ -35,3 +35,13 @@
   text-align: center;
   padding: 24px;
 }
+
+.build {
+  // Small and last: checked deliberately, read at no other time.
+  display: block;
+  padding: 0 1rem 1.5rem;
+  text-align: center;
+  font: var(--mat-sys-body-small);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.55;
+}

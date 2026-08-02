@@ -12,3 +12,8 @@
 <main class="page">
   <router-outlet />
 </main>
+
+<!-- Last, small, and always there: the answer to "is what I am looking at
+     current?", which on a phone that freezes and caches its pages is asked
+     often and could not be answered before. -->
+<footer class="build" [title]="'built ' + builtAt">build {{ build.sha }} · {{ builtAt }}</footer>
