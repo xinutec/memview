@@ -48,6 +48,10 @@ pub struct Extract {
     /// Every operation, in running order, for callers that want more than the
     /// paths — what was searched for, what was renamed, which scripts ran.
     pub ops: Vec<Op>,
+    /// Nested scripts the grammar could not read. Reported rather than dropped:
+    /// a devshell wrapper whose inner shell fails to parse is a silent hole in
+    /// exactly the third of the corpus that runs through one.
+    pub nested_unparsed: usize,
 }
 
 impl Extract {
@@ -65,7 +69,29 @@ impl Extract {
         self.note(command, write);
         self.files.push(FileUse { path, write });
     }
+
+    /// Fold a nested script's findings into this one.
+    fn absorb(&mut self, inner: Extract) {
+        self.files.extend(inner.files);
+        self.ops.extend(inner.ops);
+        self.handled += inner.handled;
+        self.nested_unparsed += inner.nested_unparsed;
+        for (name, n) in inner.unhandled {
+            *self.unhandled.entry(name).or_insert(0) += n;
+        }
+        for (name, (r, w)) in inner.by_command {
+            let entry = self.by_command.entry(name).or_default();
+            entry.0 += r;
+            entry.1 += w;
+        }
+    }
 }
+
+/// How deep a `bash -c 'bash -c "…"'` chain is followed.
+///
+/// The corpus nests twice at most — `nix develop -c bash -c '…'` — so this is a
+/// backstop against pathological input rather than a limit anything real meets.
+const MAX_NESTING: usize = 4;
 
 /// The files an operation uses, and which way each goes.
 ///
@@ -119,6 +145,9 @@ pub fn files_of(op: &Op) -> Vec<FileUse> {
             out.extend(if *in_place { write(paths) } else { read(paths) });
             out
         }
+        // The nested script's own files are collected when it is read, not
+        // here — this is one command's operands, and a script is not one.
+        Op::Nested { .. } => Vec::new(),
         Op::Run { script } => vec![FileUse {
             path: script.clone(),
             write: false,
@@ -142,6 +171,11 @@ pub fn files_of(op: &Op) -> Vec<FileUse> {
 /// without. `None` where it is unknown, in which case only absolute paths
 /// survive.
 pub fn extract(cmds: &[Simple], cwd: Option<&str>, home: &str) -> Extract {
+    extract_nested(cmds, cwd, home, 0)
+}
+
+/// As [`extract`], tracking how deep inside `bash -c` this script sits.
+fn extract_nested(cmds: &[Simple], cwd: Option<&str>, home: &str, depth: usize) -> Extract {
     let mut out = Extract::default();
     // Working directory per subshell scope. A `cd` inside `( … )` writes an
     // entry only that scope and its children can see, so the script it returns
@@ -192,6 +226,20 @@ pub fn extract(cmds: &[Simple], cwd: Option<&str>, home: &str) -> Extract {
                     dirs.insert(cmd.scope.clone(), None);
                 }
                 *out.unhandled.entry(name.clone()).or_insert(0) += 1;
+            }
+            // A shell inside a shell: `bash -c '…'`, `nix-shell --run '…'`.
+            // Read with the *current* directory and its own scope, so a `cd`
+            // inside stays inside — which is what the inner shell does.
+            Op::Nested { script } => {
+                out.handled += 1;
+                match crate::shell::parse(script) {
+                    Ok(inner) if depth < MAX_NESTING => {
+                        let found = extract_nested(&inner, here.as_deref(), home, depth + 1);
+                        out.absorb(found);
+                    }
+                    Ok(_) => {}
+                    Err(_) => out.nested_unparsed += 1,
+                }
             }
             _ => {
                 out.handled += 1;

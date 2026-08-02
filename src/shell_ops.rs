@@ -52,6 +52,16 @@ pub enum Op {
     },
     /// Runs a script: an interpreter with a file, or a program invoked by path.
     Run { script: String },
+    /// Runs shell script text **in this same shell** — `bash -c '…'`,
+    /// `nix-shell --run '…'`. The text is parsed and classified in turn by
+    /// [`crate::shell_files::extract`], which is where the working directory
+    /// lives; a `cd` inside stays inside, exactly as it does in a subshell.
+    ///
+    /// **`ssh host '…'` is deliberately NOT this.** That text runs on another
+    /// machine, and its paths are that machine's — 6,068 calls in the corpus
+    /// whose contents must stay out of a local index. Same for `kubectl exec`
+    /// and `docker exec`.
+    Nested { script: String },
     /// Changes the working directory. `None` is `cd` with no argument (home),
     /// and an unresolvable target is [`Op::Unknown`] rather than a guess.
     ChangeDir { to: Option<String> },
@@ -229,6 +239,14 @@ fn has_flag(argv: &[String], flags: &[&str]) -> bool {
     })
 }
 
+/// The words after the first of `flags` to appear — the command a devshell
+/// wrapper was asked to run.
+fn after_flag<'a>(argv: &'a [String], flags: &[&str]) -> Option<&'a [String]> {
+    argv.iter()
+        .position(|word| flags.contains(&word.as_str()))
+        .map(|at| &argv[at + 1..])
+}
+
 /// The values given to any of `flags`, in order.
 fn flag_values<'a>(argv: &'a [String], flags: &[&str]) -> Vec<&'a str> {
     let mut out = Vec::new();
@@ -267,6 +285,10 @@ fn wrapper(name: &str) -> Option<&'static [&'static str]> {
         "timeout" | "nice" | "ionice" => &[],
         "nohup" | "setsid" | "time" | "command" | "exec" | "stdbuf" | "builtin" => &[],
         "xargs" => &["-I", "-n", "-P", "-d", "-a"],
+        // These run the real tool, which is the one worth classifying:
+        // `npx biome check --write x.ts` is a `biome`, and 3,785 calls went
+        // unread while `npx` stood in front of it.
+        "npx" | "pnpx" | "bunx" => &[],
         "do" | "then" | "else" | "elif" | "if" | "while" | "until" | "!" => &[],
         _ => return None,
     })
@@ -384,10 +406,34 @@ enum Verb {
     Copy(Flags),
     /// The same, but the destination *is* the source under a new name.
     Move(Flags),
-    /// Runs its first operand, which is a script.
-    Interpreter(Flags),
+    /// Runs its first operand, which is a script — unless one of `inline` is
+    /// given, in which case its value is shell text to be read in turn.
+    ///
+    /// `inline` is empty for `python`/`node`: their `-c` carries Python and
+    /// JavaScript, and reading that as shell would invent commands nobody ran.
+    Interpreter {
+        flags: Flags,
+        inline: &'static [&'static str],
+    },
+    /// Runs shell text given as the value of a flag: `nix-shell --run '…'`.
+    Script(&'static [&'static str]),
+    /// The words *after* one of these flags are themselves a command:
+    /// `nix develop -c npm run verify`. Not a string to parse — an argv to
+    /// classify, so it costs no second parse and cannot fail one.
+    Carries(&'static [&'static str]),
     /// Looked in its first operand; everything after is an expression.
     Walk(Flags),
+    /// A checker over path operands — a linter, a formatter, a type checker.
+    /// Reads them, unless one of `writes` is given, in which case it rewrites
+    /// them in place: `biome check --write x.ts`, `ktlint -F`.
+    ///
+    /// These were invisible until the devshell wrappers were read, and then
+    /// they were the whole top of the unknown list: 1,458 `ruff`, 1,058
+    /// `ktlint`, 822 `mypy`.
+    Check {
+        flags: Flags,
+        writes: &'static [&'static str],
+    },
     /// Moves the working directory.
     ChangeDir,
     /// Needs its own reading — revisions sit where paths would.
@@ -454,17 +500,64 @@ fn verb(name: &str) -> Option<Verb> {
         "mv" => Verb::Move(Flags::NONE),
 
         // An interpreter's flags carry code or a module name, never a path.
-        "python" | "python3" => Verb::Interpreter(Flags::valued(&["-c", "-m", "-W"])),
-        "node" | "deno" | "bun" => Verb::Interpreter(Flags::valued(&["-e", "-p", "--eval"])),
-        "bash" | "sh" | "zsh" | "dash" | "ksh" => Verb::Interpreter(Flags::valued(&["-c", "-o"])),
-        "ruby" | "perl" => Verb::Interpreter(Flags::valued(&["-e", "-E", "-I"])),
-        "source" | "." | "sqlite3" => Verb::Interpreter(Flags::NONE),
+        "python" | "python3" => Verb::Interpreter {
+            flags: Flags::valued(&["-c", "-m", "-W"]),
+            inline: &[],
+        },
+        "node" | "deno" | "bun" => Verb::Interpreter {
+            flags: Flags::valued(&["-e", "-p", "--eval"]),
+            inline: &[],
+        },
+        // The one family whose `-c` really is shell.
+        "bash" | "sh" | "zsh" | "dash" | "ksh" => Verb::Interpreter {
+            flags: Flags::valued(&["-c", "-o"]),
+            inline: &["-c"],
+        },
+        "ruby" | "perl" => Verb::Interpreter {
+            flags: Flags::valued(&["-e", "-E", "-I"]),
+            inline: &[],
+        },
+        "source" | "." | "sqlite3" => Verb::Interpreter {
+            flags: Flags::NONE,
+            inline: &[],
+        },
 
         "find" | "fd" => Verb::Walk(Flags::valued(&[
             "-name", "-iname", "-path", "-type", "-exec",
         ])),
+        // Checkers and formatters. `--fix`/`--write`/`-F` is the difference
+        // between reading a file and rewriting it, exactly as `-i` is for sed.
+        "ruff" => Verb::Check {
+            flags: Flags::valued(&["--config", "--select", "--ignore"]),
+            writes: &["--fix", "--fix-only"],
+        },
+        "biome" | "prettier" | "eslint" | "stylelint" => Verb::Check {
+            flags: Flags::valued(&["--config", "--config-path", "--ext"]),
+            writes: &["--write", "--fix"],
+        },
+        "ktlint" => Verb::Check {
+            flags: Flags::NONE,
+            writes: &["-F", "--format"],
+        },
+        "black" | "isort" => Verb::Check {
+            flags: Flags::valued(&["--line-length"]),
+            // These rewrite by default; `--check`/`--diff` is what makes them
+            // read-only, so the absence of a flag means a write. Stated as the
+            // exception it is rather than folded in with the others.
+            writes: &[],
+        },
+        "mypy" | "pytest" | "shellcheck" | "pyright" | "clang-format" | "tsc" => Verb::Check {
+            flags: Flags::valued(&["--config-file", "-p", "--project", "-k", "--python-version"]),
+            writes: &[],
+        },
         "cd" => Verb::ChangeDir,
         "git" => Verb::Git,
+
+        // The devshell wrappers. Between them they carry a third of the
+        // corpus's commands, and every one was invisible while the shell they
+        // open went unread: 15,366 `nix … -c`, 8,870 `nix-shell --run`.
+        "nix" => Verb::Carries(&["-c", "--command"]),
+        "nix-shell" => Verb::Script(&["--run"]),
 
         // Output, timing and shell builtins. They can still carry a redirect,
         // which is collected separately and counts either way.
@@ -486,10 +579,12 @@ fn verb(name: &str) -> Option<Verb> {
         // than by argument, so its operands are targets, never paths.
         // Attributing a repository to whoever ran `cargo test` in it would make
         // every session an owner of everything it built.
-        | "cargo" | "rustc" | "npm" | "pnpm" | "yarn" | "npx" | "make" | "cmake" | "gradle"
-        | "gradlew" | "mvn" | "pip" | "pip3" | "uv" | "poetry" | "go" | "ng" | "tsc" | "nix"
-        | "nix-shell" | "nix-build" | "nix-env" | "nixos-rebuild" | "direnv" | "brew"
+        | "cargo" | "rustc" | "npm" | "pnpm" | "yarn" | "make" | "cmake" | "gradle"
+        | "gradlew" | "mvn" | "pip" | "pip3" | "uv" | "poetry" | "go" | "ng"
+        | "nix-build" | "nix-env" | "nixos-rebuild" | "direnv" | "brew"
         | "flutter" | "dart" | "swift" | "javac" | "kotlinc"
+        // Build tools that take targets rather than paths, like cargo.
+        | "lake" | "mariadb" | "mysql" | "psql"
         // Loop and conditional keywords, which the grammar leaves as ordinary
         // words on purpose (`echo done` must not end a loop).
         | "for" | "done" | "fi" | "esac" | "case" | "in" | "break" | "continue" | "return"
@@ -537,8 +632,8 @@ fn act(verb: Verb, argv: &[String], cwd: Option<&str>, home: &str) -> Op {
     // A program given by a flag leaves every operand a file, and the file it was
     // given from is itself read.
     let flags = match verb {
-        Verb::Search(flags) | Verb::Stream { flags, .. } => flags,
-        Verb::Interpreter(flags) | Verb::Walk(flags) => flags,
+        Verb::Search(flags) | Verb::Stream { flags, .. } | Verb::Check { flags, .. } => flags,
+        Verb::Interpreter { flags, .. } | Verb::Walk(flags) => flags,
         Verb::Copy(flags) | Verb::Move(flags) => flags,
         _ => Flags::NONE,
     };
@@ -600,7 +695,25 @@ fn act(verb: Verb, argv: &[String], cwd: Option<&str>, home: &str) -> Op {
                 None => Op::Read { paths: from },
             }
         }
-        Verb::Interpreter(_) | Verb::Walk(_) => {
+        Verb::Script(flags) => match flag_values(argv, flags).first() {
+            Some(script) => Op::Nested {
+                script: (*script).to_string(),
+            },
+            None => Op::Nothing,
+        },
+        Verb::Carries(flags) => match after_flag(argv, flags) {
+            // The rest of the line is a command in its own right. Classified
+            // rather than re-parsed: it is already words.
+            Some(rest) if !rest.is_empty() => classify(rest, cwd, home),
+            _ => Op::Nothing,
+        },
+        Verb::Interpreter { inline, .. } if !flag_values(argv, inline).is_empty() => Op::Nested {
+            script: flag_values(argv, inline)
+                .first()
+                .map(|s| (*s).to_string())
+                .unwrap_or_default(),
+        },
+        Verb::Interpreter { .. } | Verb::Walk(_) => {
             let first = words.first().filter(|w| looks_like_path(w));
             match first.and_then(|w| resolve(w, cwd, home)) {
                 // `find .` looked *in* its operand; an interpreter *ran* its own.
@@ -623,6 +736,22 @@ fn act(verb: Verb, argv: &[String], cwd: Option<&str>, home: &str) -> Op {
                 to: Some(home.to_string()),
             },
         },
+        Verb::Check { writes, .. } => {
+            let paths = paths(&words, cwd, home);
+            // `black`/`isort` rewrite unless told to check, which is why an
+            // empty `writes` means "writes by default" for them alone — the
+            // list says which flag turns writing ON, and they have none.
+            let rewrites = if writes.is_empty() {
+                false
+            } else {
+                has_flag(argv, writes)
+            };
+            if rewrites {
+                Op::Write { paths }
+            } else {
+                Op::Read { paths }
+            }
+        }
         Verb::Git => git(argv, cwd, home),
         Verb::NoFiles => Op::Nothing,
     }

@@ -316,3 +316,59 @@ fn a_file_of_patterns_is_a_file_that_was_read() {
         ]
     );
 }
+
+#[test]
+fn a_local_shell_inside_a_command_is_read_too() {
+    // A third of the corpus runs through a devshell wrapper — 15,366
+    // `nix … -c`, 8,870 `nix-shell --run`, 6,974 `bash -c` — and every command
+    // inside them was invisible while the string was left as one word.
+    assert_eq!(
+        uses("nix develop -c bash -c 'cat src/geo/osm.ts'"),
+        [(
+            "/home/example/Code/health/src/geo/osm.ts".to_string(),
+            false
+        )]
+    );
+    // Two layers and a wrapper: the real command is `biome`, and `--write`
+    // makes it a write. This exact line appears 126 times in the corpus and
+    // counted for nothing before.
+    assert_eq!(
+        uses("nix-shell -p nodejs_22 --run 'npx biome check --write src/geo/velocity.ts'"),
+        [(
+            "/home/example/Code/health/src/geo/velocity.ts".to_string(),
+            true
+        )]
+    );
+}
+
+#[test]
+fn a_remote_shell_is_not_descended_into() {
+    // **The boundary.** `ssh host '…'` is 6,068 calls whose paths belong to
+    // another machine; reading them would file that machine's filesystem
+    // against a local agent. Same for a container.
+    assert!(uses("ssh isis 'cat /etc/nixos/configuration.nix'").is_empty());
+    assert!(uses("ssh root@isis 'sed -i s/a/b/ /etc/hosts'").is_empty());
+    assert!(uses("kubectl exec deploy/app -- sh -c 'cat /app/config.yaml'").is_empty());
+    assert!(uses("docker exec api sh -c 'rm /srv/data.db'").is_empty());
+}
+
+#[test]
+fn a_cd_inside_a_nested_shell_does_not_escape_it() {
+    // `bash -c 'cd x && …'` moves that shell alone, exactly as a subshell does.
+    assert_eq!(
+        uses("bash -c 'cd frontend && cat a.ts'; cat b.rs"),
+        [
+            ("/home/example/Code/health/frontend/a.ts".to_string(), false),
+            ("/home/example/Code/health/b.rs".to_string(), false),
+        ]
+    );
+}
+
+#[test]
+fn only_a_shells_inline_flag_is_shell() {
+    // `python -c` carries Python and `node -e` carries JavaScript. Read as
+    // shell they would invent commands nobody ran — the same reason a heredoc
+    // body is stripped before parsing.
+    assert!(uses("python3 -c 'import os; os.remove(\"src/a.py\")'").is_empty());
+    assert!(uses("node -e 'require(\"fs\").readFileSync(\"src/a.ts\")'").is_empty());
+}

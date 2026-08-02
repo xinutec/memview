@@ -30,6 +30,7 @@ fn op_name(op: &Op) -> &'static str {
         Op::Transform { in_place: true, .. } => "transform (in place)",
         Op::Transform { .. } => "transform",
         Op::Run { .. } => "run a script",
+        Op::Nested { .. } => "open a shell (bash -c, nix --run)",
         Op::ChangeDir { .. } => "cd",
         Op::Git(GitOp::Stage { .. }) => "git stage",
         Op::Git(GitOp::Alter { .. }) => "git alter",
@@ -92,6 +93,7 @@ fn main() -> anyhow::Result<()> {
     let mut by_op: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut searched: BTreeMap<String, usize> = BTreeMap::new();
     let mut renames = 0usize;
+    let mut nested_unparsed = 0usize;
 
     for line in text.lines() {
         let Ok(row) = serde_json::from_str::<serde_json::Value>(line) else {
@@ -108,6 +110,7 @@ fn main() -> anyhow::Result<()> {
         };
         let found = shell_files::extract(&parsed, cwd, &home);
         handled += found.handled;
+        nested_unparsed += found.nested_unparsed;
         for (name, (r, w)) in found.by_command {
             let entry = by_command.entry(name).or_default();
             entry.0 += r;
@@ -156,6 +159,10 @@ fn main() -> anyhow::Result<()> {
         100.0 * handled as f64 / commands.max(1) as f64
     );
     println!("  not in the table  {unhandled}");
+    // A wrapper whose inner shell will not parse is a hole in exactly the third
+    // of the corpus that runs through one, so it is counted rather than shrugged
+    // at — the same rule as every other refusal here.
+    println!("  nested, unparsed  {nested_unparsed}");
     println!("file uses           {} reads, {writes} writes", reads);
     println!("distinct paths      {}", distinct.len());
 
