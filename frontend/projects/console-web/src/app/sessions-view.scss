@@ -86,3 +86,34 @@
 .empty {
   color: var(--mat-sys-on-surface-variant);
 }
+
+// Picking up an earlier conversation. Collapsed by default: it is the rarer
+// intent, and an always-open list of a dozen ids pushes the live sessions —
+// which are what the page is for — below the fold on a phone.
+.past {
+  margin-bottom: 12px;
+
+  .caution {
+    margin: 8px 0;
+    font: var(--mat-sys-body-small);
+    color: var(--mat-sys-error);
+  }
+
+  .conversation {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    gap: 12px;
+    font-variant-numeric: tabular-nums;
+
+    .id {
+      font-family: ui-monospace, monospace;
+    }
+
+    .when,
+    .size {
+      color: var(--mat-sys-on-surface-variant);
+      font: var(--mat-sys-body-small);
+    }
+  }
+}

@@ -32,6 +32,7 @@ pub fn router(roster: Arc<Roster>) -> Router {
     Router::new()
         .route("/api/state", get(state))
         .route("/api/sessions", post(start))
+        .route("/api/past", get(past))
         .route("/api/sessions/{id}/input", post(input))
         .route("/api/sessions/{id}/decide", post(decide))
         .route("/api/sessions/{id}/stop", post(stop))
@@ -72,15 +73,21 @@ pub struct Start {
     /// looks like.
     #[serde(default)]
     pub prompt: Option<String>,
+    /// A conversation to pick up rather than starting a new one. Its id is kept,
+    /// so the console's handle and the transcript stay the same thing.
+    #[serde(default)]
+    pub resume: Option<String>,
 }
 
 async fn start(
     State(roster): State<Arc<Roster>>,
     Json(body): Json<Start>,
 ) -> Result<Json<Summary>, (StatusCode, String)> {
-    let session = roster
-        .start(&body.dir)
-        .map_err(|err| (StatusCode::BAD_REQUEST, err))?;
+    let session = match body.resume.as_deref().filter(|id| !id.trim().is_empty()) {
+        Some(id) => roster.resume(&body.dir, id),
+        None => roster.start(&body.dir),
+    }
+    .map_err(|err| (StatusCode::BAD_REQUEST, err))?;
     if let Some(prompt) = body.prompt.as_deref().filter(|p| !p.trim().is_empty()) {
         session.send(prompt).await.map_err(|err| {
             // The session exists and did not take the message; say both, since
@@ -200,4 +207,18 @@ async fn events(
         // silent connection is one an intermediary is entitled to close.
         KeepAlive::new().interval(Duration::from_secs(15)),
     ))
+}
+
+/// Conversations that already exist and could be picked up.
+///
+/// Filtered to what the config allows, because a list of every directory this
+/// machine has ever run a session in is not the console's to hand out — it would
+/// name private work the console cannot open anyway.
+async fn past(State(roster): State<Arc<Roster>>) -> Json<Vec<crate::past::Conversation>> {
+    let root = crate::past::projects_root();
+    let allowed: Vec<crate::past::Conversation> = crate::past::conversations(&root)
+        .into_iter()
+        .filter(|conversation| roster.config().resolve(&conversation.dir).is_ok())
+        .collect();
+    Json(allowed)
 }

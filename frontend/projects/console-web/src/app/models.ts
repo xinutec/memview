@@ -87,3 +87,20 @@ export interface Entry {
   ask?: string;
   allowed?: boolean;
 }
+
+/**
+ * A conversation on disk that could be picked up again.
+ *
+ * The console cannot attach to a running `claude` — a terminal holds its stdin,
+ * and one started with `--remote-control` talks to Anthropic with no local
+ * endpoint. Resuming its transcript in a process of our own is the nearest thing,
+ * and this is what there is to resume.
+ */
+export interface Conversation {
+  /** The session id, which `--resume` takes and which the console keeps. */
+  readonly id: string;
+  readonly dir: string;
+  /** Milliseconds since the epoch. The only proxy for "is this one finished". */
+  readonly modified: number;
+  readonly bytes: number;
+}

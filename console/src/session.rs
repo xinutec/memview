@@ -112,6 +112,26 @@ pub struct Spawn {
 impl Session {
     /// Start a session in `dir`, with `id` as both our handle and its session id.
     pub fn start(id: String, dir: &Path, spawn: &Spawn) -> Result<Arc<Self>> {
+        Self::spawn(id, dir, spawn, false)
+    }
+
+    /// Pick up a conversation that already exists, keeping its id.
+    ///
+    /// `--resume` rather than `--session-id`: the two are alternatives, and
+    /// passing an id the CLI has never seen to `--resume` is an error rather than
+    /// a fresh start, which is the behaviour worth having — a typo should not
+    /// silently open an empty session wearing the name of a real one.
+    ///
+    /// ⚠ **The transcript is not a lock.** Nothing stops two processes resuming
+    /// the same id and both appending; the roster refuses a second *console*
+    /// session, but a `claude` in a terminal is invisible to it. So this is for a
+    /// conversation that has been closed, and the console cannot check that for
+    /// you.
+    pub fn resume(id: String, dir: &Path, spawn: &Spawn) -> Result<Arc<Self>> {
+        Self::spawn(id, dir, spawn, true)
+    }
+
+    fn spawn(id: String, dir: &Path, spawn: &Spawn, resuming: bool) -> Result<Arc<Self>> {
         let mut command = Command::new(&spawn.binary);
         command
             .current_dir(dir)
@@ -125,7 +145,11 @@ impl Session {
             // The echo of our own prompt is how a client knows the message
             // landed; see `protocol::Event::Prompt`.
             .arg("--replay-user-messages")
-            .args(["--session-id", &id])
+            .args(if resuming {
+                ["--resume", &id]
+            } else {
+                ["--session-id", &id]
+            })
             // **The switch that makes approvals possible at all.** Undocumented
             // in `--help` at 2.1.220 and found by reading the TypeScript SDK,
             // which passes exactly this: without it a session in `manual` mode

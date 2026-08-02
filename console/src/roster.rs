@@ -34,8 +34,33 @@ impl Roster {
     pub fn start(&self, dir: &str) -> Result<Arc<Session>, String> {
         let real = self.config.resolve(dir)?;
         let id = uuid::Uuid::new_v4().to_string();
-        let session = Session::start(id.clone(), &real, &self.config.spawn)
-            .map_err(|err| format!("{err:#}"))?;
+        self.hold(id.clone(), Session::start(id, &real, &self.config.spawn))
+    }
+
+    /// Pick up an existing conversation, keeping its id.
+    ///
+    /// Refuses one this console is already running, because two processes
+    /// appending to one transcript is a mess with no clean end — each writes
+    /// turns the other does not know about. It cannot refuse a `claude` in a
+    /// terminal, which the console has no way to see, so the guard is a rail and
+    /// not a boundary.
+    pub fn resume(&self, dir: &str, id: &str) -> Result<Arc<Session>, String> {
+        let real = self.config.resolve(dir)?;
+        if self.get(id).is_some_and(|session| session.alive()) {
+            return Err(format!("{id} is already open here"));
+        }
+        self.hold(
+            id.to_string(),
+            Session::resume(id.to_string(), &real, &self.config.spawn),
+        )
+    }
+
+    fn hold(
+        &self,
+        id: String,
+        started: anyhow::Result<Arc<Session>>,
+    ) -> Result<Arc<Session>, String> {
+        let session = started.map_err(|err| format!("{err:#}"))?;
         self.sessions
             .write()
             .expect("roster poisoned")

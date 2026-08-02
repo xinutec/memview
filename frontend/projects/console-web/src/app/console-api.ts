@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
-import { KINDS, Overview, SessionEvent, Summary } from './models';
+import { Conversation, KINDS, Overview, SessionEvent, Summary } from './models';
 
 /** Thin client over the console runner. Same origin in production (the runner
  *  serves this bundle); via the dev proxy under `ng serve`. */
@@ -14,8 +14,12 @@ export class ConsoleApi {
     return this.http.get<Overview>('/api/state');
   }
 
-  start(dir: string, prompt: string): Observable<Summary> {
-    return this.http.post<Summary>('/api/sessions', { dir, prompt });
+  past(): Observable<Conversation[]> {
+    return this.http.get<Conversation[]>('/api/past');
+  }
+
+  start(dir: string, prompt: string, resume?: string): Observable<Summary> {
+    return this.http.post<Summary>('/api/sessions', { dir, prompt, resume });
   }
 
   send(id: string, text: string): Observable<Summary> {

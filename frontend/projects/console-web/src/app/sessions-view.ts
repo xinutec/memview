@@ -11,7 +11,8 @@ import { MatSelectModule } from '@angular/material/select';
 import { Router, RouterLink } from '@angular/router';
 
 import { ConsoleApi } from './console-api';
-import { Overview, Summary } from './models';
+import { Conversation, Overview, Summary } from './models';
+import { PastStore } from './past-store';
 
 /** Every session this console owns, and the way to start another. */
 @Component({
@@ -34,12 +35,17 @@ import { Overview, Summary } from './models';
 export class SessionsView {
   private api = inject(ConsoleApi);
   private router = inject(Router);
+  private pastStore = inject(PastStore);
 
   readonly state = signal<Overview | undefined>(undefined);
   readonly trouble = signal('');
   readonly starting = signal(false);
   readonly dir = signal('');
   readonly prompt = signal('');
+  /** Conversations on disk, newest first. Held in a root store so opening a
+   *  session and coming back does not blank the list — see [[PastStore]]. */
+  readonly past = this.pastStore.conversations;
+  readonly showPast = signal(false);
 
   constructor() {
     this.load();
@@ -47,6 +53,10 @@ export class SessionsView {
     // window — or one that just ended — should not need a manual refresh to
     // appear. Cheap: one small request.
     setInterval(() => this.load(), 5000);
+    // Once, not on the poll: reading a dozen transcripts off disk to answer it is
+    // cheap but not free, and the answer changes when a session ends, not every
+    // five seconds.
+    this.pastStore.load();
   }
 
   private load(): void {
@@ -60,11 +70,25 @@ export class SessionsView {
   }
 
   start(): void {
-    const dir = this.dir().trim();
+    this.open(this.dir().trim(), undefined);
+  }
+
+  /**
+   * Pick up a conversation where it left off.
+   *
+   * ⚠ Only safe for one that has ended. Nothing stops two processes appending to
+   * a transcript, and the console cannot see a `claude` running in a terminal —
+   * so the warning in the template is the whole of the guard.
+   */
+  resume(conversation: Conversation): void {
+    this.open(conversation.dir, conversation.id);
+  }
+
+  private open(dir: string, resume?: string): void {
     if (!dir || this.starting()) return;
     this.starting.set(true);
     this.trouble.set('');
-    this.api.start(dir, this.prompt().trim()).subscribe({
+    this.api.start(dir, this.prompt().trim(), resume).subscribe({
       next: (session) => {
         this.starting.set(false);
         this.prompt.set('');
@@ -75,6 +99,20 @@ export class SessionsView {
         this.trouble.set(err.error ?? 'could not start a session');
       },
     });
+  }
+
+  /** How long ago, from a millisecond timestamp. */
+  ago(at: number): string {
+    const minutes = Math.max(0, (Date.now() - at) / 60000);
+    if (minutes < 1) return 'just now';
+    if (minutes < 60) return `${Math.round(minutes)}m ago`;
+    if (minutes < 60 * 24) return `${Math.round(minutes / 60)}h ago`;
+    return `${Math.round(minutes / 1440)}d ago`;
+  }
+
+  /** Megabytes, which is the only sense of size worth showing. */
+  size(bytes: number): string {
+    return `${Math.max(1, Math.round(bytes / 1048576))} MB`;
   }
 
   /** The last path element, which is what a repository is called. */

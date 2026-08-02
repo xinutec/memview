@@ -26,6 +26,30 @@
   </mat-card-content>
 </mat-card>
 
+@if (past().length) {
+  <mat-card class="past" appearance="outlined">
+    <mat-card-content>
+      <button matButton (click)="showPast.set(!showPast())">
+        <mat-icon>{{ showPast() ? 'expand_less' : 'expand_more' }}</mat-icon>
+        pick up an earlier conversation ({{ past().length }})
+      </button>
+      @if (showPast()) {
+        <!-- The warning is the only guard there is: nothing stops two processes
+             appending to one transcript, and the console cannot see a claude
+             running in a terminal or under Remote Control. -->
+        <p class="caution">Close it first — two processes on one transcript both write.</p>
+        @for (conversation of past(); track conversation.id) {
+          <button class="conversation" matButton (click)="resume(conversation)" [disabled]="starting()">
+            <span class="id">{{ conversation.id.slice(0, 8) }}</span>
+            <span class="when">{{ ago(conversation.modified) }}</span>
+            <span class="size">{{ size(conversation.bytes) }}</span>
+          </button>
+        }
+      }
+    </mat-card-content>
+  </mat-card>
+}
+
 @if (state(); as state) {
   @if (state.sessions.length === 0) {
     <p class="empty">No sessions yet.</p>
