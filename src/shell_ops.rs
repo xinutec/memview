@@ -57,11 +57,22 @@ pub enum Op {
     /// [`crate::shell_files::extract`], which is where the working directory
     /// lives; a `cd` inside stays inside, exactly as it does in a subshell.
     ///
-    /// **`ssh host '…'` is deliberately NOT this.** That text runs on another
-    /// machine, and its paths are that machine's — 6,068 calls in the corpus
-    /// whose contents must stay out of a local index. Same for `kubectl exec`
-    /// and `docker exec`.
+    /// **`ssh host '…'` is [`Op::Remote`], not this** — the difference is which
+    /// machine's filesystem the paths belong to.
     Nested { script: String },
+    /// A command run on another machine: `ssh host '…'`, `kubectl exec … -- …`,
+    /// `docker exec …`.
+    ///
+    /// **Read, but never attributed here.** The script is parsed like any other
+    /// — 8,666 of the corpus's `ssh` payloads are a quoted script, and what they
+    /// do to `/etc/nixos/configuration.nix` is real knowledge — but every path
+    /// in it belongs to `host`, and putting one in a local index would claim a
+    /// file that does not exist on this machine. Refusing to *parse* it was the
+    /// cruder version of that rule: it kept the index clean by knowing nothing.
+    ///
+    /// The remote working directory is unknown, so only absolute paths survive
+    /// unless the script `cd`s somewhere first — which many do.
+    Remote { host: String, script: String },
     /// Changes the working directory. `None` is `cd` with no argument (home),
     /// and an unresolvable target is [`Op::Unknown`] rather than a guess.
     ChangeDir { to: Option<String> },
@@ -74,6 +85,20 @@ pub enum Op {
     /// Not in the table. Carries its name so the gap can be counted and worked
     /// down rather than silently ignored.
     Unknown { name: String },
+}
+
+/// How a command names the machine it reaches, and where its payload starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Remote {
+    /// `ssh [flags] [user@]host cmd…` — the words after the host are joined
+    /// with spaces and handed to the remote shell, which is exactly what ssh
+    /// itself does with them.
+    Ssh,
+    /// `kubectl [flags] exec <resource> [flags] -- cmd…`. Any other subcommand
+    /// reaches no shell and names no file.
+    Kubectl,
+    /// `docker exec [flags] <container> cmd…`.
+    Docker,
 }
 
 /// The git subcommands whose effect on files is unambiguous.
@@ -438,6 +463,8 @@ enum Verb {
     ChangeDir,
     /// Needs its own reading — revisions sit where paths would.
     Git,
+    /// Hands a script to another machine.
+    Remote(Remote),
     /// Understood, and does nothing with files.
     ///
     /// Distinct from a name that is absent, and the distinction matters: without
@@ -559,6 +586,10 @@ fn verb(name: &str) -> Option<Verb> {
         "nix" => Verb::Carries(&["-c", "--command"]),
         "nix-shell" => Verb::Script(&["--run"]),
 
+        "ssh" => Verb::Remote(Remote::Ssh),
+        "kubectl" => Verb::Remote(Remote::Kubectl),
+        "docker" => Verb::Remote(Remote::Docker),
+
         // Output, timing and shell builtins. They can still carry a redirect,
         // which is collected separately and counts either way.
         "echo" | "printf" | "true" | "false" | ":" | "sleep" | "pwd" | "date" | "seq" | "yes"
@@ -572,7 +603,7 @@ fn verb(name: &str) -> Option<Verb> {
         // thing the index can attribute, and `mkdir -p` names several at once.
         | "mkdir" | "rmdir" | "pushd" | "popd"
         // Another machine's filesystem, whatever the operands look like.
-        | "ssh" | "sftp" | "kubectl" | "docker" | "podman" | "helm" | "systemctl"
+        | "sftp" | "podman" | "helm" | "systemctl"
         | "launchctl" | "adb" | "xcrun" | "curl" | "wget" | "gh" | "aws" | "rclone"
         | "restic" | "borg"
         // Build and package tooling: it reads whole trees by convention rather
@@ -753,6 +784,7 @@ fn act(verb: Verb, argv: &[String], cwd: Option<&str>, home: &str) -> Op {
             }
         }
         Verb::Git => git(argv, cwd, home),
+        Verb::Remote(kind) => remote(kind, argv),
         Verb::NoFiles => Op::Nothing,
     }
 }
@@ -809,4 +841,117 @@ fn git(argv: &[String], cwd: Option<&str>, home: &str) -> Op {
         }),
         _ => Op::Git(GitOp::Other { subcommand: sub }),
     }
+}
+
+/// Flags of `ssh` that consume the following word, so a value is never mistaken
+/// for the host.
+const SSH_VALUED: &[&str] = &[
+    "-o", "-p", "-i", "-l", "-F", "-L", "-R", "-D", "-J", "-E", "-b", "-c", "-m", "-O", "-Q", "-S",
+    "-W", "-w",
+];
+
+/// The machine a command reaches, and the script it hands over.
+///
+/// Returns [`Op::Nothing`] when there is no script — `ssh host` alone opens a
+/// session nobody scripted, and `kubectl get pods` reaches no shell at all.
+fn remote(kind: Remote, argv: &[String]) -> Op {
+    let (host, script) = match kind {
+        Remote::Ssh => {
+            let mut rest = argv.iter().skip(1);
+            let mut host = None;
+            while let Some(word) = rest.next() {
+                if SSH_VALUED.contains(&word.as_str()) {
+                    rest.next();
+                } else if !word.starts_with('-') {
+                    host = Some(word.clone());
+                    break;
+                }
+            }
+            // ssh joins its remaining arguments with spaces and gives them to
+            // the remote shell, so joining them here is not an approximation.
+            let script = rest.cloned().collect::<Vec<_>>().join(" ");
+            (host, script)
+        }
+        Remote::Kubectl | Remote::Docker => {
+            let mut words = argv.iter().skip(1).peekable();
+            let mut target = None;
+            let mut saw_exec = false;
+            let mut script = Vec::new();
+            while let Some(word) = words.next() {
+                match word.as_str() {
+                    "--" if saw_exec => {
+                        script = words.map(String::clone).collect();
+                        break;
+                    }
+                    "exec" => saw_exec = true,
+                    // `-n ns`, `-c container`, `--namespace=x`.
+                    "-n" | "-c" | "--namespace" | "--container" | "-u" | "-e" | "-w" => {
+                        words.next();
+                    }
+                    flag if flag.starts_with('-') => {}
+                    other if saw_exec && target.is_none() => target = Some(other.to_string()),
+                    // `docker exec name sh -c '…'` has no `--` separator.
+                    _ if saw_exec && kind == Remote::Docker => {
+                        script = std::iter::once(word.clone())
+                            .chain(words.map(String::clone))
+                            .collect();
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            // **Not joined like ssh's.** `kubectl exec` and `docker exec` hand
+            // their payload to `exec()` as an argv, with no shell to re-split
+            // it, so `sh -c 'cat a b'` is three words and the third keeps its
+            // spaces. Joining would hand `cat` alone to the inner shell and
+            // lose the rest. The `sh -c` shape is what the corpus writes.
+            let script = match script.split_first() {
+                Some((program, rest))
+                    if matches!(basename(program), "sh" | "bash" | "zsh" | "dash") =>
+                {
+                    flag_values(
+                        &std::iter::once(program.clone())
+                            .chain(rest.iter().cloned())
+                            .collect::<Vec<_>>(),
+                        &["-c"],
+                    )
+                    .first()
+                    .map(|s| (*s).to_string())
+                    .unwrap_or_else(|| rest.join(" "))
+                }
+                _ => script.join(" "),
+            };
+            (target, script)
+        }
+    };
+    match (host, script) {
+        // A host named by a variable — `ssh "$h" '…'` — cannot be resolved to a
+        // machine, and a use filed against `$h` is filed against nothing. The
+        // command is dropped rather than attributed to a name that is not one.
+        (Some(host), _) if host.contains('$') => Op::Nothing,
+        (Some(host), script) if !script.trim().is_empty() => Op::Remote {
+            host: machine(&host),
+            script,
+        },
+        _ => Op::Nothing,
+    }
+}
+
+/// The machine a target names: `root@isis.xinutec.org`, `root@isis` and `isis`
+/// are one host, and the corpus writes all three.
+fn machine(target: &str) -> String {
+    let after_user = target.rsplit('@').next().unwrap_or(target);
+    // An address is not a name with a domain on it: taking the first label of
+    // `192.168.1.133` gives a host called `192`, and three machines share it.
+    if after_user
+        .split('.')
+        .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
+    {
+        return after_user.to_string();
+    }
+    after_user
+        .split('.')
+        .next()
+        .unwrap_or(after_user)
+        .to_string()
 }

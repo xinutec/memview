@@ -18,6 +18,20 @@ use std::collections::BTreeMap;
 use crate::shell::Simple;
 use crate::shell_ops::{GitOp, Op, basename, classify, looks_like_path, resolve, unwrap_command};
 
+/// A file another machine's command used.
+///
+/// Kept entirely apart from [`FileUse`], and that separation is the point: the
+/// path exists on `host`, not here, so it can be reported and counted but must
+/// never reach an index of local work. Reading the script is what makes "who
+/// maintains isis's nixos config" answerable at all; mixing the two would make
+/// every answer about this machine wrong.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteUse {
+    pub host: String,
+    pub path: String,
+    pub write: bool,
+}
+
 /// A file a command used, absolute, and which way it went.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileUse {
@@ -48,6 +62,9 @@ pub struct Extract {
     /// Every operation, in running order, for callers that want more than the
     /// paths — what was searched for, what was renamed, which scripts ran.
     pub ops: Vec<Op>,
+    /// Files used on another machine, by host. Reported, never mined into the
+    /// local index — see [`RemoteUse`].
+    pub remote: Vec<RemoteUse>,
     /// Nested scripts the grammar could not read. Reported rather than dropped:
     /// a devshell wrapper whose inner shell fails to parse is a silent hole in
     /// exactly the third of the corpus that runs through one.
@@ -65,14 +82,24 @@ impl Extract {
         }
     }
 
-    fn push(&mut self, command: &str, path: String, write: bool) {
+    /// Record a file use against this machine, or against `host` when the
+    /// command is running somewhere else.
+    fn push(&mut self, host: Option<&str>, command: &str, path: String, write: bool) {
         self.note(command, write);
-        self.files.push(FileUse { path, write });
+        match host {
+            Some(host) => self.remote.push(RemoteUse {
+                host: host.to_string(),
+                path,
+                write,
+            }),
+            None => self.files.push(FileUse { path, write }),
+        }
     }
 
     /// Fold a nested script's findings into this one.
     fn absorb(&mut self, inner: Extract) {
         self.files.extend(inner.files);
+        self.remote.extend(inner.remote);
         self.ops.extend(inner.ops);
         self.handled += inner.handled;
         self.nested_unparsed += inner.nested_unparsed;
@@ -145,9 +172,9 @@ pub fn files_of(op: &Op) -> Vec<FileUse> {
             out.extend(if *in_place { write(paths) } else { read(paths) });
             out
         }
-        // The nested script's own files are collected when it is read, not
-        // here — this is one command's operands, and a script is not one.
-        Op::Nested { .. } => Vec::new(),
+        // A script's own files are collected when it is read, not here — this
+        // is one command's operands, and a script is not one.
+        Op::Nested { .. } | Op::Remote { .. } => Vec::new(),
         Op::Run { script } => vec![FileUse {
             path: script.clone(),
             write: false,
@@ -171,11 +198,18 @@ pub fn files_of(op: &Op) -> Vec<FileUse> {
 /// without. `None` where it is unknown, in which case only absolute paths
 /// survive.
 pub fn extract(cmds: &[Simple], cwd: Option<&str>, home: &str) -> Extract {
-    extract_nested(cmds, cwd, home, 0)
+    extract_nested(cmds, cwd, home, None, 0)
 }
 
-/// As [`extract`], tracking how deep inside `bash -c` this script sits.
-fn extract_nested(cmds: &[Simple], cwd: Option<&str>, home: &str, depth: usize) -> Extract {
+/// As [`extract`], tracking how deep inside `bash -c` this script sits and which
+/// machine it is running on (`None` for this one).
+fn extract_nested(
+    cmds: &[Simple],
+    cwd: Option<&str>,
+    home: &str,
+    host: Option<&str>,
+    depth: usize,
+) -> Extract {
     let mut out = Extract::default();
     // Working directory per subshell scope. A `cd` inside `( … )` writes an
     // entry only that scope and its children can see, so the script it returns
@@ -196,7 +230,7 @@ fn extract_nested(cmds: &[Simple], cwd: Option<&str>, home: &str, depth: usize) 
             if looks_like_path(&redirect.target)
                 && let Some(path) = resolve(&redirect.target, here.as_deref(), home)
             {
-                out.push(&carrier, path, redirect.write);
+                out.push(host, &carrier, path, redirect.write);
             }
         }
         if cmd.argv.is_empty() {
@@ -234,7 +268,25 @@ fn extract_nested(cmds: &[Simple], cwd: Option<&str>, home: &str, depth: usize) 
                 out.handled += 1;
                 match crate::shell::parse(script) {
                     Ok(inner) if depth < MAX_NESTING => {
-                        let found = extract_nested(&inner, here.as_deref(), home, depth + 1);
+                        let found = extract_nested(&inner, here.as_deref(), home, host, depth + 1);
+                        out.absorb(found);
+                    }
+                    Ok(_) => {}
+                    Err(_) => out.nested_unparsed += 1,
+                }
+            }
+            // Another machine's shell. Read the same way, recorded elsewhere,
+            // and with **no working directory**: this one's is meaningless
+            // there, so only absolute paths survive unless the script `cd`s
+            // first — which many of them do.
+            Op::Remote {
+                host: there,
+                script,
+            } => {
+                out.handled += 1;
+                match crate::shell::parse(script) {
+                    Ok(inner) if depth < MAX_NESTING => {
+                        let found = extract_nested(&inner, None, home, Some(there), depth + 1);
                         out.absorb(found);
                     }
                     Ok(_) => {}
@@ -244,7 +296,7 @@ fn extract_nested(cmds: &[Simple], cwd: Option<&str>, home: &str, depth: usize) 
             _ => {
                 out.handled += 1;
                 for used in files_of(&op) {
-                    out.push(&name, used.path, used.write);
+                    out.push(host, &name, used.path, used.write);
                 }
             }
         }

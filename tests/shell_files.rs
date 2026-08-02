@@ -372,3 +372,68 @@ fn only_a_shells_inline_flag_is_shell() {
     assert!(uses("python3 -c 'import os; os.remove(\"src/a.py\")'").is_empty());
     assert!(uses("node -e 'require(\"fs\").readFileSync(\"src/a.ts\")'").is_empty());
 }
+
+#[test]
+fn another_machines_script_is_read_but_never_filed_here() {
+    // Refusing to *parse* it was the cruder version of the rule: it kept the
+    // local index clean by knowing nothing at all about 6,068 calls. What those
+    // scripts do to `/etc/nixos` is real knowledge — it just belongs to the host.
+    let cmds = parse("ssh root@isis.xinutec.org 'cat /etc/nixos/configuration.nix'").unwrap();
+    let found = extract(&cmds, Some(CWD), HOME);
+    assert!(found.files.is_empty(), "nothing local: {:?}", found.files);
+    assert_eq!(found.remote.len(), 1);
+    assert_eq!(found.remote[0].host, "isis");
+    assert_eq!(found.remote[0].path, "/etc/nixos/configuration.nix");
+    assert!(!found.remote[0].write);
+}
+
+#[test]
+fn a_remote_script_has_no_local_working_directory() {
+    // This machine's directory means nothing there, so a relative path is
+    // unusable — unless the script goes somewhere first, which many do.
+    let cmds = parse("ssh odin 'sed -i s/a/b/ hosts'").unwrap();
+    assert!(extract(&cmds, Some(CWD), HOME).remote.is_empty());
+
+    let cmds = parse("ssh odin 'cd /etc/nixos && sed -i s/a/b/ flake.nix'").unwrap();
+    let found = extract(&cmds, Some(CWD), HOME);
+    assert_eq!(found.remote.len(), 1);
+    assert_eq!(found.remote[0].path, "/etc/nixos/flake.nix");
+    assert!(found.remote[0].write);
+    assert!(found.files.is_empty());
+}
+
+#[test]
+fn one_machine_under_its_several_names() {
+    // The corpus writes `root@isis`, `root@isis.xinutec.org` and `isis` for the
+    // same host — and an IP is a name in its own right, not a name with a
+    // domain on it: the first label of 192.168.1.133 is a host called `192`,
+    // which three machines would share.
+    let host = |cmd: &str| {
+        let cmds = parse(cmd).unwrap();
+        extract(&cmds, Some(CWD), HOME).remote[0].host.clone()
+    };
+    assert_eq!(host("ssh root@isis.xinutec.org 'cat /etc/hosts'"), "isis");
+    assert_eq!(host("ssh isis 'cat /etc/hosts'"), "isis");
+    assert_eq!(host("ssh -p 2222 pippijn@isis 'cat /etc/hosts'"), "isis");
+    assert_eq!(host("ssh 192.168.1.133 'cat /etc/hosts'"), "192.168.1.133");
+}
+
+#[test]
+fn a_host_named_by_a_variable_is_not_a_host() {
+    // `ssh "$h" '…'` cannot be resolved to a machine, and a use filed against
+    // `$h` is filed against nothing.
+    let cmds = parse("ssh \"$h\" 'cat /etc/hosts'").unwrap();
+    let found = extract(&cmds, Some(CWD), HOME);
+    assert!(found.remote.is_empty());
+    assert!(found.files.is_empty());
+}
+
+#[test]
+fn a_container_is_another_machine_too() {
+    let cmds = parse("kubectl -n home exec deploy/home-db -- sh -c 'cat /etc/my.cnf'").unwrap();
+    let found = extract(&cmds, Some(CWD), HOME);
+    assert!(found.files.is_empty());
+    assert_eq!(found.remote.len(), 1);
+    assert_eq!(found.remote[0].host, "deploy/home-db");
+    assert_eq!(found.remote[0].path, "/etc/my.cnf");
+}

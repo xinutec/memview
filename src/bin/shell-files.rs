@@ -31,6 +31,7 @@ fn op_name(op: &Op) -> &'static str {
         Op::Transform { .. } => "transform",
         Op::Run { .. } => "run a script",
         Op::Nested { .. } => "open a shell (bash -c, nix --run)",
+        Op::Remote { .. } => "reach another machine (ssh, kubectl exec)",
         Op::ChangeDir { .. } => "cd",
         Op::Git(GitOp::Stage { .. }) => "git stage",
         Op::Git(GitOp::Alter { .. }) => "git alter",
@@ -94,6 +95,10 @@ fn main() -> anyhow::Result<()> {
     let mut searched: BTreeMap<String, usize> = BTreeMap::new();
     let mut renames = 0usize;
     let mut nested_unparsed = 0usize;
+    // What happens on the other machines — read from the same scripts, kept out
+    // of every local figure.
+    let mut remote: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    let mut remote_paths: BTreeMap<(String, String), (usize, usize)> = BTreeMap::new();
 
     for line in text.lines() {
         let Ok(row) = serde_json::from_str::<serde_json::Value>(line) else {
@@ -111,6 +116,19 @@ fn main() -> anyhow::Result<()> {
         let found = shell_files::extract(&parsed, cwd, &home);
         handled += found.handled;
         nested_unparsed += found.nested_unparsed;
+        for use_ in &found.remote {
+            let host = remote.entry(use_.host.clone()).or_default();
+            let path = remote_paths
+                .entry((use_.host.clone(), use_.path.clone()))
+                .or_default();
+            if use_.write {
+                host.1 += 1;
+                path.1 += 1;
+            } else {
+                host.0 += 1;
+                path.0 += 1;
+            }
+        }
         for (name, (r, w)) in found.by_command {
             let entry = by_command.entry(name).or_default();
             entry.0 += r;
@@ -190,6 +208,20 @@ fn main() -> anyhow::Result<()> {
     writers.sort_by_key(|(name, _, w)| (std::cmp::Reverse(*w), name.clone()));
     for (name, reads, writes) in writers.into_iter().take(show) {
         println!("  {writes:>7} writes  {reads:>7} reads   {name}");
+    }
+
+    println!("\nfiles used on OTHER machines (never counted as local work):");
+    let mut hosts: Vec<_> = remote.into_iter().collect();
+    hosts.sort_by_key(|(host, (r, w))| (std::cmp::Reverse(r + w), host.clone()));
+    for (host, (r, w)) in hosts.into_iter().take(show) {
+        println!("  {r:>6} read {w:>5} written   {host}");
+    }
+    let mut busiest: Vec<_> = remote_paths.into_iter().collect();
+    busiest.sort_by_key(|((host, path), (r, w))| {
+        (std::cmp::Reverse(r + w), host.clone(), path.clone())
+    });
+    for ((host, path), (r, w)) in busiest.into_iter().take(show) {
+        println!("      {r:>5}r {w:>4}w  {host}:{path}");
     }
 
     println!("\nunread commands, biggest first:");
