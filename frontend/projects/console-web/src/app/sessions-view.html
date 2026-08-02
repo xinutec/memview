@@ -38,13 +38,20 @@
              appending to one transcript, and the console cannot see a claude
              running in a terminal or under Remote Control. -->
         <p class="caution">Close it first — two processes on one transcript both write.</p>
-        @for (conversation of past(); track conversation.id) {
-          <button class="conversation" matButton (click)="resume(conversation)" [disabled]="starting()">
-            <span class="id">{{ conversation.id.slice(0, 8) }}</span>
-            <span class="when">{{ ago(conversation.modified) }}</span>
-            <span class="size">{{ size(conversation.bytes) }}</span>
-          </button>
-        }
+        <mat-list class="conversations">
+          @for (conversation of past(); track conversation.id) {
+            <mat-list-item
+              class="conversation"
+              [class.disabled]="starting()"
+              (click)="resume(conversation)"
+            >
+              <span matListItemTitle class="id">{{ conversation.id.slice(0, 8) }}</span>
+              <span matListItemLine class="facts">
+                {{ ago(conversation.modified) }} · {{ size(conversation.bytes) }}
+              </span>
+            </mat-list-item>
+          }
+        </mat-list>
       }
     </mat-card-content>
   </mat-card>

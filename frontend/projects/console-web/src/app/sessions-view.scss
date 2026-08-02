@@ -99,21 +99,30 @@
     color: var(--mat-sys-error);
   }
 
+  // A list item rather than a button. A Material button wraps its content in its
+  // own label element, so a flex layout declared on the button never reaches the
+  // spans inside it — they ran together as one string, which is what this looked
+  // like the first time.
+  .conversations {
+    padding: 0;
+  }
+
   .conversation {
-    display: flex;
-    justify-content: space-between;
-    width: 100%;
-    gap: 12px;
-    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+
+    &.disabled {
+      pointer-events: none;
+      opacity: 0.5;
+    }
 
     .id {
       font-family: ui-monospace, monospace;
+      // Tabular figures so the ids form a column instead of ragged text.
+      font-variant-numeric: tabular-nums;
     }
 
-    .when,
-    .size {
+    .facts {
       color: var(--mat-sys-on-surface-variant);
-      font: var(--mat-sys-body-small);
     }
   }
 }
