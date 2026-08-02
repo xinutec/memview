@@ -464,8 +464,10 @@ that generated the key.
 - **Approval granularity.** `--permission-mode manual` means a tap per tool call,
   which suits "give them a new instruction" and does not suit watching a long
   build. Options: per-session elevation with a timeout, an allow-list of tool
-  patterns, or `acceptEdits` for directories on the allow-list. Pick after using
-  phase 1, not before.
+  patterns, or `acceptEdits` for directories on the allow-list. Still open, and
+  now answerable: a tap per call is fine at a desk and the question was always
+  what it feels like on a train, which is a thing that can be tried rather than
+  reasoned about.
 - **Whether the offsite half happens.** The phone works at home for nothing; going
   further buys it away from home, and its price is the pf exception. That is a
   decision to take deliberately, and it is now the only part of it that costs
