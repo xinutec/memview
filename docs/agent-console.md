@@ -135,11 +135,39 @@ connection is permitted by design rather than by loophole.
 | --- | --- | --- | --- |
 | Compromised isis | no | no | no |
 | Compromised amun (hub) | no | no | yes |
+| Compromised device on the home LAN | no | no | yes |
 | Stolen Pixel 9, locked | no | no | no |
 | Stolen Pixel 9, unlocked | yes | yes | yes |
 
 The last row is the residual risk and it is accepted: the trust anchor is
 possession of the phone plus biometric.
+
+**The home LAN is in the table on purpose.** The one-way VPN rules say nothing
+about it, and it is not a trusted network: it holds the picades, the heatcam, the
+Govee receiver, the phones and the tablet — a dozen devices that receive no
+patches and run code nobody audits. A console listening there without
+authentication would hand any one of them arbitrary code execution on the
+root-of-truth machine, which is a larger hole than the one the VPN rules exist to
+close. So the LAN gets the same gate as the VPN and the network is never the
+credential. This is why the mTLS work is in phase 1 below rather than phase 2.
+
+**The desk is the one carve-out.** An unauthenticated listener bound to
+`127.0.0.1` is sound, because a process already running as this user on the Mac
+can spawn `claude` directly and needs no console to do it. Loopback only —
+binding `0.0.0.0` for convenience is the mistake this paragraph exists to
+prevent.
+
+### Blast radius
+
+The runner's directory allow-list is a guard rail, not a boundary. A session it
+does spawn holds the git credentials, the kubeconfig, the Nextcloud session and
+the Cloudflare token, so anything that can send instructions to the runner can
+reach the whole fleet regardless of which directory the agent was started in.
+
+That is inherent to the feature and is not a reason to abandon it, but it fixes
+where the weight sits: the phone's key **is** the fleet's control plane. Hence
+the key being hardware-bound and biometric-gated, and revocation being one line
+in a config and a restart — the two properties worth paying for.
 
 ### How that is achieved
 
@@ -180,6 +208,16 @@ No CA and no PKI. Pin raw public keys.
    Google-rooted chain asserting the key is hardware-backed and non-exportable on
    a device with a certified keystore, so the enrolment does not rest on the
    phone's own claim about itself.
+
+   It only delivers that if the chain is actually checked, and this happens once
+   by hand, which is exactly when a step gets skipped. Four things: the
+   attestation challenge is freshly generated for this enrolment and appears in
+   the record; the chain validates to the Google hardware attestation root; no
+   certificate in it is revoked (Google publishes the status list, and the
+   revocations that matter are the ones from key extractions); and the record's
+   security level says StrongBox with the authentication requirement present.
+   Write the check down as a script rather than a paragraph, since it has to run
+   again for the iPhone.
 3. The pinned SPKI hash is a non-secret constant in the runner's config, changed
    by a commit. Revoking is deleting a line and restarting; adding the iPhone
    later is adding a line.
@@ -212,6 +250,15 @@ HTTP-01 cannot validate such a name and fails as a certificate pending forever).
 The Mac is not in k8s, so this is acme on the Mac with the Cloudflare token, not
 cert-manager.
 
+**Whether a public certificate is needed at all depends on the client shape.**
+If the app terminates TLS itself and pins the server's public key — which
+*Client shape* below concludes it should, for the StrongBox key — then it is not
+validating a name against a public trust store and a self-signed server key is
+strictly better: nothing to renew, no Cloudflare token in the path, and no
+certificate transparency log recording the name. The DNS-01 certificate is what a
+*browser* needs, so it is required only if a WebView or a desktop browser ever
+points at a non-loopback address. Decide it with the client, not before.
+
 ### Client shape
 
 A WebView can present a client certificate through
@@ -220,6 +267,15 @@ authentication before every signature makes that handshake awkward to drive. The
 app should terminate TLS itself — OkHttp with a custom `KeyManager` — and either
 render natively or run a loopback proxy the WebView points at, with the cleartext
 exception scoped to `127.0.0.1`.
+
+**Do not take "authentication before every signature" literally.** A key built
+with `setUserAuthenticationRequired(true)` and nothing else demands a face unlock
+per signature, which is a prompt per TLS handshake and makes the app unusable for
+the thing it is for. Use `setUserAuthenticationParameters(N, AUTH_BIOMETRIC_STRONG)`
+so one unlock covers a working stretch, and hold a single long-lived connection
+for the session's stream rather than a request per exchange — then the handshake,
+and the prompt, happen once. `N` is a real security parameter: it is how long a
+snatched unlocked phone stays useful, so it belongs in the minutes, not the hours.
 
 This is more than the ~30-line `MainActivity` the other nine apps on
 `org.xinutec:shell` use. It is worth the difference here because the security
@@ -230,17 +286,23 @@ argument lives in that connection.
 Each phase is usable on its own and none of the work is thrown away if a later
 phase is declined.
 
-1. **Runner and LAN-direct console.** Runner on the Mac speaking stream-json,
-   statusLine socket wired for the percentages, Angular UI, reachable on the Mac's
-   LAN address. No firewall change, no certificate, no threat-model decision. This
-   already covers the desk and the phone while at home, since pf blocks the VPN
-   range and leaves the LAN alone — the same reason `scripts/dev.sh` is reachable
-   at the Mac's LAN address today.
-2. **mTLS, key pinning, permission-mode approvals.** Still LAN-only. Everything
-   the offsite path needs, provable without touching the firewall.
-3. **The phone path.** DNS-01 certificate, the two firewall rules, the Android
-   client, StrongBox enrolment.
+1. **Runner and desk console, on loopback.** Runner on the Mac speaking
+   stream-json, statusLine socket wired for the percentages, Angular UI, bound to
+   `127.0.0.1`. No firewall change, no certificate, no threat-model decision, and
+   nothing off the machine can reach it. Usable from the desk on day one.
+2. **The gate: mTLS, key pinning, permission-mode approvals.** Provable with a
+   test key and `curl --cert` before any phone exists. Nothing binds off loopback
+   until this passes — the LAN is not a trusted network and the runner does not
+   listen on it unauthenticated for a single release. With the gate in place the
+   listener moves to the LAN address and the phone at home works.
+3. **The phone path.** The Android client, StrongBox enrolment and attestation
+   check, then the offsite half: the two firewall rules and whatever certificate
+   the client shape ends up needing.
 4. **memview link-out** from `/agents`.
+
+The old ordering had phase 1 listening on the LAN with no authentication, on the
+grounds that pf blocks the VPN and leaves the LAN alone. It does — and the LAN is
+the part of the model that had not been stated. See *Security model*.
 
 Do not hardcode the Mac's LAN address in a deployment script. A dead DHCP lease
 baked into a deploy script is a failure this fleet has already had.
