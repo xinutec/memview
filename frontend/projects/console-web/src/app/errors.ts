@@ -23,9 +23,18 @@ export function reason(err: unknown): string {
     // inside an allowed directory", "…looks like it is still in use" — and that
     // sentence is better than anything this function could compose.
     if (typeof err.error === 'string' && err.error.trim()) return err.error.trim();
-    // Status 0 is not a server saying no; it is nothing answering at all, and on
-    // a phone that nearly always means the Mac is asleep or the tunnel is down.
-    if (err.status === 0) return 'the Mac is not answering';
+    // Status 0 is not a server saying no — it is no answer at all, and the two
+    // things that produce it are indistinguishable from here.
+    //
+    // ⚠ It said "the Mac is not answering", and was wrong in the case it hit
+    // most: the Mac was answering, and this phone's key had passed the end of
+    // its authentication window, so the TLS handshake was refused before any
+    // request left the device. Chromium caches its client-certificate decision
+    // per host and reuses the key without asking the app again, so nothing
+    // prompts and every request fails in silence. Naming only the far cause sent
+    // us looking at the Mac, the tunnel and isis while the answer was in the
+    // phone's own log.
+    if (err.status === 0) return 'no answer — the Mac may be asleep, or this phone may need unlocking';
     return `the runner answered ${err.status}`;
   }
   if (err instanceof Error) return err.message;

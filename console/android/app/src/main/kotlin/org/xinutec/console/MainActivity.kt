@@ -97,7 +97,38 @@ class MainActivity : WebShellActivity() {
         // Only after a failure: a reload on every resume would throw away the
         // session's scroll position and re-open the event stream every time the
         // app is glanced at.
-        if (failed) retry()
+        if (failed) {
+            retry()
+            return
+        }
+        // ⚠ A page that loaded fine still stops working when the key's window
+        // runs out. Chromium caches the client-certificate decision per host, so
+        // later handshakes reuse the key handle WITHOUT asking the app again —
+        // `onReceivedClientCertRequest` never runs, nothing prompts, and every
+        // request the page makes fails in silence. Measured on the Pixel 9:
+        //
+        //     cr_AndroidKeyStore: UserNotAuthenticatedException: User not authenticated
+        //     ssl_client_socket_impl.cc: handshake failed; net_error -141
+        //
+        // with the page above it reporting that the Mac was not answering, while
+        // the Mac was answering perfectly. So the window is renewed here, where
+        // there is a person present to renew it: coming back to the app is the
+        // moment before the key is needed again.
+        if (!Keys.unlocked()) renew()
+    }
+
+    /**
+     * Put the key back inside its authentication window, silently if refused.
+     *
+     * No `show` on failure: this runs when the app comes forward, not in answer
+     * to anything, and a phone declining to scan a face is not an error worth
+     * covering the page with — the page is still there, and the next request will
+     * ask again.
+     */
+    private fun renew() {
+        Unlock.prompt(this) { ok ->
+            Log.i(TAG, if (ok) "key renewed on return" else "key left locked on return")
+        }
     }
 
     // Nothing deep-links into the console, and an intent is an external input: a
