@@ -24,9 +24,15 @@ RUN apk add --no-cache git ca-certificates \
     && npm install -g pnpm \
     && pnpm install --frozen-lockfile
 COPY frontend/ .
+# Stamp the build into the bundle (frontend/scripts/stamp-version.mjs), so the
+# page can say which build it is. The context has no .git, so the commit comes
+# from GIT_SHA — passed by CI, and 'dev' for a plain local build.
+ARG GIT_SHA=dev
+RUN GIT_SHA="$GIT_SHA" node scripts/stamp-version.mjs
 # The viewer's bundle only — NOT `pnpm run build`, which would also build the
 # console. Nothing that can drive Claude Code belongs in an image that runs on
-# an internet-facing host. See docs/agent-console.md.
+# an internet-facing host. See docs/agent-console.md. ⚠ `ng build` directly means
+# npm's prebuild hook does not run, which is why the stamp is its own step above.
 RUN pnpm exec ng build --configuration production
 
 # --- backend (deps cached in their own layer) ---

@@ -7,8 +7,11 @@
 //
 // The console needed this most and had it least. Its page lives in a WebView on
 // a phone that Android freezes and caches, so "is what I am looking at current?"
-// is a question asked often — and until now neither of us could answer it. The
-// pattern is recall's, unchanged; see frontend/scripts/stamp-version.mjs there.
+// is a question asked often — and until now neither of us could answer it.
+//
+// Mirrors life's scripts/stamp-version.mjs, which is recall's adapted for a
+// Docker build with no .git in context: CI passes the commit as GIT_SHA (see
+// Dockerfile + .github/workflows/build.yml); local dev falls back to `git`.
 import { execSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -30,8 +33,11 @@ function git(cmd) {
   }
 }
 
-const sha = git('rev-parse --short HEAD') || 'nogit';
-// A gitignored build-info.ts won't dirty the tree; any real uncommitted change marks the build.
+// Prefer the CI-provided commit (Docker has no .git); else read it locally.
+const envSha = (process.env.GIT_SHA ?? '').slice(0, 7);
+const sha = envSha || git('rev-parse --short HEAD') || 'nogit';
+// A gitignored build-info.ts won't dirty the tree; any real uncommitted change
+// marks the build. (Only meaningful for local builds — Docker has no git.)
 const dirty = git('status --porcelain') ? '+' : '';
 const builtAt = new Date().toISOString();
 
