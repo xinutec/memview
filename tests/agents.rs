@@ -307,6 +307,7 @@ fn an_agent_records_the_session_ids_filed_under_it_but_not_its_subagents() {
 /// A roster from mined agents, for the query tests.
 fn roster_of(agents: Vec<Agent>) -> Agents {
     Agents {
+        doing: Default::default(),
         renames: Default::default(),
         generated: "2026-08-01T00:00:00Z".into(),
         commits: 0,
@@ -450,6 +451,7 @@ fn an_empty_query_asks_nothing_and_is_answered_with_nothing() {
 fn a_session_resolves_to_its_agent_and_a_forgotten_one_to_nobody() {
     let lines = vec![call(Tool::Write, "/code/thing/x", "2026-07-01T10:00:00Z")];
     let roster = Agents {
+        doing: Default::default(),
         renames: Default::default(),
         generated: "2026-07-31T00:00:00Z".into(),
         commits: 0,
@@ -872,6 +874,7 @@ fn a_file_changed_from_the_shell_is_counted_as_its_own_dimension() {
     // ...and the query sums them, reporting the shell's share separately so the
     // evidence can be checked rather than believed.
     let roster = Agents {
+        doing: Default::default(),
         renames: Default::default(),
         generated: String::new(),
         commits: 0,
@@ -1178,4 +1181,85 @@ fn a_renamed_file_keeps_the_history_it_had_under_its_old_name() {
     assert_eq!(old[0].files[0].path, "demo/src/overpass.ts");
     assert_eq!(old[0].files[0].was, ["demo/src/osm.ts"]);
     assert_eq!(found.who_works_on("overpass").len(), 1);
+}
+
+#[test]
+fn the_timeline_records_what_was_done_and_how_it_turned_out() {
+    // The verdict comes from a LATER line: the result names the call's id, so a
+    // row is written unresolved and filled in when the answer arrives. A
+    // corpus of 90,166 Bash calls has 12 that never got one.
+    let dir = std::env::temp_dir().join(format!("doing-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let projects = dir.join("projects/-code");
+    let sessions = dir.join("sessions");
+    std::fs::create_dir_all(&projects).unwrap();
+    std::fs::create_dir_all(&sessions).unwrap();
+    let call = |id: &str, cmd: &str, stamp: &str| {
+        let input = serde_json::json!({ "command": cmd });
+        format!(
+            "{{\"type\":\"assistant\",\"cwd\":\"/code/health\",\"timestamp\":\"{stamp}\",\"message\":{{\"content\":[{{\"type\":\"tool_use\",\"id\":\"{id}\",\"name\":\"Bash\",\"input\":{input}}}]}}}}"
+        )
+    };
+    let result = |id: &str, failed: bool| {
+        format!(
+            "{{\"type\":\"user\",\"message\":{{\"content\":[{{\"type\":\"tool_result\",\"tool_use_id\":\"{id}\",\"is_error\":{failed},\"content\":\"…\"}}]}}}}"
+        )
+    };
+    std::fs::write(
+        projects.join("s1.jsonl"),
+        [
+            call("t1", "cargo test -p geo", "2026-07-01T10:00:00Z"),
+            result("t1", true),
+            call(
+                "t2",
+                "sed -i '' 's/a/b/' src/geo/osm.ts",
+                "2026-07-01T10:05:00Z",
+            ),
+            result("t2", false),
+            // Navigation is not work and never reaches the timeline.
+            call("t3", "cd src && ls", "2026-07-01T10:06:00Z"),
+            result("t3", false),
+        ]
+        .join("\n"),
+    )
+    .unwrap();
+    std::fs::write(
+        sessions.join("1.json"),
+        r#"{"sessionId":"s1","name":"geo"}"#,
+    )
+    .unwrap();
+
+    let found = scan(
+        &dir.join("projects"),
+        &sessions,
+        "/code",
+        "/mem",
+        "/home/example",
+        "2026-07-31T00:00:00Z",
+    )
+    .unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+
+    let doing = &found.doing;
+    let rows: Vec<(&str, &str, memview::doing::Verdict)> = doing
+        .rows
+        .iter()
+        .map(|row| {
+            (
+                doing.kinds[row.k as usize].as_str(),
+                doing.projects[row.p.expect("under a project") as usize].as_str(),
+                row.v,
+            )
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            ("test", "health", memview::doing::Verdict::Failed),
+            ("edit", "health", memview::doing::Verdict::Ok),
+        ]
+    );
+    assert_eq!(doing.agents, ["geo"]);
+    // Oldest first, so a reader walks it forwards.
+    assert!(doing.rows[0].t < doing.rows[1].t);
 }

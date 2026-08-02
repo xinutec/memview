@@ -37,7 +37,7 @@ fn main() -> Result<()> {
             .unwrap_or(0),
     );
 
-    let found = agents::scan(
+    let mut found = agents::scan(
         std::path::Path::new(&root),
         std::path::Path::new(&sessions),
         &code_root,
@@ -97,7 +97,28 @@ fn main() -> Result<()> {
         }
     }
 
+    // The timeline goes to its own file: it is a hundred times the roster's
+    // size and answers a different question, and `/api/agents` must not carry
+    // it. `Agents` marks the field `#[serde(skip)]`, so this is the only way it
+    // is ever written.
+    let timeline = std::mem::take(&mut found.doing);
+    let beside = std::path::Path::new(&out).with_file_name("doing.json");
+    timeline.save(&beside)?;
+    let failed = timeline
+        .rows
+        .iter()
+        .filter(|row| row.v == memview::doing::Verdict::Failed)
+        .count();
+    println!(
+        "\n{} activities, {} of them failed ({:.1}%), {} kinds",
+        timeline.rows.len(),
+        failed,
+        100.0 * failed as f64 / timeline.rows.len().max(1) as f64,
+        timeline.kinds.len()
+    );
+    println!("wrote {}", beside.display());
+
     found.save(std::path::Path::new(&out))?;
-    println!("\nwrote {out}");
+    println!("wrote {out}");
     Ok(())
 }

@@ -6,6 +6,7 @@ pub mod agents;
 pub mod commits;
 pub mod config;
 pub mod couse;
+pub mod doing;
 pub mod error;
 pub mod lint;
 pub mod nextcloud;

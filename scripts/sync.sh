@@ -95,7 +95,19 @@ else
   echo "no agent artefact at $AGENTS — skipping (mine it with: cargo run --release --bin agents)"
 fi
 
-# No transcript text is pushed, and there is no artefact carrying any.
+# The timeline: what each session did, in order, and how it turned out. Derived
+# and typed — an agent, a moment, a repository, a kind of work, a verdict — and
+# carrying no command line, no prompt and no output text. Pippijn lifted the
+# no-timeline rule on 2026-08-02 and left that half of it standing.
+DOING="${DOING_FILE:-$HOME/.claude/doing.json}"
+if [[ -f $DOING ]]; then
+  echo "pushing timeline…"
+  remote sh -c "'cat > /state/doing.json'" < "$DOING"
+else
+  echo "no timeline at $DOING — skipping (mine it with: cargo run --release --bin agents)"
+fi
+
+# No transcript TEXT is pushed, and there is no artefact carrying any.
 #
 # There was: a mined `history.json` of every prompt and reply, served behind an
 # owner-only search page. It was removed deliberately. memview is for reading

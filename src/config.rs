@@ -34,6 +34,9 @@ pub struct Config {
     pub couse_file: Option<String>,
     /// Path to `agents.json`. Absent on any machine without the transcripts.
     pub agents_file: Option<String>,
+    /// The timeline artefact, beside the roster. Optional like the rest of the
+    /// mining: a fresh checkout has none and every page must still work.
+    pub doing_file: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -103,6 +106,7 @@ impl Config {
             static_dir: std::env::var("STATIC_DIR").ok(),
             couse_file: std::env::var("COUSE_FILE").ok(),
             agents_file: std::env::var("AGENTS_FILE").ok(),
+            doing_file: std::env::var("DOING_FILE").ok(),
         })
     }
 

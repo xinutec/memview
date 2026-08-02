@@ -272,6 +272,13 @@ pub struct Agents {
     pub commits: usize,
     #[serde(default)]
     pub unattributed: usize,
+    /// The timeline, mined in the same pass and written to its own file.
+    ///
+    /// **Never serialised with the roster.** It is a hundred times the size and
+    /// answers a different question; `/api/agents` must not carry it, and the
+    /// miner takes it out and saves it separately.
+    #[serde(skip)]
+    pub doing: crate::doing::Doing,
     /// Where each renamed file ended up, old name to current.
     ///
     /// Kept in the artefact rather than applied and forgotten, for two reasons:
@@ -772,6 +779,33 @@ const PATH_KEY: &[u8] = b"\"file_path\":\"";
 /// resolved against. `None` where the transcript does not record one, which
 /// makes relative paths unusable rather than guessed at.
 pub fn bash_calls(line: &[u8]) -> Option<(Option<String>, Vec<String>)> {
+    let line = bash_calls_with_ids(line)?;
+    Some((
+        line.cwd,
+        line.calls.into_iter().map(|call| call.command).collect(),
+    ))
+}
+
+/// One `Bash` call: the command, and the id its result will name.
+#[derive(Debug, Clone)]
+pub struct BashCall {
+    pub id: String,
+    pub command: String,
+}
+
+/// The `Bash` calls on one transcript line, with the directory they ran in.
+#[derive(Debug, Clone)]
+pub struct BashLine {
+    pub cwd: Option<String>,
+    pub calls: Vec<BashCall>,
+}
+
+/// As [`bash_calls`], keeping each call's id.
+///
+/// The id is the join to the result that came back, which arrives on a later
+/// line as a `tool_result` naming it — the only way to know whether the work
+/// succeeded.
+pub fn bash_calls_with_ids(line: &[u8]) -> Option<BashLine> {
     find_at(line, b"\"name\":\"Bash\"", 0)?;
     let row: serde_json::Value = serde_json::from_slice(line).ok()?;
     let cwd = row["cwd"]
@@ -782,9 +816,31 @@ pub fn bash_calls(line: &[u8]) -> Option<(Option<String>, Vec<String>)> {
     let commands = content
         .iter()
         .filter(|item| item["type"] == "tool_use" && item["name"] == "Bash")
-        .filter_map(|item| item["input"]["command"].as_str().map(str::to_string))
+        .filter_map(|item| {
+            Some(BashCall {
+                id: item["id"].as_str().unwrap_or_default().to_string(),
+                command: item["input"]["command"].as_str()?.to_string(),
+            })
+        })
         .collect();
-    Some((cwd, commands))
+    Some(BashLine {
+        cwd,
+        calls: commands,
+    })
+}
+
+/// The call a `tool_result` line answers, and whether it failed.
+///
+/// Read with needles rather than parsed: a result carries the command's whole
+/// output, which is most of the corpus's bytes, and none of that text is wanted
+/// — only the id it names and the one flag saying how it went.
+pub fn tool_result(line: &[u8]) -> Option<(String, bool)> {
+    find_at(line, b"\"type\":\"tool_result\"", 0)?;
+    const ID: &[u8] = b"\"tool_use_id\":\"";
+    let start = find_at(line, ID, 0)? + ID.len();
+    let end = start + line[start..].iter().position(|c| *c == b'"')?;
+    let id = std::str::from_utf8(&line[start..end]).ok()?.to_string();
+    Some((id, find_at(line, b"\"is_error\":true", 0).is_some()))
 }
 
 /// The first time each commit hash was mentioned, and by whom.
@@ -837,6 +893,7 @@ fn scan_transcript(
     first: &mut FirstSeen,
     agent: &mut Agent,
     seen: &mut DaysSeen,
+    log: &mut crate::doing::Log,
 ) {
     // Borrowed field by field: one tool call updates either a project counter
     // or a memory counter, and the compiler cannot see they are disjoint
@@ -892,12 +949,44 @@ fn scan_transcript(
         // A command the grammar cannot read contributes nothing and is not
         // reported here — `shell-report` is where that is measured, against a
         // corpus, rather than buried in a mine that takes minutes to run.
-        if let Some((cwd, commands)) = bash_calls(line) {
-            for command in commands {
+        // The result of a call made earlier in this transcript, which is how a
+        // row learns whether the work succeeded.
+        if let Some((call, failed)) = tool_result(line) {
+            log.resolve(&call, failed);
+        }
+        if let Some(BashLine { cwd, calls }) = bash_calls_with_ids(line) {
+            for BashCall { id: call, command } in calls {
                 let Ok(parsed) = crate::shell::parse(&command) else {
                     continue;
                 };
                 let found = crate::shell_files::extract(&parsed, cwd.as_deref(), home);
+                // What this turn was doing, one row per kind of work in it.
+                // Grouped rather than one row per command: a call that runs
+                // `sed` over four files is one edit to anybody reading it.
+                let mut kinds: BTreeMap<&str, u32> = BTreeMap::new();
+                for activity in &found.activities {
+                    if activity.is_work() {
+                        *kinds.entry(activity.label()).or_default() += 1;
+                    }
+                }
+                if let Some(minute) = stamp.and_then(crate::doing::minute) {
+                    let project = cwd.as_deref().and_then(|dir| project_of(dir, code_root));
+                    // One host or none: a turn that reached two machines is
+                    // rare enough that naming the first is honest and naming
+                    // both would need a row shape nothing else wants.
+                    let host = found.remote.first().map(|use_| use_.host.clone());
+                    for (kind, n) in kinds {
+                        log.push(crate::doing::Work {
+                            call: &call,
+                            agent: agent_name,
+                            project: project.as_deref(),
+                            host: host.as_deref(),
+                            kind,
+                            n,
+                            minute,
+                        });
+                    }
+                }
                 for used in found.files {
                     let Some(rel) = relative_to(&used.path, code_root).filter(|p| attributable(p))
                     else {
@@ -1033,6 +1122,8 @@ pub fn scan(
 ) -> Result<Agents> {
     let names = registry_names(sessions_dir);
     let mut by_name: BTreeMap<String, Agent> = BTreeMap::new();
+    // The timeline, built across every transcript and frozen at the end.
+    let mut log = crate::doing::Log::default();
     let mut days: BTreeMap<String, DaysSeen> = BTreeMap::new();
     // Read before the transcripts, because recognising a hash in one needs the
     // set of hashes to look for. Empty when the code root has no repositories,
@@ -1106,6 +1197,7 @@ pub fn scan(
             &mut first_seen,
             agent,
             days.entry(agent.name.clone()).or_default(),
+            &mut log,
         );
     }
 
@@ -1168,6 +1260,7 @@ pub fn scan(
         (std::cmp::Reverse(total), a.name.clone())
     });
     Ok(Agents {
+        doing: log.finish(generated),
         generated: generated.to_string(),
         commits: history.len(),
         unattributed,

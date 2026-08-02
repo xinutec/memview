@@ -20,6 +20,7 @@ fn app(dir: &std::path::Path) -> (AppState, String) {
     let share = ShareStore::load(dir.join("share-state.json")).expect("share store");
     let token = share.rotate().expect("rotate").token;
     let cfg = Config {
+        doing_file: None,
         memory_dir: dir.join("corpus").to_string_lossy().into_owned(),
         bind_addr: "127.0.0.1:0".into(),
         share_state_file: dir.join("share-state.json").to_string_lossy().into_owned(),
@@ -98,6 +99,7 @@ fn corpus_with_an_origin(dir: &std::path::Path) -> String {
     )
     .expect("memory");
     let agents = memview::agents::Agents {
+        doing: Default::default(),
         renames: Default::default(),
         generated: "2026-08-01T00:00:00Z".into(),
         commits: 0,

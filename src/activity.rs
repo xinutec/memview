@@ -250,6 +250,16 @@ fn named(name: &str, sub: &str, argv: &[String]) -> Option<Activity> {
 }
 
 impl Activity {
+    /// Whether this is work anybody would put on a timeline.
+    ///
+    /// `cd`, `ls`, `echo` and the loop keywords are two fifths of every command
+    /// in the corpus and none of them is a thing a session *did*. Kept in the
+    /// vocabulary — refusing to name them would leave them in the worklist
+    /// forever — and left out of the record.
+    pub fn is_work(&self) -> bool {
+        !matches!(self, Activity::Navigate | Activity::Nothing)
+    }
+
     /// A stable name, for tallies and for the wire.
     pub fn label(&self) -> &str {
         match self {

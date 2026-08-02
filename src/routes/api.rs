@@ -206,6 +206,126 @@ pub async fn work(
     Ok(Json(roster(&app).who_works_on(&query.q)))
 }
 
+/// What to show of the timeline. Every field narrows it; none is required.
+#[derive(Debug, Deserialize)]
+pub struct DoingQuery {
+    pub agent: Option<String>,
+    pub project: Option<String>,
+    pub kind: Option<String>,
+    /// Rows older than this minute, for paging backwards through the history.
+    pub before: Option<i64>,
+    pub limit: Option<usize>,
+}
+
+/// One thing an agent did, with its dictionaries resolved.
+#[derive(Debug, Serialize)]
+pub struct Moment {
+    pub at: i64,
+    pub agent: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    pub kind: String,
+    pub n: u32,
+    pub verdict: crate::doing::Verdict,
+}
+
+/// A slice of the timeline, and what the whole of the filtered range contains.
+#[derive(Debug, Serialize)]
+pub struct Timeline {
+    pub moments: Vec<Moment>,
+    /// Kinds of work in the filtered range, biggest first — the shape of the
+    /// answer, which a page of two hundred rows cannot show.
+    pub summary: Vec<(String, usize)>,
+    pub total: usize,
+    pub failed: usize,
+}
+
+/// How many moments one request may take. A page, not a download: the artefact
+/// is two hundred thousand rows and nothing renders that.
+const PAGE: usize = 200;
+
+/// GET /api/doing — what the sessions did, newest first (owner only).
+///
+/// Owner-only for the same reason as the roster, and more so: this is the shape
+/// of the work over time. Derived throughout — no command line, no prompt and
+/// no output text exists in the artefact to serve.
+pub async fn doing(
+    State(app): State<AppState>,
+    OwnerOnly(_): OwnerOnly,
+    Query(query): Query<DoingQuery>,
+) -> Result<Json<Timeline>, AppError> {
+    let log = app.doing();
+    let at = |names: &[String], want: &Option<String>| -> Option<Option<u32>> {
+        match want {
+            None => Some(None),
+            Some(want) => names
+                .iter()
+                .position(|name| name.eq_ignore_ascii_case(want))
+                .map(|at| Some(at as u32)),
+        }
+    };
+    // A filter naming something the corpus has never seen matches nothing,
+    // rather than matching everything — the difference between "no such agent"
+    // and "here is the whole history".
+    let (Some(agent), Some(project), Some(kind)) = (
+        at(&log.agents, &query.agent),
+        at(&log.projects, &query.project),
+        at(&log.kinds, &query.kind),
+    ) else {
+        return Ok(Json(Timeline {
+            moments: Vec::new(),
+            summary: Vec::new(),
+            total: 0,
+            failed: 0,
+        }));
+    };
+    let matching = log.rows.iter().rev().filter(|row| {
+        agent.is_none_or(|a| row.a == a)
+            && project.is_none_or(|p| row.p == Some(p))
+            && kind.is_none_or(|k| row.k == k)
+            && query.before.is_none_or(|before| row.t < before)
+    });
+    let mut summary: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut total = 0usize;
+    let mut failed = 0usize;
+    let mut moments = Vec::new();
+    let limit = query.limit.unwrap_or(PAGE).min(PAGE);
+    for row in matching {
+        total += 1;
+        failed += usize::from(row.v == crate::doing::Verdict::Failed);
+        let kind = log
+            .kinds
+            .get(row.k as usize)
+            .map(String::as_str)
+            .unwrap_or("");
+        *summary.entry(kind).or_default() += row.n as usize;
+        if moments.len() < limit {
+            moments.push(Moment {
+                at: row.t,
+                agent: log.agents.get(row.a as usize).cloned().unwrap_or_default(),
+                project: row.p.and_then(|p| log.projects.get(p as usize).cloned()),
+                host: row.h.and_then(|h| log.hosts.get(h as usize).cloned()),
+                kind: kind.to_string(),
+                n: row.n,
+                verdict: row.v,
+            });
+        }
+    }
+    let mut summary: Vec<(String, usize)> = summary
+        .into_iter()
+        .map(|(kind, n)| (kind.to_string(), n))
+        .collect();
+    summary.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    Ok(Json(Timeline {
+        moments,
+        summary,
+        total,
+        failed,
+    }))
+}
+
 fn share_json(app: &AppState) -> Value {
     match app.share.get() {
         Some(s) => {
