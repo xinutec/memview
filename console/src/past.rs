@@ -42,6 +42,8 @@ pub struct Conversation {
     /// never took a name. A hex prefix identifies a transcript; only this
     /// identifies the *work*.
     pub name: Option<String>,
+    /// Whether something appears to be using it already. See [`in_use`].
+    pub busy: bool,
 }
 
 /// How far into a transcript to look for its working directory.
@@ -70,6 +72,14 @@ pub fn projects_root() -> PathBuf {
         .join("projects")
 }
 
+/// A transcript written this recently is treated as in use.
+///
+/// A session writes on every turn, so anything touched in the last couple of
+/// minutes almost certainly still has somebody behind it. It is a floor, not a
+/// test: a conversation left open and idle for an hour looks untouched, which is
+/// why the process table is consulted as well.
+const RECENTLY_MILLIS: u64 = 120_000;
+
 /// Every conversation under `root`, newest first.
 pub fn conversations(root: &Path) -> Vec<Conversation> {
     let mut found: Vec<Conversation> = std::fs::read_dir(root)
@@ -84,7 +94,73 @@ pub fn conversations(root: &Path) -> Vec<Conversation> {
     // Newest first: the one worth picking up again is almost always the last
     // one that was open.
     found.sort_by_key(|conversation| std::cmp::Reverse(conversation.modified));
+    let running = arguments();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_millis() as u64)
+        .unwrap_or(0);
+    for conversation in &mut found {
+        conversation.busy = in_use(conversation, &running, now);
+    }
     found
+}
+
+/// Whether a conversation looks like somebody else's already.
+///
+/// **There is no first-party answer to this**, which is why it is inferred.
+/// Claude Code does not hold the transcript open while it runs — `lsof` on a live
+/// session's file returns nothing — writes no lock or pid file, and leaves
+/// `~/.claude/daemon/roster.json` empty for sessions started with
+/// `--remote-control`. All checked, none of them work.
+///
+/// So two signals, and either is enough:
+///
+/// - **A running process names it**, by session id (`--session-id`, `--resume
+///   <uuid>`) or by the name it currently goes by (`--resume utterance`). Matched
+///   against whole arguments, never as a substring, so a directory that happens
+///   to contain a session's name cannot make it look busy.
+/// - **Its transcript was written moments ago**, which catches a session whose
+///   command line says nothing useful.
+///
+/// Both under-detect rather than over-detect, and the cost of being wrong is
+/// asymmetric: a false *busy* means a conversation cannot be resumed until it
+/// goes quiet, while a false *free* means two processes appending to one
+/// transcript, each blind to the other's turns. So this errs toward busy.
+fn in_use(conversation: &Conversation, running: &[String], now: u64) -> bool {
+    if now.saturating_sub(conversation.modified) < RECENTLY_MILLIS {
+        return true;
+    }
+    running.iter().any(|argument| {
+        argument == &conversation.id
+            || conversation
+                .name
+                .as_deref()
+                .is_some_and(|name| argument == name)
+    })
+}
+
+/// Every argument of every `claude` this user is running, as separate words.
+///
+/// Shelled out to rather than taken from a crate: the alternative is a process
+/// -inspection dependency in a binary whose whole job is to be small, to answer a
+/// question `ps` already answers. An empty list — no `ps`, no permission — means
+/// the freshness check stands alone, which is a weaker guard rather than none.
+fn arguments() -> Vec<String> {
+    let Ok(user) = std::env::var("USER") else {
+        return Vec::new();
+    };
+    let Ok(output) = std::process::Command::new("ps")
+        .args(["-u", &user, "-o", "args="])
+        .output()
+    else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| line.contains("claude"))
+        .flat_map(|line| line.split_whitespace())
+        .map(|word| word.to_string())
+        .collect()
 }
 
 fn read(path: &Path) -> Option<Conversation> {
@@ -105,6 +181,9 @@ fn read(path: &Path) -> Option<Conversation> {
         modified,
         bytes: meta.len(),
         name: name_of(path, meta.len()),
+        // Filled in by `conversations`, which reads the process table once for
+        // the whole list rather than once per file.
+        busy: false,
     })
 }
 

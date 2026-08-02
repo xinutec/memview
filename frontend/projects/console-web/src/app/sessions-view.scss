@@ -134,5 +134,11 @@
       font: var(--mat-sys-body-small);
       white-space: nowrap;
     }
+
+    // Said where the age would be, because it is the same question — how long
+    // ago was this touched — with an answer that changes what you can do.
+    .busy {
+      color: var(--mat-sys-error);
+    }
   }
 }

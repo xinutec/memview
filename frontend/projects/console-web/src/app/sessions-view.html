@@ -37,7 +37,7 @@
         <!-- The warning is the only guard there is: nothing stops two processes
              appending to one transcript, and the console cannot see a claude
              running in a terminal or under Remote Control. -->
-        <p class="caution">Close it first — two processes on one transcript both write.</p>
+        <p class="caution">In use ones are held back — two processes on one transcript both write.</p>
         <mat-list class="conversations">
           @for (conversation of past(); track conversation.id) {
             <!-- One line: the name carries the meaning and the facts are a
@@ -45,14 +45,18 @@
                  whole job is to be scanned. -->
             <mat-list-item
               class="conversation"
-              [class.disabled]="starting()"
+              [class.disabled]="starting() || conversation.busy"
               (click)="resume(conversation)"
             >
               <span matListItemTitle class="who" [class.anonymous]="!conversation.name">
                 {{ conversation.name ?? conversation.id.slice(0, 8) }}
               </span>
               <span matListItemMeta class="facts">
-                {{ ago(conversation.modified) }} · {{ size(conversation.bytes) }}
+                @if (conversation.busy) {
+                  <span class="busy">in use</span>
+                } @else {
+                  {{ ago(conversation.modified) }} · {{ size(conversation.bytes) }}
+                }
               </span>
             </mat-list-item>
           }

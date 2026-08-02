@@ -105,4 +105,6 @@ export interface Conversation {
   readonly bytes: number;
   /** What it calls itself — `music`, `health`. Null when it never took a name. */
   readonly name: string | null;
+  /** Something already has it open, as far as the runner can tell. */
+  readonly busy: boolean;
 }

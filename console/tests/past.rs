@@ -190,3 +190,33 @@ fn a_later_name_replaces_an_earlier_one() {
 
     assert_eq!(conversations(&root)[0].name.as_deref(), Some("second"));
 }
+
+#[test]
+fn a_transcript_written_moments_ago_is_treated_as_in_use() {
+    // The signal that catches a session whose command line says nothing useful.
+    // It errs toward busy on purpose: a false "busy" costs a wait, a false "free"
+    // costs two processes appending to one transcript.
+    let root = scratch("busy-fresh");
+    named(&root, "fresh", Some("live"), None);
+
+    assert!(
+        conversations(&root)[0].busy,
+        "just written, so somebody is probably there"
+    );
+}
+
+#[test]
+fn an_old_transcript_nobody_names_is_free() {
+    let root = scratch("busy-old");
+    named(&root, "cold", Some("dormant"), None);
+    // Backdate it well past the freshness floor.
+    let path = root.join("project").join("cold.jsonl");
+    let long_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+    filetime::set_file_mtime(&path, filetime::FileTime::from_system_time(long_ago))
+        .expect("backdate");
+
+    assert!(
+        !conversations(&root)[0].busy,
+        "old and unnamed by any process"
+    );
+}

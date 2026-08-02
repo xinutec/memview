@@ -49,6 +49,20 @@ impl Roster {
         if self.get(id).is_some_and(|session| session.alive()) {
             return Err(format!("{id} is already open here"));
         }
+        // And refused when anything *else* appears to be using it. This is the
+        // guard that was a warning in the UI first, which is not a guard: it let
+        // a second process onto a transcript a remote-controlled session was
+        // still writing. `busy` is inferred rather than reported — see
+        // `past::in_use` for why there is nothing to report it.
+        if crate::past::conversations(&crate::past::projects_root())
+            .iter()
+            .any(|conversation| conversation.id == id && conversation.busy)
+        {
+            return Err(format!(
+                "{id} looks like it is still in use — close it first. Two processes \
+                 on one transcript both append, and neither sees the other's turns."
+            ));
+        }
         self.hold(
             id.to_string(),
             Session::resume(id.to_string(), &real, &self.config.spawn),
