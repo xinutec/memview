@@ -115,14 +115,24 @@
       opacity: 0.5;
     }
 
-    .id {
+    // A single-line item, so the list stays scannable at a dozen entries.
+    height: 44px;
+
+    .who {
+      font: var(--mat-sys-body-large);
+    }
+
+    // Only the fallback is a hex string, and only it wants monospace — a name in
+    // monospace reads as an identifier rather than as a word.
+    .anonymous {
       font-family: ui-monospace, monospace;
-      // Tabular figures so the ids form a column instead of ragged text.
       font-variant-numeric: tabular-nums;
     }
 
     .facts {
       color: var(--mat-sys-on-surface-variant);
+      font: var(--mat-sys-body-small);
+      white-space: nowrap;
     }
   }
 }

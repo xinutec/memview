@@ -25,6 +25,27 @@ fn transcript(dir: &Path, project: &str, id: &str, cwd: Option<&str>, depth: usi
     std::fs::write(folder.join(format!("{id}.jsonl")), lines.join("\n")).expect("transcript");
 }
 
+/// A transcript that names itself, the way a real one does: on repeated lines
+/// near the end, because a session is renamed as its job changes.
+fn named(dir: &Path, id: &str, title: Option<&str>, agent: Option<&str>) {
+    let folder = dir.join("project");
+    std::fs::create_dir_all(&folder).expect("project dir");
+    let mut lines = vec![
+        r#"{"type":"mode"}"#.to_string(),
+        r#"{"type":"system","cwd":"/home/example/Code"}"#.to_string(),
+    ];
+    // Named early and renamed later: the later name is the one that counts.
+    if let Some(agent) = agent {
+        lines.push(format!(r#"{{"type":"agent-name","agentName":"{agent}"}}"#));
+    }
+    if let Some(title) = title {
+        lines.push(format!(
+            r#"{{"type":"custom-title","customTitle":"{title}"}}"#
+        ));
+    }
+    std::fs::write(folder.join(format!("{id}.jsonl")), lines.join("\n")).expect("transcript");
+}
+
 fn scratch(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("console-past-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -113,4 +134,59 @@ fn files_that_are_not_transcripts_are_ignored() {
         "only .jsonl inside a project folder: {found:?}"
     );
     assert_eq!(found[0].id, "real");
+}
+
+#[test]
+fn a_conversation_is_shown_by_the_name_it_gave_itself() {
+    // A hex prefix identifies a transcript; the name identifies the work, which
+    // is the thing anybody is actually choosing between.
+    let root = scratch("named");
+    named(&root, "with-a-name", Some("music"), Some("utterance"));
+
+    let found = conversations(&root);
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        found[0].name.as_deref(),
+        Some("music"),
+        "custom-title wins: one is a decision, the other a default"
+    );
+}
+
+#[test]
+fn the_agent_name_is_used_when_nothing_was_set_by_hand() {
+    let root = scratch("agent-only");
+    named(&root, "auto", None, Some("health"));
+
+    assert_eq!(conversations(&root)[0].name.as_deref(), Some("health"));
+}
+
+#[test]
+fn a_conversation_that_never_took_a_name_has_none() {
+    // Rather than inventing one from the id, which would read as a name and be a
+    // hex string wearing a hat.
+    let root = scratch("anonymous");
+    named(&root, "nameless", None, None);
+
+    assert!(conversations(&root)[0].name.is_none());
+}
+
+#[test]
+fn a_later_name_replaces_an_earlier_one() {
+    // Sessions get renamed as their job changes. The current name is the useful
+    // one, which is why the tail is read rather than the head.
+    let root = scratch("renamed");
+    let folder = root.join("project");
+    std::fs::create_dir_all(&folder).expect("dir");
+    std::fs::write(
+        folder.join("renamed.jsonl"),
+        [
+            r#"{"type":"system","cwd":"/home/example/Code"}"#,
+            r#"{"type":"custom-title","customTitle":"first"}"#,
+            r#"{"type":"custom-title","customTitle":"second"}"#,
+        ]
+        .join("\n"),
+    )
+    .expect("transcript");
+
+    assert_eq!(conversations(&root)[0].name.as_deref(), Some("second"));
 }

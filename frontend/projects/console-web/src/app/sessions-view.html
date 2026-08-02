@@ -40,13 +40,18 @@
         <p class="caution">Close it first — two processes on one transcript both write.</p>
         <mat-list class="conversations">
           @for (conversation of past(); track conversation.id) {
+            <!-- One line: the name carries the meaning and the facts are a
+                 footnote, so stacking them doubled the height of a list whose
+                 whole job is to be scanned. -->
             <mat-list-item
               class="conversation"
               [class.disabled]="starting()"
               (click)="resume(conversation)"
             >
-              <span matListItemTitle class="id">{{ conversation.id.slice(0, 8) }}</span>
-              <span matListItemLine class="facts">
+              <span matListItemTitle class="who" [class.anonymous]="!conversation.name">
+                {{ conversation.name ?? conversation.id.slice(0, 8) }}
+              </span>
+              <span matListItemMeta class="facts">
                 {{ ago(conversation.modified) }} · {{ size(conversation.bytes) }}
               </span>
             </mat-list-item>

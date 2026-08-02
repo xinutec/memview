@@ -103,4 +103,6 @@ export interface Conversation {
   /** Milliseconds since the epoch. The only proxy for "is this one finished". */
   readonly modified: number;
   readonly bytes: number;
+  /** What it calls itself — `music`, `health`. Null when it never took a name. */
+  readonly name: string | null;
 }

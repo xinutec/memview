@@ -38,6 +38,10 @@ pub struct Conversation {
     /// How much was said. A rough weight, and the cheap one: counting turns means
     /// reading the whole file, and these reach tens of megabytes.
     pub bytes: u64,
+    /// What the conversation calls itself — `music`, `health` — or none when it
+    /// never took a name. A hex prefix identifies a transcript; only this
+    /// identifies the *work*.
+    pub name: Option<String>,
 }
 
 /// How far into a transcript to look for its working directory.
@@ -46,6 +50,15 @@ pub struct Conversation {
 /// within the opening handful of lines. If it is not there, this transcript does
 /// not say where it ran and cannot be resumed safely.
 const LINES_TO_FIND_CWD: usize = 16;
+
+/// How much of the end of a transcript to read when looking for its name.
+///
+/// From the **end**, because a session is renamed as its job changes and the
+/// current name is the one worth showing. The name lines are re-emitted every
+/// turn — two hundred times in a long conversation — so the last few kilobytes
+/// always carry several, and reading a whole 1.3 GB transcript to learn one word
+/// is not a trade worth making.
+const TAIL_BYTES: u64 = 128 * 1024;
 
 /// Where Claude Code keeps its transcripts.
 pub fn projects_root() -> PathBuf {
@@ -91,6 +104,7 @@ fn read(path: &Path) -> Option<Conversation> {
         dir: cwd_of(path)?,
         modified,
         bytes: meta.len(),
+        name: name_of(path, meta.len()),
     })
 }
 
@@ -112,4 +126,39 @@ fn cwd_of(path: &Path) -> Option<String> {
         }
     }
     None
+}
+
+/// What the transcript calls itself, if anything.
+///
+/// Two line types carry it: `custom-title` (what it was deliberately called) and
+/// `agent-name`. The first wins where both exist, because one is a decision and
+/// the other is a default.
+///
+/// Read from the tail — see [`TAIL_BYTES`]. A chunk taken from an arbitrary byte
+/// offset starts mid-line and possibly mid-character, so the first line is
+/// expected to be rubbish and unparseable lines are skipped rather than treated
+/// as the end of the file.
+fn name_of(path: &Path, len: u64) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let mut file = std::fs::File::open(path).ok()?;
+    file.seek(SeekFrom::Start(len.saturating_sub(TAIL_BYTES)))
+        .ok()?;
+    let mut tail = Vec::new();
+    file.take(TAIL_BYTES).read_to_end(&mut tail).ok()?;
+
+    let mut title = None;
+    let mut agent = None;
+    for line in String::from_utf8_lossy(&tail).lines() {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if let Some(found) = value.get("customTitle").and_then(|v| v.as_str()) {
+            title = Some(found.to_string());
+        }
+        if let Some(found) = value.get("agentName").and_then(|v| v.as_str()) {
+            agent = Some(found.to_string());
+        }
+    }
+    title.or(agent).filter(|name| !name.trim().is_empty())
 }
