@@ -252,3 +252,57 @@ fn claude_reached_by_a_full_path_still_counts() {
     let words = words_of_claude_processes("/nix/store/abc/bin/claude --resume music\n");
     assert!(words.iter().any(|word| word == "music"), "{words:?}");
 }
+
+/// Write a transcript that is bridged to Remote Control, the way a real one is:
+/// the line repeats on every turn, and a transcript can quote somebody else's.
+fn bridged(dir: &Path, id: &str, own: &str, quoted: Option<&str>) {
+    let folder = dir.join("project");
+    std::fs::create_dir_all(&folder).expect("project dir");
+    let mut lines = vec![r#"{"type":"system","cwd":"/home/example/Code"}"#.to_string()];
+    if let Some(other) = quoted {
+        lines.push(format!(
+            r#"{{"type":"bridge-session","sessionId":"somebody-else","bridgeSessionId":"{other}"}}"#
+        ));
+    }
+    for _ in 0..3 {
+        lines.push(format!(
+            r#"{{"type":"bridge-session","sessionId":"{id}","bridgeSessionId":"{own}"}}"#
+        ));
+    }
+    std::fs::write(folder.join(format!("{id}.jsonl")), lines.join("\n")).expect("transcript");
+}
+
+#[test]
+fn a_bridged_conversation_offers_where_it_is_being_driven_from() {
+    let root = scratch("bridged");
+    bridged(&root, "live", "cse_015kVuKR2sBdqkjg2AqMn6Nr", None);
+
+    assert_eq!(
+        conversations(&root)[0].remote.as_deref(),
+        Some("https://claude.ai/code/session_015kVuKR2sBdqkjg2AqMn6Nr"),
+        "the id maps to the address by swapping one prefix"
+    );
+}
+
+#[test]
+fn a_conversation_that_was_never_bridged_offers_nothing() {
+    // Rather than a link to a session that does not exist, which reads as an
+    // offer and ends at an error.
+    let root = scratch("unbridged");
+    named(&root, "local-only", Some("desk"), None);
+
+    assert!(conversations(&root)[0].remote.is_none());
+}
+
+#[test]
+fn another_conversations_bridge_id_is_not_claimed() {
+    // The line carries whose session it is, so a transcript that merely contains
+    // somebody else's cannot offer it as its own.
+    let root = scratch("quoted");
+    bridged(&root, "mine", "cse_MINE", Some("cse_THEIRS"));
+
+    assert_eq!(
+        conversations(&root)[0].remote.as_deref(),
+        Some("https://claude.ai/code/session_MINE")
+    );
+}

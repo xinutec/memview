@@ -142,3 +142,11 @@
     }
   }
 }
+
+.elsewhere {
+  // Reads as the way out rather than as a status, because that is what it is —
+  // the only tappable thing on a row the console has just declined to open.
+  color: var(--mat-sys-primary);
+  text-decoration: none;
+  white-space: nowrap;
+}

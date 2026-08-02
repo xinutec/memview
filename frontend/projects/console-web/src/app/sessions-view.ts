@@ -116,6 +116,10 @@ export class SessionsView {
    * so the warning in the template is the whole of the guard.
    */
   resume(conversation: Conversation): void {
+    // The row is the whole control, so the guard belongs here rather than only
+    // in the styling: a busy conversation tapped anyway would reach the runner,
+    // be refused, and put an error on screen for doing what the row offered.
+    if (conversation.busy) return;
     this.open(conversation.dir, conversation.id);
   }
 
