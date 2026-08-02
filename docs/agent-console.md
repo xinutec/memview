@@ -553,6 +553,21 @@ checked. So it is inferred from two signals, either of which is enough:
 Both under-detect, which is the right direction: a false *busy* costs a wait, a
 false *free* costs two writers.
 
+⚠ **"a running `claude`" means the executable, not a line mentioning claude.**
+Every command Claude Code runs is a shell that first sources a snapshot under
+`~/.claude/`, so every one of those command lines carries the substring — and a
+process list filtered that way hands over the words of commands that have nothing
+to do with any session. A conversation called `utterance` was held as in use by
+`grep utterance`. Names are what conversations are chosen by, so the false match
+landed precisely where it was most expensive. The first word's last path element
+decides now.
+
+The list also has to be **fetched again while somebody is looking at it**. `busy`
+is a snapshot of a moment, and the moment it matters is just after a session ends
+— fetched once at start-up, the UI still said *in use* long after the process was
+gone, which is indistinguishable from the check being wrong. It refreshes on the
+same poll as the live sessions, but only while the panel is open.
+
 ⚠ **This is why the console must take its sessions down with it.**
 `kill_on_drop` needs a destructor to run and a signalled process never runs one,
 so stopping the console orphaned every `claude` it had started — and an orphan

@@ -115,10 +115,10 @@ pub fn conversations(root: &Path) -> Vec<Conversation> {
 ///
 /// So two signals, and either is enough:
 ///
-/// - **A running process names it**, by session id (`--session-id`, `--resume
+/// - **A running `claude` names it**, by session id (`--session-id`, `--resume
 ///   <uuid>`) or by the name it currently goes by (`--resume utterance`). Matched
-///   against whole arguments, never as a substring, so a directory that happens
-///   to contain a session's name cannot make it look busy.
+///   against whole arguments of processes that really are `claude` — see
+///   [`words_of_claude_processes`] for why both halves of that are load-bearing.
 /// - **Its transcript was written moments ago**, which catches a session whose
 ///   command line says nothing useful.
 ///
@@ -155,9 +155,30 @@ fn arguments() -> Vec<String> {
     else {
         return Vec::new();
     };
-    String::from_utf8_lossy(&output.stdout)
+    words_of_claude_processes(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// The words of the command lines that actually *are* `claude`.
+///
+/// ⚠ Not "lines mentioning claude". Every shell Claude Code spawns for a command
+/// sources a snapshot under `~/.claude/`, so its whole command line — the command
+/// included — matches that substring. A session called `utterance` was then held
+/// as in use by any command anywhere on this machine that happened to contain the
+/// word: `grep utterance`, `cd utterance`, this function being tested. The name is
+/// the thing conversations are chosen by, so the false match landed exactly where
+/// it hurt.
+///
+/// So the executable is what decides: the first word's last path element must be
+/// `claude`. Arguments are read only from those lines.
+pub fn words_of_claude_processes(ps_output: &str) -> Vec<String> {
+    ps_output
         .lines()
-        .filter(|line| line.contains("claude"))
+        .filter(|line| {
+            line.split_whitespace()
+                .next()
+                .and_then(|command| command.rsplit('/').next())
+                .is_some_and(|name| name == "claude")
+        })
         .flat_map(|line| line.split_whitespace())
         .map(|word| word.to_string())
         .collect()

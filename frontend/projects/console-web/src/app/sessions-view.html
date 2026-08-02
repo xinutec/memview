@@ -29,7 +29,7 @@
 @if (past().length) {
   <mat-card class="past" appearance="outlined">
     <mat-card-content>
-      <button matButton (click)="showPast.set(!showPast())">
+      <button matButton (click)="togglePast()">
         <mat-icon>{{ showPast() ? 'expand_less' : 'expand_more' }}</mat-icon>
         pick up an earlier conversation ({{ past().length }})
       </button>

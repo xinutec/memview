@@ -55,11 +55,21 @@ export class SessionsView {
     // The list is a snapshot of processes, and a session started from another
     // window — or one that just ended — should not need a manual refresh to
     // appear. Cheap: one small request.
-    setInterval(() => this.load(), 5000);
-    // Once, not on the poll: reading a dozen transcripts off disk to answer it is
-    // cheap but not free, and the answer changes when a session ends, not every
-    // five seconds.
+    setInterval(() => {
+      this.load();
+      // Only while the list is open, which is the only time its `in use` marks
+      // are being read — and the time they must be true, since a conversation
+      // just closed is the one about to be picked up.
+      if (this.showPast()) this.pastStore.load();
+    }, 5000);
+    // Once at the start, to know whether there is anything to offer at all.
     this.pastStore.load();
+  }
+
+  /** Show or hide the earlier conversations, refreshing them on the way open. */
+  togglePast(): void {
+    this.showPast.set(!this.showPast());
+    if (this.showPast()) this.pastStore.load();
   }
 
   private load(): void {

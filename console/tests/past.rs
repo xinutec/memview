@@ -7,7 +7,14 @@
 
 use std::path::Path;
 
-use console::past::conversations;
+use console::past::{conversations, words_of_claude_processes};
+
+/// A wrapper shell whose *path* says claude — the shape that caused the bug.
+/// Claude Code sources a snapshot under `~/.claude/` for every command it runs,
+/// so every one of those command lines matches the substring "claude".
+const WRAPPER: &str = "/bin/zsh -c source /home/example/.claude/shell-snapshots/snap.sh \
+                       && eval 'grep -rn utterance .'";
+const REAL: &str = "claude --remote-control health --resume health";
 
 /// Write a transcript whose `cwd` line sits `depth` lines down, as the real ones
 /// do — Claude Code opens with a mode line and a session id, and the working
@@ -219,4 +226,29 @@ fn an_old_transcript_nobody_names_is_free() {
         !conversations(&root)[0].busy,
         "old and unnamed by any process"
     );
+}
+
+#[test]
+fn a_shell_that_merely_mentions_claude_is_not_a_session() {
+    // The defect: a conversation named `utterance` was held as in use by any
+    // command on this machine containing that word — `grep utterance`, `cd
+    // utterance` — because every such command line also carries the path to a
+    // shell snapshot under `~/.claude/`.
+    assert!(words_of_claude_processes(WRAPPER).is_empty());
+}
+
+#[test]
+fn a_running_session_contributes_its_arguments() {
+    let words = words_of_claude_processes(&format!("{WRAPPER}\n{REAL}\n"));
+    assert!(words.iter().any(|word| word == "health"), "{words:?}");
+    assert!(
+        !words.iter().any(|word| word == "utterance"),
+        "the wrapper's words must not leak in: {words:?}"
+    );
+}
+
+#[test]
+fn claude_reached_by_a_full_path_still_counts() {
+    let words = words_of_claude_processes("/nix/store/abc/bin/claude --resume music\n");
+    assert!(words.iter().any(|word| word == "music"), "{words:?}");
 }
