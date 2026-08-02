@@ -15,7 +15,38 @@
 
 use std::collections::BTreeMap;
 
+use memview::shell_ops::{GitOp, Op};
 use memview::{shell, shell_files};
+
+/// The shape of an operation, for the distribution.
+fn op_name(op: &Op) -> &'static str {
+    match op {
+        Op::Read { .. } => "read",
+        Op::Write { .. } => "write",
+        Op::Remove { .. } => "remove",
+        Op::Copy { .. } => "copy",
+        Op::Move { .. } => "move",
+        Op::Search { .. } => "search",
+        Op::Transform { in_place: true, .. } => "transform (in place)",
+        Op::Transform { .. } => "transform",
+        Op::Run { .. } => "run a script",
+        Op::ChangeDir { .. } => "cd",
+        Op::Git(GitOp::Stage { .. }) => "git stage",
+        Op::Git(GitOp::Alter { .. }) => "git alter",
+        Op::Git(GitOp::Inspect { .. }) => "git inspect",
+        Op::Git(GitOp::Other { .. }) => "git (other)",
+        Op::Nothing => "nothing with files",
+        Op::Unknown { .. } => "not understood",
+    }
+}
+
+/// Shorten for display, on character boundaries.
+fn truncate(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        return s.replace('\n', "⏎");
+    }
+    s.chars().take(n).collect::<String>().replace('\n', "⏎") + "…"
+}
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -56,6 +87,11 @@ fn main() -> anyhow::Result<()> {
     // Which commands actually open and change files — the check anyone runs
     // before trusting the table, and the one that showed `sed` to be a pager.
     let mut by_command: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    // What the typed model knows that a path and a direction cannot: the shape
+    // of the work, what was being looked for, and what got renamed.
+    let mut by_op: BTreeMap<&'static str, usize> = BTreeMap::new();
+    let mut searched: BTreeMap<String, usize> = BTreeMap::new();
+    let mut renames = 0usize;
 
     for line in text.lines() {
         let Ok(row) = serde_json::from_str::<serde_json::Value>(line) else {
@@ -76,6 +112,16 @@ fn main() -> anyhow::Result<()> {
             let entry = by_command.entry(name).or_default();
             entry.0 += r;
             entry.1 += w;
+        }
+        for op in &found.ops {
+            *by_op.entry(op_name(op)).or_insert(0) += 1;
+            match op {
+                Op::Search { pattern, .. } if !pattern.is_empty() => {
+                    *searched.entry(pattern.clone()).or_insert(0) += 1;
+                }
+                Op::Move { .. } => renames += 1,
+                _ => {}
+            }
         }
         for (name, n) in found.unhandled {
             unhandled += n;
@@ -112,6 +158,21 @@ fn main() -> anyhow::Result<()> {
     println!("  not in the table  {unhandled}");
     println!("file uses           {} reads, {writes} writes", reads);
     println!("distinct paths      {}", distinct.len());
+
+    println!("\nwhat the shell was doing:");
+    let mut shapes: Vec<_> = by_op.into_iter().collect();
+    shapes.sort_by_key(|(name, n)| (std::cmp::Reverse(*n), *name));
+    for (name, n) in shapes {
+        println!("  {n:>7}  {name}");
+    }
+    println!("  {renames:>7}  of those were renames, which no read/write count can express");
+
+    println!("\nmost searched-for terms:");
+    let mut terms: Vec<_> = searched.into_iter().collect();
+    terms.sort_by_key(|(term, n)| (std::cmp::Reverse(*n), term.clone()));
+    for (term, n) in terms.into_iter().take(show) {
+        println!("  {n:>7}  {}", truncate(&term, 68));
+    }
 
     println!("\ncommands that CHANGE files, biggest first:");
     let mut writers: Vec<_> = by_command

@@ -14,5 +14,6 @@ pub mod session;
 pub mod share;
 pub mod shell;
 pub mod shell_files;
+pub mod shell_ops;
 pub mod state;
 pub mod store;
