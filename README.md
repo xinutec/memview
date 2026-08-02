@@ -155,6 +155,18 @@ session terminates at the Mac's own gate, so isis carries ciphertext and holds n
 key that opens anything — and the Mac binds loopback only, with no firewall
 exception anywhere.
 
+**Picking up where you left off.** The sessions page lists conversations already
+on disk, by the name each gave itself, and resumes one in a process of the
+console's own. It refuses any that something else appears to be using — a running
+`claude` naming it, or a transcript written in the last two minutes — because two
+processes on one transcript both append and neither sees the other's turns.
+
+⚠ The console **cannot attach to a running session**, and neither can anything
+else local: a `claude --remote-control` session talks to Anthropic over HTTPS with
+no local endpoint at all. Resume is for conversations that have been closed. A
+resumed one also starts with an empty view — `--resume` restores the CLI's
+context, not the console's — which is the next thing to fix.
+
 [docs/agent-console.md](docs/agent-console.md) is the authority on the design and
 the threat model.
 

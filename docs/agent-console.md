@@ -482,6 +482,93 @@ whatever JavaScript their server returns, which is fine for a viewer behind a
 login and would not be fine for `life`, which can spend money — but on the second
 consumer, not the first.
 
+## Reaching a conversation that already exists
+
+The console starts processes. **It cannot attach to one**, and that is not a gap
+to be closed later — it follows from where the stream lives. A `claude` in a
+terminal has its stdin held by the terminal; there is one, and somebody else has
+it.
+
+### Remote Control is the other answer, and it is Anthropic's
+
+`claude --remote-control [name]` starts an interactive session that can be driven
+from Claude Code on the web or a phone. Measured on a Mac running twelve of them:
+outbound HTTPS only, **no listening socket, and no named socket anywhere under
+`~/.claude`**. So it is a relay through Anthropic, and Anthropic's own client is
+the only thing that can reach those sessions. Nothing local can, this console
+included.
+
+That is worth stating plainly rather than treating as a rival: it puts a third
+party in the instruction path, which is what this whole design avoids — but not a
+*new* one. Anthropic is already trusted with everything a session does, because
+the model's output is what drives the tool calls. The console's distinct claim is
+narrower than "the only way to reach a session from a phone": it is that the
+instruction path is yours end to end, and that approvals are gated by a key in
+your phone's secure element.
+
+A session is one or the other. It cannot be both.
+
+### Resume: the same conversation, a process of ours
+
+So reaching an existing conversation means resuming its transcript.
+`console/src/past.rs` lists what there is, and `Roster::resume` starts it with
+`--resume <id>`, keeping the id so the console's handle and the transcript stay
+the same thing.
+
+Two things about reading that list are load-bearing:
+
+- **The transcripts are read, not their filenames decoded.** Claude Code files
+  them under `~/.claude/projects/<slug>/<id>.jsonl` where the slug is the working
+  directory flattened, and that encoding is undocumented. A guessed one is wrong
+  silently and only for the paths nobody tested — a dot in a directory name — and
+  the symptom is "there is nothing to resume here" rather than an error. Each
+  transcript's own record of its `cwd` is what places it.
+- ⚠ **The `cwd` is not on the first line.** It arrives on a `system` line a few
+  lines in, which a reader that gives up after one finds never.
+
+The name shown is the conversation's own — `custom-title`, or `agent-name` where
+nothing was set by hand — read from the **tail**, because a session is renamed as
+its job changes and the name lines are re-emitted every turn. A hex prefix
+identifies a transcript; only the name identifies the work.
+
+### Two processes on one transcript
+
+Nothing stops them. Both append, and neither sees the other's turns.
+
+A warning in the UI was the first attempt and it is not a guard — it let a second
+process onto a transcript a Remote Control session was still writing. The refusal
+now lives in the roster.
+
+**There is no first-party way to ask whether a conversation is in use.** Claude
+Code does not hold the transcript open while it runs (`lsof` on a live session's
+file returns nothing), writes no lock or pid file, and leaves
+`~/.claude/daemon/roster.json` empty for `--remote-control` sessions. All three
+checked. So it is inferred from two signals, either of which is enough:
+
+- a running `claude` **names** the session, by id or by the name it currently goes
+  by, matched against whole arguments so a directory containing the name cannot
+  make it look busy;
+- its transcript was **written in the last two minutes**.
+
+Both under-detect, which is the right direction: a false *busy* costs a wait, a
+false *free* costs two writers.
+
+⚠ **This is why the console must take its sessions down with it.**
+`kill_on_drop` needs a destructor to run and a signalled process never runs one,
+so stopping the console orphaned every `claude` it had started — and an orphan
+keeps its id in the process table, where the check above reads it and refuses to
+resume the very conversation nobody is using. `main.rs` handles SIGINT and
+SIGTERM.
+
+### What resume does not do yet
+
+**Show you the conversation.** `--resume` restores the CLI's context; it does not
+replay past turns on stdout, so the console's view of a resumed session is empty
+until something new happens — `0 turns` is the console's count of what it watched,
+not the conversation's length. The transcript is on disk and `protocol.rs` already
+models the shapes those lines carry, so seeding the view from its tail is the fix.
+Not built.
+
 ## Build order
 
 Each phase is usable on its own and none of the work is thrown away if a later
@@ -534,7 +621,13 @@ phase is declined.
    the Mac's was written and never applied. The Mac now binds loopback only.
    Proven: isis answers with the Mac's certificate, an unauthenticated client gets
    nothing, and the phone reaches it through the tunnel.
-6. **memview link-out** from `/agents`.
+6. ✅ **Resume.** Pick up a conversation that already exists rather than only
+   starting new ones, refused when anything else appears to be using it. See
+   *Reaching a conversation that already exists* — including why the console
+   cannot attach to a running session, and why Remote Control can.
+   **Not done:** seeding the view from the transcript, so a resumed session shows
+   what came before it.
+7. **memview link-out** from `/agents`.
 
 The old ordering had phase 1 listening on the LAN with no authentication, on the
 grounds that pf blocks the VPN and leaves the LAN alone. It does — and the LAN is
