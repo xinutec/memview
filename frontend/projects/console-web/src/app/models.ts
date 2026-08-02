@@ -27,6 +27,7 @@ export interface Overview {
 /** The event kinds the runner emits, as a value so the wire can be checked
  *  against it rather than trusted. Mirrors `protocol::Event`. */
 export const KINDS = [
+  'joined',
   'started',
   'prompt',
   'text',
@@ -48,6 +49,8 @@ export type Kind = (typeof KINDS)[number];
  *  field depends on it. */
 export interface SessionEvent {
   kind: Kind;
+  /** `joined` only: how many events above it were read from the transcript. */
+  readonly earlier?: number;
   model?: string;
   cwd?: string;
   tools?: number;

@@ -71,6 +71,18 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
     case 'trouble':
       entries.push({ kind: 'note', text: event.detail ?? 'something went wrong' });
       break;
+    // Marked rather than blended. What is above came from the transcript on
+    // disk; what is below, this console watched happen. They are both true and
+    // they are not the same warranty — and without a line between them, a
+    // resumed conversation reads as though the console had been there all along.
+    case 'joined':
+      entries.push({
+        kind: 'note',
+        text: event.earlier
+          ? `${event.earlier} earlier events, read from the transcript`
+          : 'nothing earlier could be read from the transcript',
+      });
+      break;
     // `started`, `busy` and `limit` are session state rather than transcript;
     // they belong in the header, and repeating them between paragraphs would
     // turn the page into a log.

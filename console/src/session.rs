@@ -128,7 +128,47 @@ impl Session {
     /// conversation that has been closed, and the console cannot check that for
     /// you.
     pub fn resume(id: String, dir: &Path, spawn: &Spawn) -> Result<Arc<Self>> {
-        Self::spawn(id, dir, spawn, true)
+        let session = Self::spawn(id, dir, spawn, true)?;
+        session.seed();
+        Ok(session)
+    }
+
+    /// Put what was already said in front of what happens next.
+    ///
+    /// ⚠ **`--resume` restores the CLI's context, not the console's view.** The
+    /// process comes back knowing the whole conversation and replays none of it on
+    /// stdout, so without this a resumed session opens empty and its turn count
+    /// reads `0` — the console's count of what it watched, which a person reads as
+    /// the conversation's length. It looked like resume had not worked.
+    ///
+    /// The transcript on disk is the same vocabulary the stream uses, so the fix
+    /// is a different reader over the same shapes rather than a second model of a
+    /// conversation. See [`crate::protocol::read_recorded`].
+    ///
+    /// Silent when there is nothing to find. A conversation with no transcript we
+    /// can locate still resumes — the CLI has its own copy — and an empty view is
+    /// what it was before this existed.
+    fn seed(self: &Arc<Self>) {
+        let root = crate::past::projects_root();
+        let Some(path) = crate::past::transcript_of(&root, &self.id) else {
+            tracing::info!(
+                "no transcript found for {} — resuming with an empty view",
+                self.id
+            );
+            return;
+        };
+        let earlier = crate::past::replay(&path);
+        tracing::info!(
+            "seeded {} with {} events from its transcript",
+            self.id,
+            earlier.len()
+        );
+        let count = earlier.len();
+        for event in earlier {
+            self.push(event);
+        }
+        // Last, so it sits between what was read and what we watch.
+        self.push(Event::Joined { earlier: count });
     }
 
     fn spawn(id: String, dir: &Path, spawn: &Spawn, resuming: bool) -> Result<Arc<Self>> {

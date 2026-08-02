@@ -30,6 +30,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Event {
+    /// Where the console started watching. Everything before it was read from
+    /// the transcript on disk; everything after it, this console saw happen.
+    /// Worth marking rather than blending: the two have different warranties —
+    /// one is what the file says, the other is what we watched.
+    Joined {
+        earlier: usize,
+    },
     /// The session is up, with what it was given to work with.
     Started {
         model: String,
@@ -203,7 +210,32 @@ enum Delta {
 #[derive(Debug, Deserialize)]
 struct Message {
     #[serde(default)]
-    content: Vec<Block>,
+    content: Content,
+}
+
+/// ⚠ `content` is a list of blocks — except on the user lines where it is a bare
+/// string. Both shapes are in every transcript on this machine. Declared as
+/// `Vec<Block>` alone, the string form does not fail: serde's `default` makes it
+/// an empty list, so those turns vanish silently, which reads as a conversation
+/// with gaps in it rather than as a parse error.
+#[derive(Debug, Deserialize, Default)]
+#[serde(untagged)]
+enum Content {
+    Blocks(Vec<Block>),
+    Text(String),
+    #[default]
+    #[serde(skip)]
+    Missing,
+}
+
+impl Content {
+    fn blocks(self) -> Vec<Block> {
+        match self {
+            Content::Blocks(blocks) => blocks,
+            Content::Text(text) => vec![Block::Text { text }],
+            Content::Missing => Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -211,6 +243,11 @@ struct Message {
 enum Block {
     Text {
         text: String,
+    },
+    /// Only a recorded transcript carries this whole; live, thinking arrives as
+    /// deltas. See [`read_recorded`].
+    Thinking {
+        thinking: String,
     },
     ToolUse {
         id: String,
@@ -278,6 +315,7 @@ pub fn read(line: &str) -> Vec<Event> {
         // only what the deltas cannot carry whole.
         Line::Assistant { message } => message
             .content
+            .blocks()
             .into_iter()
             .filter_map(|block| match block {
                 Block::ToolUse { id, name, input } => Some(Event::Tool { id, name, input }),
@@ -286,6 +324,7 @@ pub fn read(line: &str) -> Vec<Event> {
             .collect(),
         Line::User { message } => message
             .content
+            .blocks()
             .into_iter()
             .filter_map(|block| match block {
                 Block::ToolResult {
@@ -362,4 +401,54 @@ pub fn prompt(text: &str) -> String {
         "message": {"role": "user", "content": [{"type": "text", "text": text}]},
     })
     .to_string()
+}
+
+/// One line of a transcript *on disk*, which is not quite one line of the stream.
+///
+/// ⚠ **A transcript has no deltas.** The live reader takes assistant text from
+/// `stream_event` deltas and deliberately drops it from the completed message, so
+/// that a sentence is not shown twice ([`read`]). A file recorded the completed
+/// messages and nothing else — so replaying it through `read` yields a
+/// conversation of tool calls with silence in between, which looks like an
+/// unfinished feature rather than like the wrong reader.
+///
+/// So this is the same vocabulary read the other way round: completed messages
+/// are the only source, and there is nothing to double.
+pub fn read_recorded(line: &str) -> Vec<Event> {
+    let Ok(parsed) = serde_json::from_str::<Line>(line) else {
+        return Vec::new();
+    };
+    match parsed {
+        Line::Assistant { message } => message
+            .content
+            .blocks()
+            .into_iter()
+            .filter_map(|block| match block {
+                Block::Text { text } => Some(Event::Text { text }),
+                Block::Thinking { thinking } => Some(Event::Thinking { text: thinking }),
+                Block::ToolUse { id, name, input } => Some(Event::Tool { id, name, input }),
+                _ => None,
+            })
+            .collect(),
+        Line::User { message } => message
+            .content
+            .blocks()
+            .into_iter()
+            .filter_map(|block| match block {
+                Block::ToolResult {
+                    tool_use_id,
+                    is_error,
+                } => Some(Event::ToolResult {
+                    id: tool_use_id,
+                    ok: !is_error,
+                }),
+                Block::Text { text } => Some(Event::Prompt { text }),
+                _ => None,
+            })
+            .collect(),
+        // Everything else a transcript carries — the bridge lines, the file
+        // snapshots, the summaries — belongs to the CLI and not to a reader of
+        // conversations.
+        _ => Vec::new(),
+    }
 }

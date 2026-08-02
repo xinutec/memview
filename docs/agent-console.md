@@ -573,14 +573,35 @@ keeps its id in the process table, where the check above reads it and refuses to
 resume the very conversation nobody is using. `main.rs` handles SIGINT and
 SIGTERM.
 
-### What resume does not do yet
+### What resume brings back
 
-**Show you the conversation.** `--resume` restores the CLI's context; it does not
-replay past turns on stdout, so the console's view of a resumed session is empty
-until something new happens — `0 turns` is the console's count of what it watched,
-not the conversation's length. The transcript is on disk and `protocol.rs` already
-models the shapes those lines carry, so seeding the view from its tail is the fix.
-Not built.
+`--resume` restores the CLI's *context*, not the console's view: the process
+returns knowing the whole conversation and replays none of it on stdout. So a
+resumed session used to open empty, with `0 turns` — the console's count of what
+it watched, which reads as the conversation's length.
+
+The transcript on disk is the same vocabulary the stream uses, so the fix is a
+second reader over the same shapes rather than a second model of a conversation.
+`Session::seed` reads the end of the file and pushes what it finds before the
+process says anything, ending with a `joined` marker: above it is what the file
+says, below it is what this console watched. Measured on utterance's 38 MB
+transcript — 122 events recovered, in about a second.
+
+Two traps, both hit:
+
+- ⚠ **A transcript has no deltas.** The live reader takes assistant text from
+  `stream_event` deltas and deliberately drops it from the completed message, so
+  a sentence is not shown twice. A file records only completed messages, so
+  replaying it through that reader gives tool calls with silence between them.
+  `protocol::read_recorded` is the same vocabulary read the other way round.
+- ⚠ **`content` is a list of blocks, except when it is a bare string.** Both
+  shapes are in every transcript here. Typed as a list alone, the string form
+  does not fail — serde's `default` makes it empty — so those turns vanish and
+  the conversation reads as though it had gaps.
+
+Bounded on purpose: the last 512 KB and at most 400 events, because one tool
+result can be most of a megabyte and bytes alone are a poor proxy for how much
+conversation was recovered.
 
 ## Build order
 
@@ -638,8 +659,8 @@ phase is declined.
    starting new ones, refused when anything else appears to be using it. See
    *Reaching a conversation that already exists* — including why the console
    cannot attach to a session something else already holds.
-   **Not done:** seeding the view from the transcript, so a resumed session shows
-   what came before it.
+   The view is seeded from the transcript, so a resumed session shows what came
+   before it — see *What resume brings back*.
 7. **memview link-out** from `/agents`.
 
 The old ordering had phase 1 listening on the LAN with no authentication, on the

@@ -184,6 +184,75 @@ pub fn words_of_claude_processes(ps_output: &str) -> Vec<String> {
         .collect()
 }
 
+/// How much of a transcript's end to replay when picking it up.
+///
+/// Generous where the name-reading tail is not: this is what somebody reads to
+/// remember where they were, and a conversation cut off mid-tool-call is worse
+/// than one that starts a little early. Still bounded — these files reach tens of
+/// megabytes, and the last few hundred kilobytes are the last few dozen turns.
+const REPLAY_BYTES: u64 = 512 * 1024;
+
+/// And how many events of it to keep, whatever that came to.
+///
+/// The byte cap is about the file; this is about the screen. One tool call with a
+/// large result can be most of a megabyte on its own, so bytes alone are a poor
+/// proxy for how much conversation was recovered.
+const REPLAY_EVENTS: usize = 400;
+
+/// The transcript file for a session id, wherever Claude Code filed it.
+///
+/// Searched rather than computed, for the reason the module opens with: the
+/// project-directory encoding is undocumented, and a guess is wrong silently.
+pub fn transcript_of(root: &Path, id: &str) -> Option<PathBuf> {
+    std::fs::read_dir(root)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().is_dir())
+        .flat_map(|project| std::fs::read_dir(project.path()).into_iter().flatten())
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .find(|path| path.file_stem().and_then(|stem| stem.to_str()) == Some(id))
+}
+
+/// What was said before the console was watching.
+///
+/// Read from the end and truncated to [`REPLAY_EVENTS`], so what survives is the
+/// most recent conversation rather than the oldest. A chunk taken from a byte
+/// offset starts mid-line, so the first line is dropped unread.
+pub fn replay(path: &Path) -> Vec<crate::protocol::Event> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let Ok(meta) = std::fs::metadata(path) else {
+        return Vec::new();
+    };
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return Vec::new();
+    };
+    let from = meta.len().saturating_sub(REPLAY_BYTES);
+    if file.seek(SeekFrom::Start(from)).is_err() {
+        return Vec::new();
+    }
+    let mut tail = Vec::new();
+    if file.take(REPLAY_BYTES).read_to_end(&mut tail).is_err() {
+        return Vec::new();
+    }
+    let text = String::from_utf8_lossy(&tail);
+    let mut lines = text.lines();
+    // The first line of a mid-file chunk is a fragment. Dropped unconditionally
+    // rather than tried and discarded on failure: a fragment that happens to
+    // parse is worse than one that does not.
+    if from > 0 {
+        lines.next();
+    }
+    let mut events: Vec<crate::protocol::Event> =
+        lines.flat_map(crate::protocol::read_recorded).collect();
+    if events.len() > REPLAY_EVENTS {
+        events = events.split_off(events.len() - REPLAY_EVENTS);
+    }
+    events
+}
+
 fn read(path: &Path) -> Option<Conversation> {
     if path.extension()? != "jsonl" {
         return None;
