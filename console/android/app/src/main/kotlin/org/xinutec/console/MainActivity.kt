@@ -7,12 +7,14 @@ import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
 import android.webkit.ClientCertRequest
+import android.webkit.JavascriptInterface
 import android.webkit.SslErrorHandler
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.TextView
+import androidx.lifecycle.Lifecycle
 import org.xinutec.shell.ShellConfig
 import org.xinutec.shell.WebDebugging
 import org.xinutec.shell.WebShellActivity
@@ -75,6 +77,9 @@ class MainActivity : WebShellActivity() {
      */
     private var failed = false
 
+    /** Whether a prompt is already on screen — see [renewKey]. */
+    private var prompting = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (BuildConfig.CONSOLE_URL.isEmpty() || BuildConfig.SERVER_PIN.isEmpty()) {
@@ -114,7 +119,7 @@ class MainActivity : WebShellActivity() {
         // the Mac was answering perfectly. So the window is renewed here, where
         // there is a person present to renew it: coming back to the app is the
         // moment before the key is needed again.
-        if (!Keys.unlocked()) renew()
+        if (!Keys.unlocked()) renewKey()
     }
 
     /**
@@ -125,9 +130,51 @@ class MainActivity : WebShellActivity() {
      * covering the page with — the page is still there, and the next request will
      * ask again.
      */
-    private fun renew() {
+    private fun renewKey() {
+        // One prompt at a time. The page polls every few seconds and every failed
+        // poll asks again, so without this the first lapse stacks prompts faster
+        // than anybody can answer them.
+        if (prompting) return
+        // A prompt needs a window to appear in. The page can ask from the
+        // background — a poll that fires as the app is going away — and a
+        // BiometricPrompt raised then is at best invisible.
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return
+        prompting = true
         Unlock.prompt(this) { ok ->
-            Log.i(TAG, if (ok) "key renewed on return" else "key left locked on return")
+            prompting = false
+            Log.i(TAG, if (ok) "key renewed" else "key left locked")
+        }
+    }
+
+    /**
+     * Let the page ask for the key to be renewed.
+     *
+     * ⚠ The page cannot diagnose its own silence. A refused client certificate
+     * and an unreachable Mac both arrive as a request that was never answered,
+     * and only this side knows which it was — so the page asks, and this decides.
+     *
+     * The surface is one method that takes nothing and returns nothing, because a
+     * bridge into a WebView is reachable by whatever the WebView has loaded. The
+     * shell confines that to the console's own host, the console answers only on a
+     * pinned certificate, and even so the most this can be made to do is show a
+     * prompt the person then refuses.
+     */
+    override fun onWebViewCreated(web: WebView) {
+        super.onWebViewCreated(web)
+        web.addJavascriptInterface(Bridge(), "consoleHost")
+    }
+
+    inner class Bridge {
+        @JavascriptInterface
+        fun renew() {
+            // On the UI thread: this arrives on the WebView's JavaScript thread,
+            // and a prompt raised from there never appears.
+            runOnUiThread {
+                // Checked, not assumed. Most nothing-answered is an asleep Mac or a
+                // dropped tunnel, and prompting for those would train the answer
+                // "dismiss" into a control whose whole purpose is to be read.
+                if (!Keys.unlocked()) renewKey()
+            }
         }
     }
 
