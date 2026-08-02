@@ -26,6 +26,17 @@ pub struct Tls {
 #[derive(Debug, Clone)]
 pub struct Config {
     pub bind: String,
+    /// A second, plaintext listener for this machine only, used **only** when the
+    /// gate is on.
+    ///
+    /// Turning the gate on would otherwise take the desk console away: the socket
+    /// then demands a client certificate from everybody, and the Mac is headless,
+    /// so the desk reaches it through an SSH forward that has no certificate to
+    /// present. The carve-out is sound for the same reason loopback needs no
+    /// authentication at all — a process already running as this user can spawn
+    /// `claude` itself. It is a second port rather than the same one because a
+    /// wildcard bind already covers loopback.
+    pub desk: String,
     /// Set only when a certificate, a key and at least one pin are all present.
     pub tls: Option<Tls>,
     /// Directories a session may be started in, and their subdirectories.
@@ -66,6 +77,8 @@ impl Config {
             // python service, which is exactly the kind of thing a default that
             // was picked by counting upwards runs into.
             bind: std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8097".to_string()),
+            desk: std::env::var("CONSOLE_DESK_ADDR")
+                .unwrap_or_else(|_| "127.0.0.1:8096".to_string()),
             tls,
             dirs,
             spawn: Spawn {

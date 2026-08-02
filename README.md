@@ -124,7 +124,9 @@ container, and the UI is its own Angular project.
 
 **The gate.** Without `CONSOLE_TLS_*` set it refuses to listen anywhere but
 loopback — the house LAN is not a trusted network. With them it requires a
-client certificate whose *public key* is pinned, and serves nobody else. No CA
+client certificate whose *public key* is pinned, and serves nobody else — while
+keeping a plaintext socket on `127.0.0.1:8096` for this machine, since the Mac is
+headless and an SSH forward has no certificate to present. No CA
 and no PKI: one console, a known set of devices, and a fingerprint that survives
 the certificate being reissued because it is taken over the key. Adding a device
 is a line; revoking one is deleting it. A refused key is logged with its
@@ -158,6 +160,7 @@ work away from the house.
 | `CONSOLE_PERMISSION_MODE` | unset | see below |
 | `CLAUDE_BIN` | `claude` | the CLI to spawn |
 | `BIND_ADDR` | `127.0.0.1:8097` | must be loopback unless the gate is configured |
+| `CONSOLE_DESK_ADDR` | `127.0.0.1:8096` | plaintext socket for this machine, only when the gate is on |
 | `CONSOLE_TLS_CERT` / `CONSOLE_TLS_KEY` | unset | the console's own PEM certificate and key |
 | `CONSOLE_CLIENT_KEYS` | unset | comma-separated SHA-256 pins of the client keys admitted |
 

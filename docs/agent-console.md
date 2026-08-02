@@ -267,6 +267,14 @@ that every tool call needs a tap; see *Open decisions*.
 of directories held in its config. A client that is somehow trusted still cannot
 start an agent anywhere on the disk.
 
+**The desk keeps a plaintext loopback socket** (`127.0.0.1:8096`) beside the gated
+one, for the same reason loopback-only mode needs no authentication: a process
+running as this user can spawn `claude` itself. It is not a convenience — without
+it, turning the gate on takes the console away from the machine it runs on, since
+the Mac is headless and the SSH forward the desk arrives through has no
+certificate to present. A second port because a wildcard bind already covers
+loopback on the first.
+
 ### Enrolment
 
 No CA and no PKI. Pin raw public keys.

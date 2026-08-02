@@ -2,10 +2,16 @@
 //!
 //!     cargo run -p console
 //!
-//! Phase 1 of `docs/agent-console.md`: start sessions in allowed directories,
-//! read them live, send them instructions. No approvals yet — sessions run in
-//! the CLI's default permission mode — and no client authentication, which is
-//! why it refuses to listen anywhere but loopback.
+//! It starts sessions in allowed directories, reads them live, sends them
+//! instructions and carries their permission questions.
+//!
+//! **Where it listens is the security model, not a setting.** With no client
+//! authentication configured it refuses to listen anywhere but loopback, because
+//! anything that can reach the socket can run code as this user and the house LAN
+//! is full of devices nobody patches. With the gate configured it serves the
+//! world on TLS with a pinned client key — and keeps a plaintext loopback socket
+//! beside it for this machine, which is sound for the same reason the loopback-only
+//! mode is: a local process can spawn `claude` itself. See `docs/agent-console.md`.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -56,6 +62,7 @@ async fn main() -> Result<()> {
     };
 
     let static_dir = config.static_dir.clone();
+    let desk = config.desk.clone();
     let dirs = config.dirs.clone();
     let roster = Arc::new(Roster::new(config));
     let mut app = api::router(roster);
@@ -78,18 +85,37 @@ async fn main() -> Result<()> {
         .join(", ");
 
     match gate {
-        Some(config) => {
+        Some(tls_config) => {
+            // The desk keeps a way in. Without this, turning the gate on takes the
+            // console away from the machine it runs on: the gated socket demands a
+            // certificate of everybody, and an SSH forward has none to present.
+            let desk: SocketAddr = desk
+                .parse()
+                .with_context(|| format!("CONSOLE_DESK_ADDR {desk:?} is not an address"))?;
+            if !desk.ip().is_loopback() {
+                bail!("CONSOLE_DESK_ADDR {desk} is not loopback, and it carries no authentication");
+            }
+            let listener = tokio::net::TcpListener::bind(desk)
+                .await
+                .with_context(|| format!("binding {desk}"))?;
             tracing::info!(
-                "console on https://{address} — client certificate required; \
+                "console on https://{address} — client certificate required — \
+                 and on http://{desk} for this machine; \
                  sessions allowed in {where_sessions_run}"
             );
-            axum_server::bind_rustls(
+            let plain = axum::serve(listener, app.clone().into_make_service());
+            let gated = axum_server::bind_rustls(
                 address,
-                axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(config)),
+                axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(tls_config)),
             )
-            .serve(app.into_make_service())
-            .await
-            .context("serving with TLS")?;
+            .serve(app.into_make_service());
+            // Either one falling over takes the process down rather than leaving a
+            // console that is half there — which from a phone looks exactly like
+            // the Mac being asleep.
+            tokio::select! {
+                served = plain => served.context("serving on loopback")?,
+                served = gated => served.context("serving with TLS")?,
+            }
         }
         None => {
             let listener = tokio::net::TcpListener::bind(address)

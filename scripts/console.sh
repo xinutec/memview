@@ -28,6 +28,8 @@ if [ -s "$DIR/server.key" ] && [ -s "$DIR/clients" ]; then
   # commas on the way out because that is what the runner parses.
   PINS="$(grep -v '^[[:space:]]*\(#.*\)\?$' "$DIR/clients" | paste -sd, -)"
   echo "gate: $(printf '%s\n' "$PINS" | tr ',' '\n' | wc -l | tr -d ' ') pinned client key(s)"
+  echo "desk: http://127.0.0.1:8096 — the gated socket asks everybody for a certificate,"
+  echo "      including an SSH forward from here, so this machine keeps its own way in."
   export CONSOLE_TLS_CERT="$DIR/server.crt"
   export CONSOLE_TLS_KEY="$DIR/server.key"
   export CONSOLE_CLIENT_KEYS="$PINS"
