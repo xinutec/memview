@@ -1,6 +1,7 @@
 //! memview — web viewer for the Claude memory markdown corpus.
 
 pub mod access;
+pub mod activity;
 pub mod agents;
 pub mod commits;
 pub mod config;

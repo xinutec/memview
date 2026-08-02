@@ -62,6 +62,14 @@ pub struct Extract {
     /// Every operation, in running order, for callers that want more than the
     /// paths — what was searched for, what was renamed, which scripts ran.
     pub ops: Vec<Op>,
+    /// What each of those commands was *doing*, one level up.
+    ///
+    /// Classified here rather than by the caller because this is the only place
+    /// an operation and the command it came from are both in hand: `ops` alone
+    /// cannot be zipped against a script's commands, since a nested shell's
+    /// operations are absorbed into it and the two lists stop lining up after
+    /// the first `bash -c`.
+    pub activities: Vec<crate::activity::Activity>,
     /// Files used on another machine, by host. Reported, never mined into the
     /// local index — see [`RemoteUse`].
     pub remote: Vec<RemoteUse>,
@@ -105,6 +113,7 @@ impl Extract {
         self.files.extend(inner.files);
         self.remote.extend(inner.remote);
         self.ops.extend(inner.ops);
+        self.activities.extend(inner.activities);
         self.handled += inner.handled;
         self.nested_unparsed += inner.nested_unparsed;
         self.python.merge(inner.python);
@@ -332,6 +341,7 @@ fn extract_nested(
                 }
             }
         }
+        out.activities.push(crate::activity::of(&op, cmd));
         out.ops.push(op);
     }
     out

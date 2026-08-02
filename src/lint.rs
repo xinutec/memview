@@ -91,9 +91,17 @@ const RULES: &[(&str, Severity, &str)] = &[
         "no links in either direction — can only be found by already knowing its name",
     ),
     (
-        "not-in-index",
+        // **Reachability, not membership** — corrected 2026-08-02 at Pippijn's
+        // word: *"MEMORY.md doesn't need to index everything. things have to be
+        // reachable, but don't need to all be in MEMORY.md"*. The rule used to
+        // demand an index line for every memory, and it failed the gate on a
+        // corpus that was perfectly navigable: three lares memories had just
+        // been consolidated under one index entry that links them all. What
+        // matters is that a reader starting at MEMORY.md can get there, by any
+        // number of hops.
+        "unreachable",
         Severity::Error,
-        "MEMORY.md links every memory; one it does not link is one nothing browses to",
+        "nothing browses to it: no path of links from MEMORY.md reaches it",
     ),
     (
         "index-points-nowhere",
@@ -271,18 +279,36 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
 
     if let Some(index) = corpus.index_md.as_deref() {
         let targets = index_links(index);
-        let listed: BTreeSet<&String> = targets.iter().collect();
         for target in &targets {
             if !corpus.docs.contains_key(target) {
                 push("index-points-nowhere", "MEMORY.md", format!("{target}.md"));
             }
         }
+        // Walk out from the index through the wikilinks, as a reader would.
+        let mut reached: BTreeSet<&String> = BTreeSet::new();
+        let mut queue: Vec<&String> = targets
+            .iter()
+            .filter_map(|target| corpus.docs.get_key_value(target).map(|(name, _)| name))
+            .collect();
+        while let Some(name) = queue.pop() {
+            if !reached.insert(name) {
+                continue;
+            }
+            let Some(doc) = corpus.docs.get(name) else {
+                continue;
+            };
+            for link in wikilinks_of(&doc.body) {
+                if let Some((next, _)) = corpus.docs.get_key_value(&link.target) {
+                    queue.push(next);
+                }
+            }
+        }
         for name in corpus.docs.keys() {
-            if !listed.contains(name) {
+            if !reached.contains(name) {
                 push(
-                    "not-in-index",
+                    "unreachable",
                     name,
-                    "MEMORY.md does not link it".to_string(),
+                    "no path of links from MEMORY.md".to_string(),
                 );
             }
         }
