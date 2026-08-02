@@ -11,7 +11,7 @@
       <li>
         <a [routerLink]="['/m', m.name]">{{ m.name }}</a>
         @if (m.description) {
-          <span class="desc">{{ m.description }}</span>
+          <span class="desc" [innerHTML]="m.description"></span>
         }
       </li>
     } @empty {

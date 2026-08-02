@@ -126,9 +126,12 @@ fn search_ranks_name_and_description_hits_above_body_hits() {
     let names: Vec<&str> = hits.iter().map(|h| h.meta.name.as_str()).collect();
     // reference_beta matches on name+description; project_alpha only in body.
     assert_eq!(names, ["reference_beta", "project_alpha"]);
-    // The body hit quotes its surrounding markdown, not just the term.
+    // The body hit quotes its surroundings, rendered — the wikilink around the
+    // term keeps its text and loses its brackets, because a snippet is read and
+    // not navigated.
     let snippet = hits[1].snippet.as_ref().expect("body hit has a snippet");
-    assert!(snippet.contains("[[reference_beta]]"), "{snippet}");
+    assert!(snippet.contains("reference_beta"), "{snippet}");
+    assert!(!snippet.contains("[["), "{snippet}");
 }
 
 #[test]
@@ -432,4 +435,55 @@ fn a_section_head_inside_a_fence_is_an_example_not_a_section() {
     // the convention, quoting it, counted as a memory following it.
     let quoting = "This rule wants:\n\n```md\n**Why:** the reason goes here\n```\n";
     assert!(!has_section(quoting, "Why"));
+}
+
+#[test]
+fn a_description_reaches_the_page_as_rendered_markdown() {
+    // A tenth of the corpus's descriptions hold a code span or a bold run, and
+    // shown raw they read as punctuation. The value is serialised as HTML, so
+    // the ranking and the linter go on seeing the words.
+    let rendered = memview::store::render_inline("`code/kubes/dhall/` models the fleet");
+    assert_eq!(rendered, "<code>code/kubes/dhall/</code> models the fleet");
+    assert_eq!(
+        memview::store::render_inline("**How to apply:** for new automation"),
+        "<strong>How to apply:</strong> for new automation"
+    );
+}
+
+#[test]
+fn an_underscored_name_is_not_emphasis() {
+    // The corpus is made of names like this, and a pattern-matching renderer
+    // turns the middle of one into italics. CommonMark says intraword `_` is
+    // not emphasis, which is the reason this is parsed rather than matched.
+    assert_eq!(
+        memview::store::render_inline("project_kubes_dhall_model and feedback_no_coauthor"),
+        "project_kubes_dhall_model and feedback_no_coauthor"
+    );
+}
+
+#[test]
+fn a_marker_the_truncation_left_open_stays_literal() {
+    // A snippet is a window cut out of a body, so it can end mid-construct.
+    // CommonMark renders an unclosed marker as the text it is — the words are
+    // never swallowed, which is the only thing that matters here.
+    let rendered = memview::store::render_inline("…so `$files` arrived. `xinutec-infra/plan…");
+    assert!(rendered.contains("<code>$files</code>"), "{rendered}");
+    assert!(rendered.contains("`xinutec-infra/plan…"), "{rendered}");
+}
+
+#[test]
+fn block_structure_contributes_words_and_no_markup() {
+    // A snippet can start at a heading or inside a list. It must yield the text
+    // of those blocks, never a stray `<li>` closing a tag nothing opened.
+    let rendered = memview::store::render_inline("# Heading\n\n- one item\n- two");
+    assert_eq!(rendered, "Heading one item two");
+}
+
+#[test]
+fn html_in_a_description_is_shown_and_not_run() {
+    // Bodies quote tags in prose. They render escaped — visible as text — which
+    // is also what keeps the innerHTML binding on the other side harmless.
+    let rendered = memview::store::render_inline("use <script>alert(1)</script> in prose");
+    assert!(!rendered.contains("<script>"), "{rendered}");
+    assert!(rendered.contains("&lt;script&gt;"), "{rendered}");
 }

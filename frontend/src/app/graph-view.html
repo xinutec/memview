@@ -77,7 +77,7 @@
     <div class="focus">
       <h2>{{ node.name }}</h2>
       @if (node.description) {
-        <p class="desc">{{ node.description }}</p>
+        <p class="desc" [innerHTML]="node.description"></p>
       }
       <p class="facts">
         {{ clusterName(node.name) }} · {{ node.in_degree }} in · {{ node.out_degree }} out
@@ -133,7 +133,7 @@
                       <span class="claim">{{ hop.relation }}</span>
                     }
                   </span>
-                  <span class="desc">{{ hop.description }}</span>
+                  <span class="desc" [innerHTML]="hop.description"></span>
                 </span>
                 <mat-icon
                   class="way"
@@ -175,7 +175,7 @@
                         <span class="claim unwritten">not linked</span>
                       }
                     </span>
-                    <span class="desc">{{ mate.description }}</span>
+                    <span class="desc" [innerHTML]="mate.description"></span>
                   </span>
                   <span class="count">{{ mate.sessions }}</span>
                 </button>

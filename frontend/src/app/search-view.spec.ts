@@ -119,6 +119,37 @@ describe('SearchView — who works on this', () => {
     expect(files).toEqual(['+300/\u221212 in 4 commits']);
   });
 
+  it('renders a hit’s markdown rather than showing its punctuation', async () => {
+    // Snippets and descriptions arrive as inline HTML, because raw they read as
+    // punctuation: backticks around a path, asterisks around a bold run. The
+    // binding must place elements, not escape them into text.
+    fixture.componentRef.instance.query.set('dhall');
+    fixture.componentRef.instance.submit();
+    await fixture.whenStable();
+    http.expectOne((r) => r.url === '/api/search').flush({
+      hits: [
+        {
+          name: 'project_kubes_dhall_model',
+          description: '<code>code/kubes/dhall/</code> models the fleet',
+          mtype: 'project',
+          modified: null,
+          snippet: '…<strong>How to apply:</strong> for new automation',
+          score: 1,
+        },
+      ],
+      relaxed: false,
+    });
+    http.expectOne((r) => r.url === '/api/work').flush([]);
+    await fixture.whenStable();
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('.hit-list .desc code')?.textContent).toBe('code/kubes/dhall/');
+    expect(el.querySelector('.hit-list .snippet strong')?.textContent).toBe('How to apply:');
+    // ...and no leftover markers anywhere in the rendered hit.
+    expect(el.querySelector('.hit-list')?.textContent).not.toContain('`');
+    expect(el.querySelector('.hit-list')?.textContent).not.toContain('**');
+  });
+
   it('shows no panel to a share-link recipient, and no error either', async () => {
     // 403 is the intended answer for a share token, not a failure: the roster is
     // owner-only. It must read as "not yours to see", never as a broken search.

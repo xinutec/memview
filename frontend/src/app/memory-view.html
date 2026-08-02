@@ -21,7 +21,7 @@
       }
     </div>
     @if (p.description) {
-      <p class="description">{{ p.description }}</p>
+      <p class="description" [innerHTML]="p.description"></p>
     }
   </header>
 
@@ -35,7 +35,7 @@
           <li>
             <a [routerLink]="['/m', m.name]">{{ m.name }}</a>
             @if (m.description) {
-              <span class="desc">{{ m.description }}</span>
+              <span class="desc" [innerHTML]="m.description"></span>
             }
           </li>
         }
@@ -54,7 +54,7 @@
           <li>
             <a [routerLink]="['/m', m.name]">{{ m.name }}</a>
             @if (m.description) {
-              <span class="desc">{{ m.description }}</span>
+              <span class="desc" [innerHTML]="m.description"></span>
             }
           </li>
         }

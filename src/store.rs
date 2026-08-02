@@ -41,6 +41,16 @@ struct Frontmatter {
 pub struct MemoryMeta {
     /// Canonical id = filename stem; frontmatter `name` normally matches.
     pub name: String,
+    /// The frontmatter description, held as the markdown it is and **sent as
+    /// HTML**.
+    ///
+    /// Rendered at the wire rather than at construction because ranking
+    /// tokenises this field and linting measures it: both want the words, and
+    /// neither wants `<code>` among them. Serialising is the only moment the
+    /// value is for a reader, so it is the only place it is rendered — which
+    /// also means every view that shows a description shows it the same way,
+    /// with no second field to fall out of step.
+    #[serde(serialize_with = "as_inline_html")]
     pub description: String,
     /// user | feedback | project | reference (from metadata.type, falling
     /// back to the filename prefix).
@@ -644,7 +654,69 @@ fn snippet_around(body: &str, pos: usize, match_len: usize) -> String {
     if end < body.len() {
         s.push('…');
     }
-    s
+    // Rendered here rather than on the wire like a description, because a
+    // snippet has no other use: it is built for a reader and read once.
+    render_inline(&s)
+}
+
+/// Serialize a markdown field as inline HTML — see [`MemoryMeta::description`].
+fn as_inline_html<S: serde::Serializer>(md: &str, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&render_inline(md))
+}
+
+/// Render a fragment of corpus markdown as *inline* HTML.
+///
+/// Descriptions and search snippets are markdown like everything else — a tenth
+/// of the descriptions and every body contain a code span, a bold run or a
+/// wikilink — and shown raw they read as punctuation: `` `code/kubes/dhall/` ``
+/// and `**How to apply:**` with the asterisks visible.
+///
+/// **Inline only**: block structure is walked through and contributes no markup,
+/// so a snippet cut out of a list or a heading yields its words rather than a
+/// stray `<li>`. And **links are unwrapped to their text**, deliberately: a
+/// search hit is a navigation surface with exactly one destination, and a second
+/// link inside a two-line preview is an ambiguous tap target on a phone, which
+/// is what this is mostly read on.
+///
+/// Parsed by comrak rather than pattern-matched, because CommonMark's rules are
+/// the ones that matter here: `project_kubes_dhall_model` must not turn into
+/// emphasis at its underscores, and this corpus is made of such names. A marker
+/// left unclosed by the truncation renders as the literal text it is.
+pub fn render_inline(md: &str) -> String {
+    let options = markdown_options();
+    let arena = Arena::new();
+    let root = parse_document(&arena, md, &options);
+    let mut out = String::new();
+    inline_html(root, &options, &mut out);
+    out.trim().to_string()
+}
+
+/// Walk blocks and links transparently; render everything else as it is.
+fn inline_html<'a>(node: &'a comrak::nodes::AstNode<'a>, options: &Options, out: &mut String) {
+    for child in node.children() {
+        let (block, transparent) = {
+            let value = &child.data.borrow().value;
+            (
+                value.block(),
+                value.block()
+                    || matches!(
+                        value,
+                        NodeValue::Link(_) | NodeValue::WikiLink(_) | NodeValue::Image(_)
+                    ),
+            )
+        };
+        if !transparent {
+            let _ = format_html(child, options, out);
+            continue;
+        }
+        let before = out.len();
+        inline_html(child, options, out);
+        // One block running into the next would join two sentences into one
+        // word. Links need no separator — they sit inside a sentence.
+        if block && out.len() > before && !out.ends_with(' ') {
+            out.push(' ');
+        }
+    }
 }
 
 pub(crate) fn markdown_options() -> Options<'static> {

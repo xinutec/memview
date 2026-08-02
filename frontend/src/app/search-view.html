@@ -95,10 +95,10 @@
       <li>
         <a [routerLink]="['/m', h.name]">{{ h.name }}</a>
         @if (h.description) {
-          <span class="desc">{{ h.description }}</span>
+          <span class="desc" [innerHTML]="h.description"></span>
         }
         @if (h.snippet) {
-          <span class="snippet">{{ h.snippet }}</span>
+          <span class="snippet" [innerHTML]="h.snippet"></span>
         }
       </li>
     } @empty {
