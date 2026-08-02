@@ -5,6 +5,7 @@
 //! `docs/agent-console.md` for the design and the threat model.
 
 pub mod api;
+pub mod attest;
 pub mod config;
 pub mod protocol;
 pub mod roster;

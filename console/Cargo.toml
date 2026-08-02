@@ -36,8 +36,11 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
 axum-server = { version = "0.7", default-features = false, features = ["tls-rustls-no-provider"] }
 rustls-pemfile = "2"
-# Reading the public key out of a certificate, which is what is pinned.
-x509-parser = "0.17"
+# Reading the public key out of a certificate, which is what is pinned — and, with
+# `verify`, checking an attestation chain link by link at enrolment. It re-exports
+# the asn1 layer the KeyDescription record is parsed with, so there is one version
+# of that in the tree rather than two.
+x509-parser = { version = "0.17", features = ["verify"] }
 sha2 = "0.10"
 
 [dev-dependencies]
