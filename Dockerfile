@@ -33,8 +33,16 @@ RUN pnpm exec ng build --configuration production
 FROM rust:1-bookworm AS backend
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir src && echo 'fn main() {}' > src/main.rs && echo '' > src/lib.rs \
-    && cargo build --release --bin memview && rm -rf src
+# The console's MANIFEST, and never its code. Cargo cannot load a workspace
+# unless every member's Cargo.toml exists, so leaving this out fails the build in
+# under a second — the trap recorded in reference_cargo_workspace_docker_priming
+# when coach grew a second crate. A stub source is enough to prime the cache, and
+# `--bin memview` means the console is never compiled, let alone shipped.
+COPY console/Cargo.toml console/
+RUN mkdir -p src console/src \
+    && echo 'fn main() {}' > src/main.rs && echo '' > src/lib.rs \
+    && echo '' > console/src/lib.rs \
+    && cargo build --release --bin memview && rm -rf src console/src
 COPY src/ src/
 # --bin memview, never a bare build: the workspace also holds the console, which
 # runs Claude Code subprocesses on the Mac and must never be inside an image
