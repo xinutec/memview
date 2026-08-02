@@ -13,9 +13,21 @@ use std::path::{Path, PathBuf};
 
 use crate::session::Spawn;
 
+/// Where the gate's own material comes from. Absent means no TLS, which means
+/// loopback only.
+#[derive(Debug, Clone)]
+pub struct Tls {
+    pub cert_file: String,
+    pub key_file: String,
+    /// SHA-256 of each client key's SubjectPublicKeyInfo, as hex.
+    pub pins: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub bind: String,
+    /// Set only when a certificate, a key and at least one pin are all present.
+    pub tls: Option<Tls>,
     /// Directories a session may be started in, and their subdirectories.
     pub dirs: Vec<PathBuf>,
     pub spawn: Spawn,
@@ -34,11 +46,27 @@ impl Config {
             .filter(|entry| !entry.is_empty())
             .map(PathBuf::from)
             .collect();
+        // All three or none: a certificate with no pins would serve TLS to
+        // anybody, and pins with no certificate would look configured while the
+        // socket stayed plaintext. Both are worse than being plainly off.
+        let tls = match (
+            std::env::var("CONSOLE_TLS_CERT"),
+            std::env::var("CONSOLE_TLS_KEY"),
+            std::env::var("CONSOLE_CLIENT_KEYS"),
+        ) {
+            (Ok(cert_file), Ok(key_file), Ok(pins)) if !pins.trim().is_empty() => Some(Tls {
+                cert_file,
+                key_file,
+                pins: pins.split(',').map(|p| p.trim().to_string()).collect(),
+            }),
+            _ => None,
+        };
         Self {
             // 8091 is memview's and 8092 was already taken on this Mac by a
             // python service, which is exactly the kind of thing a default that
             // was picked by counting upwards runs into.
             bind: std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8097".to_string()),
+            tls,
             dirs,
             spawn: Spawn {
                 binary: std::env::var("CLAUDE_BIN").unwrap_or_else(|_| "claude".to_string()),

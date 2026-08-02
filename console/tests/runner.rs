@@ -27,6 +27,7 @@ fn stub() -> String {
 fn roster(dir: &std::path::Path) -> Arc<Roster> {
     Arc::new(Roster::new(Config {
         bind: "127.0.0.1:0".to_string(),
+        tls: None,
         dirs: vec![dir.to_path_buf()],
         spawn: Spawn {
             binary: stub(),
@@ -201,6 +202,7 @@ fn a_symlink_out_of_an_allowed_directory_does_not_escape_it() {
 
     let config = Config {
         bind: "127.0.0.1:0".to_string(),
+        tls: None,
         dirs: vec![root.join("inside")],
         spawn: Spawn {
             binary: stub(),

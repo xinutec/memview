@@ -122,11 +122,22 @@ nothing else: `console/` is its own crate that links nothing from `src/`, the
 image builds `--bin memview` so the console binary cannot ride along into a
 container, and the UI is its own Angular project.
 
-It refuses to listen anywhere but loopback, because it has no client
-authentication yet — the house LAN is not a trusted network. The client
-certificate gate and the phone are phases 2 and 3 of
-[docs/agent-console.md](docs/agent-console.md), which is the authority on the
-design and the threat model.
+**The gate.** Without `CONSOLE_TLS_*` set it refuses to listen anywhere but
+loopback — the house LAN is not a trusted network. With them it requires a
+client certificate whose *public key* is pinned, and serves nobody else:
+
+```sh
+cargo run -p console --bin pin -- phone.pem   # the device's fingerprint
+CONSOLE_TLS_CERT=… CONSOLE_TLS_KEY=… CONSOLE_CLIENT_KEYS=<pin>[,<pin>] ./scripts/console.sh
+```
+
+No CA and no PKI: one console, a known set of devices, and a fingerprint that
+survives the certificate being reissued because it is taken over the key. Adding
+a device is a line; revoking one is deleting it. A refused key is logged with its
+fingerprint, which is how you enrol the next one.
+
+The phone itself is phase 3 of [docs/agent-console.md](docs/agent-console.md),
+the authority on the design and the threat model.
 
 | var | default | meaning |
 | --- | --- | --- |
@@ -134,7 +145,9 @@ design and the threat model.
 | `CONSOLE_MODEL` | unset | model for spawned sessions; unset = the CLI's own |
 | `CONSOLE_PERMISSION_MODE` | unset | see below |
 | `CLAUDE_BIN` | `claude` | the CLI to spawn |
-| `BIND_ADDR` | `127.0.0.1:8097` | must be loopback |
+| `BIND_ADDR` | `127.0.0.1:8097` | must be loopback unless the gate is configured |
+| `CONSOLE_TLS_CERT` / `CONSOLE_TLS_KEY` | unset | the console's own PEM certificate and key |
+| `CONSOLE_CLIENT_KEYS` | unset | comma-separated SHA-256 pins of the client keys admitted |
 
 **Approvals.** With `CONSOLE_PERMISSION_MODE=manual` the session asks before it
 runs anything, the console shows the question — the tool, its arguments, the

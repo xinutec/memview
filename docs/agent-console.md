@@ -363,14 +363,26 @@ phase is declined.
    this Mac.
    **Not done in phase 1:** the statusLine socket for the context and rate-limit
    percentages.
-2. **Approvals ✅, then the gate.** Approvals are built: a session in
-   `--permission-mode manual` asks, the console shows the question, and nothing
-   runs until someone answers. What remains of this phase is **mTLS and key
-   pinning** — provable with a test key and `curl --cert` before any phone
-   exists. Nothing binds off loopback until that passes: the LAN is not a trusted
-   network and the runner does not listen on it unauthenticated for a single
-   release. With the gate in place the listener moves to the LAN address and the
-   phone at home works.
+2. ✅ **The gate, and approvals.** Both built. A session in
+   `--permission-mode manual` asks and nothing runs until someone answers; and
+   with `CONSOLE_TLS_CERT`, `CONSOLE_TLS_KEY` and `CONSOLE_CLIENT_KEYS` set the
+   console requires a client certificate whose public key is pinned, and only
+   then will it bind off loopback. Proven with `curl --cert` against the real
+   binary on `0.0.0.0`: the pinned key gets JSON, an unpinned key gets a
+   handshake failure, no certificate fails, and plain HTTP to the port gets
+   nothing. `console/tests/gate.rs` makes the same four claims by connecting.
+
+   Three things worth knowing before touching it:
+   - **`ring`, not the default `aws-lc-rs` provider.** aws-lc wants cmake and a C
+     toolchain in every environment that ever builds this; the gate is a handful
+     of signatures and does not need a second build system.
+   - **The pin is over the key, not the certificate.** A phone's key is generated
+     once inside its secure element and cannot be replaced, while its certificate
+     may be reissued — pinning the certificate would lock the device out on a
+     reissue.
+   - **macOS's openssl makes version-1 certificates**, which rustls refuses with
+     `UnsupportedCertVersion` and no hint. `Gate::new` checks the version and
+     says so, including the `-addext` that fixes it.
 3. **The phone path.** The Android client, StrongBox enrolment and attestation
    check, then the offsite half: the two firewall rules and whatever certificate
    the client shape ends up needing.

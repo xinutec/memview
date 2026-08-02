@@ -9,4 +9,5 @@ pub mod config;
 pub mod protocol;
 pub mod roster;
 pub mod session;
+pub mod tls;
 pub mod trace;

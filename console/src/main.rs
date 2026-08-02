@@ -30,16 +30,30 @@ async fn main() -> Result<()> {
         .bind
         .parse()
         .with_context(|| format!("BIND_ADDR {:?} is not an address", config.bind))?;
-    if !address.ip().is_loopback() {
-        // Not a warning and not an override. Until the client-certificate gate
-        // exists, listening off loopback means anything that can reach the
-        // socket can run code as this user — and the house LAN is full of
-        // devices nobody patches. See docs/agent-console.md, *Security model*.
+    if !address.ip().is_loopback() && config.tls.is_none() {
+        // Not a warning and not an override. Without the client-certificate
+        // gate, listening off loopback means anything that can reach the socket
+        // can run code as this user — and the house LAN is full of devices
+        // nobody patches. See docs/agent-console.md, *Security model*.
         bail!(
-            "refusing to listen on {address}: the console has no client authentication yet, \
-             so it may only listen on loopback"
+            "refusing to listen on {address}: no client authentication is configured, \
+             so the console may only listen on loopback. Set CONSOLE_TLS_CERT, \
+             CONSOLE_TLS_KEY and CONSOLE_CLIENT_KEYS to open it up."
         );
     }
+    let gate = match &config.tls {
+        Some(tls) => Some(
+            console::tls::Gate::new(
+                &std::fs::read_to_string(&tls.cert_file)
+                    .with_context(|| format!("reading {}", tls.cert_file))?,
+                &std::fs::read_to_string(&tls.key_file)
+                    .with_context(|| format!("reading {}", tls.key_file))?,
+                &tls.pins,
+            )?
+            .server_config()?,
+        ),
+        None => None,
+    };
 
     let static_dir = config.static_dir.clone();
     let dirs = config.dirs.clone();
@@ -57,18 +71,37 @@ async fn main() -> Result<()> {
         );
     }
 
-    let listener = tokio::net::TcpListener::bind(address)
-        .await
-        .with_context(|| format!("binding {address}"))?;
-    tracing::info!(
-        "console on http://{address} — sessions allowed in {}",
-        dirs.iter()
-            .map(|d| d.display().to_string())
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
-    axum::serve(listener, app.into_make_service())
-        .await
-        .context("serving")?;
+    let where_sessions_run = dirs
+        .iter()
+        .map(|d| d.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    match gate {
+        Some(config) => {
+            tracing::info!(
+                "console on https://{address} — client certificate required; \
+                 sessions allowed in {where_sessions_run}"
+            );
+            axum_server::bind_rustls(
+                address,
+                axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(config)),
+            )
+            .serve(app.into_make_service())
+            .await
+            .context("serving with TLS")?;
+        }
+        None => {
+            let listener = tokio::net::TcpListener::bind(address)
+                .await
+                .with_context(|| format!("binding {address}"))?;
+            tracing::info!(
+                "console on http://{address} — sessions allowed in {where_sessions_run}"
+            );
+            axum::serve(listener, app.into_make_service())
+                .await
+                .context("serving")?;
+        }
+    }
     Ok(())
 }
