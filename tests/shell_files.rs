@@ -232,12 +232,14 @@ fn an_interpreters_script_is_a_file_and_its_code_is_not() {
 fn git_reads_only_what_is_certainly_a_path() {
     // `git add` operands are paths; `git diff origin/main` is a revision, and
     // recording it would create a file called `origin/main`.
+    // `git add` is NOT a change to the file: the edit already happened, and was
+    // already counted where it happened. Counting the staging too was 37% of
+    // every shell-derived write in the corpus — the same work, twice.
+    assert!(uses("git -C ~/Code/memview add src/shell_files.rs").is_empty());
+    // What remains does change the working tree.
     assert_eq!(
-        uses("git -C ~/Code/memview add src/shell_files.rs"),
-        [(
-            "/home/example/Code/memview/src/shell_files.rs".to_string(),
-            true
-        )]
+        uses("git -C ~/Code/memview rm src/gone.rs"),
+        [("/home/example/Code/memview/src/gone.rs".to_string(), true)]
     );
     assert!(uses("git diff origin/main").is_empty());
     assert_eq!(
@@ -270,4 +272,47 @@ fn a_glob_is_recorded_as_written() {
 fn an_unknown_command_contributes_nothing_and_is_counted() {
     assert!(uses("ffmpeg -i in.mp4 out.mp4").is_empty());
     assert_eq!(unread("ffmpeg -i in.mp4 out.mp4"), ["ffmpeg"]);
+}
+
+#[test]
+fn a_script_given_by_a_flag_leaves_no_operand_to_skip() {
+    // REGRESSION. `sed 's/a/b/' f` and `sed -e 's/a/b/' f` take the same two
+    // things in a different order; skipping a script operand that is not there
+    // eats the file. It failed silently and in both directions — 19 `sed -i -e`
+    // invocations in the corpus are writes that were recorded nowhere.
+    assert_eq!(
+        uses("sed -i '' -e 's/a/b/' -e 's/c/d/' src/geo/osm.ts"),
+        [("/home/example/Code/health/src/geo/osm.ts".to_string(), true)]
+    );
+    assert_eq!(
+        uses("grep -e 'hsmm' src/geo/osm.ts"),
+        [(
+            "/home/example/Code/health/src/geo/osm.ts".to_string(),
+            false
+        )]
+    );
+    // ...and the ordinary form still skips the script it really has.
+    assert_eq!(
+        uses("sed -i '' 's/a/b/' src/geo/osm.ts"),
+        [("/home/example/Code/health/src/geo/osm.ts".to_string(), true)]
+    );
+}
+
+#[test]
+fn a_file_of_patterns_is_a_file_that_was_read() {
+    // `-f` names a script or a pattern list. It is read whatever else happens,
+    // and the operands after it are files rather than the pattern.
+    assert_eq!(
+        uses("grep -f scripts/patterns.txt src/geo/osm.ts"),
+        [
+            (
+                "/home/example/Code/health/scripts/patterns.txt".to_string(),
+                false
+            ),
+            (
+                "/home/example/Code/health/src/geo/osm.ts".to_string(),
+                false
+            ),
+        ]
+    );
 }

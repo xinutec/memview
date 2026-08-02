@@ -53,6 +53,9 @@ fn main() -> anyhow::Result<()> {
     // implied by a total that double-counts every file opened twice.
     let mut distinct: BTreeMap<String, (usize, usize)> = BTreeMap::new();
     let mut witnessed = 0usize;
+    // Which commands actually open and change files — the check anyone runs
+    // before trusting the table, and the one that showed `sed` to be a pager.
+    let mut by_command: BTreeMap<String, (usize, usize)> = BTreeMap::new();
 
     for line in text.lines() {
         let Ok(row) = serde_json::from_str::<serde_json::Value>(line) else {
@@ -69,6 +72,11 @@ fn main() -> anyhow::Result<()> {
         };
         let found = shell_files::extract(&parsed, cwd, &home);
         handled += found.handled;
+        for (name, (r, w)) in found.by_command {
+            let entry = by_command.entry(name).or_default();
+            entry.0 += r;
+            entry.1 += w;
+        }
         for (name, n) in found.unhandled {
             unhandled += n;
             *by_name.entry(name).or_insert(0) += n;
@@ -104,6 +112,17 @@ fn main() -> anyhow::Result<()> {
     println!("  not in the table  {unhandled}");
     println!("file uses           {} reads, {writes} writes", reads);
     println!("distinct paths      {}", distinct.len());
+
+    println!("\ncommands that CHANGE files, biggest first:");
+    let mut writers: Vec<_> = by_command
+        .iter()
+        .filter(|(_, (_, w))| *w > 0)
+        .map(|(name, (r, w))| (name.clone(), *r, *w))
+        .collect();
+    writers.sort_by_key(|(name, _, w)| (std::cmp::Reverse(*w), name.clone()));
+    for (name, reads, writes) in writers.into_iter().take(show) {
+        println!("  {writes:>7} writes  {reads:>7} reads   {name}");
+    }
 
     println!("\nunread commands, biggest first:");
     let mut ranked: Vec<_> = by_name.into_iter().collect();

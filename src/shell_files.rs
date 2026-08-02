@@ -43,6 +43,25 @@ pub struct Extract {
     pub unhandled: BTreeMap<String, usize>,
     /// Commands the table did interpret, whether or not they named a file.
     pub handled: usize,
+    /// Reads and writes by the command that produced them.
+    ///
+    /// Diagnostic rather than mined: it answers "what is actually doing the
+    /// editing", which is the question anyone asks before trusting this. The
+    /// answer was not the expected one — `sed` is 10,414 invocations and 96.5%
+    /// of them are `sed -n '1,40p' file`, a pager.
+    pub by_command: BTreeMap<String, (usize, usize)>,
+}
+
+impl Extract {
+    /// Record which command produced a use, for the diagnostic tally.
+    fn note(&mut self, command: &str, write: bool) {
+        let entry = self.by_command.entry(command.to_string()).or_default();
+        if write {
+            entry.1 += 1;
+        } else {
+            entry.0 += 1;
+        }
+    }
 }
 
 /// Which operands of a command are files, and which way they go.
@@ -162,6 +181,53 @@ fn spec(name: &str, argv: &[String]) -> Option<(Kind, &'static [&'static str])> 
     })
 }
 
+/// Flags that supply the pattern or program, so that no operand does.
+///
+/// `sed 's/a/b/' f` and `sed -e 's/a/b/' f` take the same two things in a
+/// different order, and the second form has no script operand to skip — so
+/// skipping one eats the file. Silent, and in the direction that matters least
+/// but is still wrong: 33 `sed` and 133 `grep` invocations in the corpus, of
+/// which the 19 `sed -i -e` are *writes* that went unrecorded entirely.
+///
+/// A flag naming a *file* of patterns is separately a read, and is collected as
+/// one — `grep -f patterns.txt src/x.rs` opens both.
+/// `None` for a command that takes no script flag at all — the same shape as
+/// [`spec`] and [`wrapper`] beside it, so "this command is not in the table" is
+/// one answer rather than three empty collections meaning the same thing.
+fn script_flags(name: &str) -> Option<(&'static [&'static str], &'static [&'static str])> {
+    Some(match name {
+        "sed" => (
+            &["-e", "--expression", "-f", "--file"][..],
+            &["-f", "--file"][..],
+        ),
+        "grep" | "egrep" | "fgrep" | "rg" | "ag" | "ack" => (
+            &["-e", "--regexp", "-f", "--file"][..],
+            &["-f", "--file"][..],
+        ),
+        "awk" | "gawk" => (&["-f", "--file"][..], &["-f", "--file"][..]),
+        "jq" | "yq" => (&["-f", "--from-file"][..], &["-f", "--from-file"][..]),
+        _ => return None,
+    })
+}
+
+/// The values given to any of `flags`, in order.
+fn flag_values<'a>(argv: &'a [String], flags: &[&str]) -> Vec<&'a str> {
+    let mut out = Vec::new();
+    let mut rest = argv.iter().skip(1);
+    while let Some(word) = rest.next() {
+        if flags.contains(&word.as_str())
+            && let Some(value) = rest.next()
+        {
+            out.push(value.as_str());
+        } else if let Some((flag, value)) = word.split_once('=')
+            && flags.contains(&flag)
+        {
+            out.push(value);
+        }
+    }
+    out
+}
+
 /// Commands that run another command, and contribute nothing themselves.
 ///
 /// Stripped so the real command is the one looked up: `sudo rm x` is an `rm`,
@@ -232,10 +298,21 @@ fn git_files<'a>(
     match (sub, after_sep) {
         // Staging, deleting or restoring a path is a claim on it as strong as an
         // edit — the file is being put into, or taken out of, the tree.
-        // `checkout` is deliberately absent: it takes a branch as often as a
-        // path, and `git checkout origin/main` would file a write against a file
-        // of that name. It is readable only in its `--` form, below.
-        ("add" | "rm" | "restore" | "stage" | "mv", _) => words
+        // **`add` is deliberately absent, and that is a correction.** Staging a
+        // path does not change it: the edit already happened, through `Edit` or
+        // `sed` or a redirect, and every one of those is counted where it
+        // occurred. Counting the `git add` afterwards records the same work
+        // twice — and it is not a rounding error, it was 4,855 of 5,190 git path
+        // operands and **37% of every shell-derived write in the corpus**, which
+        // is enough to reorder the ranking it feeds.
+        //
+        // `checkout` is absent for a different reason: it takes a branch as
+        // often as a path, and `git checkout origin/main` would file a write
+        // against a file of that name. Both are readable in the `--` form below.
+        //
+        // What remains does change the working tree: `rm` deletes, `mv` renames,
+        // `restore` overwrites.
+        ("rm" | "restore" | "mv", _) => words
             .iter()
             .filter(|w| **w != "--")
             .map(|w| (*w, true))
@@ -469,10 +546,16 @@ pub fn extract(cmds: &[Simple], cwd: Option<&str>, home: &str) -> Extract {
         // A redirect names a file whatever the command is, so it is collected
         // before the table is consulted and counts even for a command the table
         // does not know: `./gradlew build > /tmp/out` is still a write.
+        let carrier = cmd
+            .argv
+            .first()
+            .map(|head| basename(head).to_string())
+            .unwrap_or_else(|| "(redirect)".to_string());
         for redirect in &cmd.redirects {
             if looks_like_path(&redirect.target)
                 && let Some(path) = resolve(&redirect.target, here.as_deref(), home)
             {
+                out.note(&carrier, redirect.write);
                 out.files.push(FileUse {
                     path,
                     write: redirect.write,
@@ -510,6 +593,7 @@ pub fn extract(cmds: &[Simple], cwd: Option<&str>, home: &str) -> Extract {
                 if looks_like_path(word)
                     && let Some(path) = resolve(word, base.as_deref(), home)
                 {
+                    out.note("git", write);
                     out.files.push(FileUse { path, write });
                 }
             }
@@ -523,6 +607,7 @@ pub fn extract(cmds: &[Simple], cwd: Option<&str>, home: &str) -> Extract {
         if head.contains('/')
             && let Some(path) = resolve(head, here.as_deref(), home)
         {
+            out.note(name, false);
             out.files.push(FileUse { path, write: false });
         }
 
@@ -537,6 +622,29 @@ pub fn extract(cmds: &[Simple], cwd: Option<&str>, home: &str) -> Extract {
             continue;
         };
         out.handled += 1;
+
+        // A script supplied by a flag leaves every operand a file.
+        let mut kind = kind;
+        if let Some((script, script_files)) = script_flags(name) {
+            let from_flag = script.iter().any(|flag| {
+                argv.iter()
+                    .any(|word| word == flag || word.starts_with(&format!("{flag}=")))
+            });
+            kind = match kind {
+                Kind::SkipFirstRead if from_flag => Kind::AllRead,
+                Kind::SkipFirstWrite if from_flag => Kind::AllWrite,
+                other => other,
+            };
+            // `grep -f patterns.txt` reads that file too, whatever else it does.
+            for word in flag_values(argv, script_files) {
+                if looks_like_path(word)
+                    && let Some(path) = resolve(word, here.as_deref(), home)
+                {
+                    out.note(name, false);
+                    out.files.push(FileUse { path, write: false });
+                }
+            }
+        }
 
         let words = operands(argv, valued);
         let chosen: Vec<(&str, bool)> = match kind {
@@ -558,6 +666,7 @@ pub fn extract(cmds: &[Simple], cwd: Option<&str>, home: &str) -> Extract {
             if looks_like_path(word)
                 && let Some(path) = resolve(word, here.as_deref(), home)
             {
+                out.note(name, write);
                 out.files.push(FileUse { path, write });
             }
         }
