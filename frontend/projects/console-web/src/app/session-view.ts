@@ -39,6 +39,18 @@ export class SessionView implements OnDestroy {
   readonly entries = signal<Entry[]>([]);
   readonly session = signal<Summary | undefined>(undefined);
   readonly trouble = signal('');
+  /**
+   * The last poll's verdict on whether the Mac is reachable — its own signal,
+   * cleared by the next poll that succeeds.
+   *
+   * ⚠ Separate from [trouble] because the two have opposite lifetimes. A failed
+   * action is news that stays true until it is retried; a failed poll is a
+   * snapshot that the next poll five seconds later supersedes. Sharing one
+   * signal meant a single missed poll — a phone freezing, a socket dropped mid
+   * flight — left "cannot reach the runner" on screen for as long as the page
+   * was open, over a console that had been answering the whole time.
+   */
+  readonly unreachable = signal('');
   readonly sending = signal(false);
   /** Thinking is folded away by default: it is the longest thing on the page and
    *  the least often what the reader came for. */
@@ -78,8 +90,11 @@ export class SessionView implements OnDestroy {
    *  reconnected mid-session has not seen every event that built them. */
   private refresh(): void {
     this.api.state().subscribe({
-      next: (state) => this.session.set(state.sessions.find((s) => s.id === this.id())),
-      error: (err: unknown) => this.trouble.set(`cannot reach the runner: ${reason(err)}`),
+      next: (state) => {
+        this.session.set(state.sessions.find((s) => s.id === this.id()));
+        this.unreachable.set('');
+      },
+      error: (err: unknown) => this.unreachable.set(`cannot reach the runner: ${reason(err)}`),
     });
   }
 

@@ -1,5 +1,7 @@
-@if (trouble()) {
-  <p class="trouble">{{ trouble() }}</p>
+@if (trouble() || unreachable(); as what) {
+  <!-- An action's failure wins the line: it is the more specific of the two and
+       the one the reader just caused. -->
+  <p class="trouble">{{ what }}</p>
 }
 
 <mat-card class="start" appearance="outlined">
