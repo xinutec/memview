@@ -26,10 +26,23 @@
 }
 
 .page {
-  // The composer is fixed to the bottom of the session view, so the page needs
-  // room under it — otherwise the last paragraph sits behind the input on a
-  // phone, which is exactly where the eye goes.
-  padding: 1rem 1rem 6rem;
+  // A column that fills what is left below the toolbar, so a view can put a
+  // scrolling region inside it and pin its own controls beneath.
+  //
+  // ⚠ This replaced `padding-bottom` under a `position: fixed` composer, which
+  // cannot work: a bar pinned to the viewport covers whatever is behind it, and
+  // no amount of padding helps at any scroll position except the very bottom.
+  // The layout harness proved it — the approve/refuse buttons of the last entry
+  // sat 66px behind the composer, and grew there the moment messages rendered as
+  // markdown and the page passed one screen.
+  //
+  // `dvh` rather than `vh`: on a phone the browser's own chrome comes and goes,
+  // and `vh` measures the larger state, which puts the composer under it.
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: calc(100dvh - var(--toolbar-height, 64px));
+  padding: 1rem 1rem 0;
   max-width: 60rem;
   margin: 0 auto;
 }

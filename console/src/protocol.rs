@@ -442,7 +442,7 @@ pub fn read_recorded(line: &str) -> Vec<Event> {
                     id: tool_use_id,
                     ok: !is_error,
                 }),
-                Block::Text { text } => Some(Event::Prompt { text }),
+                Block::Text { text } if !is_plumbing(&text) => Some(Event::Prompt { text }),
                 _ => None,
             })
             .collect(),
@@ -451,4 +451,27 @@ pub fn read_recorded(line: &str) -> Vec<Event> {
         // conversations.
         _ => Vec::new(),
     }
+}
+
+/// Whether a recorded user turn is the CLI talking to itself.
+///
+/// A transcript files several things as user messages that nobody typed: the
+/// echo of a slash command and its output, the caveat attached to local command
+/// results, the reminders injected around a turn. Replayed as prompts they
+/// outnumber the real ones and are indistinguishable from them on screen —
+/// `/exit`, `Goodbye!` and `<system-reminder>` reading as things the person said.
+///
+/// Recognised by their opening tag, which is how they are delimited, rather than
+/// by matching their contents. Live sessions are left alone: the console sends
+/// its own prompts and echoes only what it sent.
+fn is_plumbing(text: &str) -> bool {
+    const TAGS: [&str; 5] = [
+        "<command-name>",
+        "<local-command-stdout>",
+        "<local-command-caveat>",
+        "<system-reminder>",
+        "<command-message>",
+    ];
+    let head = text.trim_start();
+    TAGS.iter().any(|tag| head.starts_with(tag))
 }

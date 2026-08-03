@@ -38,7 +38,15 @@
   </button>
 }
 
-<ol class="transcript">
+@if (more()) {
+  <!-- The seed is a page, not the conversation. Reaching the top of it used to be
+       the end of the road on a transcript holding a thousand turns below. -->
+  <button class="earlier" matButton (click)="loadEarlier()" [disabled]="loading()">
+    {{ loading() ? 'reading…' : 'earlier messages' }}
+  </button>
+}
+
+<ol class="transcript" #scroller>
   @for (entry of visible(); track $index) {
     <li class="entry" [class]="entry.kind">
       @switch (entry.kind) {
@@ -68,6 +76,17 @@
           } @else {
             <mat-icon class="bad" aria-label="failed">error_outline</mat-icon>
           }
+        }
+        @case ('asked') {
+          <!-- Named, not merely tinted. The transcript had the person's words and
+               the agent's in the same column with nothing between them, and on a
+               phone the only cue was a background you stop noticing after two
+               screens. -->
+          <span class="who">you</span>
+          <div class="body" [innerHTML]="entry.text | rendered"></div>
+        }
+        @case ('said') {
+          <div class="body" [innerHTML]="entry.text | rendered"></div>
         }
         @default {
           {{ entry.text }}

@@ -14,6 +14,14 @@ export class ConsoleApi {
     return this.http.get<Overview>('/api/state');
   }
 
+  /** The page of conversation before the one the caller holds. */
+  earlier(id: string, have: number): Observable<{ events: SessionEvent[]; more: boolean }> {
+    return this.http.get<{ events: SessionEvent[]; more: boolean }>(
+      `/api/sessions/${encodeURIComponent(id)}/earlier`,
+      { params: { have } },
+    );
+  }
+
   past(): Observable<Conversation[]> {
     return this.http.get<Conversation[]>('/api/past');
   }

@@ -14,7 +14,9 @@ use std::time::Duration;
 
 use axum::Json;
 use axum::Router;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
+
+use crate::protocol as console_protocol;
 use axum::http::StatusCode;
 use axum::response::sse::{Event as Sse, KeepAlive};
 use axum::response::{IntoResponse, Sse as SseResponse};
@@ -38,6 +40,7 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/sessions/{id}/stop", post(stop))
         .route("/api/sessions/{id}", delete(forget))
         .route("/api/sessions/{id}/events", get(events))
+        .route("/api/sessions/{id}/earlier", get(earlier))
         .route("/api/telemetry", post(trace::record))
         .with_state(roster)
 }
@@ -169,6 +172,53 @@ async fn forget(State(roster): State<Arc<Roster>>, Path(id): Path<String>) -> im
     } else {
         StatusCode::NOT_FOUND
     }
+}
+
+/// What was said before the page the reader already has.
+///
+/// The seed is a page, not the conversation: scrolling to the top of it used to
+/// be the end of the road, on a transcript that might hold a thousand turns
+/// below it. This is the next page back.
+///
+/// Reads the file rather than the session's log, and it is the same reader — so
+/// a conversation reads the same whether it arrived through the seed or through
+/// scrolling.
+#[derive(serde::Deserialize)]
+struct Earlier {
+    /// How many events the reader holds, counted from the end.
+    #[serde(default)]
+    have: usize,
+}
+
+#[derive(serde::Serialize)]
+struct Page {
+    events: Vec<console_protocol::Event>,
+    /// Whether anything remains older than this page.
+    more: bool,
+}
+
+async fn earlier(
+    State(roster): State<Arc<Roster>>,
+    Path(id): Path<String>,
+    Query(asked): Query<Earlier>,
+) -> Result<Json<Page>, (StatusCode, String)> {
+    // Through the roster, so this can only read a transcript belonging to a
+    // session this console owns — the same boundary every other route has.
+    roster
+        .get(&id)
+        .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
+    let root = crate::past::projects_root();
+    let path = crate::past::transcript_of(&root, &id).ok_or((
+        StatusCode::NOT_FOUND,
+        format!("no transcript on disk for {id}"),
+    ))?;
+    let (events, more) = crate::past::window(&path, asked.have);
+    tracing::info!(
+        "{id}: {} earlier events for a reader holding {}",
+        events.len(),
+        asked.have
+    );
+    Ok(Json(Page { events, more }))
 }
 
 async fn events(

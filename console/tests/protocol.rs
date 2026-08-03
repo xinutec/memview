@@ -150,6 +150,36 @@ mod recorded {
     }
 
     #[test]
+    fn the_cli_talking_to_itself_is_not_your_message() {
+        // A transcript files these as user turns, and replayed as prompts they
+        // outnumber the real ones: `/exit`, `Goodbye!` and a system reminder all
+        // reading as things the person said.
+        for text in [
+            "<command-name>/exit</command-name>",
+            "<local-command-stdout>Goodbye!</local-command-stdout>",
+            "<local-command-caveat>Caveat: …</local-command-caveat>",
+            "<system-reminder>a nudge</system-reminder>",
+        ] {
+            let line = format!(
+                r#"{{"type":"user","message":{{"role":"user","content":"{}"}}}}"#,
+                text.replace('"', "'")
+            );
+            assert!(read_recorded(&line).is_empty(), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_message_that_merely_mentions_a_tag_is_still_yours() {
+        // Recognised by how they open, not by containing a tag anywhere — asking
+        // about `<system-reminder>` is a thing a person does.
+        let line = r#"{"type":"user","message":{"role":"user","content":"what is a <system-reminder> for?"}}"#;
+        assert!(matches!(
+            read_recorded(line).as_slice(),
+            [Event::Prompt { .. }]
+        ));
+    }
+
+    #[test]
     fn the_lines_that_belong_to_the_cli_are_left_alone() {
         // A transcript carries bridge lines, file snapshots and summaries. They
         // are the CLI's bookkeeping, not the conversation.

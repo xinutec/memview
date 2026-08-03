@@ -1,3 +1,15 @@
+:host {
+  // The host is a real element between `.page` and everything below, and a custom
+  // element is `display: inline` until something says otherwise — so without this
+  // the column it looks like exists does not, and `flex: 1` on the transcript is
+  // a declaration that does nothing. dev-lint caught it; the layout harness had
+  // passed anyway, because block flow happened to put things in the same places.
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 .head {
   margin-bottom: 0.5rem;
 }
@@ -37,11 +49,18 @@
 
 .transcript {
   list-style: none;
-  padding: 0;
+  padding: 0 0 1rem;
   margin: 0.5rem 0 0;
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+  // The one thing on the page that scrolls. `min-height: 0` is what lets a flex
+  // child be shorter than its contents; without it the box grows instead and the
+  // composer is pushed off the screen.
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .entry {
@@ -135,13 +154,11 @@
   color: var(--mat-sys-error);
 }
 
-// Fixed rather than in flow: on a phone the whole point is that the way to
-// answer is under your thumb wherever you are in the transcript.
+// In flow at the end of a column that fills the screen, which puts it under your
+// thumb wherever you are in the transcript — the same result `position: fixed`
+// was reaching for, without covering the last message to get it.
 .composer {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -157,4 +174,76 @@
 
 .trouble {
   color: var(--mat-sys-error);
+}
+
+// A message says whose it is, and reads as it was written.
+.entry.asked {
+  .who {
+    display: block;
+    font: var(--mat-sys-label-small);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    opacity: 0.6;
+    margin-bottom: 0.15rem;
+  }
+
+  // Set apart by shape as well as by label: on a phone a tint alone stops being
+  // visible after two screens of scrolling.
+  border-left: 3px solid var(--mat-sys-primary);
+  padding-left: 0.6rem;
+}
+
+.entry .body {
+  // Markdown brings its own block elements, and their default margins double up
+  // against the list's spacing.
+  > :first-child {
+    margin-top: 0;
+  }
+
+  > :last-child {
+    margin-bottom: 0;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font: var(--mat-sys-title-small);
+    margin: 0.8rem 0 0.3rem;
+  }
+
+  code {
+    font-family: ui-monospace, monospace;
+  }
+
+  pre {
+    // The one thing that must never widen the page — a long command line would
+    // otherwise make every screen scroll sideways.
+    overflow-x: auto;
+    padding: 0.5rem;
+    border-radius: 4px;
+    background: var(--mat-sys-surface-container-high);
+  }
+
+  table {
+    display: block;
+    overflow-x: auto;
+    border-collapse: collapse;
+
+    th,
+    td {
+      border: 1px solid var(--mat-sys-outline-variant);
+      padding: 0.2rem 0.4rem;
+      text-align: left;
+    }
+  }
+
+  ul,
+  ol {
+    padding-left: 1.2rem;
+  }
+}
+
+.earlier {
+  display: block;
+  margin: 0 auto 0.5rem;
 }

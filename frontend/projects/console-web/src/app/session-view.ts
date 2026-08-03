@@ -1,4 +1,14 @@
-import { Component, DestroyRef, OnDestroy, effect, inject, input, signal } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  ElementRef,
+  OnDestroy,
+  effect,
+  inject,
+  input,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -10,6 +20,7 @@ import { ConsoleApi } from './console-api';
 import { reason } from './errors';
 import { Foreground } from './foreground';
 import { Entry, SessionEvent, Summary } from './models';
+import { Rendered } from './rendered';
 import { fold } from './transcript';
 
 /** One session: what it has done, and the way to say something to it. */
@@ -24,6 +35,7 @@ import { fold } from './transcript';
     MatFormFieldModule,
     MatInputModule,
     MatProgressBarModule,
+    Rendered,
   ],
 })
 export class SessionView implements OnDestroy {
@@ -56,6 +68,10 @@ export class SessionView implements OnDestroy {
    *  the least often what the reader came for. */
   readonly showThinking = signal(false);
   readonly text = signal('');
+  /** Whether anything older than what is on screen remains on disk. */
+  readonly more = signal(false);
+  readonly loading = signal(false);
+  private scroller = viewChild<ElementRef<HTMLElement>>('scroller');
 
   constructor() {
     effect(() => {
@@ -78,6 +94,18 @@ export class SessionView implements OnDestroy {
     // transcript below them heals itself — EventSource reconnects and replays
     // from the top — and these totals have nothing that would.
     this.foreground.onReturn(() => this.refresh(), this.until);
+    // A frame after the entries change, not with them: `follow` reads a height
+    // that does not exist until the browser has laid the new nodes out.
+    // `afterRenderEffect` was the first thing tried here and never ran — proven
+    // by the layout harness, which kept reporting scrollY 0.
+    effect(() => {
+      // Both, because either changes the height. Reading only the entries left
+      // the view where it was when thinking was unfolded — which is the case the
+      // layout harness tests, and the one that showed this was wrong.
+      this.entries();
+      this.showThinking();
+      requestAnimationFrame(() => this.follow());
+    });
   }
 
   ngOnDestroy(): void {
@@ -99,7 +127,74 @@ export class SessionView implements OnDestroy {
   }
 
   private take(event: SessionEvent): void {
+    // The seed says how much it read; anything it read means there may be more
+    // behind it. This is the only place that knows the conversation is longer
+    // than the page.
+    if (event.kind === 'joined' && (event.earlier ?? 0) > 0) this.more.set(true);
     this.entries.update((entries) => [...fold(entries, event)]);
+  }
+
+  /**
+   * Keep the newest in view.
+   *
+   * ⚠ A transcript opened at the top, which for a resumed conversation means
+   * opening a hundred turns behind the present. The newest message is what
+   * anybody came for, and scrolling to it by hand every time is the sort of
+   * thing that reads as the page being broken.
+   *
+   * Only while the reader is already at the bottom: yanking the view down while
+   * somebody is reading back through the morning is worse than not following at
+   * all. `NEAR` is the slack — a few lines, so a partly-scrolled view still
+   * counts as following.
+   *
+   */
+  private follow(): void {
+    const box = this.scroller()?.nativeElement;
+    if (!box) return;
+    const NEAR = 120;
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < NEAR;
+    if (atBottom || !this.settled) {
+      box.scrollTop = box.scrollHeight;
+      this.settled = true;
+    }
+  }
+
+  /** Whether the first render has happened; before it there is nothing to keep. */
+  private settled = false;
+
+  /**
+   * The page before the one on screen.
+   *
+   * Counted in events held rather than by a cursor, because the file is the
+   * authority and it grows: an offset taken now would name a different place
+   * after the next turn. The runner re-reads and re-parses, which is why this is
+   * on demand and not eager.
+   */
+  loadEarlier(): void {
+    if (this.loading()) return;
+    this.loading.set(true);
+    const box = this.scroller()?.nativeElement;
+    const before = box?.scrollHeight ?? 0;
+    this.api.earlier(this.id(), this.entries().length).subscribe({
+      next: (older) => {
+        this.loading.set(false);
+        this.more.set(older.more);
+        // Folded on their own and put in front, rather than folded into the
+        // list: fold joins an event to whatever precedes it, and an older page
+        // has nothing before it here — appending would glue the top of the
+        // conversation onto the bottom.
+        let head: Entry[] = [];
+        for (const event of older.events) head = [...fold(head, event)];
+        this.entries.update((entries) => [...head, ...entries]);
+        // Hold the reader's place: adding above them would otherwise move what
+        // they were reading down the screen by the height of everything new.
+        if (box) box.scrollTop += box.scrollHeight - before;
+      },
+      error: (err: unknown) => {
+        this.loading.set(false);
+        this.trouble.set(reason(err));
+      },
+    });
   }
 
   send(): void {

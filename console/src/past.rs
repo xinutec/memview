@@ -218,24 +218,43 @@ pub fn transcript_of(root: &Path, id: &str) -> Option<PathBuf> {
 /// What was said before the console was watching.
 ///
 /// Read from the end and truncated to [`REPLAY_EVENTS`], so what survives is the
-/// most recent conversation rather than the oldest. A chunk taken from a byte
-/// offset starts mid-line, so the first line is dropped unread.
+/// most recent conversation rather than the oldest.
 pub fn replay(path: &Path) -> Vec<crate::protocol::Event> {
+    window(path, 0).0
+}
+
+/// A window further back, for a reader who has scrolled to the top of what they
+/// were given.
+///
+/// `have` is how many events the reader already holds, counted from the end. The
+/// answer is the [`REPLAY_EVENTS`] before those, and whether anything remains
+/// beyond them.
+///
+/// Re-read and re-parsed each time rather than kept: the alternative is holding a
+/// parsed copy of a file that reaches tens of megabytes, for a session that may
+/// never be scrolled at all. The byte window grows with what is asked for, so
+/// reaching further back costs more only when somebody actually goes there.
+pub fn window(path: &Path, have: usize) -> (Vec<crate::protocol::Event>, bool) {
     use std::io::{Read, Seek, SeekFrom};
 
     let Ok(meta) = std::fs::metadata(path) else {
-        return Vec::new();
+        return (Vec::new(), false);
     };
     let Ok(mut file) = std::fs::File::open(path) else {
-        return Vec::new();
+        return (Vec::new(), false);
     };
-    let from = meta.len().saturating_sub(REPLAY_BYTES);
+    // One window per page already held, plus the one being asked for. Events are
+    // not evenly sized, so this is a lower bound on where to start reading and
+    // not an address — which is why the count below does the deciding.
+    let pages = (have / REPLAY_EVENTS + 2) as u64;
+    let span = REPLAY_BYTES.saturating_mul(pages);
+    let from = meta.len().saturating_sub(span);
     if file.seek(SeekFrom::Start(from)).is_err() {
-        return Vec::new();
+        return (Vec::new(), false);
     }
     let mut tail = Vec::new();
-    if file.take(REPLAY_BYTES).read_to_end(&mut tail).is_err() {
-        return Vec::new();
+    if file.take(span).read_to_end(&mut tail).is_err() {
+        return (Vec::new(), false);
     }
     let text = String::from_utf8_lossy(&tail);
     let mut lines = text.lines();
@@ -247,10 +266,16 @@ pub fn replay(path: &Path) -> Vec<crate::protocol::Event> {
     }
     let mut events: Vec<crate::protocol::Event> =
         lines.flat_map(crate::protocol::read_recorded).collect();
+    // Drop what the reader already has, from the end.
+    let keep = events.len().saturating_sub(have);
+    events.truncate(keep);
+    // `more` is judged before the page is cut, and only a window that reached the
+    // start of the file can honestly say there is nothing older.
+    let more = events.len() > REPLAY_EVENTS || from > 0;
     if events.len() > REPLAY_EVENTS {
         events = events.split_off(events.len() - REPLAY_EVENTS);
     }
-    events
+    (events, more)
 }
 
 fn read(path: &Path) -> Option<Conversation> {
