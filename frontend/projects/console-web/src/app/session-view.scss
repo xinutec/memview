@@ -336,3 +336,13 @@
     text-align: right;
   }
 }
+
+// The held-update notice, beside the activity strip above the composer.
+.update {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0.25rem 0.75rem;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+  text-align: center;
+}

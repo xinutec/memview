@@ -130,6 +130,12 @@
 <!-- Above the composer, not under the header: the header scrolls away as soon as
      anybody reads the conversation, which is exactly when they want to know
      whether it is still working. The composer is pinned, so this is too. -->
+@if (updateWaiting()) {
+  <!-- A held reload is invisible otherwise, and indistinguishable from nothing
+       having happened. Says what it is waiting for, so the wait is a choice. -->
+  <p class="update">a newer build is ready — it will load when you leave the app</p>
+}
+
 @if (doing(); as doing) {
   <div class="doing">
     <mat-progress-bar mode="indeterminate" />

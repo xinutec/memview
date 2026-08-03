@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, signal } from '@angular/core';
 
 /**
  * Reload when the bundle underneath the page changes.
@@ -29,11 +29,11 @@ export class Updates {
 
   private booted = Date.now();
   private serving?: string;
-  private pending = false;
+  private pending = signal(false);
 
   constructor() {
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden' && this.pending) this.reload();
+      if (document.visibilityState === 'hidden' && this.pending()) this.reload();
     });
   }
 
@@ -44,13 +44,17 @@ export class Updates {
     if (bundle === this.serving) return;
     const starting = Date.now() - this.booted < Updates.STARTUP_MS;
     if (starting || document.visibilityState === 'hidden') this.reload();
-    else this.pending = true;
+    else this.pending.set(true);
   }
 
-  /** Whether a newer bundle is waiting for the app to be put away. */
-  get waiting(): boolean {
-    return this.pending;
-  }
+  /**
+   * Whether a newer bundle is waiting for the app to be put away.
+   *
+   * Rendered, because a held reload is otherwise indistinguishable from no
+   * update at all — somebody waiting to see the page refresh would wait for
+   * ever, correctly, and have no way to tell that from a broken check.
+   */
+  readonly waiting = this.pending.asReadonly();
 
   /** Its own method so a test can assert the decision without navigating. */
   reload(): void {

@@ -48,7 +48,7 @@ describe('Updates', () => {
     vi.setSystemTime(Date.now() + 60_000);
     updates.saw('bbbb');
     expect(reload).not.toHaveBeenCalled();
-    expect(updates.waiting).toBe(true);
+    expect(updates.waiting()).toBe(true);
   });
 
   it('takes the held reload the moment the app is put away', () => {

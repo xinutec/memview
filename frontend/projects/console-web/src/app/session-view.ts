@@ -53,6 +53,8 @@ export class SessionView implements OnDestroy {
 
   private api = inject(ConsoleApi);
   private updates = inject(Updates);
+  /** A newer build is downloaded and held. See `Updates` for why it waits. */
+  readonly updateWaiting = this.updates.waiting;
   private store = inject(SessionStore);
   private foreground = inject(Foreground);
   private until = inject(DestroyRef);
