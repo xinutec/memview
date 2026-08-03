@@ -63,13 +63,14 @@ export class ConsoleApi {
    *  Returns the function that closes it. */
   follow(id: string, onEvent: (event: SessionEvent) => void, onReset: () => void): () => void {
     const source = new EventSource(`/api/sessions/${encodeURIComponent(id)}/events`);
-    let opened = false;
-    source.onopen = () => {
-      // The first open is the initial load; a later one is a reconnect, after
-      // which the server starts again from the top of the transcript.
-      if (opened) onReset();
-      opened = true;
-    };
+    // ⚠ Not `onopen`. A reconnect used to mean "throw everything away", because
+    // the server had no way to send only what was missed — so a phone going
+    // through a tunnel discarded the history somebody had just scrolled back to
+    // load. The events are numbered now and the browser quotes the last one back
+    // on its own, so a reconnect is ordinarily seamless and this fires only when
+    // the runner says it genuinely cannot resume: a console restarted, or a
+    // session busy enough to have dropped that far out of its scrollback.
+    source.addEventListener('reset', () => onReset());
     source.onmessage = (message: MessageEvent<unknown>) => {
       const event = parse(message.data);
       // A line that is not an event this version knows is dropped rather than

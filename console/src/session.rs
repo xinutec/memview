@@ -66,10 +66,66 @@ pub struct Summary {
     pub waiting: usize,
 }
 
+/// An event and its place in the session's order.
+///
+/// The number is what makes a dropped connection survivable. Without it a
+/// reconnecting client has no way to say what it already has, so the only safe
+/// thing the server can do is send everything again and the only safe thing the
+/// client can do is throw its page away — which on a phone, over a tunnel, meant
+/// losing the history somebody had just scrolled back to read because a train
+/// went through a cutting.
+///
+/// Sequential from 1, per session, assigned under the same lock that appends to
+/// the log — so the number a client holds names exactly one event and the ones
+/// after it are exactly what it missed.
+#[derive(Debug, Clone)]
+pub struct Stamped {
+    pub seq: u64,
+    pub event: Event,
+}
+
+/// What a connecting client is owed, and whether what it already has is good.
+#[derive(Debug)]
+pub struct Backlog {
+    /// False means the client's page cannot be kept: it named nothing, or named
+    /// an event this session no longer holds.
+    pub resumed: bool,
+    pub events: Vec<Stamped>,
+    /// The highest sequence number this client has now been sent — including the
+    /// one it arrived holding, when there was nothing after it. Live events at or
+    /// below it are duplicates and must not be sent again.
+    pub through: u64,
+}
+
+/// Whether a client holding everything through `after` can be sent only what it
+/// missed, given a log holding `held_from..=issued`.
+///
+/// Two things disqualify a number, and both mean the same thing — the events
+/// between what the client has and what the log holds cannot be produced:
+///
+/// * **Older than the log's front.** The session ran on past this client's place
+///   while it was away and the scrollback dropped the difference. A gap here
+///   would be silent, which is worse than the visible cost of starting again.
+/// * **Newer than anything issued.** The client is quoting another session's
+///   numbering — a console restarted under the same id — and resuming it would
+///   hide every real event until the count caught back up.
+///
+/// `after + 1` rather than `after` on the left: what has to still be reachable is
+/// the *next* event, not the one already held. That makes an exactly-caught-up
+/// client resumable against an empty log, which is the common case — somebody
+/// reconnecting to a session that has said nothing since.
+pub fn resumable(after: u64, held_from: u64, issued: u64) -> bool {
+    after + 1 >= held_from && after <= issued
+}
+
 /// The mutable half of a session, behind one lock.
 #[derive(Debug, Default)]
 struct State {
-    log: VecDeque<Event>,
+    log: VecDeque<Stamped>,
+    /// The last sequence number issued. Not the log's length: the log is a
+    /// scrollback and drops its front, and a number that was reused after an
+    /// eviction would resume a client into the wrong place.
+    issued: u64,
     /// Questions the session is blocked on, by control-request id, with the
     /// arguments it asked about — an allow has to echo them back.
     pending: BTreeMap<String, serde_json::Value>,
@@ -90,7 +146,7 @@ pub struct Session {
     state: Mutex<State>,
     stdin: tokio::sync::Mutex<Option<ChildStdin>>,
     kill: Mutex<Option<oneshot::Sender<()>>>,
-    tx: broadcast::Sender<Event>,
+    tx: broadcast::Sender<Stamped>,
 }
 
 /// How to spawn the CLI. Held by the roster and handed to each session.
@@ -353,7 +409,7 @@ impl Session {
 
     /// Record an event and hand it to whoever is listening.
     fn push(&self, event: Event) {
-        {
+        let stamped = {
             let mut state = self.state.lock().expect("session state poisoned");
             match &event {
                 Event::Started { model, .. } => state.model = Some(model.clone()),
@@ -383,14 +439,20 @@ impl Session {
                 }
                 _ => {}
             }
+            state.issued += 1;
+            let stamped = Stamped {
+                seq: state.issued,
+                event,
+            };
             if state.log.len() >= SCROLLBACK {
                 state.log.pop_front();
             }
-            state.log.push_back(event.clone());
-        }
+            state.log.push_back(stamped.clone());
+            stamped
+        };
         // An error here means nobody is listening, which is the normal state of
         // a session working on its own.
-        let _ = self.tx.send(event);
+        let _ = self.tx.send(stamped);
     }
 
     fn note_stderr(&self, line: &str) {
@@ -403,18 +465,55 @@ impl Session {
         }
     }
 
-    /// The transcript so far, for a client that has just connected.
+    /// The transcript so far, unnumbered — for asking what a session has done.
     pub fn history(&self) -> Vec<Event> {
         self.state
             .lock()
             .expect("session state poisoned")
             .log
             .iter()
-            .cloned()
+            .map(|stamped| stamped.event.clone())
             .collect()
     }
 
-    pub fn listen(&self) -> broadcast::Receiver<Event> {
+    /// What a client that says it holds everything through `after` still needs.
+    ///
+    /// Resuming is refused rather than approximated — see [resumable] for when,
+    /// and why a refusal is the kinder answer.
+    pub fn since(&self, after: Option<u64>) -> Backlog {
+        let state = self.state.lock().expect("session state poisoned");
+        // With an empty log nothing is held, so the earliest number that could
+        // still be honoured is the next one to be issued.
+        let held_from = state
+            .log
+            .front()
+            .map_or(state.issued + 1, |first| first.seq);
+        if let Some(after) = after
+            && resumable(after, held_from, state.issued)
+        {
+            let events: Vec<Stamped> = state
+                .log
+                .iter()
+                .filter(|stamped| stamped.seq > after)
+                .cloned()
+                .collect();
+            let through = events.last().map_or(after, |last| last.seq);
+            return Backlog {
+                resumed: true,
+                events,
+                through,
+            };
+        }
+        let events: Vec<Stamped> = state.log.iter().cloned().collect();
+        let through = events.last().map_or(0, |last| last.seq);
+        Backlog {
+            resumed: false,
+            events,
+            through,
+        }
+    }
+
+    pub fn listen(&self) -> broadcast::Receiver<Stamped> {
         self.tx.subscribe()
     }
 

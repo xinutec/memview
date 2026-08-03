@@ -17,7 +17,7 @@ use axum::Router;
 use axum::extract::{Path, Query, State};
 
 use crate::protocol as console_protocol;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::sse::{Event as Sse, KeepAlive};
 use axum::response::{IntoResponse, Sse as SseResponse};
 use axum::routing::{delete, get, post};
@@ -27,7 +27,7 @@ use tokio_stream::{Stream, StreamExt};
 
 use crate::protocol::Event;
 use crate::roster::Roster;
-use crate::session::Summary;
+use crate::session::{Stamped, Summary};
 use crate::trace;
 
 pub fn router(roster: Arc<Roster>) -> Router {
@@ -221,36 +221,87 @@ async fn earlier(
     Ok(Json(Page { events, more }))
 }
 
+/// One event on the wire, carrying its number so the browser can quote it back.
+///
+/// `EventSource` remembers the last `id:` it saw and sends it as `Last-Event-ID`
+/// on every reconnect, with no help from the page. That is the whole mechanism:
+/// numbering the events is what turns a dropped connection from a wipe into a
+/// gap that gets filled.
+fn wire(stamped: Stamped) -> Sse {
+    Sse::default()
+        .id(stamped.seq.to_string())
+        .json_data(stamped.event)
+        .unwrap_or_else(|err| {
+            Sse::default().data(format!("{{\"kind\":\"trouble\",\"detail\":\"{err}\"}}"))
+        })
+}
+
 async fn events(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<SseResponse<impl Stream<Item = Result<Sse, Infallible>>>, (StatusCode, String)> {
     let session = roster
         .get(&id)
         .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
 
-    // Subscribe BEFORE reading the history, so an event that arrives between the
-    // two is delivered late rather than lost.
-    let live = BroadcastStream::new(session.listen());
-    let history = tokio_stream::iter(session.history());
+    // Set by the browser, not by the page: whatever `id:` it last saw on this
+    // stream. Unparseable is treated as absent — a client we cannot understand
+    // gets the honest answer, which is everything.
+    let after = headers
+        .get("last-event-id")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok());
 
-    let stream = history
-        .map(Ok::<Event, ()>)
-        .chain(live.map(|got| got.map_err(|_| ())))
-        .map(|got| {
-            let event = match got {
-                Ok(event) => event,
-                // The listener fell far enough behind that the channel dropped
-                // events. Saying so is the only honest option: the transcript
-                // this client holds now has a hole in it.
-                Err(()) => Event::Trouble {
+    // Subscribe BEFORE reading the backlog, so an event landing between the two
+    // is delivered late rather than lost. It also arrives *twice* — it is in the
+    // snapshot and in the channel — which went unnoticed while events were
+    // anonymous, and showed up as a duplicated paragraph. `through` is what makes
+    // the second copy recognisable.
+    let live = BroadcastStream::new(session.listen());
+    let backlog = session.since(after);
+    let through = backlog.through;
+    tracing::info!(
+        "{id}: {} events for a reader at {after:?} ({})",
+        backlog.events.len(),
+        if backlog.resumed {
+            "resumed"
+        } else {
+            "from the top"
+        }
+    );
+
+    // A named event rather than a field on a domain one: this is about the
+    // connection, not about the session, and `onmessage` never sees it. The page
+    // listens for it and empties what it holds — the only time it now has to.
+    let prelude = tokio_stream::iter((!backlog.resumed).then(|| {
+        Sse::default()
+            .event("reset")
+            .data("this stream starts again from the beginning")
+    }));
+
+    let held = tokio_stream::iter(backlog.events).map(wire);
+
+    let live = live.filter_map(move |got| match got {
+        // Already sent as part of the backlog.
+        Ok(stamped) if stamped.seq <= through => None,
+        Ok(stamped) => Some(wire(stamped)),
+        // The listener fell far enough behind that the channel dropped events.
+        // Saying so is the only honest option: the transcript this client holds
+        // now has a hole in it. Deliberately unnumbered, so the client keeps
+        // quoting the last id it can vouch for.
+        Err(_) => Some(
+            Sse::default()
+                .json_data(Event::Trouble {
                     detail: "the console dropped events for this client".to_string(),
-                },
-            };
-            Ok(Sse::default().json_data(event).unwrap_or_else(|err| {
-                Sse::default().data(format!("{{\"kind\":\"trouble\",\"detail\":\"{err}\"}}"))
-            }))
-        });
+                })
+                .unwrap_or_else(|err| {
+                    Sse::default().data(format!("{{\"kind\":\"trouble\",\"detail\":\"{err}\"}}"))
+                }),
+        ),
+    });
+
+    let stream = prelude.chain(held).chain(live).map(Ok::<Sse, Infallible>);
 
     Ok(SseResponse::new(stream).keep_alive(
         // A session can sit silent for a long time while a tool runs, and a

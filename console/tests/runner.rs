@@ -153,6 +153,71 @@ async fn a_late_listener_is_told_what_it_missed() {
 }
 
 #[tokio::test]
+async fn a_reconnecting_listener_is_sent_only_what_it_missed() {
+    // The reason this exists: the page had no way to say where it had got to, so
+    // every reconnect meant replaying the whole transcript and the client
+    // throwing away everything it held — including pages it had scrolled back to
+    // load, which are not in this log at all and cannot be recovered.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    session.send("early").await.expect("send");
+    until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Turn { .. }))
+    })
+    .await;
+
+    // Where a client watching from the start would have got to.
+    let caught_up = session.since(None);
+    assert!(
+        !caught_up.resumed,
+        "a client naming nothing is owed everything"
+    );
+    let held = caught_up.through;
+    assert!(held > 0, "the first turn produced events: {caught_up:?}");
+
+    // Nothing happened while it was away.
+    let quiet = session.since(Some(held));
+    assert!(quiet.resumed);
+    assert!(
+        quiet.events.is_empty(),
+        "nothing to catch up on: {:?}",
+        quiet.events
+    );
+    assert_eq!(quiet.through, held, "and it is still where it was");
+
+    // A second turn happens, and only that turn is owed.
+    session.send("later").await.expect("send");
+    until(&session, |seen| {
+        seen.iter()
+            .filter(|e| matches!(e, Event::Turn { .. }))
+            .count()
+            == 2
+    })
+    .await;
+
+    let missed = session.since(Some(held));
+    assert!(missed.resumed);
+    assert!(
+        missed.events.iter().all(|stamped| stamped.seq > held),
+        "nothing it already had: {:?}",
+        missed.events
+    );
+    assert!(
+        missed
+            .events
+            .iter()
+            .any(|stamped| matches!(stamped.event, Event::Turn { .. })),
+        "and everything it did not: {:?}",
+        missed.events
+    );
+    assert!(
+        missed.events.len() < session.history().len(),
+        "a resume is a tail, not the transcript again"
+    );
+}
+
+#[tokio::test]
 async fn closing_stdin_ends_the_session() {
     let dir = std::env::temp_dir();
     let roster = roster(&dir);

@@ -48,6 +48,14 @@ export class SessionView implements OnDestroy {
   private close?: () => void;
   private poll?: ReturnType<typeof setInterval>;
 
+  // dev-lint: allow-component-list — `entries` is a fold of a live event stream
+  // this component opens and closes, not a fetched catalog: retaining it without
+  // the stream would show a conversation that had stopped being true. It is
+  // reset by the effect that opens the stream and refilled from the stream —
+  // which is the exemption this rule already grants, one method call out of
+  // reach. Holding the stream and its fold in a root store is worth doing, and
+  // is a different change: it would make re-entering a session resume rather
+  // than re-seed, the way a reconnect now does.
   readonly entries = signal<Entry[]>([]);
   readonly session = signal<Summary | undefined>(undefined);
   readonly trouble = signal('');
@@ -77,14 +85,14 @@ export class SessionView implements OnDestroy {
     effect(() => {
       const id = this.id();
       this.close?.();
-      this.entries.set([]);
+      this.forget();
       this.close = this.api.follow(
         id,
         (event) => this.take(event),
-        // A reconnect replays the transcript from the top, so the old copy is
-        // dropped rather than appended to — otherwise every dropped connection
-        // would double the page.
-        () => this.entries.set([]),
+        // Only when the runner says the stream starts again — see [[ConsoleApi]].
+        // Everything held has to go: it would otherwise be appended to by a
+        // replay of itself, and there is no way to tell the two copies apart.
+        () => this.forget(),
       );
       this.refresh();
       this.poll ??= setInterval(() => this.refresh(), 5000);
@@ -106,6 +114,20 @@ export class SessionView implements OnDestroy {
       this.showThinking();
       requestAnimationFrame(() => this.follow());
     });
+  }
+
+  /**
+   * Drop everything held about the conversation on screen.
+   *
+   * All three, because they are one fact in three places: the entries, whether
+   * anything older exists — which is re-established by the `joined` event the
+   * new stream opens with — and whether the view has been placed yet, so the
+   * fresh transcript opens at its newest message the way a first load does.
+   */
+  private forget(): void {
+    this.entries.set([]);
+    this.more.set(false);
+    this.settled = false;
   }
 
   ngOnDestroy(): void {
