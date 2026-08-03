@@ -395,3 +395,37 @@ async fn past(State(roster): State<Arc<Roster>>) -> Json<Vec<crate::past::Conver
         .collect();
     Json(allowed)
 }
+
+/// The app itself, for a route the app owns — or a plain 404 for a file that is
+/// not there.
+///
+/// ⚠ **The console used to answer the index for everything it could not find.**
+/// The bundle is rewritten in place on every build, so a file that was missing
+/// for a second came back as `200 text/html`, and a browser handed HTML where it
+/// asked for a font neither retries nor complains: the icons vanished on a
+/// reload and nothing recorded a failure — not the server log, not the client
+/// trace, not the network panel. A 404 is the answer that can be seen.
+///
+/// "Looks like a file" is the last path segment carrying a dot. It is a
+/// heuristic, and the right one here: every asset this bundle asks for is hashed
+/// (`main-JLBKO2QH.js`, `media/material-icons-LEZCGFVT.woff2`) while every route
+/// the SPA owns is a word or an id (`/`, `/s/<uuid>`). A route with a dot in it
+/// would 404 wrongly; there are none, and inventing one would be the bug.
+pub fn spa(index: &str, path: &str) -> axum::response::Response {
+    use axum::response::IntoResponse as _;
+
+    if path
+        .rsplit('/')
+        .next()
+        .is_some_and(|last| last.contains('.'))
+    {
+        return (axum::http::StatusCode::NOT_FOUND, "not found").into_response();
+    }
+    match std::fs::read_to_string(index) {
+        Ok(page) => axum::response::Html(page).into_response(),
+        Err(error) => {
+            tracing::error!("the app's index could not be read: {error}");
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "no index").into_response()
+        }
+    }
+}

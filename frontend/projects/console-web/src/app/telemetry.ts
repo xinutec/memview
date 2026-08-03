@@ -36,6 +36,31 @@ export class Telemetry {
       capture: true,
     });
 
+    // Anything that threw. Until this existed the trace showed only what the
+    // person did and what the API refused, so a page that broke on its own left
+    // no mark at all — the failure looked like somebody losing interest.
+    const view = this.doc.defaultView;
+    view?.addEventListener(
+      'error',
+      (ev) => {
+        // Two different events share this name. A resource that failed to load
+        // has an element as its target and no message; a script that threw has
+        // a message and no useful target.
+        const target = ev.target;
+        const source =
+          target instanceof HTMLElement
+            ? (target.getAttribute('src') ?? target.getAttribute('href') ?? target.tagName)
+            : undefined;
+        if (source) this.core.record('broke', source, target?.constructor.name ?? null);
+        else this.core.record('threw', ev.message || 'error', where(ev));
+      },
+      // Capture, because a resource error does not bubble.
+      { capture: true },
+    );
+    view?.addEventListener('unhandledrejection', (ev) => {
+      this.core.record('threw', reason(ev.reason), 'promise');
+    });
+
     this.core.start();
   }
 
@@ -49,4 +74,15 @@ export class Telemetry {
   failure(url: string, status: number): void {
     this.core.record('fail', url, String(status));
   }
+}
+
+/** Where a script error came from, when the browser says. */
+function where(ev: ErrorEvent): string | null {
+  return ev.filename ? `${ev.filename}:${ev.lineno}:${ev.colno}` : null;
+}
+
+/** A rejection's reason as one line, whatever it happens to be. */
+function reason(value: unknown): string {
+  if (value instanceof Error) return value.message;
+  return typeof value === 'string' ? value : JSON.stringify(value ?? null);
 }

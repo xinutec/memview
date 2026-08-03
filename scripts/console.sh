@@ -52,5 +52,11 @@ fi
 
 # Not `exec`: the trap above has to survive to take the tunnel down with us.
 CONSOLE_DIRS="${CONSOLE_DIRS:-$HOME/Code}" \
-  STATIC_DIR="${STATIC_DIR:-frontend/dist/console-web/browser}" \
+  # Served from console-live, NOT from the build output. `ng build` deletes its
+  # whole output path, so a bundle being served from there vanishes for a second
+  # on every build — and a page reloading in that second gets HTML where it
+  # asked for a font, which shows as broken icons and is reported by nothing.
+  # `build:console` rsyncs into console-live without deleting, so the previous
+  # build`s hashed files stay behind and a page mid-load still finds its own.
+  STATIC_DIR="${STATIC_DIR:-frontend/dist/console-live}" \
   nix develop -c cargo run -p console

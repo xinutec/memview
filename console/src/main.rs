@@ -20,7 +20,7 @@ use anyhow::{Context, Result, bail};
 use console::api;
 use console::config::Config;
 use console::roster::Roster;
-use tower_http::services::{ServeDir, ServeFile};
+use tower_http::services::ServeDir;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -79,9 +79,21 @@ async fn main() -> Result<()> {
         // request never reached the directory service, so a deep link like
         // /s/<id> — which is a real path with no file behind it — 404s instead
         // of loading the app.
-        app = app.fallback_service(
-            ServeDir::new(dir).fallback(ServeFile::new(format!("{dir}/index.html"))),
-        );
+        //
+        // ⚠ **But only for a navigation.** Falling back for *everything* meant a
+        // file that was briefly missing — the bundle is rewritten in place on
+        // every build — came back as `200 text/html`, and a browser handed HTML
+        // where it asked for a font neither retries nor complains. The icons
+        // vanished on a reload and nothing anywhere recorded a failure: not the
+        // server log, not the client trace, not the network panel. A 404 is the
+        // answer that can be seen.
+        let index = format!("{dir}/index.html");
+        app = app.fallback_service(ServeDir::new(dir).fallback(axum::routing::any(
+            move |uri: axum::http::Uri| {
+                let index = index.clone();
+                async move { api::spa(&index, uri.path()) }
+            },
+        )));
     }
 
     // Take the sessions with us. Without this, stopping the console orphans every
