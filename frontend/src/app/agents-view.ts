@@ -129,6 +129,10 @@ export class AgentsView {
   private api = inject(MemviewApi);
 
   readonly data = signal<AgentsResult | null>(null);
+  /** dev-lint: allow-sticky-error — not a failure to withdraw. A 403 here is the
+   *  settled answer for a share-token viewer: the request is made once, nothing
+   *  retries it, and the page renders this as a real state rather than an error.
+   *  Clearing it would blank a correct page. */
   readonly denied = signal(false);
   readonly loading = signal(true);
 

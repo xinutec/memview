@@ -51,6 +51,9 @@ export interface SessionEvent {
   kind: Kind;
   /** `joined` only: how many events above it were read from the transcript. */
   readonly earlier?: number;
+  /** `joined` only: the byte offset the seed began at, and the cursor for asking
+   *  what came before it. Zero means the seed reached the start of the file. */
+  readonly from?: number;
   model?: string;
   cwd?: string;
   tools?: number;

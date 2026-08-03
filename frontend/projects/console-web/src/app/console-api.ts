@@ -15,10 +15,21 @@ export class ConsoleApi {
   }
 
   /** The page of conversation before the one the caller holds. */
-  earlier(id: string, have: number): Observable<{ events: SessionEvent[]; more: boolean }> {
-    return this.http.get<{ events: SessionEvent[]; more: boolean }>(
+  /**
+   * The page of transcript before the one the reader holds.
+   *
+   * `before` is the cursor that page arrived with — never a count of anything
+   * this client has. It was a count, and the two ends counted different things:
+   * the runner counts events, the page holds folded entries, and several text
+   * deltas are one paragraph. Both were numbers, so the mismatch was invisible
+   * and the feature returned the reader's own screen back to them, forever. The
+   * cursor is opaque here on purpose — there is nothing to compute it from, so
+   * it cannot be computed wrongly.
+   */
+  earlier(id: string, before: number): Observable<{ events: SessionEvent[]; from: number }> {
+    return this.http.get<{ events: SessionEvent[]; from: number }>(
       `/api/sessions/${encodeURIComponent(id)}/earlier`,
-      { params: { have } },
+      { params: { before } },
     );
   }
 

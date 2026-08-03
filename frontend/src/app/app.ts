@@ -56,7 +56,13 @@ export class App {
     });
   }
 
-  /** Post-login return target: wherever the user was heading. */
+  /** Post-login return target: wherever the user was heading.
+   *
+   *  dev-lint: allow-template-method — `computed()` would be wrong here, not
+   *  merely unnecessary: `router.url` is a plain getter, not a signal, so a
+   *  computed would cache the first route the toolbar ever saw and send every
+   *  later sign-in back to it. Re-evaluating per pass is what keeps it true, and
+   *  the body is one template string. */
   loginHref(): string {
     return `/login?return_to=${encodeURIComponent(this.router.url)}`;
   }

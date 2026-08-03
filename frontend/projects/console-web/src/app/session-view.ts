@@ -2,7 +2,10 @@ import {
   Component,
   DestroyRef,
   ElementRef,
+  Injector,
   OnDestroy,
+  afterNextRender,
+  computed,
   effect,
   inject,
   input,
@@ -45,6 +48,8 @@ export class SessionView implements OnDestroy {
   private api = inject(ConsoleApi);
   private foreground = inject(Foreground);
   private until = inject(DestroyRef);
+  /** For `afterNextRender` outside an injection context — see [loadEarlier]. */
+  private injector = inject(Injector);
   private close?: () => void;
   private poll?: ReturnType<typeof setInterval>;
 
@@ -76,8 +81,17 @@ export class SessionView implements OnDestroy {
    *  the least often what the reader came for. */
   readonly showThinking = signal(false);
   readonly text = signal('');
+  /**
+   * Where the page on screen begins in the transcript, as a byte offset.
+   *
+   * Zero means the start of the file, so `more` is simply "the cursor is not at
+   * the beginning". Opaque: it comes from the runner and goes back unchanged,
+   * which is what stops it being confused with a count of anything here — the
+   * confusion that made this feature return the reader's own screen to them.
+   */
+  private readonly cursor = signal(0);
   /** Whether anything older than what is on screen remains on disk. */
-  readonly more = signal(false);
+  readonly more = computed(() => this.cursor() > 0);
   readonly loading = signal(false);
   private scroller = viewChild<ElementRef<HTMLElement>>('scroller');
 
@@ -126,7 +140,7 @@ export class SessionView implements OnDestroy {
    */
   private forget(): void {
     this.entries.set([]);
-    this.more.set(false);
+    this.cursor.set(0);
     this.settled = false;
   }
 
@@ -149,10 +163,10 @@ export class SessionView implements OnDestroy {
   }
 
   private take(event: SessionEvent): void {
-    // The seed says how much it read; anything it read means there may be more
-    // behind it. This is the only place that knows the conversation is longer
-    // than the page.
-    if (event.kind === 'joined' && (event.earlier ?? 0) > 0) this.more.set(true);
+    // The seed arrives with the cursor it started from. This is the only place
+    // that learns where the page on screen begins — nothing else in the stream
+    // knows the conversation is longer than the page.
+    if (event.kind === 'joined') this.cursor.set(event.from ?? 0);
     this.entries.update((entries) => [...fold(entries, event)]);
   }
 
@@ -194,13 +208,18 @@ export class SessionView implements OnDestroy {
    */
   loadEarlier(): void {
     if (this.loading()) return;
-    this.loading.set(true);
     const box = this.scroller()?.nativeElement;
+    // Measured before anything is written. A height read after a signal write is
+    // the height from before that write — change detection is scheduled, not
+    // performed — so a baseline taken below `loading.set(true)` would describe a
+    // page that no longer exists by the time it is used.
     const before = box?.scrollHeight ?? 0;
-    this.api.earlier(this.id(), this.entries().length).subscribe({
+    this.loading.set(true);
+    this.api.earlier(this.id(), this.cursor()).subscribe({
       next: (older) => {
         this.loading.set(false);
-        this.more.set(older.more);
+        this.trouble.set('');
+        this.cursor.set(older.from);
         // Folded on their own and put in front, rather than folded into the
         // list: fold joins an event to whatever precedes it, and an older page
         // has nothing before it here — appending would glue the top of the
@@ -208,9 +227,16 @@ export class SessionView implements OnDestroy {
         let head: Entry[] = [];
         for (const event of older.events) head = [...fold(head, event)];
         this.entries.update((entries) => [...head, ...entries]);
-        // Hold the reader's place: adding above them would otherwise move what
-        // they were reading down the screen by the height of everything new.
-        if (box) box.scrollTop += box.scrollHeight - before;
+        // Hold the reader's place, a frame later. Adding above somebody moves
+        // what they were reading down the screen by the height of everything
+        // new — and that height does not exist until the browser has laid the
+        // new entries out, which is after this callback has returned.
+        afterNextRender(
+          () => {
+            if (box) box.scrollTop += box.scrollHeight - before;
+          },
+          { injector: this.injector },
+        );
       },
       error: (err: unknown) => {
         this.loading.set(false);
@@ -226,6 +252,7 @@ export class SessionView implements OnDestroy {
     this.api.send(this.id(), text).subscribe({
       next: (summary) => {
         this.sending.set(false);
+        this.trouble.set('');
         this.text.set('');
         this.session.set(summary);
       },
@@ -252,17 +279,25 @@ export class SessionView implements OnDestroy {
 
   stop(): void {
     this.api.stop(this.id()).subscribe({
-      next: (summary) => this.session.set(summary),
+      next: (summary) => {
+        this.trouble.set('');
+        this.session.set(summary);
+      },
       error: (err: unknown) => this.trouble.set(reason(err)),
     });
   }
 
-  visible(): Entry[] {
+  /** What the transcript shows, thinking folded away unless asked for.
+   *
+   *  `computed` rather than a method: the template reads this on every change
+   *  detection pass, and a method would re-filter the whole conversation each
+   *  time — allocating a new array, which then makes every `@for` row look new. */
+  readonly visible = computed(() => {
     const all = this.entries();
     return this.showThinking() ? all : all.filter((entry) => entry.kind !== 'thought');
-  }
+  });
 
-  thoughts(): number {
-    return this.entries().filter((entry) => entry.kind === 'thought').length;
-  }
+  readonly thoughts = computed(
+    () => this.entries().filter((entry) => entry.kind === 'thought').length,
+  );
 }

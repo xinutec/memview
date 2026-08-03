@@ -213,18 +213,24 @@ impl Session {
             );
             return;
         };
-        let earlier = crate::past::replay(&path);
+        let seed = crate::past::page(&path, None);
         tracing::info!(
-            "seeded {} with {} events from its transcript",
+            "seeded {} with {} events from its transcript, from byte {}",
             self.id,
-            earlier.len()
+            seed.events.len(),
+            seed.from
         );
-        let count = earlier.len();
-        for event in earlier {
+        let count = seed.events.len();
+        for event in seed.events {
             self.push(event);
         }
-        // Last, so it sits between what was read and what we watch.
-        self.push(Event::Joined { earlier: count });
+        // Last, so it sits between what was read and what we watch — and it
+        // carries the cursor, which is the only thing that knows where this page
+        // began. A client asking for what came before has nothing else to go on.
+        self.push(Event::Joined {
+            earlier: count,
+            from: seed.from,
+        });
     }
 
     fn spawn(id: String, dir: &Path, spawn: &Spawn, resuming: bool) -> Result<Arc<Self>> {

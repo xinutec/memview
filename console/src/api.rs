@@ -185,16 +185,23 @@ async fn forget(State(roster): State<Arc<Roster>>, Path(id): Path<String>) -> im
 /// scrolling.
 #[derive(serde::Deserialize)]
 struct Earlier {
-    /// How many events the reader holds, counted from the end.
+    /// The cursor from the page the reader already holds — the byte offset its
+    /// first line began at. Absent means the newest page.
+    ///
+    /// ⚠ Not a count of what the reader has. That is what this was, and it was
+    /// wrong in both directions: the file grows under a count taken from its
+    /// end, and the client counts folded entries rather than events, so the
+    /// number never meant what the server read it as. See [`crate::past::page`].
     #[serde(default)]
-    have: usize,
+    before: Option<u64>,
 }
 
 #[derive(serde::Serialize)]
 struct Page {
     events: Vec<console_protocol::Event>,
-    /// Whether anything remains older than this page.
-    more: bool,
+    /// The cursor for the page before this one. Zero means the start of the
+    /// transcript: there is nothing older.
+    from: u64,
 }
 
 async fn earlier(
@@ -212,13 +219,17 @@ async fn earlier(
         StatusCode::NOT_FOUND,
         format!("no transcript on disk for {id}"),
     ))?;
-    let (events, more) = crate::past::window(&path, asked.have);
+    let page = crate::past::page(&path, asked.before);
     tracing::info!(
-        "{id}: {} earlier events for a reader holding {}",
-        events.len(),
-        asked.have
+        "{id}: {} earlier events before byte {:?}, page starts at {}",
+        page.events.len(),
+        asked.before,
+        page.from
     );
-    Ok(Json(Page { events, more }))
+    Ok(Json(Page {
+        events: page.events,
+        from: page.from,
+    }))
 }
 
 /// One event on the wire, carrying its number so the browser can quote it back.

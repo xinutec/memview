@@ -215,67 +215,121 @@ pub fn transcript_of(root: &Path, id: &str) -> Option<PathBuf> {
         .find(|path| path.file_stem().and_then(|stem| stem.to_str()) == Some(id))
 }
 
-/// What was said before the console was watching.
+/// One page of a transcript, and where in the file it started.
 ///
-/// Read from the end and truncated to [`REPLAY_EVENTS`], so what survives is the
-/// most recent conversation rather than the oldest.
-pub fn replay(path: &Path) -> Vec<crate::protocol::Event> {
-    window(path, 0).0
+/// `from` is the cursor: the byte offset of the first line this page contains.
+/// It is what the reader hands back to ask for the page before it, and `from ==
+/// 0` is the only honest way to say there is nothing older.
+#[derive(Debug)]
+pub struct Page {
+    pub events: Vec<crate::protocol::Event>,
+    pub from: u64,
 }
 
-/// A window further back, for a reader who has scrolled to the top of what they
-/// were given.
+/// What was said before the console was watching, and the page before that one.
 ///
-/// `have` is how many events the reader already holds, counted from the end. The
-/// answer is the [`REPLAY_EVENTS`] before those, and whether anything remains
-/// beyond them.
+/// `before` is a cursor from a previous [`Page`], or `None` for the newest page.
+///
+/// ⚠ **A cursor, not a count.** This took a count of events the reader held and
+/// worked backwards from the end of the file, which is wrong twice over. The
+/// file grows, so counting from its end names a different place after every turn;
+/// and a count travels through a client that holds *folded entries* — several
+/// text deltas are one paragraph, a tool result belongs to its call — so the
+/// number that arrived was never the number that left. Measured against a live
+/// session: a reader holding 266 events asked for the page before them as 170,
+/// and every one of the 96 events it got back was already on its screen. The
+/// feature could not advance, and both quantities were `usize`, so nothing said
+/// so.
+///
+/// A byte offset into an append-only file has neither problem: it survives the
+/// file growing, and it cannot be confused with a length by anything that
+/// carries it.
 ///
 /// Re-read and re-parsed each time rather than kept: the alternative is holding a
 /// parsed copy of a file that reaches tens of megabytes, for a session that may
-/// never be scrolled at all. The byte window grows with what is asked for, so
+/// never be scrolled at all. The span doubles until it has a page's worth, so
 /// reaching further back costs more only when somebody actually goes there.
-pub fn window(path: &Path, have: usize) -> (Vec<crate::protocol::Event>, bool) {
+pub fn page(path: &Path, before: Option<u64>) -> Page {
     use std::io::{Read, Seek, SeekFrom};
 
+    let empty = Page {
+        events: Vec::new(),
+        from: 0,
+    };
     let Ok(meta) = std::fs::metadata(path) else {
-        return (Vec::new(), false);
+        return empty;
     };
+    let end = before.unwrap_or(meta.len()).min(meta.len());
+    if end == 0 {
+        return empty;
+    }
     let Ok(mut file) = std::fs::File::open(path) else {
-        return (Vec::new(), false);
+        return empty;
     };
-    // One window per page already held, plus the one being asked for. Events are
-    // not evenly sized, so this is a lower bound on where to start reading and
-    // not an address — which is why the count below does the deciding.
-    let pages = (have / REPLAY_EVENTS + 2) as u64;
-    let span = REPLAY_BYTES.saturating_mul(pages);
-    let from = meta.len().saturating_sub(span);
-    if file.seek(SeekFrom::Start(from)).is_err() {
-        return (Vec::new(), false);
+
+    let mut span = REPLAY_BYTES;
+    loop {
+        let start = end.saturating_sub(span);
+        if file.seek(SeekFrom::Start(start)).is_err() {
+            return empty;
+        }
+        let mut buf = Vec::new();
+        // `by_ref`, because `take` consumes the reader and the span may have to
+        // widen and read again.
+        if file
+            .by_ref()
+            .take(end - start)
+            .read_to_end(&mut buf)
+            .is_err()
+        {
+            return empty;
+        }
+
+        // Line starts as absolute offsets, so a cursor can name one. Bytes
+        // rather than a decoded string: lossy decoding can change byte lengths,
+        // and an offset that is off by one names the middle of a line.
+        let mut lines: Vec<(u64, &[u8])> = Vec::new();
+        let mut at = start;
+        for line in buf.split_inclusive(|byte| *byte == b'\n') {
+            lines.push((at, line));
+            at += line.len() as u64;
+        }
+        // The first line of a mid-file chunk is a fragment. Dropped
+        // unconditionally rather than tried and discarded on failure: a fragment
+        // that happens to parse is worse than one that does not.
+        if start > 0 && !lines.is_empty() {
+            lines.remove(0);
+        }
+
+        // Backwards from the newest, taking whole lines until the page is full.
+        // Whole lines because the cursor has to name a line boundary — half a
+        // line is not a place a reader can come back to.
+        let mut taken = 0usize;
+        let mut first = lines.len();
+        for (index, (_, line)) in lines.iter().enumerate().rev() {
+            let events = crate::protocol::read_recorded(&String::from_utf8_lossy(line));
+            if taken > 0 && taken + events.len() > REPLAY_EVENTS {
+                break;
+            }
+            taken += events.len();
+            first = index;
+        }
+
+        // Ran out of buffer before filling the page, and there is more file
+        // behind it: widen and start again rather than return a short page that
+        // would read as "this is all there is".
+        if first == 0 && start > 0 && taken < REPLAY_EVENTS {
+            span = span.saturating_mul(2);
+            continue;
+        }
+
+        let events: Vec<crate::protocol::Event> = lines[first..]
+            .iter()
+            .flat_map(|(_, line)| crate::protocol::read_recorded(&String::from_utf8_lossy(line)))
+            .collect();
+        let from = lines.get(first).map_or(0, |(offset, _)| *offset);
+        return Page { events, from };
     }
-    let mut tail = Vec::new();
-    if file.take(span).read_to_end(&mut tail).is_err() {
-        return (Vec::new(), false);
-    }
-    let text = String::from_utf8_lossy(&tail);
-    let mut lines = text.lines();
-    // The first line of a mid-file chunk is a fragment. Dropped unconditionally
-    // rather than tried and discarded on failure: a fragment that happens to
-    // parse is worse than one that does not.
-    if from > 0 {
-        lines.next();
-    }
-    let mut events: Vec<crate::protocol::Event> =
-        lines.flat_map(crate::protocol::read_recorded).collect();
-    // Drop what the reader already has, from the end.
-    let keep = events.len().saturating_sub(have);
-    events.truncate(keep);
-    // `more` is judged before the page is cut, and only a window that reached the
-    // start of the file can honestly say there is nothing older.
-    let more = events.len() > REPLAY_EVENTS || from > 0;
-    if events.len() > REPLAY_EVENTS {
-        events = events.split_off(events.len() - REPLAY_EVENTS);
-    }
-    (events, more)
 }
 
 fn read(path: &Path) -> Option<Conversation> {

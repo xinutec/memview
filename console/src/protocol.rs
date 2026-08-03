@@ -36,6 +36,10 @@ pub enum Event {
     /// one is what the file says, the other is what we watched.
     Joined {
         earlier: usize,
+        /// Where in the transcript the seed began, as a byte offset — the cursor
+        /// for asking what came before it. Zero means the seed reached the start
+        /// of the file and there is nothing older.
+        from: u64,
     },
     /// The session is up, with what it was given to work with.
     Started {
