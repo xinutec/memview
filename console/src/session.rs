@@ -49,6 +49,31 @@ pub struct Fds {
     pub stderr: std::os::fd::RawFd,
 }
 
+/// What a session has counted, for an upgrade to hand on.
+///
+/// ⚠ **None of this is in the transcript.** The result line is where the turn
+/// count, the cost, the rate-limit status and the context window arrive, and it
+/// is a stream artefact — no transcript in the corpus contains a single
+/// `"type":"result"` line, so [`Session::seed`] cannot get any of it back. The
+/// model is the same story: it is announced on the init line and nowhere in the
+/// file. So an adopted session either carries these across or starts at zero and
+/// reads as a fresh conversation that has done nothing.
+///
+/// `context` is deliberately absent: that one IS in the transcript, on every
+/// assistant message, and reseeding it is more accurate than carrying it.
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Tally {
+    /// Seconds since the epoch. Carried because `execve` leaves the child's
+    /// clock alone, so a session that has run for an hour must not claim to have
+    /// started when its console was last upgraded.
+    pub started: u64,
+    pub model: Option<String>,
+    pub turns: u32,
+    pub cost_usd: f64,
+    pub window: Option<u64>,
+    pub limit: Option<String>,
+}
+
 /// Take a descriptor out of close-on-exec, and make it non-blocking.
 ///
 /// ⚠ **Rust sets `O_CLOEXEC` on every pipe it creates**, so without the first
@@ -432,8 +457,10 @@ impl Session {
     /// on it, and killing goes through the pid.
     ///
     /// ⚠ The scrollback does not survive. A client that reconnects is reseeded
-    /// from the transcript on disk, which is the durable record anyway.
-    pub fn adopt(id: String, dir: PathBuf, pid: u32, fds: Fds) -> Result<Arc<Self>> {
+    /// from the transcript on disk, which is the durable record anyway — except
+    /// for [`Tally`], which no transcript holds and which therefore has to be
+    /// carried.
+    pub fn adopt(id: String, dir: PathBuf, pid: u32, fds: Fds, tally: Tally) -> Result<Arc<Self>> {
         // ⚠ The scrollback did NOT survive the exec, and a client reconnecting
         // to an empty log is told its page is unresumable and starts blank. So
         // an adopted session reseeds from the transcript exactly as a resumed
@@ -462,9 +489,19 @@ impl Session {
         let session = Arc::new(Self {
             id,
             dir,
-            started: SystemTime::now(),
+            // A tally from an image that never counted a turn has a zero here;
+            // now is the only honest answer in that case.
+            started: match tally.started {
+                0 => SystemTime::now(),
+                secs => UNIX_EPOCH + Duration::from_secs(secs),
+            },
             state: Mutex::new(State {
                 alive: true,
+                model: tally.model,
+                turns: tally.turns,
+                cost_usd: tally.cost_usd,
+                window: tally.window,
+                limit: tally.limit,
                 ..State::default()
             }),
             stdin: tokio::sync::Mutex::new(Some(Box::new(stdin) as Sink)),
@@ -476,6 +513,23 @@ impl Session {
         session.seed();
         session.clone().read_from(Some(stdout), Some(stderr), true);
         Ok(session)
+    }
+
+    /// What this session has counted, for an upgrade to hand on. See [`Tally`].
+    pub fn tally(&self) -> Tally {
+        let state = self.state.lock().expect("session state poisoned");
+        Tally {
+            started: self
+                .started
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            model: state.model.clone(),
+            turns: state.turns,
+            cost_usd: state.cost_usd,
+            window: state.window,
+            limit: state.limit.clone(),
+        }
     }
 
     /// The pipes to this session's process, for an upgrade to hand on.

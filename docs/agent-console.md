@@ -738,6 +738,16 @@ than spawning any.
 - ⚠ **The scrollback does not survive**, so an adopted session reseeds from the
   transcript exactly as a resumed one does. Shipped without that, and the history
   vanished on the first real upgrade.
+- ⚠ **The counters are not in any transcript**, so they travel in the handover
+  too — `Tally`: the start time, the model, the turn count, the cost, the rate
+  limit, the window. The result line is the only line that carries most of those
+  and **it is a stream artefact that is never written to disk** (checked: no
+  transcript contains a `"type":"result"` line, and the model is announced only
+  on the init line). Reseeding cannot get them back. Shipped without this, and an
+  upgraded session read as a brand new one that had done nothing: `0 turns`, no
+  model, and a context with no window to be a fraction of. Fullness itself is
+  *not* carried — that one genuinely is on disk, on every assistant message, and
+  reseeding it is the more accurate answer.
 - ⚠ **The environment carries over**, so anything read from it at startup —
   `STATIC_DIR`, `CONSOLE_DIRS`, the TLS paths — keeps its old value. Changing one
   needs a full restart.

@@ -444,6 +444,82 @@ async fn a_live_pipe_can_be_taken_out_of_close_on_exec() {
     }
 }
 
+/// A pipe whose ends are both fit to be carried across an upgrade.
+///
+/// Returns `(read, write)`. Both ends are kept open by the caller: closing the
+/// far end would make the adopted session read end of file at once and call
+/// itself over.
+fn carried_pipe() -> (std::os::fd::RawFd, std::os::fd::RawFd) {
+    let mut ends = [0 as libc::c_int; 2];
+    // SAFETY: pipe(2) writes two descriptors into an array this test owns.
+    assert_eq!(unsafe { libc::pipe(ends.as_mut_ptr()) }, 0, "pipe");
+    for end in ends {
+        assert!(console::session::keepable(end), "fd {end}");
+    }
+    (ends[0], ends[1])
+}
+
+#[tokio::test]
+async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
+    // ⚠ **The result line is never written to disk.** It is what carries the
+    // turn count, the cost, the rate-limit status and the window — and grepping
+    // the whole corpus for `"type":"result"` finds none, so [`seed`] cannot get
+    // these back the way it gets the conversation back. Either the previous
+    // image hands them over or an upgraded session reads as a fresh one that has
+    // done nothing: 0 turns, no model, and a context with no window to be a
+    // fraction of. That is exactly what the phone showed after the first
+    // upgrade.
+    let tally = console::session::Tally {
+        started: 1_754_000_000,
+        model: Some("claude-opus-5".into()),
+        turns: 7,
+        cost_usd: 1.25,
+        window: Some(1_000_000),
+        limit: Some("allowed_warning".into()),
+    };
+    let (_stdin_read, stdin) = carried_pipe();
+    let (stdout, _stdout_write) = carried_pipe();
+    let (stderr, _stderr_write) = carried_pipe();
+
+    let session = console::session::Session::adopt(
+        // No transcript by this name, so nothing seeded can account for the
+        // numbers below — they can only have come across the handover.
+        "not-a-session-on-disk".into(),
+        std::env::temp_dir(),
+        std::process::id(),
+        console::session::Fds {
+            stdin,
+            stdout,
+            stderr,
+        },
+        tally.clone(),
+    )
+    .expect("adopt");
+
+    let summary = session.summary();
+    assert_eq!(summary.turns, 7, "the turn count restarted");
+    assert_eq!(summary.started, 1_754_000_000, "the session looks newborn");
+    assert_eq!(summary.model.as_deref(), Some("claude-opus-5"));
+    assert_eq!(summary.window, Some(1_000_000), "no window to be full of");
+    assert_eq!(summary.limit.as_deref(), Some("allowed_warning"));
+    assert!((summary.cost_usd - 1.25).abs() < f64::EPSILON);
+}
+
+#[tokio::test]
+async fn a_session_hands_on_the_numbers_it_has_counted() {
+    // The other half: what [`handover`] reads off a live session has to be the
+    // same numbers its summary shows, or the carrying is of something else.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+
+    let summary = session.summary();
+    let tally = session.tally();
+    assert_eq!(tally.turns, summary.turns);
+    assert_eq!(tally.started, summary.started);
+    assert_eq!(tally.window, summary.window);
+}
+
 #[tokio::test]
 async fn nothing_is_inherited_when_this_image_was_not_exec_by_an_upgrade() {
     // The ordinary start. A stray or absent handover must produce a console that

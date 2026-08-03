@@ -29,6 +29,11 @@ struct Carried {
     dir: String,
     pid: u32,
     fds: crate::session::Fds,
+    /// The counters, which unlike the conversation are on no disk anywhere —
+    /// see [`crate::session::Tally`]. Defaulted so a handover written by an
+    /// older image is still readable rather than dropping every session.
+    #[serde(default)]
+    tally: crate::session::Tally,
 }
 
 impl Roster {
@@ -65,7 +70,13 @@ impl Roster {
         };
         let mut taken = 0;
         for one in carried {
-            match Session::adopt(one.id.clone(), one.dir.clone().into(), one.pid, one.fds) {
+            match Session::adopt(
+                one.id.clone(),
+                one.dir.clone().into(),
+                one.pid,
+                one.fds,
+                one.tally,
+            ) {
                 Ok(session) => {
                     tracing::info!("carried {} (pid {}) across the upgrade", one.id, one.pid);
                     self.sessions
@@ -214,6 +225,7 @@ impl Roster {
                 dir: session.dir.display().to_string(),
                 pid: session.pid(),
                 fds: session.fds(),
+                tally: session.tally(),
             })
             .collect();
 
