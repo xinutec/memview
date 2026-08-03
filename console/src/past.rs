@@ -48,10 +48,19 @@ pub struct Conversation {
 
 /// How far into a transcript to look for its working directory.
 ///
-/// Small on purpose: these files are tens of megabytes and the answer is always
-/// within the opening handful of lines. If it is not there, this transcript does
-/// not say where it ran and cannot be resumed safely.
-const LINES_TO_FIND_CWD: usize = 16;
+/// Bounded on purpose: these files are tens of megabytes, and a transcript that
+/// never says where it ran cannot be resumed safely, so giving up is the honest
+/// answer rather than a default directory that resumes somewhere wrong.
+///
+/// ⚠ **Measured, and the first guess was too tight.** This was 16, chosen for
+/// "the opening handful of lines". Across the thirteen transcripts on this
+/// machine twelve record it within the first six — and one records it on line 16
+/// exactly, one line past the window, so that conversation was silently absent
+/// from the list for as long as the list existed. The symptom is the one this
+/// module warns about throughout: not an error, just a session nobody can reach.
+/// Set well clear of the observed spread, because the cost of reading a few more
+/// short lines is nothing and the cost of being one line short is invisible.
+const LINES_TO_FIND_CWD: usize = 64;
 
 /// How much of the end of a transcript to read when looking for its name.
 ///

@@ -102,6 +102,23 @@ fn the_working_directory_is_not_on_the_first_line() {
 }
 
 #[test]
+fn the_deepest_real_transcript_is_still_reached() {
+    // Not an invented depth: of the thirteen transcripts on this machine, twelve
+    // record the working directory within their first six lines and one records
+    // it on line 16. The window was 16, so that one conversation was absent from
+    // the list for as long as the list existed — no error, just a session nobody
+    // could reach. This is that transcript, pinned.
+    let root = scratch("real-depth");
+    transcript(&root, "project", "late", Some("/home/example/Code"), 16);
+
+    assert_eq!(
+        conversations(&root).len(),
+        1,
+        "the outlier is not reachable"
+    );
+}
+
+#[test]
 fn a_transcript_further_down_than_we_look_is_not_guessed_at() {
     let root = scratch("too-deep");
     transcript(&root, "project", "buried", Some("/home/example/Code"), 200);
