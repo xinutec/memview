@@ -136,6 +136,13 @@ async fn a_page_that_says_where_it_got_to_keeps_what_it_has() {
     );
     let held = highest(&cold);
     assert!(held > 0, "the first turn was numbered: {cold}");
+    // And stamped. `Timed` flattens over the event, so this is one object on the
+    // wire and a client reads `at` beside `kind` — a shape worth asserting,
+    // because serde's flatten is the sort of thing that silently nests instead.
+    assert!(
+        cold.contains(r#""at":"#) && cold.contains(r#""kind":"#),
+        "every event says when it happened: {cold}"
+    );
 
     // Arriving saying where it got to, the way a page returning to a session it
     // had left does. Nothing has happened since, so the honest answer is silence

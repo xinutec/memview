@@ -14,7 +14,7 @@
 use std::path::{Path, PathBuf};
 
 use console::past::page;
-use console::protocol::Event;
+use console::protocol::{Event, Timed};
 
 /// A transcript of `turns` exchanges, each one line of user and one of assistant
 /// — the shape on disk, where a line is a message rather than a delta.
@@ -41,7 +41,7 @@ fn scratch(name: &str) -> PathBuf {
 }
 
 /// Every page, newest first, by following the cursor to the start of the file.
-fn all_pages(path: &Path) -> Vec<Vec<Event>> {
+fn all_pages(path: &Path) -> Vec<Vec<Timed>> {
     let mut pages = Vec::new();
     let mut cursor = None;
     loop {
@@ -62,10 +62,10 @@ fn all_pages(path: &Path) -> Vec<Vec<Event>> {
     }
 }
 
-fn text_of(events: &[Event]) -> Vec<String> {
+fn text_of(events: &[Timed]) -> Vec<String> {
     events
         .iter()
-        .filter_map(|event| match event {
+        .filter_map(|timed| match &timed.event {
             Event::Text { text } | Event::Prompt { text } => Some(text.clone()),
             _ => None,
         })

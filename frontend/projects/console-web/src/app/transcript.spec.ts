@@ -115,3 +115,63 @@ describe('questions', () => {
     ]);
   });
 });
+
+/** When things happened, and what the tools said — the two facts the wire used
+ *  not to carry, and whose absence read as a finished feature rather than a gap. */
+describe('transcript · time and detail', () => {
+  /** A moment on a given day, in the reader's own timezone — which is the one the
+   *  fold compares against, so the fixture has to be built in it too. */
+  function on(day: number, hour: number): number {
+    return new Date(2026, 7, day, hour, 30).getTime();
+  }
+
+  it('gives a tool call what its result said, not just whether it worked', () => {
+    const seen = transcript(
+      { kind: 'tool', id: 'a', name: 'Bash', input: { command: 'grep -c foo' } },
+      { kind: 'tool_result', id: 'a', ok: true, detail: '3' },
+    );
+    const [tool] = seen.filter((e) => e.kind === 'tool');
+    expect(tool.ok).toBe(true);
+    expect(tool.detail).toBe('3');
+    expect(tool.cut).toBeUndefined();
+  });
+
+  it('keeps the true length when the runner cut the result', () => {
+    const seen = transcript(
+      { kind: 'tool', id: 'a', name: 'Read', input: { file_path: '/tmp/big' } },
+      { kind: 'tool_result', id: 'a', ok: true, detail: 'x'.repeat(2000), cut: 9000 },
+    );
+    const [tool] = seen.filter((e) => e.kind === 'tool');
+    expect(tool.cut).toBe(9000);
+  });
+
+  it('files a block under the time it began, not the time it finished', () => {
+    // An answer streams for as long as it takes. Stamped at its last delta it
+    // would sort after tool calls it actually preceded.
+    const seen = transcript(
+      { kind: 'text', text: 'I have ', at: on(3, 10) },
+      { kind: 'text', text: 'read it', at: on(3, 11) },
+    );
+    const [said] = seen.filter((e) => e.kind === 'said');
+    expect(said.at).toBe(on(3, 10));
+  });
+
+  it('puts a date in when the conversation crosses midnight', () => {
+    const seen = transcript(
+      { kind: 'prompt', text: 'first', at: on(2, 23) },
+      { kind: 'prompt', text: 'second', at: on(3, 9) },
+      { kind: 'prompt', text: 'third', at: on(3, 10) },
+    );
+    // One at the top for the day it opens on, one where the day changes — and
+    // none between two messages on the same day.
+    expect(seen.map((e) => e.kind)).toEqual(['day', 'asked', 'day', 'asked', 'asked']);
+  });
+
+  it('invents no date for a transcript that does not say when', () => {
+    // A line is entitled not to carry a timestamp, and a made-up one is worse
+    // than none: it would date a conversation from June today.
+    const seen = transcript({ kind: 'prompt', text: 'when was this' });
+    expect(seen.map((e) => e.kind)).toEqual(['asked']);
+    expect(seen[0].at).toBeUndefined();
+  });
+});

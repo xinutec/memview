@@ -222,8 +222,22 @@ pub fn transcript_of(root: &Path, id: &str) -> Option<PathBuf> {
 /// 0` is the only honest way to say there is nothing older.
 #[derive(Debug)]
 pub struct Page {
-    pub events: Vec<crate::protocol::Event>,
+    pub events: Vec<crate::protocol::Timed>,
     pub from: u64,
+}
+
+/// Every event one transcript line carries, each wearing that line's time.
+///
+/// The stamp is per *line*, and a line can hold several events — an assistant
+/// message with two tool calls in it. They share the time, which is what the file
+/// says: it recorded when the message arrived, not when each block within it did.
+fn timed(line: &[u8]) -> Vec<crate::protocol::Timed> {
+    let text = String::from_utf8_lossy(line);
+    let at = crate::protocol::recorded_at(&text);
+    crate::protocol::read_recorded(&text)
+        .into_iter()
+        .map(|event| crate::protocol::Timed { at, event })
+        .collect()
 }
 
 /// What was said before the console was watching, and the page before that one.
@@ -307,7 +321,7 @@ pub fn page(path: &Path, before: Option<u64>) -> Page {
         let mut taken = 0usize;
         let mut first = lines.len();
         for (index, (_, line)) in lines.iter().enumerate().rev() {
-            let events = crate::protocol::read_recorded(&String::from_utf8_lossy(line));
+            let events = timed(line);
             if taken > 0 && taken + events.len() > REPLAY_EVENTS {
                 break;
             }
@@ -323,9 +337,9 @@ pub fn page(path: &Path, before: Option<u64>) -> Page {
             continue;
         }
 
-        let events: Vec<crate::protocol::Event> = lines[first..]
+        let events: Vec<crate::protocol::Timed> = lines[first..]
             .iter()
-            .flat_map(|(_, line)| crate::protocol::read_recorded(&String::from_utf8_lossy(line)))
+            .flat_map(|(_, line)| timed(line))
             .collect();
         let from = lines.get(first).map_or(0, |(offset, _)| *offset);
         return Page { events, from };

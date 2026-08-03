@@ -198,7 +198,7 @@ struct Earlier {
 
 #[derive(serde::Serialize)]
 struct Page {
-    events: Vec<console_protocol::Event>,
+    events: Vec<console_protocol::Timed>,
     /// The cursor for the page before this one. Zero means the start of the
     /// transcript: there is nothing older.
     from: u64,
@@ -241,7 +241,10 @@ async fn earlier(
 fn wire(stamped: Stamped) -> Sse {
     Sse::default()
         .id(stamped.seq.to_string())
-        .json_data(stamped.event)
+        .json_data(console_protocol::Timed {
+            at: stamped.at,
+            event: stamped.event,
+        })
         .unwrap_or_else(|err| {
             Sse::default().data(format!("{{\"kind\":\"trouble\",\"detail\":\"{err}\"}}"))
         })

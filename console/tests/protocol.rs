@@ -193,3 +193,130 @@ mod recorded {
         }
     }
 }
+
+/// What a tool returned, and when a line says it happened.
+///
+/// Both were missing from the wire, and both are the sort of absence that reads
+/// as a finished feature: a tool call showed a tick and no answer, and a
+/// conversation from June looked like it had happened this morning.
+mod detail {
+    use console::protocol::{Event, read, read_recorded, recorded_at};
+
+    /// A recorded tool result whose content is a bare string — 98.4% of them.
+    fn result(content: &str, error: bool) -> String {
+        format!(
+            r#"{{"type":"user","message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"t1","is_error":{error},"content":{}}}]}}}}"#,
+            serde_json::to_string(content).expect("json")
+        )
+    }
+
+    #[test]
+    fn a_tool_result_carries_what_it_said() {
+        let line = result("3 matches in src/main.rs", false);
+        assert!(matches!(
+            read_recorded(&line).as_slice(),
+            [Event::ToolResult { id, ok, detail, cut }]
+                if id == "t1" && *ok && detail == "3 matches in src/main.rs" && cut.is_none()
+        ));
+    }
+
+    #[test]
+    fn a_failure_carries_its_reason_and_not_just_its_verdict() {
+        // The case this matters most for: `ok: false` and nothing else is a
+        // session that stopped for a reason nobody can read.
+        let line = result("Permission denied", true);
+        assert!(matches!(
+            read_recorded(&line).as_slice(),
+            [Event::ToolResult { ok, detail, .. }] if !*ok && detail == "Permission denied"
+        ));
+    }
+
+    #[test]
+    fn the_live_reader_carries_it_too() {
+        // Two readers, one vocabulary. A result that is legible replayed and
+        // opaque live would be worse than either alone.
+        let line = result("done", false);
+        assert!(matches!(
+            read(&line).as_slice(),
+            [Event::ToolResult { detail, .. }] if detail == "done"
+        ));
+    }
+
+    #[test]
+    fn a_long_result_is_cut_and_admits_it() {
+        let whole = "x".repeat(9000);
+        let line = result(&whole, false);
+        let seen = read_recorded(&line);
+        let [Event::ToolResult { detail, cut, .. }] = seen.as_slice() else {
+            panic!("expected one tool result");
+        };
+        assert_eq!(detail.chars().count(), 2000);
+        assert_eq!(*cut, Some(9000), "a snippet has to say what it is part of");
+    }
+
+    #[test]
+    fn a_cut_never_lands_inside_a_character() {
+        // Every transcript here has some. Cut by bytes, the tail of the snippet
+        // is not text at all, and it is the *client* that then fails to render.
+        let whole = "é".repeat(3000);
+        let line = result(&whole, false);
+        let seen = read_recorded(&line);
+        let [Event::ToolResult { detail, cut, .. }] = seen.as_slice() else {
+            panic!("expected one tool result");
+        };
+        assert_eq!(detail.chars().count(), 2000);
+        assert_eq!(*cut, Some(3000));
+        assert!(detail.ends_with('é'));
+    }
+
+    #[test]
+    fn a_result_that_is_a_list_of_blocks_reads_as_well_as_one_that_is_a_string() {
+        // 1.6% of them, and they hold the images.
+        let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"a page"},{"type":"image","source":{}}]}]}}"#;
+        assert!(matches!(
+            read_recorded(line).as_slice(),
+            [Event::ToolResult { detail, .. }] if detail == "a page\n[an image]"
+        ));
+    }
+
+    #[test]
+    fn a_picture_says_so_rather_than_showing_nothing() {
+        // Rendered as an empty result it is indistinguishable from a tool that
+        // did nothing, and there is no way to tell those apart on screen.
+        let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"image","source":{}}]}]}}"#;
+        assert!(matches!(
+            read_recorded(line).as_slice(),
+            [Event::ToolResult { detail, .. }] if detail == "[an image]"
+        ));
+    }
+
+    #[test]
+    fn a_result_with_nothing_in_it_stays_empty() {
+        // Not every tool answers in words. An empty string serialises away, so
+        // the client is told nothing rather than told "".
+        let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1"}]}}"#;
+        assert!(matches!(
+            read_recorded(line).as_slice(),
+            [Event::ToolResult { detail, cut, .. }] if detail.is_empty() && cut.is_none()
+        ));
+    }
+
+    #[test]
+    fn a_line_says_when_it_happened() {
+        let line = r#"{"type":"user","timestamp":"2026-08-03T10:04:00.000Z","message":{"role":"user","content":"hello"}}"#;
+        assert_eq!(recorded_at(line), Some(1_785_751_440_000));
+    }
+
+    #[test]
+    fn a_line_that_does_not_say_is_not_guessed_at() {
+        // Stamping it with the clock would date a conversation from June today,
+        // which is worse than showing no time at all.
+        for line in [
+            r#"{"type":"user","message":{"role":"user","content":"hello"}}"#,
+            r#"{"type":"user","timestamp":"the other day","message":{"role":"user","content":"x"}}"#,
+            "not json at all",
+        ] {
+            assert_eq!(recorded_at(line), None, "{line}");
+        }
+    }
+}

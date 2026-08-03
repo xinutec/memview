@@ -49,6 +49,13 @@ export type Kind = (typeof KINDS)[number];
  *  field depends on it. */
 export interface SessionEvent {
   kind: Kind;
+  /** When it happened, in milliseconds since the epoch.
+   *
+   *  A live event is stamped as the runner sees it; a replayed one carries what
+   *  the transcript recorded, which for a resumed conversation may be weeks ago.
+   *  Absent when a transcript line did not say — never guessed at, because a
+   *  guess would date a conversation from June today. */
+  readonly at?: number;
   /** `joined` only: how many events above it were read from the transcript. */
   readonly earlier?: number;
   /** `joined` only: the byte offset the seed began at, and the cursor for asking
@@ -62,6 +69,9 @@ export interface SessionEvent {
   name?: string;
   input?: Record<string, unknown>;
   ok?: boolean;
+  /** `tool_result` only: the full length in characters, when `detail` is a cut
+   *  of it. Absent means what arrived is the whole of what the tool said. */
+  readonly cut?: number;
   cost_usd?: number;
   turns?: number;
   duration_ms?: number;
@@ -83,10 +93,21 @@ export interface SessionEvent {
  *  screen, and a tool's result belongs with the call it answers rather than
  *  wherever it happened to arrive. */
 export interface Entry {
-  kind: 'said' | 'asked' | 'thought' | 'tool' | 'turn' | 'note' | 'ask';
+  /** `day` is not a thing that happened — it is the date the entries after it
+   *  fall on, put in by [[fold]] when the conversation crosses midnight. */
+  kind: 'said' | 'asked' | 'thought' | 'tool' | 'turn' | 'note' | 'ask' | 'day';
   text: string;
+  /** When it happened, in milliseconds since the epoch. For a block built from
+   *  several deltas this is when the block *began*, which is what the reader
+   *  wants: an answer that took thirty seconds to arrive is filed where it
+   *  started, in order with what preceded it. */
+  at?: number;
   /** Tool entries only, once the result comes back. */
   ok?: boolean;
+  /** Tool entries only: what the tool returned, cut by the runner. */
+  detail?: string;
+  /** Tool entries only: the full length in characters, when `detail` is a cut. */
+  cut?: number;
   tool?: string;
   /** `ask` entries only: the control-request id to answer with, and the verdict
    *  once there is one. Undecided is the state that needs a person. */

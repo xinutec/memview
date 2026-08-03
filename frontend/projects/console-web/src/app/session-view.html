@@ -54,7 +54,16 @@
        message on screen in a single frame. -->
   @for (entry of visible(); track entry) {
     <li class="entry" [class]="entry.kind">
+      @if (entry.kind !== 'day' && entry.at) {
+        <!-- The time, not the date. Which day it was is the marker above. -->
+        <time class="at">{{ entry.at | clock }}</time>
+      }
       @switch (entry.kind) {
+        @case ('day') {
+          <!-- The rules either side of it are the `.day` row's own pseudo-
+               elements, so this span is only what sits between them. -->
+          <span>{{ entry.text }}</span>
+        }
         @case ('ask') {
           <div class="question">
             <div class="wants">
@@ -80,6 +89,21 @@
             <mat-icon class="ok" aria-label="succeeded">check</mat-icon>
           } @else {
             <mat-icon class="bad" aria-label="failed">error_outline</mat-icon>
+          }
+          @if (entry.detail) {
+            <!-- Native `details`: collapsed costs no script, and a tool result is
+                 long far more often than it is wanted. Open for a failure, which
+                 is the one somebody scrolled back to read. -->
+            <details class="result" [attr.open]="entry.ok === false ? '' : null">
+              <summary>
+                @if (entry.cut) {
+                  first {{ entry.detail.length }} of {{ entry.cut }} characters
+                } @else {
+                  what it said
+                }
+              </summary>
+              <pre>{{ entry.detail }}</pre>
+            </details>
           }
         }
         @case ('asked') {

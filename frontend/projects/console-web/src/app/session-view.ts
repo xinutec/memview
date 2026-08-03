@@ -19,6 +19,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
+import { Clock } from './clock';
 import { ConsoleApi } from './console-api';
 import { reason } from './errors';
 import { Foreground } from './foreground';
@@ -32,6 +33,7 @@ import { Held, SessionStore } from './session-store';
   templateUrl: './session-view.html',
   styleUrl: './session-view.scss',
   imports: [
+    Clock,
     FormsModule,
     MatButtonModule,
     MatIconModule,

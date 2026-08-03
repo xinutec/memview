@@ -42,6 +42,10 @@ rustls-pemfile = "2"
 # of that in the tree rather than two.
 x509-parser = { version = "0.17", features = ["verify"] }
 sha2 = "0.10"
+# RFC 3339 in the transcripts, read into epoch milliseconds. Already in the tree
+# under x509-parser, so this is a direct name for a crate that is compiled either
+# way rather than a new dependency.
+time = { version = "0.3", features = ["parsing"] }
 
 [dev-dependencies]
 # Test certificates, made in the test rather than committed: a keypair in the

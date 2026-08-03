@@ -22,6 +22,39 @@
 //! Verified against CLI 2.1.220; `tests/fixtures/turn.jsonl` is a real capture.
 
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
+
+/// How much of what a tool returned is carried to the client.
+///
+/// Chosen against the transcripts on this machine rather than guessed: over
+/// 151,000 recorded results, the median is 212 characters and 89% are shorter
+/// than this. The tail is long — the largest is 76,000 — which is the whole
+/// reason for a cap, but the common case is a handful of lines and arrives whole.
+///
+/// Failures are shorter still (median 127, 96% whole at this length), which is
+/// what makes taking the **head** rather than the tail the right cut: the case
+/// where a message hides at the end is the case that is almost never cut at all.
+const RESULT_SNIPPET: usize = 2000;
+
+/// An event and when it happened.
+///
+/// Separate from [`Event`] rather than a field on each variant, because the time
+/// is not part of what happened — it is what the console can say about it, and it
+/// comes from a different place depending on which. A live event is stamped when
+/// the console sees it; a replayed one carries the time the transcript recorded,
+/// which may be months ago. Flattened on the wire, so a client sees one object.
+///
+/// `at` is optional because a transcript line is entitled not to have one, and a
+/// conversation is still worth reading when it does not say when it happened. It
+/// is milliseconds since the epoch, like everything else numeric here.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Timed {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub at: Option<i64>,
+    #[serde(flatten)]
+    pub event: Event,
+}
 
 /// What the console tells its clients about a session.
 ///
@@ -65,9 +98,24 @@ pub enum Event {
         name: String,
         input: serde_json::Value,
     },
+    /// A tool call came back.
+    ///
+    /// ⚠ **`ok` alone is not an answer.** This carried the verdict and nothing
+    /// else, so reading a session back showed that a `grep` had run and succeeded
+    /// and not one word of what it found — which is usually the thing somebody
+    /// scrolled back to see. What it returned is here, cut to [`RESULT_SNIPPET`].
     ToolResult {
         id: String,
         ok: bool,
+        /// What it returned, as text. Empty when it returned nothing, or nothing
+        /// that is text — an image result says so in words instead.
+        #[serde(skip_serializing_if = "String::is_empty")]
+        detail: String,
+        /// The full length in characters, present only when `detail` is a cut of
+        /// it. A snippet that does not admit to being one is a lie about what the
+        /// tool said.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cut: Option<usize>,
     },
     /// One turn finished.
     Turn {
@@ -263,9 +311,65 @@ enum Block {
         tool_use_id: String,
         #[serde(default)]
         is_error: bool,
+        /// ⚠ Usually a bare string, sometimes a list of blocks — 98.4% against
+        /// 1.6% across the transcripts on this machine. [`Content`] already reads
+        /// both shapes, because the same split exists on user messages.
+        #[serde(default)]
+        content: Content,
     },
+    /// A picture a tool returned — a screenshot, a page of a PDF. Named rather
+    /// than swallowed by `Other`: a result rendered as nothing at all reads as a
+    /// tool that did nothing, and there is no way to tell the two apart on screen.
+    Image,
     #[serde(other)]
     Other,
+}
+
+/// What a tool returned, as text a phone can hold, and its true length when cut.
+///
+/// Text blocks only, joined. A tool result is not a document — it is what the
+/// session was told — so the shape it had on the wire is not worth preserving.
+fn returned(content: Content) -> (String, Option<usize>) {
+    let text = content
+        .blocks()
+        .into_iter()
+        .filter_map(|block| match block {
+            Block::Text { text } => Some(text),
+            Block::Image => Some("[an image]".to_string()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let whole = text.chars().count();
+    if whole <= RESULT_SNIPPET {
+        return (text, None);
+    }
+    // By characters, not bytes: a cut in the middle of one leaves a string that
+    // is not text, and every transcript here has some.
+    (text.chars().take(RESULT_SNIPPET).collect(), Some(whole))
+}
+
+/// One transcript line's own record of when it happened.
+///
+/// Read separately from [`Line`] rather than added to each of its variants: the
+/// timestamp sits beside the `type` tag rather than inside the message, and it is
+/// on lines this reader ignores as well as ones it does not.
+#[derive(Debug, Deserialize)]
+struct Recorded {
+    #[serde(default)]
+    timestamp: Option<String>,
+}
+
+/// When a transcript line says it happened, in milliseconds since the epoch.
+///
+/// RFC 3339, which is what Claude Code writes (`2026-08-03T10:04:00.000Z`).
+/// Parsed here rather than passed on as a string so that a line whose stamp we
+/// cannot read becomes "no time" once, on the way in, instead of an
+/// `Invalid Date` on a phone.
+pub fn recorded_at(line: &str) -> Option<i64> {
+    let recorded: Recorded = serde_json::from_str(line).ok()?;
+    let when = OffsetDateTime::parse(&recorded.timestamp?, &Rfc3339).ok()?;
+    Some((when.unix_timestamp_nanos() / 1_000_000) as i64)
 }
 
 #[derive(Debug, Deserialize)]
@@ -334,10 +438,16 @@ pub fn read(line: &str) -> Vec<Event> {
                 Block::ToolResult {
                     tool_use_id,
                     is_error,
-                } => Some(Event::ToolResult {
-                    id: tool_use_id,
-                    ok: !is_error,
-                }),
+                    content,
+                } => {
+                    let (detail, cut) = returned(content);
+                    Some(Event::ToolResult {
+                        id: tool_use_id,
+                        ok: !is_error,
+                        detail,
+                        cut,
+                    })
+                }
                 // A replayed prompt: the text this console sent, coming back.
                 Block::Text { text } => Some(Event::Prompt { text }),
                 _ => None,
@@ -442,10 +552,16 @@ pub fn read_recorded(line: &str) -> Vec<Event> {
                 Block::ToolResult {
                     tool_use_id,
                     is_error,
-                } => Some(Event::ToolResult {
-                    id: tool_use_id,
-                    ok: !is_error,
-                }),
+                    content,
+                } => {
+                    let (detail, cut) = returned(content);
+                    Some(Event::ToolResult {
+                        id: tool_use_id,
+                        ok: !is_error,
+                        detail,
+                        cut,
+                    })
+                }
                 Block::Text { text } if !is_plumbing(&text) => Some(Event::Prompt { text }),
                 _ => None,
             })

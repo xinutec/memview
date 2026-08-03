@@ -81,7 +81,19 @@ pub struct Summary {
 #[derive(Debug, Clone)]
 pub struct Stamped {
     pub seq: u64,
+    /// When it happened, in milliseconds since the epoch. See [`protocol::Timed`]
+    /// — a live event is stamped as it arrives, a replayed one carries what the
+    /// transcript recorded, and a transcript line need not have said.
+    pub at: Option<i64>,
     pub event: Event,
+}
+
+/// Now, in milliseconds since the epoch.
+fn now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
 }
 
 /// What a connecting client is owed, and whether what it already has is good.
@@ -221,12 +233,13 @@ impl Session {
             seed.from
         );
         let count = seed.events.len();
-        for event in seed.events {
-            self.push(event);
+        for timed in seed.events {
+            self.push_at(timed.event, timed.at);
         }
         // Last, so it sits between what was read and what we watch — and it
         // carries the cursor, which is the only thing that knows where this page
         // began. A client asking for what came before has nothing else to go on.
+        // Stamped now, because joining is the one thing here that did happen now.
         self.push(Event::Joined {
             earlier: count,
             from: seed.from,
@@ -413,8 +426,18 @@ impl Session {
         }
     }
 
-    /// Record an event and hand it to whoever is listening.
+    /// Record an event as having happened now.
     fn push(&self, event: Event) {
+        self.push_at(event, Some(now()));
+    }
+
+    /// Record an event and hand it to whoever is listening.
+    ///
+    /// `at` is passed rather than taken because a seeded event did not happen
+    /// now — it happened whenever the transcript says, which for a resumed
+    /// conversation may be weeks ago. Stamping those with the clock would put
+    /// today's date on every line of a conversation from June.
+    fn push_at(&self, event: Event, at: Option<i64>) {
         let stamped = {
             let mut state = self.state.lock().expect("session state poisoned");
             match &event {
@@ -448,6 +471,7 @@ impl Session {
             state.issued += 1;
             let stamped = Stamped {
                 seq: state.issued,
+                at,
                 event,
             };
             if state.log.len() >= SCROLLBACK {

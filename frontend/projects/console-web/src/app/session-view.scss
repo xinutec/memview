@@ -247,3 +247,84 @@
   display: block;
   margin: 0 auto 0.5rem;
 }
+
+// The clock sits in the margin rather than in the sentence.
+.entry {
+  position: relative;
+}
+
+.at {
+  position: absolute;
+  top: 0.35rem;
+  right: 0;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+// Reading content keeps its full width. An answer and the thinking before it
+// follow from the prompt above them, so a time there repeats what is already on
+// screen — and costs a tenth of a phone's line length to say it.
+.said > .at,
+.thought > .at {
+  display: none;
+}
+
+// Everything that does carry one leaves room for it.
+.entry.asked,
+.entry.tool,
+.entry.turn,
+.entry.note,
+.entry.ask {
+  padding-right: 3.2rem;
+}
+
+// The date the entries below it fall on — put in when the conversation crosses
+// midnight. Ruled and centred, because it is not a thing that happened and must
+// not read as one.
+.day {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.7rem 0 0.2rem;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+
+  &::before,
+  &::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--mat-sys-outline-variant);
+  }
+}
+
+// A tool row is one line until its result is opened, and then two.
+.tool {
+  flex-wrap: wrap;
+}
+
+// What the tool actually said. Collapsed, because a result is long far more often
+// than it is wanted, and capped in height — a page that grows by two thousand
+// characters on every call is one nobody can scroll.
+.result {
+  flex-basis: 100%;
+  font: var(--mat-sys-body-small);
+
+  summary {
+    cursor: pointer;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  pre {
+    margin: 0.4rem 0 0;
+    max-height: 40vh;
+    overflow: auto;
+    overscroll-behavior: contain;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: ui-monospace, monospace;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
