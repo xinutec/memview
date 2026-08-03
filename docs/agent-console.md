@@ -796,7 +796,10 @@ than spawning any.
   reseeding it is the more accurate answer.
 - ⚠ **The environment carries over**, so anything read from it at startup —
   `STATIC_DIR`, `CONSOLE_DIRS`, the TLS paths — keeps its old value. Changing one
-  needs a full restart.
+  needs a full restart. This is not theoretical: a console carried a superseded
+  `STATIC_DIR` through three upgrades and went on serving a directory each build
+  deleted, hours after the setting had been fixed. Nothing in the log says which
+  value is in force — `ps -Eww -o command= -p <pid>` does.
 - **The listening sockets are deliberately not carried.** They stay
   close-on-exec, so the port frees the instant the image is replaced and the new
   one binds it. Clients reconnect quoting `Last-Event-ID`.
@@ -816,11 +819,31 @@ The icons vanished on a reload and nothing recorded a failure: not the server
 log, not the client trace, not the network panel. `api::spa` 404s anything whose
 last path segment contains a dot.
 
-⚠ **`ng build` deletes its whole output path**, so a bundle served from there
-disappears for a second on every build. `pnpm run build:console` rsyncs into
-`frontend/dist/console-live` — **outside** the output path, and without deleting
-— so the previous build's hashed files stay behind and a page mid-load still
-finds its own. `STATIC_DIR` points there.
+⚠ **`ng build` deletes its whole output path**, so **nothing served may sit
+inside one**. The output path is `frontend/dist/console-build`, which is served
+to nobody; `pnpm run build:console` rsyncs from it — without deleting, so the
+previous build's hashed files stay behind and a page mid-load still finds its
+own. `STATIC_DIR` points at `frontend/dist/console-live`.
+
+The rule was learnt twice. First as "put the served copy outside the output
+path", which is why `console-live` exists. Then again, because **a running
+console keeps the environment it started with**: the console still serving
+`dist/console-web/browser` had been started before that change and had carried
+its old `STATIC_DIR` through three in-place upgrades, since `execve` preserves
+the environment on purpose. Every commit's pre-commit build deleted the directory
+it was serving, and a reload landing in that window got no stylesheet. It looked
+exactly like a dropped connection — an `/api/state` failing at status 0 in the
+same second — and was diagnosed as one until `ps -Eww` was actually read.
+
+Two lasting consequences:
+
+- **Moving the output path fixes it for processes nobody can reconfigure.** A
+  console with a stale `STATIC_DIR` now points at a directory no build deletes,
+  so it serves a complete bundle whatever it was told at startup. `build:console`
+  copies to both until no such console is left running.
+- **`STATIC_DIR` is not fixed by an upgrade.** `SIGUSR2` re-execs the same
+  environment; only a full restart re-reads the script. Anything read from the
+  environment at startup has this property — see the upgrade section.
 
 ## Build order
 

@@ -89,7 +89,7 @@
         "build": {
           "builder": "@angular/build:application",
           "options": {
-            "outputPath": "dist/console-web",
+            "outputPath": "dist/console-build",
             "browser": "projects/console-web/src/main.ts",
             "index": "projects/console-web/src/index.html",
             "tsConfig": "projects/console-web/tsconfig.app.json",
