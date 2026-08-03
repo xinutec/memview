@@ -102,6 +102,23 @@ const STATE = {
   ],
 };
 
+/**
+ * The same roster, long enough that the list cannot fit on a phone.
+ *
+ * ⚠ **The two-session fixture above is a screen and a half short of the defect.**
+ * The console drives a dozen sessions at once — that is what it is for — and
+ * every existing check passed a list that was quietly painting over the build
+ * stamp, because no fixture had ever made the page taller than the viewport.
+ */
+const CROWDED = {
+  ...STATE,
+  sessions: Array.from({ length: 12 }, (_, index) => ({
+    ...STATE.sessions[index % 2],
+    id: `6f7c2f11-0000-4000-8000-0000000${String(index + 10).padStart(5, '0')}`,
+    dir: REPOS[index % REPOS.length],
+  })),
+};
+
 /** Two fixed moments either side of midnight, so the date row between them is on
  *  screen for every run rather than on the runs that happen to straddle one. */
 const LATE = new Date(2026, 6, 30, 23, 52).getTime();
@@ -281,6 +298,65 @@ async function expectSendAlignsWithTheBox(page: Page): Promise<void> {
   expect(Math.abs(rows!.sendBottom - rows!.inputBottom)).toBeLessThan(8);
 }
 
+/**
+ * The stamp at the foot of the shell is not painted over by the page above it.
+ *
+ * ⚠ **A different failure from `expectNoPinnedOverlap`**, which compares the
+ * pinned regions with each other and never looks at the content. The shell is a
+ * `100dvh` column of toolbar, page and stamp, and `.page` is deliberately
+ * shrinkable — `min-height: 0` is what lets a flex item be shorter than what is
+ * inside it. Shorter, with `overflow: visible`, means the content is neither
+ * clipped nor scrolled: it spills out of the box and paints over the next row.
+ * So the check has to be against what the page actually holds.
+ */
+async function expectTheStampIsClear(page: Page): Promise<void> {
+  const clashes = await page.evaluate(() => {
+    const stamp = document.querySelector('.build')?.getBoundingClientRect();
+    if (!stamp) return ['no build stamp on this page'];
+
+    // ⚠ **What is painted, not what is laid out.** A card scrolled halfway out
+    // of a scrolling region still reports its whole box from
+    // `getBoundingClientRect` — the clipping is done by the ancestor, and it is
+    // the difference between the defect and the fix: the same card, at the same
+    // coordinates, is either over the stamp or cut off above it depending on one
+    // `overflow` declaration further up. So each box is intersected with every
+    // ancestor that actually clips.
+    const painted = (node: Element): DOMRect => {
+      let box = node.getBoundingClientRect();
+      for (let up = node.parentElement; up; up = up.parentElement) {
+        const style = getComputedStyle(up);
+        if (style.overflowY === 'visible' && style.overflowX === 'visible') continue;
+        const clip = up.getBoundingClientRect();
+        box = new DOMRect(
+          Math.max(box.left, clip.left),
+          Math.max(box.top, clip.top),
+          Math.max(0, Math.min(box.right, clip.right) - Math.max(box.left, clip.left)),
+          Math.max(0, Math.min(box.bottom, clip.bottom) - Math.max(box.top, clip.top)),
+        );
+      }
+      return box;
+    };
+
+    const bad: string[] = [];
+    // The cards, not every node: a box that overlaps is reported once, by the
+    // thing somebody can see, rather than once per span inside it.
+    for (const card of document.querySelectorAll('.page .session, .page .start, .page .past')) {
+      const box = painted(card);
+      const over =
+        Math.min(box.bottom, stamp.bottom) - Math.max(box.top, stamp.top) > 1 &&
+        Math.min(box.right, stamp.right) - Math.max(box.left, stamp.left) > 1;
+      if (over) {
+        bad.push(
+          `${card.className.split(' ')[0]} [${Math.round(box.top)}–${Math.round(box.bottom)}]` +
+            ` over .build [${Math.round(stamp.top)}–${Math.round(stamp.bottom)}]`,
+        );
+      }
+    }
+    return bad;
+  });
+  expect(clashes, 'the page paints over the build stamp').toEqual([]);
+}
+
 // The checker-checker: fail loudly here if the device preset is ever lost and
 // the "phone width" suite silently runs at desktop width.
 test('the suite really runs at phone geometry', async ({ page }) => {
@@ -299,6 +375,18 @@ test('session list — deep paths and long instructions @ phone width', async ({
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
   await expectThumbTargets(page);
+});
+
+test('session list — a dozen sessions do not reach the build stamp @ phone width', async ({
+  page,
+}, testInfo) => {
+  await mockRunner(page);
+  await page.route('**/api/state', (r) => r.fulfill({ json: CROWDED }));
+  await page.goto('/');
+  await expect(page.locator('.page .session')).toHaveCount(CROWDED.sessions.length);
+  await expectTheStampIsClear(page);
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
 });
 
 test('transcript — tool arguments and a fixed composer @ phone width', async ({

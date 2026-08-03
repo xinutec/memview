@@ -45,6 +45,14 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  // ⚠ **`min-height: 0` without this is a box that spills.** The pair is one
+  // decision, not two: `min-height: 0` exists only to let a flex item be shorter
+  // than what is inside it, and a box shorter than its content with
+  // `overflow: visible` neither clips nor scrolls — it paints straight over the
+  // row below. The stamp is that row, and a list of twelve sessions went through
+  // it. A view that scrolls its own region (the transcript does) never reaches
+  // this scrollbar; one that does not (the session list) gets it from here.
+  overflow-y: auto;
   // ⚠ **Vertical only.** Horizontal padding here insets everything a view puts
   // inside it, including the parts meant to reach the edges: the composer has
   // its own background and its own padding, and a page inset left it as a narrow
