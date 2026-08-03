@@ -1,15 +1,3 @@
-<!-- An icon button, not a filled text button holding an icon: the text
-       variant carries label padding and a min-width it will never use, so a
-       single glyph sat in a wide pill with the send arrow adrift inside it. -->
-<button
-  class="send"
-  matIconButton
-  type="submit"
-  aria-label="send"
-  [disabled]="sending() || !text()"
->
-  <mat-icon>send</mat-icon>
-</button>
 @if (session(); as session) {
   <header class="head">
     <div class="where">{{ session.dir }}</div>
@@ -189,7 +177,17 @@
       (keydown.control.enter)="send()"
     ></textarea>
   </mat-form-field>
-  <button class="send" matButton="filled" type="submit" [disabled]="sending() || !text()">
+  <!-- An icon button, not a filled text button holding an icon: the text variant
+       carries `min-width: 64px` and label padding it will never use, so a single
+       glyph sits adrift in a wide pill. DL-ANGULAR-ICON-ONLY-TEXT-BUTTON is the
+       rule that catches this; it was written from this button. -->
+  <button
+    class="send"
+    matIconButton
+    type="submit"
+    aria-label="send"
+    [disabled]="sending() || !text()"
+  >
     <mat-icon>send</mat-icon>
   </button>
 </form>
