@@ -46,7 +46,7 @@
   </button>
 }
 
-<ol class="transcript" #scroller>
+<ol class="transcript" #scroller (scroll)="onScroll()">
   <!-- Tracked by identity, not by index. `fold` extends an entry in place and
        hands back the same objects, so identity is stable — while an index is
        not: prepending a page of older messages shifts every one of them, and
@@ -90,20 +90,30 @@
           } @else {
             <mat-icon class="bad" aria-label="failed">error_outline</mat-icon>
           }
-          @if (entry.detail) {
-            <!-- Native `details`: collapsed costs no script, and a tool result is
-                 long far more often than it is wanted. Open for a failure, which
-                 is the one somebody scrolled back to read. -->
-            <details class="result" [attr.open]="entry.ok === false ? '' : null">
-              <summary>
-                @if (entry.cut) {
-                  first {{ entry.detail.length }} of {{ entry.cut }} characters
-                } @else {
-                  what it said
-                }
-              </summary>
-              <pre>{{ entry.detail }}</pre>
-            </details>
+          @if (entry.head) {
+            <!-- The first line, always. It is usually the whole answer, and it
+                 costs no height: the row was already this tall. -->
+            <span class="returned">{{ entry.head }}</span>
+          }
+          @if (entry.detail && (entry.cut || entry.detail !== entry.head)) {
+            <!-- A button rather than a `<details>`, for two reasons that both
+                 matter here. A closed `<details>` keeps its content in the DOM
+                 under `content-visibility: hidden` — still laid out, still
+                 measured, which the layout harness caught as forty-one text
+                 overlaps — and a transcript holds dozens of results. And a
+                 `summary` is a 20px target, where this is a control somebody
+                 aims at with a thumb. -->
+            <button class="unfold" matButton (click)="unfold(entry)">
+              <mat-icon>{{ shows(entry) ? 'expand_less' : 'expand_more' }}</mat-icon>
+              @if (entry.cut) {
+                first {{ entry.detail.length }} of {{ entry.cut }} characters
+              } @else {
+                the rest
+              }
+            </button>
+          }
+          @if (shows(entry)) {
+            <pre class="result">{{ entry.detail }}</pre>
           }
         }
         @case ('asked') {
@@ -128,15 +138,26 @@
 <form class="composer" (submit)="$event.preventDefault(); send()">
   <mat-form-field appearance="outline" class="box">
     <mat-label>say something</mat-label>
+    <!-- Grows with what is being typed. `rows="1"` meant an instruction of any
+         length was composed through a one-line slit, on the device this is
+         driven from — you could not see the sentence you were writing. Capped,
+         because past a third of the screen the composer is hiding the thing
+         being replied to.
+
+         `Ctrl+Enter` stays for the desk and is deliberately not the way in:
+         a soft keyboard has no Ctrl, so the button is the only send that has to
+         work. Enter is a newline, which is what a multi-line instruction needs. -->
     <textarea
       matInput
-      rows="1"
+      cdkTextareaAutosize
+      cdkAutosizeMinRows="1"
+      cdkAutosizeMaxRows="6"
       [(ngModel)]="text"
       name="text"
       (keydown.control.enter)="send()"
     ></textarea>
   </mat-form-field>
-  <button matButton="filled" type="submit" [disabled]="sending() || !text()">
+  <button class="send" matButton="filled" type="submit" [disabled]="sending() || !text()">
     <mat-icon>send</mat-icon>
   </button>
 </form>

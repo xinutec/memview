@@ -35,3 +35,88 @@ body {
   background: var(--mat-sys-surface);
   color: var(--mat-sys-on-surface);
 }
+
+// Every control in this app is operated by a thumb, usually one-handed, often on
+// a moving train — the phone is why the console exists, not a second target it
+// also has to work on. 48px is the Material guideline and Material's own buttons
+// come out at 40, so they are raised app-wide rather than page by page: the
+// layout harness checks the rendered box, and it found the toolbar link at 28px
+// on a screen nobody had thought to measure.
+//
+// `min-height`, so it beats the `height` Material sets from its own tokens.
+button,
+a.home {
+  min-height: 3rem;
+}
+
+a.home {
+  display: inline-flex;
+  align-items: center;
+}
+
+// What an answer's markdown renders as.
+//
+// ⚠ **Global on purpose, and it has to be.** This HTML comes from the `rendered`
+// pipe through `[innerHTML]`, so it is not part of any component template and
+// Angular's emulated encapsulation cannot address it — a component stylesheet
+// rewrites `pre` to `pre[_ngcontent-xxx]` and the injected element has no such
+// attribute. Scoped to `app-session-view` rather than turned loose, so the
+// generic names below cannot reach anything else.
+app-session-view .entry .body {
+  // Markdown brings its own block elements, and their default margins double up
+  // against the list's spacing.
+  > :first-child {
+    margin-top: 0;
+  }
+
+  > :last-child {
+    margin-bottom: 0;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font: var(--mat-sys-title-small);
+    margin: 0.8rem 0 0.3rem;
+  }
+
+  code {
+    font-family: ui-monospace, monospace;
+  }
+
+  pre {
+    // ⚠ **Wrapped, not scrolled.** This was `overflow-x: auto`, which keeps the
+    // page from widening and hands the reader a horizontal scroller inside a
+    // vertical one instead — on a phone that is a trap: the drag meant to move
+    // the page moves the code, and it takes both hands to read a line. Most code
+    // blocks are wider than 412px, so it was the normal case rather than the
+    // edge one. Wrapping loses the shape of the indentation and keeps the words,
+    // which is the right way round on a screen this size.
+    //
+    // The layout harness never saw it: no fixture had an answer with code in it
+    // until one did, and then it was 618px over the edge.
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    padding: 0.5rem;
+    border-radius: 4px;
+    background: var(--mat-sys-surface-container-high);
+  }
+
+  table {
+    display: block;
+    overflow-x: auto;
+    border-collapse: collapse;
+
+    th,
+    td {
+      border: 1px solid var(--mat-sys-outline-variant);
+      padding: 0.2rem 0.4rem;
+      text-align: left;
+    }
+  }
+
+  ul,
+  ol {
+    padding-left: 1.2rem;
+  }
+}

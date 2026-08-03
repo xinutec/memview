@@ -106,6 +106,10 @@ export interface Entry {
   ok?: boolean;
   /** Tool entries only: what the tool returned, cut by the runner. */
   detail?: string;
+  /** Tool entries only: the first line of [detail], which the row shows without
+   *  being asked. Kept apart rather than split at render time — the template
+   *  reads it on every change-detection pass. */
+  head?: string;
   /** Tool entries only: the full length in characters, when `detail` is a cut. */
   cut?: number;
   tool?: string;

@@ -67,6 +67,8 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: 1.5;
+  // The anchor the clock in the margin is positioned against.
+  position: relative;
 }
 
 // What was asked reads as the reader's own voice: indented, quieter, and
@@ -160,7 +162,9 @@
 .composer {
   flex: 0 0 auto;
   display: flex;
-  align-items: center;
+  // Bottom, not centre: the box grows upward as an instruction is typed, and a
+  // send button that drifts up the screen with it is one you have to look for.
+  align-items: flex-end;
   gap: 0.5rem;
   padding: 0.5rem 1rem calc(0.5rem + env(safe-area-inset-bottom));
   background: var(--mat-sys-surface-container);
@@ -193,55 +197,15 @@
   padding-left: 0.6rem;
 }
 
-.entry .body {
-  // Markdown brings its own block elements, and their default margins double up
-  // against the list's spacing.
-  > :first-child {
-    margin-top: 0;
-  }
-
-  > :last-child {
-    margin-bottom: 0;
-  }
-
-  h1,
-  h2,
-  h3 {
-    font: var(--mat-sys-title-small);
-    margin: 0.8rem 0 0.3rem;
-  }
-
-  code {
-    font-family: ui-monospace, monospace;
-  }
-
-  pre {
-    // The one thing that must never widen the page — a long command line would
-    // otherwise make every screen scroll sideways.
-    overflow-x: auto;
-    padding: 0.5rem;
-    border-radius: 4px;
-    background: var(--mat-sys-surface-container-high);
-  }
-
-  table {
-    display: block;
-    overflow-x: auto;
-    border-collapse: collapse;
-
-    th,
-    td {
-      border: 1px solid var(--mat-sys-outline-variant);
-      padding: 0.2rem 0.4rem;
-      text-align: left;
-    }
-  }
-
-  ul,
-  ol {
-    padding-left: 1.2rem;
-  }
-}
+// The markdown an answer renders as is styled in styles.scss, not here.
+//
+// ⚠ **Component styles cannot reach it.** Emulated encapsulation rewrites every
+// selector to `pre[_ngcontent-xxx]`, and HTML put in by `[innerHTML]` carries no
+// such attribute — so a whole block of headings, code, table and list rules sat
+// here doing nothing, and had been since it was written. Nothing said so: the
+// page looked plausible because unstyled markdown still renders, and the layout
+// harness had no fixture with code in an answer until it did, and then the block
+// was 618px past the right edge.
 
 .earlier {
   display: block;
@@ -249,10 +213,6 @@
 }
 
 // The clock sits in the margin rather than in the sentence.
-.entry {
-  position: relative;
-}
-
 .at {
   position: absolute;
   top: 0.35rem;
@@ -263,17 +223,20 @@
   pointer-events: none;
 }
 
-// Reading content keeps its full width. An answer and the thinking before it
-// follow from the prompt above them, so a time there repeats what is already on
-// screen — and costs a tenth of a phone's line length to say it.
+// Most rows keep their full width. An answer and the thinking before it follow
+// from the prompt above them, so a time there repeats what is already on screen;
+// and a tool row is the most width-starved line on the page — its argument is a
+// path or a command and is already being ellipsised, so a clock in the margin is
+// paid for out of the one string that needed the room. The turn line under the
+// burst carries the time for all of them.
 .said > .at,
-.thought > .at {
+.thought > .at,
+.tool > .at {
   display: none;
 }
 
 // Everything that does carry one leaves room for it.
 .entry.asked,
-.entry.tool,
 .entry.turn,
 .entry.note,
 .entry.ask {
@@ -305,26 +268,54 @@
   flex-wrap: wrap;
 }
 
-// What the tool actually said. Collapsed, because a result is long far more often
-// than it is wanted, and capped in height — a page that grows by two thousand
-// characters on every call is one nobody can scroll.
-.result {
+// The first line of what the tool said, on the row itself. One line, ellipsised
+// the way the argument above it is: it answers the question most of the time and
+// the row was already this tall.
+.returned {
   flex-basis: 100%;
   font: var(--mat-sys-body-small);
+  font-family: ui-monospace, monospace;
+  color: var(--mat-sys-on-surface-variant);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-  summary {
-    cursor: pointer;
-    color: var(--mat-sys-on-surface-variant);
-  }
+// The way to the rest. Left-aligned under the row rather than centred, so the
+// thumb finds it in the same place on every result.
+.unfold {
+  align-self: flex-start;
+  margin-left: -0.5rem;
+}
 
-  pre {
-    margin: 0.4rem 0 0;
-    max-height: 40vh;
-    overflow: auto;
-    overscroll-behavior: contain;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    font-family: ui-monospace, monospace;
-    color: var(--mat-sys-on-surface-variant);
-  }
+// What the tool actually said, once asked for. Capped in height — a page that
+// grows by two thousand characters on every call is one nobody can scroll — and
+// wrapped rather than scrolled sideways, because a horizontal scroller inside a
+// vertical one is a trap for a thumb.
+.result {
+  flex-basis: 100%;
+  margin: 0.2rem 0 0;
+  max-height: 40vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: var(--mat-sys-body-small);
+  font-family: ui-monospace, monospace;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+// The send button is square and full-height rather than text-shaped: it is the
+// most-pressed control in the app and the only one that has to work with no
+// keyboard at all.
+.send {
+  min-width: 3rem;
+  padding: 0;
+}
+
+// Two decisions, side by side and each half the screen. They were text-sized
+// buttons on a line with a shell command — the smallest targets on the page
+// attached to the only irreversible choice on it.
+.choose button {
+  flex: 1;
 }

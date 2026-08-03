@@ -46,6 +46,12 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
       // succeeded, and never what it found.
       call.detail = event.detail;
       call.cut = event.cut;
+      // The first line, kept separately because it is what the row shows without
+      // being asked. A result's answer is usually its first line — `3`, `done`,
+      // `error: unknown flag` — so one line in the row answers the question most
+      // of the time and costs no height at all, which on a phone is the whole
+      // difference between a fact being there and being two taps away.
+      call.head = (event.detail ?? '').split('\n', 1)[0];
       break;
     }
     case 'ask':

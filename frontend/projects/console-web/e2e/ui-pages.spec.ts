@@ -1,4 +1,4 @@
-import { test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 // The fleet-shared harness, published as @xinutec/ui-harness (source repo
 // ~/Code/ui-harness). Ships compiled JS, so it loads straight from node_modules.
 import {
@@ -26,6 +26,42 @@ test.use({ serviceWorkers: "block" });
  *  working. Allowed by selector rather than by turning the check off, so a real
  *  overflow on the same page still fails. */
 const BUSY_BAR = ["mat-progress-bar"];
+
+/** The Material target size, and the size Material's own buttons are not. */
+const THUMB = 48;
+
+/**
+ * Every control a thumb has to hit, and whether it can be hit.
+ *
+ * This page is driven one-handed on a moving train, so the size of a control is
+ * a functional property rather than a styling one — and it is not readable from
+ * the source: Material sets button height through its own tokens, so what a
+ * control ends up as is only knowable from a rendered box.
+ *
+ * Buttons and links only. A `summary` — the disclosure on a tool result — is
+ * deliberately left out and kept compact instead: a transcript holds dozens of
+ * tool calls, and 48px each would cost a screenful of dead space in the reading
+ * that is this page's main job, against a mis-tap whose worst outcome is opening
+ * the wrong result.
+ */
+async function expectThumbTargets(page: Page, min = THUMB): Promise<void> {
+  const small = await page.evaluate((least) => {
+    const missed: { label: string; width: number; height: number }[] = [];
+    for (const control of document.querySelectorAll("button, a[href]")) {
+      const box = control.getBoundingClientRect();
+      // Not rendered at all — a disabled control in a collapsed branch.
+      if (box.width === 0 && box.height === 0) continue;
+      if (box.height >= least && box.width >= least) continue;
+      missed.push({
+        label: (control.textContent ?? "").trim().slice(0, 40) || control.className,
+        width: Math.round(box.width),
+        height: Math.round(box.height),
+      });
+    }
+    return missed;
+  }, min);
+  expect(small, `controls smaller than ${min}px in either direction`).toEqual([]);
+}
 
 const REPOS = [
   "/home/example/Code/health",
@@ -65,23 +101,41 @@ const STATE = {
   ],
 };
 
+/** Two fixed moments either side of midnight, so the date row between them is on
+ *  screen for every run rather than on the runs that happen to straddle one. */
+const LATE = new Date(2026, 6, 30, 23, 52).getTime();
+const NEXT = new Date(2026, 6, 31, 8, 14).getTime();
+
+/** What a `Read` of a long file comes back as: the runner cuts it, and the page
+ *  has to hold the cut without widening — the lines are unwrapped source. */
+const LONG_RESULT = Array.from(
+  { length: 30 },
+  (_, line) =>
+    `   ${line + 1}\texport const quantiseLegCost = (leg: MatcherLeg, budget: number): number =>`,
+).join("\n");
+
 /** A transcript with every entry kind, and the arguments that are hardest to
- *  fit: an absolute path, a piped shell command, a failed call. */
+ *  fit: an absolute path, a piped shell command, a failed call, a cut tool
+ *  result, and an answer carrying a fenced code block of unbreakable lines. */
 const TRANSCRIPT = [
-  { kind: "started", model: "claude-opus-5[1m]", cwd: STATE.sessions[0].dir, tools: 30 },
+  { kind: "started", model: "claude-opus-5[1m]", cwd: STATE.sessions[0].dir, tools: 30, at: LATE },
   {
     kind: "prompt",
     text: "Port the remaining matcher gate to Lean and prove it bit-exact against the TypeScript quant twin.",
+    at: LATE,
   },
-  { kind: "thinking", text: "The gate lives in decode/gate.ts and the Lean side already has the population step, so " },
+  { kind: "thinking", text: "The gate lives in decode/gate.ts and the Lean side already has the population step, so ", at: LATE },
   { kind: "thinking", text: "the missing piece is the leg quantisation cost." },
   {
     kind: "tool",
     id: "toolu_01",
     name: "Read",
     input: { file_path: "/home/example/Code/health/packages/health-sync-backend/src/decode/matcher-gate.ts" },
+    at: NEXT,
   },
-  { kind: "tool_result", id: "toolu_01", ok: true },
+  // A result the runner had to cut: unwrapped source, which is the widest single
+  // thing this page can be asked to hold.
+  { kind: "tool_result", id: "toolu_01", ok: true, detail: LONG_RESULT, cut: 48213 },
   {
     kind: "tool",
     id: "toolu_02",
@@ -91,10 +145,24 @@ const TRANSCRIPT = [
         "nix develop -c lake build && ./verified_cli match --serve --timeout 30000ms | tee /tmp/lean-gate.log",
     },
   },
-  { kind: "tool_result", id: "toolu_02", ok: false },
+  // A failure, whose result the page opens by default — the one somebody
+  // scrolled back to read.
+  {
+    kind: "tool_result",
+    id: "toolu_02",
+    ok: false,
+    detail: "error: unknown flag --serve\nnote: run with --help for a list\nexit status 2",
+  },
   { kind: "text", text: "The build fails on `quantiseLegCost`: the Lean version rounds half-to-even and " },
   { kind: "text", text: "the TypeScript one rounds half-away-from-zero, so the two disagree on exactly the ties." },
-  { kind: "turn", cost_usd: 0.3312, turns: 1, duration_ms: 48210 },
+  // An answer carrying code. A fenced block is one unbreakable line, and it is
+  // the commonest thing an answer holds that a 412px screen cannot fit.
+  {
+    kind: "text",
+    text:
+      "\n\n```ts\nconst quantiseLegCost = (leg: MatcherLeg, budget: number): number => Math.round(leg.seconds * budget * QUANT_SCALE) / QUANT_SCALE;\n```\n",
+  },
+  { kind: "turn", cost_usd: 0.3312, turns: 1, duration_ms: 48210, at: NEXT },
   // A question, undecided: the widest thing on the page, since it carries a
   // whole command AND two buttons on one 412px line.
   {
@@ -103,6 +171,7 @@ const TRANSCRIPT = [
     tool: "Bash",
     title: "Claude wants to run nix develop -c lake build --verbose 2>&1 | tee /tmp/lean.log",
     input: { command: "nix develop -c lake build --verbose 2>&1 | tee /tmp/lean.log" },
+    at: NEXT,
   },
 ];
 
@@ -137,6 +206,7 @@ test("session list — deep paths and long instructions @ phone width", async ({
   await expectIconFontLoaded(page);
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
+  await expectThumbTargets(page);
 });
 
 test("transcript — tool arguments and a fixed composer @ phone width", async ({ page }, testInfo) => {
@@ -159,6 +229,10 @@ test("transcript — an undecided question with its two buttons @ phone width", 
   await page.getByRole("button", { name: "allow" }).waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  // The decision and the send button on one screen: the controls whose size is
+  // the difference between answering from a train and waiting until you are off
+  // it.
+  await expectThumbTargets(page);
 });
 
 test("session list — a blocked session says so first @ phone width", async ({ page }, testInfo) => {
@@ -176,6 +250,44 @@ test("transcript — thinking unfolded is the longest the page gets @ phone widt
   await page.goto(`/s/${STATE.sessions[0].id}`);
   await page.getByRole("button", { name: /show thinking/ }).click();
   await page.getByText("quantisation").first().waitFor();
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+});
+
+test("the composer grows with what is being typed @ phone width", async ({ page }, testInfo) => {
+  // The reason this exists: `rows="1"` meant a long instruction was written
+  // through a one-line slit, on the device the console is driven from. jsdom has
+  // no layout, so only a real browser can say whether the box actually grew.
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  const box = page.locator("textarea");
+  await box.waitFor();
+  const oneLine = (await box.boundingBox())!.height;
+
+  await box.fill("port the gate\nprove it bit-exact\nthen run the golden set\nand report what moved");
+  const grown = (await box.boundingBox())!.height;
+  expect(grown, "four lines have to be visible as four lines").toBeGreaterThan(oneLine);
+
+  // And it stops. Past a third of the screen the composer is hiding the thing
+  // being replied to, which is worse than not seeing the whole instruction.
+  await box.fill(Array.from({ length: 40 }, (_, line) => `line ${line}`).join("\n"));
+  const capped = (await box.boundingBox())!.height;
+  const viewport = page.viewportSize()!.height;
+  expect(capped, "the composer must not eat the transcript").toBeLessThan(viewport / 2);
+
+  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectThumbTargets(page);
+});
+
+test("a tool result opens without widening the page @ phone width", async ({ page }, testInfo) => {
+  // Unwrapped source, two thousand characters of it, on a 412px screen — the
+  // widest single thing the transcript can be asked to hold.
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  const unfold = page.getByRole("button", { name: /characters/ });
+  await unfold.waitFor();
+  await unfold.click();
+  await page.getByText("quantiseLegCost", { exact: false }).first().waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
 });

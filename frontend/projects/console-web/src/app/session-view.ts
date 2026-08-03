@@ -12,6 +12,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { TextFieldModule } from '@angular/cdk/text-field';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -41,6 +42,7 @@ import { Held, SessionStore } from './session-store';
     MatInputModule,
     MatProgressBarModule,
     Rendered,
+    TextFieldModule,
   ],
 })
 export class SessionView implements OnDestroy {
@@ -104,6 +106,21 @@ export class SessionView implements OnDestroy {
     // transcript below them heals itself — EventSource reconnects and replays
     // from the top — and these totals have nothing that would.
     this.foreground.onReturn(() => this.refresh(), this.until);
+    // The soft keyboard is the biggest layout change this page ever sees: it
+    // takes something like half the screen, and the transcript is what gives way
+    // — `interactive-widget=resizes-content` shrinks the viewport rather than
+    // sliding the page up. Nothing moves the scroll position, so the newest
+    // message ends up below the fold at the exact moment somebody is answering
+    // it. `visualViewport` is what reports the keyboard; a window resize does
+    // not fire for it.
+    const viewport = window.visualViewport;
+    if (viewport) {
+      // A frame later: the height the browser reports during the event is the
+      // one from before it.
+      const settle = () => requestAnimationFrame(() => this.follow());
+      viewport.addEventListener('resize', settle);
+      this.until.onDestroy(() => viewport.removeEventListener('resize', settle));
+    }
     // A frame after the entries change, not with them: `follow` reads a height
     // that does not exist until the browser has laid the new nodes out.
     // `afterRenderEffect` was the first thing tried here and never ran — proven
@@ -145,19 +162,36 @@ export class SessionView implements OnDestroy {
    *
    * Only while the reader is already at the bottom: yanking the view down while
    * somebody is reading back through the morning is worse than not following at
-   * all. `NEAR` is the slack — a few lines, so a partly-scrolled view still
-   * counts as following.
-   *
+   * all.
    */
   private follow(): void {
     const box = this.scroller()?.nativeElement;
     if (!box) return;
-    const NEAR = 120;
-    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < NEAR;
-    if (atBottom || !this.settled) {
+    if (this.pinned || !this.settled) {
       box.scrollTop = box.scrollHeight;
       this.settled = true;
     }
+  }
+
+  /**
+   * Whether the reader is at the newest message.
+   *
+   * ⚠ **Remembered as they scroll, not measured when it is wanted.** It was
+   * measured, and the moment it is wanted includes the soft keyboard opening:
+   * by then the transcript has already lost half its height, so the arithmetic
+   * says "several hundred pixels from the bottom" about a reader who has not
+   * moved — and the message they tapped the box to answer slides off the screen
+   * exactly as they start typing.
+   */
+  private pinned = true;
+
+  /** `NEAR` is the slack: a few lines, so a partly-scrolled view still counts as
+   *  following rather than as having been left behind. */
+  onScroll(): void {
+    const box = this.scroller()?.nativeElement;
+    if (!box) return;
+    const NEAR = 120;
+    this.pinned = box.scrollHeight - box.scrollTop - box.clientHeight < NEAR;
   }
 
   /** Whether the first render has happened; before it there is nothing to keep. */
@@ -216,6 +250,32 @@ export class SessionView implements OnDestroy {
         this.sending.set(false);
         this.trouble.set(reason(err));
       },
+    });
+  }
+
+  /**
+   * The tool results whose whole output is on screen.
+   *
+   * Held here rather than on the entry because it is about this reading of the
+   * conversation rather than about the conversation — leaving a session and
+   * coming back opens every result closed again, which is the predictable
+   * answer. Everything starts closed, failures included: a blob that expands
+   * itself moves the page under somebody who is reading it, and the red mark on
+   * the row already says which one to open.
+   */
+  private readonly opened = signal(new Set<Entry>());
+
+  /** Takes the entry, so it cannot be a `computed` — and is a set lookup, which
+   *  is what makes it cheap enough to run for every row on every pass. */
+  shows(entry: Entry): boolean {
+    return this.opened().has(entry);
+  }
+
+  unfold(entry: Entry): void {
+    this.opened.update((open) => {
+      const next = new Set(open);
+      if (!next.delete(entry)) next.add(entry);
+      return next;
     });
   }
 

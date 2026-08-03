@@ -136,6 +136,30 @@ describe('transcript · time and detail', () => {
     expect(tool.cut).toBeUndefined();
   });
 
+  it('keeps the first line apart, because that is what the row shows', () => {
+    // A result's answer is usually its first line, and one line on the row costs
+    // no height at all — which on a phone is the difference between a fact being
+    // there and being a tap away.
+    const seen = transcript(
+      { kind: 'tool', id: 'a', name: 'Bash', input: { command: 'lake build' } },
+      { kind: 'tool_result', id: 'a', ok: false, detail: 'error: unknown flag\nnote: try --help' },
+    );
+    const [tool] = seen.filter((e) => e.kind === 'tool');
+    expect(tool.head).toBe('error: unknown flag');
+    expect(tool.detail).toBe('error: unknown flag\nnote: try --help');
+  });
+
+  it('says nothing extra when the whole result is one line', () => {
+    // The head and the detail being equal is how the view knows there is no
+    // "the rest" to offer.
+    const seen = transcript(
+      { kind: 'tool', id: 'a', name: 'Bash', input: { command: 'true' } },
+      { kind: 'tool_result', id: 'a', ok: true, detail: 'done' },
+    );
+    const [tool] = seen.filter((e) => e.kind === 'tool');
+    expect(tool.head).toBe(tool.detail);
+  });
+
   it('keeps the true length when the runner cut the result', () => {
     const seen = transcript(
       { kind: 'tool', id: 'a', name: 'Read', input: { file_path: '/tmp/big' } },
