@@ -79,6 +79,20 @@
   font-family: ui-monospace, monospace;
 }
 
+// What the session may do without asking; see modes.ts. Loud only for the two
+// the CLI itself colours as errors, so a list of sessions shows at a glance
+// which of them will not stop to ask.
+.mode {
+  font-weight: 500;
+}
+
+.mode.loud {
+  padding: 0 0.4rem;
+  border-radius: 0.75rem;
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+}
+
 .trouble {
   color: var(--mat-sys-error);
 }

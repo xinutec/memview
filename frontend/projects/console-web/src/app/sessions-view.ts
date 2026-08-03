@@ -15,6 +15,7 @@ import { ConsoleApi } from './console-api';
 import { reason } from './errors';
 import { Foreground } from './foreground';
 import { Conversation, Overview, Summary } from './models';
+import { modeIsLoud, modeTitle } from './modes';
 import { costMatters } from './budget';
 import { Updates } from './updates';
 import { PastStore } from './past-store';
@@ -161,6 +162,16 @@ export class SessionsView {
   /** The last path element, which is what a repository is called. */
   place(session: Summary): string {
     return session.dir.split('/').filter(Boolean).pop() ?? session.dir;
+  }
+
+  /** What this session may do without asking, in the CLI's own words. */
+  modeOf(session: Summary): string | undefined {
+    return modeTitle(session.mode);
+  }
+
+  /** Whether that mode is one the CLI itself colours as an error. */
+  modeLoud(session: Summary): boolean {
+    return modeIsLoud(session.mode);
   }
 
   /** Whether this session's cost is worth showing at all. See budget.ts. */

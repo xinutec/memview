@@ -112,6 +112,10 @@
             @if (costMatters(session)) {
               <span>{{ cost(session) }}</span>
             }
+            @if (modeOf(session); as mode) {
+              <span class="mode" [class.loud]="modeLoud(session)">{{ mode }}</span>
+            }
+
             @if (session.model) {
               <span class="model">{{ session.model }}</span>
             }

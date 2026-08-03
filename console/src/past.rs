@@ -248,9 +248,33 @@ const REPLAY_EVENTS: usize = 400;
 /// Cheap despite the file being enormous: [`name_of`] reads the last
 /// [`TAIL_BYTES`] and no more.
 pub fn named(root: &Path, id: &str) -> Option<String> {
-    let path = transcript_of(root, id)?;
-    let len = std::fs::metadata(&path).ok()?.len();
-    name_of(&path, len)
+    facts(root, id).name
+}
+
+/// What a live session says about itself that the stream never mentions.
+///
+/// Both of these are written to the transcript and announced nowhere else, and
+/// both change while a session runs — it is renamed as its job changes, and the
+/// permission mode is whatever it was last set to. So both are read per request
+/// from the file, and read **together**: one 128 KiB tail rather than two.
+#[derive(Debug, Default, Clone)]
+pub struct Facts {
+    pub name: Option<String>,
+    /// `default`, `auto`, `acceptEdits`, `plan`, `bypassPermissions`,
+    /// `dontAsk` — the CLI's own vocabulary, read off the 2.1.220 binary's
+    /// declared enum rather than guessed. `None` until the session records one.
+    pub mode: Option<String>,
+}
+
+/// See [`Facts`].
+pub fn facts(root: &Path, id: &str) -> Facts {
+    let Some(path) = transcript_of(root, id) else {
+        return Facts::default();
+    };
+    let Ok(len) = std::fs::metadata(&path).map(|meta| meta.len()) else {
+        return Facts::default();
+    };
+    facts_of(&path, len)
 }
 
 /// How many times someone has spoken to this session since it was last compacted.
@@ -454,7 +478,7 @@ fn read(path: &Path) -> Option<Conversation> {
         dir: cwd_of(path)?,
         modified,
         bytes: meta.len(),
-        name: name_of(path, meta.len()),
+        name: facts_of(path, meta.len()).name,
         // Filled in by `conversations`, which reads the process table once for
         // the whole list rather than once per file.
         busy: false,
@@ -499,14 +523,23 @@ fn cwd_of(path: &Path) -> Option<String> {
 /// mid-line and possibly mid-character, so the first line is expected to be
 /// rubbish and unparseable lines are skipped rather than treated as the end of
 /// the file.
-fn name_of(path: &Path, len: u64) -> Option<String> {
+fn facts_of(path: &Path, len: u64) -> Facts {
     use std::io::{Read, Seek, SeekFrom};
 
-    let mut file = std::fs::File::open(path).ok()?;
-    file.seek(SeekFrom::Start(len.saturating_sub(TAIL_BYTES)))
-        .ok()?;
+    let mut facts = Facts::default();
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return facts;
+    };
+    if file
+        .seek(SeekFrom::Start(len.saturating_sub(TAIL_BYTES)))
+        .is_err()
+    {
+        return facts;
+    }
     let mut tail = Vec::new();
-    file.take(TAIL_BYTES).read_to_end(&mut tail).ok()?;
+    if file.take(TAIL_BYTES).read_to_end(&mut tail).is_err() {
+        return facts;
+    }
 
     let mut title = None;
     let mut agent = None;
@@ -520,6 +553,17 @@ fn name_of(path: &Path, len: u64) -> Option<String> {
         if let Some(found) = value.get("agentName").and_then(|v| v.as_str()) {
             agent = Some(found.to_string());
         }
+        // ⚠ **Keyed on the line type, not on the field.** `permissionMode` is on
+        // six kinds of line in one real transcript — including `text` and
+        // `assistant`, where it is a conversation that happened to mention the
+        // word. A scan for the field alone reads the mode off somebody quoting
+        // it. `permission-mode` lines are the CLI's own record of the setting.
+        if value.get("type").and_then(|v| v.as_str()) == Some("permission-mode")
+            && let Some(found) = value.get("permissionMode").and_then(|v| v.as_str())
+        {
+            facts.mode = Some(found.to_string());
+        }
     }
-    title.or(agent).filter(|name| !name.trim().is_empty())
+    facts.name = title.or(agent).filter(|name| !name.trim().is_empty());
+    facts
 }

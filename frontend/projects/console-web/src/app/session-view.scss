@@ -47,6 +47,22 @@
   font-family: ui-monospace, monospace;
 }
 
+// What the session may do without asking. Stated plainly, because for most of
+// the modes that is all it is.
+.mode {
+  font-weight: 500;
+}
+
+// The two the CLI itself colours as errors: nothing is asked before it happens.
+// Loud on purpose — it is the one fact on this header that changes what every
+// other thing on the screen means.
+.mode.loud {
+  padding: 0 0.4rem;
+  border-radius: 0.75rem;
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+}
+
 .transcript {
   list-style: none;
   padding: 0 0 1rem;

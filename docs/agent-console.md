@@ -263,6 +263,29 @@ approval travels the same channel as the instruction, which is sound because tha
 channel is authenticated end to end by a key amun cannot produce. The cost is
 that every tool call needs a tap; see *Open decisions*.
 
+**The mode in force is shown, and it is read from the transcript.** The stream
+announces it once, on the init line, and it changes whenever somebody presses
+shift-tab — so the file is the only place that knows the current one, and it is
+read from the tail per request alongside the session's name (one read, not two:
+`past::Facts`).
+
+- ⚠ **Key on the line type, not the field.** `permissionMode` rides on six kinds
+  of line in one real transcript, including `text` and `assistant`, where it is a
+  conversation that happened to be *about* permission modes. Only
+  `"type":"permission-mode"` lines are the CLI's record of the setting.
+- ⚠ **The stored name is not the shown name.** `default` displays as *Manual*,
+  which is why the modes feel like four-with-one-called-auto while the wire
+  carries six: `plan`, `default`, `dontAsk`, `acceptEdits`, `auto`,
+  `bypassPermissions`. The client keeps the CLI's own label table (`modes.ts`)
+  rather than title-casing the stored names into a vocabulary that disagrees with
+  the tool the same person is using.
+- **An unknown mode is shown as it arrived**, never dropped. The CLI gains modes
+  between releases, and a header silently saying nothing about permissions reads
+  as the safe case — which is the one time it might not be.
+- **Only `bypassPermissions` and `dontAsk` are flagged**, because those are the
+  two the CLI itself colours as errors. The judgement is its, not this
+  console's — `auto` lets a great deal through and is still not one of them.
+
 **Session and directory allow-list.** The runner refuses to spawn outside a list
 of directories held in its config. A client that is somehow trusted still cannot
 start an agent anywhere on the disk.

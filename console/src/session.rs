@@ -169,6 +169,16 @@ pub struct Summary {
     /// says it. See [`crate::past::named`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// What the session may do without asking: `default`, `plan`, `dontAsk`,
+    /// `acceptEdits`, `auto`, `bypassPermissions`.
+    ///
+    /// Filled in by the roster from the transcript, for the same reason as
+    /// [`Self::name`]: the mode changes while the session runs and the stream
+    /// announces it only once, on the init line. **Stored names are not the
+    /// displayed ones** — `default` is shown as *Manual* — so the client keeps
+    /// the CLI's own table rather than prettifying these itself.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
     /// How many questions it is blocked on. The one number that means "this
     /// session cannot go on without you", so it belongs in the list of sessions
     /// and not only on the page of one.
@@ -905,8 +915,9 @@ impl Session {
             context: state.context,
             window: state.window,
             asked: state.asked.clone(),
-            // Filled in by the roster, which knows where the transcripts are.
+            // Both filled in by the roster, which knows where the transcripts are.
             name: None,
+            mode: None,
             waiting: state.pending.len(),
         }
     }

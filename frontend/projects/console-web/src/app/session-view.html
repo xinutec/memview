@@ -14,6 +14,9 @@
       @if (showsCost()) {
         <span>${{ session.cost_usd.toFixed(4) }}</span>
       }
+      @if (mode(); as mode) {
+        <span class="mode" [class.loud]="loud()">{{ mode }}</span>
+      }
       @if (session.model) {
         <span class="model">{{ session.model }}</span>
       }

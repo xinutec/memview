@@ -8,7 +8,7 @@
 use std::path::Path;
 
 use console::past::{
-    conversations, interactions, named as named_of, transcript_of, words_of_claude_processes,
+    conversations, facts, interactions, named as named_of, transcript_of, words_of_claude_processes,
 };
 
 /// A wrapper shell whose *path* says claude — the shape that caused the bug.
@@ -452,4 +452,53 @@ fn a_transcript_that_is_not_there_counts_no_exchanges() {
     // The session has just started and has written nothing yet. Zero is the
     // honest answer; the failure to answer at all is not.
     assert_eq!(interactions(Path::new("/no/such/transcript.jsonl")), 0);
+}
+
+/// A transcript that records a permission mode, having mentioned others in
+/// passing — which real ones do, whenever the conversation is about modes.
+fn switched(dir: &Path, id: &str, modes: &[&str], mentioned: &str) {
+    let folder = dir.join("project");
+    std::fs::create_dir_all(&folder).expect("project dir");
+    let mut lines = vec![r#"{"type":"system","cwd":"/home/example/Code"}"#.to_string()];
+    for mode in modes {
+        lines.push(format!(
+            r#"{{"type":"permission-mode","permissionMode":"{mode}","sessionId":"{id}"}}"#
+        ));
+        // Said, not set: a message whose text happens to carry the field.
+        lines.push(format!(
+            r#"{{"type":"assistant","permissionMode":"{mentioned}","message":{{"role":"assistant","content":[{{"type":"text","text":"about {mentioned}"}}]}}}}"#
+        ));
+    }
+    std::fs::write(folder.join(format!("{id}.jsonl")), lines.join("\n")).expect("transcript");
+}
+
+#[test]
+fn the_mode_shown_is_the_one_last_set() {
+    // It changes while a session runs and the stream announces it only once, at
+    // startup — so the file is the only place that knows the current one.
+    let root = scratch("mode");
+    switched(&root, "live", &["default", "acceptEdits", "auto"], "plan");
+
+    assert_eq!(facts(&root, "live").mode.as_deref(), Some("auto"));
+}
+
+#[test]
+fn a_mode_merely_mentioned_is_not_the_mode_in_force() {
+    // ⚠ `permissionMode` rides on six kinds of line in one real transcript,
+    // including `text` and `assistant` — where it is a conversation that
+    // happened to be *about* permission modes. Keyed on the field alone, this
+    // console would report the mode off somebody quoting it.
+    let root = scratch("mentioned");
+    switched(&root, "quoted", &["default"], "bypassPermissions");
+
+    assert_eq!(facts(&root, "quoted").mode.as_deref(), Some("default"));
+}
+
+#[test]
+fn a_session_that_has_set_no_mode_reports_none() {
+    let root = scratch("no-mode");
+    named(&root, "quiet", Some("memview"), None);
+
+    assert_eq!(facts(&root, "quiet").mode, None);
+    assert_eq!(facts(&root, "quiet").name.as_deref(), Some("memview"));
 }

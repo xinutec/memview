@@ -25,6 +25,7 @@ import { ConsoleApi } from './console-api';
 import { reason } from './errors';
 import { Foreground } from './foreground';
 import { Entry, Summary } from './models';
+import { modeIsLoud, modeTitle } from './modes';
 import { costMatters } from './budget';
 import { Here } from './here';
 import { Updates } from './updates';
@@ -107,6 +108,11 @@ export class SessionView implements OnDestroy {
    * cannot cache (DL-ANGULAR-TEMPLATE-METHOD-CALL).
    */
   readonly showsCost = computed(() => costMatters(this.session()?.limit));
+
+  /** What the session may do without asking, in the CLI's own words. */
+  readonly mode = computed(() => modeTitle(this.session()?.mode));
+  /** Whether that mode is one the CLI itself colours as an error. */
+  readonly loud = computed(() => modeIsLoud(this.session()?.mode));
   readonly trouble = signal('');
   /**
    * The last poll's verdict on whether the Mac is reachable — its own signal,

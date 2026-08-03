@@ -37,6 +37,9 @@ export interface Summary {
   asked?: string;
   /** What the conversation calls itself — `memview`, `health`. */
   name?: string;
+  /** What the session may do without asking. One of `MODES`; absent until the
+   *  session has recorded one. */
+  mode?: string;
   /** The last request's prompt size in tokens, and the window it went into. */
   context?: number;
   window?: number;
