@@ -86,7 +86,12 @@ export class SessionView implements OnDestroy {
    */
   readonly context = computed(() => {
     const session = this.session();
-    if (!session?.context || !session.window) return undefined;
+    if (!session?.context) return undefined;
+    // The window is declared on the result line and nowhere else, so a session
+    // that has not finished a turn since it started knows how full it is but
+    // not what it is full of. Showing the count alone beats showing nothing:
+    // the number people watch for is the first one.
+    if (!session.window) return tokens(session.context);
     return `${tokens(session.context)} / ${tokens(session.window)}`;
   });
 

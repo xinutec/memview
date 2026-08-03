@@ -608,16 +608,31 @@ pub fn read_recorded(line: &str) -> Vec<Event> {
         return Vec::new();
     };
     match parsed {
-        Line::Assistant { message } => message
-            .content
-            .blocks()
-            .into_iter()
-            .filter_map(|block| match block {
-                Block::Text { text } => Some(Event::Text { text }),
-                Block::ToolUse { id, name, input } => Some(Event::Tool { id, name, input }),
-                _ => None,
-            })
-            .collect(),
+        Line::Assistant { message } => {
+            // Same as the live reader: the context as it stood for this request,
+            // ahead of what it produced. Without it a resumed or upgraded
+            // session knows nothing about its own fullness until it finishes a
+            // turn — and the numbers were in the transcript the whole time.
+            let context = message.usage.as_ref().map(|usage| Event::Context {
+                tokens: usage.prompt(),
+            });
+            context
+                .into_iter()
+                .chain(
+                    message
+                        .content
+                        .blocks()
+                        .into_iter()
+                        .filter_map(|block| match block {
+                            Block::Text { text } => Some(Event::Text { text }),
+                            Block::ToolUse { id, name, input } => {
+                                Some(Event::Tool { id, name, input })
+                            }
+                            _ => None,
+                        }),
+                )
+                .collect()
+        }
         Line::User { message } => message
             .content
             .blocks()

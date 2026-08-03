@@ -356,3 +356,23 @@ fn the_window_is_declared_on_the_result_line_and_nowhere_else() {
         }]
     ));
 }
+
+#[test]
+fn a_replayed_transcript_carries_the_context_too() {
+    // A session that has just been resumed or carried across an upgrade should
+    // know how full it is straight away. The counts are in the transcript; the
+    // recorded reader used to drop them, so the figure was blank until the next
+    // turn ended.
+    let line = r#"{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":2,"cache_creation_input_tokens":1272,"cache_read_input_tokens":546967,"output_tokens":244},"content":[{"type":"text","text":"hello"}]}}"#;
+    let events = console::protocol::read_recorded(line);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Context { tokens } if *tokens == 548_241)),
+        "{events:?}"
+    );
+    assert!(
+        events.iter().any(|e| matches!(e, Event::Text { .. })),
+        "and the words too"
+    );
+}
