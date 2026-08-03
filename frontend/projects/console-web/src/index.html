@@ -6,6 +6,27 @@
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />
     <meta name="theme-color" content="#00695c" />
+    <!-- ⚠ **This has to be inline, and it has to be first.** A stylesheet that
+         fails does so while the HTML is being parsed — before any module script
+         runs, because those are deferred — so a listener the app installs at
+         boot is installed too late to have seen it. That is the failure actually
+         observed: the page came up unstyled, reported `broke styles-*.css`, and
+         nothing ever asked for the file again. This only records; `restyle.ts`
+         decides what to do about it. -->
+    <script>
+      window.brokenAssets = [];
+      addEventListener(
+        'error',
+        function (event) {
+          var target = event.target;
+          if (target && target.tagName === 'LINK' && target.rel === 'stylesheet') {
+            window.brokenAssets.push(target.getAttribute('href'));
+          }
+        },
+        // Capture: a resource error does not bubble.
+        true,
+      );
+    </script>
     <!-- dev-lint: self-contained-ui — the phone reads this over the VPN and
          later over mTLS, so it must render with no third-party fetch. Roboto and
          Material Icons are bundled from npm (angular.json styles), never from a

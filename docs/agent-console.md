@@ -633,6 +633,7 @@ themselves carry the reasoning.
 | `clock.ts` | `HH:MM`, and deliberately asks nothing about *now* |
 | `foreground.ts` | "the app came back" — a phone suspends pages for hours |
 | `telemetry.ts` | taps, navigations, failures, and anything that throws |
+| `restyle.ts` | asks again for a stylesheet whose request failed |
 
 ### The state model
 
@@ -736,6 +737,35 @@ the composer — before that it was indistinguishable from no update at all.
 
 ⚠ **The self-updater ships inside the bundle**, so it cannot install itself: the
 first page that has it must be loaded by hand.
+
+### When a stylesheet does not arrive
+
+One dropped connection during a reload took the stylesheet and an `/api/state`
+with it. The API call was retried by the polling that would have made it anyway;
+nothing ever asked for the stylesheet a second time, so the app ran perfectly and
+completely unstyled until it was reloaded by hand. **Every icon here is a font
+ligature**, so that page showed the words `more_vert` and `send` where its
+buttons were.
+
+- ⚠ **The failure happens before the app exists.** Stylesheets are requested
+  while the HTML is parsed and module scripts run after it, so a listener Angular
+  installs at boot never sees it. The **inline script in `index.html`** is the
+  only witness, and it must come before the `<link>` the build injects. It only
+  records — into `window.brokenAssets` — and `restyle.ts` decides what to do.
+- **Retries are bounded and spaced** (`BACKOFF_MS`, 0.5s → 2s → 8s): a dropped
+  connection is over in a moment, a runner mid-rebuild is not, and a file that is
+  genuinely gone will not arrive however often it is asked for.
+- **Each retry carries a `?again=` query** so a browser holding a failed response
+  does not answer from it — and the attempt count ignores that query, or every
+  attempt would look like a different file and the bound would never be reached.
+- ⚠ **`init` is guarded and the listener is removed on destroy.** A second
+  listener does not retry harder, it retries *per failure*, doubling the requests
+  aimed at something already struggling. The window outlives the service, so a
+  rebuilt injector leaves the old listener live — which is what a test suite
+  does, and it is how this was found.
+- **Not covered by a unit test: the inline recorder itself.** The spec sets
+  `window.brokenAssets` directly, so it tests the draining and not the catching.
+  Only a browser can show whether that script really runs before the `<link>`.
 
 ## Upgrading the runner without dropping a session
 

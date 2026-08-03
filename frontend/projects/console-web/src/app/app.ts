@@ -6,6 +6,7 @@ import { RouterLink, RouterOutlet } from '@angular/router';
 
 import { BUILD_INFO } from './build-info';
 import { Here } from './here';
+import { Restyle } from './restyle';
 import { Telemetry } from './telemetry';
 
 @Component({
@@ -16,6 +17,7 @@ import { Telemetry } from './telemetry';
 })
 export class App {
   private telemetry = inject(Telemetry);
+  private restyle = inject(Restyle);
   /** Read by the toolbar: the conversation on screen, when there is one. */
   readonly here = inject(Here);
 
@@ -32,5 +34,8 @@ export class App {
 
   constructor() {
     this.telemetry.init();
+    // Before anything else on screen: an unstyled console is one showing the
+    // words `more_vert` and `send` where its buttons were.
+    this.restyle.init();
   }
 }
