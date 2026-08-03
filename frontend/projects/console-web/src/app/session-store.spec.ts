@@ -128,3 +128,44 @@ describe('SessionStore', () => {
     expect(runner.latest.after).toBe(3);
   });
 });
+
+describe('SessionStore background tasks', () => {
+  let runner: Runner;
+  let store: SessionStore;
+
+  beforeEach(() => {
+    runner = new Runner();
+    TestBed.configureTestingModule({
+      providers: [{ provide: ConsoleApi, useValue: runner }],
+    });
+    store = TestBed.inject(SessionStore);
+  });
+
+  it('counts a backgrounded call until its notification arrives', () => {
+    // The gap this fills: a gate running for four minutes looked exactly like
+    // nothing happening, because the tool call that starts one returns at once.
+    const held = store.open('one');
+    runner.latest.send(
+      { kind: 'tool', id: 'toolu_1', name: 'Bash', input: { run_in_background: true } },
+      1,
+    );
+    expect(held.background()).toEqual(['toolu_1']);
+
+    runner.latest.send({ kind: 'background', tool: 'toolu_1', status: 'completed' }, 2);
+    expect(held.background()).toEqual([]);
+  });
+
+  it('does not count an ordinary tool call', () => {
+    const held = store.open('two');
+    runner.latest.send({ kind: 'tool', id: 'toolu_2', name: 'Bash', input: { command: 'ls' } }, 1);
+    expect(held.background()).toEqual([]);
+  });
+
+  it('ignores a notification for a call it never saw start', () => {
+    // Re-entry seeds from the transcript, which may begin after the call that
+    // started the task. Subtracting from nothing must not go negative or throw.
+    const held = store.open('three');
+    runner.latest.send({ kind: 'background', tool: 'toolu_gone', status: 'completed' }, 1);
+    expect(held.background()).toEqual([]);
+  });
+});

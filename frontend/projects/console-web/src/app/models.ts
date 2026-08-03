@@ -47,6 +47,7 @@ export const KINDS = [
   'turn',
   'limit',
   'busy',
+  'background',
   'exited',
   'trouble',
   'ask',
@@ -91,7 +92,8 @@ export interface SessionEvent {
   resets_at?: number;
   code?: number;
   detail?: string;
-  /** `ask` only: the tool it wants to run, and the question's own id. */
+  /** `ask`: the tool it wants to run. `background`: the tool call that started
+   *  the task now reported finished. */
   tool?: string;
   title?: string;
   allowed?: boolean;

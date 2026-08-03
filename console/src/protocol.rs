@@ -95,6 +95,18 @@ pub enum Event {
         name: String,
         input: serde_json::Value,
     },
+    /// A background task the harness has finished with, named by the tool call
+    /// that started it.
+    ///
+    /// Its own event rather than a prompt: the notification arrives filed as a
+    /// *user* message, so without this it renders as something the person
+    /// typed. It is also the only end-of-work signal for a backgrounded
+    /// command — the tool call that started one returns at once, so nothing
+    /// else says the work is over.
+    Background {
+        tool: String,
+        status: String,
+    },
     /// A tool call came back.
     ///
     /// ⚠ **`ok` alone is not an answer.** This carried the verdict and nothing
@@ -437,8 +449,13 @@ pub fn read(line: &str) -> Vec<Event> {
                         cut,
                     })
                 }
-                // A replayed prompt: the text this console sent, coming back.
-                Block::Text { text } => Some(Event::Prompt { text }),
+                Block::Text { text } => match finished(&text) {
+                    Some(event) => Some(event),
+                    None if is_notification(&text) => None,
+                    // A replayed prompt: the text this console sent, coming back.
+                    None if !is_plumbing(&text) => Some(Event::Prompt { text }),
+                    None => None,
+                },
                 _ => None,
             })
             .collect(),
@@ -550,7 +567,12 @@ pub fn read_recorded(line: &str) -> Vec<Event> {
                         cut,
                     })
                 }
-                Block::Text { text } if !is_plumbing(&text) => Some(Event::Prompt { text }),
+                Block::Text { text } => match finished(&text) {
+                    Some(event) => Some(event),
+                    None if is_notification(&text) => None,
+                    None if !is_plumbing(&text) => Some(Event::Prompt { text }),
+                    None => None,
+                },
                 _ => None,
             })
             .collect(),
@@ -572,6 +594,43 @@ pub fn read_recorded(line: &str) -> Vec<Event> {
 /// Recognised by their opening tag, which is how they are delimited, rather than
 /// by matching their contents. Live sessions are left alone: the console sends
 /// its own prompts and echoes only what it sent.
+/// The tool call a task notification is about, and how it ended.
+///
+/// The harness files these as user messages — text, in the same place a typed
+/// instruction lands. Read for the tool-use id rather than the task id, because
+/// that is what ties it to the call that started it: a client counting what is
+/// still running has the id from the `Tool` event and nothing else to match on.
+///
+/// Not a parser for the whole shape. Two tags out of a known block, and anything
+/// that does not carry both is not one of these.
+fn finished(text: &str) -> Option<Event> {
+    if !is_notification(text) {
+        return None;
+    }
+    Some(Event::Background {
+        tool: between(text, "<tool-use-id>", "</tool-use-id>")?.to_string(),
+        status: between(text, "<status>", "</status>")
+            .unwrap_or("done")
+            .to_string(),
+    })
+}
+
+/// Whether this text is the harness reporting on a background task at all.
+///
+/// Separate from parsing it, because one that cannot be parsed still must not
+/// become a prompt: a half-recognised notification rendered as somebody's words
+/// is the exact failure this whole path exists to prevent.
+fn is_notification(text: &str) -> bool {
+    text.contains("<task-notification>")
+}
+
+/// What sits between two markers, when both are there and in that order.
+fn between<'a>(text: &'a str, open: &str, close: &str) -> Option<&'a str> {
+    let start = text.find(open)? + open.len();
+    let end = text[start..].find(close)? + start;
+    Some(text[start..end].trim())
+}
+
 fn is_plumbing(text: &str) -> bool {
     const TAGS: [&str; 5] = [
         "<command-name>",

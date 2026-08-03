@@ -290,3 +290,30 @@ mod detail {
         }
     }
 }
+
+#[test]
+fn a_task_notification_is_not_something_the_person_said() {
+    // The harness files these as user messages, in the same place a typed
+    // instruction lands — so unfiltered they render as though Pippijn had said
+    // them, which is how the console got a wall of XML in the transcript.
+    let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[SYSTEM NOTIFICATION]\n<task-notification>\n<task-id>b74zci1hw</task-id>\n<tool-use-id>toolu_011Cnk</tool-use-id>\n<status>completed</status>\n</task-notification>"}]}}"#;
+    assert!(matches!(
+        read(line).as_slice(),
+        [Event::Background { tool, status }] if tool == "toolu_011Cnk" && status == "completed"
+    ));
+}
+
+#[test]
+fn a_notification_without_a_tool_call_names_nothing() {
+    // Matched on the tool-use id rather than the task id, because that is what
+    // ties it to the call that started it. One without is not usable and must
+    // not become a prompt either.
+    let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<task-notification>\n<task-id>b1</task-id>\n</task-notification>"}]}}"#;
+    assert!(read(line).is_empty(), "neither an event nor a prompt");
+}
+
+#[test]
+fn an_ordinary_message_is_still_a_prompt() {
+    let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"do the thing"}]}}"#;
+    assert!(matches!(read(line).as_slice(), [Event::Prompt { text }] if text == "do the thing"));
+}

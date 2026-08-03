@@ -75,6 +75,8 @@ export class SessionView implements OnDestroy {
    * work it described and missed anything shorter than the interval.
    */
   readonly doing = computed(() => this.held()?.doing());
+  /** How many background tasks the harness has told us about and not closed. */
+  readonly background = computed(() => this.held()?.background().length ?? 0);
   readonly session = signal<Summary | undefined>(undefined);
 
   /**

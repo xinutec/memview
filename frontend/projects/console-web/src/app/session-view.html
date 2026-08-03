@@ -143,6 +143,12 @@
   </div>
 }
 
+@if (background(); as running) {
+  <!-- Worded to claim only what it knows: a command backgrounded inside a shell
+       announces nothing, so this is a count of tracked tasks, not of work. -->
+  <p class="update">{{ running }} background task{{ running === 1 ? '' : 's' }} running</p>
+}
+
 <form class="composer" (submit)="$event.preventDefault(); send()">
   <mat-form-field appearance="outline" class="box">
     <mat-label>say something</mat-label>

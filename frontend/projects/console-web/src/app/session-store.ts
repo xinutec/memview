@@ -30,6 +30,15 @@ export interface Held {
    * silent for up to five seconds at the start of a long one.
    */
   readonly doing: WritableSignal<string | undefined>;
+  /**
+   * Background tool calls started and not yet reported finished, by tool id.
+   *
+   * ⚠ **Only the ones the harness tracks.** A command backgrounded inside a
+   * shell — `nohup … &` — returns at once and announces nothing, so it is
+   * invisible here. This counts what it can see and the label says so, because
+   * a bare "nothing running" would be a claim this cannot support.
+   */
+  readonly background: WritableSignal<string[]>;
   /** The last sequence number this transcript accounts for, 0 for none. */
   seen: number;
   /** Closes the stream, while there is one. */
@@ -131,6 +140,7 @@ export class SessionStore {
       entries: signal<Entry[]>([]),
       cursor: signal(0),
       doing: signal<string | undefined>(undefined),
+      background: signal<string[]>([]),
       seen: 0,
       used: ++this.clock,
     };
@@ -150,6 +160,14 @@ export class SessionStore {
     // Activity is state, so it is kept beside the transcript rather than in it.
     // A turn ending is what says the work stopped: the runner clears its own
     // busy on the same event, and nothing else on the wire announces idleness.
+    if (event.kind === 'tool' && event.input?.['run_in_background'] === true && event.id) {
+      const id = event.id;
+      held.background.update((running) => (running.includes(id) ? running : [...running, id]));
+    }
+    if (event.kind === 'background' && event.tool) {
+      const done = event.tool;
+      held.background.update((running) => running.filter((id) => id !== done));
+    }
     if (event.kind === 'busy') held.doing.set(event.status ?? 'working');
     if (event.kind === 'turn' || event.kind === 'exited') held.doing.set(undefined);
     held.entries.update((entries) => [...fold(entries, event)]);
