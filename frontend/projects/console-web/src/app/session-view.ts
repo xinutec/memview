@@ -26,6 +26,7 @@ import { reason } from './errors';
 import { Foreground } from './foreground';
 import { Entry, Summary } from './models';
 import { costMatters } from './budget';
+import { Updates } from './updates';
 import { Rendered } from './rendered';
 import { Held, SessionStore } from './session-store';
 
@@ -51,6 +52,7 @@ export class SessionView implements OnDestroy {
   readonly id = input.required<string>();
 
   private api = inject(ConsoleApi);
+  private updates = inject(Updates);
   private store = inject(SessionStore);
   private foreground = inject(Foreground);
   private until = inject(DestroyRef);
@@ -156,6 +158,7 @@ export class SessionView implements OnDestroy {
     this.api.state().subscribe({
       next: (state) => {
         this.session.set(state.sessions.find((s) => s.id === this.id()));
+        this.updates.saw(state.bundle);
         this.unreachable.set('');
       },
       error: (err: unknown) => this.unreachable.set(`cannot reach the runner: ${reason(err)}`),

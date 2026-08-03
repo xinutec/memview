@@ -53,10 +53,37 @@ pub struct Overview {
     /// The repositories inside those, for the client's picker.
     pub repos: Vec<String>,
     pub sessions: Vec<Summary>,
+    /// A fingerprint of the bundle this runner is serving, when it serves one.
+    ///
+    /// The client compares it with the one it booted from and reloads when they
+    /// differ — the console has no service worker (deliberately: it would cache
+    /// an app behind a client-certificate gate, and ngsw's navigationUrls and
+    /// auth are a known source of trouble here), so nothing else would ever
+    /// tell a long-lived page that the bundle under it had changed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bundle: Option<String>,
+}
+
+/// The bundle's identity, from the bytes of the page that loads it.
+///
+/// index.html is rewritten on every build with the hashed filenames of the
+/// entry chunks, so any change to the app changes this — and a rebuild that
+/// produces identical output does not, which is why this hashes content rather
+/// than reading mtime. Read per request because the point is to notice a
+/// rebuild that happened while the runner kept running.
+///
+/// Unreadable means None rather than an error: a runner serving no bundle at
+/// all is a normal configuration (the desk runs `ng serve`), and a missing
+/// fingerprint simply means the client never decides it is stale.
+fn bundle(dir: Option<&str>) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    let page = std::fs::read(format!("{}/index.html", dir?)).ok()?;
+    Some(format!("{:x}", Sha256::digest(&page))[..16].to_string())
 }
 
 async fn state(State(roster): State<Arc<Roster>>) -> Json<Overview> {
     Json(Overview {
+        bundle: bundle(roster.config().static_dir.as_deref()),
         dirs: roster
             .config()
             .dirs

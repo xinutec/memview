@@ -16,6 +16,7 @@ import { reason } from './errors';
 import { Foreground } from './foreground';
 import { Conversation, Overview, Summary } from './models';
 import { costMatters } from './budget';
+import { Updates } from './updates';
 import { PastStore } from './past-store';
 
 /** Every session this console owns, and the way to start another. */
@@ -39,6 +40,7 @@ import { PastStore } from './past-store';
 })
 export class SessionsView {
   private api = inject(ConsoleApi);
+  private updates = inject(Updates);
   private router = inject(Router);
   private pastStore = inject(PastStore);
   private foreground = inject(Foreground);
@@ -98,6 +100,7 @@ export class SessionsView {
     this.api.state().subscribe({
       next: (state) => {
         this.state.set(state);
+        this.updates.saw(state.bundle);
         this.unreachable.set('');
         if (!this.dir()) this.dir.set(state.repos[0] ?? state.dirs[0] ?? '');
       },

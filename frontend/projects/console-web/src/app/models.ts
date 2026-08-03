@@ -28,6 +28,8 @@ export interface Summary {
 }
 
 export interface Overview {
+  /** A fingerprint of the bundle the runner is serving. See `Updates`. */
+  bundle?: string;
   dirs: string[];
   repos: string[];
   sessions: Summary[];
