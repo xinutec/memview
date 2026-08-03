@@ -773,6 +773,16 @@ field that reads like a measurement and is actually an aggregate.**
   tasks", not "nothing is running". The count is cleared on `started`: a new
   process cannot have inherited the last one's work, and a task killed with a
   console restart never reports.
+- ⚠ **And cleared on `joined`, because history is not evidence.** The seed
+  replays the transcript through the same reader as the live stream, so every
+  backgrounded call on the last page was counted a second time — and a resumed
+  session's last page is entirely dead work. `started` cannot catch it: that
+  event fires when the process starts, which for a session anybody opens is
+  before they connected. `joined` is pushed after the replay and before the live
+  stream, so it is the line between what was read and what is being watched.
+  Found by asking a straight question of `health`, which said five tasks were
+  running: all five were started that afternoon, the newest nine hours gone, and
+  the session had no child processes at all.
 
 ### Updating the client
 

@@ -188,4 +188,31 @@ describe('SessionStore background tasks across a restart', () => {
     runner.latest.send({ kind: 'started', model: 'claude-opus-5' }, 2);
     expect(held.background()).toEqual([]);
   });
+
+  it('forgets tasks the replayed transcript describes', () => {
+    // The restart above is only half of it: a client opening a session it was
+    // not watching is sent the seed first, and the process it belongs to started
+    // before anyone connected — so `started` is not in the stream to reset on.
+    // Without this the count is whatever the last page of the transcript happens
+    // to mention, which on a resumed session is entirely dead work.
+    const runner = new Runner();
+    TestBed.configureTestingModule({ providers: [{ provide: ConsoleApi, useValue: runner }] });
+    const store = TestBed.inject(SessionStore);
+    const held = store.open('resumed');
+
+    runner.latest.send(
+      { kind: 'tool', id: 'toolu_yesterday', name: 'Bash', input: { run_in_background: true } },
+      1,
+    );
+    runner.latest.send({ kind: 'joined', earlier: 1, from: 4096 }, 2);
+    expect(held.background()).toEqual([]);
+
+    // And the live stream after it still counts, which is the whole point of
+    // resetting there rather than refusing to count replayed calls for ever.
+    runner.latest.send(
+      { kind: 'tool', id: 'toolu_now', name: 'Bash', input: { run_in_background: true } },
+      3,
+    );
+    expect(held.background()).toEqual(['toolu_now']);
+  });
 });

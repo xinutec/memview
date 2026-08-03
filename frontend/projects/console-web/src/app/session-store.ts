@@ -153,6 +153,16 @@ export class SessionStore {
     // that learns where the page on screen begins — nothing else in the stream
     // knows the conversation is longer than the page.
     if (event.kind === 'joined') held.cursor.set(event.from ?? 0);
+    // ⚠ **History is not evidence that anything is running.** The seed replays
+    // the transcript through this same path, so every backgrounded call on the
+    // last page was counted again — including the ones a process that no longer
+    // exists started, whose notifications died with it. `joined` is pushed after
+    // the replay and before the live stream, so it is exactly the line between
+    // what was read and what is being watched. Measured on `health`: five tasks
+    // reported running, all from that afternoon, the newest gone for nine hours,
+    // the session with no children at all. The `started` reset below cannot
+    // catch this — that event happened before the client connected.
+    if (event.kind === 'joined') held.background.set([]);
     // Only ever forward. The unnumbered events arrive as 0, and a transcript
     // that claimed to hold nothing after one of those would ask for the whole
     // conversation again on the next reconnect.
