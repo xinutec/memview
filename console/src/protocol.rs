@@ -90,6 +90,16 @@ pub enum Event {
     Text {
         text: String,
     },
+    /// How many tokens one request's prompt came to — the context as it stood
+    /// when that request was made.
+    ///
+    /// ⚠ **Per message, not per turn.** The result line carries a `usage` too,
+    /// and it is the *sum over every request the turn made* — a turn of 23
+    /// requests reported 1.6M against a 1M window, which is not a fullness at
+    /// all. Measured, after shipping exactly that.
+    Context {
+        tokens: u64,
+    },
     Tool {
         id: String,
         name: String,
@@ -129,11 +139,8 @@ pub enum Event {
     /// One turn finished.
     Turn {
         cost_usd: f64,
-        /// How much of the context window the finished request occupied, and
-        /// how big that window is — the answer to "is it nearly time to
-        /// compact?", which nothing else on the wire says.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        context: Option<u64>,
+        /// How big the context window is. Declared on the result line and
+        /// nowhere else; how *full* it is comes from [`Event::Context`].
         #[serde(skip_serializing_if = "Option::is_none")]
         window: Option<u64>,
         turns: u32,
@@ -277,6 +284,9 @@ enum Delta {
 struct Message {
     #[serde(default)]
     content: Content,
+    /// What this one request carried. See [`Usage`].
+    #[serde(default)]
+    usage: Option<Usage>,
 }
 
 /// ⚠ `content` is a list of blocks — except on the user lines where it is a bare
@@ -385,9 +395,6 @@ pub fn recorded_at(line: &str) -> Option<i64> {
 struct Turn {
     #[serde(default)]
     total_cost_usd: f64,
-    /// What the request that just finished carried as its prompt.
-    #[serde(default)]
-    usage: Option<Usage>,
     /// Keyed by model id. The context window is declared here and nowhere else
     /// — not in the transcript, not on any other line.
     #[serde(default, rename = "modelUsage")]
@@ -463,15 +470,28 @@ pub fn read(line: &str) -> Vec<Event> {
         },
         // Text is taken from the deltas, so the completed message contributes
         // only what the deltas cannot carry whole.
-        Line::Assistant { message } => message
-            .content
-            .blocks()
-            .into_iter()
-            .filter_map(|block| match block {
-                Block::ToolUse { id, name, input } => Some(Event::Tool { id, name, input }),
-                _ => None,
-            })
-            .collect(),
+        Line::Assistant { message } => {
+            // The context as it stood for THIS request, ahead of the blocks, so
+            // a reader sees the fullness that produced what follows.
+            let context = message.usage.as_ref().map(|usage| Event::Context {
+                tokens: usage.prompt(),
+            });
+            context
+                .into_iter()
+                .chain(
+                    message
+                        .content
+                        .blocks()
+                        .into_iter()
+                        .filter_map(|block| match block {
+                            Block::ToolUse { id, name, input } => {
+                                Some(Event::Tool { id, name, input })
+                            }
+                            _ => None,
+                        }),
+                )
+                .collect()
+        }
         Line::User { message } => message
             .content
             .blocks()
@@ -501,7 +521,6 @@ pub fn read(line: &str) -> Vec<Event> {
             })
             .collect(),
         Line::Result(turn) => vec![Event::Turn {
-            context: turn.usage.as_ref().map(Usage::prompt),
             // Whichever model answered; there is one entry in practice, and the
             // largest is the honest answer if a turn ever spanned two.
             window: turn

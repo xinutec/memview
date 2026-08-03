@@ -319,32 +319,39 @@ fn an_ordinary_message_is_still_a_prompt() {
 }
 
 #[test]
-fn a_turn_reports_how_full_the_context_is() {
-    // ⚠ All three counts added together. A cached prompt reports two tokens of
-    // input against half a million of cache read — reading `input_tokens` alone
-    // would call a session that is nearly full nearly empty, which is the exact
-    // opposite of what this is for.
-    let line = r#"{"type":"result","subtype":"success","total_cost_usd":1.0,"num_turns":1,"duration_ms":5,"usage":{"input_tokens":2,"cache_creation_input_tokens":413,"cache_read_input_tokens":495907,"output_tokens":421},"modelUsage":{"claude-opus-5":{"contextWindow":1000000}}}"#;
-    assert!(matches!(
-        read(line).as_slice(),
-        [Event::Turn {
-            context: Some(496_322),
-            window: Some(1_000_000),
-            ..
-        }]
-    ));
+fn context_is_read_per_message_rather_than_per_turn() {
+    // ⚠ The result line's `usage` is the SUM over every request a turn made, so
+    // a long turn reports more tokens than the window holds — 1.6M against 1M,
+    // seen on the phone. The per-message usage is the context as it stood.
+    let line = r#"{"type":"assistant","message":{"role":"assistant","usage":{"input_tokens":2,"cache_creation_input_tokens":1272,"cache_read_input_tokens":546967,"output_tokens":244},"content":[{"type":"text","text":"hello"}]}}"#;
+    assert!(
+        read(line)
+            .iter()
+            .any(|e| matches!(e, Event::Context { tokens } if *tokens == 548_241)),
+        "the prompt is input + cache creation + cache read: {:?}",
+        read(line)
+    );
 }
 
 #[test]
-fn a_turn_that_says_nothing_about_tokens_claims_nothing() {
-    // Older CLIs, and any line that omits it. None rather than zero: zero would
-    // render as an empty context, which is a confident wrong answer.
-    let line = r#"{"type":"result","subtype":"success","total_cost_usd":1.0,"num_turns":1,"duration_ms":5}"#;
+fn a_message_that_says_nothing_about_tokens_reports_no_context() {
+    let line = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hi"}]}}"#;
+    assert!(
+        !read(line)
+            .iter()
+            .any(|e| matches!(e, Event::Context { .. }))
+    );
+}
+
+#[test]
+fn the_window_is_declared_on_the_result_line_and_nowhere_else() {
+    // Only the result line says how big the window is; how full it is comes per
+    // message. Both halves are needed and they arrive from different lines.
+    let line = r#"{"type":"result","subtype":"success","total_cost_usd":1.0,"num_turns":1,"duration_ms":5,"modelUsage":{"claude-opus-5":{"contextWindow":1000000}}}"#;
     assert!(matches!(
         read(line).as_slice(),
         [Event::Turn {
-            context: None,
-            window: None,
+            window: Some(1_000_000),
             ..
         }]
     ));

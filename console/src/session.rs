@@ -108,8 +108,11 @@ pub struct Summary {
     /// anything.
     pub cost_usd: f64,
     /// How many tokens the last request's prompt came to, and the window it went
-    /// into — so a reader can see when compaction is coming rather than meeting
-    /// it. Absent until a turn finishes: nothing else on the wire carries either.
+    /// into — so a reader can see when compaction is coming rather than meeting it.
+    ///
+    /// ⚠ Fullness is per MESSAGE, not per turn. The result line carries a usage
+    /// too and it sums every request the turn made: a turn of 23 requests read
+    /// 1.6M against a 1M window. Shipped that, saw it on the phone, fixed it.
     ///
     /// ⚠ Prompt size is input + cache-creation + cache-read added together. The
     /// cached part is almost all of it — 496,000 read against 2 of input on this
@@ -431,6 +434,13 @@ impl Session {
     /// ⚠ The scrollback does not survive. A client that reconnects is reseeded
     /// from the transcript on disk, which is the durable record anyway.
     pub fn adopt(id: String, dir: PathBuf, pid: u32, fds: Fds) -> Result<Arc<Self>> {
+        // ⚠ The scrollback did NOT survive the exec, and a client reconnecting
+        // to an empty log is told its page is unresumable and starts blank. So
+        // an adopted session reseeds from the transcript exactly as a resumed
+        // one does — the conversation is on disk either way, and losing it on
+        // an *upgrade* would make the upgrade worse than the restart it
+        // replaced. Shipped without this and the history vanished; see
+        // [`Self::seed`].
         // SAFETY: these descriptors were handed over by the image that exec'd,
         // which held them open and cleared close-on-exec so they would survive.
         let (stdin, stdout, stderr) = unsafe {
@@ -463,6 +473,7 @@ impl Session {
             kill: Mutex::new(Some(kill_tx)),
             tx,
         });
+        session.seed();
         session.clone().read_from(Some(stdout), Some(stderr), true);
         Ok(session)
     }
@@ -651,18 +662,15 @@ impl Session {
             match &event {
                 Event::Started { model, .. } => state.model = Some(model.clone()),
                 Event::Busy { status } => state.busy = Some(status.clone()),
+                // The window, which only the result line declares. How full it
+                // is arrives per message — see [`Event::Context`].
+                Event::Context { tokens } => state.context = Some(*tokens),
                 Event::Turn {
                     cost_usd,
                     turns,
-                    context,
                     window,
                     ..
                 } => {
-                    // Assigned, not accumulated: each is a measurement of the
-                    // whole conversation as it stood, not an increment.
-                    if context.is_some() {
-                        state.context = *context;
-                    }
                     if window.is_some() {
                         state.window = *window;
                     }
