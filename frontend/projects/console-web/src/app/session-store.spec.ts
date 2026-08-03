@@ -169,3 +169,23 @@ describe('SessionStore background tasks', () => {
     expect(held.background()).toEqual([]);
   });
 });
+
+describe('SessionStore background tasks across a restart', () => {
+  it('forgets tasks that belonged to the process before this one', () => {
+    // They died with the runner and will never report, so counting them for ever
+    // is worse than not counting them at all — the number stops meaning anything.
+    const runner = new Runner();
+    TestBed.configureTestingModule({ providers: [{ provide: ConsoleApi, useValue: runner }] });
+    const store = TestBed.inject(SessionStore);
+    const held = store.open('restarted');
+
+    runner.latest.send(
+      { kind: 'tool', id: 'toolu_old', name: 'Bash', input: { run_in_background: true } },
+      1,
+    );
+    expect(held.background()).toEqual(['toolu_old']);
+
+    runner.latest.send({ kind: 'started', model: 'claude-opus-5' }, 2);
+    expect(held.background()).toEqual([]);
+  });
+});

@@ -160,6 +160,10 @@ export class SessionStore {
     // Activity is state, so it is kept beside the transcript rather than in it.
     // A turn ending is what says the work stopped: the runner clears its own
     // busy on the same event, and nothing else on the wire announces idleness.
+    // A new process cannot have inherited the last one's background work: the
+    // tasks died with it, and their notifications died with them. Without this
+    // a console restart leaves phantoms in the count for ever — measured, at 11.
+    if (event.kind === 'started') held.background.set([]);
     if (event.kind === 'tool' && event.input?.['run_in_background'] === true && event.id) {
       const id = event.id;
       held.background.update((running) => (running.includes(id) ? running : [...running, id]));
