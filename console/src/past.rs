@@ -87,14 +87,6 @@ pub fn projects_root() -> PathBuf {
         .join("projects")
 }
 
-/// A transcript written this recently is treated as in use.
-///
-/// A session writes on every turn, so anything touched in the last couple of
-/// minutes almost certainly still has somebody behind it. It is a floor, not a
-/// test: a conversation left open and idle for an hour looks untouched, which is
-/// why the process table is consulted as well.
-const RECENTLY_MILLIS: u64 = 120_000;
-
 /// The directories a conversation is not worth listing from.
 ///
 /// Three prefixes rather than one because they are the same place: `/tmp` is a
@@ -141,12 +133,8 @@ pub fn conversations(root: &Path) -> Vec<Conversation> {
     // one that was open.
     found.sort_by_key(|conversation| std::cmp::Reverse(conversation.modified));
     let running = arguments();
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|since| since.as_millis() as u64)
-        .unwrap_or(0);
     for conversation in &mut found {
-        conversation.busy = in_use(conversation, &running, now);
+        conversation.busy = in_use(conversation, &running);
     }
     found
 }
@@ -159,23 +147,27 @@ pub fn conversations(root: &Path) -> Vec<Conversation> {
 /// `~/.claude/daemon/roster.json` empty for sessions started with
 /// `--remote-control`. All checked, none of them work.
 ///
-/// So two signals, and either is enough:
+/// **One signal: a running `claude` names it** — by session id (`--session-id`,
+/// `--resume <uuid>`) or by the name it currently goes by (`--resume utterance`).
+/// Matched against whole arguments of processes that really are `claude`; see
+/// [`words_of_claude_processes`] for why both halves of that are load-bearing.
 ///
-/// - **A running `claude` names it**, by session id (`--session-id`, `--resume
-///   <uuid>`) or by the name it currently goes by (`--resume utterance`). Matched
-///   against whole arguments of processes that really are `claude` — see
-///   [`words_of_claude_processes`] for why both halves of that are load-bearing.
-/// - **Its transcript was written moments ago**, which catches a session whose
-///   command line says nothing useful.
+/// ⚠ **There used to be a second signal, and it was the wrong kind.** A
+/// transcript written in the last two minutes was also treated as in use, to
+/// catch a session whose command line says nothing useful. It caught the wrong
+/// thing far more often: every conversation this console had *just* stopped
+/// running looked busy for two minutes afterwards, so restarting the runner meant
+/// waiting before the session it had killed could be picked up again — the exact
+/// moment somebody wants it back. Removed on Pippijn's instruction, 2026-08-03,
+/// with the reason that matters: nothing on this machine runs `claude` except
+/// this console, and what this console runs it kills on the way out
+/// (`kill_on_drop`), so the process table is accurate the instant it matters.
 ///
-/// Both under-detect rather than over-detect, and the cost of being wrong is
-/// asymmetric: a false *busy* means a conversation cannot be resumed until it
-/// goes quiet, while a false *free* means two processes appending to one
-/// transcript, each blind to the other's turns. So this errs toward busy.
-fn in_use(conversation: &Conversation, running: &[String], now: u64) -> bool {
-    if now.saturating_sub(conversation.modified) < RECENTLY_MILLIS {
-        return true;
-    }
+/// The risk that remains is a session started outside the console whose command
+/// line names neither its id nor its name. That would read as free and could be
+/// resumed underneath, giving two processes one transcript. The freshness rule
+/// did guard that case — it just charged everybody two minutes for it.
+fn in_use(conversation: &Conversation, running: &[String]) -> bool {
     running.iter().any(|argument| {
         argument == &conversation.id
             || conversation

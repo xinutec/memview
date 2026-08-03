@@ -317,16 +317,18 @@ fn a_later_name_replaces_an_earlier_one() {
 }
 
 #[test]
-fn a_transcript_written_moments_ago_is_treated_as_in_use() {
-    // The signal that catches a session whose command line says nothing useful.
-    // It errs toward busy on purpose: a false "busy" costs a wait, a false "free"
-    // costs two processes appending to one transcript.
+fn a_conversation_this_console_just_stopped_running_is_free_at_once() {
+    // A transcript written seconds ago used to read as in use, which meant the
+    // session a console restart had *just* killed could not be picked up for two
+    // minutes — the exact moment somebody wants it back. Nothing runs `claude`
+    // here but the console, and it kills what it runs on the way out, so the
+    // process table is accurate immediately and freshness says nothing.
     let root = scratch("busy-fresh");
     named(&root, "fresh", Some("live"), None);
 
     assert!(
-        conversations(&root)[0].busy,
-        "just written, so somebody is probably there"
+        !conversations(&root)[0].busy,
+        "written a moment ago, but nothing is running it"
     );
 }
 
