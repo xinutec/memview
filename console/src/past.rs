@@ -80,6 +80,36 @@ pub fn projects_root() -> PathBuf {
 /// why the process table is consulted as well.
 const RECENTLY_MILLIS: u64 = 120_000;
 
+/// The directories a conversation is not worth listing from.
+///
+/// Three prefixes rather than one because they are the same place: `/tmp` is a
+/// symlink to `/private/tmp` on macOS, so which of the two a transcript records
+/// depends on how its process was started, and `$TMPDIR` is a third path again
+/// under `/var/folders`. Checking one of them is the version that looks right and
+/// silently misses.
+const DISPOSABLE: [&str; 3] = ["/tmp/", "/private/tmp/", "/var/folders/"];
+
+/// Whether this is a conversation the console made while testing itself.
+///
+/// The spawner takes a working directory, and pointing it at a scratchpad is how
+/// its own behaviour gets tested. Claude Code files transcripts per working
+/// directory, so every probe became a project directory beside the real ones —
+/// nine of them from one afternoon, one to five turns each, and nothing in the
+/// list distinguished them from a conversation worth picking up.
+///
+/// Judged on the working directory a transcript records, not on the name of the
+/// folder holding it, for the reason this module opens with: the folder-name
+/// encoding is undocumented and a guess at it is wrong silently.
+///
+/// ⚠ This hides a conversation that genuinely ran from a temporary directory. It
+/// is a display filter and nothing more — [`transcript_of`] still finds any
+/// session by id, so such a conversation stays resumable by name; it just stops
+/// competing for room on a phone screen with the repositories this exists to get
+/// back to.
+fn disposable(dir: &str) -> bool {
+    DISPOSABLE.iter().any(|temp| dir.starts_with(temp))
+}
+
 /// Every conversation under `root`, newest first.
 pub fn conversations(root: &Path) -> Vec<Conversation> {
     let mut found: Vec<Conversation> = std::fs::read_dir(root)
@@ -90,6 +120,7 @@ pub fn conversations(root: &Path) -> Vec<Conversation> {
         .flat_map(|project| std::fs::read_dir(project.path()).into_iter().flatten())
         .filter_map(|entry| entry.ok())
         .filter_map(|entry| read(&entry.path()))
+        .filter(|conversation| !disposable(&conversation.dir))
         .collect();
     // Newest first: the one worth picking up again is almost always the last
     // one that was open.

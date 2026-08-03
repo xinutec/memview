@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use console::past::{conversations, words_of_claude_processes};
+use console::past::{conversations, transcript_of, words_of_claude_processes};
 
 /// A wrapper shell whose *path* says claude — the shape that caused the bug.
 /// Claude Code sources a snapshot under `~/.claude/` for every command it runs,
@@ -141,6 +141,66 @@ fn files_that_are_not_transcripts_are_ignored() {
         "only .jsonl inside a project folder: {found:?}"
     );
     assert_eq!(found[0].id, "real");
+}
+
+#[test]
+fn a_conversation_that_ran_in_a_temporary_directory_is_not_listed() {
+    // What the console's own smoke tests leave behind: the spawner is pointed at a
+    // scratchpad, Claude Code files a transcript per working directory, and a
+    // one-turn probe arrives in the list looking exactly like work to pick up.
+    let root = scratch("disposable");
+    transcript(&root, "project", "real", Some("/home/example/Code"), 2);
+    transcript(
+        &root,
+        "encoded-tmp",
+        "probe",
+        Some("/private/tmp/claude-501/session/scratchpad-probe"),
+        2,
+    );
+
+    let found = conversations(&root);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].id, "real");
+}
+
+#[test]
+fn every_spelling_of_the_temporary_directory_counts() {
+    // `/tmp` is a symlink to `/private/tmp` on macOS and `$TMPDIR` is a third path
+    // again, so which one a transcript records depends on how its process was
+    // started. Recognising one of the three is the version that looks right.
+    let root = scratch("spellings");
+    for (n, cwd) in ["/tmp/probe", "/private/tmp/probe", "/var/folders/xy/probe"]
+        .iter()
+        .enumerate()
+    {
+        transcript(&root, "project", &format!("probe-{n}"), Some(cwd), 2);
+    }
+
+    assert!(conversations(&root).is_empty(), "one spelling escaped");
+}
+
+#[test]
+fn a_directory_merely_beginning_like_one_is_still_listed() {
+    // `/tmpfiles` is not `/tmp`, and a repository is not disposable for being
+    // named unluckily. The trailing separator in the prefixes is what says so.
+    let root = scratch("prefix");
+    transcript(&root, "project", "kept", Some("/tmpfiles/Code/thing"), 2);
+
+    assert_eq!(conversations(&root).len(), 1);
+}
+
+#[test]
+fn a_temporary_conversation_can_still_be_found_by_id() {
+    // The filter is about what competes for room on a phone screen, not about what
+    // exists. Hiding a conversation from the list must not make it unreachable.
+    let root = scratch("still-there");
+    transcript(&root, "encoded-tmp", "probe", Some("/private/tmp/probe"), 2);
+
+    assert!(conversations(&root).is_empty());
+    assert!(
+        transcript_of(&root, "probe").is_some(),
+        "unlisted, not unreachable"
+    );
 }
 
 #[test]
