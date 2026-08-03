@@ -20,10 +20,24 @@ const REAL: &str = "claude --remote-control health --resume health";
 /// do — Claude Code opens with a mode line and a session id, and the working
 /// directory arrives on a later `system` line.
 fn transcript(dir: &Path, project: &str, id: &str, cwd: Option<&str>, depth: usize) {
+    padded(dir, project, id, cwd, depth, 0);
+}
+
+/// The same, with each opening line padded to `width` bytes.
+///
+/// The opening lines are not uniform in the real files: a `mode` line is tens of
+/// bytes and a `file-history-snapshot` is tens of kilobytes, which is the whole
+/// reason the search is bounded by bytes rather than by a count of lines.
+fn padded(dir: &Path, project: &str, id: &str, cwd: Option<&str>, depth: usize, width: usize) {
     let folder = dir.join(project);
     std::fs::create_dir_all(&folder).expect("project dir");
     let mut lines: Vec<String> = (0..depth)
-        .map(|n| format!(r#"{{"type":"filler","n":{n}}}"#))
+        .map(|n| {
+            format!(
+                r#"{{"type":"file-history-snapshot","n":{n},"snapshot":"{}"}}"#,
+                "x".repeat(width)
+            )
+        })
         .collect();
     if let Some(cwd) = cwd {
         lines.push(format!(r#"{{"type":"system","cwd":"{cwd}"}}"#));
@@ -103,13 +117,20 @@ fn the_working_directory_is_not_on_the_first_line() {
 
 #[test]
 fn the_deepest_real_transcript_is_still_reached() {
-    // Not an invented depth: of the thirteen transcripts on this machine, twelve
-    // record the working directory within their first six lines and one records
-    // it on line 16. The window was 16, so that one conversation was absent from
-    // the list for as long as the list existed — no error, just a session nobody
-    // could reach. This is that transcript, pinned.
+    // Not an invented shape. Of the thirteen transcripts on this machine twelve
+    // reach the working directory inside 1 KB; this one opens with twelve
+    // `file-history-snapshot` lines averaging 38 KB and reaches it at 456 KB. A
+    // 16-line window hid it completely, and no line count could have been chosen
+    // correctly, because how many snapshots open a transcript is data.
     let root = scratch("real-depth");
-    transcript(&root, "project", "late", Some("/home/example/Code"), 16);
+    padded(
+        &root,
+        "project",
+        "late",
+        Some("/home/example/Code"),
+        12,
+        38_000,
+    );
 
     assert_eq!(
         conversations(&root).len(),
@@ -119,9 +140,29 @@ fn the_deepest_real_transcript_is_still_reached() {
 }
 
 #[test]
-fn a_transcript_further_down_than_we_look_is_not_guessed_at() {
-    let root = scratch("too-deep");
-    transcript(&root, "project", "buried", Some("/home/example/Code"), 200);
+fn many_short_lines_are_not_what_the_bound_is_about() {
+    // Two hundred lines of metadata is nothing to read when the lines are small,
+    // and the old line-counting bound refused it. The cost being guarded against
+    // is bytes off a file that can reach a gigabyte, not lines.
+    let root = scratch("many-lines");
+    transcript(&root, "project", "chatty", Some("/home/example/Code"), 200);
+
+    assert_eq!(conversations(&root).len(), 1);
+}
+
+#[test]
+fn a_transcript_that_would_cost_too_much_to_search_is_not_guessed_at() {
+    // Past the budget the answer is "not found", which keeps the list honest: a
+    // default directory would resume the conversation somewhere it never ran.
+    let root = scratch("too-costly");
+    padded(
+        &root,
+        "project",
+        "buried",
+        Some("/home/example/Code"),
+        6,
+        900_000,
+    );
 
     assert!(
         conversations(&root).is_empty(),

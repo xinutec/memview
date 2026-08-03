@@ -18,8 +18,10 @@
 //! a directory with a dot in it, say — and the failure looks like "there are no
 //! past sessions here" rather than like a bug.
 //!
-//! ⚠ The `cwd` is **not** on the first line. It arrives on a `system` line a few
-//! lines in, so a reader that gives up after one line finds nothing, always.
+//! ⚠ The `cwd` is **not** on the first line. Every line of the conversation
+//! carries it and every line of the opening metadata omits it, so the search is
+//! "read until one appears", bounded by bytes — see [`BYTES_TO_FIND_CWD`] for why
+//! bounding it by a number of lines cannot be right at any value.
 
 use std::path::{Path, PathBuf};
 
@@ -46,21 +48,25 @@ pub struct Conversation {
     pub busy: bool,
 }
 
-/// How far into a transcript to look for its working directory.
+/// How much of a transcript to read while looking for its working directory.
 ///
-/// Bounded on purpose: these files are tens of megabytes, and a transcript that
-/// never says where it ran cannot be resumed safely, so giving up is the honest
-/// answer rather than a default directory that resumes somewhere wrong.
+/// ⚠ **A budget in bytes, and it took two wrong answers to get here.** This was a
+/// count of lines — 16, then 64 — and a count of lines cannot be right at any
+/// value, because the number of lines before the first conversation line is data
+/// rather than format. A transcript opens with metadata that carries no `cwd`
+/// (`mode`, `permission-mode`, `queue-operation`, `file-history-snapshot`) and how
+/// many of those there are depends on how many files the session had open. Twelve
+/// of the thirteen transcripts on this machine reach `cwd` inside 1 KB; one opens
+/// with twelve `file-history-snapshot` lines and reaches it at **456 KB**. At 16
+/// that conversation was missing from the list entirely, and 64 would have hidden
+/// the next session that happened to hold thirty files instead of twelve.
 ///
-/// ⚠ **Measured, and the first guess was too tight.** This was 16, chosen for
-/// "the opening handful of lines". Across the thirteen transcripts on this
-/// machine twelve record it within the first six — and one records it on line 16
-/// exactly, one line past the window, so that conversation was silently absent
-/// from the list for as long as the list existed. The symptom is the one this
-/// module warns about throughout: not an error, just a session nobody can reach.
-/// Set well clear of the observed spread, because the cost of reading a few more
-/// short lines is nothing and the cost of being one line short is invisible.
-const LINES_TO_FIND_CWD: usize = 64;
+/// Bytes are what the bound is actually for: these files reach 1.4 GB, and the
+/// promise worth making is "never read much of one", which is a statement about
+/// cost. A line count dressed that up as a statement about the format, and the
+/// format does not support it. Set roughly ten times the largest opening measured
+/// — headroom is cheap here, and being short is invisible.
+const BYTES_TO_FIND_CWD: u64 = 4 * 1024 * 1024;
 
 /// How much of the end of a transcript to read when looking for its name.
 ///
@@ -411,14 +417,22 @@ fn read(path: &Path) -> Option<Conversation> {
 }
 
 /// The working directory a transcript records for itself.
+///
+/// The first line that carries one answers it, and no line before then can: every
+/// line of the conversation proper — `system`, `user`, `assistant`, `attachment` —
+/// records the directory, and every line of the opening metadata omits it. So this
+/// reads forward until one appears rather than looking in a particular place.
+///
+/// The reader is capped by [`BYTES_TO_FIND_CWD`] rather than the loop counting,
+/// which also bounds how much a single line can cost: one `file-history-snapshot`
+/// runs to tens of kilobytes and nothing in the format promises an upper bound.
+/// A line cut off by the cap fails to parse and is skipped, which is the intended
+/// end of the search.
 fn cwd_of(path: &Path) -> Option<String> {
-    use std::io::BufRead;
+    use std::io::{BufRead, Read};
 
     let file = std::fs::File::open(path).ok()?;
-    for line in std::io::BufReader::new(file)
-        .lines()
-        .take(LINES_TO_FIND_CWD)
-    {
+    for line in std::io::BufReader::new(file.take(BYTES_TO_FIND_CWD)).lines() {
         let Ok(line) = line else { break };
         let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
             continue;
