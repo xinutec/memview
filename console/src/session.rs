@@ -465,7 +465,16 @@ impl Session {
                     cost_usd, turns, ..
                 } => {
                     state.busy = None;
-                    state.cost_usd += cost_usd;
+                    // ⚠ **Assigned, not added.** The field behind this is the
+                    // CLI's `total_cost_usd`, and it means what it says: the
+                    // running total for the session so far, not the price of
+                    // the exchange that just ended. Adding those totals to each
+                    // other yields a triangular sum — measured on a live
+                    // session reading 3.03, 3.76, 8.00, 9.55, 10.66, 11.97,
+                    // 12.35, where `+=` had reached $59.32 against a true
+                    // $12.35. `num_turns` below is the opposite and really is
+                    // per-exchange (2, 4, 23, 8, …), so that one accumulates.
+                    state.cost_usd = *cost_usd;
                     state.turns += turns;
                 }
                 Event::Limit { status, .. } => state.limit = Some(status.clone()),

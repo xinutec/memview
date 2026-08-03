@@ -129,6 +129,21 @@ async fn one_process_serves_several_turns() {
         assert_eq!(turns, turn, "turn {turn} was answered by the same process");
     }
     assert!(session.alive(), "still one live process after three turns");
+
+    // ⚠ The two numbers on a result line behave OPPOSITELY, and reading both
+    // the same way is a bug that hides in plain sight. `num_turns` counts the
+    // exchange that just ended, so it accumulates; `total_cost_usd` is already
+    // the session total, so it must not. Summing totals gives a triangular sum
+    // — on a live session it reached $59.32 against a true $12.35 — and it
+    // looks perfectly plausible while doing it. The stub now reports a rising
+    // total (0.25, 0.50, 0.75) the way the CLI does, so this can fail.
+    let summary = session.summary();
+    assert_eq!(summary.turns, 3, "three exchanges, counted");
+    assert!(
+        (summary.cost_usd - 0.75).abs() < 1e-9,
+        "the cost is the latest total, not the sum of the totals: {}",
+        summary.cost_usd
+    );
 }
 
 #[tokio::test]
