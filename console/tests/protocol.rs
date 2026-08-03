@@ -317,3 +317,35 @@ fn an_ordinary_message_is_still_a_prompt() {
     let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"do the thing"}]}}"#;
     assert!(matches!(read(line).as_slice(), [Event::Prompt { text }] if text == "do the thing"));
 }
+
+#[test]
+fn a_turn_reports_how_full_the_context_is() {
+    // ⚠ All three counts added together. A cached prompt reports two tokens of
+    // input against half a million of cache read — reading `input_tokens` alone
+    // would call a session that is nearly full nearly empty, which is the exact
+    // opposite of what this is for.
+    let line = r#"{"type":"result","subtype":"success","total_cost_usd":1.0,"num_turns":1,"duration_ms":5,"usage":{"input_tokens":2,"cache_creation_input_tokens":413,"cache_read_input_tokens":495907,"output_tokens":421},"modelUsage":{"claude-opus-5":{"contextWindow":1000000}}}"#;
+    assert!(matches!(
+        read(line).as_slice(),
+        [Event::Turn {
+            context: Some(496_322),
+            window: Some(1_000_000),
+            ..
+        }]
+    ));
+}
+
+#[test]
+fn a_turn_that_says_nothing_about_tokens_claims_nothing() {
+    // Older CLIs, and any line that omits it. None rather than zero: zero would
+    // render as an empty context, which is a confident wrong answer.
+    let line = r#"{"type":"result","subtype":"success","total_cost_usd":1.0,"num_turns":1,"duration_ms":5}"#;
+    assert!(matches!(
+        read(line).as_slice(),
+        [Event::Turn {
+            context: None,
+            window: None,
+            ..
+        }]
+    ));
+}

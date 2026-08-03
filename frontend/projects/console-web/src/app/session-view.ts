@@ -77,6 +77,19 @@ export class SessionView implements OnDestroy {
    * work it described and missed anything shorter than the interval.
    */
   readonly doing = computed(() => this.held()?.doing());
+  /**
+   * How full the context is, as `496k / 1M`, when the session has said.
+   *
+   * Shown so compaction can be seen coming rather than met. Nothing else
+   * reports it: the CLI puts the counts on its result line and nowhere in the
+   * transcript, so a resumed session says nothing until its first turn ends.
+   */
+  readonly context = computed(() => {
+    const session = this.session();
+    if (!session?.context || !session.window) return undefined;
+    return `${tokens(session.context)} / ${tokens(session.window)}`;
+  });
+
   /** How many background tasks the harness has told us about and not closed. */
   readonly background = computed(() => this.held()?.background().length ?? 0);
   readonly session = signal<Summary | undefined>(undefined);
@@ -330,4 +343,10 @@ export class SessionView implements OnDestroy {
     });
   }
 
+}
+
+/** Tokens, at the precision a glance wants: `496k`, `1M`. */
+function tokens(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(count % 1_000_000 === 0 ? 0 : 1)}M`;
+  return `${Math.round(count / 1000)}k`;
 }

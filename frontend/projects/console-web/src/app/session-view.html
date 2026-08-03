@@ -8,6 +8,9 @@
         <span class="ended">ended</span>
       }
       <span>{{ session.turns }} turns</span>
+      @if (context(); as context) {
+        <span>{{ context }}</span>
+      }
       @if (showsCost()) {
         <span>${{ session.cost_usd.toFixed(4) }}</span>
       }

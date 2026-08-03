@@ -5,6 +5,7 @@
 //! the moment it dies would leave a client that looked a second too late with no
 //! evidence that anything ever happened.
 
+use anyhow::Context as _;
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
@@ -18,12 +19,67 @@ pub struct Roster {
     sessions: RwLock<BTreeMap<String, Arc<Session>>>,
 }
 
+/// The environment variable an upgrade hands its sessions over in.
+const HANDOVER: &str = "CONSOLE_HANDOVER";
+
+/// One session, as it travels across an upgrade.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct Carried {
+    id: String,
+    dir: String,
+    pid: u32,
+    fds: crate::session::Fds,
+}
+
 impl Roster {
     pub fn new(config: Config) -> Self {
         Self {
             config,
             sessions: RwLock::new(BTreeMap::new()),
         }
+    }
+
+    /// Pick up the sessions an upgrade handed over, if this image was exec'd by
+    /// one. See [`Self::handover`].
+    ///
+    /// A session that cannot be rebuilt is *dropped rather than guessed at*: its
+    /// process is still running and now unreachable, which is bad, but writing
+    /// somebody's next instruction into a descriptor that turned out to be a
+    /// different session's would be worse. The number carried alongside each
+    /// descriptor is the id, so a mismatch is at least visible in the log.
+    pub fn inherit(&self) -> usize {
+        let Ok(handed) = std::env::var(HANDOVER) else {
+            return 0;
+        };
+        // Not left lying around: a session started later must not think it was
+        // inherited, and the numbers in here mean nothing once used.
+        unsafe { std::env::remove_var(HANDOVER) };
+        let carried: Vec<Carried> = match serde_json::from_str(&handed) {
+            Ok(carried) => carried,
+            Err(error) => {
+                tracing::error!(
+                    "the handover could not be read, so no session survived it: {error}"
+                );
+                return 0;
+            }
+        };
+        let mut taken = 0;
+        for one in carried {
+            match Session::adopt(one.id.clone(), one.dir.clone().into(), one.pid, one.fds) {
+                Ok(session) => {
+                    tracing::info!("carried {} (pid {}) across the upgrade", one.id, one.pid);
+                    self.sessions
+                        .write()
+                        .expect("roster poisoned")
+                        .insert(one.id, session);
+                    taken += 1;
+                }
+                Err(error) => {
+                    tracing::error!("{} did not survive the upgrade: {error:#}", one.id);
+                }
+            }
+        }
+        taken
     }
 
     pub fn config(&self) -> &Config {
@@ -111,6 +167,68 @@ impl Roster {
             tracing::info!("killing {}", session.id);
             session.force();
         }
+    }
+
+    /// Replace this console with a newer build, keeping every session alive.
+    ///
+    /// `execve` replaces the image without touching the process: same pid, so
+    /// the `claude` children are still children and never notice, and open
+    /// descriptors survive unless they are close-on-exec. So the pipes to those
+    /// children can be carried across — which is the whole feature, because
+    /// stopping and starting instead kills every conversation and costs whoever
+    /// is using it a re-entry.
+    ///
+    /// What travels is the minimum: for each session its id, directory, pid and
+    /// three descriptor numbers, as JSON in [`HANDOVER`]. The new image rebuilds
+    /// sessions from those rather than spawning any.
+    ///
+    /// ⚠ **The listening sockets are deliberately NOT carried.** They are
+    /// close-on-exec and stay that way, so the port is free the instant the
+    /// image is replaced and the new one binds it immediately. Clients see a
+    /// dropped connection and reconnect quoting `Last-Event-ID`, which they
+    /// already do for a train going through a cutting.
+    ///
+    /// ⚠ **If this returns, the upgrade failed and the console is still the old
+    /// build**, holding everything it held before. It is written that way on
+    /// purpose: the alternative — exiting on a failed exec — would leave live
+    /// `claude` processes with nobody holding their stdin, reachable only by
+    /// being killed.
+    pub fn handover(&self) -> anyhow::Result<std::convert::Infallible> {
+        use std::os::unix::process::CommandExt;
+
+        let sessions = self.sessions.read().expect("roster poisoned");
+        let carried: Vec<Carried> = sessions
+            .values()
+            .filter(|session| session.alive())
+            .filter(|session| {
+                let fds = session.fds();
+                // All three or none: a session missing one of its pipes cannot
+                // be spoken to or heard, and carrying it would produce a
+                // conversation on screen that answers nothing.
+                [fds.stdin, fds.stdout, fds.stderr]
+                    .into_iter()
+                    .all(crate::session::keepable)
+            })
+            .map(|session| Carried {
+                id: session.id.clone(),
+                dir: session.dir.display().to_string(),
+                pid: session.pid(),
+                fds: session.fds(),
+            })
+            .collect();
+
+        let binary = std::env::current_exe().context("finding this console's own binary")?;
+        tracing::info!(
+            "upgrading to {}, carrying {} session(s)",
+            binary.display(),
+            carried.len()
+        );
+        let error = std::process::Command::new(&binary)
+            .args(std::env::args().skip(1))
+            .env(HANDOVER, serde_json::to_string(&carried)?)
+            .exec();
+        // exec only returns on failure.
+        Err(anyhow::Error::new(error).context(format!("replacing this console with {binary:?}")))
     }
 
     pub fn get(&self, id: &str) -> Option<Arc<Session>> {

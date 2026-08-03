@@ -65,6 +65,12 @@ async fn main() -> Result<()> {
     let desk = config.desk.clone();
     let dirs = config.dirs.clone();
     let roster = Arc::new(Roster::new(config));
+    // Before anything else: if this image was exec'd by an upgrade, the sessions
+    // it was running are still running and their pipes came with us.
+    let carried = roster.inherit();
+    if carried > 0 {
+        tracing::info!("{carried} session(s) carried across an upgrade — none was restarted");
+    }
     let mut app = api::router(roster.clone());
     if let Some(dir) = &static_dir {
         // The SPA owns its routes, so anything the API did not answer is the
@@ -95,6 +101,28 @@ async fn main() -> Result<()> {
             tracing::info!("stopping — taking the sessions with us");
             roster.shut_down();
             std::process::exit(0);
+        });
+    }
+
+    // SIGUSR2 upgrades in place, keeping the sessions. Deliberately a different
+    // signal from the one that stops: `kill` means stop, and an upgrade that
+    // answered to it would be a stop that sometimes did not stop. nginx spells
+    // it the same way, for the same reason.
+    //
+    // If it fails, the console carries on as it was — see [`Roster::handover`]
+    // for why returning beats exiting.
+    {
+        let roster = roster.clone();
+        tokio::spawn(async move {
+            let mut upgrade =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::user_defined2())
+                    .expect("SIGUSR2 handler");
+            while upgrade.recv().await.is_some() {
+                match roster.handover() {
+                    Ok(never) => match never {},
+                    Err(error) => tracing::error!("the upgrade did not happen: {error:#}"),
+                }
+            }
         });
     }
 

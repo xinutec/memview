@@ -129,6 +129,13 @@ pub enum Event {
     /// One turn finished.
     Turn {
         cost_usd: f64,
+        /// How much of the context window the finished request occupied, and
+        /// how big that window is — the answer to "is it nearly time to
+        /// compact?", which nothing else on the wire says.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        context: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        window: Option<u64>,
         turns: u32,
         duration_ms: u64,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -378,12 +385,46 @@ pub fn recorded_at(line: &str) -> Option<i64> {
 struct Turn {
     #[serde(default)]
     total_cost_usd: f64,
+    /// What the request that just finished carried as its prompt.
+    #[serde(default)]
+    usage: Option<Usage>,
+    /// Keyed by model id. The context window is declared here and nowhere else
+    /// — not in the transcript, not on any other line.
+    #[serde(default, rename = "modelUsage")]
+    model_usage: std::collections::BTreeMap<String, ModelUsage>,
     #[serde(default)]
     num_turns: u32,
     #[serde(default)]
     duration_ms: u64,
     #[serde(default)]
     stop_reason: Option<String>,
+}
+
+/// The tokens one request carried.
+///
+/// ⚠ **Context used is all three added together**, not `input_tokens`. A cached
+/// prompt reports two tokens of input and half a million of cache read — taking
+/// the first would say a session near its limit was empty.
+#[derive(Debug, Deserialize)]
+struct Usage {
+    #[serde(default)]
+    input_tokens: u64,
+    #[serde(default)]
+    cache_creation_input_tokens: u64,
+    #[serde(default)]
+    cache_read_input_tokens: u64,
+}
+
+impl Usage {
+    fn prompt(&self) -> u64 {
+        self.input_tokens + self.cache_creation_input_tokens + self.cache_read_input_tokens
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelUsage {
+    #[serde(default, rename = "contextWindow")]
+    context_window: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -460,6 +501,15 @@ pub fn read(line: &str) -> Vec<Event> {
             })
             .collect(),
         Line::Result(turn) => vec![Event::Turn {
+            context: turn.usage.as_ref().map(Usage::prompt),
+            // Whichever model answered; there is one entry in practice, and the
+            // largest is the honest answer if a turn ever spanned two.
+            window: turn
+                .model_usage
+                .values()
+                .map(|model| model.context_window)
+                .max()
+                .filter(|window| *window > 0),
             cost_usd: turn.total_cost_usd,
             turns: turn.num_turns,
             duration_ms: turn.duration_ms,

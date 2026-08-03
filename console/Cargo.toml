@@ -27,6 +27,9 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4"] }
+# For the descriptor work an upgrade needs: clearing close-on-exec, going
+# non-blocking, and killing a session whose Child handle exec'd away.
+libc = "0.2"
 
 # TLS with a pinned client key. `ring` rather than the default aws-lc-rs
 # provider: aws-lc needs cmake and a C toolchain in every environment that ever

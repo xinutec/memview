@@ -401,3 +401,54 @@ async fn a_question_can_only_be_answered_once() {
         "and says why"
     );
 }
+
+#[tokio::test]
+async fn a_session_keeps_the_pipes_an_upgrade_would_carry() {
+    // The upgrade hands three descriptor numbers and a pid to the next image.
+    // If any is missing there is nothing to carry, and the session would be
+    // silently unreachable on the other side rather than visibly dropped.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+
+    let fds = session.fds();
+    assert!(
+        fds.stdin >= 0 && fds.stdout >= 0 && fds.stderr >= 0,
+        "{fds:?}"
+    );
+    assert_ne!(
+        session.pid(),
+        0,
+        "a pid is the only handle an adopted session has"
+    );
+}
+
+#[tokio::test]
+async fn a_live_pipe_can_be_taken_out_of_close_on_exec() {
+    // ⚠ Rust marks every pipe it creates close-on-exec, so without this the
+    // upgraded image inherits nothing at all — the failure would be total and
+    // silent, which is why it is asserted rather than assumed.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    let fds = session.fds();
+
+    for fd in [fds.stdin, fds.stdout, fds.stderr] {
+        assert!(
+            console::session::keepable(fd),
+            "fd {fd} could not be carried"
+        );
+        // SAFETY: reading a flag on a descriptor this process owns.
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        assert_eq!(flags & libc::FD_CLOEXEC, 0, "fd {fd} would close on exec");
+    }
+}
+
+#[tokio::test]
+async fn nothing_is_inherited_when_this_image_was_not_exec_by_an_upgrade() {
+    // The ordinary start. A stray or absent handover must produce a console that
+    // simply has no sessions, not one that fails to start.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    assert_eq!(roster.inherit(), 0);
+}

@@ -13,6 +13,7 @@
 //! to a session that is still starting, and `--resume` later takes the same id.
 
 use std::collections::{BTreeMap, VecDeque};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -22,10 +23,51 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 use serde::Serialize;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, Command};
+use tokio::process::{Child, Command};
 use tokio::sync::{broadcast, oneshot};
 
 use crate::protocol::{self, Event};
+
+/// Where a session's instructions go.
+///
+/// A trait object because a session is built two ways: spawned, where this is
+/// the child's own [`ChildStdin`], and **adopted across an upgrade**, where it
+/// is the same pipe reopened from a raw file descriptor the previous image left
+/// behind. Nothing downstream can tell the difference, which is the point.
+type Sink = Box<dyn tokio::io::AsyncWrite + Send + Unpin>;
+
+/// The three pipes to a session's process, by number.
+///
+/// Kept so they can outlive this image. `execve` preserves open descriptors and
+/// the process id, so the children of an upgraded console are still its
+/// children and still reachable through exactly these numbers — see
+/// [`crate::roster::Roster::handover`].
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub struct Fds {
+    pub stdin: std::os::fd::RawFd,
+    pub stdout: std::os::fd::RawFd,
+    pub stderr: std::os::fd::RawFd,
+}
+
+/// Take a descriptor out of close-on-exec, and make it non-blocking.
+///
+/// ⚠ **Rust sets `O_CLOEXEC` on every pipe it creates**, so without the first
+/// half an upgraded image inherits nothing and every live session is silently
+/// unreachable. The second half is tokio's requirement for adopting a pipe.
+///
+/// Returns false when the descriptor is not there any more, which is the honest
+/// answer for a session whose process has already gone.
+pub fn keepable(fd: std::os::fd::RawFd) -> bool {
+    // SAFETY: fcntl on a descriptor this process owns; both calls only read or
+    // set flags and cannot invalidate it.
+    unsafe {
+        if libc::fcntl(fd, libc::F_SETFD, 0) == -1 {
+            return false;
+        }
+        let flags = libc::fcntl(fd, libc::F_GETFL);
+        flags != -1 && libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) != -1
+    }
+}
 
 /// How much transcript one session keeps in memory.
 ///
@@ -65,6 +107,18 @@ pub struct Summary {
     /// stopped being all-you-can-eat, which is the first moment it means
     /// anything.
     pub cost_usd: f64,
+    /// How many tokens the last request's prompt came to, and the window it went
+    /// into — so a reader can see when compaction is coming rather than meeting
+    /// it. Absent until a turn finishes: nothing else on the wire carries either.
+    ///
+    /// ⚠ Prompt size is input + cache-creation + cache-read added together. The
+    /// cached part is almost all of it — 496,000 read against 2 of input on this
+    /// session — so anything reading `input_tokens` alone reports nearly zero for
+    /// a conversation that is nearly full.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window: Option<u64>,
     /// The account's own verdict on its rate limit, when it has given one:
     /// `allowed`, `allowed_warning` or `rejected`.
     ///
@@ -167,21 +221,42 @@ struct State {
     busy: Option<String>,
     turns: u32,
     cost_usd: f64,
+    /// The last turn's prompt size and the window it went into. See
+    /// [`Summary::context`].
+    context: Option<u64>,
+    window: Option<u64>,
     /// See [`Summary::limit`].
     limit: Option<String>,
     asked: Option<String>,
     stderr: String,
 }
 
-#[derive(Debug)]
 pub struct Session {
     pub id: String,
     pub dir: PathBuf,
     started: SystemTime,
     state: Mutex<State>,
-    stdin: tokio::sync::Mutex<Option<ChildStdin>>,
+    stdin: tokio::sync::Mutex<Option<Sink>>,
+    /// The process id, kept because an adopted session has no [`Child`] handle
+    /// to kill through — the handle belonged to the image that exec'd away.
+    pid: u32,
+    /// See [`Fds`]. Kept for the same reason.
+    fds: Fds,
     kill: Mutex<Option<oneshot::Sender<()>>>,
     tx: broadcast::Sender<Stamped>,
+}
+
+/// By hand because the sink is a trait object, which cannot derive it — and the
+/// interesting half is the identity anyway.
+impl std::fmt::Debug for Session {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Session")
+            .field("id", &self.id)
+            .field("dir", &self.dir)
+            .field("pid", &self.pid)
+            .field("fds", &self.fds)
+            .finish_non_exhaustive()
+    }
 }
 
 /// How to spawn the CLI. Held by the roster and handed to each session.
@@ -311,6 +386,14 @@ impl Session {
         let mut child = command
             .spawn()
             .with_context(|| format!("spawning {} in {}", spawn.binary, dir.display()))?;
+        // Read before the handles are moved out: after the upgrade these numbers
+        // are all that is left of the connection to this process.
+        let fds = Fds {
+            stdin: child.stdin.as_ref().map_or(-1, AsRawFd::as_raw_fd),
+            stdout: child.stdout.as_ref().map_or(-1, AsRawFd::as_raw_fd),
+            stderr: child.stderr.as_ref().map_or(-1, AsRawFd::as_raw_fd),
+        };
+        let pid = child.id().unwrap_or(0);
         let stdin = child.stdin.take().context("child has no stdin")?;
         let (kill_tx, kill_rx) = oneshot::channel();
         let (tx, _) = broadcast::channel(256);
@@ -323,20 +406,89 @@ impl Session {
                 alive: true,
                 ..State::default()
             }),
-            stdin: tokio::sync::Mutex::new(Some(stdin)),
+            stdin: tokio::sync::Mutex::new(Some(Box::new(stdin) as Sink)),
+            pid,
+            fds,
             kill: Mutex::new(Some(kill_tx)),
             tx,
         });
 
-        session.clone().watch(child, kill_rx);
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        session.clone().read_from(stdout, stderr, false);
+        session.clone().reap(child, kill_rx);
         Ok(session)
     }
 
-    /// Read the child's streams until it ends, then record how it ended.
-    fn watch(self: Arc<Self>, mut child: Child, kill: oneshot::Receiver<()>) {
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
+    /// Take over a session the previous image was running.
+    ///
+    /// Everything about the process is unchanged — same pid, same pipes, same
+    /// conversation — because `execve` replaced this console's image without
+    /// touching its children. What is lost is the [`Child`] handle, so exit is
+    /// noticed by the child's stdout reaching end of file rather than by waiting
+    /// on it, and killing goes through the pid.
+    ///
+    /// ⚠ The scrollback does not survive. A client that reconnects is reseeded
+    /// from the transcript on disk, which is the durable record anyway.
+    pub fn adopt(id: String, dir: PathBuf, pid: u32, fds: Fds) -> Result<Arc<Self>> {
+        // SAFETY: these descriptors were handed over by the image that exec'd,
+        // which held them open and cleared close-on-exec so they would survive.
+        let (stdin, stdout, stderr) = unsafe {
+            (
+                OwnedFd::from_raw_fd(fds.stdin),
+                OwnedFd::from_raw_fd(fds.stdout),
+                OwnedFd::from_raw_fd(fds.stderr),
+            )
+        };
+        let stdin = tokio::net::unix::pipe::Sender::from_owned_fd(stdin)
+            .context("adopting the session's stdin")?;
+        let stdout = tokio::net::unix::pipe::Receiver::from_owned_fd(stdout)
+            .context("adopting the session's stdout")?;
+        let stderr = tokio::net::unix::pipe::Receiver::from_owned_fd(stderr)
+            .context("adopting the session's stderr")?;
+        let (kill_tx, _kill_rx) = oneshot::channel();
+        let (tx, _) = broadcast::channel(256);
 
+        let session = Arc::new(Self {
+            id,
+            dir,
+            started: SystemTime::now(),
+            state: Mutex::new(State {
+                alive: true,
+                ..State::default()
+            }),
+            stdin: tokio::sync::Mutex::new(Some(Box::new(stdin) as Sink)),
+            pid,
+            fds,
+            kill: Mutex::new(Some(kill_tx)),
+            tx,
+        });
+        session.clone().read_from(Some(stdout), Some(stderr), true);
+        Ok(session)
+    }
+
+    /// The pipes to this session's process, for an upgrade to hand on.
+    pub fn fds(&self) -> Fds {
+        self.fds
+    }
+
+    pub fn pid(&self) -> u32 {
+        self.pid
+    }
+
+    /// Read the child's streams until they end.
+    ///
+    /// ⚠ **`ends_on_eof` decides who declares the session over**, and it is not
+    /// a preference. For an adopted session end of file is the only signal there
+    /// is — no [`Child`] survived the upgrade to be waited on. For a spawned one
+    /// [`Self::reap`] must be the one to say so, because **only it knows the exit
+    /// code**: letting the reader win a race it usually wins turned every clean
+    /// exit into `code: None`, which reads as "killed". A test caught that.
+    fn read_from<O, E>(self: Arc<Self>, stdout: Option<O>, stderr: Option<E>, ends_on_eof: bool)
+    where
+        O: tokio::io::AsyncRead + Unpin + Send + 'static,
+        E: tokio::io::AsyncRead + Unpin + Send + 'static,
+    {
         if let Some(stdout) = stdout {
             let session = self.clone();
             tokio::spawn(async move {
@@ -345,6 +497,11 @@ impl Session {
                     for event in protocol::read(&line) {
                         session.push(event);
                     }
+                }
+                // The pipe closed, so the process did — but only say so when
+                // nothing better is watching. See the note above.
+                if ends_on_eof {
+                    session.ended(None);
                 }
             });
         }
@@ -357,7 +514,10 @@ impl Session {
                 }
             });
         }
+    }
 
+    /// Wait for a spawned child, and kill it when asked.
+    fn reap(self: Arc<Self>, mut child: Child, kill: oneshot::Receiver<()>) {
         tokio::spawn(async move {
             let code = tokio::select! {
                 status = child.wait() => status.ok().and_then(|s| s.code()),
@@ -366,9 +526,24 @@ impl Session {
                     None
                 }
             };
-            self.push(Event::Exited { code });
-            self.state.lock().expect("session state poisoned").alive = false;
+            self.ended(code);
         });
+    }
+
+    /// Record that the process is gone, once.
+    ///
+    /// Called from two places for a spawned session — the reader seeing end of
+    /// file and the reaper seeing the exit — and from one for an adopted one.
+    /// Guarded so a client is not told twice that the same session ended.
+    fn ended(&self, code: Option<i32>) {
+        {
+            let mut state = self.state.lock().expect("session state poisoned");
+            if !state.alive {
+                return;
+            }
+            state.alive = false;
+        }
+        self.push(Event::Exited { code });
     }
 
     /// Send a message to the session.
@@ -445,7 +620,17 @@ impl Session {
     /// Kill the session now.
     pub fn force(&self) {
         if let Some(kill) = self.kill.lock().expect("session kill poisoned").take() {
-            let _ = kill.send(());
+            // A spawned session: the reaper holds the child and kills it.
+            if kill.send(()).is_ok() {
+                return;
+            }
+        }
+        // An adopted one has no child handle — the image that owned it exec'd
+        // away — so the pid is the only handle left.
+        if self.pid != 0 {
+            // SAFETY: a kill to a pid this console started; the worst case is
+            // ESRCH for a process that has already gone, which is ignored.
+            unsafe { libc::kill(self.pid as libc::pid_t, libc::SIGKILL) };
         }
     }
 
@@ -467,8 +652,20 @@ impl Session {
                 Event::Started { model, .. } => state.model = Some(model.clone()),
                 Event::Busy { status } => state.busy = Some(status.clone()),
                 Event::Turn {
-                    cost_usd, turns, ..
+                    cost_usd,
+                    turns,
+                    context,
+                    window,
+                    ..
                 } => {
+                    // Assigned, not accumulated: each is a measurement of the
+                    // whole conversation as it stood, not an increment.
+                    if context.is_some() {
+                        state.context = *context;
+                    }
+                    if window.is_some() {
+                        state.window = *window;
+                    }
                     state.busy = None;
                     // ⚠ **Assigned, not added.** The field behind this is the
                     // CLI's `total_cost_usd`, and it means what it says: the
@@ -609,6 +806,8 @@ impl Session {
             turns: state.turns,
             cost_usd: state.cost_usd,
             limit: state.limit.clone(),
+            context: state.context,
+            window: state.window,
             asked: state.asked.clone(),
             // Filled in by the roster, which knows where the transcripts are.
             name: None,
