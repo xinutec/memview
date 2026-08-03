@@ -40,7 +40,6 @@ export const KINDS = [
   'started',
   'prompt',
   'text',
-  'thinking',
   'tool',
   'tool_result',
   'turn',
@@ -104,7 +103,7 @@ export interface SessionEvent {
 export interface Entry {
   /** `day` is not a thing that happened — it is the date the entries after it
    *  fall on, put in by [[fold]] when the conversation crosses midnight. */
-  kind: 'said' | 'asked' | 'thought' | 'tool' | 'turn' | 'note' | 'ask' | 'day';
+  kind: 'said' | 'asked' | 'tool' | 'turn' | 'note' | 'ask' | 'day';
   text: string;
   /** When it happened, in milliseconds since the epoch. For a block built from
    *  several deltas this is when the block *began*, which is what the reader

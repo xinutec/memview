@@ -3,7 +3,7 @@
     <div class="where">{{ session.dir }}</div>
     <div class="facts">
       @if (session.alive) {
-        <span class="live" [class.working]="session.busy">{{ session.busy ?? 'idle' }}</span>
+        <span class="live" [class.working]="doing()">{{ doing() ?? 'idle' }}</span>
       } @else {
         <span class="ended">ended</span>
       }
@@ -22,22 +22,12 @@
       }
     </div>
   </header>
-  @if (session.busy) {
-    <mat-progress-bar mode="indeterminate" />
-  }
 }
 
 @if (trouble() || unreachable(); as what) {
   <!-- An action's failure wins the line: it is the more specific of the two and
        the one the reader just caused. -->
   <p class="trouble">{{ what }}</p>
-}
-
-@if (thoughts()) {
-  <button matButton (click)="showThinking.set(!showThinking())">
-    <mat-icon>{{ showThinking() ? 'visibility_off' : 'visibility' }}</mat-icon>
-    {{ showThinking() ? 'hide' : 'show' }} thinking ({{ thoughts() }})
-  </button>
 }
 
 @if (more()) {
@@ -54,7 +44,7 @@
        not: prepending a page of older messages shifts every one of them, and
        Angular re-binds the whole list, re-rendering the markdown of every
        message on screen in a single frame. -->
-  @for (entry of visible(); track entry) {
+  @for (entry of entries(); track entry) {
     <li class="entry" [class]="entry.kind">
       @if (entry.kind !== 'day' && entry.at) {
         <!-- The time, not the date. Which day it was is the marker above. -->
@@ -136,6 +126,16 @@
     </li>
   }
 </ol>
+
+<!-- Above the composer, not under the header: the header scrolls away as soon as
+     anybody reads the conversation, which is exactly when they want to know
+     whether it is still working. The composer is pinned, so this is too. -->
+@if (doing(); as doing) {
+  <div class="doing">
+    <mat-progress-bar mode="indeterminate" />
+    <span>{{ doing }}</span>
+  </div>
+}
 
 <form class="composer" (submit)="$event.preventDefault(); send()">
   <mat-form-field appearance="outline" class="box">

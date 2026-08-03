@@ -3,8 +3,7 @@ import { Entry, SessionEvent } from './models';
 /** Fold one event into the transcript.
  *
  *  The stream is finer-grained than anything worth reading. Text arrives a few
- *  words at a time, thinking arrives the same way and belongs in its own block,
- *  and a tool's verdict arrives after — sometimes long after — the call it
+ *  words at a time, and a tool's verdict arrives after — sometimes long after — the call it
  *  answers. This is where that becomes a page: deltas of the same kind extend
  *  the block they are part of, and a result finds its call rather than landing
  *  at the bottom.
@@ -17,10 +16,6 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
     case 'text':
       if (last?.kind === 'said') last.text += event.text ?? '';
       else add(entries, { kind: 'said', text: event.text ?? '', at: event.at });
-      break;
-    case 'thinking':
-      if (last?.kind === 'thought') last.text += event.text ?? '';
-      else add(entries, { kind: 'thought', text: event.text ?? '', at: event.at });
       break;
     case 'prompt':
       add(entries, { kind: 'asked', text: event.text ?? '', at: event.at });

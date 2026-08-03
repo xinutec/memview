@@ -124,8 +124,6 @@ const TRANSCRIPT = [
     text: "Port the remaining matcher gate to Lean and prove it bit-exact against the TypeScript quant twin.",
     at: LATE,
   },
-  { kind: "thinking", text: "The gate lives in decode/gate.ts and the Lean side already has the population step, so ", at: LATE },
-  { kind: "thinking", text: "the missing piece is the leg quantisation cost." },
   {
     kind: "tool",
     id: "toolu_01",
@@ -241,17 +239,6 @@ test("session list — a blocked session says so first @ phone width", async ({ 
   await page.getByText("waiting for you").waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
-});
-
-test("transcript — thinking unfolded is the longest the page gets @ phone width", async ({
-  page,
-}, testInfo) => {
-  await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
-  await page.getByRole("button", { name: /show thinking/ }).click();
-  await page.getByText("quantisation").first().waitFor();
-  await expectNoTextOverlaps(page, testInfo);
-  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
 });
 
 test("the composer grows with what is being typed @ phone width", async ({ page }, testInfo) => {

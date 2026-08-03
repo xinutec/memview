@@ -51,27 +51,6 @@ fn the_reply_is_assembled_from_the_deltas_and_not_doubled() {
 }
 
 #[test]
-fn thinking_is_kept_apart_from_the_answer() {
-    // Both arrive as content_block_delta and differ only by the delta's type; a
-    // console that conflated them would print the model's reasoning as its reply.
-    let thinking: String = events()
-        .iter()
-        .filter_map(|e| match e {
-            Event::Thinking { text } => Some(text.clone()),
-            _ => None,
-        })
-        .collect();
-    assert!(
-        thinking.contains("hello"),
-        "the thinking was captured separately, got {thinking:?}"
-    );
-    assert!(
-        !thinking.trim().is_empty() && thinking.trim() != "hello",
-        "thinking is its own stream, not a copy of the answer"
-    );
-}
-
-#[test]
 fn the_rate_limit_window_is_a_status_and_not_a_percentage() {
     // Worth pinning: the design assumed the percentages had to come from the
     // statusLine hook, and this event is what the stream actually offers.
@@ -111,15 +90,6 @@ mod recorded {
         assert!(matches!(
             read_recorded(line).as_slice(),
             [Event::Text { text }] if text == "the answer"
-        ));
-    }
-
-    #[test]
-    fn thinking_survives_too() {
-        let line = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"}]}}"#;
-        assert!(matches!(
-            read_recorded(line).as_slice(),
-            [Event::Thinking { text }] if text == "hmm"
         ));
     }
 

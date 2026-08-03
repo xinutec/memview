@@ -79,12 +79,6 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-.thought {
-  font: var(--mat-sys-body-medium);
-  color: var(--mat-sys-on-surface-variant);
-  font-style: italic;
-}
-
 .turn,
 .note {
   font: var(--mat-sys-body-small);
@@ -225,14 +219,13 @@
   pointer-events: none;
 }
 
-// Most rows keep their full width. An answer and the thinking before it follow
-// from the prompt above them, so a time there repeats what is already on screen;
+// Most rows keep their full width. An answer follows from the prompt above it,
+// so a time there repeats what is already on screen;
 // and a tool row is the most width-starved line on the page — its argument is a
 // path or a command and is already being ellipsised, so a clock in the margin is
 // paid for out of the one string that needed the room. The turn line under the
 // burst carries the time for all of them.
 .said > .at,
-.thought > .at,
 .tool > .at {
   display: none;
 }
@@ -315,4 +308,31 @@
 // attached to the only irreversible choice on it.
 .choose button {
   flex: 1;
+}
+
+// The activity strip, pinned above the composer.
+//
+// It lives here rather than under the header because the header is the first
+// thing to scroll away, and "is it still working?" is asked while reading the
+// conversation, not while looking at the title. Kept to one line: it sits in
+// the space the composer already reserves, so it costs no transcript.
+.doing {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.75rem 0;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+
+  mat-progress-bar {
+    flex: 1;
+  }
+
+  span {
+    // The CLI's own word for what it is doing — "requesting", "tool_use". Fixed
+    // width so the bar beside it does not jump as the word changes.
+    flex: 0 0 6rem;
+    text-align: right;
+  }
 }

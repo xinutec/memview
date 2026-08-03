@@ -20,15 +20,6 @@ describe('transcript', () => {
     expect(seen).toEqual([{ kind: 'said', text: 'I have read the file and it is fine.' }]);
   });
 
-  it('keeps thinking out of the answer', () => {
-    const seen = transcript(
-      { kind: 'thinking', text: 'let me check' },
-      { kind: 'text', text: 'done' },
-      { kind: 'thinking', text: 'more' },
-    );
-    expect(seen.map((e) => e.kind)).toEqual(['thought', 'said', 'thought']);
-  });
-
   it('gives a tool result to the call it answers, not to the newest line', () => {
     // Results arrive after the call, and often after other calls have been made.
     // Appending them in arrival order would attach an error to the wrong tool —

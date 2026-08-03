@@ -64,6 +64,13 @@ export class SessionView implements OnDestroy {
    *  is being read changes when the route does, and its contents change with
    *  every event, and a `computed` over both is what tracks each of them. */
   readonly entries = computed<Entry[]>(() => this.held()?.entries() ?? []);
+  /**
+   * What the session is doing this second, straight off the stream.
+   *
+   * Not `session().busy`: that rides the five-second poll, so it lagged the
+   * work it described and missed anything shorter than the interval.
+   */
+  readonly doing = computed(() => this.held()?.doing());
   readonly session = signal<Summary | undefined>(undefined);
 
   /**
@@ -88,9 +95,6 @@ export class SessionView implements OnDestroy {
    */
   readonly unreachable = signal('');
   readonly sending = signal(false);
-  /** Thinking is folded away by default: it is the longest thing on the page and
-   *  the least often what the reader came for. */
-  readonly showThinking = signal(false);
   readonly text = signal('');
   /** Whether anything older than what is on screen remains on disk.
    *
@@ -136,11 +140,7 @@ export class SessionView implements OnDestroy {
     // `afterRenderEffect` was the first thing tried here and never ran — proven
     // by the layout harness, which kept reporting scrollY 0.
     effect(() => {
-      // Both, because either changes the height. Reading only the entries left
-      // the view where it was when thinking was unfolded — which is the case the
-      // layout harness tests, and the one that showed this was wrong.
       this.entries();
-      this.showThinking();
       requestAnimationFrame(() => this.follow());
     });
   }
@@ -313,17 +313,4 @@ export class SessionView implements OnDestroy {
     });
   }
 
-  /** What the transcript shows, thinking folded away unless asked for.
-   *
-   *  `computed` rather than a method: the template reads this on every change
-   *  detection pass, and a method would re-filter the whole conversation each
-   *  time — allocating a new array, which then makes every `@for` row look new. */
-  readonly visible = computed(() => {
-    const all = this.entries();
-    return this.showThinking() ? all : all.filter((entry) => entry.kind !== 'thought');
-  });
-
-  readonly thoughts = computed(
-    () => this.entries().filter((entry) => entry.kind === 'thought').length,
-  );
 }

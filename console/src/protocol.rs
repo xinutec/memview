@@ -14,7 +14,7 @@
 //! twice. Assistant text is streamed as `stream_event` deltas *and* repeated in
 //! the complete `assistant` message. Tool calls appear in `content_block_start`
 //! with their arguments still arriving as partial JSON, *and* in the complete
-//! message with the arguments whole. So: text and thinking come from the deltas,
+//! message with the arguments whole. So: text comes from the deltas,
 //! because the point of them is that they arrive while they are being written;
 //! tool calls come from the completed message, because half a JSON object is not
 //! something to render. Nothing is taken from both, so nothing is doubled.
@@ -88,9 +88,6 @@ pub enum Event {
         text: String,
     },
     Text {
-        text: String,
-    },
-    Thinking {
         text: String,
     },
     Tool {
@@ -252,8 +249,6 @@ enum Delta {
     // `Delta::TextDelta` says it twice.
     #[serde(rename = "text_delta")]
     Text { text: String },
-    #[serde(rename = "thinking_delta")]
-    Thinking { thinking: String },
     #[serde(other)]
     Other,
 }
@@ -295,11 +290,6 @@ impl Content {
 enum Block {
     Text {
         text: String,
-    },
-    /// Only a recorded transcript carries this whole; live, thinking arrives as
-    /// deltas. See [`read_recorded`].
-    Thinking {
-        thinking: String,
     },
     ToolUse {
         id: String,
@@ -414,7 +404,6 @@ pub fn read(line: &str) -> Vec<Event> {
         Line::StreamEvent { event } => match event {
             Stream::ContentBlockDelta { delta } => match delta {
                 Delta::Text { text } => vec![Event::Text { text }],
-                Delta::Thinking { thinking } => vec![Event::Thinking { text: thinking }],
                 Delta::Other => Vec::new(),
             },
             Stream::Other => Vec::new(),
@@ -539,7 +528,6 @@ pub fn read_recorded(line: &str) -> Vec<Event> {
             .into_iter()
             .filter_map(|block| match block {
                 Block::Text { text } => Some(Event::Text { text }),
-                Block::Thinking { thinking } => Some(Event::Thinking { text: thinking }),
                 Block::ToolUse { id, name, input } => Some(Event::Tool { id, name, input }),
                 _ => None,
             })

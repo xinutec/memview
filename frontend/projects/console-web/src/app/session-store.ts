@@ -20,6 +20,16 @@ export interface Held {
   readonly entries: WritableSignal<Entry[]>;
   /** Where the page on screen begins in the transcript, as a byte offset. */
   readonly cursor: WritableSignal<number>;
+  /**
+   * What the session is doing right now, or undefined when it is idle.
+   *
+   * Live, from the stream's own `busy` events, which the transcript
+   * deliberately drops — they are state, not conversation. Before this they
+   * were dropped by everybody, so the only source of "is it working" was the
+   * five-second poll of the summary: too slow to catch a short burst and
+   * silent for up to five seconds at the start of a long one.
+   */
+  readonly doing: WritableSignal<string | undefined>;
   /** The last sequence number this transcript accounts for, 0 for none. */
   seen: number;
   /** Closes the stream, while there is one. */
@@ -120,6 +130,7 @@ export class SessionStore {
     const held: Held = {
       entries: signal<Entry[]>([]),
       cursor: signal(0),
+      doing: signal<string | undefined>(undefined),
       seen: 0,
       used: ++this.clock,
     };
@@ -136,6 +147,11 @@ export class SessionStore {
     // that claimed to hold nothing after one of those would ask for the whole
     // conversation again on the next reconnect.
     if (seq > held.seen) held.seen = seq;
+    // Activity is state, so it is kept beside the transcript rather than in it.
+    // A turn ending is what says the work stopped: the runner clears its own
+    // busy on the same event, and nothing else on the wire announces idleness.
+    if (event.kind === 'busy') held.doing.set(event.status ?? 'working');
+    if (event.kind === 'turn' || event.kind === 'exited') held.doing.set(undefined);
     held.entries.update((entries) => [...fold(entries, event)]);
   }
 
