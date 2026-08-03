@@ -453,3 +453,32 @@ fn a_transcript_that_is_not_there_counts_no_exchanges() {
     // honest answer; the failure to answer at all is not.
     assert_eq!(interactions(Path::new("/no/such/transcript.jsonl")), 0);
 }
+
+#[test]
+fn a_directory_named_after_the_session_is_not_its_transcript() {
+    // ⚠ Claude Code puts a directory beside the transcript with exactly the same
+    // name — `<id>/subagents/`, `<id>/tool-results/` — and a directory's file
+    // stem is its whole name. Matching on the stem alone found the directory
+    // first, and every reader downstream then reported an empty conversation:
+    // no history, no name, no count, and nothing anywhere saying why. A resumed
+    // 119 MB session opened blank on the phone. The extension is what tells them
+    // apart.
+    // The directory ALONE, so the answer cannot depend on which entry the
+    // filesystem happens to hand back first — the real failure did, which is why
+    // it struck one session and not the one beside it.
+    let root = scratch("sidecar-only");
+    std::fs::create_dir_all(root.join("project").join("orphan").join("tool-results"))
+        .expect("sidecar dir");
+
+    assert_eq!(transcript_of(&root, "orphan"), None);
+
+    // And with both present, the file — whichever order they arrive in.
+    let both = scratch("sidecar-and-file");
+    spoken(&both, "twinned", &[1, 1], None);
+    std::fs::create_dir_all(both.join("project").join("twinned").join("subagents"))
+        .expect("sidecar dir");
+
+    let path = transcript_of(&both, "twinned").expect("the file, not the directory");
+    assert_eq!(path.extension().and_then(|e| e.to_str()), Some("jsonl"));
+    assert_eq!(interactions(&path), 2);
+}

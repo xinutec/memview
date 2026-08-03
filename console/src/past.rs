@@ -303,6 +303,14 @@ pub fn transcript_of(root: &Path, id: &str) -> Option<PathBuf> {
         .flat_map(|project| std::fs::read_dir(project.path()).into_iter().flatten())
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
+        // ⚠ **The extension is what makes this a transcript.** Claude Code puts a
+        // DIRECTORY beside the file with exactly the same name — holding
+        // `subagents/` and `tool-results/` — and a directory's file stem is its
+        // whole name, so a stem match alone finds it first about half the time.
+        // Everything downstream then reads a directory as a conversation and
+        // reports it empty: no history, no name, no count, and no error anywhere
+        // to say why. Seen live — a resumed 119 MB session opened blank.
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
         .find(|path| path.file_stem().and_then(|stem| stem.to_str()) == Some(id))
 }
 
