@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use console::past::{conversations, transcript_of, words_of_claude_processes};
+use console::past::{conversations, named as named_of, transcript_of, words_of_claude_processes};
 
 /// A wrapper shell whose *path* says claude — the shape that caused the bug.
 /// Claude Code sources a snapshot under `~/.claude/` for every command it runs,
@@ -369,4 +369,21 @@ fn a_running_session_contributes_its_arguments() {
 fn claude_reached_by_a_full_path_still_counts() {
     let words = words_of_claude_processes("/nix/store/abc/bin/claude --resume music\n");
     assert!(words.iter().any(|word| word == "music"), "{words:?}");
+}
+
+#[test]
+fn a_live_session_can_be_named_from_the_transcript_it_is_writing() {
+    // The name is not on the wire: the CLI writes `customTitle`/`agentName` to
+    // its transcript and announces neither on stdout, so the only way to say
+    // which agent a running session is is to read the file it is filling in.
+    let root = scratch("live-name");
+    named(&root, "abc-123", Some("memview"), None);
+
+    assert_eq!(named_of(&root, "abc-123").as_deref(), Some("memview"));
+}
+
+#[test]
+fn a_session_with_no_transcript_has_no_name_rather_than_a_wrong_one() {
+    let root = scratch("no-name");
+    assert_eq!(named_of(&root, "never-ran"), None);
 }

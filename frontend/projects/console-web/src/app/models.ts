@@ -25,6 +25,8 @@ export interface Summary {
   waiting: number;
   /** The first instruction, kept as the session's name. */
   asked?: string;
+  /** What the conversation calls itself — `memview`, `health`. */
+  name?: string;
 }
 
 export interface Overview {

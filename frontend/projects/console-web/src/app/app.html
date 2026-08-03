@@ -4,9 +4,12 @@
     <span class="title">console</span>
   </a>
   <span class="spacer"></span>
-  <!-- Stated rather than implied: this app runs commands on the Mac, and a
-       glance should say so. -->
-  <span class="where">this Mac</span>
+  <!-- Which agent you are talking to, when you are inside one. The console
+       drives a dozen at once and they differ only by name, so that is the fact
+       worth the space; "this Mac" is true and tells you nothing you did not
+       already know. Falls back to it on the list, where no one session is in
+       view. -->
+  <span class="where">{{ here.name() ?? 'this Mac' }}</span>
 </mat-toolbar>
 
 <main class="page">

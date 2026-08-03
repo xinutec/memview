@@ -26,6 +26,7 @@ import { reason } from './errors';
 import { Foreground } from './foreground';
 import { Entry, Summary } from './models';
 import { costMatters } from './budget';
+import { Here } from './here';
 import { Updates } from './updates';
 import { Rendered } from './rendered';
 import { Held, SessionStore } from './session-store';
@@ -53,6 +54,7 @@ export class SessionView implements OnDestroy {
 
   private api = inject(ConsoleApi);
   private updates = inject(Updates);
+  private here = inject(Here);
   /** A newer build is downloaded and held. See `Updates` for why it waits. */
   readonly updateWaiting = this.updates.waiting;
   private store = inject(SessionStore);
@@ -153,6 +155,10 @@ export class SessionView implements OnDestroy {
 
   ngOnDestroy(): void {
     if (this.poll) clearInterval(this.poll);
+    // Leaving the page leaves the conversation, so the toolbar stops claiming
+    // to be inside one — otherwise the list of sessions is titled with whichever
+    // one was open last.
+    this.here.name.set(undefined);
   }
 
   /** The header facts — cost, turns, whether it is working — come from the
@@ -161,7 +167,11 @@ export class SessionView implements OnDestroy {
   private refresh(): void {
     this.api.state().subscribe({
       next: (state) => {
-        this.session.set(state.sessions.find((s) => s.id === this.id()));
+        const mine = state.sessions.find((s) => s.id === this.id());
+        this.session.set(mine);
+        // The toolbar sits above the router and cannot see the route, so the
+        // page that knows which conversation this is has to say so.
+        this.here.name.set(mine?.name);
         this.updates.saw(state.bundle);
         this.unreachable.set('');
       },

@@ -245,6 +245,22 @@ const REPLAY_BYTES: u64 = 512 * 1024;
 /// proxy for how much conversation was recovered.
 const REPLAY_EVENTS: usize = 400;
 
+/// What a live session calls itself, read from the transcript it is writing.
+///
+/// The name is not on the wire — the CLI writes `customTitle`/`agentName` to
+/// its transcript and announces neither on stdout — so a running session can
+/// only be named by reading the file it is filling in. Read per request rather
+/// than cached because a session is renamed as its job changes, and a stale
+/// name on screen is worse than none: it says the wrong thing confidently.
+///
+/// Cheap despite the file being enormous: [`name_of`] reads the last
+/// [`TAIL_BYTES`] and no more.
+pub fn named(root: &Path, id: &str) -> Option<String> {
+    let path = transcript_of(root, id)?;
+    let len = std::fs::metadata(&path).ok()?.len();
+    name_of(&path, len)
+}
+
 /// The transcript file for a session id, wherever Claude Code filed it.
 ///
 /// Searched rather than computed, for the reason the module opens with: the

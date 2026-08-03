@@ -5,6 +5,7 @@ import { MatToolbarModule } from '@angular/material/toolbar';
 import { RouterLink, RouterOutlet } from '@angular/router';
 
 import { BUILD_INFO } from './build-info';
+import { Here } from './here';
 import { Telemetry } from './telemetry';
 
 @Component({
@@ -15,6 +16,8 @@ import { Telemetry } from './telemetry';
 })
 export class App {
   private telemetry = inject(Telemetry);
+  /** Read by the toolbar: the conversation on screen, when there is one. */
+  readonly here = inject(Here);
 
   // Instrumented once, from the shell: no screen knows the trace exists, so no
   // new control can be missed by forgetting to annotate it.

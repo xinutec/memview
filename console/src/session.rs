@@ -76,6 +76,11 @@ pub struct Summary {
     /// The first thing this session was asked to do, kept as its name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub asked: Option<String>,
+    /// What the conversation calls itself — `memview`, `health`. Filled in by
+    /// the roster from the transcript, because the session's own process never
+    /// says it. See [`crate::past::named`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     /// How many questions it is blocked on. The one number that means "this
     /// session cannot go on without you", so it belongs in the list of sessions
     /// and not only on the page of one.
@@ -605,6 +610,8 @@ impl Session {
             cost_usd: state.cost_usd,
             limit: state.limit.clone(),
             asked: state.asked.clone(),
+            // Filled in by the roster, which knows where the transcripts are.
+            name: None,
             waiting: state.pending.len(),
         }
     }
