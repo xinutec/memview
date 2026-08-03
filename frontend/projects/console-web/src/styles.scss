@@ -44,12 +44,12 @@ body {
 // on a screen nobody had thought to measure.
 //
 // `min-height`, so it beats the `height` Material sets from its own tokens.
-button,
-a.home {
+button {
   min-height: 3rem;
 }
 
 a.home {
+  min-height: 3rem;
   display: inline-flex;
   align-items: center;
 }

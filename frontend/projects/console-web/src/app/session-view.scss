@@ -95,6 +95,8 @@
 .tool {
   display: flex;
   align-items: center;
+  // One line until its result is opened, and then two.
+  flex-wrap: wrap;
   gap: 0.5rem;
   font: var(--mat-sys-body-medium);
   background: var(--mat-sys-surface-container);
@@ -261,11 +263,6 @@
     height: 1px;
     background: var(--mat-sys-outline-variant);
   }
-}
-
-// A tool row is one line until its result is opened, and then two.
-.tool {
-  flex-wrap: wrap;
 }
 
 // The first line of what the tool said, on the row itself. One line, ellipsised
