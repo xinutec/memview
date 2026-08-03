@@ -622,6 +622,17 @@ second place: any counter kept as a running total says how much of a conversatio
 *this console* saw, which is why the exchange count is read back off the file
 instead.
 
+⚠ **Finding the transcript is not just matching the session id.** Claude Code
+puts a *directory* beside the file with exactly the same name — `<id>/subagents/`
+and `<id>/tool-results/` — and a directory's file stem is its whole name, so
+matching on the stem alone finds it first about half the time. Everything
+downstream then reads a directory as a conversation and reports it empty: no
+history, no name, no exchange count, and no error anywhere saying why. It struck
+one session and not the one beside it, because it depends on which entry the
+filesystem hands back first. **The extension is what tells them apart** —
+memview's own `src/agents.rs` had known that for months, which is where to look
+before writing a third reader of this corpus.
+
 The transcript on disk is the same vocabulary the stream uses, so the fix is a
 second reader over the same shapes rather than a second model of a conversation.
 `Session::seed` reads the end of the file and pushes what it finds before the
