@@ -1,3 +1,15 @@
+<!-- An icon button, not a filled text button holding an icon: the text
+       variant carries label padding and a min-width it will never use, so a
+       single glyph sat in a wide pill with the send arrow adrift inside it. -->
+<button
+  class="send"
+  matIconButton
+  type="submit"
+  aria-label="send"
+  [disabled]="sending() || !text()"
+>
+  <mat-icon>send</mat-icon>
+</button>
 @if (session(); as session) {
   <header class="head">
     <div class="where">{{ session.dir }}</div>

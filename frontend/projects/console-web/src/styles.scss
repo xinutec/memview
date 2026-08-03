@@ -165,3 +165,23 @@ app-session-view .entry .body {
 mat-icon {
   flex-shrink: 0;
 }
+
+// The shell is a column exactly as tall as the viewport: toolbar, page, stamp.
+//
+// ⚠ **A custom element is `display: inline` until something says otherwise**, so
+// without this the column it looks like exists does not.
+//
+// This replaced three stacked guesses — `.page` sized itself with
+// `calc(100dvh - var(--toolbar-height, 64px))` and the stamp below it was pulled
+// back into view with `margin-top: -5rem`, a number tuned to how tall the
+// composer happened to be. The composer grows from one row to six as an
+// instruction is typed, so that number was right at exactly one size and the
+// stamp rendered *through* the text box at every other. Letting flex do the
+// arithmetic removes all three numbers at once.
+app-root {
+  display: flex;
+  flex-direction: column;
+  // `dvh` rather than `vh`: on a phone the browser's own chrome comes and goes,
+  // and `vh` measures the larger state.
+  height: 100dvh;
+}

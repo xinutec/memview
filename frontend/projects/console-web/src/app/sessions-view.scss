@@ -154,3 +154,11 @@
   width: 1.1rem;
   height: 1.1rem;
 }
+
+// The list pads its own reading column, now that `.page` supplies only vertical
+// room — and a custom element is `display: inline` until something says
+// otherwise, so the block it looks like was never there either.
+:host {
+  display: block;
+  padding: 0 1rem;
+}

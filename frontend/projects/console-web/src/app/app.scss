@@ -36,23 +36,32 @@
   // sat 66px behind the composer, and grew there the moment messages rendered as
   // markdown and the page passed one screen.
   //
-  // `dvh` rather than `vh`: on a phone the browser's own chrome comes and goes,
-  // and `vh` measures the larger state, which puts the composer under it.
+  // **Sized by the column above it, not by arithmetic.** `flex: 1` against a
+  // shell that is `100dvh` tall gives exactly the room the toolbar and the stamp
+  // leave over — where `calc(100dvh - var(--toolbar-height, 64px))` had to guess
+  // the toolbar's height, and guessed a different one whenever Material's
+  // density or a wrapped title changed it.
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-height: 0;
-  height: calc(100dvh - var(--toolbar-height, 64px));
-  padding: 1rem 1rem 0;
+  // ⚠ **Vertical only.** Horizontal padding here insets everything a view puts
+  // inside it, including the parts meant to reach the edges: the composer has
+  // its own background and its own padding, and a page inset left it as a narrow
+  // strip with a margin either side on a 412px screen. Each view pads its own
+  // reading column instead.
+  padding: 1rem 0 0;
+  width: 100%;
   max-width: 60rem;
   margin: 0 auto;
 }
 
 .build {
   // Present, never competing: it is checked deliberately and read at no other
-  // time. Above the composer's reserved space rather than below it, or a phone
-  // never scrolls far enough to reveal it.
-  display: block;
-  margin: -5rem 0 1rem;
+  // time. A row of the shell's column, so it sits below the page rather than
+  // being dragged back over it.
+  flex: 0 0 auto;
+  padding: 0.25rem 0 calc(0.25rem + env(safe-area-inset-bottom));
   text-align: center;
   font: var(--mat-sys-body-small);
   font-variant-numeric: tabular-nums;

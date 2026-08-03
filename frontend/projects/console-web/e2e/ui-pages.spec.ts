@@ -198,6 +198,61 @@ async function mockRunner(page: Page): Promise<void> {
   );
 }
 
+/**
+ * Nothing pinned may sit on top of anything else pinned.
+ *
+ * ⚠ **Not covered by the text-overlap check**, which is why this exists as its
+ * own assertion. That one compares text nodes, and the composer's biggest
+ * surface is an empty `textarea` with no text in it at all — so a footer
+ * rendering straight through the text box was invisible to it, while being the
+ * first thing anybody saw on the phone. Boxes, not words.
+ */
+async function expectNoPinnedOverlap(page: Page): Promise<void> {
+  const clashes = await page.evaluate(() => {
+    const boxes = ['.composer', '.build', '.bar'].map((sel) => ({
+      sel,
+      box: document.querySelector(sel)?.getBoundingClientRect(),
+    }));
+    const bad: string[] = [];
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        const a = boxes[i].box;
+        const b = boxes[j].box;
+        if (!a || !b) continue;
+        const over =
+          Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1 &&
+          Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1;
+        if (over) bad.push(`${boxes[i].sel} over ${boxes[j].sel}`);
+      }
+    }
+    return bad;
+  });
+  expect(clashes, 'pinned regions overlap').toEqual([]);
+}
+
+/**
+ * The composer spans the width it is given.
+ *
+ * The inverse of the overflow check, and its blind spot: that one only ever
+ * catches a page too *wide*. A composer inset by its container's padding and
+ * capped again by its own `max-width` was a narrow strip in the middle of a
+ * 412px screen, and every existing assertion passed.
+ */
+async function expectComposerFillsTheWidth(page: Page): Promise<void> {
+  const width = await page.evaluate(() => {
+    const composer = document.querySelector('.composer')?.getBoundingClientRect();
+    const field = document.querySelector('.composer .box')?.getBoundingClientRect();
+    return composer && field
+      ? { composer: composer.width, field: field.width, page: window.innerWidth }
+      : null;
+  });
+  expect(width, 'no composer on this page').not.toBeNull();
+  // The composer reaches both edges; the text box takes what is left after the
+  // send button, which is the only other thing on the row.
+  expect(width!.composer).toBe(width!.page);
+  expect(width!.field).toBeGreaterThan(width!.page * 0.7);
+}
+
 // The checker-checker: fail loudly here if the device preset is ever lost and
 // the "phone width" suite silently runs at desktop width.
 test('the suite really runs at phone geometry', async ({ page }) => {
@@ -228,6 +283,8 @@ test('transcript — tool arguments and a fixed composer @ phone width', async (
   await page.getByText('verified_cli').first().waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectNoPinnedOverlap(page);
+  await expectComposerFillsTheWidth(page);
 });
 
 test('transcript — an undecided question with its two buttons @ phone width', async ({
