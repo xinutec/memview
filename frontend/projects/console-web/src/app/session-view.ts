@@ -22,9 +22,9 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { ConsoleApi } from './console-api';
 import { reason } from './errors';
 import { Foreground } from './foreground';
-import { Entry, SessionEvent, Summary } from './models';
+import { Entry, Summary } from './models';
 import { Rendered } from './rendered';
-import { fold } from './transcript';
+import { Held, SessionStore } from './session-store';
 
 /** One session: what it has done, and the way to say something to it. */
 @Component({
@@ -46,22 +46,19 @@ export class SessionView implements OnDestroy {
   readonly id = input.required<string>();
 
   private api = inject(ConsoleApi);
+  private store = inject(SessionStore);
   private foreground = inject(Foreground);
   private until = inject(DestroyRef);
   /** For `afterNextRender` outside an injection context — see [loadEarlier]. */
   private injector = inject(Injector);
-  private close?: () => void;
   private poll?: ReturnType<typeof setInterval>;
 
-  // dev-lint: allow-component-list — `entries` is a fold of a live event stream
-  // this component opens and closes, not a fetched catalog: retaining it without
-  // the stream would show a conversation that had stopped being true. It is
-  // reset by the effect that opens the stream and refilled from the stream —
-  // which is the exemption this rule already grants, one method call out of
-  // reach. Holding the stream and its fold in a root store is worth doing, and
-  // is a different change: it would make re-entering a session resume rather
-  // than re-seed, the way a reconnect now does.
-  readonly entries = signal<Entry[]>([]);
+  /** The transcript being read, which outlives this view — see [[SessionStore]]. */
+  private readonly held = signal<Held | undefined>(undefined);
+  /** The conversation on screen. Two signals deep on purpose: which transcript
+   *  is being read changes when the route does, and its contents change with
+   *  every event, and a `computed` over both is what tracks each of them. */
+  readonly entries = computed<Entry[]>(() => this.held()?.entries() ?? []);
   readonly session = signal<Summary | undefined>(undefined);
   readonly trouble = signal('');
   /**
@@ -81,33 +78,22 @@ export class SessionView implements OnDestroy {
    *  the least often what the reader came for. */
   readonly showThinking = signal(false);
   readonly text = signal('');
-  /**
-   * Where the page on screen begins in the transcript, as a byte offset.
+  /** Whether anything older than what is on screen remains on disk.
    *
-   * Zero means the start of the file, so `more` is simply "the cursor is not at
-   * the beginning". Opaque: it comes from the runner and goes back unchanged,
-   * which is what stops it being confused with a count of anything here — the
-   * confusion that made this feature return the reader's own screen to them.
-   */
-  private readonly cursor = signal(0);
-  /** Whether anything older than what is on screen remains on disk. */
-  readonly more = computed(() => this.cursor() > 0);
+   *  The cursor is a byte offset into the transcript, so zero is the start of the
+   *  file and this is simply "not at the beginning". */
+  readonly more = computed(() => (this.held()?.cursor() ?? 0) > 0);
   readonly loading = signal(false);
   private scroller = viewChild<ElementRef<HTMLElement>>('scroller');
 
   constructor() {
-    effect(() => {
+    effect((onCleanup) => {
       const id = this.id();
-      this.close?.();
-      this.forget();
-      this.close = this.api.follow(
-        id,
-        (event) => this.take(event),
-        // Only when the runner says the stream starts again — see [[ConsoleApi]].
-        // Everything held has to go: it would otherwise be appended to by a
-        // replay of itself, and there is no way to tell the two copies apart.
-        () => this.forget(),
-      );
+      this.held.set(this.store.open(id));
+      // Covers leaving this session for another one and leaving it for the list:
+      // the effect is cleaned up before it re-runs and again when the view goes.
+      // What is left behind is the transcript, which is the point.
+      onCleanup(() => this.store.leave(id));
       this.refresh();
       this.poll ??= setInterval(() => this.refresh(), 5000);
     });
@@ -130,22 +116,7 @@ export class SessionView implements OnDestroy {
     });
   }
 
-  /**
-   * Drop everything held about the conversation on screen.
-   *
-   * All three, because they are one fact in three places: the entries, whether
-   * anything older exists — which is re-established by the `joined` event the
-   * new stream opens with — and whether the view has been placed yet, so the
-   * fresh transcript opens at its newest message the way a first load does.
-   */
-  private forget(): void {
-    this.entries.set([]);
-    this.cursor.set(0);
-    this.settled = false;
-  }
-
   ngOnDestroy(): void {
-    this.close?.();
     if (this.poll) clearInterval(this.poll);
   }
 
@@ -160,14 +131,6 @@ export class SessionView implements OnDestroy {
       },
       error: (err: unknown) => this.unreachable.set(`cannot reach the runner: ${reason(err)}`),
     });
-  }
-
-  private take(event: SessionEvent): void {
-    // The seed arrives with the cursor it started from. This is the only place
-    // that learns where the page on screen begins — nothing else in the stream
-    // knows the conversation is longer than the page.
-    if (event.kind === 'joined') this.cursor.set(event.from ?? 0);
-    this.entries.update((entries) => [...fold(entries, event)]);
   }
 
   /**
@@ -201,10 +164,9 @@ export class SessionView implements OnDestroy {
   /**
    * The page before the one on screen.
    *
-   * Counted in events held rather than by a cursor, because the file is the
-   * authority and it grows: an offset taken now would name a different place
-   * after the next turn. The runner re-reads and re-parses, which is why this is
-   * on demand and not eager.
+   * The transcript belongs to the store; what belongs here is the reader's
+   * place, because only the view can measure it. On demand rather than eager:
+   * the runner re-reads and re-parses the file to answer.
    */
   loadEarlier(): void {
     if (this.loading()) return;
@@ -215,18 +177,10 @@ export class SessionView implements OnDestroy {
     // page that no longer exists by the time it is used.
     const before = box?.scrollHeight ?? 0;
     this.loading.set(true);
-    this.api.earlier(this.id(), this.cursor()).subscribe({
-      next: (older) => {
+    this.store.earlier(this.id()).subscribe({
+      next: () => {
         this.loading.set(false);
         this.trouble.set('');
-        this.cursor.set(older.from);
-        // Folded on their own and put in front, rather than folded into the
-        // list: fold joins an event to whatever precedes it, and an older page
-        // has nothing before it here — appending would glue the top of the
-        // conversation onto the bottom.
-        let head: Entry[] = [];
-        for (const event of older.events) head = [...fold(head, event)];
-        this.entries.update((entries) => [...head, ...entries]);
         // Hold the reader's place, a frame later. Adding above somebody moves
         // what they were reading down the screen by the height of everything
         // new — and that height does not exist until the browser has laid the

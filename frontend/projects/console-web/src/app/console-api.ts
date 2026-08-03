@@ -62,18 +62,32 @@ export class ConsoleApi {
     return this.http.delete(`/api/sessions/${encodeURIComponent(id)}`);
   }
 
-  /** Follow a session, from the beginning of its transcript to now and onward.
+  /** Follow a session, from where the caller left off to now and onward.
    *
    *  EventSource rather than a polling GET: the answer arrives while it is being
    *  written, and it reconnects on its own when the phone changes network —
-   *  which is the normal case, not the exception. The server replays the whole
-   *  transcript to every new connection, so a reconnect is not a gap; it is why
-   *  the caller is handed a fresh list each time rather than appending to what
-   *  it had.
+   *  which is the normal case, not the exception.
+   *
+   *  `after` is the last sequence number the caller holds, and it is what makes
+   *  closing the stream survivable. The browser quotes the last id back by itself
+   *  on a reconnect, but only for the same `EventSource` — a new one opened by a
+   *  page returning to a session it had left knows nothing, so it has to say. The
+   *  answer is the same either way: the events since, or a `reset` when the
+   *  runner cannot bridge the gap.
+   *
+   *  `onEvent` is handed the number alongside the event, because the caller is
+   *  the only one that knows when it has finished with it. Zero for the events
+   *  the runner deliberately leaves unnumbered — see the drop notice in `api.rs`.
    *
    *  Returns the function that closes it. */
-  follow(id: string, onEvent: (event: SessionEvent) => void, onReset: () => void): () => void {
-    const source = new EventSource(`/api/sessions/${encodeURIComponent(id)}/events`);
+  follow(
+    id: string,
+    after: number,
+    onEvent: (event: SessionEvent, seq: number) => void,
+    onReset: () => void,
+  ): () => void {
+    const url = `/api/sessions/${encodeURIComponent(id)}/events`;
+    const source = new EventSource(after > 0 ? `${url}?after=${after}` : url);
     // ⚠ Not `onopen`. A reconnect used to mean "throw everything away", because
     // the server had no way to send only what was missed — so a phone going
     // through a tunnel discarded the history somebody had just scrolled back to
@@ -87,7 +101,11 @@ export class ConsoleApi {
       // A line that is not an event this version knows is dropped rather than
       // rendered: the runner reports its own failures as `trouble` events, and
       // one unreadable line must not end the stream.
-      if (event) onEvent(event);
+      // `lastEventId` is '' on the unnumbered ones, and `Number('')` is 0 — which
+      // is why the number is taken through `parseInt`, whose answer for a
+      // non-number is NaN and is rejected here rather than becoming a sequence
+      // the caller would then claim to hold.
+      if (event) onEvent(event, Number.parseInt(message.lastEventId, 10) || 0);
     };
     return () => source.close();
   }

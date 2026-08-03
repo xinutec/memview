@@ -247,22 +247,53 @@ fn wire(stamped: Stamped) -> Sse {
         })
 }
 
+/// Where a client says it had got to, when it is asking rather than reconnecting.
+#[derive(Debug, Deserialize)]
+struct Resume {
+    /// The last sequence number this client holds.
+    ///
+    /// The header is the browser's business and covers a dropped connection.
+    /// This covers the other case, which the header cannot: a page that closed
+    /// the stream on purpose — navigating away from a session and back — and
+    /// still holds the transcript it read. `EventSource` sends `Last-Event-ID`
+    /// only for its own automatic reconnects, so a brand new one arrives
+    /// claiming nothing and would be sent the conversation all over again.
+    ///
+    /// A string rather than a `u64` so that a value we cannot read is *this
+    /// function's* problem rather than the extractor's: typed, axum rejects the
+    /// request, and a 400 here is a session page showing nothing at all — a far
+    /// worse answer to a bad number than sending the transcript.
+    #[serde(default)]
+    after: Option<String>,
+}
+
+/// Where a client holds the transcript through, from whichever end says so.
+///
+/// The header wins when both are there, and both are there on every reconnect of
+/// a stream opened with `?after=`: the URL goes on naming where the page started
+/// while the header names where it got to.
+///
+/// Unparseable is absent, at both ends. A client we cannot understand gets the
+/// honest answer, which is everything.
+pub fn resume_from(headers: &HeaderMap, asked: Option<&str>) -> Option<u64> {
+    headers
+        .get("last-event-id")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .or_else(|| asked.and_then(|value| value.parse::<u64>().ok()))
+}
+
 async fn events(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
+    Query(asked): Query<Resume>,
     headers: HeaderMap,
 ) -> Result<SseResponse<impl Stream<Item = Result<Sse, Infallible>>>, (StatusCode, String)> {
     let session = roster
         .get(&id)
         .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
 
-    // Set by the browser, not by the page: whatever `id:` it last saw on this
-    // stream. Unparseable is treated as absent — a client we cannot understand
-    // gets the honest answer, which is everything.
-    let after = headers
-        .get("last-event-id")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok());
+    let after = resume_from(&headers, asked.after.as_deref());
 
     // Subscribe BEFORE reading the backlog, so an event landing between the two
     // is delivered late rather than lost. It also arrives *twice* — it is in the
