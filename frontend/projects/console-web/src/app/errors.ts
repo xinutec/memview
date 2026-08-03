@@ -34,7 +34,8 @@ export function reason(err: unknown): string {
     // prompts and every request fails in silence. Naming only the far cause sent
     // us looking at the Mac, the tunnel and isis while the answer was in the
     // phone's own log.
-    if (err.status === 0) return 'no answer — the Mac may be asleep, or this phone may need unlocking';
+    if (err.status === 0)
+      return 'no answer — the Mac may be asleep, or this phone may need unlocking';
     return `the runner answered ${err.status}`;
   }
   if (err instanceof Error) return err.message;

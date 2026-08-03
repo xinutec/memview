@@ -39,7 +39,9 @@
         <!-- The warning is the only guard there is: nothing stops two processes
              appending to one transcript, and the console cannot see a claude
              running in a terminal or under Remote Control. -->
-        <p class="caution">In use ones are held back — two processes on one transcript both write.</p>
+        <p class="caution">
+          In use ones are held back — two processes on one transcript both write.
+        </p>
         <mat-list class="conversations">
           @for (conversation of past(); track conversation.id) {
             <!-- One line: the name carries the meaning and the facts are a

@@ -353,7 +353,6 @@ export class SessionView implements OnDestroy {
       error: (err: unknown) => this.trouble.set(reason(err)),
     });
   }
-
 }
 
 /** Tokens, at the precision a glance wants: `496k`, `1M`. */

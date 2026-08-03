@@ -130,6 +130,7 @@ function parse(data: unknown): SessionEvent | undefined {
   // type, which is what makes the returned object an event without a cast.
   const kind = KINDS.find((known) => known === value.kind);
   if (!kind) return undefined;
-  if ('input' in value && (typeof value.input !== 'object' || value.input === null)) return undefined;
+  if ('input' in value && (typeof value.input !== 'object' || value.input === null))
+    return undefined;
   return { ...value, kind };
 }

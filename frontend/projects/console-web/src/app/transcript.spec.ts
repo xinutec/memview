@@ -38,13 +38,22 @@ describe('transcript', () => {
   });
 
   it('shows a call with no result yet as running', () => {
-    const [tool] = transcript({ kind: 'tool', id: 'a', name: 'Bash', input: { command: 'sleep 60' } });
+    const [tool] = transcript({
+      kind: 'tool',
+      id: 'a',
+      name: 'Bash',
+      input: { command: 'sleep 60' },
+    });
     expect(tool.ok).toBeUndefined();
     expect(tool.text).toBe('sleep 60');
   });
 
   it('names a tool call by its most telling argument', () => {
-    const [read] = transcript({ kind: 'tool', name: 'Read', input: { file_path: '/etc/hosts', limit: 5 } });
+    const [read] = transcript({
+      kind: 'tool',
+      name: 'Read',
+      input: { file_path: '/etc/hosts', limit: 5 },
+    });
     expect(read.text).toBe('/etc/hosts');
     const [task] = transcript({ kind: 'tool', name: 'Task', input: { subagent_type: 'Explore' } });
     expect(task.text).toBe('subagent_type');
@@ -87,7 +96,12 @@ describe('questions', () => {
   });
 
   it('falls back to the arguments when the CLI offers no sentence', () => {
-    const [ask] = transcript({ kind: 'ask', id: 'q1', tool: 'Write', input: { file_path: '/tmp/x' } });
+    const [ask] = transcript({
+      kind: 'ask',
+      id: 'q1',
+      tool: 'Write',
+      input: { file_path: '/tmp/x' },
+    });
     expect(ask.text).toBe('/tmp/x');
   });
 

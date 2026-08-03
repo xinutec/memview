@@ -610,8 +610,7 @@ export function companionsOf(
   }
   const found: Companion[] = [];
   for (const affinity of affinities) {
-    const other =
-      affinity.a === root ? affinity.b : affinity.b === root ? affinity.a : null;
+    const other = affinity.a === root ? affinity.b : affinity.b === root ? affinity.a : null;
     if (other === null || other === root) continue;
     found.push({
       name: other,
@@ -779,7 +778,9 @@ export function clusterLevels(names: readonly string[], edges: readonly Edge[]):
     members.forEach((owned, i) => grouped[labels[i]].push(...owned));
     levels.push(
       grouped.map((owned) => {
-        const sorted = [...owned].sort((a, b) => degree[b] - degree[a] || (names[a] < names[b] ? -1 : 1));
+        const sorted = [...owned].sort(
+          (a, b) => degree[b] - degree[a] || (names[a] < names[b] ? -1 : 1),
+        );
         return { core: names[sorted[0]], members: sorted.map((i) => names[i]) };
       }),
     );
@@ -1006,8 +1007,8 @@ export function planLabels(
     // Nothing fitted. Distinguish "no room on the canvas" from "every position
     // was taken", because they call for different fixes — a wider margin versus
     // a smaller budget.
-    const fitsSomewhere = entry.x + gap + width <= canvasWidth - EDGE_MARGIN
-      || entry.x - gap - width >= EDGE_MARGIN;
+    const fitsSomewhere =
+      entry.x + gap + width <= canvasWidth - EDGE_MARGIN || entry.x - gap - width >= EDGE_MARGIN;
     if (fitsSomewhere) {
       collided++;
     } else {

@@ -2,22 +2,18 @@
   <mat-progress-bar mode="indeterminate" />
 } @else if (denied()) {
   <p class="empty">
-    Agents are owner-only. A share link shows the memories, not the shape of the
-    work behind them.
+    Agents are owner-only. A share link shows the memories, not the shape of the work behind them.
   </p>
 } @else if (!rows().length) {
-  <p class="empty">
-    Nothing mined yet — run <code>cargo run --release --bin agents</code>.
-  </p>
+  <p class="empty">Nothing mined yet — run <code>cargo run --release --bin agents</code>.</p>
 } @else {
   <p class="lede">
-    Where each named session actually works, from every kind of evidence there
-    is: the files it opens with a tool, the ones it changes through the shell —
-    a <code>sed</code>, a <code>cp</code>, a <code>python3 -</code> heredoc —
-    the lines it commits, and the machines it reaches over <code>ssh</code>.
-    Subagents count as the session that dispatched them. Ordered by recent days
-    present, so a single busy afternoon does not outrank steady work; the counts
-    are lifetime totals. Bars are scaled within an agent, not between them.
+    Where each named session actually works, from every kind of evidence there is: the files it
+    opens with a tool, the ones it changes through the shell — a <code>sed</code>, a
+    <code>cp</code>, a <code>python3 -</code> heredoc — the lines it commits, and the machines it
+    reaches over <code>ssh</code>. Subagents count as the session that dispatched them. Ordered by
+    recent days present, so a single busy afternoon does not outrank steady work; the counts are
+    lifetime totals. Bars are scaled within an agent, not between them.
   </p>
 
   <ul class="agents">

@@ -22,10 +22,29 @@ const WORKERS: WorkMatch[] = [
       // Renamed, and carrying the history of the name it had before — which
       // the row must say, or a file created last week appears to have a year of
       // work behind it out of nowhere.
-      { path: 'xinutec-infra/plan/types.dhall', was: ['xinutec-infra/plan/schema.dhall'], reads: 0, edits: 7, shell_reads: 0, shell_edits: 0, added: 300, deleted: 12, commits: 4 },
+      {
+        path: 'xinutec-infra/plan/types.dhall',
+        was: ['xinutec-infra/plan/schema.dhall'],
+        reads: 0,
+        edits: 7,
+        shell_reads: 0,
+        shell_edits: 0,
+        added: 300,
+        deleted: 12,
+        commits: 4,
+      },
       // Changed from the shell as well as from `Edit`, which is what the
       // provenance line beside the totals exists to show.
-      { path: 'xinutec-infra/plan/deploy.dhall', reads: 1, edits: 2, shell_reads: 1, shell_edits: 1, added: 0, deleted: 0, commits: 0 },
+      {
+        path: 'xinutec-infra/plan/deploy.dhall',
+        reads: 1,
+        edits: 2,
+        shell_reads: 1,
+        shell_edits: 1,
+        added: 0,
+        deleted: 0,
+        commits: 0,
+      },
       // On another machine entirely — the row must say so.
       {
         path: '/etc/nixos/flake.nix',
@@ -48,7 +67,18 @@ const WORKERS: WorkMatch[] = [
     deleted: 0,
     file_commits: 0,
     hosts: [],
-    files: [{ path: 'k/dhall/home.dhall', reads: 2, edits: 25, shell_reads: 0, shell_edits: 0, added: 0, deleted: 0, commits: 0 }],
+    files: [
+      {
+        path: 'k/dhall/home.dhall',
+        reads: 2,
+        edits: 25,
+        shell_reads: 0,
+        shell_edits: 0,
+        added: 0,
+        deleted: 0,
+        commits: 0,
+      },
+    ],
   },
 ];
 
@@ -161,19 +191,21 @@ describe('SearchView — who works on this', () => {
     fixture.componentRef.instance.query.set('dhall');
     fixture.componentRef.instance.submit();
     await fixture.whenStable();
-    http.expectOne((r) => r.url === '/api/search').flush({
-      hits: [
-        {
-          name: 'project_kubes_dhall_model',
-          description: '<code>code/kubes/dhall/</code> models the fleet',
-          mtype: 'project',
-          modified: null,
-          snippet: '…<strong>How to apply:</strong> for new automation',
-          score: 1,
-        },
-      ],
-      relaxed: false,
-    });
+    http
+      .expectOne((r) => r.url === '/api/search')
+      .flush({
+        hits: [
+          {
+            name: 'project_kubes_dhall_model',
+            description: '<code>code/kubes/dhall/</code> models the fleet',
+            mtype: 'project',
+            modified: null,
+            snippet: '…<strong>How to apply:</strong> for new automation',
+            score: 1,
+          },
+        ],
+        relaxed: false,
+      });
     http.expectOne((r) => r.url === '/api/work').flush([]);
     await fixture.whenStable();
 

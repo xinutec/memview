@@ -136,9 +136,7 @@ export class AgentsView {
   readonly denied = signal(false);
   readonly loading = signal(true);
 
-  readonly rows = computed<AgentRow[]>(() =>
-    (this.data()?.agents ?? []).map((a) => this.row(a)),
-  );
+  readonly rows = computed<AgentRow[]>(() => (this.data()?.agents ?? []).map((a) => this.row(a)));
 
   readonly generated = computed(() => this.data()?.generated ?? '');
 
@@ -219,8 +217,7 @@ export class AgentsView {
       .sort((x, y) => y.writes + y.reads - (x.writes + x.reads))
       .slice(0, MACHINES_SHOWN);
 
-    const total = (m: Record<string, number>) =>
-      Object.values(m).reduce((n, v) => n + v, 0);
+    const total = (m: Record<string, number>) => Object.values(m).reduce((n, v) => n + v, 0);
     const shellTotal = [...shell.values()].reduce(
       (t, u) => ({ reads: t.reads + u.reads, writes: t.writes + u.writes }),
       { reads: 0, writes: 0 },

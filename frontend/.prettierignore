@@ -1,0 +1,8 @@
+# Build output, including the two directories the console serves — see
+# docs/agent-console.md. Nothing here is hand-written.
+dist/
+node_modules/
+# Generated from the Rust types; formatting it would fight the generator.
+**/*.gen.ts
+# Written by pnpm, not by anyone.
+pnpm-lock.yaml

@@ -180,7 +180,9 @@ export class SessionsView {
   }
 
   cost(session: Summary): string {
-    return session.cost_usd < 0.01 ? `$${session.cost_usd.toFixed(4)}` : `$${session.cost_usd.toFixed(2)}`;
+    return session.cost_usd < 0.01
+      ? `$${session.cost_usd.toFixed(4)}`
+      : `$${session.cost_usd.toFixed(2)}`;
   }
 
   since(session: Summary): string {

@@ -1,6 +1,8 @@
 @if (memories(); as list) {
   <div class="filters">
-    <button mat-button [class.active]="filter() === 'all'" (click)="filter.set('all')">all ({{ list.length }})</button>
+    <button mat-button [class.active]="filter() === 'all'" (click)="filter.set('all')">
+      all ({{ list.length }})
+    </button>
     @for (t of types(); track t) {
       <button mat-button [class.active]="filter() === t" (click)="filter.set(t)">{{ t }}</button>
     }

@@ -51,9 +51,7 @@
         </button>
       }
     </div>
-    <p class="hint">
-      how coarsely the links are grouped — the same corpus, read broadly or finely
-    </p>
+    <p class="hint">how coarsely the links are grouped — the same corpus, read broadly or finely</p>
   }
 
   @if (trail(); as walked) {
@@ -87,9 +85,10 @@
       </p>
       @if (usageOf(node.name); as u) {
         <p class="facts">
-          used in {{ u.sessions }} session{{ u.sessions === 1 ? '' : 's' }} ·
-          {{ u.reads }} read{{ u.reads === 1 ? '' : 's' }} ·
-          {{ u.edits }} edit{{ u.edits === 1 ? '' : 's' }}
+          used in {{ u.sessions }} session{{ u.sessions === 1 ? '' : 's' }} · {{ u.reads }} read{{
+            u.reads === 1 ? '' : 's'
+          }}
+          · {{ u.edits }} edit{{ u.edits === 1 ? '' : 's' }}
           @if (u.last) {
             · last {{ u.last | date: 'd MMM' }}
           }
@@ -226,7 +225,9 @@
           <li>
             <button type="button" (click)="walkTo(row.core)">
               <span class="swatch" [style.background]="row.colour"></span>
-              <span class="who"><span class="name">{{ row.core }}</span></span>
+              <span class="who"
+                ><span class="name">{{ row.core }}</span></span
+              >
             </button>
           </li>
         }

@@ -256,8 +256,8 @@ export class GraphView {
     let best = 0;
     levels.forEach((level, i) => {
       const closer =
-        Math.abs(level.length - READABLE_CLUSTERS)
-        < Math.abs(levels[best].length - READABLE_CLUSTERS);
+        Math.abs(level.length - READABLE_CLUSTERS) <
+        Math.abs(levels[best].length - READABLE_CLUSTERS);
       if (closer) best = i;
     });
     return best;
@@ -330,9 +330,7 @@ export class GraphView {
 
   readonly hasUsage = computed(() => Object.keys(this.usage()).length > 0);
 
-  readonly metricHint = computed(
-    () => METRICS.find((m) => m.key === this.metric())?.hint ?? '',
-  );
+  readonly metricHint = computed(() => METRICS.find((m) => m.key === this.metric())?.hint ?? '');
 
   /** Newest `last` across the corpus — the reference point for freshness. */
   private readonly newest = computed(() => {
@@ -790,7 +788,11 @@ export class GraphView {
     const degree = Math.min(1, Math.sqrt(node.in_degree + node.out_degree) / 5.5);
     return Math.min(
       1,
-      0.3 * sessions + 0.25 * reads + 0.2 * this.reach(usage) + 0.15 * degree + 0.1 * this.freshness(usage),
+      0.3 * sessions +
+        0.25 * reads +
+        0.2 * this.reach(usage) +
+        0.15 * degree +
+        0.1 * this.freshness(usage),
     );
   }
 
@@ -1266,5 +1268,4 @@ export class GraphView {
     if (direction === 'in') return 'arrow_back';
     return 'sync_alt';
   }
-
 }

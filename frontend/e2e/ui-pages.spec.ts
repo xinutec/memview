@@ -1,4 +1,4 @@
-import { test, type Page } from "@playwright/test";
+import { test, type Page } from '@playwright/test';
 // The fleet-shared harness, published as @xinutec/ui-harness (source repo
 // ~/Code/ui-harness). Ships compiled JS, so it loads straight from node_modules.
 import {
@@ -7,7 +7,7 @@ import {
   expectNoTextOverlaps,
   expectCanvasLegible,
   expectViewportIsPhone,
-} from "@xinutec/ui-harness";
+} from '@xinutec/ui-harness';
 
 /**
  * L2 phone-width layout harness for memview. Render the real screens at a Pixel
@@ -21,9 +21,9 @@ import {
  * index is dense `·`-separated link runs, and memory bodies carry fenced code
  * and tables that must scroll inside themselves rather than widening the page.
  */
-test.use({ serviceWorkers: "block" });
+test.use({ serviceWorkers: 'block' });
 
-const ME = { user_id: "pippijn", display_name: "Pippijn", shared: false, auth_enabled: true };
+const ME = { user_id: 'pippijn', display_name: 'Pippijn', shared: false, auth_enabled: true };
 
 /** The index as the backend renders it: dense interpunct-separated link runs
  *  with long slugs — the real MEMORY.md shape. */
@@ -41,10 +41,32 @@ const INDEX = {
  *  corpus: this file is committed, and a `user_`/`feedback_` teaser about the
  *  person rather than the work has no business travelling with the source. */
 const MEMORIES = [
-  { name: "project_health_verified_core_lean", description: "Lean 4 port of the health matcher — bit-exact against the TypeScript quant twin", mtype: "project", modified: "2026-07-20T09:00:00Z" },
-  { name: "reference_launchd_tcc_external_volume", description: "launchd jobs on /Volumes/Backup die with spawn exit 78; the child exec HANGS in dyld", mtype: "reference", modified: "2026-07-11T09:00:00Z" },
-  { name: "feedback_no_magic_strings_use_upstream_taxonomy", description: "Don't hard-code a magic string from another service; use/extend its taxonomy at the source", mtype: "feedback", modified: "2026-07-02T09:00:00Z" },
-  { name: "user_cycling", description: "\"cycling\" from the classifier is a misclassification", mtype: "user", modified: "2026-06-28T09:00:00Z" },
+  {
+    name: 'project_health_verified_core_lean',
+    description: 'Lean 4 port of the health matcher — bit-exact against the TypeScript quant twin',
+    mtype: 'project',
+    modified: '2026-07-20T09:00:00Z',
+  },
+  {
+    name: 'reference_launchd_tcc_external_volume',
+    description:
+      'launchd jobs on /Volumes/Backup die with spawn exit 78; the child exec HANGS in dyld',
+    mtype: 'reference',
+    modified: '2026-07-11T09:00:00Z',
+  },
+  {
+    name: 'feedback_no_magic_strings_use_upstream_taxonomy',
+    description:
+      "Don't hard-code a magic string from another service; use/extend its taxonomy at the source",
+    mtype: 'feedback',
+    modified: '2026-07-02T09:00:00Z',
+  },
+  {
+    name: 'user_cycling',
+    description: '"cycling" from the classifier is a misclassification',
+    mtype: 'user',
+    modified: '2026-06-28T09:00:00Z',
+  },
 ];
 
 /** A memory page with everything that can crowd the column: a long slug title,
@@ -60,13 +82,21 @@ bit-exact against the BigInt quant twin. Run it with <code>LEAN_PASSES=1</code>.
 <blockquote><p>739 verified calls, golden byte-identical under on.</p></blockquote>`,
   backlinks: [MEMORIES[1], MEMORIES[2]],
   outlinks: [MEMORIES[2], MEMORIES[3]],
-  dangling: ["project_lean_matcher_flip_soak"],
+  dangling: ['project_lean_matcher_flip_soak'],
 };
 
 const SEARCH = {
   hits: [
-    { ...MEMORIES[0], snippet: "…proved bit-exact against the BigInt quant twin; the flip gate records accepted deltas rather than silently breaking golden byte-identity…" },
-    { ...MEMORIES[1], snippet: "…launchd + /Volumes/Backup: spawn exit 78; the child exec HANGS in dyld before main…" },
+    {
+      ...MEMORIES[0],
+      snippet:
+        '…proved bit-exact against the BigInt quant twin; the flip gate records accepted deltas rather than silently breaking golden byte-identity…',
+    },
+    {
+      ...MEMORIES[1],
+      snippet:
+        '…launchd + /Volumes/Backup: spawn exit 78; the child exec HANGS in dyld before main…',
+    },
   ],
 };
 
@@ -76,17 +106,17 @@ const SEARCH = {
  *  after its most-connected member, so the legend carries the same unbreakable
  *  snake_case tokens the rest of the app does. */
 const GRAPH_SECTIONS = [
-  "Infrastructure & data services",
-  "Rules — deploy & infra ops",
-  "health-sync",
+  'Infrastructure & data services',
+  'Rules — deploy & infra ops',
+  'health-sync',
 ];
 const GRAPH = {
   sections: GRAPH_SECTIONS,
   nodes: Array.from({ length: 12 }, (_, i) => ({
     name: `project_health_verified_core_lean_${i}`,
-    description: "Lean 4 port of the health matcher — bit-exact against the quant twin",
-    mtype: i % 2 === 0 ? "project" : "feedback",
-    modified: "2026-07-20T09:00:00Z",
+    description: 'Lean 4 port of the health matcher — bit-exact against the quant twin',
+    mtype: i % 2 === 0 ? 'project' : 'feedback',
+    modified: '2026-07-20T09:00:00Z',
     // One memory deliberately carries no section: the index links it above any
     // `##` heading, and the legend has to say so rather than inventing a bucket.
     section: i === 11 ? null : GRAPH_SECTIONS[i % GRAPH_SECTIONS.length],
@@ -101,11 +131,11 @@ const GRAPH = {
     Array.from({ length: 12 }, (_, i) => [
       `project_health_verified_core_lean_${i}`,
       {
-        sessions: i === 0 ? 11 : (i % 4),
+        sessions: i === 0 ? 11 : i % 4,
         turns: i === 0 ? 180 : i * 3,
         reads: i % 3,
         edits: i === 0 ? 40 : i,
-        last: i === 11 ? null : `2026-07-${String(10 + i).padStart(2, "0")}T09:00:00Z`,
+        last: i === 11 ? null : `2026-07-${String(10 + i).padStart(2, '0')}T09:00:00Z`,
       },
     ]),
   ),
@@ -124,37 +154,43 @@ const GRAPH = {
       })),
     ),
     // …joined by two single links, which is what makes them separable at all.
-    { source: "project_health_verified_core_lean_0", target: "project_health_verified_core_lean_4" },
-    { source: "project_health_verified_core_lean_4", target: "project_health_verified_core_lean_8" },
+    {
+      source: 'project_health_verified_core_lean_0',
+      target: 'project_health_verified_core_lean_4',
+    },
+    {
+      source: 'project_health_verified_core_lean_4',
+      target: 'project_health_verified_core_lean_8',
+    },
   ],
 };
 
 /** Mock every backend call. Catch-all FIRST — Playwright runs handlers
  *  last-registered-first. */
 async function mockApi(page: Page): Promise<void> {
-  await page.route("**/api/**", (r) =>
-    r.request().method() === "GET" ? r.fulfill({ json: [] }) : r.fulfill({ status: 204, body: "" }),
+  await page.route('**/api/**', (r) =>
+    r.request().method() === 'GET' ? r.fulfill({ json: [] }) : r.fulfill({ status: 204, body: '' }),
   );
-  await page.route("**/api/me", (r) => r.fulfill({ json: ME }));
-  await page.route("**/api/index", (r) => r.fulfill({ json: INDEX }));
-  await page.route("**/api/memories", (r) => r.fulfill({ json: MEMORIES }));
-  await page.route("**/api/memory/**", (r) => r.fulfill({ json: MEMORY_PAGE }));
-  await page.route("**/api/graph", (r) => r.fulfill({ json: GRAPH }));
-  await page.route("**/api/search**", (r) => r.fulfill({ json: SEARCH }));
+  await page.route('**/api/me', (r) => r.fulfill({ json: ME }));
+  await page.route('**/api/index', (r) => r.fulfill({ json: INDEX }));
+  await page.route('**/api/memories', (r) => r.fulfill({ json: MEMORIES }));
+  await page.route('**/api/memory/**', (r) => r.fulfill({ json: MEMORY_PAGE }));
+  await page.route('**/api/graph', (r) => r.fulfill({ json: GRAPH }));
+  await page.route('**/api/search**', (r) => r.fulfill({ json: SEARCH }));
 }
 
 // The checker-checker: fail loudly here if the device preset is ever lost and
 // the "phone width" suite silently runs at desktop width.
-test("the suite really runs at phone geometry", async ({ page }) => {
+test('the suite really runs at phone geometry', async ({ page }) => {
   await mockApi(page);
-  await page.goto("/");
+  await page.goto('/');
   await expectViewportIsPhone(page);
 });
 
-test("index — dense link runs lay out cleanly @ phone width", async ({ page }, testInfo) => {
+test('index — dense link runs lay out cleanly @ phone width', async ({ page }, testInfo) => {
   await mockApi(page);
-  await page.goto("/");
-  await page.getByText("Memory index").waitFor();
+  await page.goto('/');
+  await page.getByText('Memory index').waitFor();
   // The toolbar is where an icon-font fallback shows up as a literal word —
   // now "menu", since the destinations moved inside it and a closed mat-menu
   // renders nothing.
@@ -171,46 +207,50 @@ test("index — dense link runs lay out cleanly @ phone width", async ({ page },
  * containers themselves are still checked: only what scrolls INSIDE them is
  * allowed past the edge, so a `pre` that fails to clip still fails here.
  */
-const MD_SCROLLERS = [".md-content pre", ".md-content table"];
+const MD_SCROLLERS = ['.md-content pre', '.md-content table'];
 
-test("memory page — long slug, code, table, link panels @ phone width", async ({ page }, testInfo) => {
+test('memory page — long slug, code, table, link panels @ phone width', async ({
+  page,
+}, testInfo) => {
   await mockApi(page);
-  await page.goto("/m/project_health_verified_core_lean");
-  await page.getByRole("heading", { name: "project_health_verified_core_lean" }).waitFor();
-  await page.getByText("Linked from").waitFor();
+  await page.goto('/m/project_health_verified_core_lean');
+  await page.getByRole('heading', { name: 'project_health_verified_core_lean' }).waitFor();
+  await page.getByText('Linked from').waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo, null, MD_SCROLLERS);
 });
 
-test("all list — type filters + long slugs @ phone width", async ({ page }, testInfo) => {
+test('all list — type filters + long slugs @ phone width', async ({ page }, testInfo) => {
   await mockApi(page);
-  await page.goto("/all");
-  await page.getByRole("button", { name: "reference", exact: true }).waitFor();
-  await page.getByText("user_cycling").waitFor();
+  await page.goto('/all');
+  await page.getByRole('button', { name: 'reference', exact: true }).waitFor();
+  await page.getByText('user_cycling').waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 });
 
-test("search results — snippets under long slugs @ phone width", async ({ page }, testInfo) => {
+test('search results — snippets under long slugs @ phone width', async ({ page }, testInfo) => {
   await mockApi(page);
-  await page.goto("/search?q=lean");
-  await page.getByText("BigInt quant twin", { exact: false }).waitFor();
+  await page.goto('/search?q=lean');
+  await page.getByText('BigInt quant twin', { exact: false }).waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 });
 
-test("graph — cluster legend of long slugs under the canvas @ phone width", async ({ page }, testInfo) => {
+test('graph — cluster legend of long slugs under the canvas @ phone width', async ({
+  page,
+}, testInfo) => {
   await mockApi(page);
-  await page.goto("/graph");
+  await page.goto('/graph');
   // Every reading of the size control, because each one re-renders the canvas
   // and any of them can be the one that throws on a memory with no usage.
-  for (const label of ["edited", "fresh", "linked", "used"]) {
-    await page.getByRole("button", { name: label, exact: true }).click();
+  for (const label of ['edited', 'fresh', 'linked', 'used']) {
+    await page.getByRole('button', { name: label, exact: true }).click();
   }
   // The legend names each cluster after its most-connected member, so what has
   // to fit is a full memory slug, not a hand-written section title.
-  await page.getByRole("heading", { name: "clusters" }).waitFor();
-  await page.locator(".legend button").first().waitFor();
+  await page.getByRole('heading', { name: 'clusters' }).waitFor();
+  await page.locator('.legend button').first().waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 });
@@ -221,34 +261,34 @@ test("graph — cluster legend of long slugs under the canvas @ phone width", as
  * and truncating the walk would throw away how the reader got where they are —
  * which is half of what a path through the corpus tells you.
  */
-const TRAIL_SCROLLER = [".trail ol"];
+const TRAIL_SCROLLER = ['.trail ol'];
 
-test("graph — a walk: trail crumbs and hop list @ phone width", async ({ page }, testInfo) => {
+test('graph — a walk: trail crumbs and hop list @ phone width', async ({ page }, testInfo) => {
   await mockApi(page);
   // Entered by URL, then walked by clicking a hop. Clicking the canvas instead
   // would mean picking a pixel, and which pixel a node lands on depends on where
   // the force layout happened to settle — that measures the simulation.
-  await page.goto("/graph?walk=project_health_verified_core_lean_0");
-  await page.getByText("one hop away").waitFor();
-  await page.locator(".hops button").first().click();
+  await page.goto('/graph?walk=project_health_verified_core_lean_0');
+  await page.getByText('one hop away').waitFor();
+  await page.locator('.hops button').first().click();
   // Two crumbs now: the walk was extended, not replaced.
-  await page.locator(".trail li").nth(1).waitFor();
+  await page.locator('.trail li').nth(1).waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo, null, TRAIL_SCROLLER);
 });
 
-test("graph — a linked walk survives a cold load @ phone width", async ({ page }, testInfo) => {
+test('graph — a linked walk survives a cold load @ phone width', async ({ page }, testInfo) => {
   await mockApi(page);
   await page.goto(
-    "/graph?walk=project_health_verified_core_lean_0,project_health_verified_core_lean_3",
+    '/graph?walk=project_health_verified_core_lean_0,project_health_verified_core_lean_3',
   );
   // Both crumbs, and the walk standing on the second one. The ordering this
   // pins is the whole risk: the URL is read before the corpus arrives, and a
   // walk checked against an empty graph drops every name it has and lands on
   // an unfocused picture with no sign the link ever said otherwise.
-  await page.locator(".trail li").nth(1).waitFor();
+  await page.locator('.trail li').nth(1).waitFor();
   await page
-    .getByRole("heading", { name: "project_health_verified_core_lean_3", exact: true })
+    .getByRole('heading', { name: 'project_health_verified_core_lean_3', exact: true })
     .waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo, null, TRAIL_SCROLLER);
@@ -264,14 +304,14 @@ test("graph — a linked walk survives a cold load @ phone width", async ({ page
  * Both schemes, because the classic form of the bug (a Material token, which
  * computes to `light-dark(...)`) is invisible in light mode.
  */
-for (const scheme of ["light", "dark"] as const) {
+for (const scheme of ['light', 'dark'] as const) {
   test(`graph canvas stays legible in ${scheme} mode`, async ({ page }, testInfo) => {
     await page.emulateMedia({ colorScheme: scheme });
     await mockApi(page);
-    await page.goto("/graph");
-    await page.locator("app-graph-view canvas").waitFor();
+    await page.goto('/graph');
+    await page.locator('app-graph-view canvas').waitFor();
     // The force layout settles over a few frames; measure once it has drawn.
     await page.waitForTimeout(1200);
-    await expectCanvasLegible(page, testInfo, "app-graph-view canvas");
+    await expectCanvasLegible(page, testInfo, 'app-graph-view canvas');
   });
 }

@@ -106,12 +106,15 @@ export class Restyle implements OnDestroy {
     this.tried.set(asset, attempt);
 
     const view = this.doc.defaultView;
-    view?.setTimeout(() => {
-      const fresh = this.doc.createElement('link');
-      fresh.rel = 'stylesheet';
-      fresh.href = `${asset}?again=${attempt}`;
-      fresh.dataset['again'] = String(attempt);
-      this.doc.head.appendChild(fresh);
-    }, BACKOFF_MS[attempt - 1]);
+    view?.setTimeout(
+      () => {
+        const fresh = this.doc.createElement('link');
+        fresh.rel = 'stylesheet';
+        fresh.href = `${asset}?again=${attempt}`;
+        fresh.dataset['again'] = String(attempt);
+        this.doc.head.appendChild(fresh);
+      },
+      BACKOFF_MS[attempt - 1],
+    );
   }
 }

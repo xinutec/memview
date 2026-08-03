@@ -13,10 +13,12 @@
     "stamp": "node scripts/stamp-version.mjs",
     "start": "ng serve",
     "start:console": "ng serve console-web",
-    "test": "ng test --watch=false && ng test console-web --watch=false",
+    "test": "ng test memview-web --watch=false && ng test console-web --watch=false",
     "ui-check": "playwright test && playwright test -c projects/console-web/playwright.config.ts",
     "watch": "ng build --watch --configuration development",
     "build:console": "ng build console-web && rsync -a dist/console-build/browser/ dist/console-live/ && rsync -a dist/console-build/browser/ dist/console-web/browser/",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "typecheck": "tsc -p tsconfig.e2e.json"
   },
   "dependencies": {
@@ -44,6 +46,7 @@
     "esbuild": "^0.28.1",
     "eslint": "^10.6.0",
     "jsdom": "^29.1.1",
+    "prettier": "^3.9.6",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.62.1",
     "vitest": "^4.1.9"

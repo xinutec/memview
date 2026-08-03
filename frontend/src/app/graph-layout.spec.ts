@@ -68,7 +68,9 @@ describe('neighbourhood', () => {
   });
 
   it('gives an unlinked memory only itself', () => {
-    expect([...neighbourhood(EDGES, NAME_LIST, 'reference_lonely', 3)]).toEqual(['reference_lonely']);
+    expect([...neighbourhood(EDGES, NAME_LIST, 'reference_lonely', 3)]).toEqual([
+      'reference_lonely',
+    ]);
   });
 });
 
@@ -88,7 +90,11 @@ describe('createLayout', () => {
   });
 
   it('drops an edge naming a node the graph does not have', () => {
-    const layout = createLayout(NAMES, [...EDGES, { source: 'project_a', target: 'ghost' }], SECTIONS);
+    const layout = createLayout(
+      NAMES,
+      [...EDGES, { source: 'project_a', target: 'ghost' }],
+      SECTIONS,
+    );
     expect(layout.pairs).toHaveLength(EDGES.length);
   });
 });
@@ -147,7 +153,13 @@ describe('stepLayout', () => {
   it('separates nodes that start on top of each other', () => {
     // A single-node corpus, then a degenerate two-node one: the guard against a
     // zero-distance inverse square must not produce NaN.
-    const layout = createLayout([{ name: 'a', group: null }, { name: 'b', group: null }], []);
+    const layout = createLayout(
+      [
+        { name: 'a', group: null },
+        { name: 'b', group: null },
+      ],
+      [],
+    );
     layout.nodes[0].pos = { x: 0, y: 0, z: 0 };
     layout.nodes[1].pos = { x: 0, y: 0, z: 0 };
     for (let i = 0; i < 50; i++) stepLayout(layout);
@@ -541,9 +553,7 @@ describe('planLabels', () => {
   it('never draws more than the budget', () => {
     // The bug this replaced used a degree cutoff, so a growing corpus labelled
     // ever more nodes: ~25 collided into unreadable stacks on the live data.
-    const many = Array.from({ length: 40 }, (_, i) =>
-      candidate(`node_${i}`, 20, i * 40, 100 - i),
-    );
+    const many = Array.from({ length: 40 }, (_, i) => candidate(`node_${i}`, 20, i * 40, 100 - i));
 
     const plan = planLabels(many, measure, 1000);
 
@@ -640,9 +650,7 @@ describe('planLabels', () => {
 
   it('always labels a pinned node, even past the budget', () => {
     // The hovered or selected node is what the reader is asking about.
-    const many = Array.from({ length: 40 }, (_, i) =>
-      candidate(`node_${i}`, 20, i * 40, 100 - i),
-    );
+    const many = Array.from({ length: 40 }, (_, i) => candidate(`node_${i}`, 20, i * 40, 100 - i));
     const asked = candidate('the_one_hovered', 20, 5000, 0, true);
 
     const plan = planLabels([...many, asked], measure, 1000);
@@ -653,10 +661,7 @@ describe('planLabels', () => {
   it('places a pinned node first, so it keeps the best position', () => {
     // Both get drawn now — the hub steps to another line — but the node the
     // reader is pointing at is the one that keeps its own line.
-    const nodes = [
-      candidate('hub', 20, 100, 99),
-      candidate('asked_about', 25, 100, 0, true),
-    ];
+    const nodes = [candidate('hub', 20, 100, 99), candidate('asked_about', 25, 100, 0, true)];
 
     const plan = planLabels(nodes, measure, 1000);
 

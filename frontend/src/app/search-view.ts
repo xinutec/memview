@@ -63,9 +63,7 @@ export class SearchView {
   constructor() {
     this.search$
       .pipe(
-        switchMap((q) =>
-          this.api.search(q).pipe(catchError(() => of(EMPTY_RESULT))),
-        ),
+        switchMap((q) => this.api.search(q).pipe(catchError(() => of(EMPTY_RESULT)))),
         takeUntilDestroyed(),
       )
       .subscribe((res) => {

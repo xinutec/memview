@@ -15,10 +15,10 @@
 # `pnpm install --store-dir <empty dir>`, never a plain install.
 allowBuilds:
   esbuild: true
-  "@parcel/watcher": true
+  '@parcel/watcher': true
   lmdb: true
   msgpackr-extract: true
-  "@xinutec/ui-harness@https://codeload.github.com/xinutec/ui-harness/tar.gz/36b57a265ef372a096d1413e90f2c0bd5cb31bd5": true
+  '@xinutec/ui-harness@https://codeload.github.com/xinutec/ui-harness/tar.gz/36b57a265ef372a096d1413e90f2c0bd5cb31bd5': true
 
 # Carried across from package.json's npm-format `overrides`, which pnpm does not
 # read. Here and nowhere else: two lists of one constraint drift.
@@ -33,4 +33,4 @@ allowBuilds:
 # the package-manager move.
 overrides:
   esbuild: ^0.28.1
-  "@babel/core": ^7.29.6
+  '@babel/core': ^7.29.6
