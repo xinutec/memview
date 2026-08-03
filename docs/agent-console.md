@@ -603,6 +603,169 @@ Bounded on purpose: the last 512 KB and at most 400 events, because one tool
 result can be most of a megabyte and bytes alone are a poor proxy for how much
 conversation was recovered.
 
+## The client
+
+`frontend/projects/console-web` — a second Angular application in memview's
+workspace, sharing nothing with the viewer. This section is the map; the files
+themselves carry the reasoning.
+
+### The shape
+
+| file | what it owns |
+|---|---|
+| `app.ts` / `app.html` | the shell: toolbar, build stamp, `<router-outlet>` |
+| `sessions-view.ts` | the list — live sessions, past conversations, starting one |
+| `session-view.ts` | one conversation: transcript, composer, approvals, header |
+| `session-store.ts` | **the state that outlives a page** — transcripts, activity, background tasks |
+| `past-store.ts` | the list of resumable conversations |
+| `transcript.ts` | `fold(entries, event)` — pure, the whole rendering model |
+| `models.ts` | the wire types; `KINDS` mirrors `protocol::Event` so the wire is checked, not trusted |
+| `console-api.ts` | HTTP, one method per route |
+| `host.ts` | the interceptor: every failed request becomes a telemetry `fail` |
+| `updates.ts` | notices a new bundle and decides *when* to reload |
+| `here.ts` | the open conversation's name, for the shell above the router |
+| `budget.ts` | `costMatters` — whether a cost figure means anything yet |
+| `errors.ts` | `unknown` → a sentence; nothing reaches the screen as `[object Object]` |
+| `rendered.ts` | markdown → HTML | 
+| `clock.ts` | `HH:MM`, and deliberately asks nothing about *now* |
+| `foreground.ts` | "the app came back" — a phone suspends pages for hours |
+| `telemetry.ts` | taps, navigations, failures, and anything that throws |
+
+### The state model
+
+**`SessionStore` is the only thing that survives leaving a page.** A transcript
+held in the component died with it, so going to the list and back threw away
+every page somebody had scrolled to load — silently, looking like a reload. The
+store is keyed by session id, keeps `KEPT = 4`, and never evicts a record whose
+stream is open.
+
+Each `Held` carries: the folded `entries`, a `cursor` (a **byte offset** into the
+transcript), `seen` (the last sequence number accounted for), `doing` (live
+activity) and `background` (tracked tasks). `take()` is where every event lands
+and the only place any of it is decided.
+
+⚠ **Page by the cursor, never by a count.** This once worked backwards from the
+end of the file using "how many events the reader holds", which is wrong twice:
+the file grows, and the client counts *folded entries* while the server counts
+events. Measured: a reader holding 266 events asked for 170 and got back 96 it
+already had, every time, for ever.
+
+### Rules that are not obvious
+
+- **Component styles cannot reach `[innerHTML]` content.** Emulated encapsulation
+  rewrites every selector with a scope attribute that injected nodes do not
+  carry. Markdown styling therefore lives in the global `styles.scss`, scoped by
+  the element selector `app-session-view`.
+- **Never `<details>` for folding.** Closed, its content stays in the DOM under
+  `content-visibility: hidden` — still laid out, still measured — which the
+  layout harness reported as 41 text overlaps.
+- **A method read by a template must be a `computed`.** `DL-ANGULAR-TEMPLATE-
+  METHOD-CALL`; a method body runs on every change-detection pass and cannot
+  cache.
+- **A class in a template must be styled or referenced.** `DL-ANGULAR-UNSTYLED-
+  CLASS`.
+- **Specs must import the vitest globals explicitly.** Type-aware linting binds a
+  spec to the *nearest* tsconfig, not `tsconfig.spec.json`, so `describe` has no
+  type and every call is "unsafe".
+- **48px on every control**, app-wide in `styles.scss`, because `min-height` has
+  to beat the `height` Material sets from its own tokens.
+- **`visualViewport`'s resize is what reports the soft keyboard.** A window
+  resize does not fire. Whether the reader is at the bottom is *remembered as
+  they scroll*, never measured when wanted — by then the box has shrunk and the
+  arithmetic says "hundreds of pixels from the bottom" about somebody who never
+  moved.
+- **`EventSource` sends `Last-Event-ID` only for its own reconnects.** A new one
+  opened by a page returning knows nothing, hence `?after=` on the events route,
+  with the header winning when both are present.
+
+### What the numbers mean, and the trap they share
+
+Three figures on the header have been wrong at least once, each the same way: **a
+field that reads like a measurement and is actually an aggregate.**
+
+| shown | source | trap |
+|---|---|---|
+| turns | `num_turns` per result, **summed** | genuinely per-exchange; summing is right |
+| cost | `total_cost_usd`, **assigned** | it is the session total already — summing gave $59 against a true $12 |
+| context | per-**message** `usage`, **assigned** | the result line's `usage` sums every request a turn made — 5.1M against a 1M window |
+
+- **Context is `input + cache_creation + cache_read`.** The cached part is nearly
+  all of it: 2 tokens of input against 546,967 read. Anything using
+  `input_tokens` alone reports a full conversation as empty.
+- **The window is declared only on the result line.** A session that has not
+  finished a turn knows how full it is but not what of, so the client shows the
+  count alone rather than nothing.
+- **Cost is not money.** Sessions inherit the CLI's credentials and run on the
+  subscription. It is shown only when `limit` (the account's own
+  `allowed` / `allowed_warning` / `rejected`) says the allowance is running out.
+- **Background tasks are only the ones the harness tracks.** A command
+  backgrounded inside a shell announces nothing, so the label says "background
+  tasks", not "nothing is running". The count is cleared on `started`: a new
+  process cannot have inherited the last one's work, and a task killed with a
+  console restart never reports.
+
+### Updating the client
+
+The console has **no service worker** — deliberately: it would cache an app
+behind a client-certificate gate, and ngsw's `navigationUrls` and auth are a
+known source of trouble here. Instead the runner reports a `bundle` fingerprint
+(the SHA-256 of `index.html`, which Angular rewrites on every build) on
+`/api/state`, which the client already polls. The first fingerprint seen is what
+the page booted from; any other means it is stale.
+
+**When** it reloads is the design, and it is life's policy: at once during
+startup or while hidden, and otherwise **held until the app is next put away**,
+so a build never lands on a half-typed instruction. A held reload says so above
+the composer — before that it was indistinguishable from no update at all.
+
+⚠ **The self-updater ships inside the bundle**, so it cannot install itself: the
+first page that has it must be loaded by hand.
+
+## Upgrading the runner without dropping a session
+
+`SIGUSR2` replaces the console's own executable in place, keeping every session
+alive. **Not `SIGTERM`** — `kill` means stop, and an upgrade answering to it
+would be a stop that sometimes did not stop.
+
+It works because `execve` replaces the *image*, not the process: same pid, so the
+`claude` children are still children, and open descriptors survive unless they
+are close-on-exec. Each session's id, directory, pid and three descriptor numbers
+travel in `CONSOLE_HANDOVER`; the new image rebuilds sessions from those rather
+than spawning any.
+
+- ⚠ **Rust marks every pipe close-on-exec.** Without clearing it the new image
+  inherits nothing and every session is silently unreachable.
+- ⚠ **The scrollback does not survive**, so an adopted session reseeds from the
+  transcript exactly as a resumed one does. Shipped without that, and the history
+  vanished on the first real upgrade.
+- ⚠ **The environment carries over**, so anything read from it at startup —
+  `STATIC_DIR`, `CONSOLE_DIRS`, the TLS paths — keeps its old value. Changing one
+  needs a full restart.
+- **The listening sockets are deliberately not carried.** They stay
+  close-on-exec, so the port frees the instant the image is replaced and the new
+  one binds it. Clients reconnect quoting `Last-Event-ID`.
+- **A failed exec returns rather than exits**, leaving the old console running.
+  Exiting would leave live `claude` processes with nobody holding their stdin.
+- An adopted session has no `Child` handle: it reports its end by **stdout
+  reaching EOF** (so its exit code is always `None`) and is killed through its
+  pid.
+
+## Serving the bundle
+
+⚠ **A missing file must 404, not answer the app.** The console falls back to
+`index.html` for routes the SPA owns (`/s/<uuid>`), and falling back for
+*everything* meant a file that was briefly absent came back as `200 text/html` —
+a browser handed HTML where it asked for a font neither retries nor complains.
+The icons vanished on a reload and nothing recorded a failure: not the server
+log, not the client trace, not the network panel. `api::spa` 404s anything whose
+last path segment contains a dot.
+
+⚠ **`ng build` deletes its whole output path**, so a bundle served from there
+disappears for a second on every build. `pnpm run build:console` rsyncs into
+`frontend/dist/console-live` — **outside** the output path, and without deleting
+— so the previous build's hashed files stay behind and a page mid-load still
+finds its own. `STATIC_DIR` points there.
+
 ## Build order
 
 Each phase is usable on its own and none of the work is thrown away if a later
