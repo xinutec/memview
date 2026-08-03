@@ -1,0 +1,31 @@
+// The layout harnesses and the Playwright configs, type-checked.
+//
+// ⚠ **Nothing else checked these files.** `tsconfig.app.json` reaches only what
+// `src/main.ts` imports and `tsconfig.spec.json` only `src/**/*.spec.ts`, so the
+// e2e trees were in neither; eslint's flat config did not name them; and
+// Playwright compiles specs with esbuild, which strips types without checking
+// them. Measured rather than assumed: `const planted: number = "not a number"`
+// in `projects/console-web/e2e/ui-pages.spec.ts` passed the lint script, eslint
+// aimed straight at the file, `ng build`, and a Playwright run.
+//
+// These files are the gate for how the console behaves on a phone. Being the
+// least-checked code in the repo was the wrong way round.
+//
+// No `allowJs`: each `harness.mjs` has a `harness.d.mts` beside it instead, so
+// the JavaScript is described rather than inferred — and the `.mjs` are
+// deliberately absent from `include`, because listing files this config does not
+// compile would claim a coverage it does not have.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "playwright.config.ts",
+    "e2e/**/*.ts",
+    "e2e/**/*.d.mts",
+    "projects/*/playwright.config.ts",
+    "projects/*/e2e/**/*.ts",
+    "projects/*/e2e/**/*.d.mts"
+  ]
+}

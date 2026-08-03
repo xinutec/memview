@@ -30,6 +30,12 @@ nix develop -c bash -c '
     pnpm install --frozen-lockfile
   fi
   pnpm run lint
+  # The layout harnesses and the Playwright configs. `ng build` compiles only
+  # what `src/main.ts` imports and Playwright strips types with esbuild rather
+  # than checking them, so without this the code that guards how the console
+  # behaves on a phone is the least-checked in the repo — proven with a planted
+  # type error that passed lint, `ng build` and a Playwright run.
+  pnpm run typecheck
   pnpm test
   pnpm run build || true
   # Authoritative build check: an empty/missing index.html means the bundle

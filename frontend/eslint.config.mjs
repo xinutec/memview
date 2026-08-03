@@ -1,6 +1,13 @@
 // @ts-check
 // ESLint flat config for the Angular frontend: memview's app under src/, and
-// the console's under projects/ — both are held to the same rules. Type-aware: typescript-eslint
+// the console's under projects/ — both are held to the same rules, and so are
+// the layout harnesses and the Playwright configs that drive them. Those were
+// outside every glob until 2026-08-03: eslint's own `files` did not name them,
+// the lint script's paths did not reach them, `ng build` compiles only what
+// `src/main.ts` imports, and Playwright strips types with esbuild rather than
+// checking them. A planted `const planted: number = "not a number"` passed all
+// four. The harness is the gate for how the console behaves on a phone; being
+// the least-checked code in the repo was the wrong way round. Type-aware: typescript-eslint
 // recommendedTypeChecked + stylisticTypeChecked (parserOptions.projectService)
 // for usage bugs tsc/syntactic-lint miss (floating/misused promises, unsafe
 // `any`, await-thenable), plus the Angular rules (forbid inline template:/styles:
@@ -11,7 +18,7 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    files: ["src/**/*.ts", "projects/**/*.ts"],
+    files: ["src/**/*.ts", "projects/**/*.ts", "e2e/**/*.ts", "*.config.ts"],
     extends: [
       ...tseslint.configs.recommendedTypeChecked,
       ...tseslint.configs.stylisticTypeChecked,

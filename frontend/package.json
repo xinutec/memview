@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "ng build && ng build console-web",
-    "lint": "eslint src projects/*/src",
+    "lint": "eslint src projects/*/src e2e projects/*/e2e playwright.config.ts projects/*/playwright.config.ts",
     "ng": "ng",
     "prebuild": "node scripts/stamp-version.mjs",
     "prelint": "node scripts/stamp-version.mjs",
@@ -15,7 +15,8 @@
     "start:console": "ng serve console-web",
     "test": "ng test --watch=false && ng test console-web --watch=false",
     "ui-check": "playwright test && playwright test -c projects/console-web/playwright.config.ts",
-    "watch": "ng build --watch --configuration development"
+    "watch": "ng build --watch --configuration development",
+    "typecheck": "tsc -p tsconfig.e2e.json"
   },
   "dependencies": {
     "@angular/cdk": "^22.0.3",
