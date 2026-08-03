@@ -118,7 +118,7 @@ const STDERR_KEPT: usize = 4000;
 ///
 /// Displayed as *Manual*: it asks before every tool call that needs permission,
 /// which in headless mode means asking whoever is holding the phone.
-const DEFAULT_MODE: &str = "default";
+pub const DEFAULT_MODE: &str = "default";
 
 /// What a client sees of a session without reading its transcript.
 #[derive(Debug, Clone, Serialize)]

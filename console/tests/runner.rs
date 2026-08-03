@@ -561,3 +561,38 @@ async fn a_mode_change_that_could_not_be_sent_leaves_the_old_one_showing() {
     assert!(session.set_mode("bypassPermissions").await.is_err());
     assert_eq!(session.summary().mode.as_deref(), Some("default"));
 }
+
+#[tokio::test]
+async fn a_session_carried_by_an_older_image_is_not_left_blank_about_permissions() {
+    // ⚠ A handover written before the mode was carried has no such field, and
+    // serde reads that as `None`. Left alone, an upgraded session shows nothing
+    // where "what may this do" belongs — which reads as the careful setting, and
+    // is the one case it might not be. Seen for real: the first upgrade after
+    // this feature landed dropped the mode off the header entirely.
+    let tally = console::session::Tally {
+        started: 1_754_000_000,
+        mode: None,
+        ..Default::default()
+    };
+    let (_stdin_read, stdin) = carried_pipe();
+    let (stdout, _stdout_write) = carried_pipe();
+    let (stderr, _stderr_write) = carried_pipe();
+
+    let session = console::session::Session::adopt(
+        "not-a-session-on-disk".into(),
+        std::env::temp_dir(),
+        std::process::id(),
+        console::session::Fds {
+            stdin,
+            stdout,
+            stderr,
+        },
+        tally,
+    )
+    .expect("adopt");
+
+    // `adopt` itself keeps what it was handed; the roster is what fills the gap,
+    // because only it knows how this console starts sessions.
+    assert_eq!(session.summary().mode, None);
+    assert_eq!(console::session::DEFAULT_MODE, "default");
+}

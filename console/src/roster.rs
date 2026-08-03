@@ -70,12 +70,28 @@ impl Roster {
         };
         let mut taken = 0;
         for one in carried {
+            let mut tally = one.tally;
+            // ⚠ **Never blank about permissions.** A handover written by an image
+            // that did not carry the mode leaves this empty, and an empty mode on
+            // the header reads as the careful setting — which is the one case it
+            // might not be. What this console would have started the session with
+            // is the best answer available, and it is right whenever the session
+            // was started by a console configured as this one is.
+            if tally.mode.is_none() {
+                tally.mode = Some(
+                    self.config
+                        .spawn
+                        .permission_mode
+                        .clone()
+                        .unwrap_or_else(|| crate::session::DEFAULT_MODE.to_string()),
+                );
+            }
             match Session::adopt(
                 one.id.clone(),
                 one.dir.clone().into(),
                 one.pid,
                 one.fds,
-                one.tally,
+                tally,
             ) {
                 Ok(session) => {
                     tracing::info!("carried {} (pid {}) across the upgrade", one.id, one.pid);
