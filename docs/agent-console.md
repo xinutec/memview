@@ -674,6 +674,7 @@ themselves carry the reasoning.
 | `telemetry.ts` | taps, navigations, failures, and anything that throws |
 | `restyle.ts` | asks again for a stylesheet whose request failed |
 | `modes.ts` | the CLI's permission modes, its own labels and its own order |
+| `model.ts` | the id the CLI reports → the name anybody says; unknown ids shown whole |
 | `here.ts` | the open conversation, for the toolbar and the menu behind its name |
 
 ### The state model

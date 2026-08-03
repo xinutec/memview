@@ -124,8 +124,8 @@
               >
             }
 
-            @if (session.model) {
-              <span class="model">{{ session.model }}</span>
+            @if (modelOf(session); as model) {
+              <span class="model" [title]="session.model">{{ model }}</span>
             }
           </div>
         </mat-card-content>

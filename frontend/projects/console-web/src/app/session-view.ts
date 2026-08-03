@@ -25,6 +25,7 @@ import { ConsoleApi } from './console-api';
 import { reason } from './errors';
 import { Foreground } from './foreground';
 import { Entry, Summary } from './models';
+import { modelName } from './model';
 import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { costMatters } from './budget';
 import { Here } from './here';
@@ -111,6 +112,8 @@ export class SessionView implements OnDestroy {
 
   /** What the session may do without asking, in the CLI's own words. */
   readonly mode = computed(() => modeTitle(this.session()?.mode));
+  /** What the model is called, rather than the id it is shipped under. */
+  readonly model = computed(() => modelName(this.session()?.model));
   /** The icon standing for it where there is no room for the name. */
   readonly modeIcon = computed(() => modeIcon(this.session()?.mode));
   /** Whether that mode is one the CLI itself colours as an error. */

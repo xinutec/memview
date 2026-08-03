@@ -23,8 +23,8 @@
           icon
         }}</mat-icon>
       }
-      @if (session.model) {
-        <span class="model">{{ session.model }}</span>
+      @if (model(); as model) {
+        <span class="model" [title]="session.model">{{ model }}</span>
       }
     </div>
   </header>
