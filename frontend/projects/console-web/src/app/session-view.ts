@@ -25,7 +25,7 @@ import { ConsoleApi } from './console-api';
 import { reason } from './errors';
 import { Foreground } from './foreground';
 import { Entry, Summary } from './models';
-import { modeIsLoud, modeTitle } from './modes';
+import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { costMatters } from './budget';
 import { Here } from './here';
 import { Updates } from './updates';
@@ -111,6 +111,8 @@ export class SessionView implements OnDestroy {
 
   /** What the session may do without asking, in the CLI's own words. */
   readonly mode = computed(() => modeTitle(this.session()?.mode));
+  /** The icon standing for it where there is no room for the name. */
+  readonly modeIcon = computed(() => modeIcon(this.session()?.mode));
   /** Whether that mode is one the CLI itself colours as an error. */
   readonly loud = computed(() => modeIsLoud(this.session()?.mode));
   readonly trouble = signal('');
@@ -182,7 +184,7 @@ export class SessionView implements OnDestroy {
     // Leaving the page leaves the conversation, so the toolbar stops claiming
     // to be inside one — otherwise the list of sessions is titled with whichever
     // one was open last.
-    this.here.name.set(undefined);
+    this.here.open.set(undefined);
   }
 
   /** The header facts — cost, turns, whether it is working — come from the
@@ -194,8 +196,11 @@ export class SessionView implements OnDestroy {
         const mine = state.sessions.find((s) => s.id === this.id());
         this.session.set(mine);
         // The toolbar sits above the router and cannot see the route, so the
-        // page that knows which conversation this is has to say so.
-        this.here.name.set(mine?.name);
+        // page that knows which conversation this is has to say so — and the
+        // menu behind that name acts on what is set here.
+        this.here.open.set(
+          mine && { id: mine.id, name: mine.name, mode: mine.mode, alive: mine.alive },
+        );
         this.updates.saw(state.bundle);
         this.unreachable.set('');
       },
@@ -340,16 +345,6 @@ export class SessionView implements OnDestroy {
   decide(entry: Entry, allow: boolean): void {
     if (!entry.ask || entry.allowed !== undefined) return;
     this.api.decide(this.id(), entry.ask, allow).subscribe({
-      error: (err: unknown) => this.trouble.set(reason(err)),
-    });
-  }
-
-  stop(): void {
-    this.api.stop(this.id()).subscribe({
-      next: (summary) => {
-        this.trouble.set('');
-        this.session.set(summary);
-      },
       error: (err: unknown) => this.trouble.set(reason(err)),
     });
   }

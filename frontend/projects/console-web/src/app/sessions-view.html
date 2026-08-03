@@ -114,8 +114,14 @@
             @if (costMatters(session)) {
               <span>{{ cost(session) }}</span>
             }
-            @if (modeOf(session); as mode) {
-              <span class="mode" [class.loud]="modeLoud(session)">{{ mode }}</span>
+            @if (modeIconOf(session); as icon) {
+              <mat-icon
+                class="mode"
+                [class.loud]="modeLoud(session)"
+                [attr.aria-label]="modeOf(session)"
+                [title]="modeOf(session)"
+                >{{ icon }}</mat-icon
+              >
             }
 
             @if (session.model) {

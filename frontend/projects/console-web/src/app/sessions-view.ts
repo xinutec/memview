@@ -15,7 +15,7 @@ import { ConsoleApi } from './console-api';
 import { reason } from './errors';
 import { Foreground } from './foreground';
 import { Conversation, Overview, Summary } from './models';
-import { modeIsLoud, modeTitle } from './modes';
+import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { costMatters } from './budget';
 import { Updates } from './updates';
 import { PastStore } from './past-store';
@@ -167,6 +167,11 @@ export class SessionsView {
   /** What this session may do without asking, in the CLI's own words. */
   modeOf(session: Summary): string | undefined {
     return modeTitle(session.mode);
+  }
+
+  /** The icon standing for it, since the card has no room for the name. */
+  modeIconOf(session: Summary): string | undefined {
+    return modeIcon(session.mode);
   }
 
   /** Whether that mode is one the CLI itself colours as an error. */

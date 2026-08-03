@@ -466,6 +466,7 @@ async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
     let tally = console::session::Tally {
         started: 1_754_000_000,
         model: Some("claude-opus-5".into()),
+        mode: Some("auto".into()),
         cost_usd: 1.25,
         window: Some(1_000_000),
         limit: Some("allowed_warning".into()),
@@ -491,6 +492,7 @@ async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
 
     let summary = session.summary();
     assert_eq!(summary.started, 1_754_000_000, "the session looks newborn");
+    assert_eq!(summary.mode.as_deref(), Some("auto"), "the mode restarted");
     assert_eq!(summary.model.as_deref(), Some("claude-opus-5"));
     assert_eq!(summary.window, Some(1_000_000), "no window to be full of");
     assert_eq!(summary.limit.as_deref(), Some("allowed_warning"));
@@ -518,4 +520,44 @@ async fn nothing_is_inherited_when_this_image_was_not_exec_by_an_upgrade() {
     let dir = std::env::temp_dir();
     let roster = roster(&dir);
     assert_eq!(roster.inherit(), 0);
+}
+
+#[tokio::test]
+async fn a_session_reports_the_mode_it_was_actually_started_with() {
+    // ⚠ **Unset is not unknown.** With no `--permission-mode` the CLI runs on
+    // its own default, under which every tool call needing permission comes back
+    // to whoever is holding the phone. Saying nothing about the mode there
+    // leaves the header silent about the one setting that governs every tap —
+    // and the first version of this read the mode off the transcript instead,
+    // which for a session resumed from an interactive one reported `auto` over a
+    // console that was asking permission for everything.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+
+    assert_eq!(session.summary().mode.as_deref(), Some("default"));
+}
+
+#[tokio::test]
+async fn changing_the_mode_is_reported_at_once() {
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+
+    session.set_mode("acceptEdits").await.expect("set mode");
+
+    assert_eq!(session.summary().mode.as_deref(), Some("acceptEdits"));
+}
+
+#[tokio::test]
+async fn a_mode_change_that_could_not_be_sent_leaves_the_old_one_showing() {
+    // The header must never claim a mode the session was not told about. The old
+    // value is the true one until the new one has at least left the building.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    session.stop().await;
+
+    assert!(session.set_mode("bypassPermissions").await.is_err());
+    assert_eq!(session.summary().mode.as_deref(), Some("default"));
 }

@@ -47,20 +47,13 @@
   font-family: ui-monospace, monospace;
 }
 
-// What the session may do without asking. Stated plainly, because for most of
-// the modes that is all it is.
-.mode {
-  font-weight: 500;
-}
-
 // The two the CLI itself colours as errors: nothing is asked before it happens.
 // Loud on purpose — it is the one fact on this header that changes what every
 // other thing on the screen means.
 .mode.loud {
-  padding: 0 0.4rem;
-  border-radius: 0.75rem;
-  background: var(--mat-sys-error-container);
-  color: var(--mat-sys-on-error-container);
+  // Colour alone now it is an icon: a filled pill around a 1.1rem glyph reads
+  // as a badge with something in it rather than as the glyph itself.
+  color: var(--mat-sys-error);
 }
 
 .transcript {
@@ -361,4 +354,12 @@
   font: var(--mat-sys-body-small);
   color: var(--mat-sys-on-surface-variant);
   text-align: center;
+}
+
+// The mode as an icon: small, aligned with the words beside it, and the same
+// size in both places it appears.
+.mode.mat-icon {
+  font-size: 1.1rem;
+  width: 1.1rem;
+  height: 1.1rem;
 }

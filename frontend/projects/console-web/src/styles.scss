@@ -120,3 +120,48 @@ app-session-view .entry .body {
     padding-left: 1.2rem;
   }
 }
+
+// The menu behind the session's name in the toolbar.
+//
+// Here rather than in `app.scss` because a Material menu renders into an overlay
+// outside every component, so a component stylesheet cannot reach it — and this
+// targets a class of ours on the panel rather than Material's private
+// `.mat-mdc-*` DOM, which breaks silently on upgrades (DL-SCSS-INTERNAL-OVERRIDE,
+// DL-SCSS-NG-DEEP).
+.session-menu {
+  // What the modes are answering. Without it the list is six words with no
+  // question, and "Manual" beside "Plan" reads as two unrelated settings.
+  .heading {
+    padding: 0.5rem 1rem 0.25rem;
+    font: var(--mat-sys-label-small);
+    color: var(--mat-sys-on-surface-variant);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  // The two the CLI itself colours as errors: nothing is asked before it
+  // happens. Marked in the menu as well as the header, because the menu is
+  // where somebody is about to choose one.
+  .loud {
+    color: var(--mat-sys-error);
+  }
+
+  // The tick against the mode in force, pushed to the far end so the six icons
+  // stay in one column and the eye reads down them.
+  .ticked {
+    margin-left: auto;
+    color: var(--mat-sys-primary);
+  }
+}
+
+// An icon has one correct size, so it never gives up its box.
+//
+// Material sets `overflow: hidden` on `mat-icon`, and a flex item whose overflow
+// is not `visible` loses the `min-width: auto` floor that would stop it
+// collapsing below its content — so a crowded row does not scale the glyph, it
+// CLIPS it, and shows a fragment. Unconditionally true, so it lives here rather
+// than in each component that happens to put an icon in a flex row
+// (DL-ANGULAR-ICON-SHRINK).
+mat-icon {
+  flex-shrink: 0;
+}

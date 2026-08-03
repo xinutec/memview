@@ -37,6 +37,7 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/past", get(past))
         .route("/api/sessions/{id}/input", post(input))
         .route("/api/sessions/{id}/decide", post(decide))
+        .route("/api/sessions/{id}/mode", post(mode))
         .route("/api/sessions/{id}/stop", post(stop))
         .route("/api/sessions/{id}", delete(forget))
         .route("/api/sessions/{id}/events", get(events))
@@ -178,6 +179,51 @@ async fn decide(
         .await
         // CONFLICT rather than NOT_FOUND: the usual cause is that the question
         // was answered a moment ago, on another screen.
+        .map_err(|err| (StatusCode::CONFLICT, format!("{err:#}")))?;
+    Ok(Json(session.summary()))
+}
+
+/// What a client asks for when changing a session's permission mode.
+#[derive(serde::Deserialize)]
+struct Mode {
+    mode: String,
+}
+
+/// The modes the CLI declares, so an unknown one is refused here rather than
+/// sent to a session that will reject it out of sight.
+///
+/// The 2.1.220 binary's own enum, in its escalation order — `plan` lets least
+/// through, `bypassPermissions` most.
+const MODES: [&str; 6] = [
+    "plan",
+    "default",
+    "dontAsk",
+    "acceptEdits",
+    "auto",
+    "bypassPermissions",
+];
+
+async fn mode(
+    State(roster): State<Arc<Roster>>,
+    Path(id): Path<String>,
+    Json(body): Json<Mode>,
+) -> Result<Json<Summary>, (StatusCode, String)> {
+    if !MODES.contains(&body.mode.as_str()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!(
+                "{} is not a permission mode: {}",
+                body.mode,
+                MODES.join(", ")
+            ),
+        ));
+    }
+    let session = roster
+        .get(&id)
+        .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
+    session
+        .set_mode(&body.mode)
+        .await
         .map_err(|err| (StatusCode::CONFLICT, format!("{err:#}")))?;
     Ok(Json(session.summary()))
 }

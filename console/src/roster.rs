@@ -261,10 +261,7 @@ impl Roster {
             .values()
             .map(|session| {
                 let mut summary = session.summary();
-                // One tail read for both — see `past::Facts`.
-                let facts = crate::past::facts(&root, &summary.id);
-                summary.name = facts.name;
-                summary.mode = facts.mode;
+                summary.name = crate::past::named(&root, &summary.id);
                 summary
             })
             .collect();

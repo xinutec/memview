@@ -596,6 +596,27 @@ pub fn decision(id: &str, allowed: bool, input: &serde_json::Value, why: &str) -
     .to_string()
 }
 
+/// Ask the session to change what it may do without asking.
+///
+/// **This is a request going the other way.** Every other control message here
+/// is the console *answering* something the CLI asked; this one the console
+/// asks, on the same stdin it sends prompts on. Read off the 2.1.220 binary,
+/// which sends exactly this shape from its own `setPermissionMode`.
+///
+/// The reply comes back as a `control_response` carrying `request_id`, which
+/// this console does not wait for: the mode is a preference rather than a
+/// transaction, and a client that blocked on it would freeze a session whose CLI
+/// was busy. What it costs is knowing for certain the change landed — see
+/// [`crate::session::Session::set_mode`].
+pub fn set_mode(request_id: &str, mode: &str) -> String {
+    serde_json::json!({
+        "type": "control_request",
+        "request_id": request_id,
+        "request": {"subtype": "set_permission_mode", "mode": mode},
+    })
+    .to_string()
+}
+
 /// One user message, in the shape the CLI reads on stdin.
 ///
 /// The whole input protocol the console needs: a text message, as an API user

@@ -74,6 +74,9 @@ pub struct Tally {
     pub cost_usd: f64,
     pub window: Option<u64>,
     pub limit: Option<String>,
+    /// See [`Summary::mode`]. Carried because the console is the only thing
+    /// that knows it — no file records it in a way that can be trusted.
+    pub mode: Option<String>,
 }
 
 /// Take a descriptor out of close-on-exec, and make it non-blocking.
@@ -110,6 +113,12 @@ const GRACE: Duration = Duration::from_secs(30);
 
 /// How much of the child's stderr to keep for diagnosis.
 const STDERR_KEPT: usize = 4000;
+
+/// The CLI's own name for the mode a session runs in when nothing is passed.
+///
+/// Displayed as *Manual*: it asks before every tool call that needs permission,
+/// which in headless mode means asking whoever is holding the phone.
+const DEFAULT_MODE: &str = "default";
 
 /// What a client sees of a session without reading its transcript.
 #[derive(Debug, Clone, Serialize)]
@@ -172,11 +181,17 @@ pub struct Summary {
     /// What the session may do without asking: `default`, `plan`, `dontAsk`,
     /// `acceptEdits`, `auto`, `bypassPermissions`.
     ///
-    /// Filled in by the roster from the transcript, for the same reason as
-    /// [`Self::name`]: the mode changes while the session runs and the stream
-    /// announces it only once, on the init line. **Stored names are not the
-    /// displayed ones** — `default` is shown as *Manual* — so the client keeps
-    /// the CLI's own table rather than prettifying these itself.
+    /// ⚠ **This is what the console set, not what the transcript says.** The
+    /// first version of this read the last `permission-mode` line from the file,
+    /// which is wrong for the case that matters: a session *resumed* from an
+    /// interactive one carries that session's mode lines, so the header reported
+    /// `Auto` over a console that had passed no mode at all and was asking
+    /// permission for every single call. The console is the only thing that
+    /// knows what it asked for.
+    ///
+    /// **Stored names are not the displayed ones** — `default` is shown as
+    /// *Manual* — so the client keeps the CLI's own label table rather than
+    /// prettifying these itself.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
     /// How many questions it is blocked on. The one number that means "this
@@ -266,6 +281,10 @@ struct State {
     /// See [`Summary::interactions`]. Derived from the transcript, never
     /// accumulated, so nothing here needs carrying across an upgrade.
     interactions: u32,
+    /// See [`Summary::mode`]. Set when the session is spawned and whenever the
+    /// console changes it; carried across an upgrade, because no file records it
+    /// in a way that can be trusted.
+    mode: Option<String>,
     cost_usd: f64,
     /// The last turn's prompt size and the window it went into. See
     /// [`Summary::context`].
@@ -469,6 +488,17 @@ impl Session {
             started: SystemTime::now(),
             state: Mutex::new(State {
                 alive: true,
+                // What was actually asked for. **Unset is not unknown** — it is
+                // the CLI's own default, under which every tool call needing
+                // permission comes back here for an answer. Recording it as
+                // `default` says that plainly instead of leaving the header
+                // blank about the one setting that governs every tap.
+                mode: Some(
+                    spawn
+                        .permission_mode
+                        .clone()
+                        .unwrap_or_else(|| DEFAULT_MODE.to_string()),
+                ),
                 ..State::default()
             }),
             stdin: tokio::sync::Mutex::new(Some(Box::new(stdin) as Sink)),
@@ -535,6 +565,7 @@ impl Session {
             state: Mutex::new(State {
                 alive: true,
                 model: tally.model,
+                mode: tally.mode,
                 cost_usd: tally.cost_usd,
                 window: tally.window,
                 limit: tally.limit,
@@ -564,6 +595,7 @@ impl Session {
             cost_usd: state.cost_usd,
             window: state.window,
             limit: state.limit.clone(),
+            mode: state.mode.clone(),
         }
     }
 
@@ -710,6 +742,30 @@ impl Session {
             id: id.to_string(),
             allowed,
         });
+        Ok(())
+    }
+
+    /// Change what this session may do without asking.
+    ///
+    /// ⚠ **Recorded optimistically.** The CLI answers with a `control_response`
+    /// and this does not wait for it — see [`protocol::set_mode`] — so what the
+    /// header shows is what was *asked for*, not a confirmation. That is the
+    /// honest trade for not freezing a client behind a busy session, and it is
+    /// why the mode is written only after stdin has taken the line: a write that
+    /// failed leaves the old mode on screen, which is the true one.
+    pub async fn set_mode(&self, mode: &str) -> Result<()> {
+        let line = protocol::set_mode(&format!("set-mode-{}", self.id), mode);
+        let mut held = self.stdin.lock().await;
+        let stdin = held
+            .as_mut()
+            .context("session is no longer accepting input")?;
+        stdin
+            .write_all(format!("{line}\n").as_bytes())
+            .await
+            .context("asking the session to change mode")?;
+        stdin.flush().await.context("flushing the mode change")?;
+        drop(held);
+        self.state.lock().expect("session state poisoned").mode = Some(mode.to_string());
         Ok(())
     }
 
@@ -910,14 +966,14 @@ impl Session {
             model: state.model.clone(),
             busy: state.busy.clone(),
             interactions: state.interactions,
+            mode: state.mode.clone(),
             cost_usd: state.cost_usd,
             limit: state.limit.clone(),
             context: state.context,
             window: state.window,
             asked: state.asked.clone(),
-            // Both filled in by the roster, which knows where the transcripts are.
+            // Filled in by the roster, which knows where the transcripts are.
             name: None,
-            mode: None,
             waiting: state.pending.len(),
         }
     }

@@ -74,6 +74,18 @@ export class Telemetry {
   failure(url: string, status: number): void {
     this.core.record('fail', url, String(status));
   }
+
+  /**
+   * Something the app tried and could not do, where the person is not told.
+   *
+   * The menu changes what it shows before the runner has agreed, so a refusal
+   * puts the old value back and says nothing on screen — deliberately, since a
+   * dialog over a menu that has already closed is worse than the silence. This
+   * is where that goes instead, so it is not lost entirely.
+   */
+  note(what: string, detail: string): void {
+    this.core.record('refused', what, detail);
+  }
 }
 
 /** Where a script error came from, when the browser says. */

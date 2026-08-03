@@ -54,6 +54,11 @@ export class ConsoleApi {
     });
   }
 
+  /** Change what a session may do without asking. See `modes.ts`. */
+  setMode(id: string, mode: string): Observable<Summary> {
+    return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/mode`, { mode });
+  }
+
   stop(id: string): Observable<Summary> {
     return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/stop`, {});
   }

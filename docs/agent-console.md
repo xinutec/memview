@@ -263,16 +263,32 @@ approval travels the same channel as the instruction, which is sound because tha
 channel is authenticated end to end by a key amun cannot produce. The cost is
 that every tool call needs a tap; see *Open decisions*.
 
-**The mode in force is shown, and it is read from the transcript.** The stream
-announces it once, on the init line, and it changes whenever somebody presses
-shift-tab — so the file is the only place that knows the current one, and it is
-read from the tail per request alongside the session's name (one read, not two:
-`past::Facts`).
+**The mode in force is shown, and it can be changed from the phone.** Pressing
+the session name in the toolbar opens its menu: the six modes, least-allowed
+first, with the one in force ticked — and `Stop this session` at the bottom
+behind a divider, because it is the one item there that cannot be undone.
 
-- ⚠ **Key on the line type, not the field.** `permissionMode` rides on six kinds
-  of line in one real transcript, including `text` and `assistant`, where it is a
-  conversation that happened to be *about* permission modes. Only
-  `"type":"permission-mode"` lines are the CLI's record of the setting.
+- ⚠ **The mode shown is the one the console set, not the one the file records.**
+  The first version read the last `permission-mode` line from the transcript, and
+  it was wrong for exactly the case that matters: a session *resumed* from an
+  interactive one carries that session's mode lines, so the header read `Auto`
+  over a console that had passed no `--permission-mode` at all and was asking
+  permission for every single call. The console is the only thing that knows what
+  it asked for. (If you do read those lines, key on `"type":"permission-mode"` —
+  `permissionMode` rides on six kinds of line in one real transcript, including
+  `text` and `assistant`, where it is a conversation that happened to be *about*
+  permission modes.)
+- ⚠ **Unset is not unknown.** With no `--permission-mode` the CLI runs on its own
+  default, which asks about everything — so the runner records `default` rather
+  than nothing. A blank there says the console does not know, when in fact it
+  knows precisely.
+- **Changing it needs no restart.** The CLI accepts a `control_request` with
+  `subtype: set_permission_mode` on the same stdin the console writes prompts to
+  — read off the 2.1.220 binary's own `setPermissionMode`. The reply is not waited
+  for (a client blocked on a busy session is worse than one that is a moment
+  optimistic), so **the mode shown is what was asked for, not a confirmation**;
+  the runner records it only once the line has actually been written, so a
+  failure leaves the true mode on screen.
 - ⚠ **The stored name is not the shown name.** `default` displays as *Manual*,
   which is why the modes feel like four-with-one-called-auto while the wire
   carries six: `plan`, `default`, `dontAsk`, `acceptEdits`, `auto`,
@@ -657,6 +673,8 @@ themselves carry the reasoning.
 | `foreground.ts` | "the app came back" — a phone suspends pages for hours |
 | `telemetry.ts` | taps, navigations, failures, and anything that throws |
 | `restyle.ts` | asks again for a stylesheet whose request failed |
+| `modes.ts` | the CLI's permission modes, its own labels and its own order |
+| `here.ts` | the open conversation, for the toolbar and the menu behind its name |
 
 ### The state model
 

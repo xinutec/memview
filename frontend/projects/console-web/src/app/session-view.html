@@ -14,17 +14,17 @@
       @if (showsCost()) {
         <span>${{ session.cost_usd.toFixed(4) }}</span>
       }
-      @if (mode(); as mode) {
-        <span class="mode" [class.loud]="loud()">{{ mode }}</span>
+      <!-- The mode as its icon alone: the header holds five facts on a phone
+           four inches wide, and "Bypass Permissions" spelled out costs more room
+           than everything beside it. The name is one tap away, in the menu that
+           also teaches the icon. -->
+      @if (modeIcon(); as icon) {
+        <mat-icon class="mode" [class.loud]="loud()" [attr.aria-label]="mode()" [title]="mode()">{{
+          icon
+        }}</mat-icon>
       }
       @if (session.model) {
         <span class="model">{{ session.model }}</span>
-      }
-      @if (session.alive) {
-        <button matButton (click)="stop()">
-          <mat-icon>stop</mat-icon>
-          stop
-        </button>
       }
     </div>
   </header>
