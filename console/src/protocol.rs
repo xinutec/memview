@@ -182,6 +182,14 @@ pub enum Event {
         id: String,
         allowed: bool,
     },
+    /// The conversation was compacted: everything above this was replaced by a
+    /// summary, and the session carried on with the shorter history.
+    ///
+    /// Only ever read from a transcript. The live stream does not announce a
+    /// compaction — the CLI writes the boundary to the file and says nothing on
+    /// stdout — so a session watched from the start will not see one happen,
+    /// while a session seeded from disk will find every one that already had.
+    Compacted,
     /// The subprocess ended. Terminal: nothing follows it.
     Exited {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -246,6 +254,9 @@ enum System {
     Status {
         status: String,
     },
+    /// Written where a compaction happened. The CLI's own name for it — see
+    /// [`Event::Compacted`] for why it is only ever seen in a file.
+    CompactBoundary,
     #[serde(other)]
     Other,
 }
@@ -460,6 +471,11 @@ pub fn read(line: &str) -> Vec<Event> {
             tools: init.tools.len(),
         }],
         Line::System(System::Status { status }) => vec![Event::Busy { status }],
+        // Not something the live stream says — the CLI writes the boundary to
+        // its transcript and announces nothing on stdout. Named here so the
+        // match stays exhaustive and the day it *does* arrive is a decision
+        // rather than a silent drop into `Other`.
+        Line::System(System::CompactBoundary) => Vec::new(),
         Line::System(System::Other) => Vec::new(),
         Line::StreamEvent { event } => match event {
             Stream::ContentBlockDelta { delta } => match delta {
@@ -660,6 +676,7 @@ pub fn read_recorded(line: &str) -> Vec<Event> {
                 _ => None,
             })
             .collect(),
+        Line::System(System::CompactBoundary) => vec![Event::Compacted],
         // Everything else a transcript carries — the bridge lines, the file
         // snapshots, the summaries — belongs to the CLI and not to a reader of
         // conversations.

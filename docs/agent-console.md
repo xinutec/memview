@@ -578,7 +578,10 @@ SIGTERM.
 `--resume` restores the CLI's *context*, not the console's view: the process
 returns knowing the whole conversation and replays none of it on stdout. So a
 resumed session used to open empty, with `0 turns` — the console's count of what
-it watched, which reads as the conversation's length.
+it watched, which reads as the conversation's length. The same mistake in a
+second place: any counter kept as a running total says how much of a conversation
+*this console* saw, which is why the exchange count is read back off the file
+instead.
 
 The transcript on disk is the same vocabulary the stream uses, so the fix is a
 second reader over the same shapes rather than a second model of a conversation.
@@ -685,9 +688,22 @@ field that reads like a measurement and is actually an aggregate.**
 
 | shown | source | trap |
 |---|---|---|
-| turns | `num_turns` per result, **summed** | genuinely per-exchange; summing is right |
+| interactions | prompts in the transcript since the last compaction, **counted** | `num_turns` is not this — see below |
 | cost | `total_cost_usd`, **assigned** | it is the session total already — summing gave $59 against a true $12 |
 | context | per-**message** `usage`, **assigned** | the result line's `usage` sums every request a turn made — 5.1M against a 1M window |
+
+- **`num_turns` counts assistant messages, not exchanges.** Measured: two
+  exchanges reported 5 and 8, and their transcripts hold exactly 5 and 8
+  assistant replies. Summing it is arithmetically fine and answers a question
+  nobody asked — a header reading "13 turns" for two exchanges. The transcript
+  line still shows it, labelled **replies**, which is what it is.
+- **The exchange count is counted, never accumulated.** A running total only ever
+  counts from whenever this console picked the session up: a resumed conversation
+  started at zero and every in-place upgrade restarted it. Recounted from the
+  file at a seed and at the end of each turn — a whole-file pass, so nowhere
+  else. **It resets at each compaction**, because that is where the session stops
+  remembering, and a number spanning the boundary would describe a conversation
+  it cannot recall.
 
 - **Context is `input + cache_creation + cache_read`.** The cached part is nearly
   all of it: 2 tokens of input against 546,967 read. Anything using

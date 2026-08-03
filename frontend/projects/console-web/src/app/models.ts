@@ -10,7 +10,17 @@ export interface Summary {
   model?: string;
   /** What the CLI last said it was doing, while it is doing anything. */
   busy?: string;
-  turns: number;
+  /**
+   * How many times someone has spoken to this session since it was last
+   * compacted.
+   *
+   * ⚠ Exchanges, NOT the `turns` on a turn event — that one counts the
+   * assistant messages a single exchange took (5 and 8, for two measured), and
+   * summing it answers a question nobody asked. Counted from the transcript by
+   * the runner, so it covers the whole conversation rather than however much of
+   * it this console happened to watch.
+   */
+  interactions: number;
   /**
    * What the tokens would have cost at API list prices.
    *
@@ -57,6 +67,7 @@ export const KINDS = [
   'trouble',
   'ask',
   'answered',
+  'compacted',
 ] as const;
 
 export type Kind = (typeof KINDS)[number];

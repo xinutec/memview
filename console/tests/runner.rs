@@ -94,7 +94,6 @@ async fn a_session_starts_takes_a_message_and_answers() {
     // the turn's cost rather than only the transcript.
     let summary = session.summary();
     assert!(summary.alive);
-    assert_eq!(summary.turns, 1);
     assert!((summary.cost_usd - 0.25).abs() < f64::EPSILON);
     assert_eq!(summary.asked.as_deref(), Some("do the thing"));
 }
@@ -125,20 +124,15 @@ async fn one_process_serves_several_turns() {
                 == turn as usize
         })
         .await;
-        let turns = session.summary().turns;
-        assert_eq!(turns, turn, "turn {turn} was answered by the same process");
     }
     assert!(session.alive(), "still one live process after three turns");
 
-    // ⚠ The two numbers on a result line behave OPPOSITELY, and reading both
-    // the same way is a bug that hides in plain sight. `num_turns` counts the
-    // exchange that just ended, so it accumulates; `total_cost_usd` is already
-    // the session total, so it must not. Summing totals gives a triangular sum
-    // — on a live session it reached $59.32 against a true $12.35 — and it
-    // looks perfectly plausible while doing it. The stub now reports a rising
-    // total (0.25, 0.50, 0.75) the way the CLI does, so this can fail.
+    // ⚠ **`total_cost_usd` is already the session total, so it must not be
+    // added up.** Summing totals gives a triangular sum — on a live session it
+    // reached $59.32 against a true $12.35 — and it looks perfectly plausible
+    // while doing it. The stub reports a rising total (0.25, 0.50, 0.75) the way
+    // the CLI does, so this can fail.
     let summary = session.summary();
-    assert_eq!(summary.turns, 3, "three exchanges, counted");
     assert!(
         (summary.cost_usd - 0.75).abs() < 1e-9,
         "the cost is the latest total, not the sum of the totals: {}",
@@ -462,17 +456,16 @@ fn carried_pipe() -> (std::os::fd::RawFd, std::os::fd::RawFd) {
 #[tokio::test]
 async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
     // ⚠ **The result line is never written to disk.** It is what carries the
-    // turn count, the cost, the rate-limit status and the window — and grepping
+    // cost, the rate-limit status and the window — and grepping
     // the whole corpus for `"type":"result"` finds none, so [`seed`] cannot get
     // these back the way it gets the conversation back. Either the previous
     // image hands them over or an upgraded session reads as a fresh one that has
-    // done nothing: 0 turns, no model, and a context with no window to be a
+    // done nothing: no model, and a context with no window to be a
     // fraction of. That is exactly what the phone showed after the first
     // upgrade.
     let tally = console::session::Tally {
         started: 1_754_000_000,
         model: Some("claude-opus-5".into()),
-        turns: 7,
         cost_usd: 1.25,
         window: Some(1_000_000),
         limit: Some("allowed_warning".into()),
@@ -497,7 +490,6 @@ async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
     .expect("adopt");
 
     let summary = session.summary();
-    assert_eq!(summary.turns, 7, "the turn count restarted");
     assert_eq!(summary.started, 1_754_000_000, "the session looks newborn");
     assert_eq!(summary.model.as_deref(), Some("claude-opus-5"));
     assert_eq!(summary.window, Some(1_000_000), "no window to be full of");
@@ -515,7 +507,6 @@ async fn a_session_hands_on_the_numbers_it_has_counted() {
 
     let summary = session.summary();
     let tally = session.tally();
-    assert_eq!(tally.turns, summary.turns);
     assert_eq!(tally.started, summary.started);
     assert_eq!(tally.window, summary.window);
 }

@@ -190,3 +190,27 @@ describe('transcript · time and detail', () => {
     expect(seen[0].at).toBeUndefined();
   });
 });
+
+describe('compaction', () => {
+  it('marks where the session stopped remembering', () => {
+    // The messages above a compaction are still on screen but are no longer in
+    // the session's head, and it is where the header's exchange count starts
+    // again. Without a line saying so, the page claims a memory the session
+    // does not have.
+    const seen = transcript(
+      { kind: 'prompt', text: 'first' },
+      { kind: 'compacted' },
+      { kind: 'prompt', text: 'second' },
+    );
+    expect(seen.map((entry) => entry.kind)).toEqual(['asked', 'note', 'asked']);
+    expect(seen[1].text).toContain('compacted');
+  });
+
+  it('reports a turn in replies, which is what the number counts', () => {
+    // ⚠ The turn event's own count is assistant messages, not exchanges —
+    // measured at 5 and 8 for two real ones. Labelled "turns" beside a header
+    // counting exchanges, one conversation showed two different lengths.
+    const seen = transcript({ kind: 'turn', turns: 5, duration_ms: 38401 });
+    expect(seen[0].text).toContain('5 replies');
+  });
+});

@@ -73,7 +73,12 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
         // so it could not hide itself again when the account is inside its
         // allowance, nor appear when it stops being. The gated total in the
         // header is where the number belongs.
-        text: `${event.turns ?? 0} turn(s) · ${seconds(event.duration_ms)}`,
+        // "replies", because that is what the number counts: the assistant
+        // messages this one exchange took. Measured — two exchanges reported 5
+        // and 8, and their transcripts hold exactly 5 and 8 assistant messages.
+        // Calling it "turns" alongside a header counting exchanges made one
+        // conversation look like two different lengths.
+        text: `${event.turns ?? 0} replies · ${seconds(event.duration_ms)}`,
         at: event.at,
       });
       break;
@@ -97,6 +102,16 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
         text: event.earlier
           ? `${event.earlier} earlier events, read from the transcript`
           : 'nothing earlier could be read from the transcript',
+        at: event.at,
+      });
+      break;
+    // Where the session stopped remembering. Worth a line of its own: the
+    // messages above it are still on screen but are no longer in the session's
+    // head, and it is where the exchange count in the header starts again.
+    case 'compacted':
+      add(entries, {
+        kind: 'note',
+        text: 'conversation compacted — everything above was summarised',
         at: event.at,
       });
       break;

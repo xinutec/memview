@@ -253,6 +253,43 @@ pub fn named(root: &Path, id: &str) -> Option<String> {
     name_of(&path, len)
 }
 
+/// How many times someone has spoken to this session since it was last compacted.
+///
+/// **Exchanges, not messages.** The result line's `num_turns` counts the
+/// assistant messages one exchange took — measured: two exchanges reported 5 and
+/// 8, and the transcript holds exactly 5 and 8 assistant replies for them. That
+/// is a fine number for a bill and a poor one for a person, who wants to know how
+/// many times they have asked for something.
+///
+/// **Counted from the file rather than kept as a running total**, because a
+/// running total only ever counts from whenever this console picked the session
+/// up: a resumed conversation started at zero, and every in-place upgrade
+/// restarted it. The file is the one place that knows the whole of it.
+///
+/// The count resets at each compaction, since that is the point at which the
+/// session stops remembering what came before — a number spanning a boundary
+/// would describe a conversation the session itself cannot recall.
+///
+/// A whole-file pass, so this belongs at a seed or the end of a turn, not on
+/// every request.
+pub fn interactions(path: &Path) -> u32 {
+    use std::io::BufRead;
+    let Ok(file) = std::fs::File::open(path) else {
+        return 0;
+    };
+    let mut since = 0;
+    for line in std::io::BufReader::new(file).lines().map_while(Result::ok) {
+        for event in crate::protocol::read_recorded(&line) {
+            match event {
+                crate::protocol::Event::Compacted => since = 0,
+                crate::protocol::Event::Prompt { .. } => since += 1,
+                _ => {}
+            }
+        }
+    }
+    since
+}
+
 /// The transcript file for a session id, wherever Claude Code filed it.
 ///
 /// Searched rather than computed, for the reason the module opens with: the

@@ -7,7 +7,9 @@
 
 use std::path::Path;
 
-use console::past::{conversations, named as named_of, transcript_of, words_of_claude_processes};
+use console::past::{
+    conversations, interactions, named as named_of, transcript_of, words_of_claude_processes,
+};
 
 /// A wrapper shell whose *path* says claude — the shape that caused the bug.
 /// Claude Code sources a snapshot under `~/.claude/` for every command it runs,
@@ -388,4 +390,66 @@ fn a_live_session_can_be_named_from_the_transcript_it_is_writing() {
 fn a_session_with_no_transcript_has_no_name_rather_than_a_wrong_one() {
     let root = scratch("no-name");
     assert_eq!(named_of(&root, "never-ran"), None);
+}
+
+/// A transcript of a conversation: prompts, the assistant messages each one took,
+/// and compactions where they happened.
+///
+/// Shaped like the real thing in the way that matters here — an exchange is one
+/// user line followed by *several* assistant and tool-result lines, so anything
+/// counting lines rather than exchanges gets a different answer.
+fn spoken(dir: &Path, id: &str, exchanges: &[usize], compacted_after: Option<usize>) {
+    let folder = dir.join("project");
+    std::fs::create_dir_all(&folder).expect("project dir");
+    let mut lines = vec![r#"{"type":"system","cwd":"/home/example/Code"}"#.to_string()];
+    for (nth, replies) in exchanges.iter().enumerate() {
+        lines.push(format!(
+            r#"{{"type":"user","message":{{"role":"user","content":[{{"type":"text","text":"ask {nth}"}}]}}}}"#
+        ));
+        for reply in 0..*replies {
+            lines.push(format!(
+                r#"{{"type":"assistant","message":{{"role":"assistant","content":[{{"type":"text","text":"answer {nth}.{reply}"}}]}}}}"#
+            ));
+            lines.push(format!(
+                r#"{{"type":"user","message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"t{nth}{reply}","content":"ok"}}]}}}}"#
+            ));
+        }
+        if compacted_after == Some(nth) {
+            lines.push(r#"{"type":"system","subtype":"compact_boundary"}"#.to_string());
+        }
+    }
+    std::fs::write(folder.join(format!("{id}.jsonl")), lines.join("\n")).expect("transcript");
+}
+
+#[test]
+fn an_exchange_counts_once_however_many_messages_it_took() {
+    // ⚠ **The unit is the exchange, not the message.** The result line's
+    // `num_turns` counts the assistant messages one exchange took — measured at
+    // 5 and 8 for two real ones — which answers a question nobody asked. Three
+    // exchanges of 1, 4 and 2 replies are three, not seven, and not the
+    // twenty-one lines they occupy.
+    let root = scratch("spoken");
+    spoken(&root, "counted", &[1, 4, 2], None);
+    let path = transcript_of(&root, "counted").expect("transcript");
+
+    assert_eq!(interactions(&path), 3);
+}
+
+#[test]
+fn the_count_starts_again_after_a_compaction() {
+    // A compaction is where the session stops remembering: a count spanning one
+    // would describe a conversation it cannot recall. Five exchanges, compacted
+    // after the second, leaves three.
+    let root = scratch("compacted");
+    spoken(&root, "cut", &[1, 1, 1, 1, 1], Some(1));
+    let path = transcript_of(&root, "cut").expect("transcript");
+
+    assert_eq!(interactions(&path), 3);
+}
+
+#[test]
+fn a_transcript_that_is_not_there_counts_no_exchanges() {
+    // The session has just started and has written nothing yet. Zero is the
+    // honest answer; the failure to answer at all is not.
+    assert_eq!(interactions(Path::new("/no/such/transcript.jsonl")), 0);
 }

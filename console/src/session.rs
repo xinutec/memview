@@ -51,16 +51,19 @@ pub struct Fds {
 
 /// What a session has counted, for an upgrade to hand on.
 ///
-/// ⚠ **None of this is in the transcript.** The result line is where the turn
-/// count, the cost, the rate-limit status and the context window arrive, and it
-/// is a stream artefact — no transcript in the corpus contains a single
-/// `"type":"result"` line, so [`Session::seed`] cannot get any of it back. The
-/// model is the same story: it is announced on the init line and nowhere in the
-/// file. So an adopted session either carries these across or starts at zero and
-/// reads as a fresh conversation that has done nothing.
+/// ⚠ **None of this is in the transcript.** The result line is where the cost,
+/// the rate-limit status and the context window arrive, and it is a stream
+/// artefact — no transcript in the corpus contains a single `"type":"result"`
+/// line, so [`Session::seed`] cannot get any of it back. The model is the same
+/// story: it is announced on the init line and nowhere in the file. So an adopted
+/// session either carries these across or starts at zero and reads as a fresh
+/// conversation that has done nothing.
 ///
-/// `context` is deliberately absent: that one IS in the transcript, on every
-/// assistant message, and reseeding it is more accurate than carrying it.
+/// Two numbers are deliberately absent because the file holds them better: how
+/// full the context is, which is on every assistant message, and how many
+/// exchanges there have been ([`crate::past::interactions`]). Anything derivable
+/// from the transcript is derived, because that survives a cold start too — and
+/// this only survives an upgrade.
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Tally {
     /// Seconds since the epoch. Carried because `execve` leaves the child's
@@ -68,7 +71,6 @@ pub struct Tally {
     /// started when its console was last upgraded.
     pub started: u64,
     pub model: Option<String>,
-    pub turns: u32,
     pub cost_usd: f64,
     pub window: Option<u64>,
     pub limit: Option<String>,
@@ -122,7 +124,11 @@ pub struct Summary {
     /// What the CLI last said it was doing, when it is doing anything.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub busy: Option<String>,
-    pub turns: u32,
+    /// How many times someone has spoken to this session since it was last
+    /// compacted — exchanges, not messages, and not the result line's
+    /// `num_turns`. See [`crate::past::interactions`] for why it is counted from
+    /// the transcript rather than added up as turns arrive.
+    pub interactions: u32,
     /// What this session's tokens would have cost at API list prices.
     ///
     /// ⚠ **This is not money.** A session inherits the CLI's own credentials and
@@ -247,7 +253,9 @@ struct State {
     alive: bool,
     model: Option<String>,
     busy: Option<String>,
-    turns: u32,
+    /// See [`Summary::interactions`]. Derived from the transcript, never
+    /// accumulated, so nothing here needs carrying across an upgrade.
+    interactions: u32,
     cost_usd: f64,
     /// The last turn's prompt size and the window it went into. See
     /// [`Summary::context`].
@@ -370,6 +378,25 @@ impl Session {
             earlier: count,
             from: seed.from,
         });
+        self.recount();
+    }
+
+    /// Recount the exchanges from the transcript. See [`crate::past::interactions`].
+    ///
+    /// Silent when there is no transcript yet — a session that has just been
+    /// started has none, and reporting zero for it is right anyway. Reads the
+    /// file before taking the lock, which is the whole reason this is a method
+    /// and not a line in `push_at`.
+    fn recount(&self) {
+        let root = crate::past::projects_root();
+        let Some(path) = crate::past::transcript_of(&root, &self.id) else {
+            return;
+        };
+        let counted = crate::past::interactions(&path);
+        self.state
+            .lock()
+            .expect("session state poisoned")
+            .interactions = counted;
     }
 
     fn spawn(id: String, dir: &Path, spawn: &Spawn, resuming: bool) -> Result<Arc<Self>> {
@@ -498,7 +525,6 @@ impl Session {
             state: Mutex::new(State {
                 alive: true,
                 model: tally.model,
-                turns: tally.turns,
                 cost_usd: tally.cost_usd,
                 window: tally.window,
                 limit: tally.limit,
@@ -525,7 +551,6 @@ impl Session {
                 .unwrap_or_default()
                 .as_secs(),
             model: state.model.clone(),
-            turns: state.turns,
             cost_usd: state.cost_usd,
             window: state.window,
             limit: state.limit.clone(),
@@ -560,7 +585,17 @@ impl Session {
                 let mut lines = BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     for event in protocol::read(&line) {
+                        // The end of a turn is the one moment the exchange count
+                        // can have changed, and by then the CLI has written the
+                        // whole exchange to its transcript. Recounted rather than
+                        // incremented — see [`crate::past::interactions`] — and
+                        // done here rather than in `push_at`, which holds the
+                        // state lock and must not be reading files.
+                        let counted = matches!(event, Event::Turn { .. });
                         session.push(event);
+                        if counted {
+                            session.recount();
+                        }
                     }
                 }
                 // The pipe closed, so the process did — but only say so when
@@ -720,10 +755,7 @@ impl Session {
                 // is arrives per message — see [`Event::Context`].
                 Event::Context { tokens } => state.context = Some(*tokens),
                 Event::Turn {
-                    cost_usd,
-                    turns,
-                    window,
-                    ..
+                    cost_usd, window, ..
                 } => {
                     if window.is_some() {
                         state.window = *window;
@@ -736,10 +768,12 @@ impl Session {
                     // other yields a triangular sum — measured on a live
                     // session reading 3.03, 3.76, 8.00, 9.55, 10.66, 11.97,
                     // 12.35, where `+=` had reached $59.32 against a true
-                    // $12.35. `num_turns` below is the opposite and really is
-                    // per-exchange (2, 4, 23, 8, …), so that one accumulates.
+                    // $12.35.
                     state.cost_usd = *cost_usd;
-                    state.turns += turns;
+                    // The turn's own `num_turns` is deliberately not read: it
+                    // counts the assistant messages the exchange took, which is
+                    // a different question from how many exchanges there have
+                    // been. [`Self::recount`] answers that one, from the file.
                 }
                 Event::Limit { status, .. } => state.limit = Some(status.clone()),
                 Event::Prompt { text } if state.asked.is_none() => {
@@ -865,7 +899,7 @@ impl Session {
             alive: state.alive,
             model: state.model.clone(),
             busy: state.busy.clone(),
-            turns: state.turns,
+            interactions: state.interactions,
             cost_usd: state.cost_usd,
             limit: state.limit.clone(),
             context: state.context,
