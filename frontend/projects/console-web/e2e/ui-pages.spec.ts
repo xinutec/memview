@@ -253,6 +253,34 @@ async function expectComposerFillsTheWidth(page: Page): Promise<void> {
   expect(width!.field).toBeGreaterThan(width!.page * 0.7);
 }
 
+/**
+ * The send button sits on the same line as the box it sends.
+ *
+ * ⚠ Not a cosmetic assertion. A `mat-form-field` reserves a line of hint/error
+ * space below its input by default — `.mat-mdc-form-field-bottom-align::before`
+ * in Material's own CSS — so a row aligned to `flex-end` aligns its other
+ * controls to the bottom of a box whose last line is invisible. The button then
+ * sits a full subscript line low, and every existing check passes it: it is not
+ * clipped, not small, not overflowing, and does not overlap anything.
+ */
+async function expectSendAlignsWithTheBox(page: Page): Promise<void> {
+  const rows = await page.evaluate(() => {
+    // The OUTLINE's box, not the textarea's: the field pads its own text, so a
+    // textarea bottom is inset from the visible edge the eye lines up against.
+    const input = document
+      .querySelector('.composer .mat-mdc-text-field-wrapper')
+      ?.getBoundingClientRect();
+    const send = document.querySelector('.composer .send')?.getBoundingClientRect();
+    return input && send
+      ? { inputBottom: input.bottom, sendBottom: send.bottom, sendHeight: send.height }
+      : null;
+  });
+  expect(rows, 'no composer on this page').not.toBeNull();
+  // Bottoms within a few pixels: the button is a fixed-height control beside a
+  // box that grows, and `align-items: flex-end` is what keeps them together.
+  expect(Math.abs(rows!.sendBottom - rows!.inputBottom)).toBeLessThan(8);
+}
+
 // The checker-checker: fail loudly here if the device preset is ever lost and
 // the "phone width" suite silently runs at desktop width.
 test('the suite really runs at phone geometry', async ({ page }) => {
@@ -285,6 +313,7 @@ test('transcript — tool arguments and a fixed composer @ phone width', async (
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
   await expectNoPinnedOverlap(page);
   await expectComposerFillsTheWidth(page);
+  await expectSendAlignsWithTheBox(page);
 });
 
 test('transcript — an undecided question with its two buttons @ phone width', async ({

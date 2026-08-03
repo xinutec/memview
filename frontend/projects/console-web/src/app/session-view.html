@@ -156,7 +156,14 @@
 }
 
 <form class="composer" (submit)="$event.preventDefault(); send()">
-  <mat-form-field appearance="outline" class="box">
+  <!-- ⚠ `subscriptSizing="dynamic"` is load-bearing, not tidying. By default a
+       form field reserves a line of hint/error space below the input — Material
+       does it with `.mat-mdc-form-field-bottom-align::before`, which carries the
+       subscript line-height whether or not there is a hint. This field has
+       neither, so that row is invisible; but the composer aligns its row to
+       `flex-end`, and the send button was therefore aligning to the bottom of
+       the *reserved* box and sitting a line below the visible one. -->
+  <mat-form-field appearance="outline" class="box" subscriptSizing="dynamic">
     <mat-label>say something</mat-label>
     <!-- Grows with what is being typed. `rows="1"` meant an instruction of any
          length was composed through a one-line slit, on the device this is
