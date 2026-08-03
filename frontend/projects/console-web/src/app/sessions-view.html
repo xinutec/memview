@@ -109,7 +109,9 @@
           <div class="facts">
             <span>{{ since(session) }}</span>
             <span>{{ session.turns }} turns</span>
-            <span>{{ cost(session) }}</span>
+            @if (costMatters(session)) {
+              <span>{{ cost(session) }}</span>
+            }
             @if (session.model) {
               <span class="model">{{ session.model }}</span>
             }

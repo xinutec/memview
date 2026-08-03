@@ -56,7 +56,23 @@ pub struct Summary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub busy: Option<String>,
     pub turns: u32,
+    /// What this session's tokens would have cost at API list prices.
+    ///
+    /// ⚠ **This is not money.** A session inherits the CLI's own credentials and
+    /// runs on the subscription, so nothing here is billed per token — it is a
+    /// weight wearing a currency symbol, and shown as one it reads as a bill.
+    /// The client shows it only when [`Self::limit`] says the account has
+    /// stopped being all-you-can-eat, which is the first moment it means
+    /// anything.
     pub cost_usd: f64,
+    /// The account's own verdict on its rate limit, when it has given one:
+    /// `allowed`, `allowed_warning` or `rejected`.
+    ///
+    /// The CLI's vocabulary, read off the 2.1.220 binary rather than guessed.
+    /// `None` until the account says something, which is the common case — and
+    /// the reason cost is hidden by default: no news is not news of trouble.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<String>,
     /// The first thing this session was asked to do, kept as its name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub asked: Option<String>,
@@ -146,6 +162,8 @@ struct State {
     busy: Option<String>,
     turns: u32,
     cost_usd: f64,
+    /// See [`Summary::limit`].
+    limit: Option<String>,
     asked: Option<String>,
     stderr: String,
 }
@@ -450,6 +468,7 @@ impl Session {
                     state.cost_usd += cost_usd;
                     state.turns += turns;
                 }
+                Event::Limit { status, .. } => state.limit = Some(status.clone()),
                 Event::Prompt { text } if state.asked.is_none() => {
                     state.asked = Some(text.clone());
                 }
@@ -575,6 +594,7 @@ impl Session {
             busy: state.busy.clone(),
             turns: state.turns,
             cost_usd: state.cost_usd,
+            limit: state.limit.clone(),
             asked: state.asked.clone(),
             waiting: state.pending.len(),
         }

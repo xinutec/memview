@@ -15,6 +15,7 @@ import { ConsoleApi } from './console-api';
 import { reason } from './errors';
 import { Foreground } from './foreground';
 import { Conversation, Overview, Summary } from './models';
+import { costMatters } from './budget';
 import { PastStore } from './past-store';
 
 /** Every session this console owns, and the way to start another. */
@@ -157,6 +158,11 @@ export class SessionsView {
   /** The last path element, which is what a repository is called. */
   place(session: Summary): string {
     return session.dir.split('/').filter(Boolean).pop() ?? session.dir;
+  }
+
+  /** Whether this session's cost is worth showing at all. See budget.ts. */
+  costMatters(session: Summary): boolean {
+    return costMatters(session.limit);
   }
 
   cost(session: Summary): string {

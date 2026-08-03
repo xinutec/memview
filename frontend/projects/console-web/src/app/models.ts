@@ -11,7 +11,16 @@ export interface Summary {
   /** What the CLI last said it was doing, while it is doing anything. */
   busy?: string;
   turns: number;
+  /**
+   * What the tokens would have cost at API list prices.
+   *
+   * ⚠ NOT money — the session runs on the subscription and nothing is billed
+   * per token. Shown only when `limit` says the account has stopped being
+   * all-you-can-eat; see `costMatters`.
+   */
   cost_usd: number;
+  /** The account's own rate-limit verdict: allowed, allowed_warning, rejected. */
+  limit?: string;
   /** Questions it is blocked on. Nonzero means it cannot go on without you. */
   waiting: number;
   /** The first instruction, kept as the session's name. */

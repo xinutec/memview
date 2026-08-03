@@ -8,7 +8,9 @@
         <span class="ended">ended</span>
       }
       <span>{{ session.turns }} turns</span>
-      <span>${{ session.cost_usd.toFixed(4) }}</span>
+      @if (showsCost()) {
+        <span>${{ session.cost_usd.toFixed(4) }}</span>
+      }
       @if (session.model) {
         <span class="model">{{ session.model }}</span>
       }

@@ -25,6 +25,7 @@ import { ConsoleApi } from './console-api';
 import { reason } from './errors';
 import { Foreground } from './foreground';
 import { Entry, Summary } from './models';
+import { costMatters } from './budget';
 import { Rendered } from './rendered';
 import { Held, SessionStore } from './session-store';
 
@@ -64,6 +65,15 @@ export class SessionView implements OnDestroy {
    *  every event, and a `computed` over both is what tracks each of them. */
   readonly entries = computed<Entry[]>(() => this.held()?.entries() ?? []);
   readonly session = signal<Summary | undefined>(undefined);
+
+  /**
+   * Whether this session's cost is worth showing at all. See budget.ts.
+   *
+   * A computed rather than a method because the template reads it: a method
+   * body runs on every change-detection pass that reaches this component and
+   * cannot cache (DL-ANGULAR-TEMPLATE-METHOD-CALL).
+   */
+  readonly showsCost = computed(() => costMatters(this.session()?.limit));
   readonly trouble = signal('');
   /**
    * The last poll's verdict on whether the Mac is reachable — its own signal,

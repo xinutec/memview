@@ -73,7 +73,12 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
     case 'turn':
       add(entries, {
         kind: 'turn',
-        text: `${event.turns ?? 0} turn(s) · ${money(event.cost_usd)} · ${seconds(event.duration_ms)}`,
+        // No cost here. It is not a bill (see budget.ts), and unlike the
+        // header this line is built once from the event and never revisited —
+        // so it could not hide itself again when the account is inside its
+        // allowance, nor appear when it stops being. The gated total in the
+        // header is where the number belongs.
+        text: `${event.turns ?? 0} turn(s) · ${seconds(event.duration_ms)}`,
         at: event.at,
       });
       break;
@@ -154,11 +159,6 @@ function describe(name: string | undefined, args: Record<string, unknown> | unde
     if (typeof value === 'string' && value.trim()) return value.trim();
   }
   return Object.keys(args).join(', ');
-}
-
-function money(usd: number | undefined): string {
-  if (!usd) return '$0.00';
-  return usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`;
 }
 
 function seconds(ms: number | undefined): string {
