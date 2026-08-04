@@ -44,6 +44,19 @@ pub struct Conversation {
     /// never took a name. A hex prefix identifies a transcript; only this
     /// identifies the *work*.
     pub name: Option<String>,
+    /// How full the context was at the last request the transcript records, in
+    /// tokens — the same quantity a running session reports for itself.
+    ///
+    /// ⚠ **No window to divide it by.** The size of the context window is
+    /// declared on the result line, which lives on the CLI's stdout and never in
+    /// the file, so a conversation that is not running can say how full it is and
+    /// not what it is full of. The client shows the count alone for these.
+    ///
+    /// `None` when the tail read finds no assistant message — a conversation
+    /// that ended on a large tool result can push the last one out of
+    /// [`TAIL_BYTES`], and no number is the honest answer there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<u64>,
     /// Whether something appears to be using it already. See [`in_use`].
     pub busy: bool,
 }
@@ -274,7 +287,7 @@ pub fn touched(root: &Path, id: &str) -> Option<u64> {
 pub fn named(root: &Path, id: &str) -> Option<String> {
     let path = transcript_of(root, id)?;
     let len = std::fs::metadata(&path).ok()?.len();
-    name_of(&path, len)
+    tail_of(&path, len).name
 }
 
 /// How many times someone has spoken to this session since it was last compacted.
@@ -481,12 +494,14 @@ fn read(path: &Path) -> Option<Conversation> {
         .duration_since(std::time::UNIX_EPOCH)
         .ok()?
         .as_millis() as u64;
+    let tail = tail_of(path, meta.len());
     Some(Conversation {
         id,
         dir: cwd_of(path)?,
         modified,
         bytes: meta.len(),
-        name: name_of(path, meta.len()),
+        name: tail.name,
+        context: tail.context,
         // Filled in by `conversations`, which reads the process table once for
         // the whole list rather than once per file.
         busy: false,
@@ -521,37 +536,72 @@ fn cwd_of(path: &Path) -> Option<String> {
     None
 }
 
-/// What the transcript calls itself, if anything.
+/// What the end of a transcript says about the conversation as it stands.
 ///
-/// Two line types carry it: `custom-title` (what it was deliberately called) and
-/// `agent-name`. The first wins where both exist, because one is a decision and
-/// the other is a default.
+/// Both facts here are "the last one wins" over the same bytes, which is why
+/// they are read together: one seek, one buffer, one pass.
+#[derive(Debug, Default)]
+struct Tail {
+    /// See [`Conversation::name`].
+    name: Option<String>,
+    /// See [`Conversation::context`].
+    context: Option<u64>,
+}
+
+/// Read the tail of a transcript for what it says about itself.
 ///
-/// Read from the tail — see [`TAIL_BYTES`]. A chunk taken from an arbitrary byte offset starts
-/// mid-line and possibly mid-character, so the first line is expected to be
-/// rubbish and unparseable lines are skipped rather than treated as the end of
-/// the file.
-fn name_of(path: &Path, len: u64) -> Option<String> {
+/// **The name.** Two line types carry it: `custom-title` (what it was
+/// deliberately called) and `agent-name`. The first wins where both exist,
+/// because one is a decision and the other is a default.
+///
+/// **The fullness.** Every assistant message records the tokens its request
+/// carried, so the last one in the file is how full the conversation was when it
+/// stopped — read through [`crate::protocol::read_recorded`] rather than off the
+/// JSON here, so that "input plus cache-creation plus cache-read" is stated in
+/// exactly one place.
+///
+/// Read from the **end** — see [`TAIL_BYTES`] — because both answers are about
+/// the conversation now: a session is renamed as its job changes, and a context
+/// that was full an hour before a compaction is not the number anybody wants. A
+/// chunk taken from an arbitrary byte offset starts mid-line and possibly
+/// mid-character, so the first line is expected to be rubbish and unparseable
+/// lines are skipped rather than treated as the end of the file.
+fn tail_of(path: &Path, len: u64) -> Tail {
     use std::io::{Read, Seek, SeekFrom};
 
-    let mut file = std::fs::File::open(path).ok()?;
-    file.seek(SeekFrom::Start(len.saturating_sub(TAIL_BYTES)))
-        .ok()?;
+    let mut found = Tail::default();
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return found;
+    };
+    if file
+        .seek(SeekFrom::Start(len.saturating_sub(TAIL_BYTES)))
+        .is_err()
+    {
+        return found;
+    }
     let mut tail = Vec::new();
-    file.take(TAIL_BYTES).read_to_end(&mut tail).ok()?;
+    if file.take(TAIL_BYTES).read_to_end(&mut tail).is_err() {
+        return found;
+    }
 
     let mut title = None;
     let mut agent = None;
     for line in String::from_utf8_lossy(&tail).lines() {
+        for event in crate::protocol::read_recorded(line) {
+            if let crate::protocol::Event::Context { tokens } = event {
+                found.context = Some(tokens);
+            }
+        }
         let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
             continue;
         };
-        if let Some(found) = value.get("customTitle").and_then(|v| v.as_str()) {
-            title = Some(found.to_string());
+        if let Some(name) = value.get("customTitle").and_then(|v| v.as_str()) {
+            title = Some(name.to_string());
         }
-        if let Some(found) = value.get("agentName").and_then(|v| v.as_str()) {
-            agent = Some(found.to_string());
+        if let Some(name) = value.get("agentName").and_then(|v| v.as_str()) {
+            agent = Some(name.to_string());
         }
     }
-    title.or(agent).filter(|name| !name.trim().is_empty())
+    found.name = title.or(agent).filter(|name| !name.trim().is_empty());
+    found
 }

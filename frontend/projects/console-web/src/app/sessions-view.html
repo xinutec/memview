@@ -91,6 +91,11 @@
                said `13h ago` while it was answering. -->
           <span>{{ ago(row.at) }}</span>
           <span>{{ session.interactions }} interactions</span>
+          <!-- How full it is, which is the other half of "how far into this am
+               I" and the half that says whether a compaction is coming. -->
+          @if (row.context; as context) {
+            <span>{{ context }}</span>
+          }
           @if (costMatters(session)) {
             <span>{{ cost(session) }}</span>
           }
@@ -117,6 +122,12 @@
         <div class="facts">
           <span>{{ ago(row.at) }}</span>
           <span>{{ place(conversation) }}</span>
+          <!-- Read from the transcript's last assistant message, so a
+               conversation says how full it was when it stopped without being
+               opened. -->
+          @if (row.context; as context) {
+            <span>{{ context }}</span>
+          }
           <span>{{ size(conversation.bytes) }}</span>
         </div>
       }

@@ -36,6 +36,7 @@ import { Rendered } from './rendered';
 import { Answers, Notes, Question, choiceOf, complete } from './questions';
 import { Held, SessionStore } from './session-store';
 import { Block, blocks, ran } from './transcript';
+import { fullness } from './tokens';
 
 /** One session: what it has done, and the way to say something to it. */
 @Component({
@@ -87,20 +88,11 @@ export class SessionView implements OnDestroy {
   /**
    * How full the context is, as `496k / 1M`, when the session has said.
    *
-   * Shown so compaction can be seen coming rather than met. Nothing else
-   * reports it: the CLI puts the counts on its result line and nowhere in the
-   * transcript, so a resumed session says nothing until its first turn ends.
+   * Shown so compaction can be seen coming rather than met. Formatted where the
+   * list formats the same fact — see [[fullness]], and the row in
+   * `sessions-view` that reads it for a conversation that is not running.
    */
-  readonly context = computed(() => {
-    const session = this.session();
-    if (!session?.context) return undefined;
-    // The window is declared on the result line and nowhere else, so a session
-    // that has not finished a turn since it started knows how full it is but
-    // not what it is full of. Showing the count alone beats showing nothing:
-    // the number people watch for is the first one.
-    if (!session.window) return tokens(session.context);
-    return `${tokens(session.context)} / ${tokens(session.window)}`;
-  });
+  readonly context = computed(() => fullness(this.session()?.context, this.session()?.window));
 
   /** How many background tasks the harness has told us about and not closed. */
   readonly background = computed(() => this.held()?.background().length ?? 0);
@@ -662,10 +654,4 @@ export class SessionView implements OnDestroy {
       error: (err: unknown) => this.trouble.set(reason(err)),
     });
   }
-}
-
-/** Tokens, at the precision a glance wants: `496k`, `1M`. */
-function tokens(count: number): string {
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(count % 1_000_000 === 0 ? 0 : 1)}M`;
-  return `${Math.round(count / 1000)}k`;
 }

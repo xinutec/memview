@@ -16,6 +16,7 @@ import { modelName } from './model';
 import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { placeOf, titleOf } from './naming';
 import { costMatters } from './budget';
+import { fullness, tokens } from './tokens';
 import { Updates } from './updates';
 import { UsageStrip } from './usage-strip';
 import { PastStore } from './past-store';
@@ -42,6 +43,16 @@ interface Row {
   readonly live?: Summary;
   /** Present when there is a transcript to resume. */
   readonly past?: Conversation;
+  /**
+   * How full its context is, as `496k / 1M` — the same fact the session's own
+   * header shows, and read the same way for a row that is running and a row
+   * that is not. Undefined when nothing has said.
+   *
+   * Computed here rather than in a template method: a binding is re-evaluated
+   * on every change-detection pass, and this one is a fact about the row that
+   * changes when the row does.
+   */
+  readonly context?: string;
   /** Working, waiting, idle, off — see [RANK]. */
   readonly rank: number;
   /** When it last did anything, in milliseconds, for ordering within a rank. */
@@ -122,6 +133,7 @@ export class SessionsView {
         title: titleOf(session),
         named: !!session.name,
         live: session,
+        context: fullness(session.context, session.window),
         rank: !session.alive
           ? RANK.off
           : session.busy
@@ -145,6 +157,12 @@ export class SessionsView {
         title: conversation.name ?? conversation.id.slice(0, 8),
         named: !!conversation.name,
         past: conversation,
+        // ⚠ **Named, where a running session's is not.** A transcript records
+        // how full each request was and never how big the window is (see
+        // [[Conversation.context]]), so this is `340k` where the row above says
+        // `340k / 1M` — and a bare `340k` beside `12 MB` could be anything. The
+        // denominator is what carries the unit when there is one.
+        context: conversation.context ? `${tokens(conversation.context)} tokens` : undefined,
         rank: RANK.off,
         at: conversation.modified,
       });

@@ -319,6 +319,48 @@ fn a_later_name_replaces_an_earlier_one() {
     assert_eq!(conversations(&root)[0].name.as_deref(), Some("second"));
 }
 
+/// A transcript whose assistant messages carry the token counts the real ones do.
+///
+/// `input` is deliberately tiny beside `cache_read`, as it is in life: a cached
+/// prompt of half a million tokens reports two of input, so anything reading
+/// `input_tokens` alone calls a full conversation empty.
+fn spent(dir: &Path, id: &str, requests: &[(u64, u64, u64)]) {
+    let folder = dir.join("project");
+    std::fs::create_dir_all(&folder).expect("project dir");
+    let mut lines = vec![r#"{"type":"system","cwd":"/home/example/Code"}"#.to_string()];
+    for (input, creation, read) in requests {
+        lines.push(format!(
+            r#"{{"type":"assistant","message":{{"role":"assistant","usage":{{"input_tokens":{input},"cache_creation_input_tokens":{creation},"cache_read_input_tokens":{read},"output_tokens":9}},"content":[{{"type":"text","text":"hello"}}]}}}}"#
+        ));
+    }
+    std::fs::write(folder.join(format!("{id}.jsonl")), lines.join("\n")).expect("transcript");
+}
+
+#[test]
+fn a_conversation_says_how_full_it_was_when_it_stopped() {
+    // The last request's prompt, not the first and not the sum: the list is read
+    // to decide what to pick up, and what matters about a conversation there is
+    // how much room is left in it.
+    let root = scratch("fullness");
+    spent(&root, "deep", &[(2, 1272, 200_000), (2, 900, 546_967)]);
+
+    assert_eq!(
+        conversations(&root)[0].context,
+        Some(2 + 900 + 546_967),
+        "the newest request, with all three token kinds added together"
+    );
+}
+
+#[test]
+fn a_conversation_with_nothing_to_go_on_says_nothing() {
+    // Rather than zero, which on screen is a claim — an empty context — where
+    // this is the absence of a measurement.
+    let root = scratch("no-fullness");
+    named(&root, "quiet", Some("idle"), None);
+
+    assert!(conversations(&root)[0].context.is_none());
+}
+
 #[test]
 fn a_conversation_this_console_just_stopped_running_is_free_at_once() {
     // A transcript written seconds ago used to read as in use, which meant the

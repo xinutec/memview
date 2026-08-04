@@ -235,6 +235,14 @@ export interface Conversation {
   readonly bytes: number;
   /** What it calls itself — `music`, `health`. Null when it never took a name. */
   readonly name: string | null;
+  /**
+   * How full its context was at the last request the transcript records.
+   *
+   * ⚠ **No window comes with it.** The window's size is declared on the CLI's
+   * result line, which never reaches the file — so this is a count and cannot
+   * be a fraction. Absent when the tail read found no assistant message.
+   */
+  readonly context?: number;
   /** Something already has it open, as far as the runner can tell. */
   readonly busy: boolean;
 }

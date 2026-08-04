@@ -1452,6 +1452,36 @@ test('session list — the time is when it last did something @ phone width', as
   expect(facts).not.toContain('24h ago');
 });
 
+test('session list — how full each conversation is @ phone width', async ({ page }, testInfo) => {
+  // The question the list could not answer: which of these is about to compact.
+  // A running session divides by the window it declared; a conversation on disk
+  // has no window to divide by — the CLI declares it on the result line, which
+  // never reaches the transcript — so it names the unit instead of implying it.
+  await mockRunner(page);
+  await page.route('**/api/state', (r) =>
+    r.fulfill({
+      json: {
+        ...STATE,
+        sessions: [{ ...STATE.sessions[0], name: 'running', context: 496_231, window: 1_000_000 }],
+      },
+    }),
+  );
+  await page.route('**/api/past', (r) =>
+    r.fulfill({ json: [{ ...ON_DISK[0], name: 'on-disk', context: 340_000 }] }),
+  );
+  await page.goto('/');
+  await expect(page.locator('.session')).toHaveCount(2);
+
+  const facts = await page.locator('.session .facts').allInnerTexts();
+  expect(facts[0], 'a running session knows what it is full of').toContain('496k / 1M');
+  expect(facts[1], 'a bare count beside a size in MB could be anything').toContain('340k tokens');
+
+  // Five facts on a card that had four. The row wraps, and what it must not do
+  // is push the card sideways or land on top of itself.
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+});
+
 test('session list — a blocked session says so first @ phone width', async ({ page }, testInfo) => {
   await mockRunner(page);
   await page.goto('/');
