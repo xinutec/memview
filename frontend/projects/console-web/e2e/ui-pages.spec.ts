@@ -635,6 +635,57 @@ test('scrolling to the top fetches what came before it @ phone width', async ({ 
   expect(asked, 'kept asking past the start of the file').toBe(3);
 });
 
+test('a table keeps the alignment its author wrote @ phone width', async ({ page }) => {
+  // ⚠ **Only a rendered page can answer this.** `marked` emits `align="right"`
+  // and Angular's sanitiser keeps the attribute — both testable in jsdom, and
+  // both were already true when every right-aligned column came out left. A
+  // presentational attribute loses to any CSS rule, and a blanket
+  // `text-align: left` on `th, td` was throwing all of it away.
+  await handControlOfTheStream(page);
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.transcript').waitFor();
+  await say(
+    page,
+    { kind: 'text', text: '| l | m | r | n |\n|:---|:---:|---:|---|\n| 1 | 2 | 3 | 4 |\n' },
+    1,
+  );
+
+  const cells = await page.evaluate(() =>
+    [...document.querySelectorAll('.body table td')].map((cell) =>
+      // ⚠ Chromium reports alignment that came from the `align` ATTRIBUTE as
+      // `-webkit-left` / `-webkit-center` / `-webkit-right`, and alignment from
+      // a stylesheet as plain `left`. The prefix is not noise to normalise away
+      // and forget — it is the evidence that the table's own instruction
+      // survived the cascade, which is the whole question here.
+      getComputedStyle(cell).textAlign.replace('-webkit-', ''),
+    ),
+  );
+  // The fourth column asked for nothing, and left is what that should mean.
+  expect(cells, 'the cascade is overriding the table').toEqual(['left', 'center', 'right', 'left']);
+});
+
+test('a task list says which of its items are done @ phone width', async ({ page }) => {
+  // The rendered half of the same pair: the mark has to be on screen, and the
+  // bullet that would sit beside it has to be gone.
+  await handControlOfTheStream(page);
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.transcript').waitFor();
+  await say(page, { kind: 'text', text: '- [x] shipped\n- [ ] not yet\n' }, 1);
+
+  const items = await page.evaluate(() =>
+    [...document.querySelectorAll('.body li.task')].map((li) => ({
+      text: (li.textContent ?? '').trim(),
+      marker: getComputedStyle(li).listStyleType,
+    })),
+  );
+  expect(items).toEqual([
+    { text: '☑ shipped', marker: 'none' },
+    { text: '☐ not yet', marker: 'none' },
+  ]);
+});
+
 test('the transcript keeps following while the reader is at the end @ phone width', async ({
   page,
 }) => {

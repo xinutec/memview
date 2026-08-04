@@ -869,6 +869,44 @@ the composer — before that it was indistinguishable from no update at all.
 ⚠ **The self-updater ships inside the bundle**, so it cannot install itself: the
 first page that has it must be loaded by hand.
 
+### What the markdown actually supports
+
+Rendered in the client, not the runner: `marked` with GFM, then Angular's
+`DomSanitizer`. **The sanitiser is the half that surprises** — `marked` emits
+everything the syntax promises and the sanitiser then removes what it will not
+allow into a page, silently, so what a reader gets is the pair. Measured across
+every shape an answer here actually uses:
+
+| shape | verdict |
+|---|---|
+| tables, incl. `code`/**bold** in cells | works |
+| a table with no blank line before it | works — it interrupts the paragraph |
+| column alignment `\|---:\|` | **was silently dropped** — see below |
+| task lists `- [x]` | **was indistinguishable** — see below |
+| nested lists, blockquotes, `---`, h1–h4 | works |
+| `~~strike~~`, bare URLs, `<details>` | works |
+| footnotes `[^1]` | not supported; renders literally |
+| h5/h6 | unstyled, so *smaller* than body text |
+| `<script>`, `onerror=` | stripped |
+
+Two of those were defects rather than gaps:
+
+- ⚠ **Alignment lost to the cascade.** `|---:|` compiles to `align="right"` and
+  the sanitiser keeps it — but a presentational attribute loses to any CSS rule,
+  and a blanket `th, td { text-align: left }` threw away every alignment an
+  author wrote. Measured: `align="right"` computed as `left`. Now scoped to
+  `th:not([align])`. Only a rendered page can catch this: both halves everybody
+  would think to check — that marked emits the attribute, that the sanitiser
+  keeps it — were already true while it was broken. In Chromium the proof is the
+  prefix: attribute-derived alignment computes as `-webkit-right`, stylesheet-
+  derived as plain `right`.
+- ⚠ **Task lists said nothing.** GFM emits `<input type="checkbox">`, the
+  sanitiser removes it, and `- [x] done` and `- [ ] not` both rendered as a
+  bullet with a leading space — two states, one appearance, which is worse than
+  no support. `rendered.ts` overrides the list-item renderer to emit `☑`/`☐` as
+  **characters**: they survive being copied out of the page, which a box drawn in
+  CSS does not, and this text gets quoted into commit messages.
+
 ### Reaching back through a conversation
 
 **Superseded, 2026-08-04: the `earlier messages` button is gone.** The seed is a

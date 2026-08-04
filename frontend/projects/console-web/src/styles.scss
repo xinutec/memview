@@ -111,6 +111,16 @@ app-session-view .entry .body {
     td {
       border: 1px solid var(--mat-sys-outline-variant);
       padding: 0.2rem 0.4rem;
+    }
+
+    // ⚠ **Only where the table did not say.** `|---:|` compiles to
+    // `align="right"` and Angular's sanitiser keeps the attribute — but a
+    // presentational attribute loses to any CSS rule, so a blanket
+    // `text-align: left` here silently threw away every alignment the author
+    // wrote. Measured: `align="right"` computed as `left`. Left is still the
+    // default, since that is what an unaligned column should be.
+    th:not([align]),
+    td:not([align]) {
       text-align: left;
     }
   }
@@ -118,6 +128,13 @@ app-session-view .entry .body {
   ul,
   ol {
     padding-left: 1.2rem;
+  }
+
+  // A task carries its own mark, so the bullet beside it is a second one saying
+  // less. See `rendered.ts` for why the mark is a character.
+  li.task {
+    list-style: none;
+    margin-left: -1.2rem;
   }
 }
 
