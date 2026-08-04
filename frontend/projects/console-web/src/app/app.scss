@@ -2,62 +2,63 @@
   position: sticky;
   top: 0;
   z-index: 2;
-}
-
-.home {
-  display: flex;
-  align-items: center;
+  // The one gap in the row, so neither branch of the template has to space
+  // itself: back to name on a session, glyph to word on the list. The spacer
+  // absorbs it, so the ⋮ stays against the toolbar's own padding.
   gap: 0.5rem;
-  color: inherit;
-  text-decoration: none;
-}
-
-.title {
-  font-weight: 500;
 }
 
 .spacer {
   flex: 1;
 }
 
-// The session's name, and the way into everything else about it.
+// Up, to the list.
 //
-// ⚠ **It has to be allowed to lose.** Three things share a 412px row: the home
-// link, this, and the overflow button — and a name is arbitrary text out of a
-// transcript, so it is the one that must give way rather than push the controls
-// off the edge or paint over the link beside it.
+// ⚠ **Pulled back into the toolbar's own padding, so the two screens start in
+// the same place.** A bare `mat-icon` begins at the toolbar's 16px; a glyph in
+// an icon button begins 12px further in, so the first mark on the screen jumped
+// sideways every time you entered a session or left one.
 //
-// `overflow: hidden` here is what makes that true: it is the box that stops the
-// label, and a control that does not clip its own content cannot ellipsise it
-// however the text is styled. The app-wide `min-width: 3rem` in `styles.scss`
-// says how far it may shrink — to the thumb floor, not to nothing.
-.named {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  overflow: hidden;
-  // A button of our own is an unstyled one until it is styled: Material's own
-  // background, border and font come with the directive this deliberately does
-  // not use. See the template for why.
-  padding: 0 0.5rem;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
+// **12, not the 8 Material's own padding would suggest** — `styles.scss` raises
+// every icon button to a 48px thumb target and centres the 24px glyph in it with
+// `padding: 0`, which is (48 − 24) / 2. Arithmetic from the framework's numbers
+// gave 8 and left 4px of jump; the harness measured what was left, and that is
+// where this number comes from. The touch target keeps its full 48px: only the
+// box moves.
+.leave {
+  margin-left: -0.75rem;
 }
 
-.name {
-  // ⚠ **`min-width: 0`, or none of the rest of this happens.** A flex item's
-  // floor is its own content unless something lowers it, so without this the
-  // span keeps its full width and the ellipsis never has a narrower box to
-  // appear in.
-  min-width: 0;
-  // Weight rather than size: it sits beside `console` on the same row, and a
-  // larger name would read as the app having been renamed.
+// The two headlines: the session's name, and the app's own on the list. Both
+// `h1`, because each names the screen it is on — that is the heading a screen
+// reader is looking for, and before this the console had none at all.
+//
+// A heading brings a browser font size and margins with it, and a toolbar has
+// already decided both.
+.name,
+.title {
+  margin: 0;
+  font: inherit;
+  // Weight rather than size: this is a bar, not a banner, and a headline that
+  // outgrows its row is the thing the row cannot afford.
   font-weight: 500;
+}
+
+// ⚠ **The name has to be allowed to lose.** Three things share a 412px row: the
+// back button, this, and the overflow button — and a name is arbitrary text out
+// of a transcript, so it is the one that must give way rather than push the
+// controls off the edge or paint over the button beside it.
+.name {
   // One line, cut with an ellipsis. A name is a repository or a folder — one
   // long unbreakable word — so wrapping is not an option a toolbar has.
+  //
+  // ⚠ **`overflow: hidden` is also what lets it shrink at all**, and there is no
+  // `min-width: 0` beside it for that reason. A flex item's floor is its own
+  // content — but only while its overflow is `visible`, and this rule is what
+  // takes that floor away. `styles.scss` documents the same mechanism on
+  // `mat-icon`, where it is a hazard: a glyph that clips rather than hold its
+  // box. Here it is the point. `min-width: 0` did stand here, and ablating it
+  // changed nothing measurable, which is the only reason it is gone.
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -1559,6 +1559,35 @@ test('the list says nothing about which machine it is @ phone width', async ({ p
   await expect(page.locator('.bar').getByRole('button')).toHaveCount(0);
 });
 
+/** Where the toolbar's leading glyph starts — the terminal mark, or the arrow. */
+async function leadingGlyph(page: Page): Promise<number> {
+  return page.evaluate(() => document.querySelector('.bar mat-icon')!.getBoundingClientRect().left);
+}
+
+test('the toolbar starts in the same place on both screens @ phone width', async ({ page }) => {
+  // Entering a session and leaving one swaps the leading glyph — the terminal
+  // mark for a back arrow — and the eye tracks a mark that stays put.
+  //
+  // ⚠ **They do not line up by default, and the reason is invisible in the
+  // markup.** An icon button carries 8px of padding inside its own box and a
+  // bare `mat-icon` carries none, so the arrow begins 8px further in than the
+  // mark it replaces. Nothing overflows, nothing is clipped, and no check that
+  // measures one screen at a time can see it: the fault is a difference BETWEEN
+  // two renders, which is why this test loads both.
+  await mockRunner(page);
+  await page.goto('/');
+  await page.locator('.bar mat-icon').waitFor();
+  const list = await leadingGlyph(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.bar .leave').waitFor();
+  const session = await leadingGlyph(page);
+  expect(list, 'the list has no leading glyph to measure').toBeGreaterThan(0);
+  expect(
+    Math.abs(session - list),
+    `the leading glyph jumps ${Math.abs(session - list)}px on entering a session`,
+  ).toBeLessThanOrEqual(1);
+});
+
 test('a name too long for the bar gives way rather than pushing @ phone width', async ({
   page,
 }, testInfo) => {
@@ -1572,7 +1601,15 @@ test('a name too long for the bar gives way rather than pushing @ phone width', 
   // link: an inline span cannot be ellipsised, so `overflow: hidden` on it did
   // nothing, and Material's label wrapper would not shrink. Nothing was off the
   // screen, so nothing failed. Hence the assertions below are about the LABEL
-  // and its box, not about the page.
+  // and where it lands, not about the page.
+  //
+  // ⚠ **And the second version passed against it too, for the opposite reason.**
+  // The name is a block heading now rather than an inline label, and a block's
+  // rect is its BOX — it does not grow with text that spills out of it, the way
+  // the old span's did. So every box measurement below stays true while the
+  // glyphs paint straight over the ⋮: ablating `overflow: hidden` off `.name`
+  // was measured to change nothing here. A rect cannot see this class of fault
+  // at all, which is why the clipping is asserted directly.
   await mockRunner(page);
   await page.route('**/api/state', (r) =>
     r.fulfill({
@@ -1593,19 +1630,18 @@ test('a name too long for the bar gives way rather than pushing @ phone width', 
     // `HTMLElement`, not `Element`: `scrollWidth`/`clientWidth` are what this
     // measures, and they are the whole assertion.
     const name = document.querySelector<HTMLElement>('.bar .name')!;
-    const named = document.querySelector('.bar .named')!.getBoundingClientRect();
     const menu = document
       .querySelector('.bar button[aria-haspopup="menu"]')!
       .getBoundingClientRect();
-    const home = document.querySelector('.bar .home')!.getBoundingClientRect();
+    const leave = document.querySelector('.bar .leave')!.getBoundingClientRect();
     return {
       wanted: name.scrollWidth,
       given: name.clientWidth,
+      clips: getComputedStyle(name).overflowX,
       label: name.getBoundingClientRect(),
-      named,
       menuLeft: menu.left,
       menuRight: menu.right,
-      homeRight: home.right,
+      leaveRight: leave.right,
       page: window.innerWidth,
     };
   });
@@ -1616,21 +1652,21 @@ test('a name too long for the bar gives way rather than pushing @ phone width', 
   expect(bar.wanted, 'nothing was truncated — the fixture name is too short').toBeGreaterThan(
     bar.given,
   );
-  // And it was cut BY ITS OWN BUTTON, rather than spilling out of it over the
-  // link to its left.
-  expect(bar.label.left, 'the label starts left of its own button').toBeGreaterThanOrEqual(
-    bar.named.left,
+  // And the box it was given is one that cuts, rather than one the text runs out
+  // of. The computed value, not the rule as written: this is what the cascade
+  // arrived at after Material's own styles had their say, and it is the only
+  // evidence available — nothing a rect reports distinguishes cut from spilling,
+  // per the note above. Together with the two lines before it, this says the
+  // text is longer than its box AND cannot be painted outside it.
+  expect(bar.clips, 'the name does not clip, so its ellipsis is decoration').toBe('hidden');
+  // And the box gave way to both of its neighbours rather than pushing either.
+  expect(bar.label.left, 'the name is painting over the back button').toBeGreaterThanOrEqual(
+    bar.leaveRight,
   );
-  expect(bar.label.right, 'the label runs past its own button').toBeLessThanOrEqual(
-    bar.named.right,
-  );
-  expect(bar.label.left, 'the name is painting over the home link').toBeGreaterThanOrEqual(
-    bar.homeRight,
-  );
-  // The overflow button keeps its place at the end of the row.
-  expect(bar.named.right, 'the name is under the overflow button').toBeLessThanOrEqual(
+  expect(bar.label.right, 'the name is under the overflow button').toBeLessThanOrEqual(
     bar.menuLeft,
   );
+  // The overflow button keeps its place at the end of the row.
   expect(bar.menuRight, 'the overflow button was pushed off the edge').toBeLessThanOrEqual(
     bar.page,
   );
@@ -1675,7 +1711,12 @@ test('the details sheet holds what the page has no room for @ phone width', asyn
   await mockRunner(page);
   await page.route('**/api/state', (r) => r.fulfill({ json: NAMED }));
   await page.goto(`/s/${STATE.sessions[0].id}`);
-  await page.locator('.bar .named').click();
+  // Behind the ⋮, where everything else you can do to a session already was.
+  await page
+    .locator('.bar')
+    .getByRole('button', { name: /what to do with/ })
+    .click();
+  await page.getByRole('menuitem', { name: 'Details' }).click();
   const sheet = page.locator('.session-sheet');
   await sheet.waitFor();
 
@@ -1719,7 +1760,7 @@ test('leaving a session leaves its name behind @ phone width', async ({ page }) 
   await page.goto(`/s/${STATE.sessions[0].id}`);
   await page.locator('.transcript').waitFor();
   // Away before the runner has answered.
-  await page.locator('.home').click();
+  await page.locator('.bar .leave').click();
   await page.locator('.session').first().waitFor();
   answer?.();
   // Long enough for the held response to land and be acted on.

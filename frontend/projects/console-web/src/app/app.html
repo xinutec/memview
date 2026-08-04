@@ -1,33 +1,31 @@
 <mat-toolbar color="primary" class="bar">
-  <a routerLink="/" class="home" aria-label="all sessions">
-    <mat-icon>terminal</mat-icon>
-    <span class="title">console</span>
-  </a>
-  <span class="spacer"></span>
-  <!-- Which conversation this is, and what can be done to it: the two things
-       that are true of the whole screen rather than of any part of it, so they
-       live in the one row that is always there.
-       ⚠ **The name is a control, not a caption.** It replaced the working
-       directory printed across the top of every session — three lines of shared
-       prefix around the one word that differed, because every session on this
-       Mac runs under one tree. The path did not go away; it is behind this,
-       with the model id, the permission mode in words and the session id, none
-       of which were readable on a phone before: they were `title=` tooltips.
-       Before either, this said "this Mac" on the list. Nothing takes its place
-       there — a menu of things to do to no session is a menu of nothing. -->
+  <!-- Two screens, two bars, and the difference between them is the whole point:
+       the list is where you are, a session is somewhere you went. Material's top
+       app bar says that with a leading navigation icon, a headline naming the
+       current screen, and actions at the end — so that is what each branch is.
+
+       ⚠ **The name is the headline, not a control.** It used to be a button on
+       the RIGHT that opened the details sheet, which put the identity of the
+       screen where the actions belong and made the title a thing to press. The
+       sheet did not go away; it is the first item in the ⋮ menu, where the rest
+       of what can be done to this session already lived.
+
+       What the name replaced, back when this was written: the working directory
+       printed across the top of every session — three lines of shared prefix
+       around the one word that differed, because every session on this Mac runs
+       under one tree. The path is still in the sheet, with the model id, the
+       permission mode in words and the session id, none of which were readable
+       on a phone before: they were `title=` tooltips. -->
   @if (here.open(); as open) {
-    <!-- ⚠ **Not `matButton`.** Material's button wraps its content in a label
-         span that is a flex item with `min-width: auto` and `overflow: visible`
-         — so a name too long for the row does not shorten, it SPILLS out of the
-         button on both sides: measured at 339px of text in a 223px control,
-         painted straight over the `console` link 69px to its left. The only
-         selector that could constrain it is Material's own internal class,
-         which is exactly what DL-SCSS-INTERNAL-OVERRIDE forbids. A button we own
-         has a box we can constrain. -->
-    <button type="button" class="named" aria-haspopup="dialog" (click)="details(open)">
-      <span class="name" [class.anonymous]="!open.name">{{ title() }}</span>
-      <mat-icon>info</mat-icon>
+    <!-- Up, to the list. ⚠ **A `button`, not an `a`** — the app-wide rule that
+         centres a glyph in its circle is `button[matIconButton]`, an element
+         selector, so an anchor would take the directive and miss the fix. The
+         router does the navigating either way. -->
+    <button matIconButton class="leave" routerLink="/" aria-label="all sessions">
+      <mat-icon>arrow_back</mat-icon>
     </button>
+    <h1 class="name" [class.anonymous]="!open.name">{{ title() }}</h1>
+    <span class="spacer"></span>
     <button
       matIconButton
       [matMenuTriggerFor]="menu"
@@ -36,6 +34,14 @@
       <mat-icon>more_vert</mat-icon>
     </button>
     <mat-menu #menu="matMenu" class="session-menu">
+      <!-- First, because it is the only item here that reads rather than acts:
+           somebody opening this menu to find out what they are looking at should
+           not have to pass six things that change it on the way. -->
+      <button mat-menu-item aria-haspopup="dialog" (click)="details(open)">
+        <mat-icon>info</mat-icon>
+        <span>Details</span>
+      </button>
+      <mat-divider />
       <div class="heading">Asks permission</div>
       <!-- The CLI's own modes in its own escalation order, least allowed first,
            so the list reads as a dial rather than a set. Each carries the icon
@@ -60,6 +66,13 @@
         </button>
       }
     </mat-menu>
+  } @else {
+    <!-- The root. No navigation icon, because there is nowhere above it, and no
+         actions: a menu of things to do to no session is a menu of nothing.
+         Before the name was here this said "this Mac", which was true of every
+         session on the list and news to nobody. -->
+    <mat-icon>terminal</mat-icon>
+    <h1 class="title">console</h1>
   }
 </mat-toolbar>
 

@@ -264,9 +264,10 @@ channel is authenticated end to end by a key amun cannot produce. The cost is
 that every tool call needs a tap; see *Open decisions*.
 
 **The mode in force is shown, and it can be changed from the phone.** Pressing
-the session name in the toolbar opens its menu: the six modes, least-allowed
-first, with the one in force ticked — and `Stop this session` at the bottom
-behind a divider, because it is the one item there that cannot be undone.
+the ⋮ at the end of the session's toolbar opens its menu: `Details` first, then
+the six modes, least-allowed first, with the one in force ticked — and
+`Stop this session` at the bottom behind a divider, because it is the one item
+there that cannot be undone.
 
 - ⚠ **The mode shown is the one the console set, not the one the file records.**
   The first version read the last `permission-mode` line from the transcript, and
@@ -991,33 +992,58 @@ not how important it is.
 
 | surface | holds | why there |
 |---|---|---|
-| toolbar | the session's name, and beside it the overflow icon: permission modes and *stop* | **what this is and what can be done to it** — both true of the whole screen rather than of any part of it |
+| toolbar | back to the list, the session's name, and the ⋮: details, permission modes and *stop* | **where you are, what this is, and what can be done to it** — all three true of the whole screen rather than of any part of it |
 | facts row | what changes — working/idle, exchanges, context, mode icon, model | what a **glance** is for |
 | sheet | the working directory, the first instruction, the model id, the permission mode in words, the session id, started, last active, the rate limit when it is not `allowed` | what is wanted **once**, and then not again |
 
-- **Identity and actions share the bar.** The alternative was tried first — the
-  name as a heading at the top of the page — and it works, because that row is
-  pinned too (measured: a full scroll of the transcript moves it by zero pixels).
-  Putting it in the bar buys a row of vertical space back on a four-inch screen
-  and keeps the two session-wide controls adjacent. On the list the bar's right
-  side is empty: a menu of things to do to no session is a menu of nothing, and
-  "this Mac", which used to be there, was true and news to nobody.
+- **Identity and actions share the bar, in Material's own order.** Leading
+  navigation icon, headline naming the screen, trailing actions: back to the
+  list, the session's name, the ⋮. The alternative was tried first — the name as
+  a heading at the top of the page — and it works, because that row is pinned too
+  (measured: a full scroll of the transcript moves it by zero pixels). Putting it
+  in the bar buys a row of vertical space back on a four-inch screen. On the list
+  the bar is the terminal glyph and `console` alone: there is nowhere above it to
+  navigate to, and a menu of things to do to no session is a menu of nothing.
+  "This Mac", which used to be there, was true and news to nobody.
+- **The name is a headline, not a control**, and it was a control first — a
+  button on the *right* that opened the details sheet. That put the identity of
+  the screen where the actions belong and made the title a thing to press. The
+  sheet is the first item in the ⋮ menu instead, above the modes, because it is
+  the only item there that reads rather than acts.
 - ⚠ **A name is arbitrary text, and the bar is a fixed row.** It shortens to an
-  ellipsis rather than pushing the overflow button off the edge. The name button
-  is deliberately **not** `matButton`: Material wraps content in a label span
-  that is a flex item with `min-width: auto` and `overflow: visible`, so a long
-  name does not shorten — it spills out of the button and paints over the
-  `console` link beside it. Measured: 339px of text in a 223px control, 69px of
-  it to the left of its own button. The only selector that could constrain that
-  wrapper is Material's internal class, which `DL-SCSS-INTERNAL-OVERRIDE`
-  forbids; a button we own has a box we can clip.
-- ⚠ **That defect passed the first version of its own test.** "No horizontal
-  overflow" and "no undersized control" were both true while the label lay
-  across the link next to it — nothing was off the screen. The assertion that
-  catches it is about the label's box: `scrollWidth > clientWidth` (it really was
-  cut) and the label's rect inside the button's (it was cut *by its own
-  button*). An inline element reports `clientWidth` 0, so the same check fails if
-  the span ever stops being a box.
+  ellipsis rather than pushing the ⋮ off the edge. `overflow: hidden` is what
+  does it, and it does two things at once: it clips, and it removes the flex
+  floor that would otherwise hold the box open at its content's width — an item
+  whose overflow is not `visible` has an automatic minimum size of zero. So there
+  is no `min-width: 0` beside it. There was; ablating it changed nothing.
+- ⚠ **This bar has now failed the same test twice, in opposite directions.**
+  Both times the check measured rectangles and the defect was in the paint.
+  - As a `matButton`, Material wrapped the label in a span that is a flex item
+    with `min-width: auto` and `overflow: visible`, so a long name did not
+    shorten — it spilled out of the button and painted over the `console` link
+    beside it. Measured: 339px of text in a 223px control, 69px of it to the left
+    of its own button. "No horizontal overflow" and "no undersized control" were
+    both true throughout. The fix was a button we own, with a box we can clip.
+  - As a block `h1`, the *rect stopped reporting the spill at all*: a block's box
+    is its box whether or not the glyphs stay inside it, where the old inline
+    span's rect grew with them. Every box assertion in the rewritten test stayed
+    green with `overflow: hidden` ablated away. What catches it is asserting the
+    clipping itself — computed `overflow-x`, after Material's styles have had
+    their say — alongside `scrollWidth > clientWidth`: the text is longer than
+    its box **and** cannot be painted outside it.
+- ⚠ **The leading glyph jumped 12px between the two screens**, and no check that
+  loads one screen at a time could have seen it: the fault is a difference
+  *between* two renders. A bare `mat-icon` starts at the toolbar's 16px; a glyph
+  inside an icon button starts 12px further in — 12 rather than Material's own 8,
+  because `styles.scss` raises every icon button to a 48px thumb target and
+  centres the 24px glyph in it. Arithmetic from the framework's numbers left 4px
+  of jump behind; the harness is what produced the right one.
+- ⚠ **The layout harness serves a prebuilt bundle and does not build it.**
+  `e2e/harness.mjs` points at `dist/console-build/browser`, so a Playwright run
+  after an edit measures the *previous* build. Three ablations in a row came back
+  green against a bundle that did not contain them. `pnpm run build:console`
+  between the edit and the run, or the result means nothing — the same hazard the
+  harness spec already warns about for the rsynced copies.
 - ⚠ **A `title=` tooltip is unreadable on a phone.** The model id and the
   permission mode's name were only ever available by hovering — on the device
   this console exists for, that is text that was written and cannot be reached.

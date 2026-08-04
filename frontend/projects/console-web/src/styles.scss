@@ -82,12 +82,6 @@ button[matIconButton] {
   padding: 0;
 }
 
-a.home {
-  min-height: 3rem;
-  display: inline-flex;
-  align-items: center;
-}
-
 // What an answer's markdown renders as.
 //
 // ⚠ **Global on purpose, and it has to be.** This HTML comes from the `rendered`
@@ -185,7 +179,7 @@ app-session-view .entry .body {
   }
 }
 
-// The menu behind the session's name in the toolbar.
+// The menu behind the ⋮ in a session's toolbar.
 //
 // Here rather than in `app.scss` because a Material menu renders into an overlay
 // outside every component, so a component stylesheet cannot reach it — and this
