@@ -1,0 +1,205 @@
+{
+  "checks": [
+    {
+      "argv": [
+        "nix",
+        "develop",
+        "--command",
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "cwd": ".",
+      "env": {},
+      "name": "formatting",
+      "timeout_s": 180
+    },
+    {
+      "argv": [
+        "nix",
+        "develop",
+        "--command",
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "cwd": ".",
+      "env": {},
+      "name": "clippy",
+      "timeout_s": 1800
+    },
+    {
+      "argv": [
+        "nix",
+        "develop",
+        "--command",
+        "cargo",
+        "test",
+        "--workspace"
+      ],
+      "cwd": ".",
+      "env": {},
+      "name": "tests",
+      "timeout_s": 1800
+    },
+    {
+      "argv": [
+        "nix",
+        "develop",
+        "--command",
+        "pnpm",
+        "install",
+        "--frozen-lockfile"
+      ],
+      "cwd": "frontend",
+      "env": {},
+      "name": "frontend deps match the lockfile",
+      "timeout_s": 900
+    },
+    {
+      "argv": [
+        "nix",
+        "develop",
+        "--command",
+        "pnpm",
+        "run",
+        "lint"
+      ],
+      "cwd": "frontend",
+      "env": {},
+      "name": "frontend lint",
+      "timeout_s": 900
+    },
+    {
+      "argv": [
+        "nix",
+        "develop",
+        "--command",
+        "pnpm",
+        "run",
+        "typecheck"
+      ],
+      "cwd": "frontend",
+      "env": {},
+      "name": "frontend typecheck (e2e)",
+      "timeout_s": 900
+    },
+    {
+      "argv": [
+        "nix",
+        "develop",
+        "--command",
+        "pnpm",
+        "test"
+      ],
+      "cwd": "frontend",
+      "env": {
+        "NG_BUILD_MAX_WORKERS": "1"
+      },
+      "name": "frontend unit tests",
+      "timeout_s": 1800
+    },
+    {
+      "argv": [
+        "nix",
+        "develop",
+        "--command",
+        "nix",
+        "run",
+        "../../dev-lint#ng-build",
+        "--",
+        "--expect",
+        "dist/memview-web/browser",
+        "--expect",
+        "dist/console-build/browser",
+        "--",
+        "pnpm",
+        "run",
+        "build"
+      ],
+      "cwd": "frontend",
+      "env": {},
+      "name": "frontend build (both applications)",
+      "timeout_s": 1800
+    },
+    {
+      "argv": [
+        "nix",
+        "develop",
+        "--command",
+        "pnpm",
+        "run",
+        "ui-check"
+      ],
+      "cwd": "frontend",
+      "env": {
+        "NG_BUILD_MAX_WORKERS": "1"
+      },
+      "name": "frontend ui-check (phone-width layout harness)",
+      "timeout_s": 1800
+    },
+    {
+      "argv": [
+        "nix",
+        "develop",
+        "--command",
+        "node",
+        "scripts/graph-report.mjs"
+      ],
+      "cwd": ".",
+      "env": {},
+      "name": "graph layout report",
+      "timeout_s": 900
+    },
+    {
+      "argv": [
+        "nix",
+        "develop",
+        "--command",
+        "cargo",
+        "run",
+        "--quiet",
+        "--bin",
+        "memory-lint"
+      ],
+      "cwd": ".",
+      "env": {},
+      "name": "memory-lint (the corpus)",
+      "timeout_s": 900
+    },
+    {
+      "argv": [
+        "nix",
+        "run",
+        "../dev-lint#gate",
+        "--",
+        "--check-table",
+        "gate.dhall",
+        "gate.json"
+      ],
+      "cwd": ".",
+      "env": {},
+      "name": "the table matches its Dhall",
+      "timeout_s": 120
+    },
+    {
+      "argv": [
+        "nix",
+        "run",
+        "../dev-lint",
+        "--",
+        "."
+      ],
+      "cwd": ".",
+      "env": {},
+      "name": "dev-lint",
+      "timeout_s": 900
+    }
+  ],
+  "name": "memview"
+}

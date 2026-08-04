@@ -236,8 +236,15 @@ isis is the exposed mirror.
 ## Verify
 
 ```sh
-scripts/verify.sh   # cargo fmt+clippy+test, eslint, vitest, ng build, memory-lint
+nix run ../dev-lint#gate -- . gate.json   # what the pre-commit hook runs
 ```
+
+`gate.dhall` is the gate — thirteen named checks (cargo fmt/clippy/test, eslint,
+the e2e typecheck, vitest, both application builds, both layout harnesses, the
+graph-layout report, `memory-lint`, and the shared dev-lint rules), each reported
+by name rather than as one `&&` chain. `gate.json` is rendered from it and
+committed, so running the gate needs no `dhall`; one of the checks re-renders and
+diffs the two.
 
 `memory-lint` is the corpus's own static analysis (`lint.rs`, run by the memory
 repo's pre-commit gate as well): frontmatter shape, dangling and untyped links,
