@@ -1,14 +1,12 @@
-import { Component, DestroyRef, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
-import { MatChipsModule } from '@angular/material/chips';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
-import { MatListModule } from '@angular/material/list';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { MatSelectModule } from '@angular/material/select';
 import { Router, RouterLink } from '@angular/router';
 
 import { ConsoleApi } from './console-api';
@@ -21,6 +19,44 @@ import { costMatters } from './budget';
 import { Updates } from './updates';
 import { PastStore } from './past-store';
 
+/**
+ * One line of the list — a session this console is running, or a conversation
+ * sitting on disk that could be picked up.
+ *
+ * ⚠ **One list, because two were a lie about what is there.** The conversations
+ * used to live behind a collapsed card, so a console driving a dozen sessions
+ * showed the three it had started this run and hid the rest behind a count. What
+ * somebody wants from this page is *everything that exists and which of it is
+ * awake* — so the two sources are merged and the answer to "is it on" is carried
+ * by the row rather than by which list it was filed under.
+ */
+interface Row {
+  readonly id: string;
+  /** What to call it: its own name, or the repository it runs in. */
+  readonly title: string;
+  /** Whether a name was found, so the fallback can read as an identifier. */
+  readonly named: boolean;
+  /** Present when the console knows the process — running or finished. */
+  readonly live?: Summary;
+  /** Present when there is a transcript to resume. */
+  readonly past?: Conversation;
+  /** Working, waiting, idle, off — see [RANK]. */
+  readonly rank: number;
+  /** When it last did anything, in milliseconds, for ordering within a rank. */
+  readonly at: number;
+}
+
+/**
+ * The order the list is read in.
+ *
+ * Working first, because that is the question the page is opened to answer.
+ * Blocked second: it needs an answer, but it is not going anywhere, whereas a
+ * working session is the one whose output is arriving now. Everything awake sits
+ * above everything that is not, and the ones that are off keep their places
+ * relative to each other by when they were last touched.
+ */
+const RANK = { working: 0, waiting: 1, idle: 2, off: 3 } as const;
+
 /** Every session this console owns, and the way to start another. */
 @Component({
   selector: 'app-sessions-view',
@@ -28,15 +64,13 @@ import { PastStore } from './past-store';
   styleUrl: './sessions-view.scss',
   imports: [
     RouterLink,
+    NgTemplateOutlet,
     FormsModule,
     MatCardModule,
     MatButtonModule,
     MatIconModule,
     MatFormFieldModule,
     MatInputModule,
-    MatSelectModule,
-    MatChipsModule,
-    MatListModule,
     MatProgressBarModule,
   ],
 })
@@ -68,7 +102,56 @@ export class SessionsView {
   /** Conversations on disk, newest first. Held in a root store so opening a
    *  session and coming back does not blank the list — see [[PastStore]]. */
   readonly past = this.pastStore.conversations;
-  readonly showPast = signal(false);
+
+  /**
+   * Everything there is, awake first.
+   *
+   * ⚠ **Deduped by id, and the running process wins.** A session the console
+   * started also has a transcript on disk, so both sources describe it — and the
+   * process is the one that knows what it is doing, what it was asked and how
+   * much it has cost. The disk copy of the same conversation would otherwise
+   * appear a second time, greyed, directly below the live one.
+   */
+  readonly rows = computed<Row[]>(() => {
+    const rows: Row[] = [];
+    const seen = new Set<string>();
+    for (const session of this.state()?.sessions ?? []) {
+      seen.add(session.id);
+      rows.push({
+        id: session.id,
+        title: session.name ?? this.place(session),
+        named: !!session.name,
+        live: session,
+        rank: !session.alive
+          ? RANK.off
+          : session.busy
+            ? RANK.working
+            : session.waiting
+              ? RANK.waiting
+              : RANK.idle,
+        // Seconds on the wire here, milliseconds on a conversation.
+        at: session.started * 1000,
+      });
+    }
+    for (const conversation of this.past()) {
+      if (seen.has(conversation.id)) continue;
+      rows.push({
+        id: conversation.id,
+        title: conversation.name ?? conversation.id.slice(0, 8),
+        named: !!conversation.name,
+        past: conversation,
+        rank: RANK.off,
+        at: conversation.modified,
+      });
+    }
+    // Newest last-activity first inside a rank, so the top of each group is the
+    // one most recently in play.
+    return rows.sort((a, b) => a.rank - b.rank || b.at - a.at);
+  });
+
+  /** Whether anything on the list is held by a process the console cannot see,
+   *  which is the only reason the warning about it is worth the space. */
+  readonly anyInUse = computed(() => this.rows().some((row) => row.past?.busy));
 
   constructor() {
     this.load();
@@ -77,10 +160,11 @@ export class SessionsView {
     // appear. Cheap: one small request.
     setInterval(() => {
       this.load();
-      // Only while the list is open, which is the only time its `in use` marks
-      // are being read — and the time they must be true, since a conversation
-      // just closed is the one about to be picked up.
-      if (this.showPast()) this.pastStore.load();
+      // Unconditional now that the conversations are in the list rather than
+      // behind a disclosure: they are on screen whenever this page is, so `busy`
+      // has to be as fresh as the sessions beside it. A conversation just closed
+      // is the one about to be picked up.
+      this.pastStore.load();
     }, 5000);
     // Once at the start, to know whether there is anything to offer at all.
     this.pastStore.load();
@@ -90,12 +174,6 @@ export class SessionsView {
       this.load();
       this.pastStore.load();
     }, this.until);
-  }
-
-  /** Show or hide the earlier conversations, refreshing them on the way open. */
-  togglePast(): void {
-    this.showPast.set(!this.showPast());
-    if (this.showPast()) this.pastStore.load();
   }
 
   private load(): void {
@@ -121,11 +199,11 @@ export class SessionsView {
    * a transcript, and the console cannot see a `claude` running in a terminal —
    * so the warning in the template is the whole of the guard.
    */
-  resume(conversation: Conversation): void {
+  resume(conversation: Conversation | undefined): void {
     // The row is the whole control, so the guard belongs here rather than only
     // in the styling: a busy conversation tapped anyway would reach the runner,
     // be refused, and put an error on screen for doing what the row offered.
-    if (conversation.busy) return;
+    if (!conversation || conversation.busy) return;
     this.open(conversation.dir, conversation.id);
   }
 
@@ -160,9 +238,12 @@ export class SessionsView {
     return `${Math.max(1, Math.round(bytes / 1048576))} MB`;
   }
 
-  /** The last path element, which is what a repository is called. */
-  place(session: Summary): string {
-    return session.dir.split('/').filter(Boolean).pop() ?? session.dir;
+  /** The last path element, which is what a repository is called.
+   *
+   *  Takes the directory rather than a session, because a conversation on disk
+   *  has one too and the answer is the same question about the same string. */
+  place(what: { dir: string }): string {
+    return what.dir.split('/').filter(Boolean).pop() ?? what.dir;
   }
 
   /** What this session may do without asking, in the CLI's own words. */

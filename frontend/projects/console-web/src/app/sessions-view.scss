@@ -18,6 +18,34 @@
   margin-bottom: 0.75rem;
   text-decoration: none;
   color: inherit;
+  // The rows are two elements — a link for a session the console runs, a button
+  // for a transcript to pick up — and they have to be indistinguishable, so the
+  // button gives up everything a button brings: its own font, its centred text,
+  // its border, its background, its padding. The card inside supplies all of it.
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+// Not running. Greyed rather than hidden or filed elsewhere: what is on the
+// screen is everything that exists, and being off is a property of a row rather
+// than a reason to leave it out. Kept legible on purpose — this is the state
+// most of the list is in most of the time, and it is still what you read to find
+// the conversation you want back.
+.session.off {
+  opacity: 0.6;
+}
+
+// A conversation the runner says something else already has open. Resuming it
+// would put two processes on one transcript, so the row stays on screen and
+// stops being a control.
+.session.disabled {
+  pointer-events: none;
+  opacity: 0.35;
 }
 
 .head {
@@ -29,6 +57,13 @@
 .place {
   font-weight: 500;
   font: var(--mat-sys-title-small);
+
+  // Only the fallback is a hex string, and only it wants monospace — a name in
+  // monospace reads as an identifier rather than as a word.
+  &.anonymous {
+    font-family: ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+  }
 }
 
 .waiting {
@@ -93,60 +128,11 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-// Picking up an earlier conversation. Collapsed by default: it is the rarer
-// intent, and an always-open list of a dozen ids pushes the live sessions —
-// which are what the page is for — below the fold on a phone.
-.past {
-  margin-bottom: 12px;
-
-  .caution {
-    margin: 8px 0;
-    font: var(--mat-sys-body-small);
-    color: var(--mat-sys-error);
-  }
-
-  // A list item rather than a button. A Material button wraps its content in its
-  // own label element, so a flex layout declared on the button never reaches the
-  // spans inside it — they ran together as one string, which is what this looked
-  // like the first time.
-  .conversations {
-    padding: 0;
-  }
-
-  .conversation {
-    cursor: pointer;
-
-    &.disabled {
-      pointer-events: none;
-      opacity: 0.5;
-    }
-
-    // A single-line item, so the list stays scannable at a dozen entries.
-    height: 44px;
-
-    .who {
-      font: var(--mat-sys-body-large);
-    }
-
-    // Only the fallback is a hex string, and only it wants monospace — a name in
-    // monospace reads as an identifier rather than as a word.
-    .anonymous {
-      font-family: ui-monospace, monospace;
-      font-variant-numeric: tabular-nums;
-    }
-
-    .facts {
-      color: var(--mat-sys-on-surface-variant);
-      font: var(--mat-sys-body-small);
-      white-space: nowrap;
-    }
-
-    // Said where the age would be, because it is the same question — how long
-    // ago was this touched — with an answer that changes what you can do.
-    .busy {
-      color: var(--mat-sys-error);
-    }
-  }
+// Why an `in use` row cannot be picked up. On screen only while one of them is.
+.caution {
+  margin: 8px 0;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-error);
 }
 
 .mode.mat-icon {

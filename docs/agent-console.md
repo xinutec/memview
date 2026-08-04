@@ -568,6 +568,49 @@ nothing was set by hand — read from the **tail**, because a session is renamed
 its job changes and the name lines are re-emitted every turn. A hex prefix
 identifies a transcript; only the name identifies the work.
 
+### One list, awake first
+
+**Superseded, 2026-08-04: the collapsed card is gone.** Resumable conversations
+used to sit behind a disclosure headed *pick up an earlier conversation (n)*, on
+the reasoning that resuming is the rarer intent and a dozen ids would push the
+live sessions below the fold. Both halves of that were wrong in use. The page's
+job is to say **what exists and which of it is awake**, and a list that shows the
+three processes started this run while hiding the other nine behind a count
+cannot answer it — the count is the answer to a question nobody asked.
+
+So the two sources are merged into one ranked list:
+
+| rank | state | what it is |
+|---|---|---|
+| 0 | working | the CLI is doing something this second |
+| 1 | waiting for you | blocked on a permission it cannot answer itself |
+| 2 | idle | a live process with nothing to do |
+| 3 | off | an ended session, or a transcript with no process |
+
+Working first because that is what the page is opened to find out. Blocked
+second: it needs an answer, but it is not going anywhere, while a working
+session's output is arriving now. Within a rank, most recently in play first.
+
+- **Deduped by id, and the running process wins.** A session the console started
+  also has a transcript on disk, so both sources describe it; the process is the
+  one that knows what it is doing, what it was asked and what it has cost. Not
+  deduping puts the same conversation on screen twice, the second one greyed.
+- **Off is a property of the row, not a place to file it.** The card is dimmed —
+  legibly, since this is the state most of the list is in most of the time and it
+  is still what you read to find the conversation you want back.
+- ⚠ **The two row kinds still do different things when tapped**, and it is worth
+  knowing which is which: a live row opens the transcript, an off row *starts a
+  process* with `--resume`. That is what each did before the merge and neither
+  changed, but they now look alike, so the accessible names say `open …` and
+  `pick up …` respectively.
+- **A row is a link or a button, never a styled `div`.** A clickable row that is
+  not a control is invisible to a screen reader *and* to the activity trace,
+  which records only taps that landed on something interactive — those rows were
+  being tapped and never recorded at all.
+- **The title is the conversation's name**, falling back to the repository. Every
+  session here runs in `~/Code`, so the old title — the directory's last element
+  — read `Code` on every row and distinguished nothing.
+
 ### Two processes on one transcript
 
 Nothing stops them. Both append, and neither sees the other's turns.
@@ -667,7 +710,7 @@ themselves carry the reasoning.
 | file | what it owns |
 |---|---|
 | `app.ts` / `app.html` | the shell: toolbar, build stamp, `<router-outlet>` |
-| `sessions-view.ts` | the list — live sessions, past conversations, starting one |
+| `sessions-view.ts` | the list — one ranked row per conversation, and starting one |
 | `session-view.ts` | one conversation: transcript, composer, approvals, header |
 | `session-store.ts` | **the state that outlives a page** — transcripts, activity, background tasks |
 | `past-store.ts` | the list of resumable conversations |

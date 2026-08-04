@@ -28,110 +28,113 @@
   </mat-card-content>
 </mat-card>
 
-@if (past().length) {
-  <mat-card class="past" appearance="outlined">
-    <mat-card-content>
-      <button matButton (click)="togglePast()">
-        <mat-icon>{{ showPast() ? 'expand_less' : 'expand_more' }}</mat-icon>
-        pick up an earlier conversation ({{ past().length }})
-      </button>
-      @if (showPast()) {
-        <!-- The warning is the only guard there is: nothing stops two processes
-             appending to one transcript, and the console cannot see a claude
-             running in a terminal or under Remote Control. -->
-        <p class="caution">
-          In use ones are held back — two processes on one transcript both write.
-        </p>
-        <mat-list class="conversations">
-          @for (conversation of past(); track conversation.id) {
-            <!-- One line: the name carries the meaning and the facts are a
-                 footnote, so stacking them doubled the height of a list whose
-                 whole job is to be scanned. -->
-            <!-- role and aria-label together, and both are load-bearing. A
-                 clickable row that is not a control is invisible to a screen
-                 reader AND to the activity trace, which only records taps that
-                 landed on something interactive — so these rows were being
-                 tapped and never recorded at all. -->
-            <mat-list-item
-              class="conversation"
-              role="button"
-              [attr.aria-label]="'resume ' + (conversation.name ?? conversation.id.slice(0, 8))"
-              [class.disabled]="starting() || conversation.busy"
-              (click)="resume(conversation)"
-            >
-              <span matListItemTitle class="who" [class.anonymous]="!conversation.name">
-                {{ conversation.name ?? conversation.id.slice(0, 8) }}
-              </span>
-              <span matListItemMeta class="facts">
-                @if (conversation.busy) {
-                  <span class="busy">in use</span>
-                } @else {
-                  {{ ago(conversation.modified) }} · {{ size(conversation.bytes) }}
-                }
-              </span>
-            </mat-list-item>
-          }
-        </mat-list>
-      }
-    </mat-card-content>
-  </mat-card>
+@if (anyInUse()) {
+  <!-- The only guard there is: nothing stops two processes appending to one
+       transcript, and the console cannot see a claude running in a terminal or
+       under Remote Control. Shown only when one of the rows is actually held, so
+       it is a fact about the list rather than a standing disclaimer. -->
+  <p class="caution">In use ones are held back — two processes on one transcript both write.</p>
 }
 
-@if (state(); as state) {
-  @if (state.sessions.length === 0) {
+@if (state()) {
+  @if (rows().length === 0) {
     <p class="empty">No sessions yet.</p>
   }
-  @for (session of state.sessions; track session.id) {
-    <!-- Named, because without it the trace logs the card's whole text — a real
-         line from the log: `label=Code idle nothing asked yet29m ago0 interactions$0.0000`.
-         The accessible name is what the harness prefers, so one attribute fixes
-         both the trace and what a screen reader announces. -->
-    <a
-      class="session"
-      [routerLink]="['/s', session.id]"
-      [attr.aria-label]="'open ' + place(session) + ' ' + session.id.slice(0, 8)"
-    >
-      <mat-card appearance="outlined">
-        <mat-card-content>
-          <div class="head">
-            <span class="place">{{ place(session) }}</span>
-            @if (session.waiting) {
-              <!-- Ahead of every other state: a blocked session is the only one
-                   that needs the reader to do something. -->
-              <span class="waiting">waiting for you</span>
-            } @else if (session.alive) {
-              <span class="live" [class.working]="session.busy">
-                {{ session.busy ?? 'idle' }}
-              </span>
-            } @else {
-              <span class="ended">ended</span>
-            }
-          </div>
-          <div class="asked">{{ session.asked ?? 'nothing asked yet' }}</div>
-          <div class="facts">
-            <span>{{ since(session) }}</span>
-            <span>{{ session.interactions }} interactions</span>
-            @if (costMatters(session)) {
-              <span>{{ cost(session) }}</span>
-            }
-            @if (modeIconOf(session); as icon) {
-              <mat-icon
-                class="mode"
-                [class.loud]="modeLoud(session)"
-                [attr.aria-label]="modeOf(session)"
-                [title]="modeOf(session)"
-                >{{ icon }}</mat-icon
-              >
-            }
-
-            @if (modelOf(session); as model) {
-              <span class="model" [title]="session.model">{{ model }}</span>
-            }
-          </div>
-        </mat-card-content>
-      </mat-card>
-    </a>
+  <!-- One list, awake first. A row is a link when the console runs the process
+       and a button when all that exists is a transcript: the same card either
+       way, because which of the two it is is not what somebody came here to find
+       out — whether it is on is, and the row says that itself. -->
+  @for (row of rows(); track row.id) {
+    @if (row.live; as session) {
+      <!-- Named, because without it the trace logs the card's whole text — a real
+           line from the log: `label=Code idle nothing asked yet29m ago0 interactions$0.0000`.
+           The accessible name is what the harness prefers, so one attribute fixes
+           both the trace and what a screen reader announces. -->
+      <a
+        class="session"
+        [class.off]="!session.alive"
+        [routerLink]="['/s', row.id]"
+        [attr.aria-label]="'open ' + row.title + ' ' + row.id.slice(0, 8)"
+      >
+        <ng-container [ngTemplateOutlet]="card" [ngTemplateOutletContext]="{ $implicit: row }" />
+      </a>
+    } @else {
+      <!-- A control rather than a styled div: a clickable row that is not one is
+           invisible to a screen reader AND to the activity trace, which records
+           only taps that landed on something interactive — so those rows were
+           being tapped and never recorded at all. -->
+      <button
+        type="button"
+        class="session off"
+        [class.disabled]="starting() || row.past?.busy"
+        [attr.aria-label]="'pick up ' + row.title"
+        (click)="resume(row.past)"
+      >
+        <ng-container [ngTemplateOutlet]="card" [ngTemplateOutletContext]="{ $implicit: row }" />
+      </button>
+    }
   }
 } @else {
   <mat-progress-bar mode="indeterminate" />
 }
+
+<ng-template #card let-row>
+  <mat-card appearance="outlined">
+    <mat-card-content>
+      <div class="head">
+        <span class="place" [class.anonymous]="!row.named">{{ row.title }}</span>
+        @if (row.live; as session) {
+          @if (session.waiting) {
+            <!-- Ahead of every other state: a blocked session is the only one
+                 that needs the reader to do something. -->
+            <span class="waiting">waiting for you</span>
+          } @else if (session.alive) {
+            <span class="live" [class.working]="session.busy">
+              {{ session.busy ?? 'idle' }}
+            </span>
+          } @else {
+            <span class="ended">ended</span>
+          }
+        } @else if (row.past?.busy) {
+          <span class="ended">in use</span>
+        } @else {
+          <span class="ended">off</span>
+        }
+      </div>
+      @if (row.live; as session) {
+        <div class="asked">{{ session.asked ?? 'nothing asked yet' }}</div>
+        <div class="facts">
+          <span>{{ since(session) }}</span>
+          <span>{{ session.interactions }} interactions</span>
+          @if (costMatters(session)) {
+            <span>{{ cost(session) }}</span>
+          }
+          @if (modeIconOf(session); as icon) {
+            <mat-icon
+              class="mode"
+              [class.loud]="modeLoud(session)"
+              [attr.aria-label]="modeOf(session)"
+              [title]="modeOf(session)"
+              >{{ icon }}</mat-icon
+            >
+          }
+
+          @if (modelOf(session); as model) {
+            <span class="model" [title]="session.model">{{ model }}</span>
+          }
+        </div>
+      } @else if (row.past; as conversation) {
+        <!-- Everything a transcript can say about itself without being opened.
+             Deliberately not padded out to match the row above it: a
+             conversation that is not running has no cost, no mode and no model,
+             and a blank for each would read as missing rather than as not
+             applicable. -->
+        <div class="facts">
+          <span>{{ place(conversation) }}</span>
+          <span>{{ ago(conversation.modified) }}</span>
+          <span>{{ size(conversation.bytes) }}</span>
+        </div>
+      }
+    </mat-card-content>
+  </mat-card>
+</ng-template>

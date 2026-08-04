@@ -605,6 +605,87 @@ test('the transcript is at the end again after the stream resets @ phone width',
   expect(await distanceFromTheEnd(page), 'left behind by a reconnect').toBeLessThan(4);
 });
 
+/** Every state the list can be in at once, in an order that is nobody's idea of
+ *  correct — so the page has to be doing the sorting rather than the fixture. */
+const MIXED = {
+  ...STATE,
+  sessions: [
+    { ...STATE.sessions[1], id: 'aaaa0000-0000-4000-8000-000000000001', name: 'finished' },
+    {
+      ...STATE.sessions[0],
+      id: 'aaaa0000-0000-4000-8000-000000000002',
+      name: 'idle-one',
+      busy: undefined,
+      waiting: 0,
+    },
+    {
+      ...STATE.sessions[0],
+      id: 'aaaa0000-0000-4000-8000-000000000003',
+      name: 'blocked',
+      busy: undefined,
+      waiting: 1,
+    },
+    { ...STATE.sessions[0], id: 'aaaa0000-0000-4000-8000-000000000004', name: 'working' },
+  ],
+};
+
+/** Conversations on disk, one of them held by something the console cannot see. */
+const ON_DISK = [
+  {
+    id: 'bbbb0000-0000-4000-8000-000000000001',
+    dir: '/home/example/Code/thoth',
+    modified: NEXT,
+    bytes: 4_194_304,
+    name: 'older',
+    busy: false,
+  },
+  {
+    id: 'bbbb0000-0000-4000-8000-000000000002',
+    dir: '/home/example/Code/utterance',
+    modified: LATE,
+    bytes: 1_048_576,
+    name: 'held-elsewhere',
+    busy: true,
+  },
+];
+
+test('session list — awake first, and what is off says so @ phone width', async ({ page }) => {
+  // What the page is opened to answer: which of these is working. Everything
+  // that exists is on it — a conversation on disk is a row like any other, not a
+  // count behind a disclosure — and being off is a property of the row.
+  await mockRunner(page);
+  await page.route('**/api/state', (r) => r.fulfill({ json: MIXED }));
+  await page.route('**/api/past', (r) => r.fulfill({ json: ON_DISK }));
+  await page.goto('/');
+  await expect(page.locator('.session')).toHaveCount(6);
+
+  expect(
+    await page.locator('.session .place').allInnerTexts(),
+    'the order is working, blocked, idle, then everything that is off',
+  ).toEqual(['working', 'blocked', 'idle-one', 'finished', 'older', 'held-elsewhere']);
+
+  // Off is visible as off, without reading a word: the three that are not
+  // running are dimmed and the three that are are not.
+  const dimmed = await page.evaluate(() =>
+    [...document.querySelectorAll('.session')].map(
+      (row) => Number.parseFloat(getComputedStyle(row).opacity) < 1,
+    ),
+  );
+  expect(dimmed, 'the ones that are not on have to look it').toEqual([
+    false,
+    false,
+    false,
+    true,
+    true,
+    true,
+  ]);
+
+  // And the one another process is holding cannot be picked up by tapping it.
+  const held = page.locator('.session', { hasText: 'held-elsewhere' });
+  await expect(held).toHaveClass(/disabled/);
+  await expect(page.locator('.caution')).toBeVisible();
+});
+
 test('session list — a blocked session says so first @ phone width', async ({ page }, testInfo) => {
   await mockRunner(page);
   await page.goto('/');
