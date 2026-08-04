@@ -53,26 +53,27 @@ Not changed, deliberately: the co-use artefact is still not regenerated here.
 
 The generated `gate.json` is committed; `the table matches its Dhall` re-renders
 and diffs it, so running the gate needs no `dhall`.
+
+**The vocabulary moved into the schema.** `inDevShell`, the clippy target
+directory, the Angular worker cap, and the `ng-build` / `dev-lint` /
+`check-table` rows were spelled out here and in a dozen other tables
+identically — the duplication the shared tools were built to remove, recreated
+one level up. They are `G.` values now. Two consequences the rendered JSON
+shows: every dev-shell row gains `--no-warn-dirty`, because a gate that prints
+"Git tree is dirty" on every row of every run has trained everyone to ignore a
+warning; and dev-lint is pinned to its committed HEAD rather than run out of its
+worktree, which is what stops a neighbour's half-finished edit failing this gate
+for a reason no commit anywhere explains.
+
 -}
 
 let G = ../dev-lint/gate/schema.dhall
-
-let inDevShell = \(argv : List Text) -> [ "nix", "develop", "--command" ] # argv
-
-{-| `ng build` tears down its Piscina worker pool at process exit; on macOS /
-    Node 24 / libuv 1.52 that teardown intermittently aborts the process AFTER a
-    complete, valid bundle is on disk. This lowers the rate — fewer worker pipes
-    to race — but does not eliminate it. The build row does not need this: it
-    goes through `ng-build`, which sets the knob itself and then decides from the
-    artifact anyway. These are the rows that drive a build indirectly.
--}
-let oneAngularWorker = toMap { NG_BUILD_MAX_WORKERS = "1" }
 
 in  { name = "memview"
     , checks =
       [ G.Check::{
         , name = "formatting"
-        , argv = inDevShell [ "cargo", "fmt", "--all", "--check" ]
+        , argv = G.inDevShell [ "cargo", "fmt", "--all", "--check" ]
         , timeout_s = 180
         }
       , {-  `--workspace`: the console is a member crate, and without this its
@@ -81,7 +82,7 @@ in  { name = "memview"
         G.Check::{
         , name = "clippy"
         , argv =
-            inDevShell
+            G.inDevShell
               [ "cargo"
               , "clippy"
               , "--workspace"
@@ -94,7 +95,7 @@ in  { name = "memview"
         }
       , G.Check::{
         , name = "tests"
-        , argv = inDevShell [ "cargo", "test", "--workspace" ]
+        , argv = G.inDevShell [ "cargo", "test", "--workspace" ]
         , timeout_s = 1800
         }
       , {-  `--frozen-lockfile` is pnpm ci: install exactly pnpm-lock.yaml, or
@@ -105,13 +106,13 @@ in  { name = "memview"
         G.Check::{
         , name = "frontend deps match the lockfile"
         , cwd = "frontend"
-        , argv = inDevShell [ "pnpm", "install", "--frozen-lockfile" ]
+        , argv = G.inDevShell [ "pnpm", "install", "--frozen-lockfile" ]
         , timeout_s = 900
         }
       , G.Check::{
         , name = "frontend lint"
         , cwd = "frontend"
-        , argv = inDevShell [ "pnpm", "run", "lint" ]
+        , argv = G.inDevShell [ "pnpm", "run", "lint" ]
         , timeout_s = 900
         }
       , {-  The layout harnesses and the Playwright configs. `ng build` compiles
@@ -124,14 +125,14 @@ in  { name = "memview"
         G.Check::{
         , name = "frontend typecheck (e2e)"
         , cwd = "frontend"
-        , argv = inDevShell [ "pnpm", "run", "typecheck" ]
+        , argv = G.inDevShell [ "pnpm", "run", "typecheck" ]
         , timeout_s = 900
         }
       , G.Check::{
         , name = "frontend unit tests"
         , cwd = "frontend"
-        , argv = inDevShell [ "pnpm", "test" ]
-        , env = oneAngularWorker
+        , argv = G.inDevShell [ "pnpm", "test" ]
+        , env = G.oneAngularWorker
         , timeout_s = 1800
         }
       , {-  Both applications, and both output directories asserted on. The
@@ -146,16 +147,10 @@ in  { name = "memview"
         , name = "frontend build (both applications)"
         , cwd = "frontend"
         , argv =
-              inDevShell [ "nix", "run", "../../dev-lint#ng-build", "--" ]
-            # [ "--expect"
-              , "dist/memview-web/browser"
-              , "--expect"
-              , "dist/console-build/browser"
-              , "--"
-              , "pnpm"
-              , "run"
-              , "build"
-              ]
+            G.ngBuild
+              "../../"
+              [ "dist/memview-web/browser", "dist/console-build/browser" ]
+              [ "pnpm", "run", "build" ]
         , timeout_s = 1800
         }
       , {-  Serves the freshly-built dist and asserts no overlap or overflow at
@@ -166,8 +161,8 @@ in  { name = "memview"
         G.Check::{
         , name = "frontend ui-check (phone-width layout harness)"
         , cwd = "frontend"
-        , argv = inDevShell [ "pnpm", "run", "ui-check" ]
-        , env = oneAngularWorker
+        , argv = G.inDevShell [ "pnpm", "run", "ui-check" ]
+        , env = G.oneAngularWorker
         , timeout_s = 1800
         }
       , {-  The graph layout, measured rather than looked at. Every bug this view
@@ -178,7 +173,7 @@ in  { name = "memview"
         -}
         G.Check::{
         , name = "graph layout report"
-        , argv = inDevShell [ "node", "scripts/graph-report.mjs" ]
+        , argv = G.inDevShell [ "node", "scripts/graph-report.mjs" ]
         , timeout_s = 900
         }
       , {-  The corpus itself. Locally this is the check that matters most: the
@@ -187,31 +182,11 @@ in  { name = "memview"
         G.Check::{
         , name = "memory-lint (the corpus)"
         , argv =
-            inDevShell
+            G.inDevShell
               [ "cargo", "run", "--quiet", "--bin", "memory-lint" ]
         , timeout_s = 900
         }
-      , G.Check::{
-        , name = "the table matches its Dhall"
-        , argv =
-            [ "nix"
-            , "run"
-            , "../dev-lint#gate"
-            , "--"
-            , "--check-table"
-            , "gate.dhall"
-            , "gate.json"
-            ]
-        , timeout_s = 120
-        }
-      , {-  Shared fleet rules over the whole repository. `nix run`, never
-            result/bin — a pinned build goes stale and silently misses rules
-            shipped since.
-        -}
-        G.Check::{
-        , name = "dev-lint"
-        , argv = [ "nix", "run", "../dev-lint", "--", "." ]
-        , timeout_s = 900
-        }
+      , G.checkTable "../dev-lint"
+      , G.devLint "../"
       ]
     }
