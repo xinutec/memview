@@ -1213,3 +1213,39 @@ test('the details sheet holds what the page has no room for @ phone width', asyn
   await expectNoHorizontalOverflow(page, testInfo, '.session-sheet');
   await expectNoClippedText(page, testInfo, '.session-sheet');
 });
+
+test('leaving a session leaves its name behind @ phone width', async ({ page }) => {
+  // ⚠ **The toolbar kept the session you had just left.** `ngOnDestroy` clears
+  // the open conversation, and the five-second poll's request does not stop when
+  // the page does — so a response already in flight lands after the clear and
+  // puts it back. The list then shows a name and a ⋮ for a session nobody is in,
+  // and the menu behind that ⋮ acts on it.
+  //
+  // Held in flight deliberately rather than raced: the defect needs a response
+  // that arrives after the route has changed, which is a matter of milliseconds
+  // on a phone and of luck in a test.
+  await mockRunner(page);
+  let answer: (() => void) | undefined;
+  await page.route('**/api/state', async (route) => {
+    if (answer) {
+      // Every later poll answers at once; only the first is held.
+      await route.fulfill({ json: NAMED });
+      return;
+    }
+    await new Promise<void>((go) => (answer = go));
+    await route.fulfill({ json: NAMED });
+  });
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.transcript').waitFor();
+  // Away before the runner has answered.
+  await page.locator('.home').click();
+  await page.locator('.session').first().waitFor();
+  answer?.();
+  // Long enough for the held response to land and be acted on.
+  await page.waitForTimeout(300);
+  await expect(
+    page.locator('.bar .name'),
+    'the list is titled with the session just left',
+  ).toHaveCount(0);
+  await expect(page.locator('.bar').getByRole('button')).toHaveCount(0);
+});

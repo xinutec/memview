@@ -12,6 +12,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { TextFieldModule } from '@angular/cdk/text-field';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -254,20 +255,29 @@ export class SessionView implements OnDestroy {
    *  summary rather than the stream, because they are totals and a client that
    *  reconnected mid-session has not seen every event that built them. */
   private refresh(): void {
-    this.api.state().subscribe({
-      next: (state) => {
-        const mine = state.sessions.find((s) => s.id === this.id());
-        this.session.set(mine);
-        // The toolbar sits above the router and cannot see the route, so the
-        // page that knows which conversation this is has to say so — and both
-        // the menu and the details sheet act on what is set here. The whole
-        // summary, because the sheet shows nearly all of it.
-        this.here.open.set(mine);
-        this.updates.saw(state.bundle);
-        this.unreachable.set('');
-      },
-      error: (err: unknown) => this.unreachable.set(`cannot reach the runner: ${reason(err)}`),
-    });
+    // ⚠ **Tied to this view's life, and it has to be.** A request does not stop
+    // when the page that made it does: leaving a session clears the open
+    // conversation in `ngOnDestroy`, and a poll already in flight then lands and
+    // puts it straight back — so the LIST was titled with the session just left,
+    // with a ⋮ beside it whose menu acted on that session. The clear was already
+    // here and was already right; what it could not do was outlast a reply.
+    this.api
+      .state()
+      .pipe(takeUntilDestroyed(this.until))
+      .subscribe({
+        next: (state) => {
+          const mine = state.sessions.find((s) => s.id === this.id());
+          this.session.set(mine);
+          // The toolbar sits above the router and cannot see the route, so the
+          // page that knows which conversation this is has to say so — and both
+          // the menu and the details sheet act on what is set here. The whole
+          // summary, because the sheet shows nearly all of it.
+          this.here.open.set(mine);
+          this.updates.saw(state.bundle);
+          this.unreachable.set('');
+        },
+        error: (err: unknown) => this.unreachable.set(`cannot reach the runner: ${reason(err)}`),
+      });
   }
 
   /**

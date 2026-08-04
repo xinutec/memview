@@ -858,6 +858,11 @@ not how important it is.
   it.** Every session on this Mac runs under one tree, so the path was three
   lines of shared prefix around the one word that differed. That word is the
   name, which is what the bar shows.
+- ⚠ **A poll outlived the page that made it.** Leaving a session clears the open
+  conversation in `ngOnDestroy` — correct, and not enough: a `/api/state` reply
+  already in flight landed afterwards and put it straight back, so the LIST was
+  titled with the session just left, with a ⋮ beside it whose menu acted on that
+  session. `takeUntilDestroyed` is what makes the clear outlast a reply.
 - **`Here` carries the whole summary**, not the four fields the toolbar reads.
   The bar is also the way into the sheet, and the sheet shows nearly all of a
   session — a narrower type meant copying fields across one at a time.
