@@ -32,6 +32,7 @@ import { costMatters } from './budget';
 import { Here } from './here';
 import { Updates } from './updates';
 import { Rendered } from './rendered';
+import { Answers, Question, complete } from './questions';
 import { Held, SessionStore } from './session-store';
 
 /** One session: what it has done, and the way to say something to it. */
@@ -134,6 +135,16 @@ export class SessionView implements OnDestroy {
   readonly unreachable = signal('');
   readonly sending = signal(false);
   readonly text = signal('');
+  /**
+   * Options tapped but not yet sent, by control-request id and then by question.
+   *
+   * Keyed by the *ask* rather than held against the entry, because two questions
+   * can stand at once — a session asks again the moment the first is answered —
+   * and because the transcript rebuilds its entries as events arrive. Nothing is
+   * cleaned up when one is answered: the id never comes back, and a handful of
+   * dead keys costs less than the code to notice.
+   */
+  private readonly chosen = signal<Record<string, Answers>>({});
   /** Whether anything older than what is on screen remains on disk.
    *
    *  The cursor is a byte offset into the transcript, so zero is the start of the
@@ -449,6 +460,77 @@ export class SessionView implements OnDestroy {
   decide(entry: Entry, allow: boolean): void {
     if (!entry.ask || entry.allowed !== undefined) return;
     this.api.decide(this.id(), entry.ask, allow).subscribe({
+      error: (err: unknown) => this.trouble.set(reason(err)),
+    });
+  }
+
+  /**
+   * What was decided, in the words of the thing that was decided.
+   *
+   * A question is not a permission, and saying a question was *allowed* would
+   * describe the mechanism rather than what happened — the person picked an
+   * option, or declined to. What they picked is in the tool's own result a line
+   * below, which is where it reads best.
+   */
+  verdict(entry: Entry): string {
+    if (entry.questions) return entry.allowed ? 'answered' : 'skipped';
+    return entry.allowed ? 'allowed' : 'refused';
+  }
+
+  /** Whether this option is currently chosen — what the button shows as pressed. */
+  picked(entry: Entry, question: Question, label: string): boolean {
+    const chosen = this.chosen()[entry.ask ?? '']?.[question.question];
+    return Array.isArray(chosen) ? chosen.includes(label) : chosen === label;
+  }
+
+  /**
+   * Choose an option.
+   *
+   * **One question with one answer sends on the tap.** That is the shape almost
+   * every question has, and on a phone the difference between one tap and two is
+   * the difference between answering from the lock screen and putting it off.
+   * Anything else — several questions, or one that takes several answers — has
+   * no moment where the choice is obviously finished, so it waits for [answer].
+   */
+  pick(entry: Entry, question: Question, label: string): void {
+    if (!entry.ask || entry.allowed !== undefined) return;
+    const questions = entry.questions ?? [];
+    const single = questions.length === 1 && !question.multiSelect;
+    if (single) {
+      this.sendAnswers(entry, { [question.question]: label });
+      return;
+    }
+    const ask = entry.ask;
+    this.chosen.update((all) => {
+      const here = { ...(all[ask] ?? {}) };
+      if (question.multiSelect) {
+        const had = here[question.question];
+        const list = Array.isArray(had) ? had : [];
+        here[question.question] = list.includes(label)
+          ? list.filter((l) => l !== label)
+          : [...list, label];
+      } else {
+        here[question.question] = label;
+      }
+      return { ...all, [ask]: here };
+    });
+  }
+
+  /** Whether everything asked has been chosen. The send button waits for it. */
+  ready(entry: Entry): boolean {
+    return complete(entry.questions ?? [], this.chosen()[entry.ask ?? ''] ?? {});
+  }
+
+  /** Send what has been chosen, for a question that needed more than one tap. */
+  answer(entry: Entry): void {
+    if (!this.ready(entry)) return;
+    this.sendAnswers(entry, this.chosen()[entry.ask ?? ''] ?? {});
+  }
+
+  /** Approve the call with the answers written into it. See `questions.ts`. */
+  private sendAnswers(entry: Entry, answers: Answers): void {
+    if (!entry.ask || entry.allowed !== undefined) return;
+    this.api.decide(this.id(), entry.ask, true, undefined, answers).subscribe({
       error: (err: unknown) => this.trouble.set(reason(err)),
     });
   }

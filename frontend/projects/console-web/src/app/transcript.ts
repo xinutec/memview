@@ -1,4 +1,5 @@
 import { Entry, SessionEvent } from './models';
+import { QUESTION_TOOL, questionsOf } from './questions';
 
 /** Fold one event into the transcript.
  *
@@ -58,6 +59,9 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
         // anything reassembled from the arguments.
         text: event.title ?? describe(event.tool, event.input),
         at: event.at,
+        // Only for the tool that asks a person something. Undefined for every
+        // other, which is what leaves them with allow and refuse.
+        questions: event.tool === QUESTION_TOOL ? questionsOf(event.input) : undefined,
       });
       break;
     case 'answered': {

@@ -117,6 +117,66 @@ async function expectIconsCentred(page: Page, slack = 1): Promise<void> {
   expect(skewed, 'icons sitting off-centre in their own control').toEqual([]);
 }
 
+/**
+ * Every clock in the margin, and whether it sits on the line it dates.
+ *
+ * ⚠ **The same blind spot `expectIconsCentred` covers, one row down.** A time
+ * 6px below its own line is not clipped, does not overlap, does not overflow and
+ * is perfectly legible — it just reads as a number floating near a row rather
+ * than a label on it, and the only evidence is arithmetic between two boxes.
+ *
+ * It happened because `.at` sets `font:`, a shorthand that **resets
+ * `line-height`** — so the clock stopped sharing the row's line box, and a
+ * hand-tuned `top` offset covered for it at one font size while the transcript
+ * has two (`.turn` is body-small, `.asked` body-medium).
+ *
+ * Measured against the row's own first line rather than its border box, because
+ * that is the thing the clock is a label on.
+ *
+ * 2px of tolerance, from a measured cause rather than tuned until green: a
+ * question card lays its first line out with `align-items: baseline` against a
+ * monospace sibling, and the fallback face's metrics move that text by about
+ * that much. The defects this exists for were 6px and 13px.
+ */
+async function expectClocksOnTheirLine(page: Page, slack = 2): Promise<void> {
+  const adrift = await page.evaluate((tolerance) => {
+    const off: { row: string; by: number }[] = [];
+    for (const entry of document.querySelectorAll('.entry')) {
+      const at = entry.querySelector('.at');
+      if (!at) continue;
+      const clock = at.getBoundingClientRect();
+      // A row whose clock is hidden — `.said` and `.tool` take the time from the
+      // turn line below them, so there is nothing to line up.
+      if (clock.height === 0) continue;
+      // The first line of TEXT, descended into rather than taken as the first
+      // child — a row whose content is a card would otherwise be measured by the
+      // middle of the whole box, which is not a line and not what the clock
+      // labels.
+      const walk = document.createTreeWalker(entry, NodeFilter.SHOW_TEXT, {
+        acceptNode: (node) =>
+          at.contains(node) || (node.textContent ?? '').trim() === ''
+            ? NodeFilter.FILTER_REJECT
+            : NodeFilter.FILTER_ACCEPT,
+      });
+      const first = walk.nextNode();
+      if (!first) continue;
+      const range = document.createRange();
+      range.selectNodeContents(first);
+      const line = range.getClientRects()[0];
+      if (!line) continue;
+      // ⚠ **Tops, not centres.** The clock is body-small beside rows that are
+      // body-medium, and two line boxes of different heights cannot share a
+      // centre — a centre check would have to carry a tolerance wide enough to
+      // hide the defect it exists for. Where a line starts is exact at any size.
+      const by = clock.top - line.top;
+      if (Math.abs(by) <= tolerance) continue;
+      off.push({ row: entry.className, by: Math.round(by * 10) / 10 });
+    }
+    return off;
+  }, slack);
+  expect(adrift, 'clocks sitting off the line they date').toEqual([]);
+}
+
 const REPOS = [
   '/home/example/Code/health',
   '/home/example/Code/memview',
@@ -249,6 +309,57 @@ const TRANSCRIPT = [
     tool: 'Bash',
     title: 'Claude wants to run nix develop -c lake build --verbose 2>&1 | tee /tmp/lean.log',
     input: { command: 'nix develop -c lake build --verbose 2>&1 | tee /tmp/lean.log' },
+    at: NEXT,
+  },
+];
+
+/**
+ * A transcript ending in a question of the kind a person answers.
+ *
+ * Deliberately the awkward one: four options, descriptions that are whole
+ * sentences, and a `multiSelect` question after it — so the page has to hold a
+ * column of two-line controls AND a send button on a 412px screen. A question
+ * with two one-word options would prove nothing.
+ */
+const QUESTION_TRANSCRIPT = [
+  { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code/memview', tools: 14 },
+  { kind: 'text', text: 'Two things before I build it.', at: NEXT },
+  {
+    kind: 'ask',
+    id: 'c9f0a1b2-0000-4000-8000-00000000000a',
+    tool: 'AskUserQuestion',
+    input: {
+      questions: [
+        {
+          question: 'How far should the question UI go?',
+          header: 'Scope',
+          multiSelect: false,
+          options: [
+            {
+              label: 'options only',
+              description:
+                'Render each option as a button and send the tap. Smallest change, and it covers the case almost every question is.',
+            },
+            {
+              label: 'options and free text',
+              description:
+                'The same, plus a field whose contents ride back as the response — which is what the CLI offers under "Other".',
+            },
+            { label: 'full parity', description: 'Free text, multi-select and per-answer notes.' },
+            { label: 'nothing', description: 'Keep asking in prose.' },
+          ],
+        },
+        {
+          question: 'Which of these should the card show?',
+          header: 'On screen',
+          multiSelect: true,
+          options: [
+            { label: 'the description', description: 'The sentence under each label.' },
+            { label: 'the topic', description: 'The one-word chip above the question.' },
+          ],
+        },
+      ],
+    },
     at: NEXT,
   },
 ];
@@ -531,8 +642,105 @@ test('transcript — tool arguments and a fixed composer @ phone width', async (
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
   await expectNoPinnedOverlap(page);
   await expectIconsCentred(page);
+  await expectClocksOnTheirLine(page);
   await expectComposerFillsTheWidth(page);
   await expectSendAlignsWithTheBox(page);
+});
+
+/** Serve the question transcript, and record what any decision sends. */
+async function mockQuestion(page: Page): Promise<() => Record<string, unknown> | undefined> {
+  let sent: Record<string, unknown> | undefined;
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: QUESTION_TRANSCRIPT.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''),
+    }),
+  );
+  await page.route('**/api/sessions/*/decide', (r) => {
+    sent = r.request().postDataJSON() as Record<string, unknown>;
+    return r.fulfill({ json: STATE.sessions[0] });
+  });
+  return () => sent;
+}
+
+test('a question offers what was asked, not allow and refuse @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **The defect this was built for.** The console showed a question as a
+  // permission for months: the options arrived in the ask and were never
+  // rendered, so the only answer it could give was an approval with no answer in
+  // it — which the CLI reports as "the user did not answer the questions".
+  const sent = await mockQuestion(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.getByRole('button', { name: /options only/ }).waitFor();
+
+  await expect(
+    page.getByRole('button', { name: 'allow' }),
+    'a question is not a permission',
+  ).toHaveCount(0);
+  // The description is the part worth reading, and the reason these are not
+  // Material buttons — its label spills rather than wrapping.
+  await expect(page.locator('.option .means').first()).toContainText('Smallest change');
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectNoClippedText(page, testInfo);
+  await expectThumbTargets(page);
+
+  // Two questions stand, so one tap is not an answer: it is remembered, and the
+  // send button stays out of reach until the other is answered too.
+  await page.getByRole('button', { name: /options only/ }).click();
+  expect(sent(), 'sent before the second question was answered').toBeUndefined();
+  await expect(page.getByRole('button', { name: 'answer', exact: true })).toBeDisabled();
+
+  await page.getByRole('button', { name: /the description/ }).click();
+  await page.getByRole('button', { name: /the topic/ }).click();
+  await page.getByRole('button', { name: 'answer', exact: true }).click();
+
+  await expect.poll(sent).toMatchObject({
+    allow: true,
+    answers: {
+      'How far should the question UI go?': 'options only',
+      // Both, in the order they were tapped — a multi-select question that came
+      // back as a single label would silently drop a choice.
+      'Which of these should the card show?': ['the description', 'the topic'],
+    },
+  });
+});
+
+test('a lone single-choice question answers on the tap @ phone width', async ({ page }) => {
+  // One tap, because the alternative is two: tap the option, then reach for a
+  // send button. On a phone that difference is whether it gets answered from the
+  // lock screen or put off until later.
+  let sent: Record<string, unknown> | undefined;
+  await mockRunner(page);
+  const [first] = QUESTION_TRANSCRIPT.slice(-1);
+  const alone = {
+    ...first,
+    input: { questions: [(first.input as { questions: unknown[] }).questions[0]] },
+  };
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [QUESTION_TRANSCRIPT[0], alone]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.route('**/api/sessions/*/decide', (r) => {
+    sent = r.request().postDataJSON() as Record<string, unknown>;
+    return r.fulfill({ json: STATE.sessions[0] });
+  });
+
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.getByRole('button', { name: /full parity/ }).click();
+  await expect
+    .poll(() => sent)
+    .toMatchObject({
+      answers: { 'How far should the question UI go?': 'full parity' },
+    });
+  // And no send button was ever offered, because there was nothing to wait for.
+  await expect(page.getByRole('button', { name: 'answer', exact: true })).toHaveCount(0);
 });
 
 test('transcript — an undecided question with its two buttons @ phone width', async ({

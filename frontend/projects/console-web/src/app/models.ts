@@ -1,6 +1,8 @@
 /** The console API's wire types. Mirrors `console/src/api.rs` and
  *  `console/src/protocol.rs`; the Rust side is the definition. */
 
+import { Question } from './questions';
+
 export interface Summary {
   id: string;
   dir: string;
@@ -158,6 +160,11 @@ export interface Entry {
    *  once there is one. Undecided is the state that needs a person. */
   ask?: string;
   allowed?: boolean;
+  /** `ask` entries only, and only for a question: what it asked, ready to put on
+   *  screen as options. Absent for every other tool — and for a question whose
+   *  arguments could not be read, which falls back to allow/refuse rather than
+   *  showing part of itself. See `questions.ts`. */
+  questions?: readonly Question[];
 }
 
 /**

@@ -8,6 +8,13 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
+
+  // How far into the row a question card holds its first line: its own padding,
+  // plus its border. Declared once because two rules need the same number and
+  // they are not near each other — the card's padding, and the clock that has to
+  // line up with the card's first line rather than with the box around it.
+  --card-inset: 0.6rem;
+  --card-edge: 1px;
 }
 
 // The reading column pads itself, now that `.page` does not — see app.scss.
@@ -118,9 +125,9 @@
 // A question is the one thing on this page that stops everything until it is
 // answered, so it is the only thing allowed to shout.
 .question {
-  border: 1px solid var(--mat-sys-primary);
+  border: var(--card-edge) solid var(--mat-sys-primary);
   border-radius: 0.5rem;
-  padding: 0.6rem;
+  padding: var(--card-inset);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -131,6 +138,75 @@
   display: flex;
   gap: 0.5rem;
   align-items: baseline;
+}
+
+// One question of an `AskUserQuestion`. Several can arrive in one ask, so each
+// carries its own topic and text rather than relying on the row above.
+//
+// Not `.asked`, which is this reader's own prompt: sharing the name would have
+// pulled its left rule, its indent and its muted colour onto a card that is
+// neither quiet nor the reader speaking.
+.query {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.topic {
+  font: var(--mat-sys-label-small);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mat-sys-primary);
+}
+
+.what {
+  font: var(--mat-sys-body-medium);
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+// Full width and stacked rather than side by side: the description is the part
+// worth reading, and two of these across a phone leaves room for neither.
+.option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  text-align: left;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 0.5rem;
+  background: var(--mat-sys-surface);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.option.taken {
+  border-color: var(--mat-sys-primary);
+  background: var(--mat-sys-primary-container);
+  color: var(--mat-sys-on-primary-container);
+}
+
+.option .label {
+  font-weight: 500;
+}
+
+.option .means {
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+// The chosen option carries its own foreground, and a description that kept the
+// unchosen one against it is the pair that fails a contrast check.
+.option.taken .means {
+  color: inherit;
+  opacity: 0.85;
 }
 
 .choose {
@@ -222,11 +298,27 @@
 }
 
 // The clock sits in the margin rather than in the sentence.
+// The time is a label ON the row's first line, not a column beside it — so it
+// shares that line's box rather than being placed against the row's top edge.
+//
+// ⚠ **`font:` is a shorthand and resets `line-height`.** That is what put the
+// clock 6px below the line it dates: its box stopped being the row's, and a
+// hand-tuned `top: 0.35rem` was covering for it — which could only ever be right
+// at one font size, and the rows here are two (`.turn` is body-small, `.asked`
+// body-medium). `line-height: inherit` puts the clock's line box back on the
+// row's terms, so its first line starts where the row's does at either size.
+//
+// It does NOT make the two boxes equal: an unitless `line-height` inherits as a
+// factor, not a length, so beside a body-medium row the clock's box is the
+// shorter of the two. That is why the harness compares where the lines *start*
+// rather than their centres — measured, and the reason a centre check would
+// need a tolerance wide enough to hide what it is for.
 .at {
   position: absolute;
-  top: 0.35rem;
+  top: 0;
   right: 0;
   font: var(--mat-sys-body-small);
+  line-height: inherit;
   color: var(--mat-sys-on-surface-variant);
   font-variant-numeric: tabular-nums;
   pointer-events: none;
@@ -241,6 +333,13 @@
 .said > .at,
 .tool > .at {
   display: none;
+}
+
+// The one row whose content is a card rather than a line. Its first line starts
+// inside the card, so the clock starts there too — from the same numbers the
+// card is drawn with, not from a second offset that would drift from them.
+.ask > .at {
+  top: calc(var(--card-inset) + var(--card-edge));
 }
 
 // Everything that does carry one leaves room for it.

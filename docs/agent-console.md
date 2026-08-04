@@ -817,6 +817,57 @@ already had, every time, for ever.
   opened by a page returning knows nothing, hence `?after=` on the events route,
   with the header winning when both are present.
 
+### Answering a question, which is not the same as approving one
+
+`AskUserQuestion` is gated by `can_use_tool` like every other tool, so it arrives
+as an ordinary `ask` carrying its questions, options, descriptions and
+`multiSelect` flag. The console showed it as allow/refuse for months, and every
+question it was shown came back to the session as *"The user did not answer the
+questions."*
+
+⚠ **That message is not a timeout and not a missing picker.** The tool's `call`
+reads `answers` out of its own arguments and formats them — it prompts nobody —
+and the CLI's result builder falls through to that sentence when `answers` is
+empty. So approving the call unchanged is a well-formed way of saying nothing.
+
+**The answer channel is the approval's `updatedInput`.** A client answers by
+approving an input it has written the choices into:
+
+```json
+{"behavior": "allow",
+ "updatedInput": {"questions": [...], "answers": {"which way": "left"}}}
+```
+
+Labels go back verbatim rather than by index, because the CLI matches them
+against what it offered and an index would silently mean the wrong option if the
+list were ever reordered.
+
+Three decisions worth keeping:
+
+- **Only a question may have its arguments edited.** `updatedInput` would
+  otherwise let a client approve a *different* command from the one it was shown,
+  so the runner records which tool asked and refuses `answers` for anything else.
+  A console that is compromised still cannot rewrite what it approves.
+- **One question with one answer sends on the tap; anything else waits.** Several
+  questions, or one taking several answers, has no moment where the choice is
+  obviously finished. The common case is one question, and on a phone the
+  difference between one tap and two is whether it gets answered from the lock
+  screen.
+- **A question whose arguments cannot be read falls back to allow/refuse.**
+  Parsing is all-or-nothing: a half-read question would show fewer options than
+  were offered, and nobody choosing from a list can tell that an option is
+  missing. Visibly less beats quietly wrong, and the fallback still lets the
+  session move.
+
+The options are not Material buttons. `.mdc-button__label` is a flex item with
+`min-width: auto`, so a long label spills out of its button instead of wrapping —
+and each of these carries a label and a sentence.
+
+Measured on 2.1.220, in both `default` and `auto`: the ask fires either way. In
+`auto` the same session's `Bash` call produced no ask at all, which is what makes
+that a clean reading rather than an inference — this tool asks unconditionally,
+whatever the permission mode.
+
 ### Where each fact is said: toolbar, heading, sheet
 
 Three surfaces, and the rule between them is **how often the answer is wanted**,

@@ -3,6 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { Conversation, KINDS, Overview, SessionEvent, Summary } from './models';
+import { Answers } from './questions';
 
 /** Thin client over the console runner. Same origin in production (the runner
  *  serves this bundle); via the dev proxy under `ng serve`. */
@@ -45,12 +46,24 @@ export class ConsoleApi {
     return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/input`, { text });
   }
 
-  /** Answer a question the session is blocked on. */
-  decide(session: string, id: string, allow: boolean, why?: string): Observable<Summary> {
+  /** Answer a question the session is blocked on.
+   *
+   *  `answers` are the choices made about an `AskUserQuestion`, and the runner
+   *  refuses them for anything else — approving a tool call is not a licence to
+   *  rewrite it. See `questions.ts` for why an answer travels this way at all.
+   */
+  decide(
+    session: string,
+    id: string,
+    allow: boolean,
+    why?: string,
+    answers?: Answers,
+  ): Observable<Summary> {
     return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(session)}/decide`, {
       id,
       allow,
       why,
+      answers,
     });
   }
 

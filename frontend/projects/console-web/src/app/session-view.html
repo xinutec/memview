@@ -78,12 +78,51 @@
               <span class="tool-arg">{{ entry.text }}</span>
             </div>
             @if (entry.allowed === undefined) {
-              <div class="choose">
-                <button matButton="filled" (click)="decide(entry, true)">allow</button>
-                <button matButton (click)="decide(entry, false)">refuse</button>
-              </div>
+              @if (entry.questions; as questions) {
+                @for (question of questions; track question.question) {
+                  <div class="query">
+                    @if (question.header) {
+                      <span class="topic">{{ question.header }}</span>
+                    }
+                    <span class="what">{{ question.question }}</span>
+                    <div class="options">
+                      @for (option of question.options; track option.label) {
+                        <!-- Not a Material button: its label is a flex item that
+                             spills rather than wraps, and these carry two lines. -->
+                        <button
+                          type="button"
+                          class="option"
+                          [class.taken]="picked(entry, question, option.label)"
+                          [attr.aria-pressed]="picked(entry, question, option.label)"
+                          (click)="pick(entry, question, option.label)"
+                        >
+                          <span class="label">{{ option.label }}</span>
+                          @if (option.description) {
+                            <span class="means">{{ option.description }}</span>
+                          }
+                        </button>
+                      }
+                    </div>
+                  </div>
+                }
+                <div class="choose">
+                  @if (questions.length > 1 || questions[0].multiSelect) {
+                    <button matButton="filled" [disabled]="!ready(entry)" (click)="answer(entry)">
+                      answer
+                    </button>
+                  }
+                  <!-- The way out of a question there is no good answer to. The
+                       session is told, and carries on. -->
+                  <button matButton (click)="decide(entry, false)">skip</button>
+                </div>
+              } @else {
+                <div class="choose">
+                  <button matButton="filled" (click)="decide(entry, true)">allow</button>
+                  <button matButton (click)="decide(entry, false)">refuse</button>
+                </div>
+              }
             } @else {
-              <span class="verdict">{{ entry.allowed ? 'allowed' : 'refused' }}</span>
+              <span class="verdict">{{ verdict(entry) }}</span>
             }
           </div>
         }

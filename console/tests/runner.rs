@@ -327,7 +327,7 @@ async fn a_question_blocks_the_session_until_it_is_answered() {
         "the turn has not finished while the question stands: {seen:?}"
     );
 
-    session.decide(id, true, "").await.expect("approve");
+    session.decide(id, true, "", None).await.expect("approve");
     let after = until(&session, |seen| {
         seen.iter().any(|e| matches!(e, Event::Turn { .. }))
     })
@@ -356,7 +356,7 @@ async fn a_refusal_carries_a_reason_and_the_session_goes_on() {
     };
 
     session
-        .decide(id, false, "not that directory")
+        .decide(id, false, "not that directory", None)
         .await
         .expect("refuse");
     let after = until(&session, |seen| {
@@ -369,6 +369,78 @@ async fn a_refusal_carries_a_reason_and_the_session_goes_on() {
             .any(|e| matches!(e, Event::Text { text } if text == "refused")),
         "the refusal reached the session: {after:?}"
     );
+}
+
+#[tokio::test]
+async fn a_choice_reaches_the_session_as_part_of_what_it_asked() {
+    // **The property that makes questions answerable at all.** `AskUserQuestion`
+    // reads the answers out of its own arguments, so approving it unchanged says
+    // nothing — the console has to hand back an input it has written the choice
+    // into. The stub reports what it received, so what is asserted here is what
+    // the CLI would see, not what we meant to send.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    session.send("ask me which way").await.expect("send");
+    let seen = until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Ask { .. }))
+    })
+    .await;
+    let Some(Event::Ask { id, tool, .. }) = seen.iter().find(|e| matches!(e, Event::Ask { .. }))
+    else {
+        panic!("no question in {seen:?}");
+    };
+    assert_eq!(tool, console::protocol::QUESTION_TOOL);
+
+    let answers = console::protocol::Answers::from([(
+        "which way".to_string(),
+        console::protocol::Answer::One("left".to_string()),
+    )]);
+    session
+        .decide(id, true, "", Some(&answers))
+        .await
+        .expect("answer");
+    let after = until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Turn { .. }))
+    })
+    .await;
+    assert!(
+        after
+            .iter()
+            .any(|e| matches!(e, Event::Text { text } if text == "chose left")),
+        "the choice arrived inside the tool's own arguments: {after:?}"
+    );
+}
+
+#[tokio::test]
+async fn only_a_question_may_have_its_arguments_edited() {
+    // `updatedInput` would let a client approve a *different* command from the
+    // one it was shown. The console answers questions with it and nothing else,
+    // so a console that is compromised still cannot rewrite what it approves.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    session.send("may i run something").await.expect("send");
+    let seen = until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Ask { .. }))
+    })
+    .await;
+    let Some(Event::Ask { id, .. }) = seen.iter().find(|e| matches!(e, Event::Ask { .. })) else {
+        panic!("no question");
+    };
+
+    let answers = console::protocol::Answers::from([(
+        "command".to_string(),
+        console::protocol::Answer::One("rm -rf /".to_string()),
+    )]);
+    let refused = session.decide(id, true, "", Some(&answers)).await;
+    assert!(refused.is_err(), "answers are refused for a Bash call");
+    assert!(
+        format!("{:#}", refused.unwrap_err()).contains("Bash"),
+        "and names the tool that does not ask questions"
+    );
+    // Still open: a rejected edit is not an answer, and the session is waiting.
+    assert_eq!(session.summary().waiting, 1);
 }
 
 #[tokio::test]
@@ -387,8 +459,11 @@ async fn a_question_can_only_be_answered_once() {
         panic!("no question");
     };
 
-    session.decide(id, true, "").await.expect("first answer");
-    let again = session.decide(id, false, "changed my mind").await;
+    session
+        .decide(id, true, "", None)
+        .await
+        .expect("first answer");
+    let again = session.decide(id, false, "changed my mind", None).await;
     assert!(again.is_err(), "the second answer is refused");
     assert!(
         format!("{:#}", again.unwrap_err()).contains("already"),

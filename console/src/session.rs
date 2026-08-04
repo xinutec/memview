@@ -275,6 +275,17 @@ pub fn resumable(after: u64, held_from: u64, issued: u64) -> bool {
     after + 1 >= held_from && after <= issued
 }
 
+/// A question the session is waiting on an answer to.
+///
+/// The arguments are kept because an allow has to echo them back, and the tool's
+/// name because only one tool's arguments may be *edited* on the way back — see
+/// [`protocol::QUESTION_TOOL`].
+#[derive(Debug, Clone)]
+struct Pending {
+    tool: String,
+    input: serde_json::Value,
+}
+
 /// The mutable half of a session, behind one lock.
 #[derive(Debug, Default)]
 struct State {
@@ -283,9 +294,8 @@ struct State {
     /// scrollback and drops its front, and a number that was reused after an
     /// eviction would resume a client into the wrong place.
     issued: u64,
-    /// Questions the session is blocked on, by control-request id, with the
-    /// arguments it asked about — an allow has to echo them back.
-    pending: BTreeMap<String, serde_json::Value>,
+    /// Questions the session is blocked on, by control-request id.
+    pending: BTreeMap<String, Pending>,
     alive: bool,
     model: Option<String>,
     busy: Option<String>,
@@ -729,8 +739,20 @@ impl Session {
     /// Answering an unknown id is an error rather than a silent success: the
     /// likeliest cause is two people looking at the same session, and the second
     /// one deserves to be told that the decision was already taken.
-    pub async fn decide(&self, id: &str, allowed: bool, why: &str) -> Result<()> {
-        let input = {
+    ///
+    /// `answers` are the choices made about a [`protocol::QUESTION_TOOL`] call,
+    /// and are refused for anything else. That is the narrow reading of
+    /// `updatedInput`: the protocol would let a client rewrite the arguments of
+    /// any tool it approves, and a console whose whole job is approving tool
+    /// calls should not also be able to change what it approved.
+    pub async fn decide(
+        &self,
+        id: &str,
+        allowed: bool,
+        why: &str,
+        answers: Option<&protocol::Answers>,
+    ) -> Result<()> {
+        let pending = {
             let state = self.state.lock().expect("session state poisoned");
             state
                 .pending
@@ -738,7 +760,13 @@ impl Session {
                 .cloned()
                 .context("that question is not open — it may already have been answered")?
         };
-        let line = protocol::decision(id, allowed, &input, why);
+        if answers.is_some() && pending.tool != protocol::QUESTION_TOOL {
+            anyhow::bail!(
+                "answers were sent for {}, which does not ask questions",
+                pending.tool
+            );
+        }
+        let line = protocol::decision(id, allowed, &pending.input, why, answers);
         let mut held = self.stdin.lock().await;
         let stdin = held
             .as_mut()
@@ -856,8 +884,16 @@ impl Session {
                 Event::Prompt { text } if state.asked.is_none() => {
                     state.asked = Some(text.clone());
                 }
-                Event::Ask { id, input, .. } => {
-                    state.pending.insert(id.clone(), input.clone());
+                Event::Ask {
+                    id, tool, input, ..
+                } => {
+                    state.pending.insert(
+                        id.clone(),
+                        Pending {
+                            tool: tool.clone(),
+                            input: input.clone(),
+                        },
+                    );
                 }
                 Event::Answered { id, .. } => {
                     state.pending.remove(id);

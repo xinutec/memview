@@ -95,6 +95,41 @@ describe('questions', () => {
     expect(ask.text).toBe('Claude wants to run rm -rf build');
   });
 
+  it('carries the options of a question through to the entry', () => {
+    const [ask] = transcript({
+      kind: 'ask',
+      id: 'q1',
+      tool: 'AskUserQuestion',
+      input: {
+        questions: [
+          {
+            question: 'which way?',
+            header: 'Way',
+            multiSelect: false,
+            options: [
+              { label: 'left', description: 'go left' },
+              { label: 'right', description: 'go right' },
+            ],
+          },
+        ],
+      },
+    });
+    expect(ask.questions?.[0].options.map((o) => o.label)).toEqual(['left', 'right']);
+  });
+
+  it('leaves every other tool without options, which is what keeps allow and refuse', () => {
+    // ⚠ The check is on the tool's *name*, not on whether the arguments happen to
+    // parse. A tool of our own that took a `questions` argument would otherwise
+    // be answered instead of approved.
+    const [ask] = transcript({
+      kind: 'ask',
+      id: 'q1',
+      tool: 'Bash',
+      input: { questions: [{ question: 'which way?', options: [{ label: 'left' }] }] },
+    });
+    expect(ask.questions).toBeUndefined();
+  });
+
   it('falls back to the arguments when the CLI offers no sentence', () => {
     const [ask] = transcript({
       kind: 'ask',

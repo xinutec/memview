@@ -161,6 +161,10 @@ pub struct Decision {
     /// Why not. Ignored on an allow; the session is told it on a refusal.
     #[serde(default)]
     pub why: Option<String>,
+    /// What was chosen, for a question. Absent for every other tool, and refused
+    /// if sent for one — see [`crate::session::Session::decide`].
+    #[serde(default)]
+    pub answers: Option<console_protocol::Answers>,
 }
 
 /// The refusal a client sends when it does not say why.
@@ -175,7 +179,12 @@ async fn decide(
         .get(&id)
         .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
     session
-        .decide(&body.id, body.allow, body.why.as_deref().unwrap_or(REFUSED))
+        .decide(
+            &body.id,
+            body.allow,
+            body.why.as_deref().unwrap_or(REFUSED),
+            body.answers.as_ref(),
+        )
         .await
         // CONFLICT rather than NOT_FOUND: the usual cause is that the question
         // was answered a moment ago, on another screen.

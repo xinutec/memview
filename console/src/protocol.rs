@@ -576,6 +576,28 @@ pub fn read(line: &str) -> Vec<Event> {
     }
 }
 
+/// The tool that asks the person a question rather than the machine a favour.
+///
+/// It is gated by `can_use_tool` like any other, so it arrives as an ordinary
+/// [`Event::Ask`] — but approving it unchanged is not an answer. See [`Answers`].
+pub const QUESTION_TOOL: &str = "AskUserQuestion";
+
+/// What was chosen: the question's own text, against the option label picked.
+///
+/// One label for a single-choice question, several for a `multiSelect` one. The
+/// CLI matches these against the labels it offered, so they are sent back
+/// verbatim rather than by index — an index would silently mean the wrong option
+/// if the list were ever reordered between asking and answering.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum Answer {
+    One(String),
+    Many(Vec<String>),
+}
+
+/// Every answer to one [`QUESTION_TOOL`] call.
+pub type Answers = std::collections::BTreeMap<String, Answer>;
+
 /// The answer to a `can_use_tool` question, in the shape the CLI reads.
 ///
 /// **An allow must carry the arguments back.** The protocol lets a client edit
@@ -583,9 +605,23 @@ pub fn read(line: &str) -> Vec<Event> {
 /// approves what was asked, so it echoes the input unchanged rather than
 /// omitting it. A deny carries a message, which the session sees as the reason
 /// and can act on.
-pub fn decision(id: &str, allowed: bool, input: &serde_json::Value, why: &str) -> String {
+///
+/// **For [`QUESTION_TOOL`] that edit is the whole point.** Its `call` reads
+/// `answers` out of its own arguments and formats them — it prompts nobody — so
+/// a client answers by approving an input it has written the answers into.
+/// Approving unchanged is what produces *"The user did not answer the
+/// questions."*: the CLI builds its result from `answers`, and an absent one
+/// falls through to that last branch. Measured against 2.1.220, and the reason
+/// the console showed a question as allow/refuse for as long as it did.
+pub fn decision(
+    id: &str,
+    allowed: bool,
+    input: &serde_json::Value,
+    why: &str,
+    answers: Option<&Answers>,
+) -> String {
     let response = if allowed {
-        serde_json::json!({"behavior": "allow", "updatedInput": input})
+        serde_json::json!({"behavior": "allow", "updatedInput": answered(input, answers)})
     } else {
         serde_json::json!({"behavior": "deny", "message": why})
     };
@@ -594,6 +630,23 @@ pub fn decision(id: &str, allowed: bool, input: &serde_json::Value, why: &str) -
         "response": {"subtype": "success", "request_id": id, "response": response},
     })
     .to_string()
+}
+
+/// The approved input, with the answers written into it.
+///
+/// Nothing is invented when there are none: the input goes back exactly as it
+/// came, which is what an ordinary approval means. A non-object input is left
+/// alone rather than replaced — there is nowhere to put an answer in it, and
+/// dropping what the tool was asked to do would be worse than not answering.
+fn answered(input: &serde_json::Value, answers: Option<&Answers>) -> serde_json::Value {
+    let Some(answers) = answers else {
+        return input.clone();
+    };
+    let mut input = input.clone();
+    if let Some(object) = input.as_object_mut() {
+        object.insert("answers".to_string(), serde_json::json!(answers));
+    }
+    input
 }
 
 /// Ask the session to change what it may do without asking.
