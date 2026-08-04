@@ -488,6 +488,14 @@ async function expectTheStampIsClear(page: Page): Promise<void> {
     // ancestor that actually clips.
     const painted = (node: Element): DOMRect => {
       let box = node.getBoundingClientRect();
+      // ⚠ **A fixed element is not clipped by its ancestors' overflow** — it is
+      // positioned against the viewport, and climbing past it cropped the one
+      // control on this page that can actually reach the stamp. Cropped to
+      // `.page`, which stops above the stamp by construction, so the check
+      // reported nothing however far down the button was pushed: proved by
+      // moving it to `bottom: 0.25rem`, straight over the stamp, and watching
+      // this pass.
+      if (getComputedStyle(node).position === 'fixed') return box;
       for (let up = node.parentElement; up; up = up.parentElement) {
         const style = getComputedStyle(up);
         if (style.overflowY === 'visible' && style.overflowX === 'visible') continue;
@@ -505,7 +513,13 @@ async function expectTheStampIsClear(page: Page): Promise<void> {
     const bad: string[] = [];
     // The cards, not every node: a box that overlaps is reported once, by the
     // thing somebody can see, rather than once per span inside it.
-    for (const card of document.querySelectorAll('.page .session, .page .start, .page .past')) {
+    // ⚠ `.add` is here because it is the one thing on this page positioned
+    // against the viewport rather than laid out in the column — which is exactly
+    // the way to end up on top of the stamp, and the only way this check can be
+    // wrong by omission. `.start` used to be the form at the top of the page and
+    // is gone; a selector naming an element that no longer exists is a check
+    // quietly covering less than it reads as covering.
+    for (const card of document.querySelectorAll('.page .session, .page .past, .page .add')) {
       const box = painted(card);
       const over =
         Math.min(box.bottom, stamp.bottom) - Math.max(box.top, stamp.top) > 1 &&
@@ -616,6 +630,49 @@ test('session list — deep paths and long instructions @ phone width', async ({
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
   await expectThumbTargets(page);
+});
+
+test('starting a session is behind one button, not in the way @ phone width', async ({
+  page,
+}, testInfo) => {
+  // The list is what this page is opened for — a dozen conversations, scanned
+  // for the one that is waiting. The form used to be the first thing on it and
+  // the first thing scrolled past, costing a screenful of a phone every time.
+  await mockRunner(page);
+  let sent: Record<string, unknown> | undefined;
+  await page.route('**/api/sessions', (r) => {
+    sent = r.request().postDataJSON() as Record<string, unknown>;
+    return r.fulfill({ json: STATE.sessions[0] });
+  });
+  await page.goto('/');
+  await page.getByText('decode').first().waitFor();
+
+  // Nothing but conversations on the page itself.
+  await expect(page.getByLabel('where'), 'the form is still in the reading').toHaveCount(0);
+  const add = page.getByRole('button', { name: 'start a new session' });
+  await expect(add).toBeVisible();
+
+  await add.click();
+  const where = page.getByLabel('where');
+  await expect(where, 'the form did not open').toBeVisible();
+  // Prefilled with the first repository, which is where the page used to start
+  // from — one less thing to type on a phone.
+  await expect(where).toHaveValue(REPOS[0]);
+  // Scoped to the sheet: it is the only thing on screen that matters now, and
+  // the list behind it is still in the DOM.
+  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
+  await expectNoClippedText(page, testInfo, 'mat-bottom-sheet-container');
+
+  await where.fill('/home/example/Code/memview');
+  await page.getByLabel('what to do (optional)').fill('check the corpus');
+  await page.getByRole('button', { name: /start a session/ }).click();
+
+  await expect
+    .poll(() => sent)
+    .toMatchObject({
+      dir: '/home/example/Code/memview',
+      prompt: 'check the corpus',
+    });
 });
 
 test('session list — a dozen sessions do not reach the build stamp @ phone width', async ({

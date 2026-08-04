@@ -1,18 +1,3 @@
-.start {
-  margin-bottom: 1.5rem;
-
-  mat-card-content {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-}
-
-.where,
-.what {
-  width: 100%;
-}
-
 .session {
   display: block;
   margin-bottom: 0.75rem;
@@ -147,4 +132,24 @@
 :host {
   display: block;
   padding: 0 1rem;
+}
+
+// The control that starts a session, pinned where a thumb already is.
+//
+// ⚠ **`fixed`, and clear of the stamp.** The shell is a column of toolbar, page
+// and build stamp, and the stamp is a real row at the bottom rather than an
+// overlay — so a button at `bottom: 1rem` sits on top of it. The offset is the
+// stamp's own height plus a gap, measured rather than guessed: it renders 26px
+// tall at body-small with its padding, and `expectTheStampIsClear` in the layout
+// suite is what keeps that true when the type scale moves.
+//
+// The list needs no bottom padding to match: `.page` scrolls, and its last row
+// stops above the stamp for the same reason this does.
+.add {
+  position: fixed;
+  right: 1rem;
+  bottom: calc(2.5rem + env(safe-area-inset-bottom));
+  // Above the cards, below a bottom sheet — which is exactly what it opens, and
+  // the one thing that should cover it.
+  z-index: 2;
 }

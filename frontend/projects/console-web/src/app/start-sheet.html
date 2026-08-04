@@ -1,0 +1,25 @@
+<h2 class="what">Start a session</h2>
+
+@if (trouble(); as what) {
+  <p class="trouble">{{ what }}</p>
+}
+
+<mat-form-field appearance="outline" class="where">
+  <mat-label>where</mat-label>
+  <input matInput [(ngModel)]="dir" list="start-repos" placeholder="/path/to/a/repository" />
+</mat-form-field>
+<datalist id="start-repos">
+  @for (repo of repos; track repo) {
+    <option [value]="repo"></option>
+  }
+</datalist>
+
+<mat-form-field appearance="outline" class="asked">
+  <mat-label>what to do (optional)</mat-label>
+  <textarea matInput rows="2" [(ngModel)]="prompt" (keydown.control.enter)="start()"></textarea>
+</mat-form-field>
+
+<button matButton="filled" class="go" (click)="start()" [disabled]="starting() || !dir()">
+  <mat-icon>play_arrow</mat-icon>
+  start a session
+</button>

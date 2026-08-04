@@ -1,12 +1,10 @@
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
-import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
-import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
-import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { MatBottomSheet } from '@angular/material/bottom-sheet';
 import { Router, RouterLink } from '@angular/router';
 
 import { ConsoleApi } from './console-api';
@@ -19,6 +17,7 @@ import { placeOf, titleOf } from './naming';
 import { costMatters } from './budget';
 import { Updates } from './updates';
 import { PastStore } from './past-store';
+import { StartSheet } from './start-sheet';
 
 /**
  * One line of the list — a session this console is running, or a conversation
@@ -66,12 +65,9 @@ const RANK = { working: 0, waiting: 1, idle: 2, off: 3 } as const;
   imports: [
     RouterLink,
     NgTemplateOutlet,
-    FormsModule,
     MatCardModule,
     MatButtonModule,
     MatIconModule,
-    MatFormFieldModule,
-    MatInputModule,
     MatProgressBarModule,
   ],
 })
@@ -79,6 +75,7 @@ export class SessionsView {
   private api = inject(ConsoleApi);
   private updates = inject(Updates);
   private router = inject(Router);
+  private sheet = inject(MatBottomSheet);
   private pastStore = inject(PastStore);
   private foreground = inject(Foreground);
   private until = inject(DestroyRef);
@@ -98,8 +95,6 @@ export class SessionsView {
    */
   readonly unreachable = signal('');
   readonly starting = signal(false);
-  readonly dir = signal('');
-  readonly prompt = signal('');
   /** Conversations on disk, newest first. Held in a root store so opening a
    *  session and coming back does not blank the list — see [[PastStore]]. */
   readonly past = this.pastStore.conversations;
@@ -188,14 +183,14 @@ export class SessionsView {
         this.state.set(state);
         this.updates.saw(state.bundle);
         this.unreachable.set('');
-        if (!this.dir()) this.dir.set(state.repos[0] ?? state.dirs[0] ?? '');
       },
       error: (err: unknown) => this.unreachable.set(`cannot reach the runner: ${reason(err)}`),
     });
   }
 
-  start(): void {
-    this.open(this.dir().trim(), undefined);
+  /** Offer the form that starts one. See [[StartSheet]] for why it is a sheet. */
+  add(): void {
+    this.sheet.open(StartSheet, { data: this.state()?.repos ?? [], panelClass: 'start-sheet' });
   }
 
   /**
@@ -213,14 +208,21 @@ export class SessionsView {
     this.open(conversation.dir, conversation.id);
   }
 
+  /**
+   * Pick a conversation up, with no opening instruction.
+   *
+   * ⚠ **It used to send whatever was typed in the start form**, which shared
+   * this page with the list. The form is a sheet now, so there is no such field
+   * to read — and resuming with nothing said is the better default anyway: the
+   * conversation already has a subject, and the composer is right there.
+   */
   private open(dir: string, resume?: string): void {
     if (!dir || this.starting()) return;
     this.starting.set(true);
     this.trouble.set('');
-    this.api.start(dir, this.prompt().trim(), resume).subscribe({
+    this.api.start(dir, '', resume).subscribe({
       next: (session) => {
         this.starting.set(false);
-        this.prompt.set('');
         void this.router.navigate(['/s', session.id]);
       },
       error: (err: unknown) => {
