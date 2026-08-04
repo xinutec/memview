@@ -37,6 +37,17 @@ if [ ${#ADDRESSES[@]} -eq 0 ]; then
   # The VPN address is on a utun interface, which ipconfig does not answer for.
   VPN="$(ifconfig 2>/dev/null | awk '/inet 10\.100\./ {print $2}' | head -1)"
   [ -n "$VPN" ] && ADDRESSES+=("$VPN")
+  # ⚠ **The phone does not dial this Mac.** It reaches the console through the
+  # reverse tunnel, so the address in its URL is the one the tunnel listens on
+  # over on isis — which is on no interface here and therefore in nothing above.
+  # Leaving it out produced a certificate that was correct about every address
+  # except the only one a phone ever uses: measured as `net_error -200`,
+  # ERR_CERT_COMMON_NAME_INVALID, on every connection, silently overridden by the
+  # pin and costing a failed handshake each time. Read from the tunnel's own
+  # script so the two cannot disagree.
+  TUNNEL="$(sed -n 's/^LISTEN="\${CONSOLE_TUNNEL_LISTEN:-\([0-9.]*\):.*/\1/p' \
+    "$(dirname "$0")/console-tunnel.sh" 2>/dev/null | head -1)"
+  [ -n "$TUNNEL" ] && ADDRESSES+=("$TUNNEL")
 fi
 
 SAN=""

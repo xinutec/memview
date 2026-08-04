@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- dev-lint: android-webview (held identical to dev-lint's canonical WebView manifest) -->
+<!-- dev-lint: android-webview allow=application/@android:networkSecurityConfig
+     (held identical to dev-lint's canonical WebView manifest, but for the anchor
+     below — this is the only app in the fleet that speaks to a privately issued
+     certificate, and without the anchor every connection to it begins as an
+     error the network stack resolves without asking us: measured at one failed
+     handshake per five-second poll. Declared here rather than added to the
+     canonical manifest, because no other wrapper has anything to anchor.) -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
@@ -8,6 +14,7 @@
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <application
+        android:networkSecurityConfig="@xml/network_security_config"
         android:allowBackup="false"
         android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
