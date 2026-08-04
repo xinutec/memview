@@ -740,17 +740,17 @@ impl Session {
     /// likeliest cause is two people looking at the same session, and the second
     /// one deserves to be told that the decision was already taken.
     ///
-    /// `answers` are the choices made about a [`protocol::QUESTION_TOOL`] call,
-    /// and are refused for anything else. That is the narrow reading of
-    /// `updatedInput`: the protocol would let a client rewrite the arguments of
-    /// any tool it approves, and a console whose whole job is approving tool
-    /// calls should not also be able to change what it approved.
+    /// `reply` is what was said about a [`protocol::QUESTION_TOOL`] call, and is
+    /// refused for anything else. That is the narrow reading of `updatedInput`:
+    /// the protocol would let a client rewrite the arguments of any tool it
+    /// approves, and a console whose whole job is approving tool calls should not
+    /// also be able to change what it approved.
     pub async fn decide(
         &self,
         id: &str,
         allowed: bool,
         why: &str,
-        answers: Option<&protocol::Answers>,
+        reply: Option<&protocol::Reply>,
     ) -> Result<()> {
         let pending = {
             let state = self.state.lock().expect("session state poisoned");
@@ -760,13 +760,13 @@ impl Session {
                 .cloned()
                 .context("that question is not open — it may already have been answered")?
         };
-        if answers.is_some() && pending.tool != protocol::QUESTION_TOOL {
+        if reply.is_some() && pending.tool != protocol::QUESTION_TOOL {
             anyhow::bail!(
                 "answers were sent for {}, which does not ask questions",
                 pending.tool
             );
         }
-        let line = protocol::decision(id, allowed, &pending.input, why, answers);
+        let line = protocol::decision(id, allowed, &pending.input, why, reply);
         let mut held = self.stdin.lock().await;
         let stdin = held
             .as_mut()

@@ -58,12 +58,14 @@ export class ConsoleApi {
     allow: boolean,
     why?: string,
     answers?: Answers,
+    response?: string,
   ): Observable<Summary> {
     return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(session)}/decide`, {
       id,
       allow,
       why,
       answers,
+      response,
     });
   }
 

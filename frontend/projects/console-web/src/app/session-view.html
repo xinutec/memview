@@ -94,6 +94,7 @@
                           class="option"
                           [class.taken]="picked(entry, question, option.label)"
                           [attr.aria-pressed]="picked(entry, question, option.label)"
+                          [disabled]="replying(entry)"
                           (click)="pick(entry, question, option.label)"
                         >
                           <span class="label">{{ option.label }}</span>
@@ -105,10 +106,26 @@
                     </div>
                   </div>
                 }
+                <!-- Words instead of a choice. Typing takes the card over — the
+                     options above go quiet — because the CLI reads `response`
+                     INSTEAD of `answers`, never both. Clearing it hands the
+                     options back. -->
+                <textarea
+                  class="say"
+                  rows="1"
+                  [attr.aria-label]="'answer in words instead of choosing'"
+                  placeholder="or say something instead"
+                  [value]="words(entry)"
+                  (input)="say(entry, $any($event.target).value)"
+                ></textarea>
                 <div class="choose">
-                  @if (questions.length > 1 || questions[0].multiSelect) {
-                    <button matButton="filled" [disabled]="!ready(entry)" (click)="answer(entry)">
-                      answer
+                  @if (needsSending(entry)) {
+                    <button
+                      matButton="filled"
+                      [disabled]="!replying(entry) && !ready(entry)"
+                      (click)="answer(entry)"
+                    >
+                      {{ replying(entry) ? 'reply' : 'answer' }}
                     </button>
                   }
                   <!-- The way out of a question there is no good answer to. The

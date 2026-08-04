@@ -598,6 +598,36 @@ pub enum Answer {
 /// Every answer to one [`QUESTION_TOOL`] call.
 pub type Answers = std::collections::BTreeMap<String, Answer>;
 
+/// What a person said about a question: options picked, or words instead.
+///
+/// ⚠ **`response` and `answers` are alternatives, not companions.** The CLI's
+/// result builder tests `response` first and reports only that, so prose sent
+/// alongside a set of choices silently throws the choices away. Read off 2.1.220:
+///
+/// ```text
+/// else if (response?.trim()) a = `The user responded: ${response}`
+/// else if (s)               a = `The user answered: …`
+/// ```
+///
+/// The client is where that is made visible — a card that offered both at once
+/// would be offering one of them dishonestly.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct Reply {
+    #[serde(default, skip_serializing_if = "Answers::is_empty")]
+    pub answers: Answers,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response: Option<String>,
+}
+
+impl Reply {
+    /// Whether there is anything here to say. An empty reply is not an answer,
+    /// and sending one would read to the session as "did not answer" — which is
+    /// true, but is better refused at the door than discovered a turn later.
+    pub fn is_empty(&self) -> bool {
+        self.answers.is_empty() && self.response.as_deref().unwrap_or("").trim().is_empty()
+    }
+}
+
 /// The answer to a `can_use_tool` question, in the shape the CLI reads.
 ///
 /// **An allow must carry the arguments back.** The protocol lets a client edit
@@ -618,10 +648,10 @@ pub fn decision(
     allowed: bool,
     input: &serde_json::Value,
     why: &str,
-    answers: Option<&Answers>,
+    reply: Option<&Reply>,
 ) -> String {
     let response = if allowed {
-        serde_json::json!({"behavior": "allow", "updatedInput": answered(input, answers)})
+        serde_json::json!({"behavior": "allow", "updatedInput": answered(input, reply)})
     } else {
         serde_json::json!({"behavior": "deny", "message": why})
     };
@@ -638,13 +668,21 @@ pub fn decision(
 /// came, which is what an ordinary approval means. A non-object input is left
 /// alone rather than replaced — there is nowhere to put an answer in it, and
 /// dropping what the tool was asked to do would be worse than not answering.
-fn answered(input: &serde_json::Value, answers: Option<&Answers>) -> serde_json::Value {
-    let Some(answers) = answers else {
+fn answered(input: &serde_json::Value, reply: Option<&Reply>) -> serde_json::Value {
+    let Some(reply) = reply else {
         return input.clone();
     };
     let mut input = input.clone();
     if let Some(object) = input.as_object_mut() {
-        object.insert("answers".to_string(), serde_json::json!(answers));
+        if !reply.answers.is_empty() {
+            object.insert("answers".to_string(), serde_json::json!(reply.answers));
+        }
+        // Only when there is something in it: an empty string is falsy to the
+        // CLI's `response?.trim()` test, but writing the key at all says a
+        // choice was overridden by nothing.
+        if let Some(said) = reply.response.as_deref().filter(|s| !s.trim().is_empty()) {
+            object.insert("response".to_string(), serde_json::json!(said));
+        }
     }
     input
 }

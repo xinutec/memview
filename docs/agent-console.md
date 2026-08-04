@@ -853,6 +853,13 @@ Three decisions worth keeping:
   obviously finished. The common case is one question, and on a phone the
   difference between one tap and two is whether it gets answered from the lock
   screen.
+- ⚠ **Words and choices are alternatives, and the card says so.** The CLI's
+  result builder tests `response` before `answers` and reports only the one it
+  finds, so prose sent alongside a set of taps throws the taps away silently.
+  Typing therefore takes the card over — the options go quiet and the button
+  changes from *answer* to *reply* — and clearing the field hands them back.
+  Whitespace does not count, because the CLI trims before testing. The
+  alternative was a card that offered both and honoured one.
 - **A question whose arguments cannot be read falls back to allow/refuse.**
   Parsing is all-or-nothing: a half-read question would show fewer options than
   were offered, and nobody choosing from a list can tell that an option is

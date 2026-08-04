@@ -161,10 +161,11 @@ pub struct Decision {
     /// Why not. Ignored on an allow; the session is told it on a refusal.
     #[serde(default)]
     pub why: Option<String>,
-    /// What was chosen, for a question. Absent for every other tool, and refused
-    /// if sent for one — see [`crate::session::Session::decide`].
-    #[serde(default)]
-    pub answers: Option<console_protocol::Answers>,
+    /// What was said about a question — options picked, or words instead. Absent
+    /// for every other tool, and refused if sent for one; see
+    /// [`crate::session::Session::decide`] and [`console_protocol::Reply`].
+    #[serde(default, flatten)]
+    pub reply: console_protocol::Reply,
 }
 
 /// The refusal a client sends when it does not say why.
@@ -183,7 +184,9 @@ async fn decide(
             &body.id,
             body.allow,
             body.why.as_deref().unwrap_or(REFUSED),
-            body.answers.as_ref(),
+            // Nothing said is not a reply: an ordinary approval of any tool
+            // arrives here with these fields absent, and must stay one.
+            Some(&body.reply).filter(|reply| !reply.is_empty()),
         )
         .await
         // CONFLICT rather than NOT_FOUND: the usual cause is that the question

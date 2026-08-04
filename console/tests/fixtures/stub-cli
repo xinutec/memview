@@ -32,6 +32,16 @@ while IFS= read -r line; do
         # approving it unchanged is exactly the bug this reports the absence of.
         # Only the first answer's value is read, which is all a single-choice
         # question has — the shape is pinned in protocol.rs instead.
+        # Words instead of a choice. Reported first because that is the CLI's own
+        # precedence: `response` wins over `answers`, which is why the two are
+        # never sent together.
+        # ⚠ Matched on `"response":"` — a STRING value. Every control response
+        # carries a `"response":{` object of its own, so the bare key matches
+        # every line there is, including a plain approval and a refusal.
+        *'"response":"'*)
+          said=$(printf '%s' "$line" | sed -e 's/.*"response":"//' -e 's/".*//')
+          verdict="said $said"
+          ;;
         *'"answers"'*)
           chose=$(printf '%s' "$line" | sed -e 's/.*"answers":{[^:]*:"//' -e 's/".*//')
           verdict="chose $chose"

@@ -708,6 +708,47 @@ test('a question offers what was asked, not allow and refuse @ phone width', asy
   });
 });
 
+test('words instead of a choice take the card over @ phone width', async ({ page }, testInfo) => {
+  // ⚠ **The trap this shape exists to close.** The CLI's result builder tests
+  // `response` before `answers` and reports only what it finds, so words sent
+  // alongside a set of taps would throw the taps away and say nothing about it.
+  // Typing therefore disables the options rather than sitting beside them.
+  const sent = await mockQuestion(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  const options = page.getByRole('button', { name: /options only/ });
+  await options.waitFor();
+  await expect(options).toBeEnabled();
+
+  await page.locator('.say').first().fill('neither — do the read-only part first');
+  await expect(options, 'an option that could still be tapped but would not arrive').toBeDisabled();
+
+  const send = page.getByRole('button', { name: 'reply', exact: true });
+  await expect(send, 'the button says what it will do').toBeVisible();
+  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectThumbTargets(page);
+  await send.click();
+
+  await expect.poll(sent).toMatchObject({
+    allow: true,
+    response: 'neither — do the read-only part first',
+  });
+  // And nothing was picked, so nothing pretends to have been.
+  expect(sent()?.['answers'], 'answers rode along and would have been discarded').toBeUndefined();
+});
+
+test('clearing the words hands the options back @ phone width', async ({ page }) => {
+  await mockQuestion(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  const options = page.getByRole('button', { name: /options only/ });
+  await options.waitFor();
+  await page.locator('.say').first().fill('actually, never mind');
+  await expect(options).toBeDisabled();
+  // Whitespace is not an answer either — the CLI trims before testing it.
+  await page.locator('.say').first().fill('   ');
+  await expect(options).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'reply', exact: true })).toHaveCount(0);
+});
+
 test('a lone single-choice question answers on the tap @ phone width', async ({ page }) => {
   // One tap, because the alternative is two: tap the option, then reach for a
   // send button. On a phone that difference is whether it gets answered from the

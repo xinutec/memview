@@ -209,6 +209,30 @@
   opacity: 0.85;
 }
 
+// Quiet, not hidden: while words are being typed the options cannot be sent, and
+// the card should say so where they are rather than by removing them.
+.option:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+// The way out of a list that does not contain the answer.
+.say {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 3rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 0.5rem;
+  background: var(--mat-sys-surface);
+  color: inherit;
+  font: inherit;
+  // Its own line-height, because `font: inherit` brings the row's and a one-row
+  // box then sits taller than the text it holds.
+  line-height: 1.4;
+  resize: vertical;
+}
+
 .choose {
   display: flex;
   gap: 0.5rem;

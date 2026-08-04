@@ -392,12 +392,15 @@ async fn a_choice_reaches_the_session_as_part_of_what_it_asked() {
     };
     assert_eq!(tool, console::protocol::QUESTION_TOOL);
 
-    let answers = console::protocol::Answers::from([(
-        "which way".to_string(),
-        console::protocol::Answer::One("left".to_string()),
-    )]);
+    let reply = console::protocol::Reply {
+        answers: console::protocol::Answers::from([(
+            "which way".to_string(),
+            console::protocol::Answer::One("left".to_string()),
+        )]),
+        response: None,
+    };
     session
-        .decide(id, true, "", Some(&answers))
+        .decide(id, true, "", Some(&reply))
         .await
         .expect("answer");
     let after = until(&session, |seen| {
@@ -410,6 +413,69 @@ async fn a_choice_reaches_the_session_as_part_of_what_it_asked() {
             .any(|e| matches!(e, Event::Text { text } if text == "chose left")),
         "the choice arrived inside the tool's own arguments: {after:?}"
     );
+}
+
+#[tokio::test]
+async fn words_instead_of_a_choice_travel_on_their_own() {
+    // ⚠ **`response` overrides `answers` in the CLI, so the two are never both
+    // sent.** Its result builder tests `response` first and reports only that —
+    // prose alongside a set of choices would throw the choices away silently.
+    // The stub reports whichever it received, so this fails if both go.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    session.send("ask me which way").await.expect("send");
+    let seen = until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Ask { .. }))
+    })
+    .await;
+    let Some(Event::Ask { id, .. }) = seen.iter().find(|e| matches!(e, Event::Ask { .. })) else {
+        panic!("no question");
+    };
+
+    let reply = console::protocol::Reply {
+        answers: console::protocol::Answers::default(),
+        response: Some("neither, go back".to_string()),
+    };
+    session
+        .decide(id, true, "", Some(&reply))
+        .await
+        .expect("reply");
+    let after = until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Turn { .. }))
+    })
+    .await;
+    assert!(
+        after
+            .iter()
+            .any(|e| matches!(e, Event::Text { text } if text == "said neither, go back")),
+        "the words arrived, and no answers with them: {after:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_empty_reply_is_an_ordinary_approval() {
+    // The route hands every allow through the same field, so "nothing was said"
+    // has to stay distinguishable from "an answer was given" — otherwise every
+    // approved Bash call would look like an edited one and be refused.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    session.send("may i run something").await.expect("send");
+    let seen = until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Ask { .. }))
+    })
+    .await;
+    let Some(Event::Ask { id, .. }) = seen.iter().find(|e| matches!(e, Event::Ask { .. })) else {
+        panic!("no question");
+    };
+
+    let nothing = console::protocol::Reply::default();
+    assert!(nothing.is_empty());
+    session
+        .decide(id, true, "", None)
+        .await
+        .expect("an ordinary approval still works");
 }
 
 #[tokio::test]
@@ -429,11 +495,14 @@ async fn only_a_question_may_have_its_arguments_edited() {
         panic!("no question");
     };
 
-    let answers = console::protocol::Answers::from([(
-        "command".to_string(),
-        console::protocol::Answer::One("rm -rf /".to_string()),
-    )]);
-    let refused = session.decide(id, true, "", Some(&answers)).await;
+    let reply = console::protocol::Reply {
+        answers: console::protocol::Answers::from([(
+            "command".to_string(),
+            console::protocol::Answer::One("rm -rf /".to_string()),
+        )]),
+        response: None,
+    };
+    let refused = session.decide(id, true, "", Some(&reply)).await;
     assert!(refused.is_err(), "answers are refused for a Bash call");
     assert!(
         format!("{:#}", refused.unwrap_err()).contains("Bash"),

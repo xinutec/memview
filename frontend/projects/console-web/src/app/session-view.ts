@@ -145,6 +145,8 @@ export class SessionView implements OnDestroy {
    * dead keys costs less than the code to notice.
    */
   private readonly chosen = signal<Record<string, Answers>>({});
+  /** What has been typed against a question instead of choosing, by the same key. */
+  private readonly said = signal<Record<string, string>>({});
   /** Whether anything older than what is on screen remains on disk.
    *
    *  The cursor is a byte offset into the transcript, so zero is the start of the
@@ -493,11 +495,11 @@ export class SessionView implements OnDestroy {
    * no moment where the choice is obviously finished, so it waits for [answer].
    */
   pick(entry: Entry, question: Question, label: string): void {
-    if (!entry.ask || entry.allowed !== undefined) return;
+    if (!entry.ask || entry.allowed !== undefined || this.replying(entry)) return;
     const questions = entry.questions ?? [];
     const single = questions.length === 1 && !question.multiSelect;
     if (single) {
-      this.sendAnswers(entry, { [question.question]: label });
+      this.approveWith(entry, { [question.question]: label }, undefined);
       return;
     }
     const ask = entry.ask;
@@ -521,16 +523,52 @@ export class SessionView implements OnDestroy {
     return complete(entry.questions ?? [], this.chosen()[entry.ask ?? ''] ?? {});
   }
 
-  /** Send what has been chosen, for a question that needed more than one tap. */
-  answer(entry: Entry): void {
-    if (!this.ready(entry)) return;
-    this.sendAnswers(entry, this.chosen()[entry.ask ?? ''] ?? {});
+  /** What has been typed against this question, if anything. */
+  words(entry: Entry): string {
+    return this.said()[entry.ask ?? ''] ?? '';
   }
 
-  /** Approve the call with the answers written into it. See `questions.ts`. */
-  private sendAnswers(entry: Entry, answers: Answers): void {
+  /**
+   * Whether this card is answering in words rather than by choice.
+   *
+   * ⚠ **The two are alternatives, not companions.** The CLI's result builder
+   * tests `response` before `answers` and reports only the one it finds, so
+   * words sent alongside a set of taps would throw the taps away without saying
+   * so. Typing therefore takes the card over: the options go quiet, and clearing
+   * the field hands it back. Better to make the exclusivity visible than to let
+   * somebody tap four options and have none of them arrive.
+   */
+  replying(entry: Entry): boolean {
+    return this.words(entry).trim() !== '';
+  }
+
+  say(entry: Entry, text: string): void {
+    const ask = entry.ask;
+    if (!ask) return;
+    this.said.update((all) => ({ ...all, [ask]: text }));
+  }
+
+  /** Whether the button that sends is worth showing at all. */
+  needsSending(entry: Entry): boolean {
+    const questions = entry.questions ?? [];
+    return this.replying(entry) || questions.length > 1 || (questions[0]?.multiSelect ?? false);
+  }
+
+  /** Send what has been chosen, or what has been typed instead of choosing. */
+  answer(entry: Entry): void {
     if (!entry.ask || entry.allowed !== undefined) return;
-    this.api.decide(this.id(), entry.ask, true, undefined, answers).subscribe({
+    if (this.replying(entry)) {
+      this.approveWith(entry, undefined, this.words(entry).trim());
+      return;
+    }
+    if (!this.ready(entry)) return;
+    this.approveWith(entry, this.chosen()[entry.ask] ?? {}, undefined);
+  }
+
+  /** Approve the call with the answer written into it. See `questions.ts`. */
+  private approveWith(entry: Entry, answers?: Answers, response?: string): void {
+    if (!entry.ask || entry.allowed !== undefined) return;
+    this.api.decide(this.id(), entry.ask, true, undefined, answers, response).subscribe({
       error: (err: unknown) => this.trouble.set(reason(err)),
     });
   }
