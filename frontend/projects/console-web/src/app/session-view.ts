@@ -10,6 +10,7 @@ import {
   inject,
   input,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -214,6 +215,25 @@ export class SessionView implements OnDestroy {
     effect(() => {
       this.entries();
       requestAnimationFrame(() => this.follow());
+    });
+    // A run that is working is latched open — see [watched] for what the live
+    // condition did instead. In an effect because it is a fact about what this
+    // page has seen happen, which no amount of looking at the entries can
+    // recover afterwards: once the results are in, a run that ran while
+    // somebody watched and one replayed from the transcript are identical.
+    effect(() => {
+      const working = this.blocks().flatMap((block) =>
+        block.kind === 'tools' && ran(block.entries).running > 0 ? [block.key] : [],
+      );
+      if (!working.length) return;
+      // ⚠ `untracked`, or the write below is a dependency of the effect that
+      // makes it — a loop that only the guard inside stops, and one a later
+      // edit to the guard would start.
+      untracked(() =>
+        this.watched.update((seen) =>
+          working.every((key) => seen.has(key)) ? seen : new Set([...seen, ...working]),
+        ),
+      );
     });
     // ⚠ **The end of the transcript moves when the transcript does not.** The
     // composer sits above it as a fixed-size row, so every line typed takes a
@@ -465,18 +485,33 @@ export class SessionView implements OnDestroy {
   }
 
   /**
+   * The runs this page has watched work, which is what keeps them open.
+   *
+   * ⚠ **Latched, because the condition itself flickers.** This used to read
+   * `running > 0` live, and a session making one call at a time toggled the
+   * whole widget on every single call: the second call turns a pair into a run
+   * and opens it, its result empties the run and folds it, the next call opens
+   * it again. Measured on this console's own transcript — a run of a dozen
+   * sequential calls flipped a dozen times, under the thumb of somebody trying
+   * to read it.
+   *
+   * A set of keys rather than a count, so it survives the run growing: a call
+   * joining an open run does not reopen it, and a result landing does not close
+   * it. Held for the life of this page only — coming back to a finished
+   * conversation folds everything again, which is the compactness this was for.
+   */
+  private readonly watched = signal(new Set<string>());
+
+  /**
    * Whether a run is open.
    *
-   * ⚠ **A run with something still running is open until somebody closes it.**
-   * The newest calls are the ones being made now, and a page that folded them
-   * away would be hiding exactly what the reader came to watch — the session
-   * would look idle while it worked. Once the reader has decided for
-   * themselves, that decision holds: an explicit choice outlives the condition
-   * that opened it, so a run does not fold up under somebody mid-read the
-   * moment its last call returns.
+   * ⚠ **Nothing folds under the reader.** A run opens when it starts working —
+   * the newest calls are the ones being made now, and folding them away would
+   * hide exactly what somebody came to watch — and from then on only a tap
+   * closes it. An explicit choice beats the latch in both directions.
    */
   protected opensTools(block: Block & { kind: 'tools' }): boolean {
-    return this.toolChoice()[block.key] ?? ran(block.entries).running > 0;
+    return this.toolChoice()[block.key] ?? this.watched().has(block.key);
   }
 
   protected toggleTools(block: Block & { kind: 'tools' }): void {

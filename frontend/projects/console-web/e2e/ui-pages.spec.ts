@@ -2078,3 +2078,39 @@ test('a run with something still running stays open @ phone width', async ({ pag
   await expect(page.getByText('cargo test --all-features')).toBeVisible();
 });
 
+test('a run that has been watched working does not fold itself @ phone width', async ({ page }) => {
+  // ⚠ **The condition flickers, so it cannot be read live.** Reported from the
+  // phone: the widget "keeps flipping open and closed". A session making one
+  // call at a time toggles it on every call — the second call turns a pair into
+  // a run and opens it, its result empties the run and folds it, the next call
+  // opens it again. Once a run has worked in front of somebody, only a tap
+  // closes it.
+  await handControlOfTheStream(page);
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.transcript').waitFor();
+  let seq = 0;
+  await say(
+    page,
+    { kind: 'tool', id: 'seq_a', name: 'Bash', input: { command: 'git status' } },
+    ++seq,
+  );
+  await say(page, { kind: 'tool_result', id: 'seq_a', ok: true, detail: 'clean' }, ++seq);
+  await say(
+    page,
+    { kind: 'tool', id: 'seq_b', name: 'Bash', input: { command: 'git log -1' } },
+    ++seq,
+  );
+  const run = page.locator('.entry.tools .run').last();
+  await run.waitFor();
+  await expect(page.getByText('git log -1')).toBeVisible();
+
+  // The result that used to fold it.
+  await say(page, { kind: 'tool_result', id: 'seq_b', ok: true, detail: 'a commit' }, ++seq);
+  await expect(run, 'the run has finished').toContainText('2 tool calls');
+  await expect(page.getByText('git log -1'), 'it folded up under the reader').toBeVisible();
+
+  // And a tap still shuts it, which is the only thing that should.
+  await run.click();
+  await expect(page.getByText('git log -1')).toHaveCount(0);
+});
