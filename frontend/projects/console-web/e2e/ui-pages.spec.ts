@@ -64,6 +64,55 @@ async function expectThumbTargets(page: Page, min = THUMB): Promise<void> {
   expect(small, `controls smaller than ${min}px in either direction`).toEqual([]);
 }
 
+/**
+ * Every icon that is a control on its own, and whether it sits in the middle of
+ * it.
+ *
+ * ⚠ **The one failure class every other check here is blind to.** A glyph 3px
+ * high in its own circle is not clipped, does not overflow, does not overlap
+ * anything and is the right size to press — it is simply wrong, and the only
+ * evidence is the arithmetic between two boxes. It happened the moment the
+ * app-wide 48px floor was raised on a Material icon button: Material sizes those
+ * 40px square with 8px of padding baked into its structural CSS, so the extra
+ * 8px all went below the glyph.
+ *
+ * Measured against the control's own box rather than the state layer's, because
+ * they are the same box when nothing is wrong and the control is the thing
+ * anybody aims at. 1px of tolerance: a 24px glyph in an odd-height box is
+ * legitimately half a pixel out, and `mat-icon` rounds.
+ *
+ * Local rather than in `@xinutec/ui-harness` for now — the same journey
+ * `expectThumbTargets` took. It belongs there: nothing about it is this app's.
+ */
+async function expectIconsCentred(page: Page, slack = 1): Promise<void> {
+  const skewed = await page.evaluate((tolerance) => {
+    const off: { label: string; dx: number; dy: number }[] = [];
+    for (const control of document.querySelectorAll('button, a[href]')) {
+      const glyphs = control.querySelectorAll('mat-icon');
+      // Only controls that ARE an icon. A button with an icon beside a label
+      // places the pair, and neither one belongs in the middle by itself.
+      if (
+        glyphs.length !== 1 ||
+        (control.textContent ?? '').trim() !== glyphs[0].textContent?.trim()
+      )
+        continue;
+      const box = control.getBoundingClientRect();
+      const glyph = glyphs[0].getBoundingClientRect();
+      if (box.width === 0 || glyph.width === 0) continue;
+      const dx = glyph.x + glyph.width / 2 - (box.x + box.width / 2);
+      const dy = glyph.y + glyph.height / 2 - (box.y + box.height / 2);
+      if (Math.abs(dx) <= tolerance && Math.abs(dy) <= tolerance) continue;
+      off.push({
+        label: glyphs[0].textContent?.trim() ?? control.className,
+        dx: Math.round(dx * 10) / 10,
+        dy: Math.round(dy * 10) / 10,
+      });
+    }
+    return off;
+  }, slack);
+  expect(skewed, 'icons sitting off-centre in their own control').toEqual([]);
+}
+
 const REPOS = [
   '/home/example/Code/health',
   '/home/example/Code/memview',
@@ -477,6 +526,7 @@ test('transcript — tool arguments and a fixed composer @ phone width', async (
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
   await expectNoPinnedOverlap(page);
+  await expectIconsCentred(page);
   await expectComposerFillsTheWidth(page);
   await expectSendAlignsWithTheBox(page);
 });
@@ -992,6 +1042,8 @@ test('the toolbar says which session this is, beside what can be done to it @ ph
   await page.route('**/api/state', (r) => r.fulfill({ json: NAMED }));
   await page.goto(`/s/${STATE.sessions[0].id}`);
   await expect(page.locator('.bar .name')).toHaveText('health');
+  // The ⋮ beside it is a glyph in a circle, and it has to be in the middle of it.
+  await expectIconsCentred(page);
   // Named by what it is called rather than by a class, so the assertion is about
   // what a person — or a screen reader — can find.
   await expect(page.locator('.bar').getByRole('button', { name: /what to do with/ })).toHaveText(

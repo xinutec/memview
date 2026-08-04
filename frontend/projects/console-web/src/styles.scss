@@ -57,6 +57,31 @@ button {
   min-width: 3rem;
 }
 
+// An icon button is a glyph in the middle of a circle, and the floor above only
+// made the circle bigger.
+//
+// ⚠ **Material's icon button is 40px square with 8px of padding, and that
+// padding is in its structural CSS rather than read from the size token.** So a
+// box raised to 48 keeps 8px above the glyph and gets 16 below it, and the ⋮
+// rides high in its own bubble — measured at a glyph centred on y=25 inside a
+// state layer centred on y=28. Nothing was clipped, nothing overflowed and the
+// target was the right size; it just looked wrong, which is the only symptom
+// this class of fault has.
+//
+// Centred here instead of resized there: setting `state-layer-size` grows the
+// circle and leaves the same padding, so the glyph stays off-centre in a bigger
+// bubble.
+//
+// `button[matIconButton]` is OUR markup — the directive written in the template —
+// rather than `.mat-mdc-icon-button`, which is Material's private DOM and breaks
+// silently on upgrades (DL-SCSS-INTERNAL-OVERRIDE).
+button[matIconButton] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
 a.home {
   min-height: 3rem;
   display: inline-flex;

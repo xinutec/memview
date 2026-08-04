@@ -795,6 +795,18 @@ already had, every time, for ever.
   type and every call is "unsafe".
 - **48px on every control**, app-wide in `styles.scss`, because `min-height` has
   to beat the `height` Material sets from its own tokens.
+- ⚠ **Raising the floor moved the glyph off-centre.** A Material icon button is
+  40px square with **8px of padding baked into its structural CSS**, not read
+  from its size token — so a box forced to 48 keeps 8px above the glyph and gets
+  16 below it, and the ⋮ rode 3px high in its own circle. Resizing through
+  `state-layer-size` does not help: it grows the circle and leaves the padding.
+  They are centred explicitly instead, via `button[matIconButton]` — our own
+  markup rather than `.mat-mdc-icon-button`, which is Material's private DOM.
+- **That class of fault is invisible to every other check.** Nothing was clipped,
+  overflowing, overlapping or undersized; it was simply wrong, and the evidence
+  is arithmetic between two boxes. `expectIconsCentred` in the console's own
+  spec is what measures it — a local helper for now, on the same path
+  `expectThumbTargets` took into `@xinutec/ui-harness`.
 - **`visualViewport`'s resize is what reports the soft keyboard.** A window
   resize does not fire. Whether the reader is at the bottom is *remembered as
   they scroll*, never measured when wanted — by then the box has shrunk and the

@@ -310,11 +310,9 @@
 
 // The send button is square and full-height rather than text-shaped: it is the
 // most-pressed control in the app and the only one that has to work with no
-// keyboard at all. Its width now comes from the app-wide floor in `styles.scss`
-// — this is where that floor was first needed and where it was first written.
-.send {
-  padding: 0;
-}
+// keyboard at all. Its size and the centring of its glyph both come from the
+// app-wide icon-button rules in `styles.scss` now — this is where they were
+// first needed and first written, one button at a time.
 
 // Two decisions, side by side and each half the screen. They were text-sized
 // buttons on a line with a shell command — the smallest targets on the page
