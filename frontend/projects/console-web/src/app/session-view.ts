@@ -140,6 +140,21 @@ export class SessionView implements OnDestroy {
   readonly more = computed(() => (this.held()?.cursor() ?? 0) > 0);
   readonly loading = signal(false);
   private scroller = viewChild<ElementRef<HTMLElement>>('scroller');
+  /** The top of what has been read, and the thing that asks for more. */
+  private brink = viewChild<ElementRef<HTMLElement>>('brink');
+  /**
+   * How many pages have been fetched, only ever read to re-arm the observer.
+   *
+   * ⚠ **An IntersectionObserver reports transitions, not states.** After a page
+   * lands, the mark is normally pushed out of view and the next crossing is a
+   * real one — but when the page that arrived is shorter than the screen the
+   * mark never leaves, no transition happens, and the reader is left at the top
+   * of a conversation that has more and will not fetch it until they scroll.
+   * Re-observing delivers a fresh initial callback, so bumping this after each
+   * page is what makes "as much as the reader wants" true rather than
+   * "as much as fits in one screenful more".
+   */
+  private pages = signal(0);
 
   constructor() {
     effect((onCleanup) => {
@@ -201,6 +216,29 @@ export class SessionView implements OnDestroy {
       const resized = new ResizeObserver(() => this.follow());
       resized.observe(box);
       onCleanup(() => resized.disconnect());
+    });
+    // Reaching the top of what has been read is the request for what came
+    // before it. Watched rather than handled in `onScroll`: that handler already
+    // decides one thing from a position it cannot fully trust — see its own
+    // warning — and a second question answered from the same measurement would
+    // inherit the same race. An observer is told about the element instead.
+    //
+    // 400px of margin, so the page is asked for while the reader is still
+    // reading rather than after they have run out. Re-armed per page: see
+    // [pages].
+    effect((onCleanup) => {
+      this.pages();
+      const mark = this.brink()?.nativeElement;
+      const box = this.scroller()?.nativeElement;
+      if (!mark || !box || typeof IntersectionObserver === 'undefined') return;
+      const watch = new IntersectionObserver(
+        (seen) => {
+          if (seen.some((one) => one.isIntersecting)) this.loadEarlier();
+        },
+        { root: box, rootMargin: '400px 0px 0px 0px' },
+      );
+      watch.observe(mark);
+      onCleanup(() => watch.disconnect());
     });
   }
 
@@ -307,8 +345,13 @@ export class SessionView implements OnDestroy {
    * The transcript belongs to the store; what belongs here is the reader's
    * place, because only the view can measure it. On demand rather than eager:
    * the runner re-reads and re-parses the file to answer.
+   *
+   * Called by the observer above rather than by a control. A failed fetch —
+   * the phone off the VPN, the Mac asleep — sets `trouble` and stops there:
+   * nothing retries until the reader moves, which is what keeps an unreachable
+   * console from becoming a request every frame.
    */
-  loadEarlier(): void {
+  private loadEarlier(): void {
     if (this.loading()) return;
     const box = this.scroller()?.nativeElement;
     // Measured before anything is written. A height read after a signal write is
@@ -328,6 +371,10 @@ export class SessionView implements OnDestroy {
         afterNextRender(
           () => {
             if (box) box.scrollTop += box.scrollHeight - before;
+            // Last, and after the position is restored: re-arming while the
+            // mark is still where it was would ask for the next page from the
+            // old geometry.
+            this.pages.update((n) => n + 1);
           },
           { injector: this.injector },
         );

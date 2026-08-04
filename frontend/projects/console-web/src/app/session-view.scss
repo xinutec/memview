@@ -214,9 +214,18 @@
 // harness had no fixture with code in an answer until it did, and then the block
 // was 618px past the right edge.
 
+// The top of what has been read. Present at all times while there is more, so
+// there is something for the observer to watch, but only says anything while a
+// page is on its way — a standing label at the top of a conversation is a
+// permanent announcement that it has a beginning.
 .earlier {
   display: block;
+  min-height: 1px;
   margin: 0 auto 0.5rem;
+  text-align: center;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+  list-style: none;
 }
 
 // The clock sits in the margin rather than in the sentence.

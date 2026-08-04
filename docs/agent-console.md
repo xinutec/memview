@@ -869,6 +869,35 @@ the composer — before that it was indistinguishable from no update at all.
 ⚠ **The self-updater ships inside the bundle**, so it cannot install itself: the
 first page that has it must be loaded by hand.
 
+### Reaching back through a conversation
+
+**Superseded, 2026-08-04: the `earlier messages` button is gone.** The seed is a
+page, not the conversation, and reading back through a morning meant pressing a
+control once per page — a dozen taps to travel where one gesture should. Reaching
+the top *is* the request now: a mark sits inside the scroller above the oldest
+entry, an `IntersectionObserver` watches it, and crossing it fetches the page
+before.
+
+- **One page per arrival, not the whole file.** Landing a page holds the reader's
+  place, which puts the mark back out of view — so it stops. That is the property
+  worth protecting: "start small" would mean nothing if touching the top once
+  unspooled a 1.4 GB transcript.
+- **400px of margin**, so the page is asked for while there is still something to
+  read rather than after running out.
+- ⚠ **Re-armed after every page.** An `IntersectionObserver` reports transitions,
+  not states. When the page that arrives is shorter than the screen the mark
+  never leaves, no transition happens, and the reader is stranded at the top of a
+  conversation that has more. Re-observing delivers a fresh initial callback, so
+  a counter bumped after each page — *after* the scroll position is restored — is
+  what makes "as much as the reader wants" true rather than "one screenful more".
+- **Not answered from `onScroll`.** That handler already decides one thing from a
+  position it cannot fully trust (see below), and a second question drawn from
+  the same measurement would inherit the same race. The observer is told about
+  the element instead.
+- **A failed fetch stops.** Off the VPN or with the Mac asleep, `trouble` is set
+  and nothing retries until the reader moves — an unreachable console must not
+  become a request per frame.
+
 ### Following the end of a transcript
 
 Opening a session lands on the newest message: a resumed conversation replays its

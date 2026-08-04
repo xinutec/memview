@@ -36,15 +36,20 @@
   <p class="trouble">{{ what }}</p>
 }
 
-@if (more()) {
-  <!-- The seed is a page, not the conversation. Reaching the top of it used to be
-       the end of the road on a transcript holding a thousand turns below. -->
-  <button class="earlier" matButton (click)="loadEarlier()" [disabled]="loading()">
-    {{ loading() ? 'reading…' : 'earlier messages' }}
-  </button>
-}
-
 <ol class="transcript" #scroller (scroll)="onScroll()">
+  @if (more()) {
+    <!-- The seed is a page, not the conversation, and this is where the rest of
+         it comes from. Not a button: reading back through a morning is one
+         gesture, and asking for each page by hand turned it into a dozen. The
+         element is what an IntersectionObserver watches — reaching it IS the
+         request — so it lives inside the scroller, above the oldest entry, and
+         goes out of view as soon as a page lands above it.
+         `aria-live`, because for a screen reader the arrival is the only event:
+         nothing was pressed and the new text is off-screen above. -->
+    <li class="earlier" #brink aria-live="polite">
+      {{ loading() ? 'reading earlier messages…' : '' }}
+    </li>
+  }
   <!-- Tracked by identity, not by index. `fold` extends an entry in place and
        hands back the same objects, so identity is stable — while an index is
        not: prepending a page of older messages shifts every one of them, and

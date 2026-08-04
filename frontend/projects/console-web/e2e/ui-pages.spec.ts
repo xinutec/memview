@@ -546,6 +546,95 @@ test('opening a session from the list lands at the newest message @ phone width'
   await expect(page.getByText('THE NEWEST THING SAID')).toBeInViewport();
 });
 
+test('scrolling to the top fetches what came before it @ phone width', async ({ page }) => {
+  // ⚠ **No control to press.** The seed is a page, not the conversation, and
+  // reading back through a morning used to be a dozen taps on `earlier
+  // messages`. Reaching the top IS the request now, so what this measures is
+  // that a reader who scrolls up gets more — and keeps getting it, which is the
+  // half a single fetch would not show.
+  let asked = 0;
+  await mockRunner(page);
+  // The seed carries the byte offset it began at, and that — not the number of
+  // entries — is what says the file holds more. Without it there is nothing
+  // above the transcript to reach.
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        ...TRANSCRIPT,
+        // Several screens of it, so that "at the newest message" is genuinely
+        // far from the top. The seed is a page and a page is 400 events; a
+        // fixture only a little taller than the screen puts the mark inside the
+        // 400px of prefetch margin at every scroll position, and the check
+        // below would then be asserting the margin does not exist.
+        ...Array.from({ length: 40 }, (_, n) => ({
+          kind: 'prompt',
+          text: `Message ${n + 1} of the page that was seeded when this view opened.`,
+          at: NEXT,
+        })),
+        { kind: 'joined', earlier: TRANSCRIPT.length + 40, from: 5000 },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.route('**/api/sessions/*/earlier?*', async (r) => {
+    asked += 1;
+    const page_ = asked;
+    await r.fulfill({
+      json: {
+        // Walks backwards towards the start of the file, and reaches it on the
+        // third answer — `from: 0` is what tells the client there is no more.
+        from: page_ >= 3 ? 0 : 5000 - page_ * 1000,
+        events: Array.from({ length: 12 }, (_, n) => ({
+          kind: 'prompt',
+          text: `Older page ${page_}, message ${n + 1} — something said earlier this morning.`,
+          at: LATE,
+        })),
+      },
+    });
+  });
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.transcript').waitFor();
+  await expect(page.locator('.earlier')).toHaveCount(1);
+  // The control it replaces is gone, not merely hidden.
+  await expect(page.getByRole('button', { name: 'earlier messages' })).toHaveCount(0);
+
+  // Nothing is asked for while the reader is at the newest message.
+  expect(asked, 'fetched without being anywhere near the top').toBe(0);
+
+  // ⚠ **One page per arrival at the top, not the whole file.** Landing a page
+  // and holding the reader's place puts the mark back out of view, which is the
+  // point: "starting small" would mean nothing if reaching the top once
+  // unspooled a 1.4 GB transcript. So each fetch here is a fresh journey to the
+  // top, which is what a reader travelling backwards through a morning does.
+  const toTheTop = async () =>
+    page.evaluate(() => {
+      const box = document.querySelector('.transcript');
+      if (box) box.scrollTop = 0;
+    });
+
+  await toTheTop();
+  await expect.poll(() => asked, { timeout: 5000 }).toBe(1);
+  // The dash matters: without it this also matches messages 10 to 12.
+  await expect(page.getByText('Older page 1, message 1 —')).toHaveCount(1);
+
+  await toTheTop();
+  await expect.poll(() => asked, { timeout: 5000 }).toBe(2);
+  await expect(page.getByText('Older page 2, message 1 —')).toHaveCount(1);
+
+  // The third answer says `from: 0` — the start of the file — and the mark that
+  // asks for more goes with it.
+  await toTheTop();
+  await expect.poll(() => asked, { timeout: 5000 }).toBe(3);
+  await expect(page.locator('.earlier')).toHaveCount(0);
+
+  // And no amount of scrolling asks again for a conversation that has none.
+  await toTheTop();
+  await page.waitForTimeout(300);
+  expect(asked, 'kept asking past the start of the file').toBe(3);
+});
+
 test('the transcript keeps following while the reader is at the end @ phone width', async ({
   page,
 }) => {
