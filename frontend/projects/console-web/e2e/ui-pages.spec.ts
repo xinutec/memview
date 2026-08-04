@@ -708,6 +708,68 @@ test('a question offers what was asked, not allow and refuse @ phone width', asy
   });
 });
 
+test('an answered question says what was chosen @ phone width', async ({ page }, testInfo) => {
+  // The verdict arrives from the runner, not from whichever screen tapped — so
+  // this drives it the way a SECOND window would see it, with no local state to
+  // fall back on. That is the property worth pinning: `answered` on its own
+  // makes the card forget the thing you just did.
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        ...QUESTION_TRANSCRIPT,
+        {
+          kind: 'answered',
+          id: 'c9f0a1b2-0000-4000-8000-00000000000a',
+          allowed: true,
+          reply: {
+            answers: {
+              'How far should the question UI go?': 'options only',
+              'Which of these should the card show?': ['the description', 'the topic'],
+            },
+          },
+        },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.chose').waitFor();
+
+  await expect(page.locator('.verdict')).toHaveText('answered');
+  await expect(page.locator('.chose')).toHaveText('options only · the description, the topic');
+  // Nothing left to tap: the question is over.
+  await expect(page.getByRole('button', { name: /options only/ })).toHaveCount(0);
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+});
+
+test('a typed reply is recorded as one, not as a choice @ phone width', async ({ page }) => {
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        ...QUESTION_TRANSCRIPT,
+        {
+          kind: 'answered',
+          id: 'c9f0a1b2-0000-4000-8000-00000000000a',
+          allowed: true,
+          reply: { response: 'neither — do the read-only part first' },
+        },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.chose').waitFor();
+  await expect(page.locator('.verdict')).toHaveText('replied');
+  await expect(page.locator('.chose')).toHaveText('neither — do the read-only part first');
+});
+
 test('words instead of a choice take the card over @ phone width', async ({ page }, testInfo) => {
   // ⚠ **The trap this shape exists to close.** The CLI's result builder tests
   // `response` before `answers` and reports only what it finds, so words sent

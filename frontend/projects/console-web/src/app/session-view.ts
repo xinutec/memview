@@ -32,7 +32,7 @@ import { costMatters } from './budget';
 import { Here } from './here';
 import { Updates } from './updates';
 import { Rendered } from './rendered';
-import { Answers, Question, complete } from './questions';
+import { Answers, Question, choiceOf, complete } from './questions';
 import { Held, SessionStore } from './session-store';
 
 /** One session: what it has done, and the way to say something to it. */
@@ -475,8 +475,15 @@ export class SessionView implements OnDestroy {
    * below, which is where it reads best.
    */
   verdict(entry: Entry): string {
-    if (entry.questions) return entry.allowed ? 'answered' : 'skipped';
-    return entry.allowed ? 'allowed' : 'refused';
+    if (!entry.questions) return entry.allowed ? 'allowed' : 'refused';
+    if (!entry.allowed) return 'skipped';
+    return entry.reply?.response?.trim() ? 'replied' : 'answered';
+  }
+
+  /** What was picked, for the row that records it. Empty when there is nothing
+   *  to say — a refusal, or any tool that is not a question. */
+  choice(entry: Entry): string {
+    return entry.allowed ? choiceOf(entry.reply) : '';
   }
 
   /** Whether this option is currently chosen — what the button shows as pressed. */

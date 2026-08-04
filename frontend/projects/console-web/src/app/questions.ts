@@ -84,6 +84,30 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** What came back about a question, mirroring `protocol::Reply`. */
+export interface Reply {
+  readonly answers?: Answers;
+  readonly response?: string;
+}
+
+/**
+ * What was said, in one line for the row that records it.
+ *
+ * The labels alone, without the questions they answer: the questions are still
+ * on screen directly above, and repeating them turns a one-line record into a
+ * paragraph on a phone. Words win over labels because that is the CLI's own
+ * precedence — a reply with both never leaves this app, but one arriving from
+ * somewhere else should read the way the session will read it.
+ */
+export function choiceOf(reply: Reply | undefined): string {
+  const said = reply?.response?.trim();
+  if (said) return said;
+  return Object.values(reply?.answers ?? {})
+    .map((answer) => (Array.isArray(answer) ? answer.join(', ') : answer))
+    .filter((answer) => answer !== '')
+    .join(' · ');
+}
+
 /** Whether every question has something chosen — what the send button waits for. */
 export function complete(questions: readonly Question[], chosen: Answers): boolean {
   return questions.every((q) => {

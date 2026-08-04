@@ -780,6 +780,7 @@ impl Session {
         self.push(Event::Answered {
             id: id.to_string(),
             allowed,
+            reply: reply.cloned(),
         });
         Ok(())
     }

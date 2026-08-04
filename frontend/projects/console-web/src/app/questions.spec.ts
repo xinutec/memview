@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { complete, questionsOf } from './questions';
+import { choiceOf, complete, questionsOf } from './questions';
 
 /** The shape a real `AskUserQuestion` arrives in, captured off the wire. */
 const ASKED = {
@@ -68,6 +68,39 @@ describe('questionsOf', () => {
     const [question] =
       questionsOf({ questions: [{ ...ASKED.questions[0], header: undefined }] }) ?? [];
     expect(question.header).toBe('');
+  });
+});
+
+describe('choiceOf', () => {
+  it('says the label that was picked', () => {
+    expect(choiceOf({ answers: { 'how far?': 'options only' } })).toBe('options only');
+  });
+
+  it('joins a multi-select without repeating the question', () => {
+    // The question is still on screen above this line; saying it again turns a
+    // one-line record into a paragraph on a phone.
+    expect(choiceOf({ answers: { 'which?': ['the description', 'the topic'] } })).toBe(
+      'the description, the topic',
+    );
+  });
+
+  it('separates the answers to different questions', () => {
+    expect(choiceOf({ answers: { one: 'left', two: 'north' } })).toBe('left · north');
+  });
+
+  it("prefers words over labels, which is the CLI's own precedence", () => {
+    // A reply carrying both never leaves this app — the card makes them
+    // exclusive — but one arriving from elsewhere should read the way the
+    // session will read it.
+    expect(choiceOf({ answers: { 'which?': 'left' }, response: 'neither, go back' })).toBe(
+      'neither, go back',
+    );
+  });
+
+  it('has nothing to say about a reply that is not there', () => {
+    expect(choiceOf(undefined)).toBe('');
+    expect(choiceOf({})).toBe('');
+    expect(choiceOf({ response: '   ' })).toBe('');
   });
 });
 

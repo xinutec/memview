@@ -1,7 +1,7 @@
 /** The console API's wire types. Mirrors `console/src/api.rs` and
  *  `console/src/protocol.rs`; the Rust side is the definition. */
 
-import { Question } from './questions';
+import { Question, Reply } from './questions';
 
 export interface Summary {
   id: string;
@@ -128,6 +128,9 @@ export interface SessionEvent {
   tool?: string;
   title?: string;
   allowed?: boolean;
+  /** `answered` only: what was chosen. See `protocol::Event::Answered` for why
+   *  it travels with the verdict rather than being kept by whoever chose. */
+  reply?: Reply;
 }
 
 /** What the transcript is drawn from.
@@ -165,6 +168,10 @@ export interface Entry {
    *  arguments could not be read, which falls back to allow/refuse rather than
    *  showing part of itself. See `questions.ts`. */
   questions?: readonly Question[];
+  /** `ask` entries only: what was chosen, once it has been. From the runner
+   *  rather than from whichever screen did the choosing, so a second window and
+   *  a reloaded one both show it. */
+  reply?: Reply;
 }
 
 /**

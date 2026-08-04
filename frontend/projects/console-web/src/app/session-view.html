@@ -140,6 +140,11 @@
               }
             } @else {
               <span class="verdict">{{ verdict(entry) }}</span>
+              @if (choice(entry); as choice) {
+                <!-- What was picked. The questions are still directly above, so
+                     this is the labels alone rather than a paragraph. -->
+                <span class="chose">{{ choice }}</span>
+              }
             }
           </div>
         }

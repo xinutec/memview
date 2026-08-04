@@ -181,6 +181,17 @@ pub enum Event {
     Answered {
         id: String,
         allowed: bool,
+        /// What was said, when the question was one a person answers.
+        ///
+        /// **Carried here because this is the only place that knows it for
+        /// everybody.** The client that tapped has it in hand; a second screen
+        /// watching the same session, and the one that tapped after a reload, do
+        /// not — and an `ask` is a control request rather than a transcript
+        /// line, so [`crate::past`] cannot hand it back either. Sending it with
+        /// the verdict is what lets an answered card say what was chosen instead
+        /// of only that something was.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reply: Option<Reply>,
     },
     /// The conversation was compacted: everything above this was replaced by a
     /// summary, and the session carried on with the shorter history.
@@ -588,7 +599,7 @@ pub const QUESTION_TOOL: &str = "AskUserQuestion";
 /// CLI matches these against the labels it offered, so they are sent back
 /// verbatim rather than by index — an index would silently mean the wrong option
 /// if the list were ever reordered between asking and answering.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum Answer {
     One(String),
@@ -611,7 +622,7 @@ pub type Answers = std::collections::BTreeMap<String, Answer>;
 ///
 /// The client is where that is made visible — a card that offered both at once
 /// would be offering one of them dishonestly.
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Reply {
     #[serde(default, skip_serializing_if = "Answers::is_empty")]
     pub answers: Answers,

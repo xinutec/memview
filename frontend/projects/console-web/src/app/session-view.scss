@@ -243,6 +243,17 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
+// What was picked, beside the word for having picked it. Full brightness: the
+// verdict is bookkeeping and this is the thing somebody scrolled back to read.
+.chose {
+  font: var(--mat-sys-body-medium);
+  // A typed reply can be a paragraph, and this row records rather than repeats
+  // it — the session's own result is directly below with the whole of it.
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .running {
   font: var(--mat-sys-label-small);
   opacity: 0.7;

@@ -416,6 +416,47 @@ async fn a_choice_reaches_the_session_as_part_of_what_it_asked() {
 }
 
 #[tokio::test]
+async fn what_was_chosen_is_told_to_everybody_watching() {
+    // The client that tapped already knows. A second screen on the same session,
+    // and the same screen after a reload, do not — and an `ask` is a control
+    // request rather than a transcript line, so nothing can hand it back later.
+    // The verdict event is the only place that knows it for all of them.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    session.send("ask me which way").await.expect("send");
+    let seen = until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Ask { .. }))
+    })
+    .await;
+    let Some(Event::Ask { id, .. }) = seen.iter().find(|e| matches!(e, Event::Ask { .. })) else {
+        panic!("no question");
+    };
+
+    let reply = console::protocol::Reply {
+        answers: console::protocol::Answers::from([(
+            "which way".to_string(),
+            console::protocol::Answer::One("left".to_string()),
+        )]),
+        response: None,
+    };
+    session
+        .decide(id, true, "", Some(&reply))
+        .await
+        .expect("answer");
+
+    // Read from the history, which is what a client arriving late is sent.
+    let history = session.history();
+    let Some(Event::Answered {
+        reply: Some(told), ..
+    }) = history.iter().find(|e| matches!(e, Event::Answered { .. }))
+    else {
+        panic!("the verdict said nothing about what was chosen: {history:?}");
+    };
+    assert_eq!(told, &reply);
+}
+
+#[tokio::test]
 async fn words_instead_of_a_choice_travel_on_their_own() {
     // ⚠ **`response` overrides `answers` in the CLI, so the two are never both
     // sent.** Its result builder tests `response` first and reports only that —

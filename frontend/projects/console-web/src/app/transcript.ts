@@ -66,7 +66,13 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
       break;
     case 'answered': {
       const question = entries.find((e) => e.kind === 'ask' && e.ask === event.id);
-      if (question) question.allowed = event.allowed;
+      if (question) {
+        question.allowed = event.allowed;
+        // What was chosen, which only the runner knows for every client — see
+        // `protocol::Event::Answered`. Absent for every tool that is not a
+        // question, and for a refusal.
+        question.reply = event.reply;
+      }
       break;
     }
     case 'turn':
