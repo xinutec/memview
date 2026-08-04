@@ -15,6 +15,7 @@ import { Foreground } from './foreground';
 import { Conversation, Overview, Summary } from './models';
 import { modelName } from './model';
 import { modeIcon, modeIsLoud, modeTitle } from './modes';
+import { placeOf, titleOf } from './naming';
 import { costMatters } from './budget';
 import { Updates } from './updates';
 import { PastStore } from './past-store';
@@ -119,7 +120,7 @@ export class SessionsView {
       seen.add(session.id);
       rows.push({
         id: session.id,
-        title: session.name ?? this.place(session),
+        title: titleOf(session),
         named: !!session.name,
         live: session,
         rank: !session.alive
@@ -248,7 +249,7 @@ export class SessionsView {
    *  Takes the directory rather than a session, because a conversation on disk
    *  has one too and the answer is the same question about the same string. */
   place(what: { dir: string }): string {
-    return what.dir.split('/').filter(Boolean).pop() ?? what.dir;
+    return placeOf(what.dir);
   }
 
   /** What this session may do without asking, in the CLI's own words. */

@@ -14,6 +14,7 @@ import {
 } from '@angular/core';
 import { TextFieldModule } from '@angular/cdk/text-field';
 import { FormsModule } from '@angular/forms';
+import { MatBottomSheet, MatBottomSheetModule } from '@angular/material/bottom-sheet';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
@@ -27,6 +28,8 @@ import { Foreground } from './foreground';
 import { Entry, Summary } from './models';
 import { modelName } from './model';
 import { modeIcon, modeIsLoud, modeTitle } from './modes';
+import { titleOf } from './naming';
+import { SessionSheet } from './session-sheet';
 import { costMatters } from './budget';
 import { Here } from './here';
 import { Updates } from './updates';
@@ -41,6 +44,7 @@ import { Held, SessionStore } from './session-store';
   imports: [
     Clock,
     FormsModule,
+    MatBottomSheetModule,
     MatButtonModule,
     MatIconModule,
     MatFormFieldModule,
@@ -60,6 +64,7 @@ export class SessionView implements OnDestroy {
   /** A newer build is downloaded and held. See `Updates` for why it waits. */
   readonly updateWaiting = this.updates.waiting;
   private store = inject(SessionStore);
+  private sheet = inject(MatBottomSheet);
   private foreground = inject(Foreground);
   private until = inject(DestroyRef);
   /** For `afterNextRender` outside an injection context — see [loadEarlier]. */
@@ -109,6 +114,13 @@ export class SessionView implements OnDestroy {
    * cannot cache (DL-ANGULAR-TEMPLATE-METHOD-CALL).
    */
   readonly showsCost = computed(() => costMatters(this.session()?.limit));
+
+  /** What this conversation is called — its own name, else where it runs. The
+   *  list titles its cards with the same rule; see `naming.ts`. */
+  readonly title = computed(() => {
+    const session = this.session();
+    return session ? titleOf(session) : '';
+  });
 
   /** What the session may do without asking, in the CLI's own words. */
   readonly mode = computed(() => modeTitle(this.session()?.mode));
@@ -384,6 +396,20 @@ export class SessionView implements OnDestroy {
         this.trouble.set(reason(err));
       },
     });
+  }
+
+  /**
+   * Everything about this session the page has no room for.
+   *
+   * Opened with the summary as it is *now*, so the sheet is a still rather than
+   * a live view — which is what it is for. Nothing in it changes on the
+   * five-second poll except the last-active time, and a panel whose text moves
+   * while it is being read from is worse than one that is a second old.
+   */
+  details(): void {
+    const session = this.session();
+    if (!session) return;
+    this.sheet.open(SessionSheet, { data: session, panelClass: 'session-sheet' });
   }
 
   send(): void {

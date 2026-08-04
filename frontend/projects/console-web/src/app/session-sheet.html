@@ -1,0 +1,12 @@
+<h2 class="who">{{ title }}</h2>
+
+<!-- A description list, stacked rather than in two columns. A 412px screen
+     cannot hold a label beside a value that is an absolute path or a whole first
+     instruction — the value would wrap to four lines in a third of the width,
+     which is how a details panel becomes unreadable. -->
+<dl class="facts">
+  @for (fact of facts; track fact.label) {
+    <dt>{{ fact.label }}</dt>
+    <dd [class.mono]="fact.mono">{{ fact.value }}</dd>
+  }
+</dl>

@@ -744,7 +744,6 @@ themselves carry the reasoning.
 | `console-api.ts` | HTTP, one method per route |
 | `host.ts` | the interceptor: every failed request becomes a telemetry `fail` |
 | `updates.ts` | notices a new bundle and decides *when* to reload |
-| `here.ts` | the open conversation's name, for the shell above the router |
 | `budget.ts` | `costMatters` — whether a cost figure means anything yet |
 | `errors.ts` | `unknown` → a sentence; nothing reaches the screen as `[object Object]` |
 | `rendered.ts` | markdown → HTML | 
@@ -754,7 +753,9 @@ themselves carry the reasoning.
 | `restyle.ts` | asks again for a stylesheet whose request failed |
 | `modes.ts` | the CLI's permission modes, its own labels and its own order |
 | `model.ts` | the id the CLI reports → the name anybody says; unknown ids shown whole |
-| `here.ts` | the open conversation, for the toolbar and the menu behind its name |
+| `naming.ts` | what to call a conversation — its name, else where it runs; one rule, two views |
+| `session-sheet.ts` | the details behind the heading: path, model id, mode, session id |
+| `here.ts` | the open conversation, for the toolbar's menu above the router |
 
 ### The state model
 
@@ -802,6 +803,38 @@ already had, every time, for ever.
 - **`EventSource` sends `Last-Event-ID` only for its own reconnects.** A new one
   opened by a page returning knows nothing, hence `?after=` on the events route,
   with the header winning when both are present.
+
+### Where each fact is said: toolbar, heading, sheet
+
+Three surfaces, and the rule between them is **how often the answer is wanted**,
+not how important it is.
+
+| surface | holds | why there |
+|---|---|---|
+| toolbar | the overflow icon, and behind it the permission modes and *stop* | what can be **done** to the session; the only always-reachable control |
+| heading | the session's name, and the facts that change — working/idle, exchanges, context, mode icon, model | what a **glance** is for |
+| sheet | the working directory, the first instruction, the model id, the permission mode in words, the session id, started, last active, the rate limit when it is not `allowed` | what is wanted **once**, and then not again |
+
+- **The toolbar does not name the session.** It did, and before that it said
+  "this Mac" on the list — true, and news to nobody. The heading is pinned: it
+  sits outside the scrolling region, and a full scroll of the transcript moves it
+  by zero pixels (measured). So the toolbar's copy was a second answer to a
+  question already answered an inch below it, and it cost the width of a name.
+- ⚠ **A `title=` tooltip is unreadable on a phone.** The model id and the
+  permission mode's name were only ever available by hovering the header — on the
+  device this console exists for, that is text that was written and cannot be
+  reached. Both are in the sheet now, in words.
+- **The working directory was the widest thing on the screen and the least worth
+  it.** Every session on this Mac runs under one tree, so the path was three
+  lines of shared prefix around the one word that differed. That word is the
+  name, which is what the heading shows.
+- **A bottom sheet, not a dialog**, for the same reason everything else here is:
+  it is driven one-handed, and a sheet arrives under the thumb that opened it.
+- ⚠ **An overlay is invisible to every check that measures the page.** The
+  toolbar menu had been there since the console was written and no layout check
+  had ever opened it — an overlay renders outside the component tree, so nothing
+  on the page below is evidence about it. The sheet's checks are scoped to it by
+  `panelClass`, which is what `rootSel` on the harness's assertions is for.
 
 ### What the numbers mean, and the trap they share
 

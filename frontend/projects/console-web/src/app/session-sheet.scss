@@ -1,0 +1,42 @@
+:host {
+  display: block;
+  // ⚠ **No height cap and no scroller here.** A first instruction is a paragraph
+  // and this can outgrow a phone screen — but `mat-bottom-sheet-container`
+  // already caps its own height and scrolls, and a second scroller inside it
+  // fights the first: two nested scrolling regions is how a swipe stops working
+  // (DL-ANGULAR-NESTED-SCROLLER).
+}
+
+.who {
+  font: var(--mat-sys-title-medium);
+  margin: 0 0 0.75rem;
+}
+
+.facts {
+  margin: 0;
+
+  dt {
+    font: var(--mat-sys-label-small);
+    color: var(--mat-sys-on-surface-variant);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  dd {
+    // The list's own indent would push every value in from its label for no
+    // reason; the label above it is the only thing that has to line up.
+    margin: 0.1rem 0 0.9rem;
+    font: var(--mat-sys-body-medium);
+    // A session id is 36 characters with no break in it, and a path can be
+    // longer. Nothing here may push the sheet sideways.
+    overflow-wrap: anywhere;
+  }
+
+  dd:last-child {
+    margin-bottom: 0;
+  }
+
+  .mono {
+    font-family: ui-monospace, monospace;
+  }
+}

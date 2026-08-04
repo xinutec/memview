@@ -4,16 +4,23 @@
     <span class="title">console</span>
   </a>
   <span class="spacer"></span>
-  <!-- Which agent you are talking to, when you are inside one. The console
-       drives a dozen at once and they differ only by name, so that is the fact
-       worth the space; "this Mac" is true and tells you nothing you did not
-       already know. Falls back to it on the list, where no one session is in
-       view — and there it stays a label, because a menu of things to do to no
-       session is a menu of nothing. -->
+  <!-- What can be done to the session on screen, behind the icon that means
+       exactly that everywhere else on a phone.
+       ⚠ **The toolbar used to carry the session's name here**, and before that
+       the words "this Mac" on the list. The name is now the heading of the page
+       itself, which is pinned above the transcript and does not scroll away
+       (measured), so the toolbar was saying a second time what the line beneath
+       it already said — and spending the width of a name to do it. "this Mac"
+       was worse: true, and news to nobody.
+       Nothing takes its place on the list, where no one session is in view: a
+       menu of things to do to no session is a menu of nothing. -->
   @if (here.open(); as open) {
-    <button matButton class="where" [matMenuTriggerFor]="menu">
-      {{ open.name ?? 'this session' }}
-      <mat-icon iconPositionEnd>arrow_drop_down</mat-icon>
+    <button
+      matIconButton
+      [matMenuTriggerFor]="menu"
+      [attr.aria-label]="'what to do with ' + (open.name ?? 'this session')"
+    >
+      <mat-icon>more_vert</mat-icon>
     </button>
     <mat-menu #menu="matMenu" class="session-menu">
       <div class="heading">Asks permission</div>
@@ -40,8 +47,6 @@
         </button>
       }
     </mat-menu>
-  } @else {
-    <span class="where">this Mac</span>
   }
 </mat-toolbar>
 

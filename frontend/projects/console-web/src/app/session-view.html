@@ -1,6 +1,17 @@
 @if (session(); as session) {
   <header class="head">
-    <div class="where">{{ session.dir }}</div>
+    <!-- The heading of the page, and the way into everything the page has no
+         room for. It replaced the working directory, which was the widest thing
+         on the screen and the least worth the space: every session on this Mac
+         runs under one tree, so the path was three lines of prefix around the
+         one word that differed. That word is the name, and it is here.
+         A control, not a caption: the path did not go away, it moved behind
+         this — with the model id, the permission mode and the session id, none
+         of which were readable on a phone before. -->
+    <button class="named" matButton aria-haspopup="dialog" (click)="details()">
+      <span class="name" [class.anonymous]="!session.name">{{ title() }}</span>
+      <mat-icon iconPositionEnd>info</mat-icon>
+    </button>
     <div class="facts">
       @if (session.alive) {
         <span class="live" [class.working]="doing()">{{ doing() ?? 'idle' }}</span>
@@ -138,9 +149,12 @@
   }
 </ol>
 
-<!-- Above the composer, not under the header: the header scrolls away as soon as
-     anybody reads the conversation, which is exactly when they want to know
-     whether it is still working. The composer is pinned, so this is too. -->
+<!-- Above the composer rather than under the header. Both are pinned — the
+     header sits outside the scrolling region and stays put while the transcript
+     moves under it (measured: it does not shift by a pixel over a full scroll) —
+     so this is about which of the two the reader is looking at. The header is a
+     row of standing facts about the session; everything below is about right
+     now, and so is this. -->
 @if (updateWaiting()) {
   <!-- A held reload is invisible otherwise, and indistinguishable from nothing
        having happened. Says what it is waiting for, so the wait is a choice. -->

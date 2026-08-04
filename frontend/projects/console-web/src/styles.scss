@@ -44,8 +44,17 @@ body {
 // on a screen nobody had thought to measure.
 //
 // `min-height`, so it beats the `height` Material sets from its own tokens.
+//
+// ⚠ **Both axes, and for a while this said only one.** Material's icon button is
+// 40px square, so a height-only floor produced a control 48 tall and 40 wide —
+// which passes a glance and fails a thumb, and the harness measures each axis
+// separately for exactly that reason. It was patched once, locally, on the
+// composer's send button; the second one to appear was the toolbar's overflow
+// menu, which is the only control on screen at all times. A rule that has to be
+// rediscovered per button is not a rule.
 button {
   min-height: 3rem;
+  min-width: 3rem;
 }
 
 a.home {

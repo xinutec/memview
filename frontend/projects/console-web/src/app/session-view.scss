@@ -16,11 +16,31 @@
   padding: 0 1rem;
 }
 
-.where {
-  font-family: ui-monospace, monospace;
-  font: var(--mat-sys-body-medium);
-  color: var(--mat-sys-on-surface-variant);
+// The page's own name, and the button behind which the rest of its details sit.
+//
+// Pulled back by the button's own horizontal padding so the name starts on the
+// same vertical line as the facts under it — a heading indented by twelve pixels
+// against the row it heads reads as a mistake, and it is not a number anybody
+// would guess: it is Material's button padding, not the page's. Measured by the
+// layout harness rather than trusted, since it comes from a token.
+.named {
+  // 16px, which is what the button's label is inset by — measured, not guessed:
+  // the first value tried was 12px and the heading was still 4px out.
+  margin-left: -1rem;
+}
+
+.name {
+  font: var(--mat-sys-title-medium);
+  // A path is one long unbreakable word, and the fallback for an unnamed session
+  // is a path element.
   overflow-wrap: anywhere;
+}
+
+// A session the runner has not yet read a name for shows where it is running
+// instead. Quieter, so the difference between a name and a stand-in is visible
+// without saying so.
+.name.anonymous {
+  color: var(--mat-sys-on-surface-variant);
 }
 
 .facts {
@@ -317,9 +337,9 @@
 
 // The send button is square and full-height rather than text-shaped: it is the
 // most-pressed control in the app and the only one that has to work with no
-// keyboard at all.
+// keyboard at all. Its width now comes from the app-wide floor in `styles.scss`
+// — this is where that floor was first needed and where it was first written.
 .send {
-  min-width: 3rem;
   padding: 0;
 }
 

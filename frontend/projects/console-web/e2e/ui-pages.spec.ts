@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 // ~/Code/ui-harness). Ships compiled JS, so it loads straight from node_modules.
 import {
   expectIconFontLoaded,
+  expectNoClippedText,
   expectNoHorizontalOverflow,
   expectNoTextOverlaps,
   expectViewportIsPhone,
@@ -972,4 +973,128 @@ test('a tool result opens without widening the page @ phone width', async ({ pag
   await page.getByText('quantiseLegCost', { exact: false }).first().waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+});
+
+/** A session the runner has finished reading: it has a name, a model id and a
+ *  permission mode, which is what the header and the sheet divide between them. */
+const NAMED = {
+  ...STATE,
+  sessions: [
+    { ...STATE.sessions[0], name: 'health', mode: 'bypassPermissions' },
+    STATE.sessions[1],
+  ],
+};
+
+test('the session says its name where it used to say its path @ phone width', async ({ page }) => {
+  await mockRunner(page);
+  await page.route('**/api/state', (r) => r.fulfill({ json: NAMED }));
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await expect(page.locator('.head .name')).toHaveText('health');
+  // The path is what the name replaced. It is not gone — it is in the sheet
+  // behind this heading — but it no longer costs three lines of the screen.
+  await expect(page.locator('.head')).not.toContainText('/home/example/Code');
+  // And the toolbar carries the icon that means "things to do to this", not a
+  // second copy of the name a pinned heading is already showing.
+  // By what it is called rather than by a class, so the assertion is about what
+  // a person — or a screen reader — can find, not about markup.
+  await expect(page.locator('.bar').getByRole('button', { name: /what to do with/ })).toHaveText(
+    'more_vert',
+  );
+  await expect(page.locator('.bar')).not.toContainText('health');
+});
+
+test('a session with no name yet says where it runs @ phone width', async ({ page }) => {
+  // The state every session starts in: the runner has not read a name out of the
+  // transcript, and the heading still has to say which conversation this is.
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await expect(page.locator('.head .name')).toHaveText('decode');
+  await expect(page.locator('.head .name')).toHaveClass(/anonymous/);
+});
+
+test('the list says nothing about which machine it is @ phone width', async ({ page }) => {
+  // "this Mac" was true of every session on the list and news to nobody. What
+  // replaced it is nothing: the toolbar's right-hand side is for what can be
+  // done to the session on screen, and on the list there is no session on screen.
+  await mockRunner(page);
+  await page.goto('/');
+  await page.getByText('decode').first().waitFor();
+  await expect(page.locator('.bar')).not.toContainText('Mac');
+  await expect(page.locator('.bar').getByRole('button')).toHaveCount(0);
+});
+
+test('the heading lines up with the facts under it @ phone width', async ({ page }) => {
+  // ⚠ **A button is not a heading, and its padding is not the page's.** The name
+  // sits inside a Material text button, which insets its own label by a token
+  // this app does not set — so the heading rendered twelve pixels to the right
+  // of the row it heads, which reads as a mistake rather than as a control. The
+  // margin that corrects it is a number taken from Material, so it is measured
+  // here rather than trusted to stay what it was.
+  await mockRunner(page);
+  await page.route('**/api/state', (r) => r.fulfill({ json: NAMED }));
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.head .name').waitFor();
+  const edges = await page.evaluate(() => ({
+    name: document.querySelector('.head .name')!.getBoundingClientRect().left,
+    facts: document.querySelector('.head .facts')!.getBoundingClientRect().left,
+  }));
+  expect(
+    Math.abs(edges.name - edges.facts),
+    'the heading is indented against its own facts',
+  ).toBeLessThan(2);
+});
+
+test('the header stays put while the transcript scrolls @ phone width', async ({ page }) => {
+  // What makes the toolbar's copy of the name redundant rather than a loss. The
+  // header is outside the scrolling region — `.transcript` is the only thing on
+  // this page that scrolls — so the name is on screen for as long as the session
+  // is, which is what the toolbar was doing before.
+  await mockRunner(page);
+  await page.route('**/api/state', (r) => r.fulfill({ json: NAMED }));
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.getByText('verified_cli').first().waitFor();
+  const top = () =>
+    page.evaluate(() => document.querySelector('.head')!.getBoundingClientRect().top);
+  const before = await top();
+  await page.evaluate(() => {
+    const box = document.querySelector('.transcript')!;
+    box.scrollTop = box.scrollHeight;
+  });
+  await page.evaluate(
+    () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+  );
+  const scrolled = await page.evaluate(() => document.querySelector('.transcript')!.scrollTop);
+  expect(scrolled, 'the transcript did not move, so this proves nothing').toBeGreaterThan(100);
+  expect(await top(), 'the heading scrolled away with the conversation').toBe(before);
+});
+
+test('the details sheet holds what the page has no room for @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **The first overlay this suite has ever measured.** The console has had a
+  // menu in the toolbar since it was written and no check has ever opened it: an
+  // overlay renders outside the component tree, so nothing on the page below is
+  // evidence about it. A sheet of paths and identifiers is exactly the content
+  // that pushes a 412px screen sideways.
+  await mockRunner(page);
+  await page.route('**/api/state', (r) => r.fulfill({ json: NAMED }));
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.head .named').click();
+  const sheet = page.locator('.session-sheet');
+  await sheet.waitFor();
+
+  const said = await sheet.innerText();
+  // The path, which the header no longer shows.
+  expect(said).toContain(STATE.sessions[0].dir);
+  // The session id, which nothing in the console showed anywhere.
+  expect(said).toContain(STATE.sessions[0].id);
+  // The model as it is shipped, not the one word the header has room for.
+  expect(said).toContain('claude-opus-5[1m]');
+  // The permission mode in words. The header has only its icon, and a `title=`
+  // tooltip on a phone is text nobody can reach.
+  expect(said).toContain('Bypass Permissions');
+
+  await expectNoTextOverlaps(page, testInfo, '.session-sheet');
+  await expectNoHorizontalOverflow(page, testInfo, '.session-sheet');
+  await expectNoClippedText(page, testInfo, '.session-sheet');
 });
