@@ -159,6 +159,9 @@ export interface Entry {
   /** Tool entries only: the full length in characters, when `detail` is a cut. */
   cut?: number;
   tool?: string;
+  /** Tool entries only: the call's own id, which is what a result is matched
+   *  against. Absent for a transcript line that carried none. */
+  call?: string;
   /** `ask` entries only: the control-request id to answer with, and the verdict
    *  once there is one. Undecided is the state that needs a person. */
   ask?: string;

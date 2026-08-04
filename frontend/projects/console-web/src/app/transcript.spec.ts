@@ -281,3 +281,47 @@ describe('compaction', () => {
     );
   });
 });
+
+describe('a call that arrives twice', () => {
+  const call = {
+    kind: 'tool' as const,
+    id: 'toolu_dup',
+    name: 'Bash',
+    input: { command: 'ls' },
+  };
+
+  it('is shown once, not twice', () => {
+    // ⚠ **Measured on this console, not imagined.** An upgrade re-seeds from the
+    // transcript while the bytes still in the child's pipe are drained by the
+    // new image, and a line can be in both.
+    const entries = transcript(call, call);
+    expect(entries.filter((e) => e.kind === 'tool')).toHaveLength(1);
+  });
+
+  it('does not leave a row running for ever', () => {
+    // The reason the duplicate matters. Only one result arrives, so with two
+    // rows one of them keeps "running" — which is what a genuinely blocked
+    // session looks like.
+    const [tool] = transcript(call, call, {
+      kind: 'tool_result',
+      id: 'toolu_dup',
+      ok: true,
+      detail: 'done',
+    });
+    expect(tool.ok).toBe(true);
+  });
+
+  it('gives a result to the call it belongs to, not the newest one', () => {
+    // Independent of duplicates: the runner reports background tasks that finish
+    // long after the calls made since, and matching by recency gave one of them
+    // the other's verdict.
+    const entries = transcript(
+      { kind: 'tool', id: 'toolu_slow', name: 'Bash', input: { command: 'sleep 60' } },
+      { kind: 'tool', id: 'toolu_fast', name: 'Read', input: { file_path: '/tmp/x' } },
+      { kind: 'tool_result', id: 'toolu_slow', ok: false, detail: 'timed out' },
+    );
+    const [slow, fast] = entries.filter((e) => e.kind === 'tool');
+    expect(slow.ok, 'the slow call took its own verdict').toBe(false);
+    expect(fast.ok, 'the newest call was given a verdict it never earned').toBeUndefined();
+  });
+});

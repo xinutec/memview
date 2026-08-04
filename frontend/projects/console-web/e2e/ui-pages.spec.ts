@@ -1110,6 +1110,63 @@ test('scrolling to the top fetches what came before it @ phone width', async ({ 
   expect(asked, 'kept asking past the start of the file').toBe(3);
 });
 
+test('an answer does not pay for the newlines between its blocks @ phone width', async ({
+  page,
+}) => {
+  // ⚠ **The container preserves whitespace and the content is markup.** `.entry`
+  // sets `pre-wrap` so a message keeps the line breaks somebody typed; `marked`
+  // puts a newline between every block it emits, and each one rendered as a real
+  // line break on top of that block's own margin. Measured before the fix:
+  // 44.8px, 52.8px, 44.8px and 40.0px where the margins ask for 16, and an
+  // answer 390px tall that should be 224 — three quarters of a phone screen
+  // given to nothing, on the most common thing this page renders.
+  //
+  // Asserted as a ceiling rather than an equality: the margins are a design
+  // choice and may move, and what this is guarding against is a gap that has
+  // nothing to do with them.
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        { kind: 'started', model: 'x', cwd: '/home/example/Code/memview', tools: 1 },
+        { kind: 'text', text: '## A heading\n' },
+        { kind: 'text', text: '\nA paragraph of prose.\n' },
+        { kind: 'text', text: '\n## Another heading\n' },
+        { kind: 'text', text: '\nAnd a second paragraph.\n' },
+        { kind: 'turn', cost_usd: 0, turns: 1, duration_ms: 1, at: NEXT },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.body').first().waitFor();
+
+  const gaps = await page.evaluate(() => {
+    const body = document.querySelector('.body');
+    if (!body) return [];
+    const kids = [...body.children];
+    const found: { between: string; gap: number }[] = [];
+    for (let i = 0; i < kids.length - 1; i++) {
+      const above = kids[i].getBoundingClientRect();
+      const below = kids[i + 1].getBoundingClientRect();
+      found.push({
+        between: `${kids[i].tagName}→${kids[i + 1].tagName}`,
+        gap: Math.round((below.top - above.bottom) * 10) / 10,
+      });
+    }
+    return found;
+  });
+  expect(gaps.length, 'the answer rendered as one block, so nothing was measured').toBeGreaterThan(
+    1,
+  );
+  expect(
+    gaps.filter((g) => g.gap > 24),
+    'blocks pushed apart by more than their margins',
+  ).toEqual([]);
+});
+
 test('a table keeps the alignment its author wrote @ phone width', async ({ page }) => {
   // ⚠ **Only a rendered page can answer this.** `marked` emits `align="right"`
   // and Angular's sanitiser keeps the attribute — both testable in jsdom, and

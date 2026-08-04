@@ -22,8 +22,20 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
       add(entries, { kind: 'asked', text: event.text ?? '', at: event.at });
       break;
     case 'tool':
+      // ⚠ **The same call can arrive twice, and did.** An upgrade re-seeds from
+      // the transcript while the bytes still in the child's pipe are drained by
+      // the new image — and a line can be in both. Measured on this console:
+      // `toolu_01XMy9…` seeded at 15:21:58 and pushed again live at 15:22:25,
+      // either side of the `joined` that marks the boundary.
+      //
+      // Dropping the second copy rather than showing it, because the copies do
+      // not share a fate: only one result arrives, so the other row would sit at
+      // "running" for ever — which is exactly what a genuinely blocked session
+      // looks like, and the last thing this page should say by accident.
+      if (event.id && entries.some((e) => e.kind === 'tool' && e.call === event.id)) break;
       add(entries, {
         kind: 'tool',
+        call: event.id,
         tool: event.name ?? 'tool',
         text: describe(event.name, event.input),
         at: event.at,
@@ -32,9 +44,18 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
       });
       break;
     case 'tool_result': {
-      // Find the call this answers. Searched from the end because a session runs
-      // several tools at once and the newest is nearly always the match.
-      const call = [...entries].reverse().find((e) => e.kind === 'tool' && e.ok === undefined);
+      // ⚠ **By id, not by recency.** This used to take the newest call with no
+      // verdict, which is right only while one tool runs at a time — and the
+      // runner reports background tasks that finish long after the calls made
+      // since. The id is on both events and has been all along.
+      //
+      // The old rule is kept for an event that carries no id, which is what a
+      // transcript line from before this can be.
+      const named = event.id
+        ? entries.find((e) => e.kind === 'tool' && e.call === event.id)
+        : undefined;
+      const call =
+        named ?? [...entries].reverse().find((e) => e.kind === 'tool' && e.ok === undefined);
       if (!call) break;
       call.ok = event.ok;
       // What it said, not merely that it spoke. A tick with no answer under it

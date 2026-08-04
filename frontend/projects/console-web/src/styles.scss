@@ -97,6 +97,19 @@ a.home {
 // attribute. Scoped to `app-session-view` rather than turned loose, so the
 // generic names below cannot reach anything else.
 app-session-view .entry .body {
+  // ⚠ **`white-space: normal`, because this is HTML and not text.** `.entry`
+  // sets `pre-wrap` so a plain message keeps the line breaks somebody typed —
+  // and that is inherited here, where the content is markup. `marked` puts a
+  // newline between every block it emits (`</h2>\n<p>`), so each one rendered as
+  // a real line break *on top of* that block's own margin.
+  //
+  // Measured on a message of two headings, two paragraphs and a list: the gaps
+  // were 44.8px, 52.8px, 44.8px and 40.0px against the 16px the margins ask for,
+  // and the answer stood 390px tall where it should be 224 — 74% of a phone
+  // screen given away to nothing. `pre` sets its own `pre-wrap` below, so code
+  // blocks keep every line break they came with.
+  white-space: normal;
+
   // Markdown brings its own block elements, and their default margins double up
   // against the list's spacing.
   > :first-child {
