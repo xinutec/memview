@@ -82,4 +82,16 @@ describe('the usage strip', () => {
     const host = await render(reading({ five_hour: { pct: 92, resets_in_ms: HOUR } }));
     expect(host.querySelector('.pct.high')?.textContent).toContain('92%');
   });
+
+  it('leaves out a window it has heard nothing about', async () => {
+    // ⚠ Not the same as one that has reset. An event names one window at a
+    // time, so the runner can know the week and have heard nothing yet about
+    // the five hours — a row saying "reset since" would be an invented claim
+    // about a window nobody has reported.
+    const host = await render(reading({ five_hour: undefined }));
+    const said = host.textContent ?? '';
+    expect(said).not.toContain('5 hours');
+    expect(said).not.toContain('reset since');
+    expect(said).toContain('66%');
+  });
 });

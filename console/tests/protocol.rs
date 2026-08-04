@@ -376,3 +376,38 @@ fn a_replayed_transcript_carries_the_context_too() {
         "and the words too"
     );
 }
+
+/// A `get_usage` control response, in the shape 2.1.221's own schema declares.
+const USAGE_REPLY: &str = r#"{"type":"control_response","response":{"request_id":"usage-x","subtype":"success","response":{"rate_limits":{"five_hour":{"utilization":31.5,"resets_at":"2026-08-04T23:00:00Z"},"seven_day":{"utilization":66,"resets_at":"2026-08-07T02:00:00Z"},"seven_day_opus":null}}}}"#;
+
+#[test]
+fn the_usage_reply_gives_up_both_windows() {
+    let mut found = console::protocol::usage_reply(USAGE_REPLY).expect("rate limits");
+    found.sort_by(|a, b| a.0.cmp(&b.0));
+    // A percentage on the wire, a fraction here — one place multiplies, so
+    // nothing downstream has to know which it was given.
+    assert_eq!(found[0], ("five_hour".to_string(), 0.315, Some(1785884400)));
+    assert_eq!(found[1], ("seven_day".to_string(), 0.66, Some(1786068000)));
+    // A window the plan does not have is not a window at zero.
+    assert_eq!(found.len(), 2);
+}
+
+#[test]
+fn an_ordinary_line_is_not_a_usage_reply() {
+    // Every line of a conversation passes this on its way to being read, so it
+    // has to say no to nearly all of them.
+    assert!(console::protocol::usage_reply(r#"{"type":"assistant","message":{}}"#).is_none());
+    assert!(console::protocol::usage_reply("not json at all").is_none());
+}
+
+#[test]
+fn a_response_whose_shape_has_moved_yields_nothing() {
+    // ⚠ The CLI calls `get_usage` experimental and says the shape may change.
+    // When it does, the console must fall back to the dashboard rather than
+    // report a window it has misread.
+    let moved = r#"{"type":"control_response","response":{"response":{"rateLimits":{"five_hour":{"utilization":31.5}}}}}"#;
+    assert!(console::protocol::usage_reply(moved).is_none());
+    // And a window with no figure in it is not a window at zero.
+    let empty = r#"{"type":"control_response","response":{"response":{"rate_limits":{"five_hour":{"resets_at":"2026-08-04T23:00:00Z"}}}}}"#;
+    assert!(console::protocol::usage_reply(empty).is_none());
+}

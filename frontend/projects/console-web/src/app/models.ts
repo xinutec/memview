@@ -86,20 +86,24 @@ export interface Window {
 /**
  * The account's rate-limit utilisation. Mirrors `usage::Reading`.
  *
- * ⚠ **Not measured by the console.** It comes from the home dashboard, which
- * collects it from Claude Code's `statusLine` hook — the only supported route
- * that carries it. A status line belongs to a terminal and the console's
- * sessions are headless, so working through the console never refreshes this:
- * a reading hours old is the ordinary case, which is why `age_ms` is shown
- * rather than kept.
+ * Measured by the runner from its own sessions: every `rate_limit_event` the
+ * CLI writes carries the figure off the API's response headers. The home
+ * dashboard stands behind it for a window nothing has reported yet, and a
+ * reading from there can be hours old — which is why `age_ms` is shown rather
+ * than kept.
  */
 export interface Usage {
-  /** Which machine took the reading. */
+  /** Where the reading came from: `this console`, or the dashboard's host. */
   host: string;
   /** How old it is, in milliseconds, by the runner's clock. */
   age_ms: number;
-  five_hour: Window;
-  seven_day: Window;
+  /**
+   * ⚠ **Absent is not the same as expired.** One event names one window, so the
+   * runner can know the week and have heard nothing about the five hours. That
+   * is no reading — drawn as no row, rather than a row saying something untrue.
+   */
+  five_hour?: Window;
+  seven_day?: Window;
 }
 
 /** The event kinds the runner emits, as a value so the wire can be checked

@@ -1,22 +1,28 @@
 //! How much of the subscription is spent, and how long until it comes back.
 //!
-//! ⚠ **The console cannot measure this, and neither can anything on this Mac.**
-//! The figure is Anthropic's own account-wide rate-limit utilisation — the one
-//! `/usage` prints — and it reaches a machine by exactly one supported route:
-//! Claude Code pipes it to a `statusLine` command on stdin. There is no API, no
-//! CLI flag, and nothing on disk; the transcripts do not carry it (checked), and
-//! `--output-format json` does not surface it. So this is not gathered here. It
-//! is read from the home dashboard, which already collects it from that hook and
-//! publishes the freshest reading across every machine — the same number, from
-//! the same place, rather than a second and differently-wrong one.
+//! **The console measures this itself, from the sessions it is already running.**
+//! Every `rate_limit_event` the CLI writes to stdout carries a `utilization`
+//! taken straight off the API's response headers
+//! (`anthropic-ratelimit-unified-5h-utilization` and its siblings), so a console
+//! with anything working knows the account's position within seconds of the last
+//! request. See [`crate::protocol::Event::Limit`].
 //!
-//! ⚠ **Which means it is only as fresh as the last interactive session
-//! anywhere.** A status line belongs to a terminal, and the console's own
-//! sessions are headless, so working *through the console* never refreshes this.
-//! Hours-old readings are the normal case, not a fault — which is why age
-//! travels with the number and why a window that has already reset reports no
-//! figure at all rather than the one it had before it turned over.
+//! ⚠ **This module first shipped believing the opposite**, on the strength of a
+//! comment in `protocol.rs` saying the percentages existed only in the
+//! statusLine hook's input. They do not: the hook and the stream are fed from
+//! the same headers. The console had been receiving the number all along and
+//! discarding it for want of a field to put it in, while reading a copy off the
+//! home dashboard that was routinely five hours stale — because a status line
+//! belongs to a terminal and these sessions are headless.
+//!
+//! The dashboard is still read, and still useful, but only as the **fallback for
+//! a window nothing has reported yet**: a console just started, or one whose
+//! sessions have all been idle since a window last turned over. A reading from
+//! it can be hours old, so the age travels with the number either way, and a
+//! window that has already reset reports no figure at all rather than the one it
+//! held before it turned over.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,6 +30,8 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use tokio::sync::RwLock;
+
+use crate::session::Seen;
 
 /// How often to ask the dashboard. The reading behind it changes when somebody
 /// opens a terminal, so anything faster is asking a question whose answer is
@@ -75,8 +83,15 @@ pub struct Reading {
     pub host: String,
     /// How old the reading is, in milliseconds.
     pub age_ms: i64,
-    pub five_hour: Window,
-    pub seven_day: Window,
+    /// ⚠ **Absent is a third state, and not the same as an expired window.** An
+    /// event names one window at a time, so a console can know the week's figure
+    /// and have heard nothing at all about the five hours — which is "no reading"
+    /// rather than "reset since", and is drawn as no row rather than as a row
+    /// saying something untrue.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub five_hour: Option<Window>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seven_day: Option<Window>,
 }
 
 /// The dashboard's latest reading, kept here so a client never waits on it.
@@ -95,15 +110,15 @@ impl Usage {
         }
     }
 
-    /// The reading as of now, or nothing if none has ever arrived.
+    /// What to show, given what the sessions have heard. See [`merged`].
     ///
-    /// ⚠ **Ages are computed here, against THIS machine's clock**, rather than
-    /// sent as instants for the client to subtract from its own. A phone's clock
-    /// drifts, and the one case that matters — "has this window already turned
-    /// over?" — would then be answered differently on different screens.
-    pub async fn reading(&self) -> Option<Reading> {
-        let now = now_ms();
-        self.latest.read().await.as_ref().map(|it| reading(it, now))
+    /// ⚠ **Ages and countdowns are computed here, against THIS machine's
+    /// clock**, rather than sent as instants for the client to subtract from its
+    /// own. A phone's clock drifts, and the one case that matters — "has this
+    /// window already turned over?" — would then be answered differently on
+    /// different screens.
+    pub async fn reading(&self, seen: &BTreeMap<String, Seen>) -> Option<Reading> {
+        merged(seen, self.latest.read().await.as_ref(), now_ms())
     }
 
     /// Ask the dashboard once.
@@ -141,6 +156,76 @@ impl Usage {
     }
 }
 
+/// What the console itself has heard, with the dashboard behind it.
+///
+/// ⚠ **The live half is the one that matters, and it was there all along.** Each
+/// `rate_limit_event` on a session's stdout carries a `utilization` straight off
+/// the API's own response headers, so the console measures this at first hand
+/// for every request its sessions make. The dashboard is kept only for a window
+/// nothing has reported yet — a console just started, or one whose sessions have
+/// all been idle since the weekly window last turned over.
+///
+/// Per window rather than whole: an event names one window (the *representative*
+/// one), so the five-hour figure can be seconds old while the weekly one is
+/// still the dashboard's.
+pub fn merged(
+    seen: &BTreeMap<String, Seen>,
+    dashboard: Option<&Published>,
+    now_ms: i64,
+) -> Option<Reading> {
+    let published = dashboard.map(|it| reading(it, now_ms));
+    let five_hour = live(seen.get(FIVE_HOUR), now_ms)
+        .or_else(|| published.as_ref().and_then(|it| it.five_hour.clone()));
+    let seven_day = live(seen.get(SEVEN_DAY), now_ms)
+        .or_else(|| published.as_ref().and_then(|it| it.seven_day.clone()));
+    // Nothing known about either window is nothing to show. One is worth showing.
+    five_hour.as_ref().or(seven_day.as_ref())?;
+    // The freshest thing on screen is what the age line is about, and when the
+    // console has heard anything at all that is the console.
+    let heard = [seen.get(FIVE_HOUR), seen.get(SEVEN_DAY)]
+        .into_iter()
+        .flatten()
+        .map(|it| it.at)
+        .max();
+    Some(match heard {
+        Some(at) => Reading {
+            host: HERE.to_string(),
+            age_ms: (now_ms - at).max(0),
+            five_hour,
+            seven_day,
+        },
+        None => Reading {
+            five_hour,
+            seven_day,
+            ..published?
+        },
+    })
+}
+
+/// The CLI's own names for the two windows worth showing.
+const FIVE_HOUR: &str = "five_hour";
+const SEVEN_DAY: &str = "seven_day";
+
+/// What to call a reading this console took itself. Not a hostname: the figure
+/// is account-wide, so the only useful provenance is *how* it was come by.
+const HERE: &str = "this console";
+
+fn live(seen: Option<&Seen>, now_ms: i64) -> Option<Window> {
+    let seen = seen?;
+    Some(Window {
+        // A fraction on the wire, a percentage on a screen — the same conversion
+        // the CLI does on its way to a status line.
+        pct: seen.utilization * 100.0,
+        // Seconds here, milliseconds everywhere else in this file: the CLI's
+        // `resetsAt` is an epoch second, and treating it as milliseconds puts
+        // every reset in 1970 and reports every window as already turned over.
+        resets_in_ms: seen
+            .resets_at
+            .map(|turns| turns * 1000 - now_ms)
+            .filter(|left| *left > 0),
+    })
+}
+
 /// What a published reading says, as of `now_ms`.
 ///
 /// The pure half, and the whole of the arithmetic: ages and countdowns are
@@ -155,16 +240,16 @@ pub fn reading(published: &Published, now_ms: i64) -> Reading {
         // Unreadable means no age rather than 1970: a stamp we cannot parse is
         // an unknown, and the epoch is a very confident wrong answer.
         age_ms: at(&published.ts).map(|then| now_ms - then).unwrap_or(0),
-        five_hour: window(
+        five_hour: Some(window(
             published.five_hour_pct,
             &published.five_hour_resets_at,
             now_ms,
-        ),
-        seven_day: window(
+        )),
+        seven_day: Some(window(
             published.seven_day_pct,
             &published.seven_day_resets_at,
             now_ms,
-        ),
+        )),
     }
 }
 

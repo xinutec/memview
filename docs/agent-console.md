@@ -1093,19 +1093,41 @@ and weekly figures `/usage` prints — above the list, because the question it
 answers ("is there room to start this?") is asked before choosing a session
 rather than after.
 
-- ⚠ **It cannot be measured here, by anything.** That number reaches a machine
-  by exactly one supported route: Claude Code pipes it to a `statusLine` command
-  on stdin. There is no API, no CLI flag and nothing on disk — the transcripts do
-  not carry it (grepped) and nothing under `~/.claude` caches it. So the console
-  reads it from the home dashboard, which already collects it from that hook and
-  publishes the freshest reading across every machine. One number from one place,
-  rather than a second and differently-wrong one.
-- ⚠ **Which makes it only as fresh as the last *interactive* session anywhere.**
-  A status line belongs to a terminal, and the console's own sessions are
-  headless — so working through the console never refreshes this. Measured while
-  building it: the published reading was 4h45m old and its five-hour window had
-  turned over two hours earlier. Hours-old readings are the ordinary case here,
-  not a fault.
+**The console asks its own sessions for it**, with a `get_usage` control request
+— the same channel `can_use_tool` comes back on, in the other direction. The
+reply carries both windows with `utilization` and `resets_at`. One live session
+is asked once a minute; the answer is account-wide, so asking a second is asking
+the same question twice.
+
+- ⚠ **This was shipped the wrong way first, on a belief that was written down as
+  fact.** A comment in `protocol.rs` said the percentages existed only in the
+  statusLine hook's input, so the first version read them off the home dashboard
+  — which collects them from that hook on whatever machine last ran an
+  interactive session. A status line belongs to a terminal and these sessions are
+  headless, so working through the console never refreshed it. Measured: the
+  published reading was 5h21m old and its five-hour window had turned over hours
+  earlier. When the live route landed, the week read **73%** where the dashboard
+  still said 66.
+- **Where the figure actually comes from**, read out of the CLI binary: every API
+  response carries `anthropic-ratelimit-unified-{5h,7d}-utilization` and
+  `-reset` headers. The CLI keeps them and publishes them in three places — the
+  status line (terminal only), the `rate_limit_event` stream, and `get_usage`.
+- ⚠ **The stream event is not enough, though it looks like it should be.** Its
+  schema does carry `utilization`, and the console parses it — but the CLI fills
+  that field only when a threshold is crossed (≥90% of a window with ≤72% of its
+  time elapsed, or a `-surpassed-threshold` header from the server). Measured on
+  a live stream: `{"kind":"limit","window":"five_hour","status":"allowed",
+  "resets_at":…}` and no figure. So it is kept as a second source — it arrives
+  unasked, and exactly when things are tight — with `get_usage` as the one that
+  answers routinely.
+- ⚠ **`get_usage` is experimental** and the CLI says so: "the response shape may
+  change". `protocol::usage_reply` therefore reads the two windows it wants field
+  by field and ignores the rest, and a shape that has moved yields no reading
+  rather than a wrong one — at which point the dashboard is still there.
+- **The dashboard is now the fallback**, for a window nothing has reported yet: a
+  console just started, or one whose sessions have all been idle. Absent is a
+  third state, distinct from a window that has reset, and is drawn as no row
+  rather than a row saying something untrue.
 - **So a window that has reset reports no figure at all**, rather than the one it
   held before it turned over: a percentage belongs to a window, and when the
   window goes the percentage is not a smaller number but no number. The age and

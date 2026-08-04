@@ -148,14 +148,29 @@ pub enum Event {
         #[serde(skip_serializing_if = "Option::is_none")]
         stop: Option<String>,
     },
-    /// A rate-limit window changed state. Note this is a *status*, not a
-    /// percentage: the stream says allowed/warning/rejected and when the window
-    /// resets, and the percentages only exist in the statusLine hook's input.
+    /// A rate-limit window changed state.
+    ///
+    /// ⚠ **This carries the percentage, and for a long time we believed it did
+    /// not.** The comment here used to say the figure existed only in the
+    /// statusLine hook's input, and the console went and read it off the home
+    /// dashboard instead — hours stale, because a status line belongs to a
+    /// terminal and these sessions are headless. The CLI's own schema for
+    /// `rate_limit_event` says otherwise: `status`, `resetsAt`, `rateLimitType`
+    /// **and `utilization`**. It was arriving on this pipe all along and being
+    /// dropped for want of a field to put it in.
+    ///
+    /// One window per event — the *representative* one, which the API names in
+    /// an `anthropic-ratelimit-unified-representative-claim` header — so the
+    /// windows are collected as they are seen rather than all at once.
     Limit {
         window: String,
         status: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         resets_at: Option<i64>,
+        /// How much of the window is spent, as a fraction. Optional in the CLI's
+        /// schema, so optional here.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        utilization: Option<f64>,
     },
     /// The CLI's own progress reporting — "requesting", "tool_use", and so on.
     Busy {
@@ -463,6 +478,10 @@ struct Limit {
     status: String,
     #[serde(rename = "resetsAt")]
     resets_at: Option<i64>,
+    /// A fraction, not a percentage — the CLI multiplies by 100 on its way to
+    /// the status line, and so does the console on its way to a screen.
+    #[serde(default)]
+    utilization: Option<f64>,
 }
 
 /// Read one output line into the events it carries.
@@ -565,6 +584,7 @@ pub fn read(line: &str) -> Vec<Event> {
             window: rate_limit_info.kind,
             status: rate_limit_info.status,
             resets_at: rate_limit_info.resets_at,
+            utilization: rate_limit_info.utilization,
         }],
         Line::ControlRequest {
             request_id,
@@ -754,6 +774,70 @@ pub fn set_mode(request_id: &str, mode: &str) -> String {
         "request": {"subtype": "set_permission_mode", "mode": mode},
     })
     .to_string()
+}
+
+/// Ask the session what the account has spent.
+///
+/// **The only route to the routine figures**, and it took some finding. The
+/// numbers ride on every API response as `anthropic-ratelimit-unified-*`
+/// headers, and the CLI keeps them — but it publishes them in just two places:
+/// to a `statusLine` command, which is a terminal's affair and never runs for a
+/// headless session, and onto the stream as `rate_limit_event`, which carries
+/// the percentage **only when a threshold is crossed** (≥90% of a window with
+/// ≤72% of its time gone). Normal operation reports status and reset time and no
+/// figure at all — measured on a live stream.
+///
+/// `get_usage` is the CLI's own answer to the question: one control request, and
+/// both windows come back with `utilization` and `resets_at`. The CLI describes
+/// it as experimental and says the shape may change, which is why nothing here
+/// insists on it — see [`usage_reply`].
+pub fn get_usage(request_id: &str) -> String {
+    serde_json::json!({
+        "type": "control_request",
+        "request_id": request_id,
+        "request": {"subtype": "get_usage"},
+    })
+    .to_string()
+}
+
+/// The rate limits out of a `control_response`, if that is what this line is.
+///
+/// ⚠ **Read defensively, field by field, and deliberately so.** The CLI calls
+/// `get_usage` experimental and warns that the response shape may change, so
+/// this reads the two windows it wants and ignores everything else — the cost,
+/// the per-model buckets, the overage blocks. A shape that has moved yields no
+/// reading rather than a wrong one, and the front page goes back to the
+/// dashboard.
+///
+/// Not matched against a request id: the console asks for nothing else, so any
+/// response carrying rate limits is an answer to this.
+pub fn usage_reply(line: &str) -> Option<Vec<(String, f64, Option<i64>)>> {
+    let parsed: serde_json::Value = serde_json::from_str(line).ok()?;
+    if parsed.get("type")?.as_str()? != "control_response" {
+        return None;
+    }
+    let limits = parsed
+        .get("response")?
+        .get("response")?
+        .get("rate_limits")?
+        .as_object()?;
+    let mut found = Vec::new();
+    for (window, seen) in limits {
+        // `utilization` is a percentage here, where the stream event's is a
+        // fraction. Both are read into a fraction, so one thing downstream
+        // multiplies by a hundred rather than two things disagreeing about
+        // whether it has been done already.
+        let Some(pct) = seen.get("utilization").and_then(|it| it.as_f64()) else {
+            continue;
+        };
+        let resets_at = seen
+            .get("resets_at")
+            .and_then(|it| it.as_str())
+            .and_then(|it| OffsetDateTime::parse(it, &Rfc3339).ok())
+            .map(|when| when.unix_timestamp());
+        found.push((window.clone(), pct / 100.0, resets_at));
+    }
+    (!found.is_empty()).then_some(found)
 }
 
 /// One user message, in the shape the CLI reads on stdin.

@@ -279,6 +279,54 @@ impl Roster {
     }
 
     /// Most recently active first, which is the order a console is read in.
+    /// Ask a live session what the account has spent.
+    ///
+    /// ⚠ **One session, not all of them.** The figure is account-wide, so asking
+    /// a second would be asking the same question twice and putting a line down
+    /// a second conversation's stdin for an answer already known. The newest is
+    /// chosen because it is the likeliest to still be healthy.
+    ///
+    /// Nothing is returned: the answer comes back on that session's stdout and
+    /// lands in its tally, where [`Self::spent`] finds it.
+    pub async fn ask_usage(&self) {
+        let newest = {
+            let sessions = self.sessions.read().expect("roster poisoned");
+            sessions
+                .values()
+                .filter(|session| session.summary().alive)
+                .max_by_key(|session| session.summary().started)
+                .cloned()
+        };
+        if let Some(session) = newest {
+            session.ask_usage().await;
+        }
+    }
+
+    /// What the API has most recently said about each rate-limit window.
+    ///
+    /// ⚠ **Across every session, keeping the newest per window.** The figure is
+    /// account-wide — it comes off the response headers of whichever request was
+    /// answered last — so the session that heard it is an accident of which one
+    /// happened to be working. Taking any single session's copy would report the
+    /// account as it stood when *that* conversation last did something, which
+    /// for an idle one is hours ago.
+    pub fn spent(&self) -> std::collections::BTreeMap<String, crate::session::Seen> {
+        let sessions = self.sessions.read().expect("roster poisoned");
+        let mut newest: std::collections::BTreeMap<String, crate::session::Seen> =
+            std::collections::BTreeMap::new();
+        for session in sessions.values() {
+            for (window, seen) in session.tally().spent {
+                match newest.get(&window) {
+                    Some(held) if held.at >= seen.at => {}
+                    _ => {
+                        newest.insert(window, seen);
+                    }
+                }
+            }
+        }
+        newest
+    }
+
     pub fn list(&self) -> Vec<Summary> {
         let sessions = self.sessions.read().expect("roster poisoned");
         // Neither the name nor the last-activity time is the session's to know —

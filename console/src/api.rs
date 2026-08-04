@@ -65,10 +65,10 @@ pub struct Overview {
     pub bundle: Option<String>,
     /// How much of the subscription is spent, when a reading has ever arrived.
     ///
-    /// Not measured here — read from the home dashboard, which collects it from
-    /// the one hook that carries it. Absent means no reading rather than zero
-    /// usage, and the front page then shows nothing at all: a bar drawn at 0%
-    /// is a claim, and this is the one number the console cannot make.
+    /// Measured from the sessions' own streams, with the home dashboard behind
+    /// it for a window nothing has reported yet — see [`crate::usage`]. Absent
+    /// means no reading rather than no usage, and the front page then shows
+    /// nothing at all: a bar drawn at 0% is a claim.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<crate::usage::Reading>,
 }
@@ -95,8 +95,9 @@ async fn state(State(roster): State<Arc<Roster>>) -> Json<Overview> {
         bundle: bundle(roster.config().static_dir.as_deref()),
         // From memory, never from the network: this handler answers the front
         // page's poll, and a dashboard that has gone to sleep must not be able
-        // to hold up the list of sessions. See [`crate::usage`].
-        usage: roster.usage().reading().await,
+        // to hold up the list of sessions. The live half costs a walk over the
+        // sessions' tallies. See [`crate::usage`].
+        usage: roster.usage().reading(&roster.spent()).await,
         dirs: roster
             .config()
             .dirs

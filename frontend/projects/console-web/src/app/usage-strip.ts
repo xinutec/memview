@@ -44,9 +44,12 @@ export class UsageStrip {
     const usage = this.usage();
     if (!usage) return [];
     return [
-      bar('5 hours', usage.five_hour),
+      // ⚠ A window the runner has heard nothing about gets no row at all —
+      // absent is not the same as reset, and neither is the same as zero. See
+      // [[Usage]].
+      ...(usage.five_hour ? [bar('5 hours', usage.five_hour)] : []),
       // "Week", not "7 days": it is what the reading is called everywhere else.
-      bar('Week', usage.seven_day),
+      ...(usage.seven_day ? [bar('Week', usage.seven_day)] : []),
     ];
   });
 

@@ -87,6 +87,30 @@ pub struct Tally {
     /// session that lost an hour that way.
     #[serde(default)]
     pub pending: BTreeMap<String, Pending>,
+    /// What the API last said about each rate-limit window, keyed by the CLI's
+    /// own name for it (`five_hour`, `seven_day`, …).
+    ///
+    /// ⚠ **Account-wide, so any session's reading is the truth for all of
+    /// them** — it comes off the response headers of whichever request happened
+    /// most recently, not from anything this session did. Kept per session only
+    /// because that is where the stream arrives; the roster takes the newest.
+    /// Carried across an upgrade for the same reason the rest of the tally is:
+    /// nothing on disk records it.
+    #[serde(default)]
+    pub spent: BTreeMap<String, Seen>,
+}
+
+/// One window's utilisation, as last reported.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Seen {
+    /// A fraction: 0.28 is 28% of the window.
+    pub utilization: f64,
+    /// When the window turns over, in epoch **seconds** — the CLI's unit here.
+    #[serde(default)]
+    pub resets_at: Option<i64>,
+    /// When this console heard it, in epoch milliseconds. What makes one
+    /// session's reading newer than another's.
+    pub at: i64,
 }
 
 /// Take a descriptor out of close-on-exec, and make it non-blocking.
@@ -328,6 +352,8 @@ struct State {
     window: Option<u64>,
     /// See [`Summary::limit`].
     limit: Option<String>,
+    /// What the API last said about each rate-limit window. See [`Tally::spent`].
+    spent: BTreeMap<String, Seen>,
     asked: Option<String>,
     stderr: String,
 }
@@ -612,6 +638,10 @@ impl Session {
                 cost_usd: tally.cost_usd,
                 window: tally.window,
                 limit: tally.limit,
+                // Carried like the rest of the tally: nothing on disk records
+                // it, so an upgrade that dropped it would blank the front
+                // page until the next request came back.
+                spent: tally.spent,
                 ..State::default()
             }),
             stdin: tokio::sync::Mutex::new(Some(Box::new(stdin) as Sink)),
@@ -653,6 +683,7 @@ impl Session {
             cost_usd: state.cost_usd,
             window: state.window,
             limit: state.limit.clone(),
+            spent: state.spent.clone(),
             mode: state.mode.clone(),
             pending: state.pending.clone(),
         }
@@ -685,6 +716,15 @@ impl Session {
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
+                    // Before the events, and separately from them: a control
+                    // response is an answer to something the console asked, not
+                    // something that happened in the conversation, so it has no
+                    // place in a transcript anyone reads. See
+                    // [`protocol::usage_reply`].
+                    if let Some(windows) = protocol::usage_reply(&line) {
+                        session.record_usage(windows);
+                        continue;
+                    }
                     for event in protocol::read(&line) {
                         // The end of a turn is the one moment the exchange count
                         // can have changed, and by then the CLI has written the
@@ -847,6 +887,46 @@ impl Session {
         Ok(())
     }
 
+    /// Keep what the CLI answered about each window.
+    ///
+    /// Overwrites per window rather than wholesale, on the same reasoning as the
+    /// stream events: an answer that names one window says nothing about
+    /// another, and this reply and those events write to the same place.
+    fn record_usage(&self, windows: Vec<(String, f64, Option<i64>)>) {
+        let mut state = self.state.lock().expect("session state poisoned");
+        let at = now();
+        for (window, utilization, resets_at) in windows {
+            state.spent.insert(
+                window,
+                Seen {
+                    utilization,
+                    resets_at,
+                    at,
+                },
+            );
+        }
+    }
+
+    /// Ask this session what the account has spent. See [`protocol::get_usage`].
+    ///
+    /// The answer does not come back here — it arrives on stdout like everything
+    /// else and is recorded as it passes [`Self::apply`], which is what makes one
+    /// question enough for every client watching. Failure is not worth
+    /// propagating: a session that will not take the question is one whose
+    /// figures the console simply does not have.
+    pub async fn ask_usage(&self) {
+        let line = protocol::get_usage(&format!("usage-{}", self.id));
+        let mut held = self.stdin.lock().await;
+        let Some(stdin) = held.as_mut() else { return };
+        if stdin
+            .write_all(format!("{line}\n").as_bytes())
+            .await
+            .is_ok()
+        {
+            let _ = stdin.flush().await;
+        }
+    }
+
     /// End the session: close stdin, and kill it if it has not gone on its own.
     ///
     /// Closing stdin is the exit the CLI is built for. The timer behind it is
@@ -919,7 +999,28 @@ impl Session {
                     // a different question from how many exchanges there have
                     // been. [`Self::recount`] answers that one, from the file.
                 }
-                Event::Limit { status, .. } => state.limit = Some(status.clone()),
+                Event::Limit {
+                    window,
+                    status,
+                    resets_at,
+                    utilization,
+                } => {
+                    state.limit = Some(status.clone());
+                    // ⚠ **One window per event**, so they are collected as they
+                    // are seen rather than replaced wholesale: an event about
+                    // the five-hour window says nothing about the weekly one,
+                    // and overwriting would lose whichever was not mentioned.
+                    if let Some(spent) = utilization {
+                        state.spent.insert(
+                            window.clone(),
+                            Seen {
+                                utilization: *spent,
+                                resets_at: *resets_at,
+                                at: now(),
+                            },
+                        );
+                    }
+                }
                 Event::Prompt { text } if state.asked.is_none() => {
                     state.asked = Some(text.clone());
                 }

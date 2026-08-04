@@ -739,6 +739,7 @@ async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
         window: Some(1_000_000),
         limit: Some("allowed_warning".into()),
         pending: Default::default(),
+        spent: Default::default(),
     };
     let (_stdin_read, stdin) = carried_pipe();
     let (stdout, _stdout_write) = carried_pipe();
@@ -792,6 +793,7 @@ async fn an_upgrade_keeps_the_question_a_session_is_blocked_on() {
         window: None,
         limit: None,
         pending: std::collections::BTreeMap::from([("ask-1".to_string(), asked)]),
+        spent: Default::default(),
     };
     let (_stdin_read, stdin) = carried_pipe();
     let (stdout, _stdout_write) = carried_pipe();

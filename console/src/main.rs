@@ -78,6 +78,18 @@ async fn main() -> Result<()> {
     // Fetched in the background from here on, so no request ever waits on the
     // dashboard and a console with none configured simply never asks.
     roster.usage().clone().watch();
+    // And asked of the sessions themselves, which is where the current figures
+    // are. A minute apart: the number moves only when a request is answered, and
+    // this puts a line down a live conversation's stdin to get it.
+    {
+        let asking = roster.clone();
+        tokio::spawn(async move {
+            loop {
+                asking.ask_usage().await;
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            }
+        });
+    }
     let carried = roster.inherit();
     if carried > 0 {
         tracing::info!("{carried} session(s) carried across an upgrade — none was restarted");
