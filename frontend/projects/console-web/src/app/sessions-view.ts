@@ -8,6 +8,7 @@ import { MatBottomSheet } from '@angular/material/bottom-sheet';
 import { Router, RouterLink } from '@angular/router';
 
 import { ConsoleApi } from './console-api';
+import { Dismiss } from './dismiss';
 import { reason } from './errors';
 import { Foreground } from './foreground';
 import { Conversation, Overview, Summary } from './models';
@@ -76,6 +77,7 @@ export class SessionsView {
   private updates = inject(Updates);
   private router = inject(Router);
   private sheet = inject(MatBottomSheet);
+  private dismiss = inject(Dismiss);
   private pastStore = inject(PastStore);
   private foreground = inject(Foreground);
   private until = inject(DestroyRef);
@@ -190,7 +192,12 @@ export class SessionsView {
 
   /** Offer the form that starts one. See [[StartSheet]] for why it is a sheet. */
   add(): void {
-    this.sheet.open(StartSheet, { data: this.state()?.repos ?? [], panelClass: 'start-sheet' });
+    // ⚠ Wired into history like the details sheet, and this is the case that
+    // matters most: the list is the root, so a back press with this open leaves
+    // the app altogether. See [[Dismiss]].
+    this.dismiss.onBack(
+      this.sheet.open(StartSheet, { data: this.state()?.repos ?? [], panelClass: 'start-sheet' }),
+    );
   }
 
   /**

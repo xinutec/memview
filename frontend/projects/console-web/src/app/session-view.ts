@@ -180,6 +180,10 @@ export class SessionView implements OnDestroy {
   constructor() {
     effect((onCleanup) => {
       const id = this.id();
+      // Before anything is fetched: the toolbar needs to know which screen it is
+      // drawing, and that is the route's answer rather than the runner's. See
+      // [[Here.at]] for the flash this removes.
+      this.here.at.set(id);
       this.held.set(this.store.open(id));
       // Covers leaving this session for another one and leaving it for the list:
       // the effect is cleaned up before it re-runs and again when the view goes.
@@ -269,6 +273,7 @@ export class SessionView implements OnDestroy {
     // to be inside one — otherwise the list of sessions is titled with whichever
     // one was open last.
     this.here.open.set(undefined);
+    this.here.at.set(undefined);
   }
 
   /** The header facts — cost, turns, whether it is working — come from the

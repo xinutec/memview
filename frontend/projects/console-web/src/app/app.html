@@ -16,7 +16,12 @@
        under one tree. The path is still in the sheet, with the model id, the
        permission mode in words and the session id, none of which were readable
        on a phone before: they were `title=` tooltips. -->
-  @if (here.open(); as open) {
+  <!-- ⚠ **Which branch, from the ROUTE rather than from the runner's reply.**
+       `here.open()` is a summary and arrives a round trip later — and a cold
+       launch reopens straight inside a conversation, so for that round trip the
+       shell drew the LIST's bar and then swapped the whole row. Visible as a
+       flash of `console` on entering the app. See `here.ts`. -->
+  @if (here.at()) {
     <!-- Up, to the list. ⚠ **A `button`, not an `a`** — the app-wide rule that
          centres a glyph in its circle is `button[matIconButton]`, an element
          selector, so an anchor would take the directive and miss the fix. The
@@ -24,48 +29,54 @@
     <button matIconButton class="leave" routerLink="/" aria-label="all sessions">
       <mat-icon>arrow_back</mat-icon>
     </button>
-    <h1 class="name" [class.anonymous]="!open.name">{{ title() }}</h1>
+    <h1 class="name" [class.anonymous]="anonymous()">{{ title() }}</h1>
     <span class="spacer"></span>
-    <button
-      matIconButton
-      [matMenuTriggerFor]="menu"
-      [attr.aria-label]="'what to do with ' + (open.name ?? 'this session')"
-    >
-      <mat-icon>more_vert</mat-icon>
-    </button>
-    <mat-menu #menu="matMenu" class="session-menu">
-      <!-- First, because it is the only item here that reads rather than acts:
+    <!-- The one thing here that does have to wait: every item in this menu acts
+         on a session, and until the summary lands there is nothing to act on.
+         An empty ⋮ that silently does nothing is worse than one that arrives a
+         moment late. -->
+    @if (here.open(); as open) {
+      <button
+        matIconButton
+        [matMenuTriggerFor]="menu"
+        [attr.aria-label]="'what to do with ' + (open.name ?? 'this session')"
+      >
+        <mat-icon>more_vert</mat-icon>
+      </button>
+      <mat-menu #menu="matMenu" class="session-menu">
+        <!-- First, because it is the only item here that reads rather than acts:
            somebody opening this menu to find out what they are looking at should
            not have to pass six things that change it on the way. -->
-      <button mat-menu-item aria-haspopup="dialog" (click)="details(open)">
-        <mat-icon>info</mat-icon>
-        <span>Details</span>
-      </button>
-      <mat-divider />
-      <div class="heading">Asks permission</div>
-      <!-- The CLI's own modes in its own escalation order, least allowed first,
+        <button mat-menu-item aria-haspopup="dialog" (click)="details(open)">
+          <mat-icon>info</mat-icon>
+          <span>Details</span>
+        </button>
+        <mat-divider />
+        <div class="heading">Asks permission</div>
+        <!-- The CLI's own modes in its own escalation order, least allowed first,
            so the list reads as a dial rather than a set. Each carries the icon
            that stands for it elsewhere — this menu is the only place both are
            shown, so it is where the icons are learnt. -->
-      @for (mode of modes; track mode.mode) {
-        <button mat-menu-item (click)="setMode(mode.mode)">
-          <mat-icon [class.loud]="mode.loud">{{ mode.icon }}</mat-icon>
-          <span [class.loud]="mode.loud">{{ mode.title }}</span>
-          @if (mode.mode === open.mode) {
-            <mat-icon class="ticked">check</mat-icon>
-          }
-        </button>
-      }
-      @if (open.alive) {
-        <!-- Last, and behind a divider: ending a session is the one thing here
+        @for (mode of modes; track mode.mode) {
+          <button mat-menu-item (click)="setMode(mode.mode)">
+            <mat-icon [class.loud]="mode.loud">{{ mode.icon }}</mat-icon>
+            <span [class.loud]="mode.loud">{{ mode.title }}</span>
+            @if (mode.mode === open.mode) {
+              <mat-icon class="ticked">check</mat-icon>
+            }
+          </button>
+        }
+        @if (open.alive) {
+          <!-- Last, and behind a divider: ending a session is the one thing here
              that cannot be undone, and it is wanted about as often. -->
-        <mat-divider />
-        <button mat-menu-item (click)="stop(open.id)">
-          <mat-icon>stop</mat-icon>
-          <span>Stop this session</span>
-        </button>
-      }
-    </mat-menu>
+          <mat-divider />
+          <button mat-menu-item (click)="stop(open.id)">
+            <mat-icon>stop</mat-icon>
+            <span>Stop this session</span>
+          </button>
+        }
+      </mat-menu>
+    }
   } @else {
     <!-- The root. No navigation icon, because there is nowhere above it, and no
          actions: a menu of things to do to no session is a menu of nothing.

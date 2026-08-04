@@ -19,4 +19,20 @@ import { Summary } from './models';
 export class Here {
   /** The open conversation, or nothing when no session is on screen. */
   readonly open = signal<Summary | undefined>(undefined);
+
+  /**
+   * The session the *route* names, which is known at once.
+   *
+   * ⚠ **[open] is not the answer to "am I in a session".** It carries a summary
+   * from the runner, so it stays empty until `/api/state` replies — and on a cold
+   * launch the phone reopens straight inside a conversation, so for one round
+   * trip the shell believed it was on the list and drew the list's toolbar. It
+   * was a visible flash of the wrong screen's bar: `console` and a terminal
+   * glyph, then the whole row swapping for the session's.
+   *
+   * Which screen you are on is a fact about the URL and owes nothing to the
+   * network. Set by [[SessionView]] from its route input, and cleared when it
+   * goes.
+   */
+  readonly at = signal<string | undefined>(undefined);
 }

@@ -2,6 +2,7 @@ package org.xinutec.console
 
 import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.net.http.SslError
 import android.os.Bundle
 import android.util.Log
@@ -182,6 +183,40 @@ class MainActivity : WebShellActivity() {
     // wrapper with no address bar gives no way to notice it is showing somewhere
     // else. The enrolment intent carries no URL — see `enrol`.
     override fun startUrl(intent: Intent?): String? = null
+
+    /**
+     * Back out of a session that was opened without walking into it.
+     *
+     * ⚠ **A cold launch lands inside a conversation with no history behind it.**
+     * The shell remembers the last page and reopens on it, which is right — the
+     * console is glanced at a dozen times a day and always to see one session.
+     * But `canGoBack` is then false, so the shell hands back to the system and
+     * the gesture that means "up to the list" closes the app instead. Walking in
+     * from the list is the case that works, and it is the case nobody does twice
+     * a day.
+     *
+     * `location.replace` rather than [WebView.loadUrl], so this leaves no history
+     * entry of its own: with one, back at the list would return to the session,
+     * back there would come here again, and there would be no way out of the app
+     * at all.
+     */
+    override fun onBackAtRoot(): Boolean {
+        if (atList()) return false
+        web.evaluateJavascript("location.replace('/')", null)
+        return true
+    }
+
+    // Consulted by the shell's `syncBack` on every navigation: without it the
+    // back callback stays disabled at a restored session — there is no WebView
+    // history to enable it — and `onBackAtRoot` is never reached.
+    override fun hasExtraBackTargets(): Boolean = !atList()
+
+    /** Whether the page on screen is the session list, which is the app's root. */
+    private fun atList(): Boolean {
+        val url = web.url ?: return true
+        val path = Uri.parse(url).path ?: ""
+        return path.trim('/').isEmpty()
+    }
 
     override fun createWebViewClient() = ConsoleWebViewClient()
 

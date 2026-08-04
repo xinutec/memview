@@ -1038,6 +1038,24 @@ not how important it is.
   because `styles.scss` raises every icon button to a 48px thumb target and
   centres the 24px glyph in it. Arithmetic from the framework's numbers left 4px
   of jump behind; the harness is what produced the right one.
+- ⚠ **Back was doing two things at once, and the second was invisible.** A sheet
+  takes no part in history, so a back press with one open goes to the page
+  underneath — and Material's `closeOnNavigation` then dismisses the sheet on the
+  way past, which is what makes it look handled. Measured: open the details sheet
+  on a session, press back, and you land on the session *list* with the sheet
+  gone. The gesture meaning "put this panel away" also threw away the
+  conversation. On the list it is worse — the start sheet sits on the root, so
+  back leaves the app. `dismiss.ts` gives each sheet a history entry to spend,
+  and takes it back when the sheet is closed by hand; a step that outlives its
+  panel is a back press spent on nothing, which reads as a frozen phone.
+- ⚠ **A cold launch lands inside a session with no history behind it**, because
+  the shell reopens on the page it remembers — right, and it means `canGoBack` is
+  false, so back closed the app rather than going up to the list. `onBackAtRoot`
+  is the shell's hook for exactly this, and `hasExtraBackTargets` is what keeps
+  the callback enabled long enough to reach it. The escape uses
+  `location.replace`, not `loadUrl`: an entry of its own would make back at the
+  list return to the session, and back there come here again, with no way out of
+  the app at all.
 - ⚠ **The layout harness serves a prebuilt bundle and does not build it.**
   `e2e/harness.mjs` points at `dist/console-build/browser`, so a Playwright run
   after an edit measures the *previous* build. Three ablations in a row came back

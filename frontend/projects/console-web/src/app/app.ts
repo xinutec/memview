@@ -9,6 +9,7 @@ import { RouterLink, RouterOutlet } from '@angular/router';
 
 import { BUILD_INFO } from './build-info';
 import { ConsoleApi } from './console-api';
+import { Dismiss } from './dismiss';
 import { reason } from './errors';
 import { Here } from './here';
 import { Summary } from './models';
@@ -38,6 +39,7 @@ export class App {
   private restyle = inject(Restyle);
   private api = inject(ConsoleApi);
   private sheet = inject(MatBottomSheet);
+  private dismiss = inject(Dismiss);
   /** Read by the toolbar: the conversation on screen, when there is one. */
   readonly here = inject(Here);
 
@@ -55,6 +57,18 @@ export class App {
   protected readonly title = computed(() => {
     const open = this.here.open();
     return open ? titleOf(open) : '';
+  });
+
+  /**
+   * Whether the headline is standing in for a name rather than being one.
+   *
+   * Reads `open` and not `at`: during the round trip before the summary lands
+   * there is no name and no stand-in either, and dimming an empty string says
+   * nothing. See [[Here.at]].
+   */
+  protected readonly anonymous = computed(() => {
+    const open = this.here.open();
+    return !!open && !open.name;
   });
 
   // Instrumented once, from the shell: no screen knows the trace exists, so no
@@ -106,7 +120,9 @@ export class App {
    * is worse than one that is a second old.
    */
   protected details(session: Summary): void {
-    this.sheet.open(SessionSheet, { data: session, panelClass: 'session-sheet' });
+    this.dismiss.onBack(
+      this.sheet.open(SessionSheet, { data: session, panelClass: 'session-sheet' }),
+    );
   }
 
   protected stop(id: string): void {

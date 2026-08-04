@@ -1539,6 +1539,36 @@ test('the toolbar says which session this is, beside what can be done to it @ ph
   await expect(page.locator('.head')).not.toContainText('/home/example/Code');
 });
 
+test('the bar is a session bar before the runner has answered @ phone width', async ({ page }) => {
+  // ⚠ **A cold launch lands inside a conversation** — the wrapper reopens on the
+  // page it remembers — and the toolbar used to decide which screen it was on by
+  // whether `/api/state` had come back yet. For that one round trip it drew the
+  // LIST's bar, so opening the app flashed `console` and a terminal glyph and
+  // then swapped the whole row. Reported from the phone, where it is a fifth of
+  // a second of the wrong screen every single time.
+  //
+  // The reply is held rather than raced: the gap is one request long, which is
+  // milliseconds on loopback and luck in a test.
+  await mockRunner(page);
+  let answer: (() => void) | undefined;
+  await page.route('**/api/state', async (route) => {
+    if (answer) {
+      await route.fulfill({ json: NAMED });
+      return;
+    }
+    await new Promise<void>((go) => (answer = go));
+    await route.fulfill({ json: NAMED });
+  });
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+
+  // Nothing has answered yet, and the way out is already on screen.
+  await expect(page.locator('.bar .leave'), 'the bar is still the list’s').toBeVisible();
+  await expect(page.locator('.bar .title'), 'the root headline flashed up').toHaveCount(0);
+
+  answer?.();
+  await expect(page.locator('.bar .name')).toHaveText('health');
+});
+
 test('a session with no name yet says where it runs @ phone width', async ({ page }) => {
   // The state every session starts in: the runner has not read a name out of the
   // transcript, and the bar still has to say which conversation this is.
@@ -1734,6 +1764,78 @@ test('the details sheet holds what the page has no room for @ phone width', asyn
   await expectNoTextOverlaps(page, testInfo, '.session-sheet');
   await expectNoHorizontalOverflow(page, testInfo, '.session-sheet');
   await expectNoClippedText(page, testInfo, '.session-sheet');
+});
+
+test('back dismisses an overlay rather than the page under it @ phone width', async ({ page }) => {
+  // On the phone this is a gesture, not a button, and it is the one people make
+  // without looking. An overlay takes no part in history by itself, so the
+  // question is what a back press does while one is open — dismiss it, or walk
+  // out of the session with the sheet still on top of whatever it lands on.
+  await mockRunner(page);
+  await page.route('**/api/state', (r) => r.fulfill({ json: NAMED }));
+  // Walked in from the list rather than deep-linked, so there is real history
+  // behind this page: `goto` alone leaves one entry and back exits to about:blank,
+  // which measures Playwright rather than the console.
+  const at = `/s/${STATE.sessions[0].id}`;
+  await page.goto('/');
+  await page.locator('.session').first().click();
+  await page.locator('.transcript').waitFor();
+  await page
+    .locator('.bar')
+    .getByRole('button', { name: /what to do with/ })
+    .click();
+  await page.getByRole('menuitem', { name: 'Details' }).click();
+  await page.locator('.session-sheet').waitFor();
+
+  await page.goBack();
+  await expect(page.locator('.session-sheet'), 'the sheet outlived the page').toHaveCount(0);
+  expect(new URL(page.url()).pathname, 'back left the session as well as the sheet').toBe(at);
+  // And the step it spent was the sheet's own, not the session's: one more back
+  // is what leaves.
+  await page.goBack();
+  expect(new URL(page.url()).pathname, 'the session would not let go').toBe('/');
+});
+
+test('back closes the start sheet rather than the app @ phone width', async ({ page }) => {
+  // The list is the root, so there is nothing behind it: a back press with this
+  // open and no history entry of its own goes out of the console altogether. In
+  // a browser that is a lost page; in the WebView wrapper it is the app closing.
+  await mockRunner(page);
+  await page.goto('/');
+  await page.locator('.page .add').click();
+  await page.locator('.start-sheet').waitFor();
+
+  await page.goBack();
+  await expect(page.locator('.start-sheet'), 'the sheet outlived the gesture').toHaveCount(0);
+  expect(new URL(page.url()).pathname, 'back left the console, not the sheet').toBe('/');
+});
+
+test('a sheet put away by hand leaves no step behind @ phone width', async ({ page }) => {
+  // ⚠ **The other half of giving an overlay a history entry**, and the half that
+  // is easy to leave out: a sheet closed the ordinary way — a tap on the
+  // backdrop — has to take its entry with it. Otherwise the step outlives the
+  // panel it stood for, and the next back press is spent on nothing at all. A
+  // phone that ignores a gesture reads as a phone that has frozen.
+  await mockRunner(page);
+  await page.route('**/api/state', (r) => r.fulfill({ json: NAMED }));
+  await page.goto('/');
+  await page.locator('.session').first().click();
+  await page.locator('.transcript').waitFor();
+  await page
+    .locator('.bar')
+    .getByRole('button', { name: /what to do with/ })
+    .click();
+  await page.getByRole('menuitem', { name: 'Details' }).click();
+  await page.locator('.session-sheet').waitFor();
+
+  // Away by hand, not by back: the backdrop is what a thumb reaches first.
+  // `.last()` is the sheet's own — the menu that opened it leaves its backdrop in
+  // the DOM behind this one while it fades.
+  await page.locator('.cdk-overlay-backdrop').last().click();
+  await expect(page.locator('.session-sheet')).toHaveCount(0);
+
+  await page.goBack();
+  expect(new URL(page.url()).pathname, 'the first back press was spent on nothing').toBe('/');
 });
 
 test('leaving a session leaves its name behind @ phone width', async ({ page }) => {
