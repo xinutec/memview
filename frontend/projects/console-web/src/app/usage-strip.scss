@@ -24,9 +24,18 @@
 
 .label {
   // Wide enough for the longer of the two, so the figures line up under each
-  // other. `ch` rather than a guessed pixel width: it is the unit that follows
-  // the font this ends up rendered in.
-  flex: 0 0 5ch;
+  // other.
+  //
+  // ⚠ **This was `5ch`, and "5 hours" is seven characters.** It wrapped onto two
+  // lines — which is neither clipping nor overflow, so the harness's existing
+  // checks all passed while the row was visibly broken. `ch` is the width of a
+  // zero, so it is the wrong unit for counting letters in a proportional font
+  // anyway; a label is a short known string and this is a column, so it is sized
+  // in `rem` and forbidden to wrap. The `nowrap` is the part that cannot fail
+  // silently: a future label too long for the column now pushes, where it used
+  // to fold.
+  flex: 0 0 4.25rem;
+  white-space: nowrap;
   font: var(--mat-sys-label-medium);
   color: var(--mat-sys-on-surface-variant);
 }

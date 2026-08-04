@@ -1553,6 +1553,23 @@ test('what the account has spent is above the list @ phone width', async ({ page
   const bar = await page.locator('.usage .level').first().boundingBox();
   expect(bar!.width, 'the bar was squeezed out by the text around it').toBeGreaterThan(80);
 
+  // ⚠ **A label that wraps is neither clipped nor overflowing**, so every
+  // assertion above passes while "5 hours" sits on two lines. Measured on the
+  // text itself rather than its box: a `Range` over a text node reports one
+  // client rect per line it occupies, which is the only direct evidence of a
+  // wrap there is.
+  const lines = await page.evaluate(() =>
+    [...document.querySelectorAll('.usage .label')].map((label) => {
+      const range = document.createRange();
+      range.selectNodeContents(label);
+      return { text: label.textContent ?? '', lines: range.getClientRects().length };
+    }),
+  );
+  expect(lines.length, 'no labels to measure').toBeGreaterThan(0);
+  for (const label of lines) {
+    expect(label.lines, `"${label.text}" is split over ${label.lines} lines`).toBe(1);
+  }
+
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
   await expectNoClippedText(page, testInfo, '.usage');
