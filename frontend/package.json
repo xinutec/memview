@@ -7,6 +7,7 @@
     "lint": "eslint src projects/*/src e2e projects/*/e2e playwright.config.ts projects/*/playwright.config.ts",
     "ng": "ng",
     "prebuild": "node scripts/stamp-version.mjs",
+    "prebuild:console": "node scripts/stamp-version.mjs",
     "prelint": "node scripts/stamp-version.mjs",
     "prestart": "node scripts/stamp-version.mjs",
     "pretest": "node scripts/stamp-version.mjs",
