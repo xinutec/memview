@@ -20,6 +20,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { NgTemplateOutlet } from '@angular/common';
 
 import { Clock } from './clock';
 import { ConsoleApi } from './console-api';
@@ -34,6 +35,7 @@ import { Updates } from './updates';
 import { Rendered } from './rendered';
 import { Answers, Notes, Question, choiceOf, complete } from './questions';
 import { Held, SessionStore } from './session-store';
+import { Block, blocks, ran } from './transcript';
 
 /** One session: what it has done, and the way to say something to it. */
 @Component({
@@ -43,6 +45,7 @@ import { Held, SessionStore } from './session-store';
   imports: [
     Clock,
     FormsModule,
+    NgTemplateOutlet,
     MatButtonModule,
     MatIconModule,
     MatFormFieldModule,
@@ -455,6 +458,42 @@ export class SessionView implements OnDestroy {
   shows(entry: Entry): boolean {
     return this.opened().has(entry);
   }
+
+  /**
+   * The transcript as it is drawn: runs of tool calls folded into one row.
+   *
+   * ⚠ **Grouped here rather than in [[fold]]**, so a result still finds its call
+   * by id in a flat list. See `transcript.ts`.
+   */
+  readonly blocks = computed<Block[]>(() => blocks(this.entries()));
+
+  /** What a folded run says about itself. */
+  protected counted(block: Block & { kind: 'tools' }): ReturnType<typeof ran> {
+    return ran(block.entries);
+  }
+
+  /**
+   * Whether a run is open.
+   *
+   * ⚠ **A run with something still running is open until somebody closes it.**
+   * The newest calls are the ones being made now, and a page that folded them
+   * away would be hiding exactly what the reader came to watch — the session
+   * would look idle while it worked. Once the reader has decided for
+   * themselves, that decision holds: an explicit choice outlives the condition
+   * that opened it, so a run does not fold up under somebody mid-read the
+   * moment its last call returns.
+   */
+  protected opensTools(block: Block & { kind: 'tools' }): boolean {
+    return this.toolChoice()[block.key] ?? ran(block.entries).running > 0;
+  }
+
+  protected toggleTools(block: Block & { kind: 'tools' }): void {
+    const open = this.opensTools(block);
+    this.toolChoice.update((choice) => ({ ...choice, [block.key]: !open }));
+  }
+
+  /** What the reader has said about each run, which beats the default above. */
+  private readonly toolChoice = signal<Record<string, boolean>>({});
 
   unfold(entry: Entry): void {
     this.opened.update((open) => {

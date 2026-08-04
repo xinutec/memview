@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { Entry, SessionEvent } from './models';
-import { fold } from './transcript';
+import { blocks, fold, ran } from './transcript';
 
 /** Fold a whole stream, the way the component does. */
 function transcript(...events: SessionEvent[]): Entry[] {
@@ -323,5 +323,50 @@ describe('a call that arrives twice', () => {
     const [slow, fast] = entries.filter((e) => e.kind === 'tool');
     expect(slow.ok, 'the slow call took its own verdict').toBe(false);
     expect(fast.ok, 'the newest call was given a verdict it never earned').toBeUndefined();
+  });
+});
+
+describe('folding runs of tool calls', () => {
+  const tool = (call: string, ok?: boolean): Entry => ({
+    kind: 'tool',
+    call,
+    tool: 'Bash',
+    text: 'git status',
+    ok,
+  });
+  const said = (text: string): Entry => ({ kind: 'said', text });
+
+  it('gathers consecutive calls into one block', () => {
+    const found = blocks([said('before'), tool('a'), tool('b'), tool('c'), said('after')]);
+    expect(found.map((b) => b.kind)).toEqual(['one', 'tools', 'one']);
+    const run = found[1];
+    expect(run.kind === 'tools' && run.entries.length).toBe(3);
+    // Keyed by the first call, so what a reader opened stays open as the
+    // transcript grows underneath it.
+    expect(run.kind === 'tools' && run.key).toBe('a');
+  });
+
+  it('leaves a lone call alone', () => {
+    // A group of one costs a tap and saves nothing.
+    const found = blocks([said('x'), tool('a'), said('y')]);
+    expect(found.map((b) => b.kind)).toEqual(['one', 'one', 'one']);
+  });
+
+  it('is broken by anything that is not a tool call', () => {
+    // Two calls either side of a question were two pieces of work, and a run
+    // that spanned it would say they were one.
+    const found = blocks([
+      tool('a'),
+      tool('b'),
+      { kind: 'ask', text: 'may I?' },
+      tool('c'),
+      tool('d'),
+    ]);
+    expect(found.map((b) => b.kind)).toEqual(['tools', 'one', 'tools']);
+  });
+
+  it('counts what a folded run should say about itself', () => {
+    const found = ran([tool('a', true), tool('b', false), tool('c')]);
+    expect(found).toEqual({ calls: 3, failed: 1, running: 1 });
   });
 });

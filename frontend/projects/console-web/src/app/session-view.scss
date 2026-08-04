@@ -531,3 +531,43 @@
   width: 1.1rem;
   height: 1.1rem;
 }
+
+// A folded run of tool calls: one row standing in for a dozen.
+//
+// The whole row is the control, so it is the target rather than a 48px button
+// inside a 115px entry — which is the height this exists to give back.
+.entry.tools {
+  padding: 0;
+}
+
+.run {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  // A control somebody aims at with a thumb while reading, so it keeps the
+  // app-wide floor rather than shrinking to its text.
+  min-height: 3rem;
+  padding: 0 0.5rem;
+  border: 0;
+  border-radius: 6px;
+  background: var(--mat-sys-surface-container-low);
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-body-small);
+  text-align: left;
+  cursor: pointer;
+
+  .count {
+    font-weight: 500;
+  }
+
+  // The two things worth knowing without opening it. `running` is the same word
+  // the individual rows use, so the folded and unfolded views agree.
+  .running {
+    color: var(--mat-sys-primary);
+  }
+
+  .bad {
+    color: var(--mat-sys-error);
+  }
+}

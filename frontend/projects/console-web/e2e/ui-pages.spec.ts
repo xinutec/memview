@@ -375,6 +375,17 @@ const QUESTION_TRANSCRIPT = [
 /** Mock every backend call. Catch-all FIRST — Playwright runs handlers
  *  last-registered-first. The event stream is served as a complete SSE body, so
  *  the transcript renders without a live runner. */
+/**
+ * Open the folded run of tool calls, so the calls themselves are on the page.
+ *
+ * ⚠ **A run of two or more calls is folded by default** — see `blocks()` in
+ * transcript.ts — so a check about what a tool row looks like has to open it
+ * first. That the fixture folds at all is the subject of its own test below.
+ */
+async function openTools(page: Page): Promise<void> {
+  await page.locator('.entry.tools .run').first().click();
+}
+
 async function mockRunner(page: Page): Promise<void> {
   await page.route('**/api/**', (r) =>
     r.request().method() === 'GET' ? r.fulfill({ json: [] }) : r.fulfill({ status: 204, body: '' }),
@@ -702,6 +713,7 @@ test('transcript — tool arguments and a fixed composer @ phone width', async (
   await page.goto(`/s/${STATE.sessions[0].id}`);
   // The failed shell call is the widest thing on the page; wait for it rather
   // than for the first paint, or the checks run against half a transcript.
+  await openTools(page);
   await page.getByText('verified_cli').first().waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
@@ -1506,6 +1518,7 @@ test('a tool result opens without widening the page @ phone width', async ({ pag
   // widest single thing the transcript can be asked to hold.
   await mockRunner(page);
   await page.goto(`/s/${STATE.sessions[0].id}`);
+  await openTools(page);
   const unfold = page.getByRole('button', { name: /characters/ });
   await unfold.waitFor();
   await unfold.click();
@@ -1792,6 +1805,9 @@ test('the session is still named after scrolling to the end @ phone width', asyn
   await mockRunner(page);
   await page.route('**/api/state', (r) => r.fulfill({ json: NAMED }));
   await page.goto(`/s/${STATE.sessions[0].id}`);
+  // Opened, because this needs a transcript tall enough to scroll and a folded
+  // run is deliberately short.
+  await openTools(page);
   await page.getByText('verified_cli').first().waitFor();
   const tops = () =>
     page.evaluate(() => ({
@@ -1954,4 +1970,52 @@ test('leaving a session leaves its name behind @ phone width', async ({ page }) 
     'the list is titled with the session just left',
   ).toHaveCount(0);
   await expect(page.locator('.bar').getByRole('button')).toHaveCount(0);
+});
+
+test('a run of tool calls is folded into one row @ phone width', async ({ page }) => {
+  // ⚠ **Machinery is what a reader scrolls past.** A tool call is 115px at phone
+  // width and a turn can hold a dozen, so a conversation with any work in it is
+  // mostly rows nobody came for, between the two sentences they did.
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  const run = page.locator('.entry.tools .run');
+  await run.waitFor();
+  await expect(run).toContainText('2 tool calls');
+  // The one thing worth saying without opening it.
+  await expect(run, 'a failure inside the run is not mentioned').toContainText('1 failed');
+  // And the calls themselves are not on the page until asked for.
+  await expect(page.getByText('verified_cli')).toHaveCount(0);
+
+  // Still a thumb target, not a 20px summary.
+  const box = await run.boundingBox();
+  expect(box!.height, 'the run row is under the thumb floor').toBeGreaterThanOrEqual(48);
+
+  await run.click();
+  await expect(page.getByText('verified_cli').first()).toBeVisible();
+  await run.click();
+  await expect(page.getByText('verified_cli')).toHaveCount(0);
+});
+
+test('a run with something still running stays open @ phone width', async ({ page }) => {
+  // ⚠ **The newest calls are the ones being made now**, so folding them away
+  // would hide exactly what the reader came to watch — the session would look
+  // idle while it worked.
+  // ⚠ Before `goto`: it installs its stub through `addInitScript`, which only
+  // affects pages loaded after it.
+  await handControlOfTheStream(page);
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.transcript').waitFor();
+  let seq = 0;
+  for (const event of [
+    { kind: 'tool', id: 'run_a', name: 'Bash', input: { command: 'cargo build --workspace' } },
+    { kind: 'tool', id: 'run_b', name: 'Bash', input: { command: 'cargo test --all-features' } },
+  ]) {
+    await say(page, event, ++seq);
+  }
+  const run = page.locator('.entry.tools .run').last();
+  await run.waitFor();
+  await expect(run).toContainText('2 running');
+  // Open without being asked, because both calls are still going.
+  await expect(page.getByText('cargo test --all-features')).toBeVisible();
 });

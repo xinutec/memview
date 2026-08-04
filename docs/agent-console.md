@@ -1142,6 +1142,33 @@ the same question twice.
   be able to hold it up. A console with `CONSOLE_USAGE_URL` empty never asks and
   simply has no usage on its front page.
 
+### Machinery is folded away, and the work is not
+
+A run of two or more consecutive tool calls renders as one row — "12 tool calls ·
+1 failed" — that opens to the calls themselves. Measured at phone width: a tool
+entry is **115px**, of which 20 is the call, 16 the first line of its result, and
+**48 the button that opens the rest**. A turn can hold a dozen, so a conversation
+with any work in it was mostly rows nobody came for, between the two sentences
+they did.
+
+- **The 48px thumb floor is why grouping was the option worth taking.** Every
+  control in this app is held to it, so while each call is its own tappable row
+  it cannot usefully go below ~48px however little it says. A run becomes *one*
+  target instead of twelve, which is the only way past that floor.
+- **Grouped for rendering, not for folding.** `blocks()` walks the entries
+  `fold()` already built; the entries stay a flat list, so a result still finds
+  its call by id. Folding calls into a container entry would have put that lookup
+  inside a nested list for no gain.
+- ⚠ **A run with a call still running stays open.** The newest calls are the ones
+  being made now, and folding them away would hide exactly what the reader came
+  to watch — the session would look idle while it worked. Once the reader has
+  decided for themselves that decision wins, so a run does not fold up under
+  somebody mid-read the moment its last call returns.
+- **Runs of one are left alone**: a group of one costs a tap and saves nothing.
+  Anything that is not a tool call breaks a run, so the grouping follows the
+  shape of the conversation rather than a count — two calls either side of a
+  question were two pieces of work.
+
 ### What the numbers mean, and the trap they share
 
 Three figures on the header have been wrong at least once, each the same way: **a

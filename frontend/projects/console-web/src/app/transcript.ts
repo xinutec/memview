@@ -226,3 +226,73 @@ function elapsed(ms: number | undefined): string {
   if (minutes < 60) return `${minutes}m ${seconds}s`;
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
+
+/**
+ * A run of consecutive tool calls, or anything else on its own.
+ *
+ * ⚠ **Grouped for rendering, not for folding.** The entries themselves are left
+ * exactly as [[fold]] built them — a result still finds its call by id, and
+ * nothing downstream has to know a group exists. Doing it the other way, by
+ * folding calls into a container entry, would have put that id lookup inside a
+ * nested list for no gain.
+ */
+export type Block =
+  { kind: 'one'; entry: Entry } | { kind: 'tools'; key: string; entries: Entry[] };
+
+/**
+ * How many consecutive calls it takes before they are worth folding away.
+ *
+ * Two, because two calls are 230px on a phone and their summary is one 48px row
+ * — the saving is already most of a screen. One call is left alone: a group of
+ * one costs a tap and saves nothing.
+ */
+const A_RUN = 2;
+
+/**
+ * Gather runs of tool calls so a transcript reads as what was said.
+ *
+ * A tool row is 115px at phone width and a turn can hold a dozen, so a
+ * conversation with any work in it is mostly machinery — and the machinery is
+ * what somebody scrolls *past* to find the answer. Folded, a run is one row that
+ * says how many and whether any failed.
+ *
+ * Anything that is not a tool call breaks the run, which is what makes the
+ * grouping follow the shape of the conversation rather than a count: a question,
+ * an answer or a day marker between two calls means they were two separate
+ * pieces of work.
+ */
+export function blocks(entries: readonly Entry[]): Block[] {
+  const blocks: Block[] = [];
+  let run: Entry[] = [];
+  const flush = () => {
+    if (run.length >= A_RUN) {
+      // Keyed by the first call's id, which is stable across re-renders and
+      // across a re-seed: what a reader opened stays open. A run whose first
+      // entry carried no id falls back to its position, which is stable enough
+      // for a transcript that only ever grows at the end.
+      blocks.push({ kind: 'tools', key: run[0].call ?? `at-${blocks.length}`, entries: run });
+    } else {
+      for (const entry of run) blocks.push({ kind: 'one', entry });
+    }
+    run = [];
+  };
+  for (const entry of entries) {
+    if (entry.kind === 'tool') {
+      run.push(entry);
+      continue;
+    }
+    flush();
+    blocks.push({ kind: 'one', entry });
+  }
+  flush();
+  return blocks;
+}
+
+/** What a folded run says about itself: how many, and how many went wrong. */
+export function ran(entries: readonly Entry[]): { calls: number; failed: number; running: number } {
+  return {
+    calls: entries.length,
+    failed: entries.filter((entry) => entry.ok === false).length,
+    running: entries.filter((entry) => entry.ok === undefined).length,
+  };
+}
