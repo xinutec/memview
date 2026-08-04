@@ -73,12 +73,16 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
         // so it could not hide itself again when the account is inside its
         // allowance, nor appear when it stops being. The gated total in the
         // header is where the number belongs.
-        // "replies", because that is what the number counts: the assistant
-        // messages this one exchange took. Measured — two exchanges reported 5
-        // and 8, and their transcripts hold exactly 5 and 8 assistant messages.
-        // Calling it "turns" alongside a header counting exchanges made one
-        // conversation look like two different lengths.
-        text: `${event.turns ?? 0} replies · ${seconds(event.duration_ms)}`,
+        // ⚠ **"requests", because that is what the number counts** — round
+        // trips to the model, not messages anybody sees. It said "turns" first,
+        // which clashed with a header counting exchanges, and then "replies",
+        // which is wrong in a way that only shows on a long answer: measured on
+        // one exchange of this console's own transcript, the event reported 54
+        // against 83 assistant messages and 53 tool calls. Fifty-three of those
+        // requests existed because a tool had to run and be read; the
+        // fifty-fourth wrote the answer. On a short exchange the two counts
+        // coincide, which is how "replies" survived.
+        text: `${event.turns ?? 0} requests · ${elapsed(event.duration_ms)}`,
         at: event.at,
       });
       break;
@@ -171,7 +175,23 @@ function describe(name: string | undefined, args: Record<string, unknown> | unde
   return Object.keys(args).join(', ');
 }
 
-function seconds(ms: number | undefined): string {
+/**
+ * How long something took, at the scale it took it.
+ *
+ * ⚠ **A tenth of a second stops being information after a minute or two.** This
+ * printed `1274.1s` for a turn that ran twenty-one minutes: a number nobody can
+ * read at a glance and whose last digit describes a rounding error next to the
+ * `cargo build` inside it. Minutes are what that scale wants, and the
+ * sub-second precision is kept where it is the whole point — a call that either
+ * returned at once or did not.
+ */
+function elapsed(ms: number | undefined): string {
   if (!ms) return '0s';
-  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const total = Math.round(ms / 1000);
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  if (minutes < 60) return `${minutes}m ${seconds}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }

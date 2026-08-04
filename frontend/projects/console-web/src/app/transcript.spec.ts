@@ -220,11 +220,29 @@ describe('compaction', () => {
     expect(seen[1].text).toContain('compacted');
   });
 
-  it('reports a turn in replies, which is what the number counts', () => {
-    // ⚠ The turn event's own count is assistant messages, not exchanges —
-    // measured at 5 and 8 for two real ones. Labelled "turns" beside a header
-    // counting exchanges, one conversation showed two different lengths.
+  it('reports a turn in requests, which is what the number counts', () => {
+    // ⚠ Round trips to the model, not messages anybody sees, and not exchanges.
+    // It was "turns" (which clashed with a header counting exchanges) and then
+    // "replies" (which only shows as wrong on a long answer: one exchange of
+    // this console's own transcript reported 54 against 83 assistant messages
+    // and 53 tool calls).
     const seen = transcript({ kind: 'turn', turns: 5, duration_ms: 38401 });
-    expect(seen[0].text).toContain('5 replies');
+    expect(seen[0].text).toContain('5 requests');
+  });
+
+  it('says a long turn in minutes and a short one in seconds', () => {
+    // `1274.1s` for a twenty-one-minute turn is a number nobody reads, and its
+    // last digit describes a rounding error next to the build inside it.
+    expect(transcript({ kind: 'turn', turns: 54, duration_ms: 1_274_100 })[0].text).toContain(
+      '21m 14s',
+    );
+    // And the precision is kept where it is the point: a call that either
+    // returned at once or did not.
+    expect(transcript({ kind: 'turn', turns: 1, duration_ms: 812 })[0].text).toContain('812ms');
+    expect(transcript({ kind: 'turn', turns: 2, duration_ms: 38_401 })[0].text).toContain('38.4s');
+    // An hour is where minutes stop being readable in their turn.
+    expect(transcript({ kind: 'turn', turns: 9, duration_ms: 7_530_000 })[0].text).toContain(
+      '2h 5m',
+    );
   });
 });
