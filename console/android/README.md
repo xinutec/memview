@@ -34,11 +34,17 @@ and can forge a source address. It can deny service, which is unavoidable for a
 router. It cannot produce either signature, so it cannot read the traffic,
 impersonate the phone, or stand in for the Mac.
 
-**One unlock covers five minutes** (`Keys.UNLOCK_SECONDS`), rather than a face scan
-per TLS handshake. That number is how long a snatched, unlocked phone stays useful.
-A *device* unlock counts, so opening the app after unlocking the phone usually asks
-for nothing; when the window has run out the handshake pauses on a biometric prompt
-instead of failing.
+**One unlock covers fifteen minutes** (`Keys.UNLOCK_SECONDS`), rather than a face
+scan per TLS handshake. That number is how long a snatched, unlocked phone stays
+useful. A *device* unlock counts, so opening the app after unlocking the phone
+usually asks for nothing; when the window has run out the handshake pauses on a
+biometric prompt instead of failing.
+
+It was five minutes, and the reason it is not is that the prompt is not paced by
+use: the page polls every few seconds, so the first poll after the window closes
+asks again whether or not anybody did anything. Reading a transcript for twenty
+minutes cost four unlocks. Fifteen buys a third of the interruptions for three
+times the exposure of a phone taken while unlocked.
 
 ## Build & install
 

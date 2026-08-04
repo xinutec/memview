@@ -8,7 +8,7 @@ import { Telemetry } from './telemetry';
  * The Android wrapper, when this page is running inside it.
  *
  * The one thing the page cannot do for itself. Requests are signed with a key in
- * this phone's StrongBox that stays usable for five minutes after an
+ * this phone's StrongBox that stays usable for a set time after an
  * authentication, and when that window closes the TLS handshake is refused
  * before any request leaves the device. Chromium caches its client-certificate
  * decision per host and reuses the key handle without asking the app again, so

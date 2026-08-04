@@ -734,6 +734,7 @@ async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
         cost_usd: 1.25,
         window: Some(1_000_000),
         limit: Some("allowed_warning".into()),
+        pending: Default::default(),
     };
     let (_stdin_read, stdin) = carried_pipe();
     let (stdout, _stdout_write) = carried_pipe();
@@ -761,6 +762,109 @@ async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
     assert_eq!(summary.window, Some(1_000_000), "no window to be full of");
     assert_eq!(summary.limit.as_deref(), Some("allowed_warning"));
     assert!((summary.cost_usd - 1.25).abs() < f64::EPSILON);
+}
+
+#[tokio::test]
+async fn an_upgrade_keeps_the_question_a_session_is_blocked_on() {
+    // ⚠ **The defect this exists for, measured on a live session.** `execve`
+    // does not touch the child, so a session blocked on `can_use_tool` is STILL
+    // blocked after an upgrade — but the pending request lived only in the image
+    // that was replaced. It was dropped, and a control request is not a
+    // transcript line, so the re-seed could not put it back either: the card
+    // vanished off every screen, the request id ceased to exist anywhere, and
+    // the session waited for an answer that had become unsendable. One
+    // conversation sat on "running" for an hour that way.
+    let asked = console::session::Pending {
+        tool: "AskUserQuestion".into(),
+        input: serde_json::json!({"questions": [{"question": "which way"}]}),
+        title: None,
+        detail: Some("a question standing when the console was replaced".into()),
+    };
+    let tally = console::session::Tally {
+        started: 1_754_000_000,
+        model: Some("claude-opus-5".into()),
+        mode: Some("auto".into()),
+        cost_usd: 0.0,
+        window: None,
+        limit: None,
+        pending: std::collections::BTreeMap::from([("ask-1".to_string(), asked)]),
+    };
+    let (_stdin_read, stdin) = carried_pipe();
+    let (stdout, _stdout_write) = carried_pipe();
+    let (stderr, _stderr_write) = carried_pipe();
+
+    let session = console::session::Session::adopt(
+        "not-a-session-on-disk".into(),
+        std::env::temp_dir(),
+        std::process::id(),
+        console::session::Fds {
+            stdin,
+            stdout,
+            stderr,
+        },
+        tally,
+    )
+    .expect("adopt");
+
+    // The list says it is waiting, which is what makes it findable at all.
+    assert_eq!(session.summary().waiting, 1, "the question was dropped");
+    // And a client is offered the decision again, rather than being left with a
+    // tool row that never finishes.
+    let history = session.history();
+    let Some(console::protocol::Event::Ask { id, tool, .. }) = history
+        .iter()
+        .find(|e| matches!(e, console::protocol::Event::Ask { .. }))
+    else {
+        panic!("nothing on screen to answer: {history:?}");
+    };
+    assert_eq!(id, "ask-1", "the id is what the answer has to carry back");
+    assert_eq!(tool, "AskUserQuestion");
+
+    // Answerable, which is the whole point: the id still means something.
+    let reply = console::protocol::Reply {
+        answers: console::protocol::Answers::from([(
+            "which way".to_string(),
+            console::protocol::Answer::One("left".to_string()),
+        )]),
+        ..Default::default()
+    };
+    session
+        .decide("ask-1", true, "", Some(&reply))
+        .await
+        .expect("the carried question can still be answered");
+    assert_eq!(session.summary().waiting, 0);
+}
+
+#[tokio::test]
+async fn a_session_hands_on_the_question_it_is_blocked_on() {
+    // The other half of the same property, and the half the test above cannot
+    // see: it builds a `Tally` by hand, so it would still pass if `tally()`
+    // stopped reading `pending` off a live session. Measured by ablation.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    session.send("may i run something").await.expect("send");
+    let seen = until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Ask { .. }))
+    })
+    .await;
+    let Some(Event::Ask { id, .. }) = seen.iter().find(|e| matches!(e, Event::Ask { .. })) else {
+        panic!("no question");
+    };
+
+    let carried = session.tally();
+    let held = carried
+        .pending
+        .get(id)
+        .expect("the question would not survive an upgrade");
+    assert_eq!(held.tool, "Bash");
+    assert_eq!(held.input["command"], "rm -rf /tmp/x");
+    // The CLI's own sentence travels too, or the row comes back reassembled.
+    assert_eq!(held.detail.as_deref(), Some("delete a directory"));
+
+    // Answered, and then it is no longer something to carry.
+    session.decide(id, true, "", None).await.expect("approve");
+    assert!(session.tally().pending.is_empty());
 }
 
 #[tokio::test]

@@ -77,6 +77,16 @@ pub struct Tally {
     /// See [`Summary::mode`]. Carried because the console is the only thing
     /// that knows it — no file records it in a way that can be trusted.
     pub mode: Option<String>,
+    /// ⚠ **Questions the session is blocked on, which nothing else can recover.**
+    /// A `can_use_tool` request is a control message, not a transcript line, so
+    /// a re-seed cannot produce it — and the *session* stays blocked on it
+    /// across an upgrade, because `execve` does not touch the child. Dropping
+    /// these orphaned the question: the process waited for an answer whose
+    /// request id no longer existed anywhere, the card vanished off every
+    /// screen, and the row sat on "running" for ever. Measured on a live
+    /// session that lost an hour that way.
+    #[serde(default)]
+    pub pending: BTreeMap<String, Pending>,
 }
 
 /// Take a descriptor out of close-on-exec, and make it non-blocking.
@@ -279,11 +289,16 @@ pub fn resumable(after: u64, held_from: u64, issued: u64) -> bool {
 ///
 /// The arguments are kept because an allow has to echo them back, and the tool's
 /// name because only one tool's arguments may be *edited* on the way back — see
-/// [`protocol::QUESTION_TOOL`].
-#[derive(Debug, Clone)]
-struct Pending {
-    tool: String,
-    input: serde_json::Value,
+/// [`protocol::QUESTION_TOOL`]. The CLI's own sentence is kept for the same
+/// reason the event carries it: it reads better than one reassembled here.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Pending {
+    pub tool: String,
+    pub input: serde_json::Value,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub detail: Option<String>,
 }
 
 /// The mutable half of a session, behind one lock.
@@ -548,7 +563,14 @@ impl Session {
     /// from the transcript on disk, which is the durable record anyway — except
     /// for [`Tally`], which no transcript holds and which therefore has to be
     /// carried.
-    pub fn adopt(id: String, dir: PathBuf, pid: u32, fds: Fds, tally: Tally) -> Result<Arc<Self>> {
+    pub fn adopt(
+        id: String,
+        dir: PathBuf,
+        pid: u32,
+        fds: Fds,
+        mut tally: Tally,
+    ) -> Result<Arc<Self>> {
+        let pending = std::mem::take(&mut tally.pending);
         // ⚠ The scrollback did NOT survive the exec, and a client reconnecting
         // to an empty log is told its page is unresumable and starts blank. So
         // an adopted session reseeds from the transcript exactly as a resumed
@@ -599,6 +621,21 @@ impl Session {
             tx,
         });
         session.seed();
+        // **After the seed, so the question lands where it happened: at the end
+        // of the conversation, which is where it is still standing.** Pushed as
+        // an ordinary `Ask` rather than restored into `pending` directly,
+        // because that is the same path a live question takes — one mechanism,
+        // so a client that reconnects is offered the decision again *and* the
+        // session is recorded as waiting for it, from a single event.
+        for (id, question) in pending {
+            session.push(Event::Ask {
+                id,
+                tool: question.tool,
+                title: question.title,
+                detail: question.detail,
+                input: question.input,
+            });
+        }
         session.clone().read_from(Some(stdout), Some(stderr), true);
         Ok(session)
     }
@@ -617,6 +654,7 @@ impl Session {
             window: state.window,
             limit: state.limit.clone(),
             mode: state.mode.clone(),
+            pending: state.pending.clone(),
         }
     }
 
@@ -886,13 +924,19 @@ impl Session {
                     state.asked = Some(text.clone());
                 }
                 Event::Ask {
-                    id, tool, input, ..
+                    id,
+                    tool,
+                    input,
+                    title,
+                    detail,
                 } => {
                     state.pending.insert(
                         id.clone(),
                         Pending {
                             tool: tool.clone(),
                             input: input.clone(),
+                            title: title.clone(),
+                            detail: detail.clone(),
                         },
                     );
                 }

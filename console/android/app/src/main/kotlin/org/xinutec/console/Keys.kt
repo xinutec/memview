@@ -54,8 +54,16 @@ import javax.security.auth.x500.X500Principal
  * needs no second prompt, and [unlocked] is what asks rather than assuming.
  */
 object Keys {
-    /** How long one authentication keeps the key usable. */
-    const val UNLOCK_SECONDS = 300
+    /**
+     * How long one authentication keeps the key usable.
+     *
+     * Fifteen minutes, chosen deliberately against five. The prompt is not paced
+     * by use: the page polls every few seconds, so the first poll after the
+     * window closes asks again whether or not anybody did anything — which made
+     * a twenty-minute read cost four unlocks. This is the exposure of a phone
+     * taken while unlocked, and tripling it buys a third of the interruptions.
+     */
+    const val UNLOCK_SECONDS = 900
 
     private const val ALIAS = "console-client"
     private const val TAG = "console-keys"

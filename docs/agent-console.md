@@ -415,6 +415,12 @@ points at. Both halves of that turn out not to hold:
   phone stays useful, so it belongs in the minutes, not the hours. It also means a
   *device* unlock inside the window authorises the key, so opening the app after
   unlocking the phone asks for nothing — which is most of the time.
+- ⚠ **`N` buys interruptions, not just exposure, and the exchange rate is worse
+  than it looks.** The prompt is not paced by use: the page polls every few
+  seconds, so the first poll after the window closes asks again whether or not
+  anybody did anything, and a twenty-minute read cost four unlocks at five
+  minutes. Raised to fifteen deliberately — a third of the prompts for three
+  times the exposure of a phone taken while unlocked.
 
   ⚠ **Asking whether the key is usable requires actually signing something.**
   `initSign` alone succeeds against a key whose window ran out, because the
@@ -816,6 +822,33 @@ already had, every time, for ever.
 - **`EventSource` sends `Last-Event-ID` only for its own reconnects.** A new one
   opened by a page returning knows nothing, hence `?after=` on the events route,
   with the header winning when both are present.
+
+### An upgrade must carry the questions, not just the pipes
+
+⚠ **`execve` does not touch the child, so a session blocked on `can_use_tool` is
+still blocked after an upgrade** — but the request itself lived only in the image
+that was replaced. `Carried` moved the descriptors and the counters, and the
+pending questions went with the old image: the card vanished off every screen,
+the request id ceased to exist anywhere, and the process waited for an answer
+that had become unsendable. A re-seed cannot repair it either, because a control
+request is not a transcript line.
+
+Measured on a live session, not reasoned about: `coach` called
+`AskUserQuestion` at 13:35Z, the console was upgraded at 13:52Z, and the session
+sat on a tool row reading *running* for an hour with `waiting: 0` — the one
+state that says "nothing to answer" while something is waiting. The recovery is a
+stop and a resume, which costs the blocked turn; the question itself is
+recoverable from the transcript's `tool_use`, since the arguments are recorded
+even though the control request is not.
+
+So the questions ride in [`Tally`] with the other things no transcript holds, and
+an adopted session **re-emits them as ordinary `Ask` events after the seed**.
+That is one mechanism rather than two: the same event that puts the card back on
+every screen is the one that records the session as waiting.
+
+The operational half is worth keeping too: **check for outstanding questions
+before upgrading.** `GET /api/state` and look at `waiting` — one call, and it is
+the difference between a seamless upgrade and an orphaned conversation.
 
 ### Answering a question, which is not the same as approving one
 
