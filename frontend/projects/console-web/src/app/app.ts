@@ -1,4 +1,5 @@
-import { Component, inject } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
+import { MatBottomSheet, MatBottomSheetModule } from '@angular/material/bottom-sheet';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatIconModule } from '@angular/material/icon';
@@ -10,8 +11,11 @@ import { BUILD_INFO } from './build-info';
 import { ConsoleApi } from './console-api';
 import { reason } from './errors';
 import { Here } from './here';
+import { Summary } from './models';
 import { offeredModes } from './modes';
+import { titleOf } from './naming';
 import { Restyle } from './restyle';
+import { SessionSheet } from './session-sheet';
 import { Telemetry } from './telemetry';
 
 @Component({
@@ -22,6 +26,7 @@ import { Telemetry } from './telemetry';
     RouterOutlet,
     RouterLink,
     MatToolbarModule,
+    MatBottomSheetModule,
     MatButtonModule,
     MatIconModule,
     MatMenuModule,
@@ -32,11 +37,25 @@ export class App {
   private telemetry = inject(Telemetry);
   private restyle = inject(Restyle);
   private api = inject(ConsoleApi);
+  private sheet = inject(MatBottomSheet);
   /** Read by the toolbar: the conversation on screen, when there is one. */
   readonly here = inject(Here);
 
   /** The permission modes to offer, least allowed first. See `modes.ts`. */
   protected readonly modes = offeredModes();
+
+  /**
+   * What to call the conversation on screen — its name, else where it runs.
+   *
+   * A `computed` rather than a method taking the session, because the template
+   * reads it: a method body runs on every change-detection pass and cannot
+   * cache (DL-ANGULAR-TEMPLATE-METHOD-CALL). The same rule titles the list's
+   * cards; see `naming.ts`.
+   */
+  protected readonly title = computed(() => {
+    const open = this.here.open();
+    return open ? titleOf(open) : '';
+  });
 
   // Instrumented once, from the shell: no screen knows the trace exists, so no
   // new control can be missed by forgetting to annotate it.
@@ -75,6 +94,19 @@ export class App {
         this.telemetry.note('mode-refused', reason(err));
       },
     });
+  }
+
+  /**
+   * Everything about this session that the screen has no room for.
+   *
+   * Takes the summary the template already narrowed rather than reading the
+   * signal again, and hands it over as it is *now*: the sheet is a still, which
+   * is what it is for. Nothing in it changes on the five-second poll except the
+   * last-active time, and a panel whose text moves while it is being read from
+   * is worse than one that is a second old.
+   */
+  protected details(session: Summary): void {
+    this.sheet.open(SessionSheet, { data: session, panelClass: 'session-sheet' });
   }
 
   protected stop(id: string): void {

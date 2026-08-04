@@ -976,7 +976,7 @@ test('a tool result opens without widening the page @ phone width', async ({ pag
 });
 
 /** A session the runner has finished reading: it has a name, a model id and a
- *  permission mode, which is what the header and the sheet divide between them. */
+ *  permission mode, which is what the toolbar and the sheet divide between them. */
 const NAMED = {
   ...STATE,
   sessions: [
@@ -985,37 +985,40 @@ const NAMED = {
   ],
 };
 
-test('the session says its name where it used to say its path @ phone width', async ({ page }) => {
+test('the toolbar says which session this is, beside what can be done to it @ phone width', async ({
+  page,
+}) => {
   await mockRunner(page);
   await page.route('**/api/state', (r) => r.fulfill({ json: NAMED }));
   await page.goto(`/s/${STATE.sessions[0].id}`);
-  await expect(page.locator('.head .name')).toHaveText('health');
-  // The path is what the name replaced. It is not gone — it is in the sheet
-  // behind this heading — but it no longer costs three lines of the screen.
-  await expect(page.locator('.head')).not.toContainText('/home/example/Code');
-  // And the toolbar carries the icon that means "things to do to this", not a
-  // second copy of the name a pinned heading is already showing.
-  // By what it is called rather than by a class, so the assertion is about what
-  // a person — or a screen reader — can find, not about markup.
+  await expect(page.locator('.bar .name')).toHaveText('health');
+  // Named by what it is called rather than by a class, so the assertion is about
+  // what a person — or a screen reader — can find.
   await expect(page.locator('.bar').getByRole('button', { name: /what to do with/ })).toHaveText(
     'more_vert',
   );
-  await expect(page.locator('.bar')).not.toContainText('health');
+  // The path is what the name replaced, and the session's own header no longer
+  // prints it: it is in the sheet behind the name.
+  //
+  // ⚠ Scoped to the header rather than to the page. A transcript is FULL of
+  // paths — every `Read` argument is one — so asserting the path is nowhere on
+  // screen fails against a page doing exactly what it should.
+  await expect(page.locator('.head')).not.toContainText('/home/example/Code');
 });
 
 test('a session with no name yet says where it runs @ phone width', async ({ page }) => {
   // The state every session starts in: the runner has not read a name out of the
-  // transcript, and the heading still has to say which conversation this is.
+  // transcript, and the bar still has to say which conversation this is.
   await mockRunner(page);
   await page.goto(`/s/${STATE.sessions[0].id}`);
-  await expect(page.locator('.head .name')).toHaveText('decode');
-  await expect(page.locator('.head .name')).toHaveClass(/anonymous/);
+  await expect(page.locator('.bar .name')).toHaveText('decode');
+  await expect(page.locator('.bar .name')).toHaveClass(/anonymous/);
 });
 
 test('the list says nothing about which machine it is @ phone width', async ({ page }) => {
   // "this Mac" was true of every session on the list and news to nobody. What
-  // replaced it is nothing: the toolbar's right-hand side is for what can be
-  // done to the session on screen, and on the list there is no session on screen.
+  // replaced it is nothing: the toolbar's right-hand side is about the session on
+  // screen, and on the list there is no session on screen.
   await mockRunner(page);
   await page.goto('/');
   await page.getByText('decode').first().waitFor();
@@ -1023,39 +1026,98 @@ test('the list says nothing about which machine it is @ phone width', async ({ p
   await expect(page.locator('.bar').getByRole('button')).toHaveCount(0);
 });
 
-test('the heading lines up with the facts under it @ phone width', async ({ page }) => {
-  // ⚠ **A button is not a heading, and its padding is not the page's.** The name
-  // sits inside a Material text button, which insets its own label by a token
-  // this app does not set — so the heading rendered twelve pixels to the right
-  // of the row it heads, which reads as a mistake rather than as a control. The
-  // margin that corrects it is a number taken from Material, so it is measured
-  // here rather than trusted to stay what it was.
+test('a name too long for the bar gives way rather than pushing @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **A name is arbitrary text from a transcript**, and the toolbar is a fixed
+  // row holding two other things that must stay reachable. Being cut off is the
+  // intended outcome; the failures are the ways it declines to be.
+  //
+  // ⚠ **The first version of this test passed against the defect.** It asserted
+  // no horizontal overflow and no undersized control, and both were true while
+  // the label spilled 69px out of its own button and painted over the `console`
+  // link: an inline span cannot be ellipsised, so `overflow: hidden` on it did
+  // nothing, and Material's label wrapper would not shrink. Nothing was off the
+  // screen, so nothing failed. Hence the assertions below are about the LABEL
+  // and its box, not about the page.
   await mockRunner(page);
-  await page.route('**/api/state', (r) => r.fulfill({ json: NAMED }));
+  await page.route('**/api/state', (r) =>
+    r.fulfill({
+      json: {
+        ...STATE,
+        sessions: [
+          { ...STATE.sessions[0], name: 'health-sync-backend-decode-matcher-gate-quantiser' },
+        ],
+      },
+    }),
+  );
   await page.goto(`/s/${STATE.sessions[0].id}`);
-  await page.locator('.head .name').waitFor();
-  const edges = await page.evaluate(() => ({
-    name: document.querySelector('.head .name')!.getBoundingClientRect().left,
-    facts: document.querySelector('.head .facts')!.getBoundingClientRect().left,
-  }));
-  expect(
-    Math.abs(edges.name - edges.facts),
-    'the heading is indented against its own facts',
-  ).toBeLessThan(2);
+  await page.locator('.bar .name').waitFor();
+  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectThumbTargets(page);
+
+  const bar = await page.evaluate(() => {
+    // `HTMLElement`, not `Element`: `scrollWidth`/`clientWidth` are what this
+    // measures, and they are the whole assertion.
+    const name = document.querySelector<HTMLElement>('.bar .name')!;
+    const named = document.querySelector('.bar .named')!.getBoundingClientRect();
+    const menu = document
+      .querySelector('.bar button[aria-haspopup="menu"]')!
+      .getBoundingClientRect();
+    const home = document.querySelector('.bar .home')!.getBoundingClientRect();
+    return {
+      wanted: name.scrollWidth,
+      given: name.clientWidth,
+      label: name.getBoundingClientRect(),
+      named,
+      menuLeft: menu.left,
+      menuRight: menu.right,
+      homeRight: home.right,
+      page: window.innerWidth,
+    };
+  });
+  // It really was cut: the text wants more room than the box it was given, which
+  // is the state an ellipsis is drawn in. `clientWidth` is 0 for an inline
+  // element, so this also fails if the span ever stops being a box.
+  expect(bar.given, 'the name is not a box, so nothing can clip it').toBeGreaterThan(0);
+  expect(bar.wanted, 'nothing was truncated — the fixture name is too short').toBeGreaterThan(
+    bar.given,
+  );
+  // And it was cut BY ITS OWN BUTTON, rather than spilling out of it over the
+  // link to its left.
+  expect(bar.label.left, 'the label starts left of its own button').toBeGreaterThanOrEqual(
+    bar.named.left,
+  );
+  expect(bar.label.right, 'the label runs past its own button').toBeLessThanOrEqual(
+    bar.named.right,
+  );
+  expect(bar.label.left, 'the name is painting over the home link').toBeGreaterThanOrEqual(
+    bar.homeRight,
+  );
+  // The overflow button keeps its place at the end of the row.
+  expect(bar.named.right, 'the name is under the overflow button').toBeLessThanOrEqual(
+    bar.menuLeft,
+  );
+  expect(bar.menuRight, 'the overflow button was pushed off the edge').toBeLessThanOrEqual(
+    bar.page,
+  );
 });
 
-test('the header stays put while the transcript scrolls @ phone width', async ({ page }) => {
-  // What makes the toolbar's copy of the name redundant rather than a loss. The
-  // header is outside the scrolling region — `.transcript` is the only thing on
-  // this page that scrolls — so the name is on screen for as long as the session
-  // is, which is what the toolbar was doing before.
+test('the session is still named after scrolling to the end @ phone width', async ({ page }) => {
+  // Which conversation you are in is the one fact worth having on screen at all
+  // times — the console drives a dozen at once and they differ by name. Both the
+  // toolbar and the facts row sit outside the scrolling region (`.transcript` is
+  // the only thing on this page that scrolls), so this measures that they do.
   await mockRunner(page);
   await page.route('**/api/state', (r) => r.fulfill({ json: NAMED }));
   await page.goto(`/s/${STATE.sessions[0].id}`);
   await page.getByText('verified_cli').first().waitFor();
-  const top = () =>
-    page.evaluate(() => document.querySelector('.head')!.getBoundingClientRect().top);
-  const before = await top();
+  const tops = () =>
+    page.evaluate(() => ({
+      name: document.querySelector('.bar .name')!.getBoundingClientRect().top,
+      facts: document.querySelector('.head .facts')!.getBoundingClientRect().top,
+    }));
+  const before = await tops();
   await page.evaluate(() => {
     const box = document.querySelector('.transcript')!;
     box.scrollTop = box.scrollHeight;
@@ -1065,7 +1127,8 @@ test('the header stays put while the transcript scrolls @ phone width', async ({
   );
   const scrolled = await page.evaluate(() => document.querySelector('.transcript')!.scrollTop);
   expect(scrolled, 'the transcript did not move, so this proves nothing').toBeGreaterThan(100);
-  expect(await top(), 'the heading scrolled away with the conversation').toBe(before);
+  expect(await tops(), 'the session scrolled away with its conversation').toEqual(before);
+  await expect(page.locator('.bar .name')).toBeInViewport();
 });
 
 test('the details sheet holds what the page has no room for @ phone width', async ({
@@ -1079,19 +1142,19 @@ test('the details sheet holds what the page has no room for @ phone width', asyn
   await mockRunner(page);
   await page.route('**/api/state', (r) => r.fulfill({ json: NAMED }));
   await page.goto(`/s/${STATE.sessions[0].id}`);
-  await page.locator('.head .named').click();
+  await page.locator('.bar .named').click();
   const sheet = page.locator('.session-sheet');
   await sheet.waitFor();
 
   const said = await sheet.innerText();
-  // The path, which the header no longer shows.
+  // The path, which nothing on the screen shows any more.
   expect(said).toContain(STATE.sessions[0].dir);
   // The session id, which nothing in the console showed anywhere.
   expect(said).toContain(STATE.sessions[0].id);
-  // The model as it is shipped, not the one word the header has room for.
+  // The model as it is shipped, not the one word the facts row has room for.
   expect(said).toContain('claude-opus-5[1m]');
-  // The permission mode in words. The header has only its icon, and a `title=`
-  // tooltip on a phone is text nobody can reach.
+  // The permission mode in words. The facts row has only its icon, and a
+  // `title=` tooltip on a phone is text nobody can reach.
   expect(said).toContain('Bypass Permissions');
 
   await expectNoTextOverlaps(page, testInfo, '.session-sheet');

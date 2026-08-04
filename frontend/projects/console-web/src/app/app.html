@@ -4,17 +4,30 @@
     <span class="title">console</span>
   </a>
   <span class="spacer"></span>
-  <!-- What can be done to the session on screen, behind the icon that means
-       exactly that everywhere else on a phone.
-       ⚠ **The toolbar used to carry the session's name here**, and before that
-       the words "this Mac" on the list. The name is now the heading of the page
-       itself, which is pinned above the transcript and does not scroll away
-       (measured), so the toolbar was saying a second time what the line beneath
-       it already said — and spending the width of a name to do it. "this Mac"
-       was worse: true, and news to nobody.
-       Nothing takes its place on the list, where no one session is in view: a
-       menu of things to do to no session is a menu of nothing. -->
+  <!-- Which conversation this is, and what can be done to it: the two things
+       that are true of the whole screen rather than of any part of it, so they
+       live in the one row that is always there.
+       ⚠ **The name is a control, not a caption.** It replaced the working
+       directory printed across the top of every session — three lines of shared
+       prefix around the one word that differed, because every session on this
+       Mac runs under one tree. The path did not go away; it is behind this,
+       with the model id, the permission mode in words and the session id, none
+       of which were readable on a phone before: they were `title=` tooltips.
+       Before either, this said "this Mac" on the list. Nothing takes its place
+       there — a menu of things to do to no session is a menu of nothing. -->
   @if (here.open(); as open) {
+    <!-- ⚠ **Not `matButton`.** Material's button wraps its content in a label
+         span that is a flex item with `min-width: auto` and `overflow: visible`
+         — so a name too long for the row does not shorten, it SPILLS out of the
+         button on both sides: measured at 339px of text in a 223px control,
+         painted straight over the `console` link 69px to its left. The only
+         selector that could constrain it is Material's own internal class,
+         which is exactly what DL-SCSS-INTERNAL-OVERRIDE forbids. A button we own
+         has a box we can constrain. -->
+    <button type="button" class="named" aria-haspopup="dialog" (click)="details(open)">
+      <span class="name" [class.anonymous]="!open.name">{{ title() }}</span>
+      <mat-icon>info</mat-icon>
+    </button>
     <button
       matIconButton
       [matMenuTriggerFor]="menu"

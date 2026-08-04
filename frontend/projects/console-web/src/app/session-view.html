@@ -1,17 +1,10 @@
 @if (session(); as session) {
+  <!-- Only what changes. What this conversation IS — its name, and behind it the
+       path, the model and the mode — is in the toolbar, which is the one row on
+       screen that belongs to the whole session rather than to any part of it.
+       This row is the other half of that split: the facts that are different
+       every time somebody looks. -->
   <header class="head">
-    <!-- The heading of the page, and the way into everything the page has no
-         room for. It replaced the working directory, which was the widest thing
-         on the screen and the least worth the space: every session on this Mac
-         runs under one tree, so the path was three lines of prefix around the
-         one word that differed. That word is the name, and it is here.
-         A control, not a caption: the path did not go away, it moved behind
-         this — with the model id, the permission mode and the session id, none
-         of which were readable on a phone before. -->
-    <button class="named" matButton aria-haspopup="dialog" (click)="details()">
-      <span class="name" [class.anonymous]="!session.name">{{ title() }}</span>
-      <mat-icon iconPositionEnd>info</mat-icon>
-    </button>
     <div class="facts">
       @if (session.alive) {
         <span class="live" [class.working]="doing()">{{ doing() ?? 'idle' }}</span>

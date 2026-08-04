@@ -811,23 +811,44 @@ not how important it is.
 
 | surface | holds | why there |
 |---|---|---|
-| toolbar | the overflow icon, and behind it the permission modes and *stop* | what can be **done** to the session; the only always-reachable control |
-| heading | the session's name, and the facts that change — working/idle, exchanges, context, mode icon, model | what a **glance** is for |
+| toolbar | the session's name, and beside it the overflow icon: permission modes and *stop* | **what this is and what can be done to it** — both true of the whole screen rather than of any part of it |
+| facts row | what changes — working/idle, exchanges, context, mode icon, model | what a **glance** is for |
 | sheet | the working directory, the first instruction, the model id, the permission mode in words, the session id, started, last active, the rate limit when it is not `allowed` | what is wanted **once**, and then not again |
 
-- **The toolbar does not name the session.** It did, and before that it said
-  "this Mac" on the list — true, and news to nobody. The heading is pinned: it
-  sits outside the scrolling region, and a full scroll of the transcript moves it
-  by zero pixels (measured). So the toolbar's copy was a second answer to a
-  question already answered an inch below it, and it cost the width of a name.
+- **Identity and actions share the bar.** The alternative was tried first — the
+  name as a heading at the top of the page — and it works, because that row is
+  pinned too (measured: a full scroll of the transcript moves it by zero pixels).
+  Putting it in the bar buys a row of vertical space back on a four-inch screen
+  and keeps the two session-wide controls adjacent. On the list the bar's right
+  side is empty: a menu of things to do to no session is a menu of nothing, and
+  "this Mac", which used to be there, was true and news to nobody.
+- ⚠ **A name is arbitrary text, and the bar is a fixed row.** It shortens to an
+  ellipsis rather than pushing the overflow button off the edge. The name button
+  is deliberately **not** `matButton`: Material wraps content in a label span
+  that is a flex item with `min-width: auto` and `overflow: visible`, so a long
+  name does not shorten — it spills out of the button and paints over the
+  `console` link beside it. Measured: 339px of text in a 223px control, 69px of
+  it to the left of its own button. The only selector that could constrain that
+  wrapper is Material's internal class, which `DL-SCSS-INTERNAL-OVERRIDE`
+  forbids; a button we own has a box we can clip.
+- ⚠ **That defect passed the first version of its own test.** "No horizontal
+  overflow" and "no undersized control" were both true while the label lay
+  across the link next to it — nothing was off the screen. The assertion that
+  catches it is about the label's box: `scrollWidth > clientWidth` (it really was
+  cut) and the label's rect inside the button's (it was cut *by its own
+  button*). An inline element reports `clientWidth` 0, so the same check fails if
+  the span ever stops being a box.
 - ⚠ **A `title=` tooltip is unreadable on a phone.** The model id and the
-  permission mode's name were only ever available by hovering the header — on the
-  device this console exists for, that is text that was written and cannot be
-  reached. Both are in the sheet now, in words.
+  permission mode's name were only ever available by hovering — on the device
+  this console exists for, that is text that was written and cannot be reached.
+  Both are in the sheet now, in words.
 - **The working directory was the widest thing on the screen and the least worth
   it.** Every session on this Mac runs under one tree, so the path was three
   lines of shared prefix around the one word that differed. That word is the
-  name, which is what the heading shows.
+  name, which is what the bar shows.
+- **`Here` carries the whole summary**, not the four fields the toolbar reads.
+  The bar is also the way into the sheet, and the sheet shows nearly all of a
+  session — a narrower type meant copying fields across one at a time.
 - **A bottom sheet, not a dialog**, for the same reason everything else here is:
   it is driven one-handed, and a sheet arrives under the thumb that opened it.
 - ⚠ **An overlay is invisible to every check that measures the page.** The

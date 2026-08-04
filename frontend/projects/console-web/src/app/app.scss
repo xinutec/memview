@@ -20,6 +20,56 @@
   flex: 1;
 }
 
+// The session's name, and the way into everything else about it.
+//
+// ⚠ **It has to be allowed to lose.** Three things share a 412px row: the home
+// link, this, and the overflow button — and a name is arbitrary text out of a
+// transcript, so it is the one that must give way rather than push the controls
+// off the edge or paint over the link beside it.
+//
+// `overflow: hidden` here is what makes that true: it is the box that stops the
+// label, and a control that does not clip its own content cannot ellipsise it
+// however the text is styled. The app-wide `min-width: 3rem` in `styles.scss`
+// says how far it may shrink — to the thumb floor, not to nothing.
+.named {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  overflow: hidden;
+  // A button of our own is an unstyled one until it is styled: Material's own
+  // background, border and font come with the directive this deliberately does
+  // not use. See the template for why.
+  padding: 0 0.5rem;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.name {
+  // ⚠ **`min-width: 0`, or none of the rest of this happens.** A flex item's
+  // floor is its own content unless something lowers it, so without this the
+  // span keeps its full width and the ellipsis never has a narrower box to
+  // appear in.
+  min-width: 0;
+  // Weight rather than size: it sits beside `console` on the same row, and a
+  // larger name would read as the app having been renamed.
+  font-weight: 500;
+  // One line, cut with an ellipsis. A name is a repository or a folder — one
+  // long unbreakable word — so wrapping is not an option a toolbar has.
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// A session the runner has not read a name for yet shows where it runs instead.
+// Quieter, so the difference between a name and a stand-in can be seen without
+// being told.
+.name.anonymous {
+  opacity: 0.8;
+}
+
 .page {
   // A column that fills what is left below the toolbar, so a view can put a
   // scrolling region inside it and pin its own controls beneath.
