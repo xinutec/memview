@@ -1,0 +1,78 @@
+// Above the list, and quieter than it: this is the answer to a question asked
+// on the way past, where a session card is the thing somebody came for.
+.usage {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0 0 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  background: var(--mat-sys-surface-container-low);
+}
+
+// Label, figure, bar, countdown — one row each, so the two windows read down
+// their columns rather than being compared across a wrap.
+//
+// The bar takes what is left: a percentage and a duration are short and
+// predictable, and the one element that can use more width is the one that
+// carries the reading.
+.window {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.label {
+  // Wide enough for the longer of the two, so the figures line up under each
+  // other. `ch` rather than a guessed pixel width: it is the unit that follows
+  // the font this ends up rendered in.
+  flex: 0 0 5ch;
+  font: var(--mat-sys-label-medium);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.pct,
+.left {
+  font: var(--mat-sys-label-medium);
+  // A figure that changes should not move the things beside it.
+  font-variant-numeric: tabular-nums;
+}
+
+.pct {
+  flex: 0 0 4ch;
+  text-align: right;
+  font-weight: 500;
+}
+
+.left {
+  flex: 0 0 3ch;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.level {
+  flex: 1;
+  min-width: 0;
+}
+
+// Near the ceiling. Colour rather than a second number, because the point of
+// noticing is that it happens without reading.
+.high {
+  color: var(--mat-sys-error);
+  --mat-progress-bar-active-indicator-color: var(--mat-sys-error);
+}
+
+// A window whose reading has expired. Present, so the row does not silently
+// lose a line, and plainly not a measurement.
+.gone {
+  font: var(--mat-sys-label-medium);
+  font-style: italic;
+  color: var(--mat-sys-on-surface-variant);
+  opacity: 0.8;
+}
+
+.taken {
+  margin: 0;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+  opacity: 0.75;
+}

@@ -214,6 +214,14 @@ const STATE = {
       asked: 'check the corpus',
     },
   ],
+  // A reading in the state it usually arrives in: hours old, its short window
+  // long since turned over. See `console/src/usage.rs`.
+  usage: {
+    host: 'mac-mini',
+    age_ms: 4 * 3_600_000,
+    five_hour: { pct: 28 },
+    seven_day: { pct: 66, resets_in_ms: 54 * 3_600_000 },
+  },
 };
 
 /**
@@ -1504,6 +1512,63 @@ test('a tool result opens without widening the page @ phone width', async ({ pag
   await page.getByText('quantiseLegCost', { exact: false }).first().waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+});
+
+test('what the account has spent is above the list @ phone width', async ({ page }, testInfo) => {
+  // Four things on one 412px row — a label, a percentage, a bar and a countdown
+  // — and only the bar can give way. The rest are short and fixed, so the
+  // failure mode is the bar squeezing to nothing or the row wrapping under it.
+  await mockRunner(page);
+  await page.route('**/api/state', (r) =>
+    r.fulfill({
+      json: {
+        ...STATE,
+        usage: {
+          ...STATE.usage,
+          five_hour: { pct: 92, resets_in_ms: 3_600_000 },
+        },
+      },
+    }),
+  );
+  await page.goto('/');
+  const strip = page.locator('.usage');
+  await strip.waitFor();
+
+  // Above the first session, which is what "at the top" means when both are on
+  // the same scrolling page.
+  const [top, first] = await Promise.all([
+    strip.boundingBox(),
+    page.locator('.session').first().boundingBox(),
+  ]);
+  expect(top!.y + top!.height, 'the strip is not above the first session').toBeLessThanOrEqual(
+    first!.y,
+  );
+
+  await expect(strip).toContainText('92%');
+  await expect(strip).toContainText('66%');
+  // The reading's age, on screen rather than in a tooltip a phone cannot reach.
+  await expect(strip).toContainText('4h ago');
+
+  // The bar still has room to mean something at this width.
+  const bar = await page.locator('.usage .level').first().boundingBox();
+  expect(bar!.width, 'the bar was squeezed out by the text around it').toBeGreaterThan(80);
+
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+  await expectNoClippedText(page, testInfo, '.usage');
+});
+
+test('a window that has already reset shows no figure @ phone width', async ({ page }) => {
+  // ⚠ **The normal case, not an edge one.** The number comes from Claude Code's
+  // status line, which belongs to a terminal — so a console driven from a phone
+  // is routinely looking at a reading taken hours and one window ago. 28% then
+  // describes a five-hour window that no longer exists.
+  await mockRunner(page);
+  await page.goto('/');
+  const strip = page.locator('.usage');
+  await strip.waitFor();
+  await expect(strip).toContainText('reset since');
+  await expect(strip, 'a figure from a window that has gone').not.toContainText('28%');
 });
 
 /** A session the runner has finished reading: it has a name, a model id and a

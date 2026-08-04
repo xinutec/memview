@@ -45,6 +45,13 @@ rustls-pemfile = "2"
 # of that in the tree rather than two.
 x509-parser = { version = "0.17", features = ["verify"] }
 sha2 = "0.10"
+# One outbound GET, for a number this console cannot measure (see src/usage.rs).
+# `rustls-tls-webpki-roots-no-provider` and not the default: the default provider
+# is aws-lc-rs, which wants cmake and a C toolchain in every environment that ever
+# builds this — the same reason the server side above pins `ring`. The roots are
+# webpki's rather than the platform's so a fetch does not depend on how the Mac
+# stores its trust store.
+reqwest = { version = "0.12", default-features = false, features = ["json", "http2", "rustls-tls-webpki-roots-no-provider"] }
 # RFC 3339 in the transcripts, read into epoch milliseconds. Already in the tree
 # under x509-parser, so this is a direct name for a crate that is compiled either
 # way rather than a new dependency.

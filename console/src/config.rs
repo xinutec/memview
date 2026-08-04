@@ -43,7 +43,14 @@ pub struct Config {
     pub dirs: Vec<PathBuf>,
     pub spawn: Spawn,
     pub static_dir: Option<String>,
+    /// Where to read the account's rate-limit figure from. See [`crate::usage`].
+    pub usage_url: Option<String>,
 }
+
+/// The home dashboard, which is where the rate-limit figure is published. See
+/// [`crate::usage`] for why the console reads it from there rather than
+/// measuring it.
+const DEFAULT_USAGE_URL: &str = "https://home.xinutec.org/api/usage";
 
 /// Where sessions may run when nothing says otherwise: the working repositories.
 const DEFAULT_DIRS: &str = "Code";
@@ -111,6 +118,16 @@ impl Config {
                     .filter(|mode| !mode.is_empty()),
             },
             static_dir: std::env::var("STATIC_DIR").ok(),
+            // Where the account's rate-limit figure is published. Defaulted
+            // rather than required, because it is the same dashboard for every
+            // machine that would ever run this; set it to empty to have a front
+            // page with no usage on it. See [`crate::usage`] for why the console
+            // does not measure this itself.
+            usage_url: Some(
+                std::env::var("CONSOLE_USAGE_URL")
+                    .unwrap_or_else(|_| DEFAULT_USAGE_URL.to_string()),
+            )
+            .filter(|url| !url.is_empty()),
         }
     }
 

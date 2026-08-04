@@ -1,3 +1,8 @@
+<!-- First on the page, because it is the one fact here that is about the whole
+     account rather than about any session — and the question it answers ("have
+     I got room to start this?") is asked before choosing one, not after. -->
+<app-usage-strip [usage]="state()?.usage" />
+
 @if (trouble() || unreachable(); as what) {
   <!-- An action's failure wins the line: it is the more specific of the two and
        the one the reader just caused. -->

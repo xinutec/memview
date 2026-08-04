@@ -31,6 +31,14 @@ async fn main() -> Result<()> {
         )
         .init();
 
+    // ⚠ **Before any TLS client is built.** The outbound side is compiled with
+    // no crypto provider baked in — see `Cargo.toml` for why aws-lc is not
+    // wanted here — so one has to be the process default or building a client
+    // fails at run time rather than at compile time. Ring, the same provider the
+    // listener below is built with explicitly. Already-installed is not an
+    // error worth reporting: it means somebody got here first.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let config = Config::from_env();
     let address: SocketAddr = config
         .bind
@@ -67,6 +75,9 @@ async fn main() -> Result<()> {
     let roster = Arc::new(Roster::new(config));
     // Before anything else: if this image was exec'd by an upgrade, the sessions
     // it was running are still running and their pipes came with us.
+    // Fetched in the background from here on, so no request ever waits on the
+    // dashboard and a console with none configured simply never asks.
+    roster.usage().clone().watch();
     let carried = roster.inherit();
     if carried > 0 {
         tracing::info!("{carried} session(s) carried across an upgrade — none was restarted");

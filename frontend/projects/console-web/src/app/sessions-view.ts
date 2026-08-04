@@ -17,6 +17,7 @@ import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { placeOf, titleOf } from './naming';
 import { costMatters } from './budget';
 import { Updates } from './updates';
+import { UsageStrip } from './usage-strip';
 import { PastStore } from './past-store';
 import { StartSheet } from './start-sheet';
 
@@ -70,6 +71,7 @@ const RANK = { working: 0, waiting: 1, idle: 2, off: 3 } as const;
     MatButtonModule,
     MatIconModule,
     MatProgressBarModule,
+    UsageStrip,
   ],
 })
 export class SessionsView {

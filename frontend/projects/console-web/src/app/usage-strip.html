@@ -1,0 +1,33 @@
+@if (usage()) {
+  <section class="usage" aria-label="subscription usage">
+    @for (bar of bars(); track bar.label) {
+      <div class="window">
+        <span class="label">{{ bar.label }}</span>
+        @if (bar.left; as left) {
+          <span class="pct" [class.high]="bar.high">{{ bar.pct }}%</span>
+          <mat-progress-bar
+            class="level"
+            [class.high]="bar.high"
+            mode="determinate"
+            [value]="bar.pct"
+            [attr.aria-label]="bar.label + ' used'"
+          />
+          <span class="left">{{ left }}</span>
+        } @else {
+          <!-- ⚠ **Not the last figure, and not zero either.** The window this
+               reading described has turned over since it was taken, so what was
+               spent in it is a fact about a window that has gone. Drawn as the
+               absence it is: this console is normally hours behind, so it is the
+               common case rather than a corner one. -->
+          <span class="gone" [attr.title]="'the ' + bar.label + ' window has reset since'"
+            >reset since</span
+          >
+        }
+      </div>
+    }
+    <!-- Which machine, and how old. The number is account-wide, so the host is
+         the only part of it that is local — and the age is the difference
+         between a figure worth acting on and one worth ignoring. -->
+    <p class="taken">{{ usage()?.host }} · {{ taken() }}</p>
+  </section>
+}

@@ -63,6 +63,43 @@ export interface Overview {
   dirs: string[];
   repos: string[];
   sessions: Summary[];
+  /** What the subscription has spent, when a reading has ever arrived. */
+  usage?: Usage;
+}
+
+/** One rate-limit window. Mirrors `usage::Window`. */
+export interface Window {
+  /** How much of it is spent, 0–100. */
+  pct: number;
+  /**
+   * How long until it turns over, in milliseconds.
+   *
+   * ⚠ **Absent means the window has already reset**, which makes `pct` a figure
+   * about a window that no longer exists — so it is not a smaller number, it is
+   * no number. Decided by the runner against the Mac's clock rather than here:
+   * a phone's clock drifts, and this is the one question that must be answered
+   * the same way on every screen.
+   */
+  resets_in_ms?: number;
+}
+
+/**
+ * The account's rate-limit utilisation. Mirrors `usage::Reading`.
+ *
+ * ⚠ **Not measured by the console.** It comes from the home dashboard, which
+ * collects it from Claude Code's `statusLine` hook — the only supported route
+ * that carries it. A status line belongs to a terminal and the console's
+ * sessions are headless, so working through the console never refreshes this:
+ * a reading hours old is the ordinary case, which is why `age_ms` is shown
+ * rather than kept.
+ */
+export interface Usage {
+  /** Which machine took the reading. */
+  host: string;
+  /** How old it is, in milliseconds, by the runner's clock. */
+  age_ms: number;
+  five_hour: Window;
+  seven_day: Window;
 }
 
 /** The event kinds the runner emits, as a value so the wire can be checked

@@ -36,6 +36,8 @@ fn roster(dir: &std::path::Path) -> Arc<Roster> {
             permission_mode: None,
         },
         static_dir: None,
+        // No dashboard in a test: the front page is drawn without usage on it.
+        usage_url: None,
     }))
 }
 
@@ -286,6 +288,8 @@ fn a_symlink_out_of_an_allowed_directory_does_not_escape_it() {
             permission_mode: None,
         },
         static_dir: None,
+        // No dashboard in a test: the front page is drawn without usage on it.
+        usage_url: None,
     };
     assert!(
         config.resolve(&link.display().to_string()).is_err(),

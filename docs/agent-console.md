@@ -1086,6 +1086,40 @@ not how important it is.
   on the page below is evidence about it. The sheet's checks are scoped to it by
   `panelClass`, which is what `rootSel` on the harness's assertions is for.
 
+### The account's usage, which the console does not measure
+
+The front page carries the subscription's rate-limit utilisation — the 5-hour
+and weekly figures `/usage` prints — above the list, because the question it
+answers ("is there room to start this?") is asked before choosing a session
+rather than after.
+
+- ⚠ **It cannot be measured here, by anything.** That number reaches a machine
+  by exactly one supported route: Claude Code pipes it to a `statusLine` command
+  on stdin. There is no API, no CLI flag and nothing on disk — the transcripts do
+  not carry it (grepped) and nothing under `~/.claude` caches it. So the console
+  reads it from the home dashboard, which already collects it from that hook and
+  publishes the freshest reading across every machine. One number from one place,
+  rather than a second and differently-wrong one.
+- ⚠ **Which makes it only as fresh as the last *interactive* session anywhere.**
+  A status line belongs to a terminal, and the console's own sessions are
+  headless — so working through the console never refreshes this. Measured while
+  building it: the published reading was 4h45m old and its five-hour window had
+  turned over two hours earlier. Hours-old readings are the ordinary case here,
+  not a fault.
+- **So a window that has reset reports no figure at all**, rather than the one it
+  held before it turned over: a percentage belongs to a window, and when the
+  window goes the percentage is not a smaller number but no number. The age and
+  the host are on screen for the same reason, rather than in a `title=` tooltip a
+  phone cannot reach.
+- **The runner decides that, not the page.** `resets_in_ms` is computed against
+  the Mac's clock and sent as a duration; a phone's clock drifts, and "has this
+  window already turned over?" must not be answered differently on different
+  screens.
+- **Fetched on a timer into memory, and served from there.** `/api/state` is the
+  front page's five-second poll, and a dashboard asleep behind the VPN must not
+  be able to hold it up. A console with `CONSOLE_USAGE_URL` empty never asks and
+  simply has no usage on its front page.
+
 ### What the numbers mean, and the trap they share
 
 Three figures on the header have been wrong at least once, each the same way: **a

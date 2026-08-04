@@ -13,3 +13,4 @@ pub mod roster;
 pub mod session;
 pub mod tls;
 pub mod trace;
+pub mod usage;

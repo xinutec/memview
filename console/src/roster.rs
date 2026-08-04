@@ -17,6 +17,9 @@ use crate::session::{Session, Summary};
 pub struct Roster {
     config: Config,
     sessions: RwLock<BTreeMap<String, Arc<Session>>>,
+    /// The account's rate-limit figure, fetched rather than measured — see
+    /// [`crate::usage`]. Held here so the front page reads it from memory.
+    usage: Arc<crate::usage::Usage>,
 }
 
 /// The environment variable an upgrade hands its sessions over in.
@@ -38,10 +41,18 @@ struct Carried {
 
 impl Roster {
     pub fn new(config: Config) -> Self {
+        let usage = Arc::new(crate::usage::Usage::new(config.usage_url.clone()));
         Self {
             config,
             sessions: RwLock::new(BTreeMap::new()),
+            usage,
         }
+    }
+
+    /// The rate-limit reading, for the front page and for the watcher that
+    /// keeps it current.
+    pub fn usage(&self) -> &Arc<crate::usage::Usage> {
+        &self.usage
     }
 
     /// Pick up the sessions an upgrade handed over, if this image was exec'd by
