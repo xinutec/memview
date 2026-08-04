@@ -267,21 +267,28 @@ impl Roster {
             .cloned()
     }
 
-    /// Newest first, which is the order a console is read in.
+    /// Most recently active first, which is the order a console is read in.
     pub fn list(&self) -> Vec<Summary> {
         let sessions = self.sessions.read().expect("roster poisoned");
-        // The name is not the session's to know — the CLI writes it to the
-        // transcript and announces it nowhere — so the roster reads it here.
+        // Neither the name nor the last-activity time is the session's to know —
+        // the CLI writes both to the transcript and announces neither — so the
+        // roster reads them here, one pass over the file's tail and metadata.
         let root = crate::past::projects_root();
         let mut all: Vec<Summary> = sessions
             .values()
             .map(|session| {
                 let mut summary = session.summary();
                 summary.name = crate::past::named(&root, &summary.id);
+                summary.touched = crate::past::touched(&root, &summary.id);
                 summary
             })
             .collect();
-        all.sort_by_key(|session| std::cmp::Reverse(session.started));
+        // By last activity, falling back to when this console picked the session
+        // up — a session with no transcript yet has nothing else to be ordered
+        // by, and `started` is in seconds where `touched` is in milliseconds.
+        all.sort_by_key(|session| {
+            std::cmp::Reverse(session.touched.unwrap_or(session.started * 1000))
+        });
         all
     }
 

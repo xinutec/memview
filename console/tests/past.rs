@@ -8,7 +8,8 @@
 use std::path::Path;
 
 use console::past::{
-    conversations, interactions, named as named_of, transcript_of, words_of_claude_processes,
+    conversations, interactions, named as named_of, touched as touched_of, transcript_of,
+    words_of_claude_processes,
 };
 
 /// A wrapper shell whose *path* says claude — the shape that caused the bug.
@@ -390,6 +391,46 @@ fn a_live_session_can_be_named_from_the_transcript_it_is_writing() {
 fn a_session_with_no_transcript_has_no_name_rather_than_a_wrong_one() {
     let root = scratch("no-name");
     assert_eq!(named_of(&root, "never-ran"), None);
+}
+
+#[test]
+fn a_live_session_is_dated_by_the_transcript_it_is_writing() {
+    // ⚠ **Not by when the console picked it up.** `Summary::started` is when this
+    // process began — carried across an upgrade, reset by a restart — and for a
+    // conversation that has run all day it is out by all day: the console's own
+    // session read `13h ago` on a card while its transcript was four seconds
+    // old. What the list is asked is which conversation is warm, and the file
+    // being appended to is the only thing that knows.
+    let root = scratch("live-touched");
+    named(&root, "abc-123", Some("memview"), None);
+
+    let touched = touched_of(&root, "abc-123").expect("a transcript that exists has a date");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("after 1970")
+        .as_millis() as u64;
+    assert!(
+        now.saturating_sub(touched) < 60_000,
+        "a file written just now should be dated just now, got {touched} against {now}"
+    );
+}
+
+#[test]
+fn a_session_with_no_transcript_has_no_date_rather_than_the_epoch() {
+    // Zero would be a date, and a client showing "56 years ago" for a session
+    // that started a second ago is worse than one showing nothing.
+    let root = scratch("no-touched");
+    assert_eq!(touched_of(&root, "never-ran"), None);
+}
+
+#[test]
+fn a_directory_named_after_the_session_is_not_dated_either() {
+    // The same trap as the transcript lookup: Claude Code puts a DIRECTORY
+    // beside `<id>.jsonl`, and a directory has a modification time that a lookup
+    // matching on the stem alone would happily report as the conversation's.
+    let root = scratch("touched-dir");
+    std::fs::create_dir_all(root.join("project").join("dir-only")).expect("sidecar dir");
+    assert_eq!(touched_of(&root, "dir-only"), None);
 }
 
 /// A transcript of a conversation: prompts, the assistant messages each one took,

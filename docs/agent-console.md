@@ -611,6 +611,31 @@ session's output is arriving now. Within a rank, most recently in play first.
   session here runs in `~/Code`, so the old title — the directory's last element
   — read `Code` on every row and distinguished nothing.
 
+#### The one date on a row is last activity
+
+⚠ **A session has two dates and the card was showing the wrong one.** `started`
+is when *this console* picked the process up — carried across an in-place upgrade
+in the `Tally`, reset by a full restart. It is not when the conversation began
+and it is nothing like when it last moved: the console's own session read
+`13h ago` on its card while its transcript had been written to four seconds
+earlier, because it had been adopted the previous evening.
+
+So `Summary` carries `touched`, filled by the roster from the transcript's
+modification time — every turn appends, so that file is the only thing that knows
+when anything last happened. Three consequences worth keeping:
+
+- **It is the same quantity a conversation on disk reports**, which is what lets
+  one column mean one thing. Before the merge the two lists were separate and
+  could disagree quietly; afterwards they sat in the same slot on adjacent rows,
+  one saying *started then* and the other *last written then*.
+- **`Option`, not zero.** A session whose transcript cannot be found has no date
+  rather than one in 1970, so the client leaves the column empty instead of
+  printing half a century.
+- **The roster's own ordering follows it too**, falling back to `started` for a
+  session with no transcript yet — the only thing such a session can be ordered
+  by. Note the units: `started` is seconds, `touched` and `modified` are
+  milliseconds, and this is the one place all three meet.
+
 ### Two processes on one transcript
 
 Nothing stops them. Both append, and neither sees the other's turns.

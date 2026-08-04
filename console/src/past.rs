@@ -247,6 +247,30 @@ const REPLAY_EVENTS: usize = 400;
 ///
 /// Cheap despite the file being enormous: [`name_of`] reads the last
 /// [`TAIL_BYTES`] and no more.
+/// When this session last did anything, from the transcript it is writing.
+///
+/// ⚠ **The question the list actually asks.** A session's `started` is when this
+/// console picked the process up — carried across an in-place upgrade, reset by a
+/// restart — and for a long conversation the two are nothing like each other:
+/// the console's own session showed `13h ago` on a card whose transcript had been
+/// written to four seconds earlier. Every turn appends, so the file's modification
+/// time is the last moment anything happened, and it is the same quantity a
+/// conversation on disk reports — which is what lets one column mean one thing.
+///
+/// `None` rather than zero when there is no transcript: a missing date is a
+/// thing a client can decline to render, where the epoch is a date it would
+/// render as half a century ago.
+pub fn touched(root: &Path, id: &str) -> Option<u64> {
+    let path = transcript_of(root, id)?;
+    std::fs::metadata(&path)
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|since| since.as_millis() as u64)
+}
+
 pub fn named(root: &Path, id: &str) -> Option<String> {
     let path = transcript_of(root, id)?;
     let len = std::fs::metadata(&path).ok()?.len();

@@ -686,6 +686,38 @@ test('session list — awake first, and what is off says so @ phone width', asyn
   await expect(page.locator('.caution')).toBeVisible();
 });
 
+test('session list — the time is when it last did something @ phone width', async ({ page }) => {
+  // ⚠ **The two dates a session has, and the card must show the second.**
+  // `started` is when the console picked the process up — carried across an
+  // in-place upgrade, reset by a restart. `touched` is when the transcript was
+  // last written, which is when the conversation last moved. The console's own
+  // session showed `13h ago` on a card while it was mid-answer, because the
+  // card was reading the first one.
+  const DAY = 24 * 60 * 60;
+  await mockRunner(page);
+  await page.route('**/api/state', (r) =>
+    r.fulfill({
+      json: {
+        ...STATE,
+        sessions: [
+          {
+            ...STATE.sessions[0],
+            name: 'worked-all-night',
+            // Picked up a day ago, answering this minute.
+            started: Math.floor(Date.now() / 1000) - DAY,
+            touched: Date.now() - 30_000,
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto('/');
+  await expect(page.locator('.session')).toHaveCount(1);
+  const facts = await page.locator('.session .facts').first().innerText();
+  expect(facts, 'the card is dating the process instead of the conversation').toContain('just now');
+  expect(facts).not.toContain('24h ago');
+});
+
 test('session list — a blocked session says so first @ phone width', async ({ page }, testInfo) => {
   await mockRunner(page);
   await page.goto('/');

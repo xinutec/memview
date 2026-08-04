@@ -104,7 +104,11 @@
       @if (row.live; as session) {
         <div class="asked">{{ session.asked ?? 'nothing asked yet' }}</div>
         <div class="facts">
-          <span>{{ since(session) }}</span>
+          <!-- When it last did anything, which is the same quantity the row
+               below reports and read from the same place — the transcript. It
+               used to be the age of the process, so a session worked all night
+               said `13h ago` while it was answering. -->
+          <span>{{ ago(row.at) }}</span>
           <span>{{ session.interactions }} interactions</span>
           @if (costMatters(session)) {
             <span>{{ cost(session) }}</span>
@@ -130,8 +134,8 @@
              and a blank for each would read as missing rather than as not
              applicable. -->
         <div class="facts">
+          <span>{{ ago(row.at) }}</span>
           <span>{{ place(conversation) }}</span>
-          <span>{{ ago(conversation.modified) }}</span>
           <span>{{ size(conversation.bytes) }}</span>
         </div>
       }

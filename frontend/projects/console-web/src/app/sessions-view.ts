@@ -129,8 +129,13 @@ export class SessionsView {
             : session.waiting
               ? RANK.waiting
               : RANK.idle,
-        // Seconds on the wire here, milliseconds on a conversation.
-        at: session.started * 1000,
+        // ⚠ **Last activity, not when the process started.** `started` is when
+        // this console picked the session up; a conversation that has run all
+        // day reported `13h ago` while its transcript was four seconds old.
+        // Falls back to `started` only for a session with no transcript yet,
+        // which has nothing else to be dated by. Milliseconds either way —
+        // `started` is the one quantity here that arrives in seconds.
+        at: session.touched ?? session.started * 1000,
       });
     }
     for (const conversation of this.past()) {
@@ -275,12 +280,5 @@ export class SessionsView {
     return session.cost_usd < 0.01
       ? `$${session.cost_usd.toFixed(4)}`
       : `$${session.cost_usd.toFixed(2)}`;
-  }
-
-  since(session: Summary): string {
-    const minutes = Math.max(0, Math.round(Date.now() / 1000 - session.started) / 60);
-    if (minutes < 1) return 'just now';
-    if (minutes < 60) return `${Math.round(minutes)}m ago`;
-    return `${Math.round(minutes / 60)}h ago`;
   }
 }

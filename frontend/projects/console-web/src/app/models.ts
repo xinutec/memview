@@ -6,6 +6,16 @@ export interface Summary {
   dir: string;
   /** Seconds since the epoch. */
   started: number;
+  /**
+   * When anything last happened, in **milliseconds**, read from the transcript.
+   *
+   * ⚠ **Not `started`, which is when the console picked the process up.** For a
+   * conversation running since last night the two are thirteen hours apart, and
+   * this is the one worth showing: the list is scanned to find which
+   * conversation is warm. Absent when the runner cannot find the transcript, so
+   * the column is left empty rather than filled with the epoch.
+   */
+  touched?: number;
   alive: boolean;
   model?: string;
   /** What the CLI last said it was doing, while it is doing anything. */

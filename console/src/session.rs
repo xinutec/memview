@@ -127,6 +127,17 @@ pub struct Summary {
     pub dir: String,
     /// Seconds since the epoch.
     pub started: u64,
+    /// When anything last happened, in **milliseconds**, from the transcript.
+    ///
+    /// ⚠ **Not `started`, and the difference is the whole point.** `started` is
+    /// when this console picked the process up; this is when the conversation
+    /// last moved. For a session running since last night they are thirteen hours
+    /// apart, and the second one is what somebody scanning the list wants. Filled
+    /// by the roster, which reads the file — see [`crate::past::touched`]. Absent
+    /// for a session whose transcript cannot be found, so a client can leave the
+    /// column empty rather than print the epoch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub touched: Option<u64>,
     pub alive: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
@@ -962,6 +973,9 @@ impl Session {
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
+            // Left for the roster, which reads the transcript once per listing
+            // and already goes there for the name.
+            touched: None,
             alive: state.alive,
             model: state.model.clone(),
             busy: state.busy.clone(),
