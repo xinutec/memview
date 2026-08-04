@@ -357,6 +357,82 @@ async function expectTheStampIsClear(page: Page): Promise<void> {
   expect(clashes, 'the page paints over the build stamp').toEqual([]);
 }
 
+/**
+ * Hand the test the stream, so it decides when a message arrives.
+ *
+ * ⚠ **The mocked SSE body cannot answer this question.** `route.fulfill` serves
+ * a complete response and closes, so every event in the fixture has landed
+ * before the first paint — which is exactly the case that cannot show whether
+ * the view *keeps* following. Following is about what happens to a page that is
+ * already on screen, so the arrival has to be a thing the test performs.
+ *
+ * Replaces `EventSource` before the app loads. `follow()` in `console-api.ts`
+ * assigns `onmessage` and adds a `reset` listener, and reads `data` and
+ * `lastEventId` off the message — so an EventTarget with those two is the whole
+ * contract.
+ */
+async function handControlOfTheStream(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    class Held extends EventTarget {
+      onmessage: ((message: { data: string; lastEventId: string }) => void) | null = null;
+      constructor(public url: string) {
+        super();
+        (window as unknown as { __stream?: Held }).__stream = this;
+      }
+      close(): void {
+        if ((window as unknown as { __stream?: Held }).__stream === this) {
+          (window as unknown as { __stream?: Held }).__stream = undefined;
+        }
+      }
+    }
+    (window as unknown as { EventSource: unknown }).EventSource = Held;
+    (window as unknown as { __say: unknown }).__say = (event: unknown, seq: number) => {
+      const stream = (window as unknown as { __stream?: Held }).__stream;
+      if (!stream?.onmessage) return false;
+      stream.onmessage({ data: JSON.stringify(event), lastEventId: String(seq) });
+      return true;
+    };
+    // What the runner sends when it cannot resume from where the client got to:
+    // a console restarted, or a session busy enough to have dropped that far out
+    // of its scrollback. The client throws its transcript away and rebuilds.
+    (window as unknown as { __resetStream: unknown }).__resetStream = () => {
+      const stream = (window as unknown as { __stream?: Held }).__stream;
+      if (!stream) return false;
+      stream.dispatchEvent(new Event('reset'));
+      return true;
+    };
+  });
+}
+
+/** Say something without waiting for the view to react — how a real answer
+ *  arrives, in deltas faster than the frames that render them. */
+async function mutter(page: Page, event: unknown, seq: number): Promise<boolean> {
+  return page.evaluate(
+    ([one, at]) => (window as unknown as { __say(e: unknown, n: number): boolean }).__say(one, at),
+    [event, seq] as [unknown, number],
+  );
+}
+
+/** Say something on the stream and let the view lay it out and react. */
+async function say(page: Page, event: unknown, seq: number): Promise<void> {
+  const delivered = await mutter(page, event, seq);
+  expect(delivered, 'nothing was listening to the stream').toBe(true);
+  // Two frames: `session-view.ts` follows in a `requestAnimationFrame` after the
+  // entries change, so one frame is the render and the second is the reaction.
+  await page.evaluate(
+    () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+  );
+}
+
+/** How far the transcript is from its own end, in pixels. */
+async function distanceFromTheEnd(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const box = document.querySelector('.transcript');
+    if (!box) return Number.NaN;
+    return box.scrollHeight - box.scrollTop - box.clientHeight;
+  });
+}
+
 // The checker-checker: fail loudly here if the device preset is ever lost and
 // the "phone width" suite silently runs at desktop width.
 test('the suite really runs at phone geometry', async ({ page }) => {
@@ -420,12 +496,147 @@ test('transcript — an undecided question with its two buttons @ phone width', 
   await expectThumbTargets(page);
 });
 
+/** A paragraph tall enough that not following is unmistakable — well past the
+ *  120px of slack `session-view.ts` allows before it calls a reader "left
+ *  behind", and past a phone screen too. */
+const LONG_ANSWER = Array.from(
+  { length: 40 },
+  (_, line) => `Line ${line + 1} of an answer long enough to move the end of the transcript.`,
+).join('\n\n');
+
+test('the transcript keeps following while the reader is at the end @ phone width', async ({
+  page,
+}) => {
+  // The contract this pins: a reader at the end stays at the end as the session
+  // talks, without touching anything. It is the normal way this page is used —
+  // watching a session work — and nothing measured it, so "it stopped following"
+  // had no answer but somebody's memory of it.
+  await handControlOfTheStream(page);
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.transcript').waitFor();
+
+  await say(page, { kind: 'prompt', text: 'go on then', at: NEXT }, 1);
+  expect(await distanceFromTheEnd(page), 'not at the end to begin with').toBeLessThan(4);
+
+  // One entry taller than the screen, then a second: following has to survive
+  // both the first arrival and the steady state after it.
+  await say(page, { kind: 'text', text: LONG_ANSWER }, 2);
+  expect(await distanceFromTheEnd(page), 'stopped following after a long answer').toBeLessThan(4);
+
+  await say(page, { kind: 'text', text: LONG_ANSWER }, 3);
+  expect(await distanceFromTheEnd(page), 'stopped following on the next answer').toBeLessThan(4);
+});
+
+test('the transcript does not yank a reader who has scrolled back @ phone width', async ({
+  page,
+}) => {
+  // The other half of the same contract, and the reason it is conditional at
+  // all: dragging the view down while somebody is reading back through the
+  // morning is worse than not following.
+  await handControlOfTheStream(page);
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.transcript').waitFor();
+  await say(page, { kind: 'text', text: LONG_ANSWER }, 1);
+
+  await page.evaluate(() => {
+    const box = document.querySelector('.transcript');
+    if (box) box.scrollTop = 0;
+  });
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(done)));
+  const away = await distanceFromTheEnd(page);
+  expect(away, 'the scroll back did not take').toBeGreaterThan(200);
+
+  await say(page, { kind: 'text', text: LONG_ANSWER }, 2);
+  const after = await distanceFromTheEnd(page);
+  // Further from the end than before, because the transcript grew underneath a
+  // reader who did not move — and emphatically not back at the bottom.
+  expect(after, 'yanked the reader to the end').toBeGreaterThan(away);
+});
+
+test('the transcript follows an answer arriving in deltas @ phone width', async ({ page }) => {
+  // ⚠ **The shape a real answer has**, and the one the two tests above do not
+  // cover: forty small `text` events, none of them waiting for the view to
+  // catch up. `follow()` reads a height inside a `requestAnimationFrame` and
+  // sets `scrollTop`, and that set fires a scroll event which is what decides
+  // whether the reader still counts as at the end — so deltas landing between
+  // the two are the case where the page could talk itself out of following.
+  await handControlOfTheStream(page);
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.transcript').waitFor();
+  await say(page, { kind: 'prompt', text: 'explain the decoder', at: NEXT }, 1);
+
+  for (let delta = 0; delta < 40; delta++) {
+    await mutter(
+      page,
+      { kind: 'text', text: `Sentence ${delta + 1} of the explanation. ` },
+      delta + 2,
+    );
+  }
+  await page.evaluate(
+    () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+  );
+  expect(await distanceFromTheEnd(page), 'lost the end while an answer streamed').toBeLessThan(4);
+});
+
+test('the transcript is at the end again after the stream resets @ phone width', async ({
+  page,
+}) => {
+  // A reconnect the runner cannot resume — a console restarted, a tunnel that
+  // dropped for long enough — throws the transcript away and rebuilds it. The
+  // reader did not ask for that and did not move, so the page has to come back
+  // where it was: at the end. This is the likeliest way "it stopped following"
+  // happens without anybody touching the screen.
+  await handControlOfTheStream(page);
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.transcript').waitFor();
+  await say(page, { kind: 'text', text: LONG_ANSWER }, 1);
+  expect(await distanceFromTheEnd(page)).toBeLessThan(4);
+
+  const reset = await page.evaluate(() =>
+    (window as unknown as { __resetStream(): boolean }).__resetStream(),
+  );
+  expect(reset, 'nothing was listening for a reset').toBe(true);
+  await say(page, { kind: 'joined', earlier: 1, from: 0 }, 1);
+  await say(page, { kind: 'text', text: LONG_ANSWER }, 2);
+  expect(await distanceFromTheEnd(page), 'left behind by a reconnect').toBeLessThan(4);
+});
+
 test('session list — a blocked session says so first @ phone width', async ({ page }, testInfo) => {
   await mockRunner(page);
   await page.goto('/');
   await page.getByText('waiting for you').waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
+});
+
+test('the transcript keeps its end while the composer grows @ phone width', async ({ page }) => {
+  // ⚠ **The one thing that moves the end of the transcript without the
+  // transcript changing.** The composer is `flex: 0 0 auto` above it, so every
+  // line typed takes a line off the scrolling region — the reader has not
+  // moved, no event has arrived, and the message being answered slides out of
+  // sight. `session-view.ts` follows on `visualViewport` resize, which is the
+  // soft keyboard; the box growing under a thumb is not that, and nothing else
+  // asks.
+  await handControlOfTheStream(page);
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.transcript').waitFor();
+  await say(page, { kind: 'text', text: LONG_ANSWER }, 1);
+  expect(await distanceFromTheEnd(page)).toBeLessThan(4);
+
+  const box = page.locator('textarea');
+  await box.fill('port the gate\nprove it bit-exact\nthen run the golden set\nand report');
+  await page.evaluate(
+    () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+  );
+  expect(
+    await distanceFromTheEnd(page),
+    'typing pushed the newest message out of sight',
+  ).toBeLessThan(4);
 });
 
 test('the composer grows with what is being typed @ phone width', async ({ page }, testInfo) => {

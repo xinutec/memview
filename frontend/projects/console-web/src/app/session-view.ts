@@ -180,6 +180,28 @@ export class SessionView implements OnDestroy {
       this.entries();
       requestAnimationFrame(() => this.follow());
     });
+    // ⚠ **The end of the transcript moves when the transcript does not.** The
+    // composer sits above it as a fixed-size row, so every line typed takes a
+    // line off the scrolling region: nobody scrolled, nothing arrived, and the
+    // message being answered slides out of sight — measured at 65px for four
+    // lines, and it goes further as the box grows. It reads as the page
+    // randomly stopping, because the next event snaps it back.
+    //
+    // Watching the box itself rather than the composer covers every way it can
+    // happen at once — the keyboard, a rotation, a growing composer — and asks
+    // the same question each time: is the reader still meant to be at the end.
+    //
+    // ⚠ In an effect, not inline: `viewChild` is a signal that holds nothing
+    // during construction, so wiring this up in the constructor body observes
+    // `undefined` and silently never fires. That is what the first version of
+    // this did, and the measurement below still read 65px with it in place.
+    effect((onCleanup) => {
+      const box = this.scroller()?.nativeElement;
+      if (!box || typeof ResizeObserver === 'undefined') return;
+      const resized = new ResizeObserver(() => this.follow());
+      resized.observe(box);
+      onCleanup(() => resized.disconnect());
+    });
   }
 
   ngOnDestroy(): void {
