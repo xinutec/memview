@@ -869,6 +869,42 @@ the composer — before that it was indistinguishable from no update at all.
 ⚠ **The self-updater ships inside the bundle**, so it cannot install itself: the
 first page that has it must be loaded by hand.
 
+### Following the end of a transcript
+
+Opening a session lands on the newest message: a resumed conversation replays its
+last 400 events, so a view that opened at the top would open a hundred turns
+behind the present and read as broken. It keeps following while the reader is
+already at the end, and never drags a reader who has scrolled back.
+
+Two things move the end of the transcript, and both were missed at first:
+
+- **The composer.** It is a fixed-height row above a flex-sized scroller, so
+  every line typed costs the reader a line — nobody scrolled, nothing arrived,
+  and the message being answered slid away. Measured at 65px for four lines, and
+  silently, since that is inside the 120px of slack that decides whether somebody
+  counts as at the end. A `ResizeObserver` on the box now asks the same question
+  for every way it can happen: the keyboard, a rotation, a growing composer.
+- ⚠ **The component's own scrolling, mistaken for the reader's.** `follow` sets
+  `scrollTop` and the browser queues a scroll event; more of the answer renders
+  before that event is delivered; the handler runs against the NEW `scrollHeight`
+  and the OLD `scrollTop`, computes a gap of one or two deltas' worth — 120px to
+  168px against 120px of slack — and files the reader as having scrolled away.
+  Nothing follows after that, and nobody touched the screen. **This is the
+  "randomly stops following" defect.** The fix is to remember where `follow` put
+  it: a scroll that lands exactly there is ours and says nothing about where the
+  reader wants to be.
+
+**Measured, and the measurement had to be run 25 times to be worth anything.**
+The race reproduced at 21 failures in 25 with the guard removed and 0 in 25 with
+it — but five isolated runs of the same ablated build passed five times, so a
+handful of green runs said "fixed" when nothing had been fixed. Anything
+timing-dependent gets `--repeat-each`, not a rerun or two.
+
+The stream is handed to the test for these — `EventSource` is replaced before the
+app loads, so the test decides when each message lands. A mocked SSE body cannot
+answer the question: it is complete and closed before the first paint, which
+shows that a page *arrives* at the bottom and never whether it *keeps* following.
+
 ### When a stylesheet does not arrive
 
 One dropped connection during a reload took the stylesheet and an `/api/state`

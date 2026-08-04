@@ -250,6 +250,9 @@ export class SessionView implements OnDestroy {
     if (!box) return;
     if (this.pinned || !this.settled) {
       box.scrollTop = box.scrollHeight;
+      // Where we put it, so the scroll event this causes can be told apart from
+      // one the reader caused. See [onScroll].
+      this.wrote = box.scrollTop;
       this.settled = true;
     }
   }
@@ -266,14 +269,34 @@ export class SessionView implements OnDestroy {
    */
   private pinned = true;
 
-  /** `NEAR` is the slack: a few lines, so a partly-scrolled view still counts as
-   *  following rather than as having been left behind. */
+  /**
+   * `NEAR` is the slack: a few lines, so a partly-scrolled view still counts as
+   * following rather than as having been left behind.
+   *
+   * ⚠ **A scroll this component performed is not a reader's decision**, and
+   * failing to tell the two apart is what made following stop at random. The
+   * sequence, measured: `follow` sets `scrollTop` to the bottom and the browser
+   * queues a scroll event; more of the answer renders before that event is
+   * delivered; the handler then runs against the NEW `scrollHeight` and the OLD
+   * `scrollTop`, computes a gap of one or two deltas' worth — 120px to 168px,
+   * where the slack is 120 — and files the reader as having scrolled away. From
+   * then on nothing follows, and nobody touched the screen. It bit two runs in
+   * five of the deltas measurement.
+   *
+   * Remembering where we put it is the whole fix: a scroll that lands exactly
+   * there is ours, and says nothing about where the reader wants to be.
+   */
   onScroll(): void {
     const box = this.scroller()?.nativeElement;
     if (!box) return;
+    if (box.scrollTop === this.wrote) return;
     const NEAR = 120;
     this.pinned = box.scrollHeight - box.scrollTop - box.clientHeight < NEAR;
+    this.wrote = -1;
   }
+
+  /** The last scroll position this component set, or -1 for none outstanding. */
+  private wrote = -1;
 
   /** Whether the first render has happened; before it there is nothing to keep. */
   private settled = false;

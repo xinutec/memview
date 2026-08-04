@@ -504,6 +504,48 @@ const LONG_ANSWER = Array.from(
   (_, line) => `Line ${line + 1} of an answer long enough to move the end of the transcript.`,
 ).join('\n\n');
 
+test('opening a session from the list lands at the newest message @ phone width', async ({
+  page,
+}) => {
+  // ⚠ **The path somebody actually takes**, and a different one from the tests
+  // below: they drive a stream into a page that is already open, where this
+  // navigates to a component that does not exist yet and is handed a whole
+  // transcript at once. A resumed conversation is replayed from its last 400
+  // events, so a view that opened at the top would open a hundred turns behind
+  // the present — and read as the page being broken rather than as a scroll
+  // position.
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        ...TRANSCRIPT,
+        // Enough afterwards to put the end of it well past a phone screen.
+        ...Array.from({ length: 25 }, (_, n) => ({
+          kind: 'prompt',
+          text: `Follow-up ${n + 1}: check the next journey and report what moved.`,
+          at: NEXT,
+        })),
+        { kind: 'text', text: 'THE NEWEST THING SAID' },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.goto('/');
+  // Tapped from the list, not typed as a URL: opening a session is a navigation
+  // into a component that is built fresh, and that is the case at issue.
+  await page.locator('.session').first().click();
+  await page.getByText('THE NEWEST THING SAID').waitFor();
+  await page.evaluate(
+    () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+  );
+
+  expect(await distanceFromTheEnd(page), 'opened behind the newest message').toBeLessThan(4);
+  // And the newest message is actually on screen, not merely scrolled to.
+  await expect(page.getByText('THE NEWEST THING SAID')).toBeInViewport();
+});
+
 test('the transcript keeps following while the reader is at the end @ phone width', async ({
   page,
 }) => {
