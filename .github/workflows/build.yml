@@ -44,7 +44,7 @@ jobs:
       # first. The major is floating rather than pinned — pinning it here would
       # be a second version number held level with the flake's by hand, and the
       # lockfile is the thing that actually has to match.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11
       # The store is content-addressed here too, so caching it shares packages
