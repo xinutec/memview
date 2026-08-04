@@ -45,6 +45,20 @@ while IFS= read -r line; do
         *'"answers"'*)
           chose=$(printf '%s' "$line" | sed -e 's/.*"answers":{[^:]*:"//' -e 's/".*//')
           verdict="chose $chose"
+          # A note rides WITH the choice rather than instead of it, so both are
+          # reported — a stub that showed only one could not tell them apart.
+          case "$line" in
+            *'"notes":"'*)
+              note=$(printf '%s' "$line" | sed -e 's/.*"notes":"//' -e 's/".*//')
+              verdict="$verdict noting $note"
+              ;;
+          esac
+          ;;
+        # A note against a question nothing was picked for, which the CLI reports
+        # as `(no option selected)` and still counts as an answer.
+        *'"notes":"'*)
+          note=$(printf '%s' "$line" | sed -e 's/.*"notes":"//' -e 's/".*//')
+          verdict="noting $note"
           ;;
         *'"allow"'*) verdict="allowed" ;;
         *) verdict="refused" ;;

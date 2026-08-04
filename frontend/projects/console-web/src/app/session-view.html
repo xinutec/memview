@@ -104,6 +104,30 @@
                         </button>
                       }
                     </div>
+                    <!-- A note beside the choice, which the session reads as
+                         qualifying it rather than replacing it. Behind a tap:
+                         a field under every question is a screenful of card
+                         before it has said anything. -->
+                    @if (notable(entry, question)) {
+                      <input
+                        class="note"
+                        type="text"
+                        [attr.aria-label]="'a note about ' + question.question"
+                        placeholder="note"
+                        [disabled]="replying(entry)"
+                        [value]="note(entry, question)"
+                        (input)="jot(entry, question, $any($event.target).value)"
+                      />
+                    } @else {
+                      <button
+                        type="button"
+                        class="addnote"
+                        [disabled]="replying(entry)"
+                        (click)="addNote(entry, question)"
+                      >
+                        add a note
+                      </button>
+                    }
                   </div>
                 }
                 <!-- Words instead of a choice. Typing takes the card over — the

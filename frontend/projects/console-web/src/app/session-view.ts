@@ -32,7 +32,7 @@ import { costMatters } from './budget';
 import { Here } from './here';
 import { Updates } from './updates';
 import { Rendered } from './rendered';
-import { Answers, Question, choiceOf, complete } from './questions';
+import { Answers, Notes, Question, choiceOf, complete } from './questions';
 import { Held, SessionStore } from './session-store';
 
 /** One session: what it has done, and the way to say something to it. */
@@ -147,6 +147,13 @@ export class SessionView implements OnDestroy {
   private readonly chosen = signal<Record<string, Answers>>({});
   /** What has been typed against a question instead of choosing, by the same key. */
   private readonly said = signal<Record<string, string>>({});
+  /** Notes written beside a choice, by ask id and then question. Unlike [said]
+   *  these travel *with* the choices — see `questions.ts`. */
+  private readonly noted = signal<Record<string, Notes>>({});
+  /** Which questions have their note field open, as `<ask>::<question>`. A card
+   *  with a field under every question is a screenful before it says anything,
+   *  so the field is one tap away rather than always there. */
+  private readonly noting = signal<ReadonlySet<string>>(new Set());
   /** Whether anything older than what is on screen remains on disk.
    *
    *  The cursor is a byte offset into the transcript, so zero is the start of the
@@ -506,7 +513,7 @@ export class SessionView implements OnDestroy {
     const questions = entry.questions ?? [];
     const single = questions.length === 1 && !question.multiSelect;
     if (single) {
-      this.approveWith(entry, { [question.question]: label }, undefined);
+      this.approveWith(entry, { [question.question]: label }, undefined, this.noted()[entry.ask]);
       return;
     }
     const ask = entry.ask;
@@ -525,9 +532,39 @@ export class SessionView implements OnDestroy {
     });
   }
 
-  /** Whether everything asked has been chosen. The send button waits for it. */
+  /** Whether everything asked has been answered. The send button waits for it. */
   ready(entry: Entry): boolean {
-    return complete(entry.questions ?? [], this.chosen()[entry.ask ?? ''] ?? {});
+    const ask = entry.ask ?? '';
+    return complete(entry.questions ?? [], this.chosen()[ask] ?? {}, this.noted()[ask] ?? {});
+  }
+
+  /** The note written against one question, if any. */
+  note(entry: Entry, question: Question): string {
+    return this.noted()[entry.ask ?? '']?.[question.question] ?? '';
+  }
+
+  /** Whether this question's note field is open — see [noting]. */
+  notable(entry: Entry, question: Question): boolean {
+    return (
+      this.noting().has(`${entry.ask ?? ''}::${question.question}`) ||
+      this.note(entry, question) !== ''
+    );
+  }
+
+  /** Open the note field for one question. It never closes on its own: a field
+   *  that vanished while it held words would be taking them away. */
+  addNote(entry: Entry, question: Question): void {
+    const key = `${entry.ask ?? ''}::${question.question}`;
+    this.noting.update((open) => new Set([...open, key]));
+  }
+
+  jot(entry: Entry, question: Question, text: string): void {
+    const ask = entry.ask;
+    if (!ask) return;
+    this.noted.update((all) => ({
+      ...all,
+      [ask]: { ...(all[ask] ?? {}), [question.question]: text },
+    }));
   }
 
   /** What has been typed against this question, if anything. */
@@ -565,17 +602,19 @@ export class SessionView implements OnDestroy {
   answer(entry: Entry): void {
     if (!entry.ask || entry.allowed !== undefined) return;
     if (this.replying(entry)) {
-      this.approveWith(entry, undefined, this.words(entry).trim());
+      // Words override the choices in the CLI, so nothing else goes with them —
+      // notes included, which would be qualifying an answer that is not sent.
+      this.approveWith(entry, undefined, this.words(entry).trim(), undefined);
       return;
     }
     if (!this.ready(entry)) return;
-    this.approveWith(entry, this.chosen()[entry.ask] ?? {}, undefined);
+    this.approveWith(entry, this.chosen()[entry.ask] ?? {}, undefined, this.noted()[entry.ask]);
   }
 
   /** Approve the call with the answer written into it. See `questions.ts`. */
-  private approveWith(entry: Entry, answers?: Answers, response?: string): void {
+  private approveWith(entry: Entry, answers?: Answers, response?: string, notes?: Notes): void {
     if (!entry.ask || entry.allowed !== undefined) return;
-    this.api.decide(this.id(), entry.ask, true, undefined, answers, response).subscribe({
+    this.api.decide(this.id(), entry.ask, true, undefined, answers, response, notes).subscribe({
       error: (err: unknown) => this.trouble.set(reason(err)),
     });
   }

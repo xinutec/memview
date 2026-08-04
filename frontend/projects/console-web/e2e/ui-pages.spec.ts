@@ -770,6 +770,56 @@ test('a typed reply is recorded as one, not as a choice @ phone width', async ({
   await expect(page.locator('.chose')).toHaveText('neither — do the read-only part first');
 });
 
+test('a note rides with the choice it qualifies @ phone width', async ({ page }, testInfo) => {
+  // ⚠ **The difference from the reply field.** Words override the choices; a
+  // note qualifies one, so both must arrive — and the options must stay live
+  // while one is being written.
+  const sent = await mockQuestion(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  const options = page.getByRole('button', { name: /options only/ });
+  await options.waitFor();
+
+  await page.getByRole('button', { name: 'add a note' }).first().click();
+  await page
+    .getByRole('textbox', { name: /a note about How far/ })
+    .fill('but keep the skip button');
+  await expect(options, 'a note is not a reply and must not take the card over').toBeEnabled();
+  await options.click();
+  await page.getByRole('button', { name: /the description/ }).click();
+  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectThumbTargets(page);
+  await page.getByRole('button', { name: 'answer', exact: true }).click();
+
+  await expect.poll(sent).toMatchObject({
+    answers: { 'How far should the question UI go?': 'options only' },
+    annotations: { 'How far should the question UI go?': { notes: 'but keep the skip button' } },
+  });
+});
+
+test('a note alone is enough to send @ phone width', async ({ page }) => {
+  // The CLI records this as `(no option selected) notes: …` and treats it as
+  // answered, so a card that waited for a tap would sit grey over something the
+  // session would have taken.
+  const sent = await mockQuestion(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.getByRole('button', { name: /options only/ }).waitFor();
+
+  for (const which of [/a note about How far/, /a note about Which of these/]) {
+    await page.getByRole('button', { name: 'add a note' }).first().click();
+    await page.getByRole('textbox', { name: which }).fill('ask me again tomorrow');
+  }
+  const send = page.getByRole('button', { name: 'answer', exact: true });
+  await expect(send).toBeEnabled();
+  await send.click();
+
+  await expect.poll(sent).toMatchObject({
+    annotations: {
+      'How far should the question UI go?': { notes: 'ask me again tomorrow' },
+      'Which of these should the card show?': { notes: 'ask me again tomorrow' },
+    },
+  });
+});
+
 test('words instead of a choice take the card over @ phone width', async ({ page }, testInfo) => {
   // ⚠ **The trap this shape exists to close.** The CLI's result builder tests
   // `response` before `answers` and reports only what it finds, so words sent
@@ -796,6 +846,8 @@ test('words instead of a choice take the card over @ phone width', async ({ page
   });
   // And nothing was picked, so nothing pretends to have been.
   expect(sent()?.['answers'], 'answers rode along and would have been discarded').toBeUndefined();
+  // Nor notes: a note qualifies a choice, and no choice is being sent.
+  expect(sent()?.['annotations']).toBeUndefined();
 });
 
 test('clearing the words hands the options back @ phone width', async ({ page }) => {

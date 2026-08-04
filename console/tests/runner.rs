@@ -393,6 +393,7 @@ async fn a_choice_reaches_the_session_as_part_of_what_it_asked() {
     assert_eq!(tool, console::protocol::QUESTION_TOOL);
 
     let reply = console::protocol::Reply {
+        annotations: console::protocol::Annotations::default(),
         answers: console::protocol::Answers::from([(
             "which way".to_string(),
             console::protocol::Answer::One("left".to_string()),
@@ -434,6 +435,7 @@ async fn what_was_chosen_is_told_to_everybody_watching() {
     };
 
     let reply = console::protocol::Reply {
+        annotations: console::protocol::Annotations::default(),
         answers: console::protocol::Answers::from([(
             "which way".to_string(),
             console::protocol::Answer::One("left".to_string()),
@@ -475,6 +477,7 @@ async fn words_instead_of_a_choice_travel_on_their_own() {
     };
 
     let reply = console::protocol::Reply {
+        annotations: console::protocol::Annotations::default(),
         answers: console::protocol::Answers::default(),
         response: Some("neither, go back".to_string()),
     };
@@ -492,6 +495,81 @@ async fn words_instead_of_a_choice_travel_on_their_own() {
             .any(|e| matches!(e, Event::Text { text } if text == "said neither, go back")),
         "the words arrived, and no answers with them: {after:?}"
     );
+}
+
+#[tokio::test]
+async fn a_note_rides_with_the_choice_rather_than_replacing_it() {
+    // ⚠ **The difference from `response`.** Words in the reply field override
+    // the choices; a note qualifies one. The CLI reports
+    // `"<question>"="<label>" notes: <notes>`, so both have to arrive.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    session.send("ask me which way").await.expect("send");
+    let seen = until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Ask { .. }))
+    })
+    .await;
+    let Some(Event::Ask { id, .. }) = seen.iter().find(|e| matches!(e, Event::Ask { .. })) else {
+        panic!("no question");
+    };
+
+    let reply = console::protocol::Reply {
+        answers: console::protocol::Answers::from([(
+            "which way".to_string(),
+            console::protocol::Answer::One("left".to_string()),
+        )]),
+        response: None,
+        annotations: console::protocol::Annotations::from([(
+            "which way".to_string(),
+            console::protocol::Annotation {
+                notes: Some("but slowly".to_string()),
+            },
+        )]),
+    };
+    session
+        .decide(id, true, "", Some(&reply))
+        .await
+        .expect("answer");
+    let after = until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Turn { .. }))
+    })
+    .await;
+    assert!(
+        after
+            .iter()
+            .any(|e| matches!(e, Event::Text { text } if text == "chose left noting but slowly")),
+        "the note arrived beside the choice, not instead of it: {after:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_note_with_nothing_blank_in_it_is_all_that_travels() {
+    // A field left empty is not a note. The CLI tests `notes` for truthiness and
+    // reports `(no option selected)` for any question it finds one against — so
+    // a blank one would invent an answer to a question nobody touched.
+    let empty = console::protocol::Reply {
+        answers: console::protocol::Answers::default(),
+        response: None,
+        annotations: console::protocol::Annotations::from([(
+            "which way".to_string(),
+            console::protocol::Annotation {
+                notes: Some("   ".to_string()),
+            },
+        )]),
+    };
+    assert!(empty.is_empty(), "whitespace is not something said");
+
+    let real = console::protocol::Reply {
+        annotations: console::protocol::Annotations::from([(
+            "which way".to_string(),
+            console::protocol::Annotation {
+                notes: Some("neither, really".to_string()),
+            },
+        )]),
+        ..Default::default()
+    };
+    assert!(!real.is_empty(), "a note on its own is an answer");
 }
 
 #[tokio::test]
@@ -537,6 +615,7 @@ async fn only_a_question_may_have_its_arguments_edited() {
     };
 
     let reply = console::protocol::Reply {
+        annotations: console::protocol::Annotations::default(),
         answers: console::protocol::Answers::from([(
             "command".to_string(),
             console::protocol::Answer::One("rm -rf /".to_string()),

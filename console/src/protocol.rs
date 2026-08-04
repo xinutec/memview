@@ -609,6 +609,22 @@ pub enum Answer {
 /// Every answer to one [`QUESTION_TOOL`] call.
 pub type Answers = std::collections::BTreeMap<String, Answer>;
 
+/// Something said about one question, beside the option picked for it.
+///
+/// ⚠ **Unlike [`Reply::response`], this combines rather than overrides.** The
+/// CLI reports `"<question>"="<label>" notes: <notes>`, and a question carrying
+/// a note but no choice is still an answer — it reports that one as
+/// `"<question>"=(no option selected) notes: …`. So a note is not a lesser
+/// version of answering; it is the way to answer *and* qualify it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+pub struct Annotation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+}
+
+/// Notes against the questions of one call, by the question's own text.
+pub type Annotations = std::collections::BTreeMap<String, Annotation>;
+
 /// What a person said about a question: options picked, or words instead.
 ///
 /// ⚠ **`response` and `answers` are alternatives, not companions.** The CLI's
@@ -628,6 +644,10 @@ pub struct Reply {
     pub answers: Answers,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response: Option<String>,
+    /// Notes beside the choices — see [`Annotation`]. These travel *with*
+    /// `answers`, not instead of them.
+    #[serde(default, skip_serializing_if = "Annotations::is_empty")]
+    pub annotations: Annotations,
 }
 
 impl Reply {
@@ -635,7 +655,12 @@ impl Reply {
     /// and sending one would read to the session as "did not answer" — which is
     /// true, but is better refused at the door than discovered a turn later.
     pub fn is_empty(&self) -> bool {
-        self.answers.is_empty() && self.response.as_deref().unwrap_or("").trim().is_empty()
+        self.answers.is_empty()
+            && self.response.as_deref().unwrap_or("").trim().is_empty()
+            && !self
+                .annotations
+                .values()
+                .any(|note| !note.notes.as_deref().unwrap_or("").trim().is_empty())
     }
 }
 
@@ -693,6 +718,18 @@ fn answered(input: &serde_json::Value, reply: Option<&Reply>) -> serde_json::Val
         // choice was overridden by nothing.
         if let Some(said) = reply.response.as_deref().filter(|s| !s.trim().is_empty()) {
             object.insert("response".to_string(), serde_json::json!(said));
+        }
+        // Blank notes are dropped rather than sent: the CLI tests `notes` for
+        // truthiness, and an empty one against an unanswered question would make
+        // it report `(no option selected)` for a question nobody touched.
+        let notes: Annotations = reply
+            .annotations
+            .iter()
+            .filter(|(_, note)| !note.notes.as_deref().unwrap_or("").trim().is_empty())
+            .map(|(question, note)| (question.clone(), note.clone()))
+            .collect();
+        if !notes.is_empty() {
+            object.insert("annotations".to_string(), serde_json::json!(notes));
         }
     }
     input

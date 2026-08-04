@@ -84,10 +84,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Notes against questions, by the question's own text. */
+export type Notes = Record<string, string>;
+
 /** What came back about a question, mirroring `protocol::Reply`. */
 export interface Reply {
   readonly answers?: Answers;
   readonly response?: string;
+  readonly annotations?: Record<string, { readonly notes?: string }>;
 }
 
 /**
@@ -102,15 +106,40 @@ export interface Reply {
 export function choiceOf(reply: Reply | undefined): string {
   const said = reply?.response?.trim();
   if (said) return said;
-  return Object.values(reply?.answers ?? {})
-    .map((answer) => (Array.isArray(answer) ? answer.join(', ') : answer))
-    .filter((answer) => answer !== '')
+  // Every question that was answered at all: by a choice, by a note, or by both.
+  // Keyed off the union rather than off `answers`, because a note on its own is
+  // an answer the CLI reports as `(no option selected)`.
+  const asked = new Set([
+    ...Object.keys(reply?.answers ?? {}),
+    ...Object.keys(reply?.annotations ?? {}),
+  ]);
+  return [...asked]
+    .map((question) => {
+      const answer = reply?.answers?.[question];
+      const chose = Array.isArray(answer) ? answer.join(', ') : (answer ?? '');
+      const note = reply?.annotations?.[question]?.notes?.trim() ?? '';
+      if (chose && note) return `${chose} (${note})`;
+      return chose || note;
+    })
+    .filter((said) => said !== '')
     .join(' · ');
 }
 
-/** Whether every question has something chosen — what the send button waits for. */
-export function complete(questions: readonly Question[], chosen: Answers): boolean {
+/**
+ * Whether every question has been answered — what the send button waits for.
+ *
+ * ⚠ **A note counts.** The CLI reports a question carrying only a note as
+ * `"<question>"=(no option selected) notes: …` and treats it as answered, so a
+ * card that insisted on a tap would refuse to send something the session would
+ * have accepted — and would do it silently, with a button that just stays grey.
+ */
+export function complete(
+  questions: readonly Question[],
+  chosen: Answers,
+  notes: Notes = {},
+): boolean {
   return questions.every((q) => {
+    if (notes[q.question]?.trim()) return true;
     const answer = chosen[q.question];
     return Array.isArray(answer) ? answer.length > 0 : typeof answer === 'string';
   });

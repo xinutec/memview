@@ -216,6 +216,38 @@
   cursor: default;
 }
 
+// A note against one question, beside whatever was picked for it.
+.note {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 3rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px dashed var(--mat-sys-outline-variant);
+  border-radius: 0.5rem;
+  background: var(--mat-sys-surface);
+  color: inherit;
+  font: var(--mat-sys-body-small);
+}
+
+// Deliberately not a Material button: it is a line of text that opens a field,
+// and a filled control here would read as another option to choose.
+.addnote {
+  align-self: flex-start;
+  padding: 0 0.2rem;
+  border: 0;
+  background: none;
+  color: var(--mat-sys-primary);
+  font: var(--mat-sys-label-small);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.addnote:disabled,
+.note:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 // The way out of a list that does not contain the answer.
 .say {
   width: 100%;

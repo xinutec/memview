@@ -97,6 +97,23 @@ describe('choiceOf', () => {
     );
   });
 
+  it('keeps a note beside the choice it qualifies', () => {
+    expect(
+      choiceOf({
+        answers: { 'how far?': 'options only' },
+        annotations: { 'how far?': { notes: 'but keep the skip button' } },
+      }),
+    ).toBe('options only (but keep the skip button)');
+  });
+
+  it('reports a note left against nothing, which is still an answer', () => {
+    // The CLI records this one as `(no option selected) notes: …`, so a card
+    // that showed nothing here would be quieter than the session's own record.
+    expect(choiceOf({ annotations: { 'how far?': { notes: 'ask me again later' } } })).toBe(
+      'ask me again later',
+    );
+  });
+
   it('has nothing to say about a reply that is not there', () => {
     expect(choiceOf(undefined)).toBe('');
     expect(choiceOf({})).toBe('');
@@ -115,6 +132,18 @@ describe('complete', () => {
     expect(complete(questions, { 'how far should the question UI go?': 'options only' })).toBe(
       true,
     );
+  });
+
+  it('counts a question answered by a note alone', () => {
+    // ⚠ The CLI accepts this and reports `(no option selected) notes: …`, so a
+    // card that waited for a tap would sit grey over something sendable.
+    expect(complete(questions, {}, { 'how far should the question UI go?': 'ask me later' })).toBe(
+      true,
+    );
+  });
+
+  it('does not count a blank note as one', () => {
+    expect(complete(questions, {}, { 'how far should the question UI go?': '  ' })).toBe(false);
   });
 
   it('does not count an empty multi-select as answered', () => {

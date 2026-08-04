@@ -860,6 +860,15 @@ Three decisions worth keeping:
   changes from *answer* to *reply* — and clearing the field hands them back.
   Whitespace does not count, because the CLI trims before testing. The
   alternative was a card that offered both and honoured one.
+- **A note qualifies a choice; words replace it.** `annotations[q].notes` is the
+  third field, and the only one that *combines* — the CLI reports
+  `"<question>"="<label>" notes: …`, and a question carrying a note but no choice
+  it reports as `"<question>"=(no option selected) notes: …` and counts as
+  answered. So the send button waits for a choice **or** a note against every
+  question; insisting on a tap would have left it grey over something the session
+  would have accepted. The field is one tap away rather than always there,
+  because one under every question is a screenful of card before it says
+  anything.
 - **A question whose arguments cannot be read falls back to allow/refuse.**
   Parsing is all-or-nothing: a half-read question would show fewer options than
   were offered, and nobody choosing from a list can tell that an option is

@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { Conversation, KINDS, Overview, SessionEvent, Summary } from './models';
-import { Answers } from './questions';
+import { Answers, Notes } from './questions';
 
 /** Thin client over the console runner. Same origin in production (the runner
  *  serves this bundle); via the dev proxy under `ng serve`. */
@@ -59,6 +59,7 @@ export class ConsoleApi {
     why?: string,
     answers?: Answers,
     response?: string,
+    notes?: Notes,
   ): Observable<Summary> {
     return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(session)}/decide`, {
       id,
@@ -66,6 +67,11 @@ export class ConsoleApi {
       why,
       answers,
       response,
+      // The wire shape is the CLI's, which nests each note in an object of its
+      // own — `preview` is the other thing that can live there, and is the
+      // terminal picker's business rather than ours.
+      annotations:
+        notes && Object.fromEntries(Object.entries(notes).map(([q, n]) => [q, { notes: n }])),
     });
   }
 
