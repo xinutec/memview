@@ -81,8 +81,12 @@ async function expectThumbTargets(page: Page, min = THUMB): Promise<void> {
  * anybody aims at. 1px of tolerance: a 24px glyph in an odd-height box is
  * legitimately half a pixel out, and `mat-icon` rounds.
  *
- * Local rather than in `@xinutec/ui-harness` for now — the same journey
- * `expectThumbTargets` took. It belongs there: nothing about it is this app's.
+ * Local rather than in `@xinutec/ui-harness`, and staying local until a second
+ * app wants it. Nothing about it is this app's — but `expectThumbTargets` above
+ * is equally general, has caught real defects, and after all this time lives
+ * here and nowhere else: measured, no other frontend in the fleet has an
+ * equivalent or has missed one. The trigger for promotion is a second consumer,
+ * not the observation that it could have one.
  */
 async function expectIconsCentred(page: Page, slack = 1): Promise<void> {
   const skewed = await page.evaluate((tolerance) => {

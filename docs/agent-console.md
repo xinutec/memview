@@ -805,8 +805,9 @@ already had, every time, for ever.
 - **That class of fault is invisible to every other check.** Nothing was clipped,
   overflowing, overlapping or undersized; it was simply wrong, and the evidence
   is arithmetic between two boxes. `expectIconsCentred` in the console's own
-  spec is what measures it — a local helper for now, on the same path
-  `expectThumbTargets` took into `@xinutec/ui-harness`.
+  spec is what measures it — a local helper, and deliberately staying one until
+  a second app wants it. `expectThumbTargets` beside it is equally general and
+  has lived here alone for as long as it has existed.
 - **`visualViewport`'s resize is what reports the soft keyboard.** A window
   resize does not fire. Whether the reader is at the bottom is *remembered as
   they scroll*, never measured when wanted — by then the box has shrunk and the
