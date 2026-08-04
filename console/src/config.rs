@@ -68,7 +68,21 @@ impl Config {
             (Ok(cert_file), Ok(key_file), Ok(pins)) if !pins.trim().is_empty() => Some(Tls {
                 cert_file,
                 key_file,
-                pins: pins.split(',').map(|p| p.trim().to_string()).collect(),
+                // ⚠ **The file wins over the variable, and that is the whole
+                // point.** `console.sh` reads the list once and exports it, and
+                // an upgrade is an `execve` — which inherits the environment. So
+                // a console upgraded after an enrolment carried the pin list
+                // from whenever it was *originally* launched, and refused the
+                // phone it had just been told to trust, naming the very key that
+                // was sitting in the file. Only a full restart could pick it up,
+                // and a full restart is exactly what the handover exists to
+                // avoid: it would end every live session to admit one key.
+                //
+                // Read here rather than fixed in the script because the script
+                // cannot fix it: the staleness is in the environment of a
+                // process that is already running.
+                pins: pinned_clients(&home)
+                    .unwrap_or_else(|| pins.split(',').map(|p| p.trim().to_string()).collect()),
             }),
             _ => None,
         };
@@ -144,4 +158,28 @@ impl Config {
         }
         Err(format!("{requested} is not inside an allowed directory"))
     }
+}
+
+/// The pinned client keys, read from the file a person edits.
+///
+/// One pin per line, `#` comments and blank lines ignored — the same shape
+/// `scripts/console.sh` parses, and the same file `scripts/enrol.sh` appends to.
+/// `None` when there is no such file, which is what leaves the environment
+/// variable in charge for a deployment that does not keep one.
+///
+/// Returning `None` for an *empty* file is deliberate: a file that exists but
+/// says nothing is far more likely to be a mistake than an instruction to trust
+/// nobody, and the failure it would cause — every client refused — looks
+/// identical to the certificate being wrong.
+fn pinned_clients(home: &str) -> Option<Vec<String>> {
+    let dir =
+        std::env::var("CONSOLE_HOME").unwrap_or_else(|_| format!("{home}/.config/agent-console"));
+    let text = std::fs::read_to_string(PathBuf::from(dir).join("clients")).ok()?;
+    let pins: Vec<String> = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_string)
+        .collect();
+    (!pins.is_empty()).then_some(pins)
 }

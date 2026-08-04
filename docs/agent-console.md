@@ -823,6 +823,36 @@ already had, every time, for ever.
   opened by a page returning knows nothing, hence `?after=` on the events route,
   with the header winning when both are present.
 
+### Enrolling a phone without ending every session
+
+⚠ **`execve` inherits the environment, so an upgraded console cannot learn a new
+client pin from one.** `console.sh` reads `~/.config/agent-console/clients` once
+and exports the result as `CONSOLE_CLIENT_KEYS`; an upgrade replaces the image
+and keeps that variable, so the console carries the pin list from whenever it was
+*originally* launched. Enrol a phone, upgrade, and it refuses the phone it was
+just told to trust — naming, in the log, the exact key sitting in the file:
+
+    WARN console::tls: refused a client key that is not pinned key=15c39ba6…
+
+The only cure was a full restart, which is precisely what the handover exists to
+avoid: ending seven live sessions to admit one key. So the pins are read from the
+**file** in `Config::from_env`, with the variable left as the fallback for a
+deployment that keeps no file. The script cannot fix this, because the staleness
+is in the environment of a process that is already running.
+
+Two more things that bite in the same operation, both measured:
+
+- **Re-enrolling destroys the old key before the new one is trusted.** The phone
+  generates and discards in one step, and the console only learns the new pin
+  when it restarts — so there is an unavoidable lockout of a minute or two.
+  Fetch Google's revocation list *first*: `enrol.sh` fetches it after the key is
+  already gone, and a network failure there strands the phone.
+- **`UNLOCK_SECONDS` is baked into the key at generation**, inside
+  `KeyGenParameterSpec`. Changing the constant and installing the APK changes
+  nothing; only the next enrolment picks it up. The attestation record is where
+  to confirm it — `authenticator type 3, one unlock lasting 900s` is the phone's
+  own account of the key, not our reading of the source.
+
 ### An upgrade must carry the questions, not just the pipes
 
 ⚠ **`execve` does not touch the child, so a session blocked on `can_use_tool` is
