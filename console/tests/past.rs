@@ -8,8 +8,8 @@
 use std::path::Path;
 
 use console::past::{
-    conversations, interactions, named as named_of, touched as touched_of, transcript_of,
-    words_of_claude_processes,
+    Mark, conversations, interactions, moved, named as named_of, touched as touched_of,
+    transcript_of, words_of_claude_processes,
 };
 
 /// A wrapper shell whose *path* says claude — the shape that caused the bug.
@@ -463,6 +463,47 @@ fn a_session_with_no_transcript_has_no_date_rather_than_the_epoch() {
     // that started a second ago is worse than one showing nothing.
     let root = scratch("no-touched");
     assert_eq!(touched_of(&root, "never-ran"), None);
+}
+
+#[test]
+fn picking_a_conversation_up_is_not_something_happening_in_it() {
+    // ⚠ **Measured, and it is why this rule exists.** Resuming stamps the
+    // transcript without adding to it: a file last written at 00:05:21 and 13,605
+    // bytes long came back at 00:06:15, still 13,605 bytes, thirty seconds after
+    // the pickup and with nothing said to it. The file can only answer "when was
+    // this opened"; the list is asking "when did anything happen".
+    let before = Mark {
+        touched: 1_785_775_312_217,
+        bytes: 13_605,
+    };
+    let opened = Mark {
+        touched: 1_785_884_775_000,
+        bytes: 13_605,
+    };
+    assert_eq!(
+        moved(Some(before), opened),
+        before.touched,
+        "a conversation nobody has spoken to since picking it up has not moved"
+    );
+
+    // And the moment anything is said, it is said by being appended.
+    let spoken = Mark {
+        touched: 1_785_884_900_000,
+        bytes: 14_200,
+    };
+    assert_eq!(moved(Some(before), spoken), spoken.touched);
+}
+
+#[test]
+fn a_session_that_picked_nothing_up_is_dated_by_its_file() {
+    // A session started fresh has no earlier date to keep, and one adopted from
+    // an image that did not record one has lost it. Both fall back to the file,
+    // which is what the console did before any of this.
+    let now = Mark {
+        touched: 1_785_884_775_000,
+        bytes: 900,
+    };
+    assert_eq!(moved(None, now), now.touched);
 }
 
 #[test]

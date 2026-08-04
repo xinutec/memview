@@ -338,8 +338,13 @@ impl Roster {
             .map(|session| {
                 let mut summary = session.summary();
                 summary.name = crate::past::named(&root, &summary.id);
-                summary.touched = crate::past::touched(&root, &summary.id);
-                summary.bytes = crate::past::sized(&root, &summary.id);
+                // One read of the file for both, and the two are read together
+                // on purpose: the size is what says whether the date means
+                // anything. See [`crate::past::moved`].
+                if let Some(now) = crate::past::mark(&root, &summary.id) {
+                    summary.touched = Some(crate::past::moved(session.picked(), now));
+                    summary.bytes = Some(now.bytes);
+                }
                 summary
             })
             .collect();

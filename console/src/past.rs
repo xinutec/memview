@@ -274,35 +274,66 @@ const REPLAY_EVENTS: usize = 400;
 /// thing a client can decline to render, where the epoch is a date it would
 /// render as half a century ago.
 pub fn touched(root: &Path, id: &str) -> Option<u64> {
-    let path = transcript_of(root, id)?;
-    std::fs::metadata(&path)
-        .ok()?
-        .modified()
-        .ok()?
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()
-        .map(|since| since.as_millis() as u64)
+    Some(mark(root, id)?.touched)
+}
+
+/// Where a transcript stood at one moment: when it was last written, and how big
+/// it was.
+///
+/// The two travel together because one qualifies the other — see [`moved`], which
+/// is the whole reason the size is worth remembering.
+#[derive(Debug, Clone, Copy, Serialize, serde::Deserialize)]
+pub struct Mark {
+    /// Milliseconds since the epoch.
+    pub touched: u64,
+    pub bytes: u64,
+}
+
+/// What the transcript looks like now.
+///
+/// One `stat` for both facts, because the caller wants both and asking twice
+/// invites them to disagree — the file is being appended to while this runs.
+pub fn mark(root: &Path, id: &str) -> Option<Mark> {
+    let meta = std::fs::metadata(transcript_of(root, id)?).ok()?;
+    Some(Mark {
+        touched: meta
+            .modified()
+            .ok()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_millis() as u64,
+        bytes: meta.len(),
+    })
+}
+
+/// When the conversation last actually moved.
+///
+/// ⚠ **Picking a conversation up touches its file without adding to it.**
+/// Measured on a throwaway: a transcript last written at 00:05:21 and 13,605
+/// bytes long was resumed at 00:06:15, and thirty seconds later it was 13,605
+/// bytes long and stamped 00:06:15. So the file's own date answers "when was this
+/// opened", and the list is asking "when did anything happen" — for a conversation
+/// picked up and not yet spoken to, those are different questions with different
+/// answers, and the file only knows the first.
+///
+/// The size is what tells them apart, and it is a fact rather than a heuristic:
+/// nothing is said without being appended. So while the file is the length it was
+/// when this session picked it up, the last thing that happened is still whatever
+/// happened before that.
+///
+/// `picked` is absent for a session started fresh, which has no earlier date to
+/// keep, and for one this console adopted from an image that did not record one.
+pub fn moved(picked: Option<Mark>, now: Mark) -> u64 {
+    match picked {
+        Some(before) if now.bytes == before.bytes => before.touched,
+        _ => now.touched,
+    }
 }
 
 pub fn named(root: &Path, id: &str) -> Option<String> {
     let path = transcript_of(root, id)?;
     let len = std::fs::metadata(&path).ok()?.len();
     tail_of(&path, len).name
-}
-
-/// How much a live session's transcript weighs, in bytes.
-///
-/// The same quantity a conversation on disk reports for itself, read the same
-/// way, so that the sentence "62 MB" means one thing across the console whether
-/// the session is running or not.
-///
-/// ⚠ **Not a second name for how full the context is.** The file is everything
-/// that has been said since the conversation began, compacted-away turns and
-/// whole tool results included; the context is what the model still has in front
-/// of it. The gap between them is how much has already been forgotten, which is
-/// why both are shown rather than one standing in for the other.
-pub fn sized(root: &Path, id: &str) -> Option<u64> {
-    Some(std::fs::metadata(transcript_of(root, id)?).ok()?.len())
 }
 
 /// How many times someone has spoken to this session since it was last compacted.
