@@ -4,6 +4,7 @@ import { MAT_BOTTOM_SHEET_DATA } from '@angular/material/bottom-sheet';
 import { Summary } from './models';
 import { modeTitle } from './modes';
 import { titleOf } from './naming';
+import { fullness } from './tokens';
 
 /**
  * One labelled fact about a session.
@@ -54,6 +55,16 @@ export function factsOf(session: Summary): Fact[] {
   // since Tuesday.
   facts.push({ label: 'started', value: when(session.started * 1000) });
   if (session.touched) facts.push({ label: 'last active', value: when(session.touched) });
+  // The two sizes a conversation has, and they belong next to each other
+  // because the gap between them is the interesting quantity: the context is
+  // what the model still has in front of it, the history is everything ever
+  // said — compacted-away turns and whole tool results included. A session
+  // reading `140k / 1M` under a 62 MB history has forgotten most of itself.
+  const full = fullness(session.context, session.window);
+  if (full) facts.push({ label: 'context', value: full });
+  // Looked up rather than scanned, which is why it is here and not on the list
+  // card: four facts in that row wrapped it onto a second line.
+  if (session.bytes) facts.push({ label: 'history', value: megabytes(session.bytes) });
   // The CLI's own vocabulary — `allowed`, `allowed_warning`, `rejected` — kept
   // verbatim rather than reworded, for the reason budget.ts gives. Shown only
   // when it is not the ordinary answer, because a line saying `allowed` on
@@ -67,6 +78,14 @@ export function factsOf(session: Summary): Fact[] {
 /** A moment, spelled out. The sheet is where somebody has stopped to look. */
 function when(ms: number): string {
   return new Date(ms).toLocaleString();
+}
+
+/** Megabytes, which is the only sense of a transcript's size worth showing.
+ *
+ *  Floored at 1: a conversation with anything in it at all is not `0 MB`, and a
+ *  fraction of a megabyte is a precision nobody is reading this for. */
+function megabytes(bytes: number): string {
+  return `${Math.max(1, Math.round(bytes / 1048576))} MB`;
 }
 
 /**

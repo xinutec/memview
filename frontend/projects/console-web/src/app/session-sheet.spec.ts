@@ -68,4 +68,26 @@ describe('factsOf', () => {
       String(new Date(touched).getFullYear()),
     );
   });
+
+  it('shows how full the context is beside how much has been said', () => {
+    // The pair is the point: the first is what the model still has in front of
+    // it, the second is everything ever said. A session two thirds full under a
+    // 62 MB history has forgotten most of itself, and neither number says that
+    // on its own.
+    const session = { ...BARE, context: 640_000, window: 1_000_000, bytes: 65_011_712 };
+    expect(value(session, 'context')).toBe('640k / 1M');
+    expect(value(session, 'history')).toBe('62 MB');
+  });
+
+  it('rounds a transcript with anything in it up to a megabyte', () => {
+    // `0 MB` reads as an empty conversation where the truth is a short one.
+    expect(value({ ...BARE, bytes: 4096 }, 'history')).toBe('1 MB');
+  });
+
+  it('leaves both out for a session that has not said', () => {
+    // A session the console has just started has written nothing and answered
+    // nothing. Blank rows here would be the em-dash problem again.
+    expect(labels(BARE)).not.toContain('context');
+    expect(labels(BARE)).not.toContain('history');
+  });
 });

@@ -258,7 +258,7 @@ const REPLAY_EVENTS: usize = 400;
 /// than cached because a session is renamed as its job changes, and a stale
 /// name on screen is worse than none: it says the wrong thing confidently.
 ///
-/// Cheap despite the file being enormous: [`name_of`] reads the last
+/// Cheap despite the file being enormous: [`tail_of`] reads the last
 /// [`TAIL_BYTES`] and no more.
 /// When this session last did anything, from the transcript it is writing.
 ///
@@ -288,6 +288,21 @@ pub fn named(root: &Path, id: &str) -> Option<String> {
     let path = transcript_of(root, id)?;
     let len = std::fs::metadata(&path).ok()?.len();
     tail_of(&path, len).name
+}
+
+/// How much a live session's transcript weighs, in bytes.
+///
+/// The same quantity a conversation on disk reports for itself, read the same
+/// way, so that the sentence "62 MB" means one thing across the console whether
+/// the session is running or not.
+///
+/// ⚠ **Not a second name for how full the context is.** The file is everything
+/// that has been said since the conversation began, compacted-away turns and
+/// whole tool results included; the context is what the model still has in front
+/// of it. The gap between them is how much has already been forgotten, which is
+/// why both are shown rather than one standing in for the other.
+pub fn sized(root: &Path, id: &str) -> Option<u64> {
+    Some(std::fs::metadata(transcript_of(root, id)?).ok()?.len())
 }
 
 /// How many times someone has spoken to this session since it was last compacted.

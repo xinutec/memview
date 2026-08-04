@@ -339,6 +339,7 @@ impl Roster {
                 let mut summary = session.summary();
                 summary.name = crate::past::named(&root, &summary.id);
                 summary.touched = crate::past::touched(&root, &summary.id);
+                summary.bytes = crate::past::sized(&root, &summary.id);
                 summary
             })
             .collect();

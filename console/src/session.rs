@@ -172,6 +172,12 @@ pub struct Summary {
     /// column empty rather than print the epoch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub touched: Option<u64>,
+    /// How much the transcript weighs, in bytes — the whole conversation as it
+    /// stands on disk. Filled by the roster from the same metadata read as
+    /// [`Self::touched`]; see [`crate::past::sized`] for why this is not the
+    /// same fact as [`Self::context`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bytes: Option<u64>,
     pub alive: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
@@ -1158,6 +1164,7 @@ impl Session {
             // Left for the roster, which reads the transcript once per listing
             // and already goes there for the name.
             touched: None,
+            bytes: None,
             alive: state.alive,
             model: state.model.clone(),
             busy: state.busy.clone(),

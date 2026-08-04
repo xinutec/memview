@@ -268,11 +268,6 @@ export class SessionsView {
     return `${Math.round(minutes / 1440)}d ago`;
   }
 
-  /** Megabytes, which is the only sense of size worth showing. */
-  size(bytes: number): string {
-    return `${Math.max(1, Math.round(bytes / 1048576))} MB`;
-  }
-
   /** The last path element, which is what a repository is called.
    *
    *  Takes the directory rather than a session, because a conversation on disk

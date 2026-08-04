@@ -118,7 +118,13 @@
              Deliberately not padded out to match the row above it: a
              conversation that is not running has no cost, no mode and no model,
              and a blank for each would read as missing rather than as not
-             applicable. -->
+             applicable.
+
+             ⚠ **The size in MB is deliberately not here.** It was, and adding
+             the token count beside it made four facts where three fit: the row
+             wrapped and the card stopped being scannable. The history is the
+             fact somebody looks *up*, not one they scan a list by, so it lives
+             in the details sheet. See `session-sheet.ts`. -->
         <div class="facts">
           <span>{{ ago(row.at) }}</span>
           <span>{{ place(conversation) }}</span>
@@ -128,7 +134,6 @@
           @if (row.context; as context) {
             <span>{{ context }}</span>
           }
-          <span>{{ size(conversation.bytes) }}</span>
         </div>
       }
     </mat-card-content>

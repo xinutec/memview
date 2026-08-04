@@ -1474,10 +1474,16 @@ test('session list — how full each conversation is @ phone width', async ({ pa
 
   const facts = await page.locator('.session .facts').allInnerTexts();
   expect(facts[0], 'a running session knows what it is full of').toContain('496k / 1M');
-  expect(facts[1], 'a bare count beside a size in MB could be anything').toContain('340k tokens');
+  expect(facts[1], 'a bare count with no denominator has to name its unit').toContain(
+    '340k tokens',
+  );
+  // ⚠ **And the history is not here.** It was, and a fourth fact wrapped the row
+  // onto a second line — so the size moved to the details sheet, which is where
+  // a fact you look up belongs rather than one you scan a list by.
+  expect(facts.join(' '), 'the size is back on the card').not.toContain('MB');
 
-  // Five facts on a card that had four. The row wraps, and what it must not do
-  // is push the card sideways or land on top of itself.
+  // The row wraps rather than clipping, and what it must not do is push the card
+  // sideways or land on top of itself.
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 });
@@ -1636,7 +1642,17 @@ test('a window that has already reset shows no figure @ phone width', async ({ p
 const NAMED = {
   ...STATE,
   sessions: [
-    { ...STATE.sessions[0], name: 'health', mode: 'bypassPermissions' },
+    {
+      ...STATE.sessions[0],
+      name: 'health',
+      mode: 'bypassPermissions',
+      // The two sizes: what the model still holds, and what has been said. 62 MB
+      // of history under a context two thirds full is a conversation that has
+      // forgotten most of itself.
+      context: 640_000,
+      window: 1_000_000,
+      bytes: 65_011_712,
+    },
     STATE.sessions[1],
   ],
 };
@@ -1888,6 +1904,11 @@ test('the details sheet holds what the page has no room for @ phone width', asyn
   // The permission mode in words. The facts row has only its icon, and a
   // `title=` tooltip on a phone is text nobody can reach.
   expect(said).toContain('Bypass Permissions');
+  // How much has been said, which the list card used to carry and cannot: four
+  // facts in that row wrapped it. Beside how full the context is, because the
+  // gap between the two is the fact neither one states.
+  expect(said).toContain('62 MB');
+  expect(said).toContain('640k / 1M');
 
   await expectNoTextOverlaps(page, testInfo, '.session-sheet');
   await expectNoHorizontalOverflow(page, testInfo, '.session-sheet');
@@ -1959,7 +1980,14 @@ test('a sheet put away by hand leaves no step behind @ phone width', async ({ pa
   // Away by hand, not by back: the backdrop is what a thumb reaches first.
   // `.last()` is the sheet's own — the menu that opened it leaves its backdrop in
   // the DOM behind this one while it fades.
-  await page.locator('.cdk-overlay-backdrop').last().click();
+  //
+  // ⚠ Aimed at the top of the screen rather than clicked at its centre. The
+  // backdrop covers the viewport, so its centre is *under the sheet* once the
+  // sheet is tall enough — and it grew when the history and the fullness moved
+  // into it. Playwright then waits ninety seconds for a point the sheet is
+  // sitting on. The strip of backdrop above a bottom sheet is where a thumb
+  // aims anyway.
+  await page.locator('.cdk-overlay-backdrop').last().click({ position: { x: 8, y: 8 } });
   await expect(page.locator('.session-sheet')).toHaveCount(0);
 
   await page.goBack();
@@ -2049,3 +2077,4 @@ test('a run with something still running stays open @ phone width', async ({ pag
   // Open without being asked, because both calls are still going.
   await expect(page.getByText('cargo test --all-features')).toBeVisible();
 });
+

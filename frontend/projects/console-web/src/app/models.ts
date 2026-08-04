@@ -55,6 +55,16 @@ export interface Summary {
   /** The last request's prompt size in tokens, and the window it went into. */
   context?: number;
   window?: number;
+  /**
+   * How much the transcript weighs, in bytes.
+   *
+   * ⚠ **Not another way of saying [context].** This is everything said since the
+   * conversation began — the turns compaction has since dropped, and every tool
+   * result at full length; the context is what the model still has in front of
+   * it. The gap is how much has already been forgotten, which is why the details
+   * sheet shows both.
+   */
+  bytes?: number;
 }
 
 export interface Overview {
