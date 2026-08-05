@@ -6,9 +6,10 @@
 //! as "no sentence this time". What these cover is the two ends: what is handed
 //! to the model, and what is taken from what it says.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
-use console::gist::sentence;
+use console::gist::{Gists, sentence};
 use console::past::material;
 
 /// A transcript in the shape the reader meets: opening plumbing that is not a
@@ -167,4 +168,83 @@ fn nothing_said_is_no_sentence() {
     // the conversation is tried again rather than left blank until it grows.
     assert!(sentence("").is_none());
     assert!(sentence("\n  \n").is_none());
+}
+
+/// A store holding one sentence per id, written the way the console writes it.
+fn stored(name: &str, ids: &[&str]) -> (std::path::PathBuf, Gists) {
+    let store = scratch(name).join("gists.json");
+    let held: std::collections::BTreeMap<String, serde_json::Value> = ids
+        .iter()
+        .map(|id| {
+            (
+                (*id).to_string(),
+                serde_json::json!({ "text": format!("about {id}"), "at": 1, "bytes": 10 }),
+            )
+        })
+        .collect();
+    std::fs::write(&store, serde_json::to_string(&held).expect("json")).expect("store");
+    let gists = Gists::load(store.clone());
+    (store, gists)
+}
+
+fn on_disk(store: &Path) -> Vec<String> {
+    let text = std::fs::read_to_string(store).expect("store");
+    serde_json::from_str::<std::collections::BTreeMap<String, serde_json::Value>>(&text)
+        .expect("json")
+        .into_keys()
+        .collect()
+}
+
+#[test]
+fn a_conversation_that_is_gone_from_disk_loses_its_sentence() {
+    // ⚠ The store only ever grew before this. Nothing on screen showed the
+    // difference — a row comes from a walk of the disk and only then looks its
+    // sentence up — so a deleted conversation left an entry that nothing could
+    // ever read and nothing would ever remove.
+    let (store, gists) = stored("forget-gone", &["kept", "deleted"]);
+
+    gists.forget(&BTreeSet::from(["kept".to_string()]));
+
+    assert_eq!(
+        gists.all().into_keys().collect::<Vec<_>>(),
+        vec!["kept".to_string()]
+    );
+    assert_eq!(
+        on_disk(&store),
+        vec!["kept".to_string()],
+        "and written through, or a restart would read the dead entry back in"
+    );
+}
+
+#[test]
+fn an_empty_walk_is_not_a_reason_to_forget_everything() {
+    // A directory that could not be read yields the same empty list as a
+    // machine with no conversations on it, and from here the two look alike.
+    // The cheap reading is the safe one: the true empty case has nothing to
+    // forget, and the other would cost every sentence and a model call each to
+    // write them again.
+    let (store, gists) = stored("forget-empty", &["one", "two"]);
+
+    gists.forget(&BTreeSet::new());
+
+    assert_eq!(gists.all().len(), 2);
+    assert_eq!(on_disk(&store).len(), 2);
+}
+
+#[test]
+fn a_walk_that_matches_what_is_held_rewrites_nothing() {
+    // The sweep runs on a timer and most of them have nothing to forget, so the
+    // ordinary case must not rewrite the file — measured by the file's own
+    // modification time, which is what a rewrite would move.
+    let (store, gists) = stored("forget-same", &["one", "two"]);
+    let before = std::fs::metadata(&store).expect("meta").modified().ok();
+
+    gists.forget(&BTreeSet::from(["one".to_string(), "two".to_string()]));
+
+    assert_eq!(gists.all().len(), 2);
+    assert_eq!(
+        std::fs::metadata(&store).expect("meta").modified().ok(),
+        before,
+        "untouched, rather than rewritten with identical contents"
+    );
 }

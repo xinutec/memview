@@ -23,6 +23,13 @@
 //! time only on the ones that worked. The cache is a file rather than memory
 //! because the alternative is paying for all thirteen again on every restart —
 //! and this console restarts whenever it is upgraded, which is often.
+//!
+//! ## And dropped when the conversation is
+//!
+//! A cache keyed by id that is only ever written to is a cache that grows
+//! forever. Each sweep therefore also forgets the sentences whose transcripts
+//! have gone from disk — see [`Gists::forget`], which is where the one case that
+//! could go wrong is written down.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -117,10 +124,55 @@ impl Gists {
             held.insert(id.to_string(), gist);
             held.clone()
         };
-        // Written whole each time. The file is a few kilobytes and holds one
-        // line per conversation, so there is nothing here worth the complexity
-        // of appending — and a rewrite cannot leave a half-updated entry.
-        if let Ok(text) = serde_json::to_string_pretty(&all)
+        self.write(&all);
+    }
+
+    /// Drop the sentences whose conversations are no longer there.
+    ///
+    /// ⚠ **Without this nothing is ever removed.** [`Self::keep`] only inserts,
+    /// so a deleted transcript left its sentence in the map and in the file for
+    /// good — invisible on screen, since the rows come from a walk of the disk
+    /// and a sentence is only ever looked up by a row's id, but the file grew by
+    /// one dead entry per deletion and never shrank.
+    ///
+    /// ⚠ **An empty list is not an answer.** [`crate::past::conversations`]
+    /// yields nothing both when there are no conversations and when it could not
+    /// read the directory at all, and the two are indistinguishable from here.
+    /// Treating the second as the first would throw away every sentence over one
+    /// bad moment and pay a model for all of them again, so an empty list is
+    /// left alone: the true empty case has nothing to forget anyway.
+    ///
+    /// The list to judge against is the one the front page itself is drawn from,
+    /// which is narrower than what is on disk — [`crate::past::conversations`]
+    /// leaves out conversations that ran from a temporary directory. That is the
+    /// right list anyway, and the two halves agree by construction: a
+    /// conversation the walk hides is one [`Self::sweep`] never writes a sentence
+    /// for either, so there is nothing of it here to lose.
+    pub fn forget(&self, alive: &std::collections::BTreeSet<String>) {
+        if alive.is_empty() {
+            return;
+        }
+        let all = {
+            let mut held = self.held.write().expect("gists poisoned");
+            let before = held.len();
+            held.retain(|id, _| alive.contains(id));
+            if held.len() == before {
+                return;
+            }
+            tracing::info!(
+                "gists: {} conversation(s) gone from disk, forgetting their sentences",
+                before - held.len()
+            );
+            held.clone()
+        };
+        self.write(&all);
+    }
+
+    /// Written whole each time. The file is a few kilobytes and holds one line
+    /// per conversation, so there is nothing here worth the complexity of
+    /// appending — and a rewrite cannot leave a half-updated entry.
+    fn write(&self, all: &BTreeMap<String, Gist>) {
+        if let Ok(text) = serde_json::to_string_pretty(all)
             && let Some(dir) = self.store.parent()
         {
             let _ = std::fs::create_dir_all(dir);
@@ -143,9 +195,16 @@ impl Gists {
     /// Sequential on purpose. These are model calls against the same allowance
     /// the sessions are using, and there is nothing to be gained by having eight
     /// of them in flight at once on a console driven by one person.
+    ///
+    /// The walk is taken once and used twice: to forget the conversations that
+    /// have gone, and then to write for the ones that moved. It has to be the
+    /// whole walk rather than the loop below, which stops after [`PER_SWEEP`]
+    /// and so has no opinion about the conversations it never reached.
     pub async fn sweep(&self, binary: &str, root: &Path) {
+        let conversations = crate::past::conversations(root);
+        self.forget(&conversations.iter().map(|c| c.id.clone()).collect());
         let mut spent = 0;
-        for conversation in crate::past::conversations(root) {
+        for conversation in conversations {
             if spent >= PER_SWEEP {
                 tracing::info!("gists: {PER_SWEEP} written this sweep, leaving the rest");
                 break;
