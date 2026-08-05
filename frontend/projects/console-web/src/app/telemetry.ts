@@ -86,6 +86,19 @@ export class Telemetry {
   note(what: string, detail: string): void {
     this.core.record('refused', what, detail);
   }
+
+  /**
+   * A number the page measured about itself, where the number is the evidence.
+   *
+   * ⚠ **For the faults that only happen on the device.** A layout that settles
+   * wrongly on a phone and correctly in the harness cannot be reasoned about
+   * from here — the timing IS the bug — so the page reports what it measured at
+   * the moment it mattered, and the log says what happened instead of us
+   * guessing. Its own kind so it can be grepped apart from taps and failures.
+   */
+  measured(what: string, detail: string): void {
+    this.core.record('measured', what, detail);
+  }
 }
 
 /** Where a script error came from, when the browser says. */

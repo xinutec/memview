@@ -36,6 +36,7 @@ import { Rendered } from './rendered';
 import { Answers, Notes, Question, choiceOf, complete } from './questions';
 import { Held, SessionStore } from './session-store';
 import { Block, blocks, ran } from './transcript';
+import { Telemetry } from './telemetry';
 import { fullness } from './tokens';
 
 /** One session: what it has done, and the way to say something to it. */
@@ -67,6 +68,7 @@ export class SessionView implements OnDestroy {
   /** A newer build is downloaded and held. See `Updates` for why it waits. */
   readonly updateWaiting = this.updates.waiting;
   private store = inject(SessionStore);
+  private telemetry = inject(Telemetry);
   private foreground = inject(Foreground);
   private until = inject(DestroyRef);
   /** For `afterNextRender` outside an injection context — see [loadEarlier]. */
@@ -395,7 +397,16 @@ export class SessionView implements OnDestroy {
       // one the reader caused. See [onScroll].
       this.wrote = box.scrollTop;
       this.settled = true;
+      return;
     }
+    // Asked to follow and declined, because the reader is somewhere else. The
+    // counterpart to the note in [onScroll]: between the two, the log says
+    // whether a transcript that opened part-way up was ever pulled to the end
+    // and let go, or never pulled at all.
+    this.telemetry.measured(
+      'stayed',
+      `gap=${Math.round(box.scrollHeight - box.scrollTop - box.clientHeight)} entries=${this.entries().length}`,
+    );
   }
 
   /**
@@ -432,7 +443,22 @@ export class SessionView implements OnDestroy {
     if (!box) return;
     if (box.scrollTop === this.wrote) return;
     const NEAR = 120;
-    this.pinned = box.scrollHeight - box.scrollTop - box.clientHeight < NEAR;
+    const gap = box.scrollHeight - box.scrollTop - box.clientHeight;
+    const followed = this.pinned;
+    this.pinned = gap < NEAR;
+    // ⚠ **The moment following stops, with the numbers that stopped it.**
+    // Reported from a phone as a conversation opening part-way up and coming
+    // right on a second open — which the layout harness cannot reproduce,
+    // because it hands the seed over in one chunk and the real runner streams
+    // it. Whether this was the reader's decision or a scroll nobody made is
+    // exactly what the log has to settle, so it carries the position, the one
+    // this component last wrote, and how far from the end that leaves us.
+    if (followed && !this.pinned) {
+      this.telemetry.measured(
+        'unpinned',
+        `gap=${Math.round(gap)} top=${Math.round(box.scrollTop)} wrote=${Math.round(this.wrote)} height=${box.scrollHeight} view=${box.clientHeight} entries=${this.entries().length} settled=${this.settled}`,
+      );
+    }
     this.wrote = -1;
   }
 
