@@ -261,7 +261,9 @@ fn prompt(material: &crate::past::Material) -> String {
     text.push_str(
         "In ONE sentence of at most twenty words, say what this conversation is about now — \
          what is being worked on, not what it started as. \
-         Write only that sentence: no preamble, no quotes, no trailing full stop needed.",
+         Write only that sentence: no preamble, no quotes, no trailing full stop needed, \
+         and no markdown — it is printed as plain text, so backticks and asterisks \
+         arrive as punctuation.",
     );
     text
 }
@@ -310,5 +312,24 @@ pub fn sentence(said: &str) -> Option<String> {
     let line = said.lines().map(str::trim).find(|line| !line.is_empty())?;
     // Quotes get returned about a third of the time despite being asked not to.
     let line = line.trim_matches(|c| c == '"' || c == '\'').trim();
+    // ⚠ **And the marks come out, because the card draws this as text.** The
+    // front page prints the sentence rather than rendering it, so a backtick or
+    // a pair of asterisks arrives as punctuation — seen live: "Widening `Fact`
+    // in Rust to support configuration-derived IDs". Asking for no markdown is
+    // the other half of this and is in [`prompt`]; the instruction is what
+    // usually works and this is what always does.
+    //
+    // Rendering it instead was the alternative, and was rejected: this is one
+    // line in a card head, and a pipe that can emit a list or a code fence into
+    // a row sized for one line is a layout defect waiting for the sentence that
+    // triggers it.
+    //
+    // ⚠ **Backticks and asterisks only.** An underscore is far likelier to be
+    // part of a name than an emphasis in this vocabulary — the sentences here
+    // are about code, and one of them today was about
+    // `project_health_verified_core_lean`, which stripping would have turned
+    // into a word.
+    let line: String = line.chars().filter(|c| *c != '`' && *c != '*').collect();
+    let line = line.trim();
     (!line.is_empty()).then(|| line.to_string())
 }

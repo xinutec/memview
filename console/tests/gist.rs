@@ -163,6 +163,27 @@ fn quotes_are_not_part_of_the_sentence() {
 }
 
 #[test]
+fn the_marks_come_out_because_the_card_prints_the_sentence() {
+    // ⚠ Seen on the front page: the row draws this as text rather than rendering
+    // it, so what a model marked up arrives as punctuation and reads as a typo.
+    assert_eq!(
+        sentence("Widening `Fact` in Rust to support **configuration-derived** IDs").as_deref(),
+        Some("Widening Fact in Rust to support configuration-derived IDs")
+    );
+}
+
+#[test]
+fn an_underscore_is_part_of_a_name_here_rather_than_an_emphasis() {
+    // ⚠ These sentences are about code. One of them today was about
+    // `project_health_verified_core_lean`, and stripping the marks that could be
+    // emphasis would have turned it into a word.
+    assert_eq!(
+        sentence("Clustering project_health_verified_core_lean nodes").as_deref(),
+        Some("Clustering project_health_verified_core_lean nodes")
+    );
+}
+
+#[test]
 fn nothing_said_is_no_sentence() {
     // Which the caller records as a failed attempt rather than as a summary, so
     // the conversation is tried again rather than left blank until it grows.
