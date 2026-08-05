@@ -411,3 +411,74 @@ fn a_response_whose_shape_has_moved_yields_nothing() {
     let empty = r#"{"type":"control_response","response":{"response":{"rate_limits":{"five_hour":{"resets_at":"2026-08-04T23:00:00Z"}}}}}"#;
     assert!(console::protocol::usage_reply(empty).is_none());
 }
+
+/// One `Bash` call, backgrounded or not, as the stream reports it.
+fn call(id: &str, backgrounded: bool) -> Event {
+    Event::Tool {
+        id: id.to_string(),
+        name: "Bash".to_string(),
+        input: serde_json::json!({"command": "sleep 600", "run_in_background": backgrounded}),
+    }
+}
+
+#[test]
+fn a_backgrounded_call_is_work_left_running() {
+    // The call itself returns at once with a task id, so this event is the only
+    // record that anything was started.
+    assert_eq!(
+        console::protocol::running(&call("toolu_bg", true)),
+        console::protocol::Running::Began("toolu_bg".to_string())
+    );
+}
+
+#[test]
+fn an_ordinary_call_says_nothing_about_it() {
+    // The common case by a wide margin, and the one a looser test would miss.
+    assert_eq!(
+        console::protocol::running(&call("toolu_fg", false)),
+        console::protocol::Running::Quiet
+    );
+}
+
+#[test]
+fn the_harness_notification_is_what_closes_one() {
+    // Named by the call that started it, which is why the two are matched by id
+    // rather than by order — background work finishes out of order by nature.
+    assert_eq!(
+        console::protocol::running(&Event::Background {
+            tool: "toolu_bg".to_string(),
+            status: "completed".to_string(),
+        }),
+        console::protocol::Running::Ended("toolu_bg".to_string())
+    );
+}
+
+#[test]
+fn a_new_process_inherits_nothing() {
+    // ⚠ Measured: a console restart left eleven phantom tasks in the count, all
+    // of them started by a process that no longer existed. Their notifications
+    // died with it, so nothing would ever have closed them.
+    assert_eq!(
+        console::protocol::running(&Event::Started {
+            model: "claude-opus-5".to_string(),
+            cwd: "/home/example/Code".to_string(),
+            tools: 1,
+        }),
+        console::protocol::Running::Gone
+    );
+}
+
+#[test]
+fn the_seed_boundary_forgets_what_the_transcript_replayed() {
+    // ⚠ Measured on `health`: five tasks reported running, every one from that
+    // afternoon, the newest gone nine hours, the session with no children at
+    // all. A replayed transcript is full of calls that were backgrounded once —
+    // history, not now. `Joined` is pushed after the replay for exactly this.
+    assert_eq!(
+        console::protocol::running(&Event::Joined {
+            earlier: 400,
+            from: 12_345,
+        }),
+        console::protocol::Running::Gone
+    );
+}

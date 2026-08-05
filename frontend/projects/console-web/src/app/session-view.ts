@@ -127,8 +127,18 @@ export class SessionView implements OnDestroy {
    */
   readonly context = computed(() => fullness(this.session()?.context, this.session()?.window));
 
-  /** How many background tasks the harness has told us about and not closed. */
-  readonly background = computed(() => this.held()?.background().length ?? 0);
+  /**
+   * How many background tasks the harness has told us about and not closed.
+   *
+   * ⚠ **The runner's count, not one kept here.** This page used to derive it
+   * from its own event stream, which meant two answers to one question the
+   * moment the list started showing it: the page's reset whenever the transcript
+   * was re-seeded, the runner's did not, so a reload inside a session showed `0`
+   * against a card saying `1`. One source, and it is the one that survives a
+   * reload. The cost is that it rides the five-second poll rather than the
+   * stream — which for work that runs for minutes is not a cost.
+   */
+  readonly background = computed(() => this.session()?.background ?? 0);
   readonly session = signal<Summary | undefined>(undefined);
 
   /** What the session may do without asking, in the CLI's own words. */

@@ -422,6 +422,49 @@ struct Recorded {
 /// Parsed here rather than passed on as a string so that a line whose stamp we
 /// cannot read becomes "no time" once, on the way in, instead of an
 /// `Invalid Date` on a phone.
+/// What one event says about work that was left running.
+///
+/// A decision rather than a mutation, so the four cases can be tested without a
+/// session, a process or a lock — and so the one that is easy to forget is
+/// written down as a case rather than buried in an `if`.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Running {
+    /// A call was started and left going, named by its own id. The call itself
+    /// returns at once with a task id and nothing else.
+    Began(String),
+    /// The harness says one has finished, naming the call that started it. This
+    /// is the *only* end-of-work signal a backgrounded call has.
+    Ended(String),
+    /// Nothing that was running still is — as far as anybody can tell.
+    Gone,
+    /// This event says nothing about background work.
+    Quiet,
+}
+
+/// Read one event for what it says about work left running.
+///
+/// ⚠ **Two events mean "forget what you were counting", and both were learned
+/// the hard way.** A `Started` is a new process, which cannot have inherited the
+/// last one's tasks: their notifications died with the process that would have
+/// sent them, and without this a console restart left phantoms in the count for
+/// ever — measured at eleven. A `Joined` is the boundary between the transcript
+/// that was replayed and the stream being watched: the replay is full of calls
+/// that were backgrounded hours ago, and counting them said five tasks were
+/// running on a session whose newest was nine hours gone and which had no
+/// children at all.
+pub fn running(event: &Event) -> Running {
+    match event {
+        Event::Tool { id, input, .. }
+            if input.get("run_in_background") == Some(&serde_json::Value::Bool(true)) =>
+        {
+            Running::Began(id.clone())
+        }
+        Event::Background { tool, .. } => Running::Ended(tool.clone()),
+        Event::Started { .. } | Event::Joined { .. } => Running::Gone,
+        _ => Running::Quiet,
+    }
+}
+
 pub fn recorded_at(line: &str) -> Option<i64> {
     let recorded: Recorded = serde_json::from_str(line).ok()?;
     let when = OffsetDateTime::parse(&recorded.timestamp?, &Rfc3339).ok()?;

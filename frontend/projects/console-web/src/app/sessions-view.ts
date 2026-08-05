@@ -194,7 +194,15 @@ export class SessionsView {
     // The list is a snapshot of processes, and a session started from another
     // window — or one that just ended — should not need a manual refresh to
     // appear. Cheap: one small request.
-    setInterval(() => {
+    //
+    // ⚠ **Stopped when the page goes, and it was not.** This component is
+    // rebuilt on every navigation back to the list, so a poll left running
+    // accumulated one timer per visit — twenty trips through a session and the
+    // phone was asking for `/api/state` and `/api/past` twenty times every five
+    // seconds. The second of those walks every project directory and reads the
+    // tail of every transcript on the Mac, so the leak was not only the phone's.
+    // `SessionView` has always cleared its own; this is the one that did not.
+    const poll = setInterval(() => {
       this.load();
       // Unconditional now that the conversations are in the list rather than
       // behind a disclosure: they are on screen whenever this page is, so `busy`
@@ -202,6 +210,7 @@ export class SessionsView {
       // is the one about to be picked up.
       this.pastStore.load();
     }, 5000);
+    this.until.onDestroy(() => clearInterval(poll));
     // Once at the start, to know whether there is anything to offer at all.
     this.pastStore.load();
     // And whenever the phone comes back, because the poll above did not run

@@ -1012,34 +1012,8 @@ impl Session {
         let stamped = {
             let mut state = self.state.lock().expect("session state poisoned");
             match &event {
-                Event::Started { model, .. } => {
-                    state.model = Some(model.clone());
-                    // A new process cannot have inherited the last one's
-                    // background work: the tasks belonged to a process that is
-                    // gone, and their notifications will never arrive.
-                    state.background.clear();
-                }
+                Event::Started { model, .. } => state.model = Some(model.clone()),
                 Event::Busy { status } => state.busy = Some(status.clone()),
-                // ⚠ **Started here and finished by the harness's notification**,
-                // which is the only end-of-work signal a backgrounded call has —
-                // the call itself returns at once with a task id and nothing
-                // else. See [`crate::protocol::finished`].
-                Event::Tool { id, input, .. }
-                    if input.get("run_in_background") == Some(&serde_json::Value::Bool(true)) =>
-                {
-                    state.background.insert(id.clone());
-                }
-                Event::Background { tool, .. } => {
-                    state.background.remove(tool);
-                }
-                // ⚠ **The seed replays them, so the boundary clears them.** A
-                // resumed conversation's transcript is full of background calls
-                // that finished long ago, and their notifications were replayed
-                // too — but only some of them are inside the page that was read.
-                // Everything above this line happened before this console was
-                // watching, so it can report nothing about what is still
-                // running. `Joined` is pushed after the seed for exactly this.
-                Event::Joined { .. } => state.background.clear(),
                 // The window, which only the result line declares. How full it
                 // is arrives per message — see [`Event::Context`].
                 Event::Context { tokens } => state.context = Some(*tokens),
@@ -1117,6 +1091,20 @@ impl Session {
                     state.pending.clear();
                 }
                 _ => {}
+            }
+            // Work left running, which is a different question about the same
+            // event and is decided where the events are read rather than here.
+            // See [`protocol::running`] for the two cases that mean "forget what
+            // you were counting".
+            match protocol::running(&event) {
+                protocol::Running::Began(id) => {
+                    state.background.insert(id);
+                }
+                protocol::Running::Ended(id) => {
+                    state.background.remove(&id);
+                }
+                protocol::Running::Gone => state.background.clear(),
+                protocol::Running::Quiet => {}
             }
             state.issued += 1;
             let stamped = Stamped {

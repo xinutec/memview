@@ -43,15 +43,12 @@ export interface Held {
    * a reconnect is not dated to the reconnection.
    */
   readonly since: WritableSignal<number | undefined>;
-  /**
-   * Background tool calls started and not yet reported finished, by tool id.
-   *
-   * ⚠ **Only the ones the harness tracks.** A command backgrounded inside a
-   * shell — `nohup … &` — returns at once and announces nothing, so it is
-   * invisible here. This counts what it can see and the label says so, because
-   * a bare "nothing running" would be a claim this cannot support.
-   */
-  readonly background: WritableSignal<string[]>;
+  // ⚠ **No background count here, and there was one.** It was derived from this
+  // stream, which was the only way to know until the runner started counting
+  // for the list — and then the same question had two answers: this one reset
+  // whenever the transcript was re-seeded and the runner's did not. It now
+  // arrives on the summary, from the runner, which is the copy that survives a
+  // reload. See `session::Summary::background` and `protocol::running`.
   /** The last sequence number this transcript accounts for, 0 for none. */
   seen: number;
   /** Closes the stream, while there is one. */
@@ -154,7 +151,6 @@ export class SessionStore {
       cursor: signal(0),
       doing: signal<string | undefined>(undefined),
       since: signal<number | undefined>(undefined),
-      background: signal<string[]>([]),
       seen: 0,
       used: ++this.clock,
     };
@@ -167,16 +163,6 @@ export class SessionStore {
     // that learns where the page on screen begins — nothing else in the stream
     // knows the conversation is longer than the page.
     if (event.kind === 'joined') held.cursor.set(event.from ?? 0);
-    // ⚠ **History is not evidence that anything is running.** The seed replays
-    // the transcript through this same path, so every backgrounded call on the
-    // last page was counted again — including the ones a process that no longer
-    // exists started, whose notifications died with it. `joined` is pushed after
-    // the replay and before the live stream, so it is exactly the line between
-    // what was read and what is being watched. Measured on `health`: five tasks
-    // reported running, all from that afternoon, the newest gone for nine hours,
-    // the session with no children at all. The `started` reset below cannot
-    // catch this — that event happened before the client connected.
-    if (event.kind === 'joined') held.background.set([]);
     // Only ever forward. The unnumbered events arrive as 0, and a transcript
     // that claimed to hold nothing after one of those would ask for the whole
     // conversation again on the next reconnect.
@@ -184,18 +170,6 @@ export class SessionStore {
     // Activity is state, so it is kept beside the transcript rather than in it.
     // A turn ending is what says the work stopped: the runner clears its own
     // busy on the same event, and nothing else on the wire announces idleness.
-    // A new process cannot have inherited the last one's background work: the
-    // tasks died with it, and their notifications died with them. Without this
-    // a console restart leaves phantoms in the count for ever — measured, at 11.
-    if (event.kind === 'started') held.background.set([]);
-    if (event.kind === 'tool' && event.input?.['run_in_background'] === true && event.id) {
-      const id = event.id;
-      held.background.update((running) => (running.includes(id) ? running : [...running, id]));
-    }
-    if (event.kind === 'background' && event.tool) {
-      const done = event.tool;
-      held.background.update((running) => running.filter((id) => id !== done));
-    }
     if (event.kind === 'busy') {
       // Only the first one starts the clock — see [Held.since].
       if (held.doing() === undefined) held.since.set(event.at ?? Date.now());
