@@ -2144,6 +2144,9 @@ test('the task sheet opens on what is left rather than what is done @ phone widt
     .locator('.bar')
     .getByRole('button', { name: /what to do with/ })
     .click();
+  // Open over total on the menu item itself, so "is there anything left?" is
+  // answered without opening the sheet at all. Counted when the menu opens.
+  await expect(page.locator('.session-menu .tally')).toHaveText('2/3');
   await page.getByRole('menuitem', { name: 'Tasks' }).click();
   const sheet = page.locator('.session-sheet');
   await sheet.waitFor();

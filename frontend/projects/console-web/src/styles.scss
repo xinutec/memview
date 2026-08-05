@@ -202,6 +202,17 @@ app-tasks-sheet .said {
 // `.mat-mdc-*` DOM, which breaks silently on upgrades (DL-SCSS-INTERNAL-OVERRIDE,
 // DL-SCSS-NG-DEEP).
 .session-menu {
+  // Open over total, at the right-hand end of the Tasks item. Pushed there
+  // rather than sitting against the word, so it reads as a count belonging to
+  // the row and not as part of its name. Tabular figures because it is a number
+  // that changes under a label that does not.
+  .tally {
+    margin-left: auto;
+    padding-left: 1rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
   // What the modes are answering. Without it the list is six words with no
   // question, and "Manual" beside "Plan" reads as two unrelated settings.
   .heading {

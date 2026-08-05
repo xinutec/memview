@@ -39,10 +39,19 @@
       <button
         matIconButton
         [matMenuTriggerFor]="menu"
+        (menuOpened)="countTasks(open)"
         [attr.aria-label]="'what to do with ' + (open.name ?? 'this session')"
       >
         <mat-icon>more_vert</mat-icon>
       </button>
+      <!-- ⚠ The count is asked for on the TRIGGER above, not here. `menuOpened` is
+           an output of `MatMenuTrigger`; `MatMenu` has no such output, so bound on
+           this element it compiled, bound as a plain DOM listener, and never fired
+           — the menu simply never showed a number and nothing said why.
+           Counted on opening rather than on the poll: the list is 63 kB for a
+           session with 355 tasks, and putting that on a five-second timer would be
+           reading a megabyte a minute for a label nobody is looking at. Kept per
+           session, so opening the menu again is instant. -->
       <mat-menu #menu="matMenu" class="session-menu">
         <!-- First, because it is the only item here that reads rather than acts:
            somebody opening this menu to find out what they are looking at should
@@ -55,7 +64,14 @@
              keeps whether anybody looks or not — see [[TasksSheet]]. -->
         <button mat-menu-item aria-haspopup="dialog" (click)="tasks(open)">
           <mat-icon>checklist</mat-icon>
+          <!-- Open over total, so the sheet does not have to be opened to learn
+               whether anything is left. Absent until counted and absent for a
+               session that never kept a list — `0/0` would be a claim, where
+               nothing is the truth. -->
           <span>Tasks</span>
+          @if (taskCount(); as count) {
+            <span class="tally">{{ count.open }}/{{ count.total }}</span>
+          }
         </button>
         <mat-divider />
         <div class="heading">Asks permission</div>
