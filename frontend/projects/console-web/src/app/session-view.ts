@@ -23,6 +23,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { NgTemplateOutlet } from '@angular/common';
 
 import { Clock } from './clock';
+import { Lasted } from './lasted';
 import { ConsoleApi } from './console-api';
 import { reason } from './errors';
 import { Foreground } from './foreground';
@@ -44,6 +45,7 @@ import { fullness } from './tokens';
   styleUrl: './session-view.scss',
   imports: [
     Clock,
+    Lasted,
     FormsModule,
     NgTemplateOutlet,
     MatButtonModule,
@@ -84,6 +86,38 @@ export class SessionView implements OnDestroy {
    * work it described and missed anything shorter than the interval.
    */
   readonly doing = computed(() => this.held()?.doing());
+  /**
+   * Now, to the second, but only while something is still happening.
+   *
+   * ⚠ **A clock that ticks for ever is a change-detection pass every second, for
+   * ever** — on a phone, over a transcript of two thousand entries, for a page
+   * that is usually sitting still. So the interval is started by the first thing
+   * that starts running and stopped by the last one that finishes; see the
+   * effect in the constructor.
+   */
+  private readonly now = signal(Date.now());
+  /**
+   * How long the session has been working, in milliseconds, or nothing when it
+   * is not. See [[SessionStore]]'s `since` for what the clock runs from.
+   */
+  readonly working = computed(() => {
+    const since = this.held()?.since();
+    return since === undefined ? undefined : this.now() - since;
+  });
+  /** How long a call has been running. Takes the entry, so it cannot be a
+   *  `computed` — and it is arithmetic on two numbers already to hand. */
+  protected ranFor(entry: Entry): number | undefined {
+    return entry.at === undefined ? undefined : this.now() - entry.at;
+  }
+  /** The oldest call still running in a folded run, which is the one the summary
+   *  row reports: a run is as slow as the thing holding it up. */
+  protected runningFor(block: Block & { kind: 'tools' }): number | undefined {
+    const oldest = block.entries
+      .filter((entry) => entry.ok === undefined && entry.at !== undefined)
+      .map((entry) => entry.at ?? 0)
+      .sort((a, b) => a - b)[0];
+    return oldest === undefined ? undefined : this.now() - oldest;
+  }
   /**
    * How full the context is, as `496k / 1M`, when the session has said.
    *
@@ -204,6 +238,18 @@ export class SessionView implements OnDestroy {
     effect(() => {
       this.entries();
       requestAnimationFrame(() => this.follow());
+    });
+    // The second hand, wound only while something is running — see [now]. Both
+    // conditions matter: a session can be working with no call in flight (it is
+    // writing), and a call can be running with the session reported idle (a
+    // background task outlives the turn that started it).
+    effect((onCleanup) => {
+      const ticking =
+        this.held()?.since() !== undefined ||
+        this.entries().some((entry) => entry.kind === 'tool' && entry.ok === undefined);
+      if (!ticking) return;
+      const tick = setInterval(() => this.now.set(Date.now()), 1000);
+      onCleanup(() => clearInterval(tick));
     });
     // ⚠ **The end of the transcript moves when the transcript does not.** The
     // composer sits above it as a fixed-size row, so every line typed takes a

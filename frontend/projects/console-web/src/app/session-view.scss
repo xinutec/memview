@@ -289,6 +289,11 @@
 .running {
   font: var(--mat-sys-label-small);
   opacity: 0.7;
+  // It carries a number that changes every second — see [[Lasted]].
+  font-variant-numeric: tabular-nums;
+  // `running 2m 03s` is one thing, and a wrap between the word and its number
+  // would read as two.
+  white-space: nowrap;
 }
 
 .ok {
@@ -511,6 +516,15 @@
     // width so the bar beside it does not jump as the word changes.
     flex: 0 0 6rem;
     text-align: right;
+  }
+
+  // The timer gets its own column for the same reason the word does, and a
+  // narrower one: it is at most `1h 04m`. Tabular figures because it is watched
+  // rather than read, and proportional digits shuffle the text sideways on
+  // every tick.
+  .lasted {
+    flex: 0 0 3.5rem;
+    font-variant-numeric: tabular-nums;
   }
 }
 

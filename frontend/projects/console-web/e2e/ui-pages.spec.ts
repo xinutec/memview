@@ -2164,6 +2164,34 @@ test('a run of tool calls is folded into one row @ phone width', async ({ page }
   await expect(page.getByText('verified_cli')).toHaveCount(0);
 });
 
+test('a running thing says how long it has been running @ phone width', async ({ page }) => {
+  // ⚠ **"running" is the same word at four seconds and at forty minutes**, and
+  // only one of those is worth interrupting. The bar above the composer had the
+  // same problem: it says something is happening and could not say for how long,
+  // which is the difference between waiting and wondering whether it is stuck.
+  await handControlOfTheStream(page);
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.transcript').waitFor();
+  let seq = 0;
+  // Stamped two minutes ago, so what is counted from does not depend on how
+  // fast this test runs.
+  const began = Date.now() - 125_000;
+  await say(page, { kind: 'busy', status: 'requesting', at: began }, ++seq);
+  await say(
+    page,
+    { kind: 'tool', id: 'slow', name: 'Bash', input: { command: 'cargo build' }, at: began },
+    ++seq,
+  );
+
+  // Beside the CLI's own word for what it is doing.
+  await expect(page.locator('.doing .lasted')).toHaveText(/2m \d\ds/);
+  // And on the call itself, which is a separate clock: a background task
+  // outlives the turn that started it, and a session can be working with
+  // nothing in flight.
+  await expect(page.locator('.entry .running').last()).toContainText(/running 2m \d\ds/);
+});
+
 test('a run stays folded while it works, and says it is working @ phone width', async ({
   page,
 }) => {

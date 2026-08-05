@@ -31,6 +31,19 @@ export interface Held {
    */
   readonly doing: WritableSignal<string | undefined>;
   /**
+   * When it started working, in milliseconds — for the timer beside [doing].
+   *
+   * ⚠ **Set when it stops being idle, not on every status.** The CLI reports
+   * several statuses inside one stretch of work, and restarting the count on
+   * each would answer "how long has it been *requesting*" — which is a question
+   * about the CLI's vocabulary. The one worth asking is how long you have been
+   * waiting, and that runs from the moment it stopped being idle.
+   *
+   * From the event's own stamp rather than the clock, so a burst replayed after
+   * a reconnect is not dated to the reconnection.
+   */
+  readonly since: WritableSignal<number | undefined>;
+  /**
    * Background tool calls started and not yet reported finished, by tool id.
    *
    * ⚠ **Only the ones the harness tracks.** A command backgrounded inside a
@@ -140,6 +153,7 @@ export class SessionStore {
       entries: signal<Entry[]>([]),
       cursor: signal(0),
       doing: signal<string | undefined>(undefined),
+      since: signal<number | undefined>(undefined),
       background: signal<string[]>([]),
       seen: 0,
       used: ++this.clock,
@@ -182,8 +196,15 @@ export class SessionStore {
       const done = event.tool;
       held.background.update((running) => running.filter((id) => id !== done));
     }
-    if (event.kind === 'busy') held.doing.set(event.status ?? 'working');
-    if (event.kind === 'turn' || event.kind === 'exited') held.doing.set(undefined);
+    if (event.kind === 'busy') {
+      // Only the first one starts the clock — see [Held.since].
+      if (held.doing() === undefined) held.since.set(event.at ?? Date.now());
+      held.doing.set(event.status ?? 'working');
+    }
+    if (event.kind === 'turn' || event.kind === 'exited') {
+      held.doing.set(undefined);
+      held.since.set(undefined);
+    }
     held.entries.update((entries) => [...fold(entries, event)]);
   }
 
