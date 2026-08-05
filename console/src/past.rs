@@ -34,8 +34,12 @@ pub struct Conversation {
     pub id: String,
     /// Where it was running. Resuming has to happen in the same place.
     pub dir: String,
-    /// When it was last written to, in milliseconds since the epoch — the only
-    /// available proxy for "is anybody still using this".
+    /// When anything last happened in it, in milliseconds since the epoch.
+    ///
+    /// ⚠ **From the last line of the conversation, not from the file's date** —
+    /// see [`last_moved`]. Picking a transcript up writes to it without anybody
+    /// saying anything, so the two differ by exactly the gap this console kept
+    /// getting wrong.
     pub modified: u64,
     /// How much was said. A rough weight, and the cheap one: counting turns means
     /// reading the whole file, and these reach tens of megabytes.
@@ -274,66 +278,146 @@ const REPLAY_EVENTS: usize = 400;
 /// thing a client can decline to render, where the epoch is a date it would
 /// render as half a century ago.
 pub fn touched(root: &Path, id: &str) -> Option<u64> {
-    Some(mark(root, id)?.touched)
+    Some(about(root, id)?.touched)
 }
 
-/// Where a transcript stood at one moment: when it was last written, and how big
-/// it was.
+/// What a live session's transcript says about it, in one read.
 ///
-/// The two travel together because one qualifies the other — see [`moved`], which
-/// is the whole reason the size is worth remembering.
-#[derive(Debug, Clone, Copy, Serialize, serde::Deserialize)]
-pub struct Mark {
-    /// Milliseconds since the epoch.
+/// The roster wants all three for every session on every poll, and they come off
+/// one `stat` and one tail read between them — see [`tail_of`]. Asking
+/// separately would be three passes over the same bytes and, worse, three
+/// answers taken at three different moments over a file that is being appended
+/// to.
+#[derive(Debug)]
+pub struct About {
+    pub name: Option<String>,
+    /// See [`Conversation::modified`] — the same quantity, decided the same way.
     pub touched: u64,
     pub bytes: u64,
 }
 
-/// What the transcript looks like now.
-///
-/// One `stat` for both facts, because the caller wants both and asking twice
-/// invites them to disagree — the file is being appended to while this runs.
-pub fn mark(root: &Path, id: &str) -> Option<Mark> {
-    let meta = std::fs::metadata(transcript_of(root, id)?).ok()?;
-    Some(Mark {
-        touched: meta
-            .modified()
-            .ok()?
-            .duration_since(std::time::UNIX_EPOCH)
-            .ok()?
-            .as_millis() as u64,
+pub fn about(root: &Path, id: &str) -> Option<About> {
+    let path = transcript_of(root, id)?;
+    let meta = std::fs::metadata(&path).ok()?;
+    let tail = tail_of(&path, meta.len());
+    let touched = last_moved(&tail, &meta);
+    Some(About {
+        name: tail.name,
+        touched,
         bytes: meta.len(),
     })
 }
 
-/// When the conversation last actually moved.
+/// When this conversation last did anything.
 ///
-/// ⚠ **Picking a conversation up touches its file without adding to it.**
-/// Measured on a throwaway: a transcript last written at 00:05:21 and 13,605
-/// bytes long was resumed at 00:06:15, and thirty seconds later it was 13,605
-/// bytes long and stamped 00:06:15. So the file's own date answers "when was this
-/// opened", and the list is asking "when did anything happen" — for a conversation
-/// picked up and not yet spoken to, those are different questions with different
-/// answers, and the file only knows the first.
+/// ⚠ **Not the file's own date, and the difference is not academic.** Picking a
+/// conversation up appends to it: `mode`, `permission-mode` and `bridge-session`
+/// lines go in at the moment of resume, none of them anything anybody said.
+/// Measured on `scanner`, opened after two days: the file was stamped that
+/// second, while the last line carrying a timestamp was `2026-08-03T16:40:53Z`.
+/// A list dated by the file said `just now` about a conversation nobody had
+/// spoken to.
 ///
-/// The size is what tells them apart, and it is a fact rather than a heuristic:
-/// nothing is said without being appended. So while the file is the length it was
-/// when this session picked it up, the last thing that happened is still whatever
-/// happened before that.
+/// So the date comes from the last line of the transcript that *is* a
+/// conversation — which [`crate::protocol::read_recorded`] already knows how to
+/// tell apart, since it yields nothing for the metadata. The file's own date is
+/// the fallback for a transcript whose tail holds no such line at all, which a
+/// conversation ending in a very large tool result can manage.
 ///
-/// `picked` is absent for a session started fresh, which has no earlier date to
-/// keep, and for one this console adopted from an image that did not record one.
-pub fn moved(picked: Option<Mark>, now: Mark) -> u64 {
-    match picked {
-        Some(before) if now.bytes == before.bytes => before.touched,
-        _ => now.touched,
+/// ⚠ An earlier version of this compared the file's *size* against what it was
+/// when the session picked it up, on the reasoning that nothing is said without
+/// being appended. True, and not enough: things nobody said are appended too,
+/// which is exactly what those three lines are.
+fn last_moved(tail: &Tail, meta: &std::fs::Metadata) -> u64 {
+    if let Some(spoke) = tail.spoke {
+        return spoke.max(0) as u64;
     }
+    meta.modified()
+        .ok()
+        .and_then(|when| when.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |since| since.as_millis() as u64)
 }
 
 pub fn named(root: &Path, id: &str) -> Option<String> {
-    let path = transcript_of(root, id)?;
-    let len = std::fs::metadata(&path).ok()?.len();
-    tail_of(&path, len).name
+    about(root, id)?.name
+}
+
+/// What a conversation is made of, for something that has to read it without
+/// being in it. See [`crate::gist`].
+#[derive(Debug, Default)]
+pub struct Material {
+    /// The first real instruction in the file, when one can be found inside
+    /// [`BYTES_TO_FIND_CWD`].
+    pub opening: Option<String>,
+    /// The last few things said, newest last, each already labelled with who
+    /// said it.
+    pub recent: Vec<String>,
+}
+
+/// How much of one line of conversation to keep.
+///
+/// A summariser needs the shape of what was said, not the whole of it, and one
+/// pasted stack trace would otherwise be the entire budget.
+const LINE: usize = 400;
+
+/// Read a conversation down to what it is about.
+///
+/// ⚠ **Prompts and replies only.** Tool calls and their results are most of the
+/// bytes in any working transcript and almost none of the subject — a hundred
+/// `Bash` lines say a build was run, not what it was for. Dropping them is what
+/// makes a few thousand characters enough.
+///
+/// Both ends, because they answer different halves of "what is this": the
+/// opening says what it was set up to do, and the last few exchanges say what it
+/// has become. A conversation drifts, so neither is enough alone.
+pub fn material(path: &Path, keep: usize) -> Material {
+    use std::io::{BufRead, Read};
+
+    let mut found = Material::default();
+    if let Ok(file) = std::fs::File::open(path) {
+        for line in std::io::BufReader::new(file.take(BYTES_TO_FIND_CWD)).lines() {
+            let Ok(line) = line else { break };
+            // `read_recorded` already drops the plumbing a transcript opens with
+            // — the command echoes, the caveats, the local-command output — so
+            // the first `Prompt` it yields is the first thing a person actually
+            // said. Reproducing that filter here would be a second copy of it.
+            if let Some(text) =
+                crate::protocol::read_recorded(&line)
+                    .into_iter()
+                    .find_map(|event| match event {
+                        crate::protocol::Event::Prompt { text } => Some(text),
+                        _ => None,
+                    })
+            {
+                found.opening = Some(cut(&text));
+                break;
+            }
+        }
+    }
+    for timed in page(path, None).events {
+        match timed.event {
+            crate::protocol::Event::Prompt { text } => {
+                found.recent.push(format!("them: {}", cut(&text)));
+            }
+            crate::protocol::Event::Text { text } if !text.trim().is_empty() => {
+                found.recent.push(format!("agent: {}", cut(&text)));
+            }
+            _ => {}
+        }
+    }
+    if found.recent.len() > keep {
+        found.recent.drain(..found.recent.len() - keep);
+    }
+    found
+}
+
+/// One line of it, at a length that leaves room for the rest.
+fn cut(text: &str) -> String {
+    let text = text.trim();
+    match text.char_indices().nth(LINE) {
+        Some((at, _)) => format!("{}…", &text[..at]),
+        None => text.to_string(),
+    }
 }
 
 /// How many times someone has spoken to this session since it was last compacted.
@@ -534,17 +618,11 @@ fn read(path: &Path) -> Option<Conversation> {
     }
     let id = path.file_stem()?.to_str()?.to_string();
     let meta = std::fs::metadata(path).ok()?;
-    let modified = meta
-        .modified()
-        .ok()?
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?
-        .as_millis() as u64;
     let tail = tail_of(path, meta.len());
     Some(Conversation {
         id,
         dir: cwd_of(path)?,
-        modified,
+        modified: last_moved(&tail, &meta),
         bytes: meta.len(),
         name: tail.name,
         context: tail.context,
@@ -592,6 +670,9 @@ struct Tail {
     name: Option<String>,
     /// See [`Conversation::context`].
     context: Option<u64>,
+    /// When the last thing anybody *said* was said, in epoch milliseconds. See
+    /// [`Conversation::modified`] for why the file's own date will not do.
+    spoke: Option<i64>,
 }
 
 /// Read the tail of a transcript for what it says about itself.
@@ -633,7 +714,18 @@ fn tail_of(path: &Path, len: u64) -> Tail {
     let mut title = None;
     let mut agent = None;
     for line in String::from_utf8_lossy(&tail).lines() {
-        for event in crate::protocol::read_recorded(line) {
+        let events = crate::protocol::read_recorded(line);
+        // ⚠ **A line that carries a conversation event is a line somebody said**
+        // — and `read_recorded` is where that distinction already lives: it
+        // yields nothing for the metadata a transcript is full of. So the last
+        // line it accepts is the last thing that actually happened, whatever the
+        // CLI has appended since.
+        if !events.is_empty()
+            && let Some(at) = crate::protocol::recorded_at(line)
+        {
+            found.spoke = Some(at);
+        }
+        for event in events {
             if let crate::protocol::Event::Context { tokens } = event {
                 found.context = Some(tokens);
             }

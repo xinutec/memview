@@ -46,6 +46,9 @@ fn roster(dir: &std::path::Path) -> Arc<Roster> {
         static_dir: None,
         // No dashboard in a test: the front page is drawn without usage on it.
         usage_url: None,
+        // Into the scratch directory, so a test neither reads nor writes the
+        // sentences this machine has paid for.
+        gists: dir.join("gists.json"),
     }))
 }
 

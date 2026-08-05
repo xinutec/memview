@@ -45,6 +45,9 @@ pub struct Config {
     pub static_dir: Option<String>,
     /// Where to read the account's rate-limit figure from. See [`crate::usage`].
     pub usage_url: Option<String>,
+    /// Where the one-sentence summaries are kept between runs. See
+    /// [`crate::gist`].
+    pub gists: PathBuf,
 }
 
 /// The home dashboard, which is where the rate-limit figure is published. See
@@ -128,6 +131,18 @@ impl Config {
                     .unwrap_or_else(|_| DEFAULT_USAGE_URL.to_string()),
             )
             .filter(|url| !url.is_empty()),
+            // Beside the console's own key and pins, because it is the same kind
+            // of thing: state this machine keeps about itself. A file rather
+            // than memory so that an upgrade — which happens several times an
+            // evening — does not pay a model for thirteen sentences it already
+            // had. See [`crate::gist`].
+            gists: PathBuf::from(std::env::var("CONSOLE_HOME").unwrap_or_else(|_| {
+                format!(
+                    "{}/.config/agent-console",
+                    std::env::var("HOME").unwrap_or_default()
+                )
+            }))
+            .join("gists.json"),
         }
     }
 

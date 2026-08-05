@@ -20,6 +20,8 @@ pub struct Roster {
     /// The account's rate-limit figure, fetched rather than measured — see
     /// [`crate::usage`]. Held here so the front page reads it from memory.
     usage: Arc<crate::usage::Usage>,
+    /// What each conversation is about, in a sentence. See [`crate::gist`].
+    gists: Arc<crate::gist::Gists>,
 }
 
 /// The environment variable an upgrade hands its sessions over in.
@@ -42,11 +44,26 @@ struct Carried {
 impl Roster {
     pub fn new(config: Config) -> Self {
         let usage = Arc::new(crate::usage::Usage::new(config.usage_url.clone()));
+        let gists = Arc::new(crate::gist::Gists::load(config.gists.clone()));
         Self {
             config,
             sessions: RwLock::new(BTreeMap::new()),
             usage,
+            gists,
         }
+    }
+
+    /// The sentences, for the front page.
+    pub fn gists(&self) -> BTreeMap<String, crate::gist::Gist> {
+        self.gists.all()
+    }
+
+    /// Write a sentence for every conversation that has moved since its last
+    /// one. Called on a timer from `main`; see [`crate::gist::Gists::sweep`].
+    pub async fn write_gists(&self) {
+        self.gists
+            .sweep(&self.config.spawn.binary, &crate::past::projects_root())
+            .await;
     }
 
     /// The rate-limit reading, for the front page and for the watcher that
@@ -337,13 +354,14 @@ impl Roster {
             .values()
             .map(|session| {
                 let mut summary = session.summary();
-                summary.name = crate::past::named(&root, &summary.id);
-                // One read of the file for both, and the two are read together
-                // on purpose: the size is what says whether the date means
-                // anything. See [`crate::past::moved`].
-                if let Some(now) = crate::past::mark(&root, &summary.id) {
-                    summary.touched = Some(crate::past::moved(session.picked(), now));
-                    summary.bytes = Some(now.bytes);
+                // One pass over the file for all three — see
+                // [`crate::past::about`], and [`crate::past::last_moved`] for why
+                // the date is read out of the conversation rather than off the
+                // file.
+                if let Some(about) = crate::past::about(&root, &summary.id) {
+                    summary.name = about.name;
+                    summary.touched = Some(about.touched);
+                    summary.bytes = Some(about.bytes);
                 }
                 summary
             })

@@ -90,6 +90,19 @@ async fn main() -> Result<()> {
             }
         });
     }
+    // What each conversation is about, written by the cheapest model there is
+    // from the transcript itself — see [`console::gist`]. A quarter of an hour
+    // apart, and each sweep pays only for the conversations whose files have
+    // grown since their last sentence, so an idle console spends nothing.
+    {
+        let writing = roster.clone();
+        tokio::spawn(async move {
+            loop {
+                writing.write_gists().await;
+                tokio::time::sleep(std::time::Duration::from_secs(15 * 60)).await;
+            }
+        });
+    }
     let carried = roster.inherit();
     if carried > 0 {
         tracing::info!("{carried} session(s) carried across an upgrade — none was restarted");

@@ -76,6 +76,16 @@ export interface Overview {
   sessions: Summary[];
   /** What the subscription has spent, when a reading has ever arrived. */
   usage?: Usage;
+  /**
+   * What each conversation is about, by id. Mirrors `gist::Gist`.
+   *
+   * ⚠ **Written by a model, not read off anything.** Everything else on the list
+   * is a fact about a file or a process; this is Haiku's reading of a few
+   * thousand characters of transcript. The card marks it as such — a confidently
+   * wrong sentence about a conversation nobody has opened is the failure worth
+   * avoiding.
+   */
+  gists?: Record<string, { text: string; at: number }>;
 }
 
 /** One rate-limit window. Mirrors `usage::Window`. */

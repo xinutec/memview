@@ -71,6 +71,15 @@ pub struct Overview {
     /// nothing at all: a bar drawn at 0% is a claim.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<crate::usage::Reading>,
+    /// What each conversation is about, by session id — written by a model from
+    /// the transcript rather than read off it, and marked as such by the client.
+    /// See [`crate::gist`].
+    ///
+    /// Keyed rather than folded into each session because it covers the
+    /// conversations on disk too, which arrive from a different endpoint and are
+    /// the ones a sentence helps most: a name you have not opened in a week is a
+    /// word, and this says what the week's work was.
+    pub gists: std::collections::BTreeMap<String, crate::gist::Gist>,
 }
 
 /// The bundle's identity, from the bytes of the page that loads it.
@@ -106,6 +115,10 @@ async fn state(State(roster): State<Arc<Roster>>) -> Json<Overview> {
             .collect(),
         repos: roster.config().repos(),
         sessions: roster.list(),
+        // From memory like the usage, and for the same reason: this handler is
+        // the front page's five-second poll. The writing happens on its own
+        // timer.
+        gists: roster.gists(),
     })
 }
 

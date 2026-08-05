@@ -1488,6 +1488,56 @@ test('session list — how full each conversation is @ phone width', async ({ pa
   await expectNoHorizontalOverflow(page, testInfo);
 });
 
+test('session list — what each conversation is about, marked as a guess @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **The only inference on the page.** Everything else on a card is read off
+  // a file or a process; this sentence is Haiku's reading of the transcript, so
+  // it carries a mark saying who wrote it and when. A guess about a conversation
+  // nobody has opened is precisely the one somebody would act on unchecked.
+  const written = Date.now() - 9 * 60_000;
+  await mockRunner(page);
+  await page.route('**/api/state', (r) =>
+    r.fulfill({
+      json: {
+        ...STATE,
+        sessions: [
+          { ...STATE.sessions[0], id: 'aaaa0000-0000-4000-8000-000000000001', name: 'health' },
+        ],
+        gists: {
+          'aaaa0000-0000-4000-8000-000000000001': {
+            text: 'porting the last matcher gate to Lean and checking it against the golden set',
+            at: written,
+          },
+          // One for a conversation that is not running, which is where it helps
+          // most: a name nobody has opened in a week is a word.
+          'bbbb0000-0000-4000-8000-000000000001': {
+            text: 'reworking the scanner band probe after the axis turned out to be wrong',
+            at: written,
+          },
+        },
+      },
+    }),
+  );
+  await page.route('**/api/past', (r) => r.fulfill({ json: [ON_DISK[0]] }));
+  await page.goto('/');
+  await expect(page.locator('.session')).toHaveCount(2);
+
+  await expect(page.locator('.session .gist')).toHaveCount(2);
+  await expect(page.locator('.session .gist').first()).toContainText(
+    'porting the last matcher gate',
+  );
+  // Who wrote it and when, on the mark rather than in the sentence — the words
+  // are the answer and the provenance is not part of it.
+  await expect(page.locator('.session .gist .wrote').first()).toHaveAttribute(
+    'aria-label',
+    /summary written by a model, 9m ago/,
+  );
+
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+});
+
 test('session list — the opening instruction stands in for a missing name @ phone width', async ({
   page,
 }) => {

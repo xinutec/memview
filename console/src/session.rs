@@ -98,17 +98,6 @@ pub struct Tally {
     /// nothing on disk records it.
     #[serde(default)]
     pub spent: BTreeMap<String, Seen>,
-    /// Where the transcript stood the moment this session picked it up, for a
-    /// session that resumed one.
-    ///
-    /// ⚠ **Carried, because the file cannot say it twice.** Resuming stamps the
-    /// transcript with the time of the pickup — see [`crate::past::moved`] — so
-    /// the date it had *before* that exists only in whoever read it first. An
-    /// upgrade that dropped this would move every resumed-and-silent session to
-    /// the top of the list saying "just now", which is the exact thing this
-    /// stops.
-    #[serde(default)]
-    pub picked: Option<crate::past::Mark>,
 }
 
 /// One window's utilisation, as last reported.
@@ -285,7 +274,7 @@ pub struct Stamped {
 }
 
 /// Now, in milliseconds since the epoch.
-fn now() -> i64 {
+pub fn now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -371,9 +360,6 @@ struct State {
     limit: Option<String>,
     /// What the API last said about each rate-limit window. See [`Tally::spent`].
     spent: BTreeMap<String, Seen>,
-    /// Where the transcript stood when this session picked it up. See
-    /// [`Tally::picked`].
-    picked: Option<crate::past::Mark>,
     asked: Option<String>,
     stderr: String,
 }
@@ -441,15 +427,15 @@ impl Session {
     /// conversation that has been closed, and the console cannot check that for
     /// you.
     pub fn resume(id: String, dir: &Path, spawn: &Spawn) -> Result<Arc<Self>> {
-        // ⚠ **Before the process exists, because picking a conversation up
-        // stamps its file.** Measured on a throwaway: resumed at 00:06:15, and
-        // the transcript went from 00:05:21 to 00:06:15 without gaining a byte.
-        // A moment later is too late — the only copy of the date this
-        // conversation last actually moved is the one read here. See
-        // [`crate::past::moved`].
-        let picked = crate::past::mark(&crate::past::projects_root(), &id);
+        // ⚠ **Nothing is recorded here about the file's date, and there was.**
+        // Picking a conversation up writes to its transcript — `mode`,
+        // `permission-mode` and `bridge-session` lines go in at the moment of
+        // resume — so this used to read the file's date and size first and keep
+        // them as a floor. That worked only while nothing was appended, and
+        // those three lines are appended: `scanner`, opened after two days, said
+        // `just now`. The date now comes out of the conversation itself; see
+        // [`crate::past::last_moved`].
         let session = Self::spawn(id, dir, spawn, true)?;
-        session.state.lock().expect("session state poisoned").picked = picked;
         session.seed();
         Ok(session)
     }
@@ -670,9 +656,6 @@ impl Session {
                 // it, so an upgrade that dropped it would blank the front
                 // page until the next request came back.
                 spent: tally.spent,
-                // Same reason, and this one is invisible when it is lost: the
-                // date it stands for is not in the file any more.
-                picked: tally.picked,
                 ..State::default()
             }),
             stdin: tokio::sync::Mutex::new(Some(Box::new(stdin) as Sink)),
@@ -717,14 +700,7 @@ impl Session {
             spent: state.spent.clone(),
             mode: state.mode.clone(),
             pending: state.pending.clone(),
-            picked: state.picked,
         }
-    }
-
-    /// Where the transcript stood when this session picked it up, if it did.
-    /// The roster needs it to date the session — see [`crate::past::moved`].
-    pub fn picked(&self) -> Option<crate::past::Mark> {
-        self.state.lock().expect("session state poisoned").picked
     }
 
     /// The pipes to this session's process, for an upgrade to hand on.

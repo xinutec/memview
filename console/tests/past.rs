@@ -8,8 +8,8 @@
 use std::path::Path;
 
 use console::past::{
-    Mark, conversations, interactions, moved, named as named_of, touched as touched_of,
-    transcript_of, words_of_claude_processes,
+    conversations, interactions, named as named_of, touched as touched_of, transcript_of,
+    words_of_claude_processes,
 };
 
 /// A wrapper shell whose *path* says claude — the shape that caused the bug.
@@ -465,45 +465,69 @@ fn a_session_with_no_transcript_has_no_date_rather_than_the_epoch() {
     assert_eq!(touched_of(&root, "never-ran"), None);
 }
 
+/// The last conversation line of a transcript, and the moment it was written.
+const SPOKE: &str = "2026-08-03T16:40:53.605Z";
+const SPOKE_MS: u64 = 1_785_775_253_605;
+
 #[test]
 fn picking_a_conversation_up_is_not_something_happening_in_it() {
-    // ⚠ **Measured, and it is why this rule exists.** Resuming stamps the
-    // transcript without adding to it: a file last written at 00:05:21 and 13,605
-    // bytes long came back at 00:06:15, still 13,605 bytes, thirty seconds after
-    // the pickup and with nothing said to it. The file can only answer "when was
-    // this opened"; the list is asking "when did anything happen".
-    let before = Mark {
-        touched: 1_785_775_312_217,
-        bytes: 13_605,
-    };
-    let opened = Mark {
-        touched: 1_785_884_775_000,
-        bytes: 13_605,
-    };
-    assert_eq!(
-        moved(Some(before), opened),
-        before.touched,
-        "a conversation nobody has spoken to since picking it up has not moved"
-    );
+    // ⚠ **Measured on `scanner`, and it is why the file's own date will not do.**
+    // Opened after two days, it appeared as `just now`: resuming appends `mode`,
+    // `permission-mode` and `bridge-session` lines, so the file was stamped that
+    // second while the last line anybody had written was two days old.
+    //
+    // An earlier rule compared the file's *size* against what it was at pickup,
+    // reasoning that nothing is said without being appended. True, and not
+    // enough — those three lines are appended and nobody said them.
+    let root = scratch("picked-up");
+    let folder = root.join("project");
+    std::fs::create_dir_all(&folder).expect("dir");
+    std::fs::write(
+        folder.join("resumed.jsonl"),
+        [
+            r#"{"type":"system","cwd":"/home/example/Code"}"#.to_string(),
+            format!(
+                r#"{{"type":"user","timestamp":"{SPOKE}","message":{{"role":"user","content":[{{"type":"text","text":"carry on"}}]}}}}"#
+            ),
+            // Everything below here went in when the conversation was picked up.
+            r#"{"type":"mode","mode":"default"}"#.to_string(),
+            r#"{"type":"permission-mode","permissionMode":"default"}"#.to_string(),
+            r#"{"type":"bridge-session","sessionId":"resumed"}"#.to_string(),
+        ]
+        .join("\n"),
+    )
+    .expect("transcript");
 
-    // And the moment anything is said, it is said by being appended.
-    let spoken = Mark {
-        touched: 1_785_884_900_000,
-        bytes: 14_200,
-    };
-    assert_eq!(moved(Some(before), spoken), spoken.touched);
+    let found = conversations(&root);
+    assert_eq!(
+        found[0].modified, SPOKE_MS,
+        "dated by the last thing said, not by the file it was said into"
+    );
+    assert_eq!(
+        touched_of(&root, "resumed"),
+        Some(SPOKE_MS),
+        "and a live session reading the same file agrees with the list"
+    );
 }
 
 #[test]
-fn a_session_that_picked_nothing_up_is_dated_by_its_file() {
-    // A session started fresh has no earlier date to keep, and one adopted from
-    // an image that did not record one has lost it. Both fall back to the file,
-    // which is what the console did before any of this.
-    let now = Mark {
-        touched: 1_785_884_775_000,
-        bytes: 900,
-    };
-    assert_eq!(moved(None, now), now.touched);
+fn a_transcript_with_nothing_said_in_the_tail_falls_back_to_its_file() {
+    // A conversation can end on a tool result large enough to push every line
+    // anybody wrote out of the tail. The file's date is then all there is, and
+    // it is better than no date: it is right for every conversation that was not
+    // picked up, which is most of them.
+    let root = scratch("no-speech");
+    named(&root, "quiet", Some("idle"), None);
+
+    let dated = touched_of(&root, "quiet").expect("a transcript that exists has a date");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("after 1970")
+        .as_millis() as u64;
+    assert!(
+        now.saturating_sub(dated) < 60_000,
+        "written just now, so dated just now: {dated} against {now}"
+    );
 }
 
 #[test]

@@ -82,6 +82,27 @@
           <span class="ended">off</span>
         }
       </div>
+      <!-- What it is about, which is the one thing on this card that nothing on
+           disk knows. Written by Haiku from the transcript every quarter of an
+           hour, and only for a conversation that has moved since — see
+           `console/src/gist.rs`.
+
+           ⚠ **Marked, because it is the only inference on the page.** The name,
+           the dates and the counts are all read off a file or a process; this is
+           a guess, and a guess about a conversation nobody has opened is exactly
+           the one somebody would act on without checking. The icon says who
+           wrote it and the label says when. -->
+      @if (row.gist; as gist) {
+        <div class="gist">
+          <mat-icon
+            class="wrote"
+            [attr.aria-label]="'summary written by a model, ' + ago(gist.at)"
+            [title]="'written by Haiku ' + ago(gist.at) + ', from the transcript'"
+            >auto_awesome</mat-icon
+          >
+          <span>{{ gist.text }}</span>
+        </div>
+      }
       @if (row.live; as session) {
         <!-- ⚠ **Only while it has no name of its own, because that is the only
              time it is true.** This is the first instruction the console heard,

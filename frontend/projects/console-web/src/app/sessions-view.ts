@@ -52,6 +52,15 @@ interface Row {
    * changes when the row does.
    */
   readonly context?: string;
+  /**
+   * What this conversation is about, in a sentence — and the moment it was
+   * written, because it is a description of a thing that keeps changing.
+   *
+   * ⚠ **Inference, and drawn as such.** Every other field here is read off a
+   * file or a process; this one is a model's reading of the transcript. See
+   * `console/src/gist.rs`.
+   */
+  readonly gist?: { readonly text: string; readonly at: number };
   /** Working, waiting, idle, off — see [RANK]. */
   readonly rank: number;
   /** When it last did anything, in milliseconds, for ordering within a rank. */
@@ -125,6 +134,7 @@ export class SessionsView {
   readonly rows = computed<Row[]>(() => {
     const rows: Row[] = [];
     const seen = new Set<string>();
+    const gists = this.state()?.gists ?? {};
     for (const session of this.state()?.sessions ?? []) {
       seen.add(session.id);
       rows.push({
@@ -133,6 +143,7 @@ export class SessionsView {
         named: !!session.name,
         live: session,
         context: fullness(session.context, session.window),
+        gist: gists[session.id],
         rank: !session.alive
           ? RANK.off
           : session.busy
@@ -162,6 +173,9 @@ export class SessionsView {
         // `340k / 1M` — and a bare `340k` beside `12 MB` could be anything. The
         // denominator is what carries the unit when there is one.
         context: conversation.context ? `${tokens(conversation.context)} tokens` : undefined,
+        // Where it earns its keep: a name you have not opened in a week is a
+        // word, and this says what the week's work was.
+        gist: gists[conversation.id],
         rank: RANK.off,
         at: conversation.modified,
       });
