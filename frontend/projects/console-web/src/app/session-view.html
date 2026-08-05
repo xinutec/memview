@@ -15,9 +15,6 @@
       @if (context(); as context) {
         <span>{{ context }}</span>
       }
-      @if (showsCost()) {
-        <span>${{ session.cost_usd.toFixed(4) }}</span>
-      }
       <!-- The mode as its icon alone: the header holds five facts on a phone
            four inches wide, and "Bypass Permissions" spelled out costs more room
            than everything beside it. The name is one tap away, in the menu that

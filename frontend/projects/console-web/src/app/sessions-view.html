@@ -96,9 +96,6 @@
           @if (row.context; as context) {
             <span>{{ context }}</span>
           }
-          @if (costMatters(session)) {
-            <span>{{ cost(session) }}</span>
-          }
           @if (modeIconOf(session); as icon) {
             <mat-icon
               class="mode"

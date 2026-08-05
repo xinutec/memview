@@ -15,7 +15,6 @@ import { Conversation, Overview, Summary } from './models';
 import { modelName } from './model';
 import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { placeOf, titleOf } from './naming';
-import { costMatters } from './budget';
 import { fullness, tokens } from './tokens';
 import { Updates } from './updates';
 import { UsageStrip } from './usage-strip';
@@ -294,16 +293,5 @@ export class SessionsView {
   /** Whether that mode is one the CLI itself colours as an error. */
   modeLoud(session: Summary): boolean {
     return modeIsLoud(session.mode);
-  }
-
-  /** Whether this session's cost is worth showing at all. See budget.ts. */
-  costMatters(session: Summary): boolean {
-    return costMatters(session.limit);
-  }
-
-  cost(session: Summary): string {
-    return session.cost_usd < 0.01
-      ? `$${session.cost_usd.toFixed(4)}`
-      : `$${session.cost_usd.toFixed(2)}`;
   }
 }

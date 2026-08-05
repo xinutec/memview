@@ -99,11 +99,10 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
     case 'turn':
       add(entries, {
         kind: 'turn',
-        // No cost here. It is not a bill (see budget.ts), and unlike the
-        // header this line is built once from the event and never revisited —
-        // so it could not hide itself again when the account is inside its
-        // allowance, nor appear when it stops being. The gated total in the
-        // header is where the number belongs.
+        // No cost here. It is not a bill — the session runs on the subscription
+        // — and a figure in dollars between two paragraphs reads as one. The
+        // session's total is on the details sheet, labelled; how much room is
+        // left is the utilisation strip's question.
         // ⚠ **"requests", because that is what the number counts** — round
         // trips to the model, not messages anybody sees. It said "turns" first,
         // which clashed with a header counting exchanges, and then "replies",

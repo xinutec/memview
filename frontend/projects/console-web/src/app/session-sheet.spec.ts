@@ -79,6 +79,19 @@ describe('factsOf', () => {
     expect(value(session, 'history')).toBe('62 MB');
   });
 
+  it('says what the tokens would have cost, and calls it that', () => {
+    // ⚠ Not `$4.21` on a card. It is not a bill — the session runs on the
+    // subscription — and the flag that used to reveal it is account-wide while
+    // the card was per-session, so it appeared beside whichever sessions were
+    // talking when the API started warning.
+    expect(value({ ...BARE, cost_usd: 422.883 }, 'tokens at list price')).toBe('$422.88');
+    expect(labels({ ...BARE, cost_usd: 422.883 })).not.toContain('cost');
+  });
+
+  it('leaves it out for a session that has not spent anything', () => {
+    expect(labels(BARE)).not.toContain('tokens at list price');
+  });
+
   it('rounds a transcript with anything in it up to a megabyte', () => {
     // `0 MB` reads as an empty conversation where the truth is a short one.
     expect(value({ ...BARE, bytes: 4096 }, 'history')).toBe('1 MB');

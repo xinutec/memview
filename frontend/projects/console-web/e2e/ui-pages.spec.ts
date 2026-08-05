@@ -1987,7 +1987,10 @@ test('a sheet put away by hand leaves no step behind @ phone width', async ({ pa
   // into it. Playwright then waits ninety seconds for a point the sheet is
   // sitting on. The strip of backdrop above a bottom sheet is where a thumb
   // aims anyway.
-  await page.locator('.cdk-overlay-backdrop').last().click({ position: { x: 8, y: 8 } });
+  await page
+    .locator('.cdk-overlay-backdrop')
+    .last()
+    .click({ position: { x: 8, y: 8 } });
   await expect(page.locator('.session-sheet')).toHaveCount(0);
 
   await page.goBack();
@@ -2054,10 +2057,18 @@ test('a run of tool calls is folded into one row @ phone width', async ({ page }
   await expect(page.getByText('verified_cli')).toHaveCount(0);
 });
 
-test('a run with something still running stays open @ phone width', async ({ page }) => {
-  // ⚠ **The newest calls are the ones being made now**, so folding them away
-  // would hide exactly what the reader came to watch — the session would look
-  // idle while it worked.
+test('a run stays folded while it works, and says it is working @ phone width', async ({
+  page,
+}) => {
+  // ⚠ **Two versions of opening it automatically were tried and cut.** Reading
+  // `running > 0` live flickers — a session making one call at a time turns a
+  // pair into a run and opens it, the result empties the run and folds it, the
+  // next call opens it again, reported from the phone as "it keeps flipping open
+  // and closed". Latching that condition stopped the flicker and cost more: the
+  // page was no longer a function of the conversation, since what was open
+  // depended on whether you had been watching.
+  //
+  // What the automatic open was for, the summary row does on its face.
   // ⚠ Before `goto`: it installs its stub through `addInitScript`, which only
   // affects pages loaded after it.
   await handControlOfTheStream(page);
@@ -2073,44 +2084,18 @@ test('a run with something still running stays open @ phone width', async ({ pag
   }
   const run = page.locator('.entry.tools .run').last();
   await run.waitFor();
+  // The row says work is in flight, which is why folding it is not hiding it.
   await expect(run).toContainText('2 running');
-  // Open without being asked, because both calls are still going.
-  await expect(page.getByText('cargo test --all-features')).toBeVisible();
-});
+  await expect(page.getByText('cargo test --all-features')).toHaveCount(0);
 
-test('a run that has been watched working does not fold itself @ phone width', async ({ page }) => {
-  // ⚠ **The condition flickers, so it cannot be read live.** Reported from the
-  // phone: the widget "keeps flipping open and closed". A session making one
-  // call at a time toggles it on every call — the second call turns a pair into
-  // a run and opens it, its result empties the run and folds it, the next call
-  // opens it again. Once a run has worked in front of somebody, only a tap
-  // closes it.
-  await handControlOfTheStream(page);
-  await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
-  await page.locator('.transcript').waitFor();
-  let seq = 0;
-  await say(
-    page,
-    { kind: 'tool', id: 'seq_a', name: 'Bash', input: { command: 'git status' } },
-    ++seq,
-  );
-  await say(page, { kind: 'tool_result', id: 'seq_a', ok: true, detail: 'clean' }, ++seq);
-  await say(
-    page,
-    { kind: 'tool', id: 'seq_b', name: 'Bash', input: { command: 'git log -1' } },
-    ++seq,
-  );
-  const run = page.locator('.entry.tools .run').last();
-  await run.waitFor();
-  await expect(page.getByText('git log -1')).toBeVisible();
-
-  // The result that used to fold it.
-  await say(page, { kind: 'tool_result', id: 'seq_b', ok: true, detail: 'a commit' }, ++seq);
-  await expect(run, 'the run has finished').toContainText('2 tool calls');
-  await expect(page.getByText('git log -1'), 'it folded up under the reader').toBeVisible();
-
-  // And a tap still shuts it, which is the only thing that should.
+  // One tap, and the same tap whether the run is live or long finished.
   await run.click();
-  await expect(page.getByText('git log -1')).toHaveCount(0);
+  await expect(page.getByText('cargo test --all-features')).toBeVisible();
+
+  // ⚠ **And the result that lands next does not close it again.** This is the
+  // flicker, from the other side: a run opened by hand has to stay open when
+  // the condition that used to drive it changes under the reader.
+  await say(page, { kind: 'tool_result', id: 'run_b', ok: true, detail: 'ok' }, ++seq);
+  await expect(run, 'the run has finished').not.toContainText('2 running');
+  await expect(page.getByText('cargo test --all-features')).toBeVisible();
 });

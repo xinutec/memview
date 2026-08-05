@@ -65,10 +65,27 @@ export function factsOf(session: Summary): Fact[] {
   // Looked up rather than scanned, which is why it is here and not on the list
   // card: four facts in that row wrapped it onto a second line.
   if (session.bytes) facts.push({ label: 'history', value: megabytes(session.bytes) });
+  // ⚠ **Named for what it is, which is why it is no longer a dollar sign on a
+  // card.** It used to appear beside a session as soon as the account's own
+  // verdict stopped being plain `allowed` — but that verdict is account-wide
+  // while the display was per-session, so the figure landed on whichever
+  // sessions happened to be talking when the API started warning: $422 against
+  // `memview`, and nothing against `health`, which had spent $395.
+  //
+  // And it is not a bill in any case. These sessions inherit the CLI's
+  // credentials and run on the subscription, so nothing is billed per token —
+  // at the limit the work waits for the window to reset rather than being
+  // charged for. What "have I got room" actually wants is the utilisation strip
+  // on the front page, which is measured off the API's own headers rather than
+  // inferred from a price list. So the number stays, where somebody who wants it
+  // can look it up, saying what it is.
+  if (session.cost_usd) {
+    facts.push({ label: 'tokens at list price', value: `$${session.cost_usd.toFixed(2)}` });
+  }
   // The CLI's own vocabulary — `allowed`, `allowed_warning`, `rejected` — kept
-  // verbatim rather than reworded, for the reason budget.ts gives. Shown only
-  // when it is not the ordinary answer, because a line saying `allowed` on
-  // every session is a line nobody reads.
+  // verbatim rather than reworded: these are the account's words, not ours.
+  // Shown only when it is not the ordinary answer, because a line saying
+  // `allowed` on every session is a line nobody reads.
   if (session.limit && session.limit !== 'allowed') {
     facts.push({ label: 'rate limit', value: session.limit });
   }

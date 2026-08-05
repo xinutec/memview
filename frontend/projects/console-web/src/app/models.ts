@@ -37,8 +37,9 @@ export interface Summary {
    * What the tokens would have cost at API list prices.
    *
    * ⚠ NOT money — the session runs on the subscription and nothing is billed
-   * per token. Shown only when `limit` says the account has stopped being
-   * all-you-can-eat; see `costMatters`.
+   * per token, and at the limit the work waits rather than being charged for.
+   * On the details sheet only, labelled as what it is; how much room is left is
+   * the utilisation strip's question and it answers it from measurement.
    */
   cost_usd: number;
   /** The account's own rate-limit verdict: allowed, allowed_warning, rejected. */
