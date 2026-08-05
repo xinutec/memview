@@ -82,15 +82,18 @@ button[matIconButton] {
   padding: 0;
 }
 
-// What an answer's markdown renders as.
+// What markdown renders as, wherever the `rendered` pipe puts it.
 //
-// ⚠ **Global on purpose, and it has to be.** This HTML comes from the `rendered`
-// pipe through `[innerHTML]`, so it is not part of any component template and
+// ⚠ **Global on purpose, and it has to be.** This HTML comes from the pipe
+// through `[innerHTML]`, so it is not part of any component template and
 // Angular's emulated encapsulation cannot address it — a component stylesheet
 // rewrites `pre` to `pre[_ngcontent-xxx]` and the injected element has no such
-// attribute. Scoped to `app-session-view` rather than turned loose, so the
-// generic names below cannot reach anything else.
-app-session-view .entry .body {
+// attribute.
+//
+// A mixin rather than a selector list, so each place that renders markdown says
+// so where it is styled: these rules are each a measurement (see the notes
+// below), and a second copy of them would drift from the first.
+@mixin rendered {
   // ⚠ **`white-space: normal`, because this is HTML and not text.** `.entry`
   // sets `pre-wrap` so a plain message keeps the line breaks somebody typed —
   // and that is inherited here, where the content is markup. `marked` puts a
@@ -177,6 +180,18 @@ app-session-view .entry .body {
     list-style: none;
     margin-left: -1.2rem;
   }
+}
+
+// Each scoped to its own component rather than turned loose, so the generic
+// names inside cannot reach anything else on the page.
+app-session-view .entry .body {
+  @include rendered;
+}
+
+// A task's write-up. Written as markdown by the session that filed it — headings,
+// bold and fenced code — and shown raw it was a wall of asterisks and backticks.
+app-tasks-sheet .said {
+  @include rendered;
 }
 
 // The menu behind the ⋮ in a session's toolbar.

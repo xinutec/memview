@@ -7,6 +7,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { ConsoleApi } from './console-api';
 import { Task } from './models';
+import { Rendered } from './rendered';
 import { reason } from './errors';
 
 /** What the sheet is opened with. */
@@ -46,7 +47,7 @@ const UNKNOWN = { rank: 1, title: 'open', icon: 'help' };
   selector: 'app-tasks-sheet',
   templateUrl: './tasks-sheet.html',
   styleUrl: './tasks-sheet.scss',
-  imports: [MatButtonModule, MatButtonToggleModule, MatIconModule, MatProgressBarModule],
+  imports: [MatButtonModule, MatButtonToggleModule, MatIconModule, MatProgressBarModule, Rendered],
 })
 export class TasksSheet {
   private api = inject(ConsoleApi);

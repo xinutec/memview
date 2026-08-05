@@ -2117,8 +2117,27 @@ test('the task sheet opens on what is left rather than what is done @ phone widt
   // ones are a written record worth reading, not because the list is a total.
   await mockRunner(page);
   await page.route('**/api/sessions/*/tasks', (r) => r.fulfill({ json: TASKS }));
+  // ⚠ **Markdown, with a code block in it.** These are written up as reports —
+  // headings, bold, fenced commands — and the transcript's own renderer went 618px
+  // past the right edge the first time a fixture had code in it. This sheet gets
+  // the same rules, so it gets the same fixture.
   await page.route('**/api/sessions/*/tasks/*', (r) =>
-    r.fulfill({ json: { description: 'Measured both ways, and the second arm moved.' } }),
+    r.fulfill({
+      json: {
+        description: [
+          '## What moved',
+          '',
+          '**Measured both ways**, and the second arm moved.',
+          '',
+          '```',
+          'nix develop --command cargo test --workspace -- --exact the_matcher_gate_is_bit_exact',
+          '```',
+          '',
+          '- [x] ported',
+          '- [ ] blessed',
+        ].join('\n'),
+      },
+    }),
   );
   await page.goto(`/s/${STATE.sessions[0].id}`);
   await page
@@ -2143,6 +2162,13 @@ test('the task sheet opens on what is left rather than what is done @ phone widt
   await expect(sheet.locator('.said')).toHaveCount(0);
   await sheet.getByRole('button', { name: /port the matcher gate/ }).click();
   await expect(sheet.locator('.said')).toContainText('the second arm moved');
+  // Rendered rather than shown as characters: a heading is an element, the
+  // command is a code block, and the checkbox states are distinguishable — all
+  // three read as punctuation before the pipe was wired in.
+  await expect(sheet.locator('.said h2')).toHaveText('What moved');
+  await expect(sheet.locator('.said strong')).toHaveText('Measured both ways');
+  await expect(sheet.locator('.said pre')).toContainText('cargo test --workspace');
+  await expect(sheet.locator('.said li.task').first()).toContainText('☑');
 
   // And the toggle brings back what was finished, saying how much it is.
   await sheet.getByRole('radio', { name: /All \(1 done\)/ }).click();

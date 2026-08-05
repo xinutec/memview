@@ -68,13 +68,17 @@
         }
         @if (opened() === task.id) {
           @if (said()[task.id]; as words) {
-            <!-- Pre-wrapped: these are written up as paragraphs with blank lines
-                 between them, and collapsing that turns a report into a wall. -->
-            <p class="said">{{ words }}</p>
+            <!-- Markdown, as the session wrote it: these are written up with
+                 headings, bold and fenced code, and shown raw they are a wall of
+                 asterisks and backticks. Styled in styles.scss, not here —
+                 `[innerHTML]` puts the content outside this component's
+                 encapsulation, so a rule here could not reach it. -->
+            <div class="said" [innerHTML]="words | rendered"></div>
           } @else if (failed()[task.id]; as why) {
-            <!-- Says to tap again, because tapping again is the retry: this is
-                 not kept as the task's words, so a second attempt really is one. -->
-            <p class="said failed">{{ why }} — fold and open it again to retry</p>
+            <!-- Plain text, and not `.said`: this sentence is ours, it is not
+                 markdown, and it must not pick up the rules for prose that is.
+                 Says to tap again, because tapping again is the retry. -->
+            <p class="failed">{{ why }} — fold and open it again to retry</p>
           } @else {
             <mat-progress-bar mode="indeterminate" />
           }

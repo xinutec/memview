@@ -114,17 +114,26 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-// The write-up. Pre-wrapped because these are paragraphs with blank lines
-// between them — the shape is part of what they say.
+// The write-up. Only the box is set here: what is inside it is markdown put in
+// by `[innerHTML]`, which no rule in this file can reach — see the `rendered`
+// mixin in styles.scss.
+//
+// ⚠ **No `white-space: pre-wrap`.** It was here while this was plain text, and
+// against rendered HTML it turns every newline `marked` writes between blocks
+// into a real line break on top of that block's own margin. The same mistake in
+// the transcript cost 74% of a phone screen to nothing, and is measured in the
+// note beside the mixin.
 .said {
   margin: 0 0 0.8rem 2.2rem;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
   font: var(--mat-sys-body-small);
   color: var(--mat-sys-on-surface-variant);
 }
 
-// A failed fetch, in the place the words would have been.
-.said.failed {
+// A failed fetch, where the words would have been. Our sentence rather than the
+// session's, so it is plain text and styled apart from the markdown above.
+.failed {
+  margin: 0 0 0.8rem 2.2rem;
+  font: var(--mat-sys-body-small);
   color: var(--mat-sys-error);
 }
