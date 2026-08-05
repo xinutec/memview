@@ -412,32 +412,73 @@ fn a_response_whose_shape_has_moved_yields_nothing() {
     assert!(console::protocol::usage_reply(empty).is_none());
 }
 
-/// One `Bash` call, backgrounded or not, as the stream reports it.
-fn call(id: &str, backgrounded: bool) -> Event {
-    Event::Tool {
+/// What a call answered, as the stream reports it.
+fn answered(id: &str, said: &str) -> Event {
+    Event::ToolResult {
         id: id.to_string(),
-        name: "Bash".to_string(),
-        input: serde_json::json!({"command": "sleep 600", "run_in_background": backgrounded}),
+        ok: true,
+        detail: said.to_string(),
+        cut: None,
     }
 }
 
 #[test]
-fn a_backgrounded_call_is_work_left_running() {
-    // The call itself returns at once with a task id, so this event is the only
-    // record that anything was started.
-    assert_eq!(
-        console::protocol::running(&call("toolu_bg", true)),
-        console::protocol::Running::Began("toolu_bg".to_string())
-    );
+fn every_way_a_tool_says_it_left_something_running() {
+    // ⚠ **Verbatim openings, taken off this machine's own transcripts.** The
+    // decision about what counts is made from what a call *answers* rather than
+    // from what it was asked to do, because `run_in_background` is a request only
+    // `Bash` accepts — measured across 27,731 calls, it appears on nothing else.
+    // These four are the phrases the CLI actually emits; see `protocol::detached`
+    // for the precision and recall behind them.
+    for (what, said) in [
+        (
+            "a shell command asked to detach",
+            "Command running in background with ID: bh0ynhbpb. Output is being written to /tmp/x",
+        ),
+        (
+            // ⚠ The one no rule about arguments could have found: its input says
+            // `run_in_background: false`, because that is what was asked for.
+            "a shell command moved there for outliving its timeout",
+            "Command did not complete within its 120s timeout and was moved to the background",
+        ),
+        (
+            "a subagent, which detaches unless told not to",
+            "Async agent launched successfully. (This tool result is internal metadata",
+        ),
+        (
+            "a monitor, the tool this whole rule came from",
+            "Monitor started (task bajuqh4xe, timeout 1800000ms). You will be notified on each event",
+        ),
+    ] {
+        assert_eq!(
+            console::protocol::running(&answered("toolu_bg", said)),
+            console::protocol::Running::Began("toolu_bg".to_string()),
+            "{what}"
+        );
+    }
 }
 
 #[test]
-fn an_ordinary_call_says_nothing_about_it() {
-    // The common case by a wide margin, and the one a looser test would miss.
-    assert_eq!(
-        console::protocol::running(&call("toolu_fg", false)),
-        console::protocol::Running::Quiet
-    );
+fn an_ordinary_answer_says_nothing_about_it() {
+    // The common case by a wide margin — 13,340 of the 13,858 calls measured —
+    // and the one that matters most: a false match would be a count that never
+    // comes down, where a missed one is only the undercount this replaced.
+    for said in [
+        "",
+        "3",
+        "done",
+        "error: unknown flag",
+        "wrote 40 lines to src/main.rs",
+        // Near misses on purpose: talking about background work is not doing any.
+        "the runner keeps a background sweep for gists",
+        "Monitor the log and tell me when it settles",
+    ] {
+        assert_eq!(
+            console::protocol::running(&answered("toolu_fg", said)),
+            console::protocol::Running::Quiet,
+            "{said:?}"
+        );
+    }
 }
 
 #[test]

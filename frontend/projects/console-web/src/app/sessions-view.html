@@ -84,7 +84,13 @@
 
                Absent rather than `0 background tasks`: a row saying nothing is
                running would be a claim, and the harness cannot see a command
-               backgrounded inside a shell. -->
+               backgrounded inside a shell.
+
+               ⚠ **"background task" is the harness's own word for all of these**
+               — a detached command, a subagent, a monitor — and each is issued a
+               task id and reports back through a task-notification. The label
+               was accurate all along; what was wrong was the counting, which
+               only ever saw the first kind. See `protocol::detached`. -->
           @if (session.background; as running) {
             <span class="tasks">{{ running }} background task{{ running === 1 ? '' : 's' }}</span>
           }

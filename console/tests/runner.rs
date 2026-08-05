@@ -111,9 +111,11 @@ async fn work_left_running_is_counted_until_the_harness_says_it_is_done() {
     // on already. The runner watches the same two events and the count rides the
     // summary.
     //
-    // A backgrounded call returns at once with a task id, so the only signal
-    // that the work has finished is the harness's notification — which arrives
-    // filed as a user message nobody typed.
+    // A detached call answers at once, saying that it has left something
+    // running — which is what the runner counts, rather than the arguments it
+    // was called with; see `protocol::detached`. The only signal that the work
+    // has finished is the harness's notification, which arrives filed as a user
+    // message nobody typed.
     let dir = std::env::temp_dir();
     let roster = roster(&dir);
     let session = roster.start(&dir.display().to_string()).expect("start");
@@ -130,7 +132,7 @@ async fn work_left_running_is_counted_until_the_harness_says_it_is_done() {
 
     session.send("do it in the background").await.expect("send");
     until(&session, |seen| {
-        seen.iter().any(|e| matches!(e, Event::Tool { .. }))
+        seen.iter().any(|e| matches!(e, Event::ToolResult { .. }))
     })
     .await;
     assert_eq!(

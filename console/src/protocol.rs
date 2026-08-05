@@ -466,15 +466,59 @@ pub enum Running {
 /// children at all.
 pub fn running(event: &Event) -> Running {
     match event {
-        Event::Tool { id, input, .. }
-            if input.get("run_in_background") == Some(&serde_json::Value::Bool(true)) =>
-        {
-            Running::Began(id.clone())
-        }
+        Event::ToolResult { id, detail, .. } if detached(detail) => Running::Began(id.clone()),
         Event::Background { tool, .. } => Running::Ended(tool.clone()),
         Event::Started { .. } | Event::Joined { .. } => Running::Gone,
         _ => Running::Quiet,
     }
+}
+
+/// What a tool says when it has left work running.
+///
+/// ⚠ **The call's answer, not its arguments — and this is the whole of the
+/// decision about what counts.** It used to be `run_in_background: true` on the
+/// input, which is a *request* to detach and which only `Bash` accepts. Measured
+/// across 27,731 calls in one 241 MB transcript: that flag appears on `Bash` and
+/// on nothing else, so a `Monitor` running for twenty-five minutes counted as
+/// nothing, and the card said the session had nothing going on.
+///
+/// Every tool that detaches says so in the first words it returns, and those
+/// words are the CLI's, not ours. Measured against the same corpus — 13,858
+/// calls whose result is known, of which 510 were later followed by a
+/// task-notification:
+///
+/// - **495** carried one of these phrases and were notified.
+/// - **8** carried one and had no notification yet, which is what a task still
+///   running looks like at the end of a file.
+/// - **15** were notified with no phrase: 13 `SendMessage` replies, whose result
+///   is JSON with nothing to match on, and 2 more of the timeout kind below.
+/// - **13,340** had neither. **No call matched a phrase without the work being
+///   real** — the precision that matters, since the failure to avoid is a count
+///   that never comes down.
+///
+/// ⚠ **The timeout phrase is the one no rule about arguments could have found.**
+/// A foreground command that outlives its timeout is moved to the background by
+/// the harness — thirteen of them in that transcript — and its input says
+/// `run_in_background: false`, because that is what was asked for.
+///
+/// ⚠ **Matching prose is not free and the shape of the risk decides it.** These
+/// are English sentences and a reworded CLI stops matching. But an unmatched
+/// phrase undercounts, which is exactly today's behaviour and is visibly wrong
+/// in one direction only; a rule that guessed from the tool's *name* would count
+/// work that never started and leave the number stuck at one for the life of the
+/// session. Failing closed is worth a fragile match.
+fn detached(said: &str) -> bool {
+    const SAYS: [&str; 4] = [
+        // Bash, asked to detach.
+        "Command running in background with ID:",
+        // Bash, not asked to, and moved anyway when it outran its timeout.
+        "and was moved to the background",
+        // Agent, which runs in the background unless told otherwise.
+        "Async agent launched successfully",
+        // Monitor, the tool this whole change came from.
+        "Monitor started (task ",
+    ];
+    SAYS.iter().any(|phrase| said.contains(phrase))
 }
 
 pub fn recorded_at(line: &str) -> Option<i64> {

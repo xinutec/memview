@@ -1213,6 +1213,31 @@ field that reads like a measurement and is actually an aggregate.**
   tasks", not "nothing is running". The count is cleared on `started`: a new
   process cannot have inherited the last one's work, and a task killed with a
   console restart never reports.
+- ⚠ **What counts is read off what a call ANSWERS, never off its arguments.**
+  This was `run_in_background: true` on the input for a long time, which is a
+  *request* to detach — and measured across 27,731 calls in one 241 MB
+  transcript, that flag appears on `Bash` and on nothing else. So a `Monitor`
+  running for twenty-five minutes counted as nothing at all, and the card said
+  the session had nothing going on.
+
+  Every tool that detaches says so in the first words it returns, and those words
+  are the CLI's rather than ours. Measured against the same corpus — 13,858 calls
+  whose result is known, 510 of them later followed by a task-notification: 495
+  carried one of the four phrases and were notified; 8 carried one with no
+  notification yet, which is what a task still running looks like at the end of a
+  file; 15 were notified with no phrase (13 `SendMessage` replies, whose result
+  is JSON with nothing to match on); and 13,340 had neither. **Nothing matched a
+  phrase without the work being real.**
+
+  One of the four is a category no rule about arguments could have reached: a
+  foreground command that outlives its timeout is moved to the background by the
+  harness — thirteen of them in that transcript — while its input still says
+  `run_in_background: false`, because that is what was asked for.
+
+  Matching English is fragile, and the direction it fails in is why it was
+  chosen: a reworded CLI undercounts, which is visibly wrong one way and is
+  exactly what this replaced. A rule guessing from the tool's *name* would count
+  work that never started and leave the number stuck for the life of the session.
 - ⚠ **And cleared on `joined`, because history is not evidence.** The seed
   replays the transcript through the same reader as the live stream, so every
   backgrounded call on the last page was counted a second time — and a resumed
