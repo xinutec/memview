@@ -324,6 +324,28 @@
   <p class="update">{{ running }} background task{{ running === 1 ? '' : 's' }} running</p>
 }
 
+<!-- What is about to be sent with the next message, above the box rather than
+     inside it: the box grows with what is typed, and a thumbnail in a row that
+     changes height moves the send button around under a thumb.
+
+     ⚠ **Held rather than sent on choosing.** The words about a screenshot are
+     usually the point of sending it, and a picture that left the moment it was
+     picked would have to be explained by a second message the model reads after
+     it. So it waits here until there is something to say about it — or until
+     send is pressed with nothing, which is a complete message too. -->
+@if (picture(); as held) {
+  <div class="chosen">
+    <img class="thumb" [src]="held.preview" alt="the image about to be sent" />
+    <span class="about">{{ held.width }}×{{ held.height }} · {{ weight(held.bytes) }}</span>
+    <button matIconButton type="button" aria-label="do not send this image" (click)="drop()">
+      <mat-icon>close</mat-icon>
+    </button>
+  </div>
+}
+@if (pictureTrouble(); as why) {
+  <p class="trouble">{{ why }}</p>
+}
+
 <form class="composer" (submit)="$event.preventDefault(); send()">
   <!-- ⚠ `subscriptSizing="dynamic"` is load-bearing, not tidying. By default a
        form field reserves a line of hint/error space below the input — Material
@@ -332,6 +354,29 @@
        neither, so that row is invisible; but the composer aligns its row to
        `flex-end`, and the send button was therefore aligning to the bottom of
        the *reserved* box and sitting a line below the visible one. -->
+  <!-- ⚠ **The input is the control; the button only presses it.** A bare
+       `<input type="file">` renders as a browser-styled button that ignores the
+       app's type and cannot be made 48px, so the real one is hidden and a proper
+       icon button forwards the tap. `accept="image/*"` is what makes Android
+       offer the camera and the screenshots folder rather than a file tree.
+
+       ⚠ **This does nothing in the wrapper app without `onShowFileChooser`.** A
+       WebView refuses every file input unless the host implements that callback,
+       silently — no error, no picker, nothing to see. It is implemented in the
+       shared shell (`ui-harness/android`), which is why this needs a build of the
+       APK and not only of the bundle. -->
+  <input
+    #picker
+    class="picker"
+    type="file"
+    accept="image/*"
+    aria-hidden="true"
+    tabindex="-1"
+    (change)="chose(picker)"
+  />
+  <button matIconButton type="button" aria-label="show an image" (click)="picker.click()">
+    <mat-icon>image</mat-icon>
+  </button>
   <mat-form-field appearance="outline" class="box" subscriptSizing="dynamic">
     <mat-label>say something</mat-label>
     <!-- Grows with what is being typed. `rows="1"` meant an instruction of any
@@ -362,7 +407,7 @@
     matIconButton
     type="submit"
     aria-label="send"
-    [disabled]="sending() || !text()"
+    [disabled]="sending() || (!text() && !picture())"
   >
     <mat-icon>send</mat-icon>
   </button>

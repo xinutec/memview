@@ -455,9 +455,15 @@ async function expectComposerFillsTheWidth(page: Page): Promise<void> {
   });
   expect(width, 'no composer on this page').not.toBeNull();
   // The composer reaches both edges; the text box takes what is left after the
-  // send button, which is the only other thing on the row.
+  // two controls beside it.
   expect(width!.composer).toBe(width!.page);
-  expect(width!.field).toBeGreaterThan(width!.page * 0.7);
+  // ⚠ **Three fifths, and it was seven tenths.** The row carried one button —
+  // send — until the image picker joined it, and each is held to the 48px thumb
+  // floor: 412px of screen less 32 of padding, 96 of buttons and 16 of gaps
+  // leaves 268. Lowered deliberately rather than quietly, and no further: the
+  // point of the check is that the box is the row, and a third control on it
+  // would take it below this.
+  expect(width!.field).toBeGreaterThan(width!.page * 0.6);
 }
 
 /**
@@ -807,6 +813,90 @@ test('transcript — tool arguments and a fixed composer @ phone width', async (
   await expectClocksOnTheirLine(page);
   await expectComposerFillsTheWidth(page);
   await expectSendAlignsWithTheBox(page);
+});
+
+/**
+ * A real 2×4 PNG, on disk beside this spec.
+ *
+ * ⚠ **A file rather than bytes in the source, and not for tidiness.** PNG bytes
+ * written by hand do not decode, and the failure is quiet in exactly the wrong
+ * way: `setInputFiles` succeeds, the change event fires, and `createImageBitmap`
+ * refuses with "the source image could not be decoded" — which the page reports
+ * on the composer and a test sees only as a strip that never appeared. Two
+ * fixtures were fabricated before this was a real picture made by `sips`.
+ *
+ * A path, not a Buffer: these specs are type-checked without Node's types (see
+ * tsconfig.e2e.json), and Playwright resolves a relative path against the
+ * config's directory.
+ */
+function tinyPng(): string {
+  // Anchored to the project's own test directory rather than to the process's
+  // working directory, which is the repo's frontend/ when the gate runs this and
+  // something else when it is run by hand. `test.info()` is Playwright's own and
+  // needs no Node types.
+  return `${test.info().project.testDir}/fixtures/tiny.png`;
+}
+
+test('a picture waits to be sent with what is said about it @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **The phone is where the screen being talked about is.** A layout that
+  // settles wrongly, a chart that reads oddly, a thing on a desk — all of it was
+  // describable and not showable until this. The picture is scaled in the page
+  // (see `picture.ts`) and sent as an `image` block on the session's stdin, which
+  // the CLI forwards and the model reads — measured against 2.1.221 first.
+  let sent: Record<string, unknown> | undefined;
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/image', (r) => {
+    sent = r.request().postDataJSON() as Record<string, unknown>;
+    return r.fulfill({ json: STATE.sessions[0] });
+  });
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.composer').waitFor();
+
+  // A real 2×4 PNG, chosen the way the picker hands one over.
+  await page.locator('.picker').setInputFiles(tinyPng());
+
+  // Held, not sent: the words about a screenshot are usually the point of it, so
+  // it waits in a strip above the box until there is something to say.
+  const chosen = page.locator('.chosen');
+  await chosen.waitFor();
+  await expect(chosen.locator('.thumb')).toBeVisible();
+  await expect(chosen.locator('.about')).toContainText('2×4');
+  expect(sent, 'nothing left the phone on choosing').toBeUndefined();
+
+  // ⚠ The composer holds a thumbnail, a size, a discard button, the box and
+  // send — the fullest this row ever gets, and the phone is 412px wide.
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectNoPinnedOverlap(page);
+  await expectThumbTargets(page);
+
+  await page.locator('.composer textarea').fill('what is wrong with this?');
+  await page.locator('.composer .send').click();
+  await expect.poll(() => sent?.['media_type']).toBe('image/png');
+  expect(sent?.['text'], 'the words travel with the picture').toBe('what is wrong with this?');
+  expect(String(sent?.['data']), 'bare base64, as the API defines it').not.toContain('data:');
+
+  // And the strip goes with the message, so the next one does not carry it again.
+  await expect(page.locator('.chosen')).toHaveCount(0);
+});
+
+test('a picture can be put down again without being sent @ phone width', async ({ page }) => {
+  // The discard is not decoration: the picker is a gallery on a phone and the
+  // wrong screenshot is one tap away from the right one.
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.composer').waitFor();
+  await page.locator('.picker').setInputFiles(tinyPng());
+  await page.locator('.chosen').waitFor();
+
+  await page.getByRole('button', { name: 'do not send this image' }).click();
+
+  await expect(page.locator('.chosen')).toHaveCount(0);
+  // Send goes back to needing words, which is what it needed before there was a
+  // picture to send on its own.
+  await expect(page.locator('.composer .send')).toBeDisabled();
 });
 
 /** Serve the question transcript, and record what any decision sends. */

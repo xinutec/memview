@@ -918,6 +918,43 @@ impl Session {
         Ok(())
     }
 
+    /// Show the session a picture, with whatever was said about it.
+    ///
+    /// The same write as [`Self::send`] and deliberately not folded into it: the
+    /// two differ in what they put on the wire (see
+    /// [`protocol::prompt_with_image`]), and an `Option<Image>` on the ordinary
+    /// send would put a branch on the path every message in the console takes.
+    pub async fn show(
+        &self,
+        text: &str,
+        media_type: &str,
+        base64: &str,
+        kept: &std::path::Path,
+    ) -> Result<()> {
+        let line = protocol::prompt_with_image(text, media_type, base64, kept);
+        let mut held = self.stdin.lock().await;
+        let stdin = held
+            .as_mut()
+            .context("session is no longer accepting input")?;
+        stdin
+            .write_all(format!("{line}\n").as_bytes())
+            .await
+            .context("writing to the session")?;
+        stdin.flush().await.context("flushing to the session")?;
+        drop(held);
+        let mut state = self.state.lock().expect("session state poisoned");
+        if state.asked.is_none() {
+            // What it was opened for, when a picture is the first thing said. The
+            // base64 is emphatically not this: it is a megabyte of characters, and
+            // this is a line on the front page.
+            state.asked = Some(match text.trim() {
+                "" => "an image".to_string(),
+                words => words.to_string(),
+            });
+        }
+        Ok(())
+    }
+
     /// Answer a question the session is blocked on.
     ///
     /// Refusing carries a reason, because the session is told it and can act on

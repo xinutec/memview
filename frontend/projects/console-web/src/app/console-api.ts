@@ -65,6 +65,23 @@ export class ConsoleApi {
     return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/input`, { text });
   }
 
+  /**
+   * Show a session a picture, with whatever is being said about it.
+   *
+   * ⚠ **Its own route, not a field on `send`.** This one is a megabyte where that
+   * one is a sentence, the runner writes a file for it, and it fails for reasons
+   * — too large, not an image — that have no meaning for text. `data` is bare
+   * base64 rather than a data URL: the runner hands it straight to the CLI, which
+   * wants it the way the API defines it.
+   */
+  show(id: string, data: string, mediaType: string, text: string): Observable<Summary> {
+    return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/image`, {
+      data,
+      media_type: mediaType,
+      text,
+    });
+  }
+
   /** Answer a question the session is blocked on.
    *
    *  `answers` are the choices made about an `AskUserQuestion`, and the runner

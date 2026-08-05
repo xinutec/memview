@@ -1,5 +1,6 @@
 package org.xinutec.console
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
@@ -10,11 +11,14 @@ import android.view.Gravity
 import android.webkit.ClientCertRequest
 import android.webkit.JavascriptInterface
 import android.webkit.SslErrorHandler
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.Lifecycle
 import org.xinutec.shell.ShellConfig
 import org.xinutec.shell.WebDebugging
@@ -216,6 +220,57 @@ class MainActivity : WebShellActivity() {
         val url = web.url ?: return true
         val path = Uri.parse(url).path ?: ""
         return path.trim('/').isEmpty()
+    }
+
+    /**
+     * The picker the composer's image button opens.
+     *
+     * ⚠ **Without this a file input in a WebView does nothing at all.** Not an
+     * error, not a refusal — the tap lands, `onShowFileChooser` is not
+     * implemented, and Chromium drops it in silence. Every other app in the fleet
+     * is a viewer and needs none of this, which is why the shared shell leaves it
+     * to the app that does (`ui-harness/android`, "what an app still owns").
+     */
+    private var pendingFiles: ValueCallback<Array<Uri>>? = null
+
+    private val choosing =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val waiting = pendingFiles ?: return@registerForActivityResult
+            pendingFiles = null
+            // The page is answered either way. A cancelled chooser that never
+            // calls back leaves the input permanently busy: Chromium allows one
+            // outstanding request per WebView, so the NEXT tap is dropped too and
+            // the button stops working for the life of the page.
+            waiting.onReceiveValue(
+                WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data),
+            )
+        }
+
+    override fun createWebChromeClient() = ConsoleChrome()
+
+    inner class ConsoleChrome : ShellWebChromeClient() {
+        override fun onShowFileChooser(
+            view: WebView,
+            callback: ValueCallback<Array<Uri>>,
+            params: FileChooserParams,
+        ): Boolean {
+            // A chooser already waiting means the page asked twice — release the
+            // first, or it is the one left holding the input open.
+            pendingFiles?.onReceiveValue(null)
+            pendingFiles = callback
+            return try {
+                // The page's own `accept` decides what is offered; the console
+                // asks for `image/*`, which is what puts the screenshots in front
+                // rather than a file tree.
+                choosing.launch(params.createIntent())
+                true
+            } catch (absent: ActivityNotFoundException) {
+                Log.e(TAG, "nothing on this phone can pick a file", absent)
+                pendingFiles = null
+                callback.onReceiveValue(null)
+                false
+            }
+        }
     }
 
     override fun createWebViewClient() = ConsoleWebViewClient()

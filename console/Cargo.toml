@@ -55,7 +55,10 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "htt
 # RFC 3339 in the transcripts, read into epoch milliseconds. Already in the tree
 # under x509-parser, so this is a direct name for a crate that is compiled either
 # way rather than a new dependency.
-time = { version = "0.3", features = ["parsing"] }
+time = { version = "0.3", features = ["parsing", "formatting", "macros"] }
+# Decoding what the phone sends: the client already holds an image as base64 (a
+# canvas hands back a data URL), so this is the one conversion on that path.
+base64 = "0.22"
 
 [dev-dependencies]
 # Test certificates, made in the test rather than committed: a keypair in the

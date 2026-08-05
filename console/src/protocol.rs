@@ -895,6 +895,47 @@ pub fn prompt(text: &str) -> String {
     .to_string()
 }
 
+/// One user message carrying a picture and what was said about it.
+///
+/// ⚠ **Measured against CLI 2.1.221 before it was built on.** The CLI takes an
+/// `image` block on stdin exactly as the API defines one, forwards it, and the
+/// model reads it — a screenshot sent this way came back described. Nothing in
+/// the CLI's documented input schema promised that.
+///
+/// **The picture first, the words after.** Anthropic's own guidance for a single
+/// image, and the difference is not cosmetic: a question read before the thing it
+/// is about is answered from the question alone.
+///
+/// The text also names where the console kept its copy. The image itself lives in
+/// the conversation only until it is compacted away, and a session asked about it
+/// an hour later has no way back to it — with the path, it can simply open the
+/// file, at the size it was sent rather than the size that was sent.
+pub fn prompt_with_image(
+    text: &str,
+    media_type: &str,
+    base64: &str,
+    kept: &std::path::Path,
+) -> String {
+    let said = match text.trim() {
+        "" => format!(
+            "I am showing you an image. It is also at {}",
+            kept.display()
+        ),
+        words => format!("{words}\n\n(the image is also at {})", kept.display()),
+    };
+    serde_json::json!({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": base64}},
+                {"type": "text", "text": said},
+            ],
+        },
+    })
+    .to_string()
+}
+
 /// One line of a transcript *on disk*, which is not quite one line of the stream.
 ///
 /// ⚠ **A transcript has no deltas.** The live reader takes assistant text from

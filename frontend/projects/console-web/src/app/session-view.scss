@@ -345,6 +345,45 @@
   flex: 1;
 }
 
+// The file input itself, which is never seen: the button beside it is what a
+// thumb presses. `display: none` would do it and is the one thing that must not
+// be used — a hidden-that-way input cannot be clicked programmatically in every
+// engine, and the whole control depends on that call.
+.picker {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+// What is about to be sent, in the strip above the composer.
+.chosen {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem 0;
+  background: var(--mat-sys-surface-container);
+
+  .thumb {
+    // Small enough to leave the transcript readable behind it, large enough to
+    // tell two screenshots apart — which is the only question it answers.
+    height: 3rem;
+    width: auto;
+    max-width: 40%;
+    object-fit: contain;
+    border-radius: 0.25rem;
+  }
+
+  .about {
+    flex: 1;
+    font: var(--mat-sys-label-small);
+    color: var(--mat-sys-on-surface-variant);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
 .trouble {
   color: var(--mat-sys-error);
 }

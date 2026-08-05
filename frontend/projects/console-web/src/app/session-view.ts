@@ -33,6 +33,7 @@ import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { Here } from './here';
 import { Updates } from './updates';
 import { Rendered } from './rendered';
+import { Picture, shrink, weight } from './picture';
 import { Answers, Notes, Question, choiceOf, complete } from './questions';
 import { Held, SessionStore } from './session-store';
 import { Block, blocks, ran } from './transcript';
@@ -190,6 +191,19 @@ export class SessionView implements OnDestroy {
   readonly unreachable = signal('');
   readonly sending = signal(false);
   readonly text = signal('');
+  /**
+   * A picture chosen and scaled, waiting to go with the next message.
+   *
+   * Held rather than sent on choosing, because the words about a screenshot are
+   * the point of sending it — "this is what I meant by ragged" — and a picture
+   * that left the moment it was picked would have to be explained in a second
+   * message the model reads after it.
+   */
+  readonly picture = signal<Picture | undefined>(undefined);
+  /** What went wrong choosing one — too large, not an image, a phone that
+   *  refused. On the composer rather than in the transcript: it is about the
+   *  thing being written, not about the conversation. */
+  readonly pictureTrouble = signal('');
   /**
    * Options tapped but not yet sent, by control-request id and then by question.
    *
@@ -577,21 +591,66 @@ export class SessionView implements OnDestroy {
 
   send(): void {
     const text = this.text().trim();
-    if (!text || this.sending()) return;
+    const picture = this.picture();
+    // A picture is a whole message on its own — a screenshot with nothing said
+    // is the commonest thing this carries — so either half is enough to send.
+    if ((!text && !picture) || this.sending()) return;
     this.sending.set(true);
-    this.api.send(this.id(), text).subscribe({
+    const sent = picture
+      ? this.api.show(this.id(), picture.data, picture.mediaType, text)
+      : this.api.send(this.id(), text);
+    sent.subscribe({
       next: (summary) => {
         this.sending.set(false);
         this.trouble.set('');
         this.text.set('');
+        this.drop();
         this.session.set(summary);
       },
       error: (err: unknown) => {
         this.sending.set(false);
+        // ⚠ **The picture is kept on a failure.** It cost a scale and an upload
+        // over a phone connection, and the commonest failure here is a runner
+        // that was not reachable for a moment — losing it would mean choosing it
+        // again from a gallery.
         this.trouble.set(reason(err));
       },
     });
   }
+
+  /**
+   * Take what was chosen from the picker, scaled to something worth sending.
+   *
+   * ⚠ **The input is cleared afterwards, and it matters.** A file input holds
+   * its selection, so choosing the same screenshot twice in a row fires no
+   * `change` event the second time and the picker simply appears to do nothing.
+   */
+  chose(input: HTMLInputElement): void {
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    this.pictureTrouble.set('');
+    shrink(file)
+      .then((picture) => {
+        this.drop();
+        this.picture.set(picture);
+        this.telemetry.measured('picture', `${picture.width}x${picture.height} ${picture.bytes}B`);
+      })
+      .catch((err: unknown) => {
+        this.pictureTrouble.set(`that image could not be read: ${reason(err)}`);
+        this.telemetry.note('picture-refused', reason(err));
+      });
+  }
+
+  /** Put the held picture down, releasing what the preview holds open. */
+  drop(): void {
+    const held = this.picture();
+    if (held) URL.revokeObjectURL(held.preview);
+    this.picture.set(undefined);
+    this.pictureTrouble.set('');
+  }
+
+  protected readonly weight = weight;
 
   /**
    * The tool results whose whole output is on screen.

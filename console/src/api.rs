@@ -36,6 +36,15 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/sessions", post(start))
         .route("/api/past", get(past))
         .route("/api/sessions/{id}/input", post(input))
+        // ⚠ **The one route that needs its own body limit.** Axum's default is
+        // 2 MB, and an image is the only thing this API takes that is bigger than
+        // a sentence — without this the limit is enforced by the framework, as a
+        // bare 413 with nothing to say, before any of the reasons in
+        // [`crate::images::keep`] can be given.
+        .route(
+            "/api/sessions/{id}/image",
+            post(show).layer(axum::extract::DefaultBodyLimit::max(BODY_LIMIT)),
+        )
         .route("/api/sessions/{id}/decide", post(decide))
         .route("/api/sessions/{id}/mode", post(mode))
         .route("/api/sessions/{id}/stop", post(stop))
@@ -47,6 +56,14 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/telemetry", post(trace::record))
         .with_state(roster)
 }
+
+/// How large a request carrying an image may be.
+///
+/// [`crate::images::LIMIT`] is the picture; this is the request around it, so it
+/// has to allow for base64's third again plus the JSON. Generous rather than
+/// exact: the useful refusal is the one that names the size in megabytes, and
+/// that one cannot be given if the framework has already dropped the body.
+const BODY_LIMIT: usize = crate::images::LIMIT * 2;
 
 /// Everything a client needs to draw the front page in one request.
 #[derive(Debug, Serialize)]
@@ -187,6 +204,76 @@ async fn input(
         .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
     session
         .send(&body.text)
+        .await
+        .map_err(|err| (StatusCode::CONFLICT, format!("{err:#}")))?;
+    Ok(Json(session.summary()))
+}
+
+/// A picture from the phone, with whatever is being said about it.
+#[derive(Debug, Deserialize)]
+pub struct Shown {
+    /// The bytes, base64 as the API itself wants them — the client has them in
+    /// that form already (a canvas hands back a data URL), so decoding them to
+    /// re-encode them at the far end would be work done twice.
+    pub data: String,
+    /// What the client believes it is sending. Checked against the bytes rather
+    /// than believed — see [`crate::images::keep`].
+    #[serde(default)]
+    pub media_type: String,
+    /// What was said about it. Optional: a screenshot sent with nothing said is
+    /// a complete message, and the commonest one.
+    #[serde(default)]
+    pub text: String,
+}
+
+/// Show a session a picture.
+///
+/// Its own route rather than a field on [`input`], because the two are different
+/// requests in every practical sense: this one is a megabyte where that one is a
+/// sentence, it writes a file, and it can fail for reasons — too large, not an
+/// image — that have no meaning for text.
+async fn show(
+    State(roster): State<Arc<Roster>>,
+    Path(id): Path<String>,
+    Json(body): Json<Shown>,
+) -> Result<Json<Summary>, (StatusCode, String)> {
+    use base64::Engine as _;
+
+    let session = roster
+        .get(&id)
+        .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(body.data.trim())
+        .map_err(|why| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("that image is not base64: {why}"),
+            )
+        })?;
+    // UTC, and named so. `now_local` is refused outright in a threaded program on
+    // this platform, and a filename that silently means one of two timezones is
+    // worse than one that plainly means the other.
+    let stamp = time::OffsetDateTime::now_utc()
+        .format(&time::macros::format_description!(
+            "[year]-[month]-[day]-[hour][minute][second]Z"
+        ))
+        .unwrap_or_else(|_| "image".to_string());
+    let kept = crate::images::keep(
+        &crate::images::images_root(),
+        &id,
+        &body.media_type,
+        &bytes,
+        &stamp,
+    )
+    .map_err(|why| (StatusCode::BAD_REQUEST, why))?;
+    tracing::info!(
+        "showing {id} a {} of {} bytes, kept at {}",
+        kept.media_type,
+        bytes.len(),
+        kept.path.display()
+    );
+    session
+        .show(&body.text, &kept.media_type, body.data.trim(), &kept.path)
         .await
         .map_err(|err| (StatusCode::CONFLICT, format!("{err:#}")))?;
     Ok(Json(session.summary()))

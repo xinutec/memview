@@ -14,7 +14,7 @@ re-derived.
 
 In this repository, as a **workspace member and a second Angular application** —
 not its own repository, and not a mode of the viewer. The doc's original
-objection was to one *binary* holding two privilege levels, and a separate
+objection was to one _binary_ holding two privilege levels, and a separate
 `main` answers it: no configuration of the memview pod can turn it into a
 console. Three things keep that true, and each is load-bearing:
 
@@ -25,7 +25,7 @@ console. Three things keep that true, and each is load-bearing:
 - The UI is its own Angular project with its own bundle, so the console's screens
   are never inside memview's.
 
-The name is settled by the same reasoning: it is *memview's console*, not a
+The name is settled by the same reasoning: it is _memview's console_, not a
 product that needs a brand of its own.
 
 ## Scope, and what stays in memview
@@ -50,13 +50,13 @@ privilege levels are one environment variable apart, and that is a mistake that
 only has to happen once.
 
 **The display rule.** `feedback_memview_distils_never_serves_history` was lifted
-in part on 2026-08-02 — timelines are allowed — and the surviving half is *never
-verbatim*: no prompt, no reply, no command line, no output. `src/doing.rs`
+in part on 2026-08-02 — timelines are allowed — and the surviving half is _never
+verbatim_: no prompt, no reply, no command line, no output. `src/doing.rs`
 carries that rule in its module documentation. A console is verbatim by
 definition, and `--resume` puts a past session's scrollback one tap from a live
 one. That is the path back to the `/history` page that was cut after it shipped.
 
-**What memview does gain:** a link out. `/agents` rows get a *talk to this one*
+**What memview does gain:** a link out. `/agents` rows get a _talk to this one_
 link to the console's URL for that session. A deep link, not an embedded pane.
 
 When `console` has its own repository, this document moves there and memview
@@ -77,17 +77,18 @@ rather than reinventing it. It is themed teal against memview's violet on
 purpose: the two are open side by side and have different privileges, and the
 colour is how you know at a glance which one can run commands.
 
-**Android client** — the Pixel 9. See *Security model*; it is more than the usual
+**Android client** — the Pixel 9. See _Security model_; it is more than the usual
 WebView wrapper.
 
 ### What phase 1 actually does
 
 `console/src/`: `protocol.rs` reads the CLI's stream-json into a small closed set
 of events; `session.rs` owns one subprocess and its transcript; `roster.rs` holds
-them all; `api.rs` serves them, streaming with SSE. Three modules read things the
-sessions leave on disk rather than asking them anything — `past.rs` the
-transcripts, `gist.rs` the sentence about each, `tasks.rs` the list a session
-keeps for itself. The UI lists sessions, opens one, streams its transcript and
+them all; `api.rs` serves them, streaming with SSE. Four modules work off disk
+rather than asking a session anything: `past.rs` reads the transcripts, `gist.rs`
+the sentence about each, `tasks.rs` the list a session keeps for itself, and
+`images.rs` writes — it is the one thing here that puts a file down, keeping what
+the phone sent. The UI lists sessions, opens one, streams its transcript and
 sends it messages.
 
 Four things were **measured against CLI 2.1.220 rather than assumed**, and each
@@ -98,7 +99,7 @@ one changed the design:
   0 when stdin closes. So a session is a long-lived subprocess and "send a new
   instruction" is a write, not a cold start.
 - **The stream carries a rate-limit event** (`rate_limit_event`, with the window
-  and when it resets) — but as a *status*, not a percentage. The statusLine hook
+  and when it resets) — but as a _status_, not a percentage. The statusLine hook
   is still the only source of the percentages, so that part of the design stands.
 - **Text arrives twice**: streamed as deltas and repeated in the completed
   message. Taking both shows every answer twice, so text comes from the deltas
@@ -116,8 +117,8 @@ one changed the design:
 - ⚠ **In headless mode, the default permission mode refuses every tool call that
   needs permission.** A `Write` in a fresh session came back as an error with no
   file created; the same prompt under `--permission-mode acceptEdits` wrote the
-  file. So *phase 1 without the approval channel is a console that can converse
-  and little else*. `CONSOLE_PERMISSION_MODE` exposes the choice and defaults to
+  file. So _phase 1 without the approval channel is a console that can converse
+  and little else_. `CONSOLE_PERMISSION_MODE` exposes the choice and defaults to
   nothing: `acceptEdits` is the setting that makes phase 1 useful in a directory
   you trust, `bypassPermissions` hands the machine over, and the console picks
   neither on anybody's behalf. This is the strongest argument for doing phase 2
@@ -140,7 +141,7 @@ over the TypeScript SDK. The SDK is a typed wrapper versioned in lockstep with
 the CLI (0.3.220 against 2.1.220), and the cost of declining it was accepted
 knowingly: the control protocol behind approvals had to be read off the wire
 rather than handed over. It was, and `protocol.rs` speaks it in about thirty
-lines. The SDK is still worth *reading* — it is where
+lines. The SDK is still worth _reading_ — it is where
 `--permission-prompt-tool stdio` was found.
 
 Authentication comes from the subprocess inheriting whatever `claude` already
@@ -203,13 +204,13 @@ connection is permitted by design rather than by loophole.
 
 ### The adversary the design targets
 
-| Adversary | Read traffic | Inject or impersonate | Deny service |
-| --- | --- | --- | --- |
-| Compromised isis | no | no | **yes**, once it is the bridge |
-| Compromised amun (hub) | no | no | yes |
-| Compromised device on the home LAN | no | no | yes |
-| Stolen Pixel 9, locked | no | no | no |
-| Stolen Pixel 9, unlocked | yes | yes | yes |
+| Adversary                          | Read traffic | Inject or impersonate | Deny service                   |
+| ---------------------------------- | ------------ | --------------------- | ------------------------------ |
+| Compromised isis                   | no           | no                    | **yes**, once it is the bridge |
+| Compromised amun (hub)             | no           | no                    | yes                            |
+| Compromised device on the home LAN | no           | no                    | yes                            |
+| Stolen Pixel 9, locked             | no           | no                    | no                             |
+| Stolen Pixel 9, unlocked           | yes          | yes                   | yes                            |
 
 The last row is the residual risk and it is accepted: the trust anchor is
 possession of the phone plus biometric.
@@ -264,7 +265,7 @@ to the Mac, roughly when, roughly how much.
 and surfaces each request for approval. With the phone as the trust anchor the
 approval travels the same channel as the instruction, which is sound because that
 channel is authenticated end to end by a key amun cannot produce. The cost is
-that every tool call needs a tap; see *Open decisions*.
+that every tool call needs a tap; see _Open decisions_.
 
 **The mode in force is shown, and it can be changed from the phone.** Pressing
 the ⋮ at the end of the session's toolbar opens its menu: `Details` first, then
@@ -274,13 +275,13 @@ there that cannot be undone.
 
 - ⚠ **The mode shown is the one the console set, not the one the file records.**
   The first version read the last `permission-mode` line from the transcript, and
-  it was wrong for exactly the case that matters: a session *resumed* from an
+  it was wrong for exactly the case that matters: a session _resumed_ from an
   interactive one carries that session's mode lines, so the header read `Auto`
   over a console that had passed no `--permission-mode` at all and was asking
   permission for every single call. The console is the only thing that knows what
   it asked for. (If you do read those lines, key on `"type":"permission-mode"` —
   `permissionMode` rides on six kinds of line in one real transcript, including
-  `text` and `assistant`, where it is a conversation that happened to be *about*
+  `text` and `assistant`, where it is a conversation that happened to be _about_
   permission modes.)
 - ⚠ **Unset is not unknown.** With no `--permission-mode` the CLI runs on its own
   default, which asks about everything — so the runner records `default` rather
@@ -293,7 +294,7 @@ there that cannot be undone.
   optimistic), so **the mode shown is what was asked for, not a confirmation**;
   the runner records it only once the line has actually been written, so a
   failure leaves the true mode on screen.
-- ⚠ **The stored name is not the shown name.** `default` displays as *Manual*,
+- ⚠ **The stored name is not the shown name.** `default` displays as _Manual_,
   which is why the modes feel like four-with-one-called-auto while the wire
   carries six: `plan`, `default`, `dontAsk`, `acceptEdits`, `auto`,
   `bypassPermissions`. The client keeps the CLI's own label table (`modes.ts`)
@@ -342,12 +343,13 @@ No CA and no PKI. Pin raw public keys.
      chain a Pixel 9 produces stops one short of the root, so "it ends at a root"
      is not sufficient as a test;
    - nothing in it is revoked, and a status list that could not be fetched is a
-     *failure*, not a skip;
+     _failure_, not a skip;
    - the security level is StrongBox for both the record and the key, because a
      StrongBox claim signed at TEE level is a claim by software that does not hold
      the key;
    - the origin is GENERATED, so the key never existed outside the element;
    - and the hardware — not the OS — enforces an authentication requirement.
+
 3. The pinned SPKI hash is a non-secret constant in the runner's config, changed
    by a commit. Revoking is deleting a line and restarting; adding the iPhone
    later is adding a line.
@@ -357,7 +359,7 @@ to a substitute.
 
 ### Firewall changes required
 
-**Superseded, and reverted.** See *The tunnel*: a Mac that dials out needs no
+**Superseded, and reverted.** See _The tunnel_: a Mac that dials out needs no
 exception at all. The hub's half was deployed and is gone again (`nixos-config`
 `9108db1`); the Mac's half was written and never applied (`xinutec-infra`
 `f9f0717`). What follows is kept as the record of what was tried.
@@ -373,8 +375,8 @@ Both narrow, both in code, both needed only for the phone away from home:
 - **Mac pf** — a matching `pass in quick` above the
   `block in quick inet from 10.100.0.0/24` rule in `setup-vpn-oneway.sh`.
 
-This weakens the one-way property from *nothing on the VPN may initiate toward
-the Mac* to *nothing except the Pixel 9, on one port*. That weakening is why the
+This weakens the one-way property from _nothing on the VPN may initiate toward
+the Mac_ to _nothing except the Pixel 9, on one port_. That weakening is why the
 mTLS layer carries the weight and these rules do not.
 
 ### TLS on the Mac
@@ -389,7 +391,7 @@ to compile into the app.
 
 The alternative that was on the table — a name pointing at the Mac's VPN address
 with a **DNS-01** certificate, the pattern memview already uses for names that
-resolve inside the tunnel — is what a *browser* would need. It stays written down
+resolve inside the tunnel — is what a _browser_ would need. It stays written down
 because that is the answer if a desktop browser ever points at a non-loopback
 address; DNS-01 rather than HTTP-01 because a host nothing may connect to cannot
 be validated inbound.
@@ -414,10 +416,10 @@ points at. Both halves of that turn out not to hold:
   "authentication before every signature" literally** — a key built with
   `setUserAuthenticationRequired(true)` and nothing else demands a face unlock per
   signature, which is a prompt per handshake. `setUserAuthenticationParameters(N,
-  AUTH_BIOMETRIC_STRONG or AUTH_DEVICE_CREDENTIAL)` makes one authentication cover
+AUTH_BIOMETRIC_STRONG or AUTH_DEVICE_CREDENTIAL)` makes one authentication cover
   a stretch. `N` is a real security parameter: it is how long a snatched unlocked
   phone stays useful, so it belongs in the minutes, not the hours. It also means a
-  *device* unlock inside the window authorises the key, so opening the app after
+  _device_ unlock inside the window authorises the key, so opening the app after
   unlocking the phone asks for nothing — which is most of the time.
 - ⚠ **`N` buys interruptions, not just exposure, and the exchange rate is worse
   than it looks.** The prompt is not paced by use: the page polls every few
@@ -431,8 +433,8 @@ points at. Both halves of that turn out not to hold:
   `NONEwithECDSA` implementation buffers its input and opens no keystore operation
   until there is something to sign. The first version of this shipped that mistake:
   measured on a locked Pixel 9, the probe said yes, the certificate was presented,
-  the signature failed inside the network stack, and the page failed *without ever
-  showing the prompt* — which is the one moment the prompt exists for. Signing 32
+  the signature failed inside the network stack, and the page failed _without ever
+  showing the prompt_ — which is the one moment the prompt exists for. Signing 32
   constant bytes and discarding the answer is the test.
 
 The security half of this was confirmed by the same measurement and is worth
@@ -454,7 +456,7 @@ exist.
 **Supersedes the firewall exception, 2026-08-02.** Phase 3 reached the phone by
 opening one port on the Mac to one VPN peer. That works and was deployed on the
 hub, and Pippijn's objection to it was not that it is unsafe but that it need not
-exist: *the Mac does not have to be reachable at all*. It can dial out, and then
+exist: _the Mac does not have to be reachable at all_. It can dial out, and then
 the one-way rule stands as written rather than as amended.
 
 ### The shape
@@ -477,9 +479,9 @@ phase 2 built. isis moves ciphertext and holds no key that opens anything.
 - **The Mac binds loopback only**, for both the gated socket and the desk one.
 
 Proven end to end: `openssl s_client` from isis to `10.100.0.2:8097` is answered
-by *the Mac's* self-signed certificate, and an unauthenticated `curl` to the same
-address gets nothing. The phone reaches it and logs *the console answered with the
-pinned key*.
+by _the Mac's_ self-signed certificate, and an unauthenticated `curl` to the same
+address gets nothing. The phone reaches it and logs _the console answered with the
+pinned key_.
 
 ### Why this rather than a message bridge
 
@@ -497,7 +499,7 @@ the same "nothing open on the Mac" property while keeping the construction that
 has had a decade of adversarial attention. Correctness of the plumbing is a much
 easier thing to be confident about than correctness of a protocol.
 
-Worth being honest about what the tunnel does *not* buy: a compromised isis can
+Worth being honest about what the tunnel does _not_ buy: a compromised isis can
 still feed bytes to a TLS stack on the Mac, exactly as a compromised amun could
 have through the firewall exception. What it removes is the standing exception,
 the listening socket, and any exposure at all while the console is stopped.
@@ -520,7 +522,7 @@ delivery is control.** A page served by isis runs on the near side of whatever
 signing bridge the app exposes; a compromised isis would ask the StrongBox key to
 authorise instructions nobody typed, and the key would agree, because the request
 arrives from the app it was enrolled to. End-to-end encryption is no answer when
-one end's *code* comes from the adversary, and subresource integrity is no answer
+one end's _code_ comes from the adversary, and subresource integrity is no answer
 either — whatever would enforce it also arrived from isis. So the bundle would
 keep its `memview.xinutec.org` URL and gain a signature the app checks against a
 key compiled into the APK, with the signing key on the Mac and a version the app
@@ -581,7 +583,7 @@ identifies a transcript; only the name identifies the work.
 ### One list, awake first
 
 **Superseded, 2026-08-04: the collapsed card is gone.** Resumable conversations
-used to sit behind a disclosure headed *pick up an earlier conversation (n)*, on
+used to sit behind a disclosure headed _pick up an earlier conversation (n)_, on
 the reasoning that resuming is the rarer intent and a dozen ids would push the
 live sessions below the fold. Both halves of that were wrong in use. The page's
 job is to say **what exists and which of it is awake**, and a list that shows the
@@ -590,12 +592,12 @@ cannot answer it — the count is the answer to a question nobody asked.
 
 So the two sources are merged into one ranked list:
 
-| rank | state | what it is |
-|---|---|---|
-| 0 | working | the CLI is doing something this second |
-| 1 | waiting for you | blocked on a permission it cannot answer itself |
-| 2 | idle | a live process with nothing to do |
-| 3 | off | an ended session, or a transcript with no process |
+| rank | state           | what it is                                        |
+| ---- | --------------- | ------------------------------------------------- |
+| 0    | working         | the CLI is doing something this second            |
+| 1    | waiting for you | blocked on a permission it cannot answer itself   |
+| 2    | idle            | a live process with nothing to do                 |
+| 3    | off             | an ended session, or a transcript with no process |
 
 Working first because that is what the page is opened to find out. Blocked
 second: it needs an answer, but it is not going anywhere, while a working
@@ -609,12 +611,12 @@ session's output is arriving now. Within a rank, most recently in play first.
   legibly, since this is the state most of the list is in most of the time and it
   is still what you read to find the conversation you want back.
 - ⚠ **The two row kinds still do different things when tapped**, and it is worth
-  knowing which is which: a live row opens the transcript, an off row *starts a
-  process* with `--resume`. That is what each did before the merge and neither
+  knowing which is which: a live row opens the transcript, an off row _starts a
+  process_ with `--resume`. That is what each did before the merge and neither
   changed, but they now look alike, so the accessible names say `open …` and
   `pick up …` respectively.
 - **A row is a link or a button, never a styled `div`.** A clickable row that is
-  not a control is invisible to a screen reader *and* to the activity trace,
+  not a control is invisible to a screen reader _and_ to the activity trace,
   which records only taps that landed on something interactive — those rows were
   being tapped and never recorded at all.
 - **The title is the conversation's name**, falling back to the repository. Every
@@ -624,7 +626,7 @@ session's output is arriving now. Within a rank, most recently in play first.
 #### The one date on a row is last activity
 
 ⚠ **A session has two dates and the card was showing the wrong one.** `started`
-is when *this console* picked the process up — carried across an in-place upgrade
+is when _this console_ picked the process up — carried across an in-place upgrade
 in the `Tally`, reset by a full restart. It is not when the conversation began
 and it is nothing like when it last moved: the console's own session read
 `13h ago` on its card while its transcript had been written to four seconds
@@ -637,7 +639,7 @@ when anything last happened. Three consequences worth keeping:
 - **It is the same quantity a conversation on disk reports**, which is what lets
   one column mean one thing. Before the merge the two lists were separate and
   could disagree quietly; afterwards they sat in the same slot on adjacent rows,
-  one saying *started then* and the other *last written then*.
+  one saying _started then_ and the other _last written then_.
 - **`Option`, not zero.** A session whose transcript cannot be found has no date
   rather than one in 1970, so the client leaves the column empty instead of
   printing half a century.
@@ -665,8 +667,8 @@ checked. So it is inferred from two signals, either of which is enough:
   make it look busy;
 - its transcript was **written in the last two minutes**.
 
-Both under-detect, which is the right direction: a false *busy* costs a wait, a
-false *free* costs two writers.
+Both under-detect, which is the right direction: a false _busy_ costs a wait, a
+false _free_ costs two writers.
 
 ⚠ **"a running `claude`" means the executable, not a line mentioning claude.**
 Every command Claude Code runs is a shell that first sources a snapshot under
@@ -679,7 +681,7 @@ decides now.
 
 The list also has to be **fetched again while somebody is looking at it**. `busy`
 is a snapshot of a moment, and the moment it matters is just after a session ends
-— fetched once at start-up, the UI still said *in use* long after the process was
+— fetched once at start-up, the UI still said _in use_ long after the process was
 gone, which is indistinguishable from the check being wrong. It refreshes on the
 same poll as the live sessions, but only while the panel is open.
 
@@ -692,16 +694,16 @@ SIGTERM.
 
 ### What resume brings back
 
-`--resume` restores the CLI's *context*, not the console's view: the process
+`--resume` restores the CLI's _context_, not the console's view: the process
 returns knowing the whole conversation and replays none of it on stdout. So a
 resumed session used to open empty, with `0 turns` — the console's count of what
 it watched, which reads as the conversation's length. The same mistake in a
 second place: any counter kept as a running total says how much of a conversation
-*this console* saw, which is why the exchange count is read back off the file
+_this console_ saw, which is why the exchange count is read back off the file
 instead.
 
 ⚠ **Finding the transcript is not just matching the session id.** Claude Code
-puts a *directory* beside the file with exactly the same name — `<id>/subagents/`
+puts a _directory_ beside the file with exactly the same name — `<id>/subagents/`
 and `<id>/tool-results/` — and a directory's file stem is its whole name, so
 matching on the stem alone finds it first about half the time. Everything
 downstream then reads a directory as a conversation and reports it empty: no
@@ -742,30 +744,30 @@ themselves carry the reasoning.
 
 ### The shape
 
-| file | what it owns |
-|---|---|
-| `app.ts` / `app.html` | the shell: toolbar, build stamp, `<router-outlet>` |
-| `sessions-view.ts` | the list — one ranked row per conversation, and starting one |
-| `session-view.ts` | one conversation: transcript, composer, approvals, header |
-| `session-store.ts` | **the state that outlives a page** — transcripts, activity, background tasks |
-| `past-store.ts` | the list of resumable conversations |
-| `transcript.ts` | `fold(entries, event)` — pure, the whole rendering model |
-| `models.ts` | the wire types; `KINDS` mirrors `protocol::Event` so the wire is checked, not trusted |
-| `console-api.ts` | HTTP, one method per route |
-| `host.ts` | the interceptor: every failed request becomes a telemetry `fail` |
-| `updates.ts` | notices a new bundle and decides *when* to reload |
-| `budget.ts` | `costMatters` — whether a cost figure means anything yet |
-| `errors.ts` | `unknown` → a sentence; nothing reaches the screen as `[object Object]` |
-| `rendered.ts` | markdown → HTML | 
-| `clock.ts` | `HH:MM`, and deliberately asks nothing about *now* |
-| `foreground.ts` | "the app came back" — a phone suspends pages for hours |
-| `telemetry.ts` | taps, navigations, failures, and anything that throws |
-| `restyle.ts` | asks again for a stylesheet whose request failed |
-| `modes.ts` | the CLI's permission modes, its own labels and its own order |
-| `model.ts` | the id the CLI reports → the name anybody says; unknown ids shown whole |
-| `naming.ts` | what to call a conversation — its name, else where it runs; one rule, two views |
-| `session-sheet.ts` | the details behind the heading: path, model id, mode, session id |
-| `here.ts` | the open conversation, for the toolbar's menu above the router |
+| file                  | what it owns                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------- |
+| `app.ts` / `app.html` | the shell: toolbar, build stamp, `<router-outlet>`                                    |
+| `sessions-view.ts`    | the list — one ranked row per conversation, and starting one                          |
+| `session-view.ts`     | one conversation: transcript, composer, approvals, header                             |
+| `session-store.ts`    | **the state that outlives a page** — transcripts, activity, background tasks          |
+| `past-store.ts`       | the list of resumable conversations                                                   |
+| `transcript.ts`       | `fold(entries, event)` — pure, the whole rendering model                              |
+| `models.ts`           | the wire types; `KINDS` mirrors `protocol::Event` so the wire is checked, not trusted |
+| `console-api.ts`      | HTTP, one method per route                                                            |
+| `host.ts`             | the interceptor: every failed request becomes a telemetry `fail`                      |
+| `updates.ts`          | notices a new bundle and decides _when_ to reload                                     |
+| `budget.ts`           | `costMatters` — whether a cost figure means anything yet                              |
+| `errors.ts`           | `unknown` → a sentence; nothing reaches the screen as `[object Object]`               |
+| `rendered.ts`         | markdown → HTML                                                                       |
+| `clock.ts`            | `HH:MM`, and deliberately asks nothing about _now_                                    |
+| `foreground.ts`       | "the app came back" — a phone suspends pages for hours                                |
+| `telemetry.ts`        | taps, navigations, failures, and anything that throws                                 |
+| `restyle.ts`          | asks again for a stylesheet whose request failed                                      |
+| `modes.ts`            | the CLI's permission modes, its own labels and its own order                          |
+| `model.ts`            | the id the CLI reports → the name anybody says; unknown ids shown whole               |
+| `naming.ts`           | what to call a conversation — its name, else where it runs; one rule, two views       |
+| `session-sheet.ts`    | the details behind the heading: path, model id, mode, session id                      |
+| `here.ts`             | the open conversation, for the toolbar's menu above the router                        |
 
 ### The state model
 
@@ -782,7 +784,7 @@ and the only place any of it is decided.
 
 ⚠ **Page by the cursor, never by a count.** This once worked backwards from the
 end of the file using "how many events the reader holds", which is wrong twice:
-the file grows, and the client counts *folded entries* while the server counts
+the file grows, and the client counts _folded entries_ while the server counts
 events. Measured: a reader holding 266 events asked for 170 and got back 96 it
 already had, every time, for ever.
 
@@ -796,12 +798,12 @@ already had, every time, for ever.
   `content-visibility: hidden` — still laid out, still measured — which the
   layout harness reported as 41 text overlaps.
 - **A method read by a template must be a `computed`.** `DL-ANGULAR-TEMPLATE-
-  METHOD-CALL`; a method body runs on every change-detection pass and cannot
+METHOD-CALL`; a method body runs on every change-detection pass and cannot
   cache.
 - **A class in a template must be styled or referenced.** `DL-ANGULAR-UNSTYLED-
-  CLASS`.
+CLASS`.
 - **Specs must import the vitest globals explicitly.** Type-aware linting binds a
-  spec to the *nearest* tsconfig, not `tsconfig.spec.json`, so `describe` has no
+  spec to the _nearest_ tsconfig, not `tsconfig.spec.json`, so `describe` has no
   type and every call is "unsafe".
 - **48px on every control**, app-wide in `styles.scss`, because `min-height` has
   to beat the `height` Material sets from its own tokens.
@@ -819,8 +821,8 @@ already had, every time, for ever.
   a second app wants it. `expectThumbTargets` beside it is equally general and
   has lived here alone for as long as it has existed.
 - **`visualViewport`'s resize is what reports the soft keyboard.** A window
-  resize does not fire. Whether the reader is at the bottom is *remembered as
-  they scroll*, never measured when wanted — by then the box has shrunk and the
+  resize does not fire. Whether the reader is at the bottom is _remembered as
+  they scroll_, never measured when wanted — by then the box has shrunk and the
   arithmetic says "hundreds of pixels from the bottom" about somebody who never
   moved.
 - **`EventSource` sends `Last-Event-ID` only for its own reconnects.** A new one
@@ -844,7 +846,7 @@ Two separate faults, found one behind the other:
   it into the app as a `network-security-config` anchor **scoped to the console's
   host** — a `base-config` would have been shorter and would have let that key
   stand in for any site the app loads. It loads one. Generated by Gradle with the
-  certificate as a task *input*, so changing it rebuilds the APK rather than
+  certificate as a task _input_, so changing it rebuilds the APK rather than
   shipping one that trusts a key the console no longer has.
 - **The certificate did not name the address the phone dials**
   (`ERR_CERT_COMMON_NAME_INVALID`, code 2). `console-identity.sh` enumerated this
@@ -870,7 +872,7 @@ what the security rests on.
 client pin from one.** `console.sh` reads `~/.config/agent-console/clients` once
 and exports the result as `CONSOLE_CLIENT_KEYS`; an upgrade replaces the image
 and keeps that variable, so the console carries the pin list from whenever it was
-*originally* launched. Enrol a phone, upgrade, and it refuses the phone it was
+_originally_ launched. Enrol a phone, upgrade, and it refuses the phone it was
 just told to trust — naming, in the log, the exact key sitting in the file:
 
     WARN console::tls: refused a client key that is not pinned key=15c39ba6…
@@ -886,7 +888,7 @@ Two more things that bite in the same operation, both measured:
 - **Re-enrolling destroys the old key before the new one is trusted.** The phone
   generates and discards in one step, and the console only learns the new pin
   when it restarts — so there is an unavoidable lockout of a minute or two.
-  Fetch Google's revocation list *first*: `enrol.sh` fetches it after the key is
+  Fetch Google's revocation list _first_: `enrol.sh` fetches it after the key is
   already gone, and a network failure there strands the phone.
 - **`UNLOCK_SECONDS` is baked into the key at generation**, inside
   `KeyGenParameterSpec`. Changing the constant and installing the APK changes
@@ -906,7 +908,7 @@ request is not a transcript line.
 
 Measured on a live session, not reasoned about: `coach` called
 `AskUserQuestion` at 13:35Z, the console was upgraded at 13:52Z, and the session
-sat on a tool row reading *running* for an hour with `waiting: 0` — the one
+sat on a tool row reading _running_ for an hour with `waiting: 0` — the one
 state that says "nothing to answer" while something is waiting. The recovery is a
 stop and a resume, which costs the blocked turn; the question itself is
 recoverable from the transcript's `tool_use`, since the arguments are recorded
@@ -926,8 +928,8 @@ the difference between a seamless upgrade and an orphaned conversation.
 `AskUserQuestion` is gated by `can_use_tool` like every other tool, so it arrives
 as an ordinary `ask` carrying its questions, options, descriptions and
 `multiSelect` flag. The console showed it as allow/refuse for months, and every
-question it was shown came back to the session as *"The user did not answer the
-questions."*
+question it was shown came back to the session as _"The user did not answer the
+questions."_
 
 ⚠ **That message is not a timeout and not a missing picker.** The tool's `call`
 reads `answers` out of its own arguments and formats them — it prompts nobody —
@@ -949,7 +951,7 @@ list were ever reordered.
 Three decisions worth keeping:
 
 - **Only a question may have its arguments edited.** `updatedInput` would
-  otherwise let a client approve a *different* command from the one it was shown,
+  otherwise let a client approve a _different_ command from the one it was shown,
   so the runner records which tool asked and refuses `answers` for anything else.
   A console that is compromised still cannot rewrite what it approves.
 - **One question with one answer sends on the tap; anything else waits.** Several
@@ -961,11 +963,11 @@ Three decisions worth keeping:
   result builder tests `response` before `answers` and reports only the one it
   finds, so prose sent alongside a set of taps throws the taps away silently.
   Typing therefore takes the card over — the options go quiet and the button
-  changes from *answer* to *reply* — and clearing the field hands them back.
+  changes from _answer_ to _reply_ — and clearing the field hands them back.
   Whitespace does not count, because the CLI trims before testing. The
   alternative was a card that offered both and honoured one.
 - **A note qualifies a choice; words replace it.** `annotations[q].notes` is the
-  third field, and the only one that *combines* — the CLI reports
+  third field, and the only one that _combines_ — the CLI reports
   `"<question>"="<label>" notes: …`, and a question carrying a note but no choice
   it reports as `"<question>"=(no option selected) notes: …` and counts as
   answered. So the send button waits for a choice **or** a note against every
@@ -993,11 +995,11 @@ whatever the permission mode.
 Three surfaces, and the rule between them is **how often the answer is wanted**,
 not how important it is.
 
-| surface | holds | why there |
-|---|---|---|
-| toolbar | back to the list, the session's name, and the ⋮: details, permission modes and *stop* | **where you are, what this is, and what can be done to it** — all three true of the whole screen rather than of any part of it |
-| facts row | what changes — working/idle, exchanges, context, mode icon, model | what a **glance** is for |
-| sheet | the working directory, the first instruction, the model id, the permission mode in words, the session id, started, last active, the rate limit when it is not `allowed` | what is wanted **once**, and then not again |
+| surface   | holds                                                                                                                                                                   | why there                                                                                                                      |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| toolbar   | back to the list, the session's name, and the ⋮: details, permission modes and _stop_                                                                                   | **where you are, what this is, and what can be done to it** — all three true of the whole screen rather than of any part of it |
+| facts row | what changes — working/idle, exchanges, context, mode icon, model                                                                                                       | what a **glance** is for                                                                                                       |
+| sheet     | the working directory, the first instruction, the model id, the permission mode in words, the session id, started, last active, the rate limit when it is not `allowed` | what is wanted **once**, and then not again                                                                                    |
 
 - **Identity and actions share the bar, in Material's own order.** Leading
   navigation icon, headline naming the screen, trailing actions: back to the
@@ -1009,7 +1011,7 @@ not how important it is.
   navigate to, and a menu of things to do to no session is a menu of nothing.
   "This Mac", which used to be there, was true and news to nobody.
 - **The name is a headline, not a control**, and it was a control first — a
-  button on the *right* that opened the details sheet. That put the identity of
+  button on the _right_ that opened the details sheet. That put the identity of
   the screen where the actions belong and made the title a thing to press. The
   sheet is the first item in the ⋮ menu instead, above the modes, because it is
   the only item there that reads rather than acts.
@@ -1027,7 +1029,7 @@ not how important it is.
     beside it. Measured: 339px of text in a 223px control, 69px of it to the left
     of its own button. "No horizontal overflow" and "no undersized control" were
     both true throughout. The fix was a button we own, with a box we can clip.
-  - As a block `h1`, the *rect stopped reporting the spill at all*: a block's box
+  - As a block `h1`, the _rect stopped reporting the spill at all_: a block's box
     is its box whether or not the glyphs stay inside it, where the old inline
     span's rect grew with them. Every box assertion in the rewritten test stayed
     green with `overflow: hidden` ablated away. What catches it is asserting the
@@ -1036,7 +1038,7 @@ not how important it is.
     its box **and** cannot be painted outside it.
 - ⚠ **The leading glyph jumped 12px between the two screens**, and no check that
   loads one screen at a time could have seen it: the fault is a difference
-  *between* two renders. A bare `mat-icon` starts at the toolbar's 16px; a glyph
+  _between_ two renders. A bare `mat-icon` starts at the toolbar's 16px; a glyph
   inside an icon button starts 12px further in — 12 rather than Material's own 8,
   because `styles.scss` raises every icon button to a 48px thumb target and
   centres the 24px glyph in it. Arithmetic from the framework's numbers left 4px
@@ -1045,7 +1047,7 @@ not how important it is.
   takes no part in history, so a back press with one open goes to the page
   underneath — and Material's `closeOnNavigation` then dismisses the sheet on the
   way past, which is what makes it look handled. Measured: open the details sheet
-  on a session, press back, and you land on the session *list* with the sheet
+  on a session, press back, and you land on the session _list_ with the sheet
   gone. The gesture meaning "put this panel away" also threw away the
   conversation. On the list it is worse — the start sheet sits on the root, so
   back leaves the app. `dismiss.ts` gives each sheet a history entry to spend,
@@ -1061,7 +1063,7 @@ not how important it is.
   the app at all.
 - ⚠ **The layout harness serves a prebuilt bundle and does not build it.**
   `e2e/harness.mjs` points at `dist/console-build/browser`, so a Playwright run
-  after an edit measures the *previous* build. Three ablations in a row came back
+  after an edit measures the _previous_ build. Three ablations in a row came back
   green against a bundle that did not contain them. `pnpm run build:console`
   between the edit and the run, or the result means nothing — the same hazard the
   harness spec already warns about for the rsynced copies.
@@ -1120,7 +1122,7 @@ the same question twice.
   that field only when a threshold is crossed (≥90% of a window with ≤72% of its
   time elapsed, or a `-surpassed-threshold` header from the server). Measured on
   a live stream: `{"kind":"limit","window":"five_hour","status":"allowed",
-  "resets_at":…}` and no figure. So it is kept as a second source — it arrives
+"resets_at":…}` and no figure. So it is kept as a second source — it arrives
   unasked, and exactly when things are tight — with `get_usage` as the one that
   answers routinely.
 - ⚠ **`get_usage` is experimental** and the CLI says so: "the response shape may
@@ -1156,7 +1158,7 @@ they did.
 
 - **The 48px thumb floor is why grouping was the option worth taking.** Every
   control in this app is held to it, so while each call is its own tappable row
-  it cannot usefully go below ~48px however little it says. A run becomes *one*
+  it cannot usefully go below ~48px however little it says. A run becomes _one_
   target instead of twelve, which is the only way past that floor.
 - **Grouped for rendering, not for folding.** `blocks()` walks the entries
   `fold()` already built; the entries stay a flat list, so a result still finds
@@ -1177,11 +1179,11 @@ they did.
 Three figures on the header have been wrong at least once, each the same way: **a
 field that reads like a measurement and is actually an aggregate.**
 
-| shown | source | trap |
-|---|---|---|
-| interactions | prompts in the transcript since the last compaction, **counted** | `num_turns` is not this — see below |
-| cost | `total_cost_usd`, **assigned** | it is the session total already — summing gave $59 against a true $12 |
-| context | per-**message** `usage`, **assigned** | the result line's `usage` sums every request a turn made — 5.1M against a 1M window |
+| shown        | source                                                           | trap                                                                                |
+| ------------ | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| interactions | prompts in the transcript since the last compaction, **counted** | `num_turns` is not this — see below                                                 |
+| cost         | `total_cost_usd`, **assigned**                                   | it is the session total already — summing gave $59 against a true $12               |
+| context      | per-**message** `usage`, **assigned**                            | the result line's `usage` sums every request a turn made — 5.1M against a 1M window |
 
 - **`num_turns` counts assistant messages, not exchanges.** Measured: two
   exchanges reported 5 and 8, and their transcripts hold exactly 5 and 8
@@ -1221,6 +1223,54 @@ field that reads like a measurement and is actually an aggregate.**
   running: all five were started that afternoon, the newest nine hours gone, and
   the session had no child processes at all.
 
+### Showing a session a picture
+
+The console's one inbound path for something that is not text, and the phone is
+the reason: the screen being talked about is _there_. A layout that settles
+wrongly, a chart that reads oddly, a thing on a desk — all of it was describable
+and not showable.
+
+⚠ **Measured against CLI 2.1.221 before anything was built on it.** A user
+message on stream-json stdin may carry an `image` content block beside its text,
+the CLI forwards it, and the model reads it — a real screenshot came back
+described. The design that was assumed necessary, writing the file to disk and
+sending its path for the session to open, was dropped on that evidence.
+
+- **Scaled in the page, not on the Mac.** 1568px on the long edge, which is
+  Anthropic's own figure: above it the far end scales the image down anyway, so
+  the rest is time on the wire. A Pixel screenshot's 2400px comes to this and
+  loses nothing readable.
+- **Encoded twice and the smaller one wins** — PNG and JPEG both, keep the
+  lighter. One rule instead of a threshold: a screenshot of a page is flat colour
+  and compresses far better as PNG, a photograph of anything real is several
+  times smaller as JPEG, and guessing from the source type gets a screenshot
+  photographed as a JPEG exactly wrong.
+- **The format is sniffed at the runner, never taken from the client.** The media
+  type is what the CLI is told and what the API believes; a mislabelled file would
+  come back as a refusal minutes later, in another process, as a turn that failed
+  for no stated reason. RIFF is checked twice — an AVI opens the same four bytes
+  as a WebP.
+- **5 MB is the API's limit and the runner's**, with the reason in words. The
+  client scales first, so this answers a client that did not.
+- **The picture goes before the words.** Anthropic's guidance, and not cosmetic:
+  a question read before the thing it is about is answered from the question
+  alone.
+- **A copy is kept**, under `~/.console/images/<session>/`, and the message says
+  where. The image is in the conversation only until a compaction drops it, and
+  the path is what makes it possible to look again — at full size, which is not
+  what was sent.
+- **It is held, not sent, on choosing.** The words about a screenshot are usually
+  the point of sending it, and a picture that left on the tap would have to be
+  explained by a second message the model reads after it. Sending with nothing
+  said is still a whole message, and the commonest one.
+
+⚠ **The phone needed a change of its own, and without it nothing happens at
+all.** A WebView refuses every `<input type="file">` unless the host implements
+`onShowFileChooser` — no error, no picker, silence. It lives in the console app
+rather than the shared shell, which lists a file chooser under what an app still
+owns (`ui-harness/android`). So this feature needs a build of the APK and not
+only of the bundle.
+
 ### The list a session keeps for itself
 
 Claude Code files tasks under `~/.claude/tasks/<session-id>/<n>.json`, one small
@@ -1232,11 +1282,11 @@ has exited answers at all.
 
 Three readers, because they want three different amounts of the same files:
 
-| reader | what it takes | where it goes |
-|---|---|---|
-| `tasks::counts` | two numbers per session | every row of the front page, and the ⋮ menu |
-| `tasks::listed` | everything but the prose | the tasks sheet |
-| `tasks::detail` | one task's write-up | the row that was tapped |
+| reader          | what it takes            | where it goes                               |
+| --------------- | ------------------------ | ------------------------------------------- |
+| `tasks::counts` | two numbers per session  | every row of the front page, and the ⋮ menu |
+| `tasks::listed` | everything but the prose | the tasks sheet                             |
+| `tasks::detail` | one task's write-up      | the row that was tapped                     |
 
 - **Descriptions are why the list and the words are two requests.** They are
   written-up results running to kilobytes: one live session's 355 tasks are 1.5 MB
@@ -1294,17 +1344,17 @@ everything the syntax promises and the sanitiser then removes what it will not
 allow into a page, silently, so what a reader gets is the pair. Measured across
 every shape an answer here actually uses:
 
-| shape | verdict |
-|---|---|
-| tables, incl. `code`/**bold** in cells | works |
-| a table with no blank line before it | works — it interrupts the paragraph |
-| column alignment `\|---:\|` | **was silently dropped** — see below |
-| task lists `- [x]` | **was indistinguishable** — see below |
-| nested lists, blockquotes, `---`, h1–h4 | works |
-| `~~strike~~`, bare URLs, `<details>` | works |
-| footnotes `[^1]` | not supported; renders literally |
-| h5/h6 | unstyled, so *smaller* than body text |
-| `<script>`, `onerror=` | stripped |
+| shape                                   | verdict                               |
+| --------------------------------------- | ------------------------------------- |
+| tables, incl. `code`/**bold** in cells  | works                                 |
+| a table with no blank line before it    | works — it interrupts the paragraph   |
+| column alignment `\|---:\|`             | **was silently dropped** — see below  |
+| task lists `- [x]`                      | **was indistinguishable** — see below |
+| nested lists, blockquotes, `---`, h1–h4 | works                                 |
+| `~~strike~~`, bare URLs, `<details>`    | works                                 |
+| footnotes `[^1]`                        | not supported; renders literally      |
+| h5/h6                                   | unstyled, so _smaller_ than body text |
+| `<script>`, `onerror=`                  | stripped                              |
 
 Two of those were defects rather than gaps:
 
@@ -1329,7 +1379,7 @@ Two of those were defects rather than gaps:
 **Superseded, 2026-08-04: the `earlier messages` button is gone.** The seed is a
 page, not the conversation, and reading back through a morning meant pressing a
 control once per page — a dozen taps to travel where one gesture should. Reaching
-the top *is* the request now: a mark sits inside the scroller above the oldest
+the top _is_ the request now: a mark sits inside the scroller above the oldest
 entry, an `IntersectionObserver` watches it, and crossing it fetches the page
 before.
 
@@ -1343,7 +1393,7 @@ before.
   not states. When the page that arrives is shorter than the screen the mark
   never leaves, no transition happens, and the reader is stranded at the top of a
   conversation that has more. Re-observing delivers a fresh initial callback, so
-  a counter bumped after each page — *after* the scroll position is restored — is
+  a counter bumped after each page — _after_ the scroll position is restored — is
   what makes "as much as the reader wants" true rather than "one screenful more".
 - **Not answered from `onScroll`.** That handler already decides one thing from a
   position it cannot fully trust (see below), and a second question drawn from
@@ -1387,7 +1437,7 @@ timing-dependent gets `--repeat-each`, not a rerun or two.
 The stream is handed to the test for these — `EventSource` is replaced before the
 app loads, so the test decides when each message lands. A mocked SSE body cannot
 answer the question: it is complete and closed before the first paint, which
-shows that a page *arrives* at the bottom and never whether it *keeps* following.
+shows that a page _arrives_ at the bottom and never whether it _keeps_ following.
 
 ### When a stylesheet does not arrive
 
@@ -1410,7 +1460,7 @@ buttons were.
   does not answer from it — and the attempt count ignores that query, or every
   attempt would look like a different file and the bound would never be reached.
 - ⚠ **`init` is guarded and the listener is removed on destroy.** A second
-  listener does not retry harder, it retries *per failure*, doubling the requests
+  listener does not retry harder, it retries _per failure_, doubling the requests
   aimed at something already struggling. The window outlives the service, so a
   rebuilt injector leaves the old listener live — which is what a test suite
   does, and it is how this was found.
@@ -1424,7 +1474,7 @@ buttons were.
 alive. **Not `SIGTERM`** — `kill` means stop, and an upgrade answering to it
 would be a stop that sometimes did not stop.
 
-It works because `execve` replaces the *image*, not the process: same pid, so the
+It works because `execve` replaces the _image_, not the process: same pid, so the
 `claude` children are still children, and open descriptors survive unless they
 are close-on-exec. Each session's id, directory, pid and three descriptor numbers
 travel in `CONSOLE_HANDOVER`; the new image rebuilds sessions from those rather
@@ -1443,7 +1493,7 @@ than spawning any.
   on the init line). Reseeding cannot get them back. Shipped without this, and an
   upgraded session read as a brand new one that had done nothing: `0 turns`, no
   model, and a context with no window to be a fraction of. Fullness itself is
-  *not* carried — that one genuinely is on disk, on every assistant message, and
+  _not_ carried — that one genuinely is on disk, on every assistant message, and
   reseeding it is the more accurate answer.
 - ⚠ **The environment carries over**, so anything read from it at startup —
   `STATIC_DIR`, `CONSOLE_DIRS`, the TLS paths — keeps its old value. Changing one
@@ -1464,7 +1514,7 @@ than spawning any.
 
 ⚠ **A missing file must 404, not answer the app.** The console falls back to
 `index.html` for routes the SPA owns (`/s/<uuid>`), and falling back for
-*everything* meant a file that was briefly absent came back as `200 text/html` —
+_everything_ meant a file that was briefly absent came back as `200 text/html` —
 a browser handed HTML where it asked for a font neither retries nor complains.
 The icons vanished on a reload and nothing recorded a failure: not the server
 log, not the client trace, not the network panel. `api::spa` 404s anything whose
@@ -1502,7 +1552,7 @@ Each phase is usable on its own and none of the work is thrown away if a later
 phase is declined.
 
 1. ✅ **Runner and desk console, on loopback.** Runner on the Mac speaking
-   stream-json, Angular UI, bound to `127.0.0.1` — and it *refuses* to bind
+   stream-json, Angular UI, bound to `127.0.0.1` — and it _refuses_ to bind
    anywhere else, which is a check in `main.rs` rather than a note in a README.
    Sessions may only start inside `CONSOLE_DIRS` (default `~/Code`), resolved
    through symlinks. Port 8097: 8091 is memview's and 8092 was already taken on
@@ -1529,6 +1579,7 @@ phase is declined.
    - **macOS's openssl makes version-1 certificates**, which rustls refuses with
      `UnsupportedCertVersion` and no hint. `Gate::new` checks the version and
      says so, including the `-addext` that fixes it.
+
 3. ✅ **The phone, at home.** `console/android` — the eleventh app on
    `org.xinutec:shell`, with the two certificate callbacks and a StrongBox key.
    `scripts/console-identity.sh` gives the Mac a key of its own,
@@ -1540,8 +1591,9 @@ phase is declined.
    completed through the gate, so it is the end-to-end claim and not an inference.
 
    This half costs no firewall change, which is the point of splitting it out.
+
 4. ~~**The phone, away**, by firewall exception.~~ Deployed on the hub and then
-   reverted; the Mac's half was never applied. Superseded by *The tunnel*.
+   reverted; the Mac's half was never applied. Superseded by _The tunnel_.
 5. ✅ **The tunnel.** The Mac dials out to isis, which listens on its VPN address
    and hands the bytes back down; the mTLS gate is untouched and terminates at the
    Mac. Both firewall changes reverted — amun's was deployed and is gone again,
@@ -1550,19 +1602,19 @@ phase is declined.
    nothing, and the phone reaches it through the tunnel.
 6. ✅ **Resume.** Pick up a conversation that already exists rather than only
    starting new ones, refused when anything else appears to be using it. See
-   *Reaching a conversation that already exists* — including why the console
+   _Reaching a conversation that already exists_ — including why the console
    cannot attach to a session something else already holds.
    The view is seeded from the transcript, so a resumed session shows what came
-   before it — see *What resume brings back*.
+   before it — see _What resume brings back_.
 7. **memview link-out** from `/agents`.
 
 The old ordering had phase 1 listening on the LAN with no authentication, on the
 grounds that pf blocks the VPN and leaves the LAN alone. It does — and the LAN is
-the part of the model that had not been stated. See *Security model*.
+the part of the model that had not been stated. See _Security model_.
 
 Do not hardcode the Mac's LAN address in a deployment script. A dead DHCP lease
 baked into a deploy script is a failure this fleet has already had. The phone
-build does need *an* address, and it lives in `console/android/console.env` —
+build does need _an_ address, and it lives in `console/android/console.env` —
 outside the repository, beside the pin it belongs with, and written by the script
 that generated the key.
 
@@ -1590,12 +1642,12 @@ that generated the key.
 
 ## Deliberately not doing
 
-- **Relaying *decrypted* instructions through a service on isis.** The original
+- **Relaying _decrypted_ instructions through a service on isis.** The original
   entry rejected relaying through memview outright, on the grounds that it "puts a
   machine that is exposed to the internet in a position to send arbitrary
   instructions to the root-of-truth host". That is true of a relay that can read
   what it carries and false of one that cannot — so the objection was too broad,
-  and *The tunnel* is a relay. What stands is the narrower version: isis may move
+  and _The tunnel_ is a relay. What stands is the narrower version: isis may move
   bytes it cannot read, and may not be told what any of them mean.
 - **A second WireGuard tunnel nested phone-to-Mac inside the hub tunnel.** It
   reaches the same end-to-end property as mTLS with more moving parts and no

@@ -520,6 +520,7 @@ dependencies = [
  "anyhow",
  "axum",
  "axum-server",
+ "base64",
  "filetime",
  "libc",
  "rcgen",
