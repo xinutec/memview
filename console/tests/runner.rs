@@ -795,6 +795,7 @@ async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
         cost_usd: 1.25,
         window: Some(1_000_000),
         limit: Some("allowed_warning".into()),
+        busy: None,
         pending: Default::default(),
         spent: Default::default(),
         counted: Default::default(),
@@ -828,6 +829,58 @@ async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
 }
 
 #[tokio::test]
+async fn an_upgrade_keeps_a_session_that_was_working_working() {
+    // ⚠ **The defect this exists for, measured on the phone.** A status is
+    // announced when it CHANGES, and none of them is written to the transcript —
+    // so a session mid-turn when the console replaced itself came back with
+    // nothing saying so, and the re-seed could not put it back. The front page
+    // read `idle` over a conversation that was busy compacting, and went on
+    // saying so until it next printed something, which was minutes.
+    //
+    // Both halves in one test: that `tally()` takes the flag off a live session,
+    // and that `adopt` puts it back. Building the tally by hand would prove only
+    // the second, and it is the first that nothing else covers.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    session.send("this will take a while").await.expect("send");
+    until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Busy { .. }))
+    })
+    .await;
+
+    let carried = session.tally();
+    assert_eq!(
+        carried.busy.as_deref(),
+        Some("requesting"),
+        "what it was doing would not survive an upgrade"
+    );
+
+    let (_stdin_read, stdin) = carried_pipe();
+    let (stdout, _stdout_write) = carried_pipe();
+    let (stderr, _stderr_write) = carried_pipe();
+    let after = console::session::Session::adopt(
+        // No transcript by this name, so a re-seed cannot account for it.
+        "not-a-session-on-disk".into(),
+        std::env::temp_dir(),
+        std::process::id(),
+        console::session::Fds {
+            stdin,
+            stdout,
+            stderr,
+        },
+        carried,
+    )
+    .expect("adopt");
+
+    assert_eq!(
+        after.summary().busy.as_deref(),
+        Some("requesting"),
+        "the upgraded console calls a working session idle"
+    );
+}
+
+#[tokio::test]
 async fn an_upgrade_keeps_the_question_a_session_is_blocked_on() {
     // ⚠ **The defect this exists for, measured on a live session.** `execve`
     // does not touch the child, so a session blocked on `can_use_tool` is STILL
@@ -850,6 +903,7 @@ async fn an_upgrade_keeps_the_question_a_session_is_blocked_on() {
         cost_usd: 0.0,
         window: None,
         limit: None,
+        busy: None,
         pending: std::collections::BTreeMap::from([("ask-1".to_string(), asked)]),
         spent: Default::default(),
         counted: Default::default(),

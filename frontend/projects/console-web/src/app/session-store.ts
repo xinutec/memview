@@ -43,6 +43,18 @@ export interface Held {
    * a reconnect is not dated to the reconnection.
    */
   readonly since: WritableSignal<number | undefined>;
+  /**
+   * Whether the stream has said anything about activity since this transcript
+   * was seeded — which is what makes [doing]'s `undefined` mean "idle".
+   *
+   * ⚠ **Until it has, `undefined` means "no idea" instead**, and the summary's
+   * own `busy` is the better answer. A re-seed leaves this client knowing
+   * nothing about the present: the console announces a status when it changes,
+   * so a session that was already working before the reconnect says nothing
+   * further until it stops. Without this the page read `idle` over a session
+   * that was plainly working, having simply not been listening when it said so.
+   */
+  readonly spoken: WritableSignal<boolean>;
   // ⚠ **No background count here, and there was one.** It was derived from this
   // stream, which was the only way to know until the runner started counting
   // for the list — and then the same question had two answers: this one reset
@@ -151,6 +163,7 @@ export class SessionStore {
       cursor: signal(0),
       doing: signal<string | undefined>(undefined),
       since: signal<number | undefined>(undefined),
+      spoken: signal(false),
       seen: 0,
       used: ++this.clock,
     };
@@ -174,10 +187,12 @@ export class SessionStore {
       // Only the first one starts the clock — see [Held.since].
       if (held.doing() === undefined) held.since.set(event.at ?? Date.now());
       held.doing.set(event.status ?? 'working');
+      held.spoken.set(true);
     }
     if (event.kind === 'turn' || event.kind === 'exited') {
       held.doing.set(undefined);
       held.since.set(undefined);
+      held.spoken.set(true);
     }
     held.entries.update((entries) => [...fold(entries, event)]);
   }
@@ -188,11 +203,22 @@ export class SessionStore {
    * All three, because they are one fact in three places: the entries, where the
    * page begins — which the `joined` event of the replay re-establishes — and
    * how far the transcript had got, which is now nowhere.
+   *
+   * ⚠ **What it was doing goes too, and that is the point.** [Held.doing] is
+   * cleared only by the `turn` or `exited` that ends the work, so a turn that
+   * ended while this client was disconnected clears nothing: the console
+   * replaced itself mid-turn, the event went to nobody, and the page showed a
+   * session working with a timer running for as long as it was left open. A
+   * re-seed means this client knows nothing about the present, which is what
+   * `undefined` says — the next status line off the stream says the rest.
    */
   private forget(held: Held): void {
     held.entries.set([]);
     held.cursor.set(0);
     held.seen = 0;
+    held.doing.set(undefined);
+    held.since.set(undefined);
+    held.spoken.set(false);
   }
 
   /** Let go of the least recently opened transcripts past [KEPT].

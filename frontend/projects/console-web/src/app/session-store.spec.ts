@@ -113,6 +113,25 @@ describe('SessionStore', () => {
     expect(runner.opened[1].closed).toBe(false);
   });
 
+  it('lets go of what it was doing when the stream starts again', () => {
+    // ⚠ **A turn that ends during a reconnect ends for nobody.** `doing` is
+    // cleared by the `turn` event, so a console that replaced itself mid-turn
+    // left the page showing a session working, timer running, for as long as it
+    // stayed open — while the front page, reading the runner's own flag, said
+    // idle. A re-seed means this client knows nothing about the present, and
+    // `spoken` is how it says so rather than claiming the session is idle.
+    const held = store.open('restarted');
+    runner.latest.send({ kind: 'busy', status: 'requesting' }, 1);
+    expect(held.doing()).toBe('requesting');
+    expect(held.spoken()).toBe(true);
+
+    runner.latest.reset();
+
+    expect(held.doing()).toBeUndefined();
+    expect(held.since()).toBeUndefined();
+    expect(held.spoken()).toBe(false);
+  });
+
   it('forgets the transcripts nobody has looked at for longest', () => {
     // A phone is not the place to hold every conversation ever opened. The one
     // being read is never a candidate — it has a stream on it.

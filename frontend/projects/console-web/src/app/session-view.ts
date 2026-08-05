@@ -84,8 +84,32 @@ export class SessionView implements OnDestroy {
    *
    * Not `session().busy`: that rides the five-second poll, so it lagged the
    * work it described and missed anything shorter than the interval.
+   *
+   * ⚠ **Except before the stream has spoken at all**, where the poll is the only
+   * one of the two that knows anything — see [[Held.spoken]]. A status is
+   * announced when it changes, so a client that reconnects to a session already
+   * working hears nothing about it until it stops; falling back for that window
+   * alone keeps the lag out of every ordinary turn, where the stream answers
+   * first and this is never consulted.
    */
-  readonly doing = computed(() => this.held()?.doing());
+  readonly doing = computed(
+    () => this.held()?.doing() ?? (this.held()?.spoken() ? undefined : this.session()?.busy),
+  );
+  /**
+   * Whether to draw the activity strip — which is not the same question as
+   * [doing], and was answered with it until this was split out.
+   *
+   * ⚠ **Nothing is arriving while a question stands, whatever the status says.**
+   * A status is announced when it CHANGES and asking is not a change, so a
+   * session blocked on `can_use_tool` still reads `requesting`: it is not
+   * requesting anything, it is waiting for you, and the card saying so is on the
+   * screen. The word stays in the header, where it is the CLI's own report of
+   * where the turn got to. The bar claims something is arriving *now*, which
+   * beside a question holding everything up is untrue — and it cost the card the
+   * room it needed, taking the three pixels that pushed the first option off the
+   * top of a page with no way to scroll to it. That is how this was found.
+   */
+  readonly arriving = computed(() => (this.session()?.waiting ? undefined : this.doing()));
   /**
    * Now, to the second, but only while something is still happening.
    *

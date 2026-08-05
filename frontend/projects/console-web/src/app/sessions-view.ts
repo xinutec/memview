@@ -75,8 +75,16 @@ interface Row {
  * working session is the one whose output is arriving now. Everything awake sits
  * above everything that is not, and the ones that are off keep their places
  * relative to each other by when they were last touched.
+ *
+ * ⚠ **Work left running is its own rank, above idle.** Within a rank the order
+ * is last activity, and a background task is silent until it finishes — so a
+ * session with two of them running sank at exactly the rate of one that had
+ * finished for the day, and was found below a conversation that had genuinely
+ * stopped. It sits under `waiting` because that one is blocked on *you*: this
+ * needs nothing, but it is not done either, and it is the row to find when the
+ * notification lands.
  */
-const RANK = { working: 0, waiting: 1, idle: 2, off: 3 } as const;
+const RANK = { working: 0, waiting: 1, background: 2, idle: 3, off: 4 } as const;
 
 /** Every session this console owns, and the way to start another. */
 @Component({
@@ -150,7 +158,9 @@ export class SessionsView {
             ? RANK.working
             : session.waiting
               ? RANK.waiting
-              : RANK.idle,
+              : session.background
+                ? RANK.background
+                : RANK.idle,
         // ⚠ **Last activity, not when the process started.** `started` is when
         // this console picked the session up; a conversation that has run all
         // day reported `13h ago` while its transcript was four seconds old.

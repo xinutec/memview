@@ -2226,6 +2226,20 @@ test('a running thing says how long it has been running @ phone width', async ({
   // which is the difference between waiting and wondering whether it is stuck.
   await handControlOfTheStream(page);
   await mockRunner(page);
+  // ⚠ **Working and blocked are not the same session.** The shared fixture holds
+  // a standing question, and the strip is deliberately absent while one is on
+  // screen — a session waiting on a permission is not one whose output is
+  // arriving. See `SessionView.arriving`. This test is about the other case, so
+  // it takes the question away rather than asserting a combination the runner
+  // cannot produce.
+  await page.route('**/api/state', (r) =>
+    r.fulfill({
+      json: {
+        ...STATE,
+        sessions: [{ ...STATE.sessions[0], waiting: 0 }, ...STATE.sessions.slice(1)],
+      },
+    }),
+  );
   await page.goto(`/s/${STATE.sessions[0].id}`);
   await page.locator('.transcript').waitFor();
   let seq = 0;

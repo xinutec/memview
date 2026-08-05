@@ -76,6 +76,17 @@ pub struct Tally {
     /// See [`Summary::mode`]. Carried because the console is the only thing
     /// that knows it — no file records it in a way that can be trusted.
     pub mode: Option<String>,
+    /// What the session is doing, if anything. See [`Summary::busy`].
+    ///
+    /// ⚠ **A re-seed cannot recover this**, for the same reason it cannot
+    /// recover [`Self::pending`]: the CLI announces a status on stdout when it
+    /// *changes*, and nothing of the sort is written to the transcript. A
+    /// session that was mid-turn when the console replaced itself came back
+    /// reading `idle` on the front page and stayed that way until it next
+    /// printed something — which, for one that had gone quiet to compact, was
+    /// several minutes of saying nothing was happening while something was.
+    #[serde(default)]
+    pub busy: Option<String>,
     /// ⚠ **Questions the session is blocked on, which nothing else can recover.**
     /// A `can_use_tool` request is a control message, not a transcript line, so
     /// a re-seed cannot produce it — and the *session* stays blocked on it
@@ -728,6 +739,11 @@ impl Session {
                 // page until the next request came back.
                 spent: tally.spent,
                 counted: tally.counted,
+                // The turn that was in flight is still in flight: `execve` does
+                // not touch the child, so whatever it was doing it is still
+                // doing, and its own next status line or `Turn` will correct
+                // this the moment one arrives.
+                busy: tally.busy,
                 ..State::default()
             }),
             stdin: tokio::sync::Mutex::new(Some(Box::new(stdin) as Sink)),
@@ -771,6 +787,7 @@ impl Session {
             limit: state.limit.clone(),
             spent: state.spent.clone(),
             mode: state.mode.clone(),
+            busy: state.busy.clone(),
             pending: state.pending.clone(),
             counted: state.counted,
         }
