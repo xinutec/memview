@@ -104,6 +104,57 @@ async fn a_session_starts_takes_a_message_and_answers() {
 }
 
 #[tokio::test]
+async fn work_left_running_is_counted_until_the_harness_says_it_is_done() {
+    // ⚠ **The list is drawn without opening anything.** This used to be counted
+    // by the session's own page from its event stream, so the one screen that
+    // could say "something is still running here" was the screen you had to be
+    // on already. The runner watches the same two events and the count rides the
+    // summary.
+    //
+    // A backgrounded call returns at once with a task id, so the only signal
+    // that the work has finished is the harness's notification — which arrives
+    // filed as a user message nobody typed.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Started { .. }))
+    })
+    .await;
+
+    assert_eq!(
+        session.summary().background,
+        0,
+        "nothing has been started yet"
+    );
+
+    session.send("do it in the background").await.expect("send");
+    until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Tool { .. }))
+    })
+    .await;
+    assert_eq!(
+        session.summary().background,
+        1,
+        "started and not reported finished"
+    );
+
+    session
+        .send("tell me when that finished")
+        .await
+        .expect("send");
+    until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Background { .. }))
+    })
+    .await;
+    assert_eq!(
+        session.summary().background,
+        0,
+        "the notification names the call that started it, and closes it"
+    );
+}
+
+#[tokio::test]
 async fn one_process_serves_several_turns() {
     // The property the whole design rests on: a session is a conversation, not a
     // series of cold starts.

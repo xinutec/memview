@@ -57,6 +57,14 @@ export interface Summary {
   context?: number;
   window?: number;
   /**
+   * Background tool calls started and not yet reported finished.
+   *
+   * ⚠ **Only the ones the harness tracks** — a command backgrounded inside a
+   * shell announces nothing and is invisible. Absent rather than zero when there
+   * are none, so "is anything running" is answered by the field being there.
+   */
+  background?: number;
+  /**
    * How much the transcript weighs, in bytes.
    *
    * ⚠ **Not another way of saying [context].** This is everything said since the

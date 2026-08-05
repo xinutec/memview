@@ -511,19 +511,14 @@
     flex: 1;
   }
 
-  span {
-    // The CLI's own word for what it is doing — "requesting", "tool_use". Fixed
-    // width so the bar beside it does not jump as the word changes.
-    flex: 0 0 6rem;
-    text-align: right;
-  }
-
-  // The timer gets its own column for the same reason the word does, and a
-  // narrower one: it is at most `1h 04m`. Tabular figures because it is watched
-  // rather than read, and proportional digits shuffle the text sideways on
-  // every tick.
+  // The one thing beside the bar now that the status word has gone back to the
+  // header where it was already being shown. A fixed column, so the bar does not
+  // shorten as the clock passes a minute; tabular figures because it is watched
+  // rather than read, and proportional digits shuffle the text sideways on every
+  // tick.
   .lasted {
     flex: 0 0 3.5rem;
+    text-align: right;
     font-variant-numeric: tabular-nums;
   }
 }

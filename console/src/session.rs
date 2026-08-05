@@ -213,6 +213,20 @@ pub struct Summary {
     pub context: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window: Option<u64>,
+    /// How many background tool calls this session has started and not had
+    /// reported finished.
+    ///
+    /// ⚠ **Only the ones the harness tracks.** A command backgrounded inside a
+    /// shell — `nohup … &` — returns at once and announces nothing, so it is
+    /// invisible here. This counts what can be seen, and the client's wording
+    /// claims no more than that.
+    ///
+    /// Counted by the runner rather than by whoever is watching, because the
+    /// list is drawn without opening anything: the page that knew this before
+    /// was the session's own, from its event stream, so the list could not say
+    /// it at all.
+    #[serde(skip_serializing_if = "none")]
+    pub background: usize,
     /// The account's own verdict on its rate limit, when it has given one:
     /// `allowed`, `allowed_warning` or `rejected`.
     ///
@@ -271,6 +285,14 @@ pub struct Stamped {
     /// transcript recorded, and a transcript line need not have said.
     pub at: Option<i64>,
     pub event: Event,
+}
+
+/// Nothing to report, for a count that is left off the wire when it is zero.
+///
+/// Absent rather than `0` so that a client can ask "is anything running" of the
+/// field's presence, and so an older client sees the same shape it always did.
+fn none(count: &usize) -> bool {
+    *count == 0
 }
 
 /// Now, in milliseconds since the epoch.
@@ -360,6 +382,9 @@ struct State {
     limit: Option<String>,
     /// What the API last said about each rate-limit window. See [`Tally::spent`].
     spent: BTreeMap<String, Seen>,
+    /// Background tool calls started and not reported finished. See
+    /// [`Summary::background`].
+    background: std::collections::BTreeSet<String>,
     asked: Option<String>,
     stderr: String,
 }
@@ -987,8 +1012,34 @@ impl Session {
         let stamped = {
             let mut state = self.state.lock().expect("session state poisoned");
             match &event {
-                Event::Started { model, .. } => state.model = Some(model.clone()),
+                Event::Started { model, .. } => {
+                    state.model = Some(model.clone());
+                    // A new process cannot have inherited the last one's
+                    // background work: the tasks belonged to a process that is
+                    // gone, and their notifications will never arrive.
+                    state.background.clear();
+                }
                 Event::Busy { status } => state.busy = Some(status.clone()),
+                // ⚠ **Started here and finished by the harness's notification**,
+                // which is the only end-of-work signal a backgrounded call has —
+                // the call itself returns at once with a task id and nothing
+                // else. See [`crate::protocol::finished`].
+                Event::Tool { id, input, .. }
+                    if input.get("run_in_background") == Some(&serde_json::Value::Bool(true)) =>
+                {
+                    state.background.insert(id.clone());
+                }
+                Event::Background { tool, .. } => {
+                    state.background.remove(tool);
+                }
+                // ⚠ **The seed replays them, so the boundary clears them.** A
+                // resumed conversation's transcript is full of background calls
+                // that finished long ago, and their notifications were replayed
+                // too — but only some of them are inside the page that was read.
+                // Everything above this line happened before this console was
+                // watching, so it can report nothing about what is still
+                // running. `Joined` is pushed after the seed for exactly this.
+                Event::Joined { .. } => state.background.clear(),
                 // The window, which only the result line declares. How full it
                 // is arrives per message — see [`Event::Context`].
                 Event::Context { tokens } => state.context = Some(*tokens),
@@ -1182,6 +1233,7 @@ impl Session {
             limit: state.limit.clone(),
             context: state.context,
             window: state.window,
+            background: state.background.len(),
             asked: state.asked.clone(),
             // Filled in by the roster, which knows where the transcripts are.
             name: None,

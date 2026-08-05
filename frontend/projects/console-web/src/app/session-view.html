@@ -284,14 +284,18 @@
   <p class="update">a newer build is ready — it will load when you leave the app</p>
 }
 
-@if (doing(); as doing) {
+@if (doing()) {
   <div class="doing">
     <mat-progress-bar mode="indeterminate" />
-    <!-- ⚠ **The bar says something is happening and cannot say for how long**,
-         which is the difference between waiting and wondering whether it is
-         stuck. Running from when it stopped being idle rather than from the
-         current status — see [[SessionStore]]'s `since`. -->
-    <span>{{ doing }}</span>
+    <!-- ⚠ **The word is not repeated here.** The header at the top of the page
+         already carries the CLI's own status — `requesting`, `idle` — and this
+         strip sat at the bottom saying it a second time, four inches below the
+         first. What the bar adds is that something is happening *now*; what it
+         could not say is for how long, which is the difference between waiting
+         and wondering whether it is stuck. So: the bar, and the clock.
+
+         Running from when it stopped being idle rather than from the current
+         status — see [[SessionStore]]'s `since`. -->
     @if (working(); as working) {
       <span class="lasted">{{ working | lasted }}</span>
     }

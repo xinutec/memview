@@ -130,6 +130,14 @@
           @if (row.context; as context) {
             <span>{{ context }}</span>
           }
+          <!-- Work that outlives the turn that started it, and the one thing on
+               this card that a session can be doing while it reads as idle.
+               Absent rather than `0 background tasks`: a row saying nothing is
+               running would be a claim, and the harness cannot see a command
+               backgrounded inside a shell. -->
+          @if (session.background; as running) {
+            <span class="tasks">{{ running }} background task{{ running === 1 ? '' : 's' }}</span>
+          }
           @if (modeIconOf(session); as icon) {
             <mat-icon
               class="mode"

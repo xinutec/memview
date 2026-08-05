@@ -1488,6 +1488,55 @@ test('session list — how full each conversation is @ phone width', async ({ pa
   await expectNoHorizontalOverflow(page, testInfo);
 });
 
+test('session list — work still running says so, silence otherwise @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **The one thing a card can be doing while it reads as idle.** A
+  // backgrounded call outlives the turn that started it, so a session sitting at
+  // `idle` may still have a build going. Counted by the runner, because the page
+  // that knew this before was the session's own — the screen you had to already
+  // be on.
+  await mockRunner(page);
+  await page.route('**/api/state', (r) =>
+    r.fulfill({
+      json: {
+        ...STATE,
+        sessions: [
+          {
+            ...STATE.sessions[0],
+            id: 'aaaa0000-0000-4000-8000-000000000001',
+            name: 'building',
+            busy: undefined,
+            waiting: 0,
+            background: 1,
+          },
+          {
+            ...STATE.sessions[0],
+            id: 'aaaa0000-0000-4000-8000-000000000002',
+            name: 'quiet',
+            busy: undefined,
+            waiting: 0,
+          },
+        ],
+      },
+    }),
+  );
+  await page.route('**/api/past', (r) => r.fulfill({ json: [] }));
+  await page.goto('/');
+  await expect(page.locator('.session')).toHaveCount(2);
+
+  await expect(page.locator('.session', { hasText: 'building' })).toContainText(
+    '1 background task',
+  );
+  // ⚠ Nothing at all for a session with none — `0 background tasks` would be a
+  // claim, and the harness cannot see a command backgrounded inside a shell.
+  await expect(page.locator('.session', { hasText: 'quiet' })).not.toContainText('background');
+  await expect(page.locator('.tasks')).toHaveCount(1);
+
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+});
+
 test('session list — what each conversation is about, marked as a guess @ phone width', async ({
   page,
 }, testInfo) => {
@@ -2184,8 +2233,14 @@ test('a running thing says how long it has been running @ phone width', async ({
     ++seq,
   );
 
-  // Beside the CLI's own word for what it is doing.
+  // ⚠ **The strip is the bar and the clock, and no word.** The status the CLI
+  // reports — `requesting` — is already in the header at the top of the page,
+  // and this sat four inches below it saying the same thing again.
   await expect(page.locator('.doing .lasted')).toHaveText(/2m \d\ds/);
+  await expect(page.locator('.doing')).not.toContainText('requesting');
+  await expect(page.locator('.head .live'), 'the status belongs to the header').toHaveText(
+    'requesting',
+  );
   // And on the call itself, which is a separate clock: a background task
   // outlives the turn that started it, and a session can be working with
   // nothing in flight.

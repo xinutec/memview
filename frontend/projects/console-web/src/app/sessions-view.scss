@@ -123,6 +123,12 @@
   font-family: ui-monospace, monospace;
 }
 
+// The one fact in the row that is about work still going on, so it is the one
+// that is coloured. Everything else there is history.
+.tasks {
+  color: var(--mat-sys-primary);
+}
+
 .mode.loud {
   // Colour alone now it is an icon: a filled pill around a 1.1rem glyph reads
   // as a badge with something in it rather than as the glyph itself.
