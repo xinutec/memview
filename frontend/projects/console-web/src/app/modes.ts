@@ -39,7 +39,14 @@ export function modeTitle(mode: string | undefined): string | undefined {
 /**
  * Whether a mode is one worth flagging rather than merely stating.
  *
- * The two the CLI itself colours as errors: nothing is asked before it happens.
+ * The two the CLI itself colours as errors, and they are errors for opposite
+ * reasons — in its own words, `bypassPermissions` "will not ask for your
+ * approval before running potentially dangerous commands", where `dontAsk`
+ * *skips* what would need approval "rather than prompting". One does the
+ * dangerous thing unasked; the other quietly does not do the thing at all. The
+ * rank above already says so: `dontAsk` sits with Manual at the bottom of the
+ * dial, not with Auto at the top.
+ *
  * Not a judgement of its own — it is the CLI's, kept because a phone four inches
  * wide cannot show everything and this is the one that changes what a glance at
  * the screen means.
