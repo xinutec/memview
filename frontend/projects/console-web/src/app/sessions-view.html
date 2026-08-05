@@ -83,7 +83,20 @@
         }
       </div>
       @if (row.live; as session) {
-        <div class="asked">{{ session.asked ?? 'nothing asked yet' }}</div>
+        <!-- ⚠ **Only while it has no name of its own, because that is the only
+             time it is true.** This is the first instruction the console heard,
+             kept for ever — and a conversation's job drifts, so on anything that
+             has been running a while it describes work finished days ago. Worse,
+             a resumed session's view starts at the seed, so what it kept was the
+             first prompt in the last page of the transcript: `push`, `Proceed`,
+             a compact summary's boilerplate.
+
+             A session that has taken a name has something better to say for
+             itself, and the CLI keeps that name current as the job changes. So
+             this is what stands in until there is one. -->
+        @if (!row.named) {
+          <div class="asked">{{ session.asked ?? 'nothing asked yet' }}</div>
+        }
         <div class="facts">
           <!-- When it last did anything, which is the same quantity the row
                below reports and read from the same place — the transcript. It

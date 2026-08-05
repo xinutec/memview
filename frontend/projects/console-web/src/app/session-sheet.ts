@@ -35,9 +35,14 @@ export interface Fact {
  */
 export function factsOf(session: Summary): Fact[] {
   const facts: Fact[] = [{ label: 'where', value: session.dir, mono: true }];
-  // The instruction it was started with. On the list card and nowhere on the
-  // session's own page — and it is what the whole conversation is about.
-  if (session.asked) facts.push({ label: 'started with', value: session.asked });
+  // ⚠ **No "started with" here, and it is not an omission.** It said the first
+  // instruction the console heard — which for a resumed session is the first
+  // prompt in the seeded page rather than the conversation's opening, and which
+  // for any session that has run a while describes a job it has since moved on
+  // from: `push`, `Proceed`, the boilerplate a compaction writes. A sheet is
+  // where somebody stops to look something up, so a line that is usually wrong
+  // there is worse than none. The list card keeps it only while a session has no
+  // name yet — see `sessions-view.html`.
   // The id it is shipped under, not the name the header shows: `claude-opus-5`
   // and `claude-opus-5[1m]` are one word apart on screen and a million tokens
   // apart in what they can hold.

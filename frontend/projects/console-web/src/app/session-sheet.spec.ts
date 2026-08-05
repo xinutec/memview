@@ -35,8 +35,17 @@ describe('factsOf', () => {
     // is "nobody has looked yet".
     expect(labels(BARE)).not.toContain('model');
     expect(labels(BARE)).not.toContain('permission mode');
-    expect(labels(BARE)).not.toContain('started with');
     expect(labels(BARE)).not.toContain('last active');
+  });
+
+  it('does not claim what the session was started with', () => {
+    // The console keeps the first prompt it heard, which for a resumed session
+    // is the first one in the seeded page and for a long-running one is a job
+    // finished days ago. A sheet is looked at to settle a question, so a line
+    // that is usually wrong there is worse than no line.
+    const session = { ...BARE, asked: 'Proceed' };
+    expect(labels(session)).not.toContain('started with');
+    expect(factsOf(session).map((fact) => fact.value)).not.toContain('Proceed');
   });
 
   it('gives the model id, not the short name the header shows', () => {

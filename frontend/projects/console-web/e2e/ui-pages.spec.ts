@@ -1488,6 +1488,47 @@ test('session list — how full each conversation is @ phone width', async ({ pa
   await expectNoHorizontalOverflow(page, testInfo);
 });
 
+test('session list — the opening instruction stands in for a missing name @ phone width', async ({
+  page,
+}) => {
+  // ⚠ **It is a fallback, not a fact about the session.** What the console keeps
+  // is the first prompt it heard, for ever — and a conversation's job drifts, so
+  // on anything long-running it describes work finished days ago. On a resumed
+  // one it is not even that: the view starts at the seed, so what it kept was
+  // the first prompt in the last page of the transcript. Once a session has a
+  // name, the name is both current and its own summary.
+  await mockRunner(page);
+  await page.route('**/api/state', (r) =>
+    r.fulfill({
+      json: {
+        ...STATE,
+        sessions: [
+          {
+            ...STATE.sessions[0],
+            id: 'aaaa0000-0000-4000-8000-000000000001',
+            asked: 'fix the gate',
+          },
+          {
+            ...STATE.sessions[0],
+            id: 'aaaa0000-0000-4000-8000-000000000002',
+            name: 'health',
+            asked: 'Proceed',
+          },
+        ],
+      },
+    }),
+  );
+  await page.route('**/api/past', (r) => r.fulfill({ json: [] }));
+  await page.goto('/');
+  await expect(page.locator('.session')).toHaveCount(2);
+  await expect(page.locator('.session .asked')).toHaveCount(1);
+  await expect(page.locator('.session .asked')).toHaveText('fix the gate');
+  await expect(
+    page.locator('.session', { hasText: 'health' }),
+    'a named session is still carrying whatever it was last told',
+  ).not.toContainText('Proceed');
+});
+
 test('session list — a blocked session says so first @ phone width', async ({ page }, testInfo) => {
   await mockRunner(page);
   await page.goto('/');
