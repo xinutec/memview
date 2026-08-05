@@ -109,17 +109,48 @@ pub struct Tally {
     pub counted: crate::past::Counted,
 }
 
+/// When a rate-limit window turns over, in epoch **seconds** — the CLI's unit,
+/// and nothing else in this console's.
+///
+/// The reading's own subject: it names *which instance* of the window a figure
+/// belongs to, which is what makes two figures comparable at all.
+///
+/// A type rather than an `i64` because it sits beside [`Heard`] in [`Seen`] and
+/// the two are neither the same clock nor the same unit. See
+/// [`crate::usage::fresher`] for what went wrong when they were interchangeable.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+pub struct ResetsAt(pub i64);
+
+impl ResetsAt {
+    /// The same instant in milliseconds, which is the unit of every other
+    /// moment here. The one place the conversion is written.
+    pub fn in_ms(self) -> i64 {
+        self.0 * 1000
+    }
+}
+
+/// When this console heard a reading, in epoch **milliseconds**, by this
+/// machine's clock.
+///
+/// ⚠ **Arrival, not freshness.** Every session answers from its own process's
+/// cached rate-limit headers, so a reading that arrives now can describe the
+/// account as it stood an hour ago. Ordering by this is what
+/// [`crate::usage::fresher`] exists to stop.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+pub struct Heard(pub i64);
+
 /// One window's utilisation, as last reported.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Seen {
     /// A fraction: 0.28 is 28% of the window.
     pub utilization: f64,
-    /// When the window turns over, in epoch **seconds** — the CLI's unit here.
     #[serde(default)]
-    pub resets_at: Option<i64>,
-    /// When this console heard it, in epoch milliseconds. What makes one
-    /// session's reading newer than another's.
-    pub at: i64,
+    pub resets_at: Option<ResetsAt>,
+    pub at: Heard,
 }
 
 /// Take a descriptor out of close-on-exec, and make it non-blocking.
@@ -956,13 +987,13 @@ impl Session {
     /// another, and this reply and those events write to the same place.
     fn record_usage(&self, windows: Vec<(String, f64, Option<i64>)>) {
         let mut state = self.state.lock().expect("session state poisoned");
-        let at = now();
+        let at = Heard(now());
         for (window, utilization, resets_at) in windows {
             state.spent.insert(
                 window,
                 Seen {
                     utilization,
-                    resets_at,
+                    resets_at: resets_at.map(ResetsAt),
                     at,
                 },
             );
@@ -1093,8 +1124,8 @@ impl Session {
                             window.clone(),
                             Seen {
                                 utilization: *spent,
-                                resets_at: *resets_at,
-                                at: now(),
+                                resets_at: resets_at.map(ResetsAt),
+                                at: Heard(now()),
                             },
                         );
                     }

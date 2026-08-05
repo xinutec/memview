@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use console::session::Seen;
+use console::session::{Heard, ResetsAt, Seen};
 use console::usage::{Published, fresher, merged, reading};
 
 /// The reading exactly as the dashboard served it while this was written.
@@ -85,8 +85,8 @@ fn a_stamp_that_cannot_be_read_is_no_time_rather_than_the_epoch() {
 fn heard(utilization: f64, resets_at: &str, at: &str) -> Seen {
     Seen {
         utilization,
-        resets_at: Some(at_ms(resets_at) / 1000),
-        at: at_ms(at),
+        resets_at: Some(ResetsAt(at_ms(resets_at) / 1000)),
+        at: Heard(at_ms(at)),
     }
 }
 
@@ -160,8 +160,8 @@ fn nothing_heard_and_no_dashboard_is_no_reading_at_all() {
 fn held(utilization: f64, resets_at: i64, at: i64) -> Seen {
     Seen {
         utilization,
-        resets_at: Some(resets_at),
-        at,
+        resets_at: Some(ResetsAt(resets_at)),
+        at: Heard(at),
     }
 }
 
@@ -210,12 +210,12 @@ fn a_reading_with_no_reset_time_falls_back_to_when_it_arrived() {
     let first = Seen {
         utilization: 0.5,
         resets_at: None,
-        at: 1_000,
+        at: Heard(1_000),
     };
     let later = Seen {
         utilization: 0.4,
         resets_at: None,
-        at: 2_000,
+        at: Heard(2_000),
     };
 
     assert!(fresher(&first, &later));

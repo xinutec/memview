@@ -188,6 +188,10 @@ impl Usage {
 ///
 /// Arrival time is the fallback for a reading with no reset time at all, which
 /// is what a `rate_limit_event` carries when the CLI declines to say.
+///
+/// The two instants wear different types ([`crate::session::ResetsAt`] and
+/// [`crate::session::Heard`]) so that the arms below cannot be written the wrong
+/// way round: the mistake this function exists to correct no longer compiles.
 pub fn fresher(held: &Seen, candidate: &Seen) -> bool {
     match (held.resets_at, candidate.resets_at) {
         (Some(theirs), Some(ours)) if ours != theirs => ours > theirs,
@@ -218,7 +222,7 @@ pub fn merged(
     Some(match heard {
         Some(at) => Reading {
             host: HERE.to_string(),
-            age_ms: (now_ms - at).max(0),
+            age_ms: (now_ms - at.0).max(0),
             five_hour,
             seven_day,
         },
@@ -244,12 +248,12 @@ fn live(seen: Option<&Seen>, now_ms: i64) -> Option<Window> {
         // A fraction on the wire, a percentage on a screen — the same conversion
         // the CLI does on its way to a status line.
         pct: seen.utilization * 100.0,
-        // Seconds here, milliseconds everywhere else in this file: the CLI's
-        // `resetsAt` is an epoch second, and treating it as milliseconds puts
-        // every reset in 1970 and reports every window as already turned over.
+        // Seconds there, milliseconds here: the conversion lives on the type,
+        // because treating the CLI's epoch second as a millisecond puts every
+        // reset in 1970 and reports every window as already turned over.
         resets_in_ms: seen
             .resets_at
-            .map(|turns| turns * 1000 - now_ms)
+            .map(|turns| turns.in_ms() - now_ms)
             .filter(|left| *left > 0),
     })
 }
