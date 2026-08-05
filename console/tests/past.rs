@@ -8,7 +8,7 @@
 use std::path::Path;
 
 use console::past::{
-    conversations, interactions, named as named_of, touched as touched_of, transcript_of,
+    Counted, conversations, counted, named as named_of, touched as touched_of, transcript_of,
     words_of_claude_processes,
 };
 
@@ -566,7 +566,15 @@ fn spoken(dir: &Path, id: &str, exchanges: &[usize], compacted_after: Option<usi
             lines.push(r#"{"type":"system","subtype":"compact_boundary"}"#.to_string());
         }
     }
-    std::fs::write(folder.join(format!("{id}.jsonl")), lines.join("\n")).expect("transcript");
+    std::fs::write(
+        folder.join(format!("{id}.jsonl")),
+        // ⚠ With the trailing newline the CLI writes. A transcript is appended
+        // to a line at a time, and the count reads forward from a line
+        // boundary — a fixture ending mid-line would be testing a shape the
+        // real files do not have.
+        format!("{}\n", lines.join("\n")),
+    )
+    .expect("transcript");
 }
 
 #[test]
@@ -580,7 +588,7 @@ fn an_exchange_counts_once_however_many_messages_it_took() {
     spoken(&root, "counted", &[1, 4, 2], None);
     let path = transcript_of(&root, "counted").expect("transcript");
 
-    assert_eq!(interactions(&path), 3);
+    assert_eq!(counted(&path, Counted::default()).interactions, 3);
 }
 
 #[test]
@@ -592,14 +600,17 @@ fn the_count_starts_again_after_a_compaction() {
     spoken(&root, "cut", &[1, 1, 1, 1, 1], Some(1));
     let path = transcript_of(&root, "cut").expect("transcript");
 
-    assert_eq!(interactions(&path), 3);
+    assert_eq!(counted(&path, Counted::default()).interactions, 3);
 }
 
 #[test]
 fn a_transcript_that_is_not_there_counts_no_exchanges() {
     // The session has just started and has written nothing yet. Zero is the
     // honest answer; the failure to answer at all is not.
-    assert_eq!(interactions(Path::new("/no/such/transcript.jsonl")), 0);
+    assert_eq!(
+        counted(Path::new("/no/such/transcript.jsonl"), Counted::default()).interactions,
+        0
+    );
 }
 
 #[test]
@@ -628,5 +639,83 @@ fn a_directory_named_after_the_session_is_not_its_transcript() {
 
     let path = transcript_of(&both, "twinned").expect("the file, not the directory");
     assert_eq!(path.extension().and_then(|e| e.to_str()), Some("jsonl"));
-    assert_eq!(interactions(&path), 2);
+    assert_eq!(counted(&path, Counted::default()).interactions, 2);
+}
+
+#[test]
+fn only_what_arrived_since_the_last_count_is_read_again() {
+    // ⚠ **The whole point, and it was measured before it was written.** This was
+    // a whole-file pass at the end of every turn: 2.1 GB and 267,002 lines for
+    // the largest transcript on this machine, twenty-four seconds just to read
+    // the bytes, in the task that reads that session's stdout. A turn ends by
+    // appending a few kilobytes, and that is all this reads.
+    let root = scratch("incremental");
+    spoken(&root, "growing", &[1, 1], None);
+    let path = transcript_of(&root, "growing").expect("transcript");
+
+    let first = counted(&path, Counted::default());
+    assert_eq!(first.interactions, 2);
+    assert_eq!(
+        first.through,
+        std::fs::metadata(&path).expect("stat").len(),
+        "a file ending in a whole line is accounted for to its end"
+    );
+
+    // One more exchange, appended the way the CLI appends them.
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .expect("append");
+    use std::io::Write;
+    let again = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"and again"}]}}"#;
+    writeln!(file, "{again}").expect("write");
+    drop(file);
+
+    let then = counted(&path, first);
+    assert_eq!(
+        then.interactions, 3,
+        "the earlier two were not counted twice"
+    );
+}
+
+#[test]
+fn a_compaction_arriving_later_still_resets_the_count() {
+    // The CLI compacts on its own and announces it nowhere on the stream — the
+    // boundary is written to the file and only to the file. Counting forward
+    // from an offset has to keep seeing that, or a compaction mid-session would
+    // leave the number climbing past a conversation the session cannot recall.
+    let root = scratch("later-compaction");
+    spoken(&root, "cut-later", &[1, 1], None);
+    let path = transcript_of(&root, "cut-later").expect("transcript");
+    let before = counted(&path, Counted::default());
+    assert_eq!(before.interactions, 2);
+
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .expect("append");
+    use std::io::Write;
+    let boundary = r#"{"type":"system","subtype":"compact_boundary"}"#;
+    let after =
+        r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"after"}]}}"#;
+    writeln!(file, "{boundary}").expect("write");
+    writeln!(file, "{after}").expect("write");
+    drop(file);
+
+    assert_eq!(counted(&path, before).interactions, 1);
+}
+
+#[test]
+fn a_transcript_that_shrank_is_counted_from_the_start() {
+    // An offset into a file that has been replaced points at the middle of a
+    // line at best. Starting again is the only answer that cannot be wrong.
+    let root = scratch("shrunk");
+    spoken(&root, "replaced", &[1, 1], None);
+    let path = transcript_of(&root, "replaced").expect("transcript");
+
+    let stale = Counted {
+        interactions: 99,
+        through: 10_000_000,
+    };
+    assert_eq!(counted(&path, stale).interactions, 2);
 }

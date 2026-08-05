@@ -59,11 +59,10 @@ pub struct Fds {
 /// session either carries these across or starts at zero and reads as a fresh
 /// conversation that has done nothing.
 ///
-/// Two numbers are deliberately absent because the file holds them better: how
-/// full the context is, which is on every assistant message, and how many
-/// exchanges there have been ([`crate::past::interactions`]). Anything derivable
-/// from the transcript is derived, because that survives a cold start too — and
-/// this only survives an upgrade.
+/// How full the context is is deliberately absent, because the file holds it
+/// better: it is on every assistant message, so a re-seed recovers it. Anything
+/// derivable from the transcript is derived, because that survives a cold start
+/// too — and this only survives an upgrade.
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Tally {
     /// Seconds since the epoch. Carried because `execve` leaves the child's
@@ -98,6 +97,16 @@ pub struct Tally {
     /// nothing on disk records it.
     #[serde(default)]
     pub spent: BTreeMap<String, Seen>,
+    /// The exchange count and how far into the transcript it accounts for.
+    ///
+    /// ⚠ **Carried for the cost, not because the file cannot say it.** The file
+    /// can — by being read from the beginning, which for the largest transcript
+    /// here is 2.1 GB and twenty-four seconds. An upgrade re-seeds every session
+    /// at once, so dropping this would mean reading every transcript on the
+    /// machine, four gigabytes of it, each time this console replaces itself.
+    /// See [`crate::past::counted`].
+    #[serde(default)]
+    pub counted: crate::past::Counted,
 }
 
 /// One window's utilisation, as last reported.
@@ -186,7 +195,7 @@ pub struct Summary {
     pub busy: Option<String>,
     /// How many times someone has spoken to this session since it was last
     /// compacted — exchanges, not messages, and not the result line's
-    /// `num_turns`. See [`crate::past::interactions`] for why it is counted from
+    /// `num_turns`. See [`crate::past::counted`] for why it is counted from
     /// the transcript rather than added up as turns arrive.
     pub interactions: u32,
     /// What this session's tokens would have cost at API list prices.
@@ -366,9 +375,9 @@ struct State {
     alive: bool,
     model: Option<String>,
     busy: Option<String>,
-    /// See [`Summary::interactions`]. Derived from the transcript, never
-    /// accumulated, so nothing here needs carrying across an upgrade.
-    interactions: u32,
+    /// See [`Summary::interactions`], and [`crate::past::counted`] for why the
+    /// byte offset travels with the number.
+    counted: crate::past::Counted,
     /// See [`Summary::mode`]. Set when the session is spawned and whenever the
     /// console changes it; carried across an upgrade, because no file records it
     /// in a way that can be trusted.
@@ -511,22 +520,25 @@ impl Session {
         self.recount();
     }
 
-    /// Recount the exchanges from the transcript. See [`crate::past::interactions`].
+    /// Count the exchanges the transcript has gained. See [`crate::past::counted`].
     ///
     /// Silent when there is no transcript yet — a session that has just been
     /// started has none, and reporting zero for it is right anyway. Reads the
-    /// file before taking the lock, which is the whole reason this is a method
-    /// and not a line in `push_at`.
+    /// file outside the lock, which is the whole reason this is a method and not
+    /// a line in `push_at`: this is the only thing in the session that touches a
+    /// file, and the state lock is taken by every event that arrives.
+    ///
+    /// Safe to call from anywhere in the reading task and nowhere else — it
+    /// reads the offset, then the file, then writes both back, and nothing else
+    /// in this console writes that pair.
     fn recount(&self) {
         let root = crate::past::projects_root();
         let Some(path) = crate::past::transcript_of(&root, &self.id) else {
             return;
         };
-        let counted = crate::past::interactions(&path);
-        self.state
-            .lock()
-            .expect("session state poisoned")
-            .interactions = counted;
+        let so_far = self.state.lock().expect("session state poisoned").counted;
+        let counted = crate::past::counted(&path, so_far);
+        self.state.lock().expect("session state poisoned").counted = counted;
     }
 
     fn spawn(id: String, dir: &Path, spawn: &Spawn, resuming: bool) -> Result<Arc<Self>> {
@@ -681,6 +693,7 @@ impl Session {
                 // it, so an upgrade that dropped it would blank the front
                 // page until the next request came back.
                 spent: tally.spent,
+                counted: tally.counted,
                 ..State::default()
             }),
             stdin: tokio::sync::Mutex::new(Some(Box::new(stdin) as Sink)),
@@ -725,6 +738,7 @@ impl Session {
             spent: state.spent.clone(),
             mode: state.mode.clone(),
             pending: state.pending.clone(),
+            counted: state.counted,
         }
     }
 
@@ -768,7 +782,7 @@ impl Session {
                         // The end of a turn is the one moment the exchange count
                         // can have changed, and by then the CLI has written the
                         // whole exchange to its transcript. Recounted rather than
-                        // incremented — see [`crate::past::interactions`] — and
+                        // incremented — see [`crate::past::counted`] — and
                         // done here rather than in `push_at`, which holds the
                         // state lock and must not be reading files.
                         let counted = matches!(event, Event::Turn { .. });
@@ -1215,7 +1229,7 @@ impl Session {
             alive: state.alive,
             model: state.model.clone(),
             busy: state.busy.clone(),
-            interactions: state.interactions,
+            interactions: state.counted.interactions,
             mode: state.mode.clone(),
             cost_usd: state.cost_usd,
             limit: state.limit.clone(),

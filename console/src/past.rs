@@ -437,24 +437,73 @@ fn cut(text: &str) -> String {
 /// session stops remembering what came before — a number spanning a boundary
 /// would describe a conversation the session itself cannot recall.
 ///
-/// A whole-file pass, so this belongs at a seed or the end of a turn, not on
-/// every request.
-pub fn interactions(path: &Path) -> u32 {
-    use std::io::BufRead;
-    let Ok(file) = std::fs::File::open(path) else {
-        return 0;
+/// ⚠ **Read forward from where the last count stopped, not from the start.**
+/// This was a whole-file pass at the end of every turn, and the files are not
+/// small: 2.1 GB and 267,002 lines for the largest here, twenty-four seconds
+/// just to read the bytes and a serde parse per line on top. It ran in the task
+/// that reads that session's stdout, so every turn ended with the console going
+/// deaf to its own session for as long as it took to count something that had
+/// changed by one.
+///
+/// The offset is what makes a running total honest: the count is still derived
+/// from the file, so a compaction the CLI performs and announces nowhere is
+/// still seen — it is simply seen by reading the few kilobytes that arrived
+/// rather than the two gigabytes that did not.
+#[derive(Debug, Clone, Copy, Default, Serialize, serde::Deserialize)]
+pub struct Counted {
+    /// Exchanges since the last compaction.
+    pub interactions: u32,
+    /// How far into the file that answer accounts for, in bytes — always a line
+    /// boundary, so the next read starts on a whole line.
+    pub through: u64,
+}
+
+/// Count what has been appended since `so_far` was true.
+///
+/// `so_far.through` of 0 is the whole file, which is what a seed does once.
+///
+/// ⚠ **Stops before a partial last line.** A transcript is appended to while
+/// this runs, so the tail can be half a line; counting it would read a truncated
+/// JSON object as nothing and then never look at it again, losing the exchange
+/// it recorded. The offset returned is the end of the last *complete* line.
+///
+/// A file that has shrunk is one that was replaced, so the count starts again:
+/// an offset into a file that no longer exists would land mid-line at best.
+pub fn counted(path: &Path, so_far: Counted) -> Counted {
+    use std::io::{BufRead, Seek, SeekFrom};
+
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return so_far;
     };
-    let mut since = 0;
-    for line in std::io::BufReader::new(file).lines().map_while(Result::ok) {
-        for event in crate::protocol::read_recorded(&line) {
+    let len = file.metadata().map(|meta| meta.len()).unwrap_or(0);
+    let mut found = if so_far.through > len {
+        Counted::default()
+    } else {
+        so_far
+    };
+    if file.seek(SeekFrom::Start(found.through)).is_err() {
+        return so_far;
+    }
+    let mut reader = std::io::BufReader::new(file);
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        let Ok(read) = reader.read_until(b'\n', &mut line) else {
+            break;
+        };
+        if read == 0 || !line.ends_with(b"\n") {
+            break;
+        }
+        found.through += read as u64;
+        for event in crate::protocol::read_recorded(&String::from_utf8_lossy(&line)) {
             match event {
-                crate::protocol::Event::Compacted => since = 0,
-                crate::protocol::Event::Prompt { .. } => since += 1,
+                crate::protocol::Event::Compacted => found.interactions = 0,
+                crate::protocol::Event::Prompt { .. } => found.interactions += 1,
                 _ => {}
             }
         }
     }
-    since
+    found
 }
 
 /// The transcript file for a session id, wherever Claude Code filed it.

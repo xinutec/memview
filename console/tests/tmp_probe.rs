@@ -11,7 +11,10 @@ fn probe() {
             eprintln!("found={} len={meta}", path.display());
             let page = console::past::page(&path, None);
             eprintln!("events={} from={}", page.events.len(), page.from);
-            eprintln!("interactions={}", console::past::interactions(&path));
+            eprintln!(
+                "interactions={}",
+                console::past::counted(&path, console::past::Counted::default()).interactions
+            );
         }
         None => eprintln!("transcript_of found nothing"),
     }
