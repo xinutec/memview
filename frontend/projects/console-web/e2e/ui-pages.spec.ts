@@ -1274,10 +1274,14 @@ test('the transcript does not yank a reader who has scrolled back @ phone width'
   await page.locator('.transcript').waitFor();
   await say(page, { kind: 'text', text: LONG_ANSWER }, 1);
 
-  await page.evaluate(() => {
-    const box = document.querySelector('.transcript');
-    if (box) box.scrollTop = 0;
-  });
+  // ⚠ **With the wheel, not by writing `scrollTop`.** Setting the position from
+  // a script is exactly what the browser itself does when it anchors, and the
+  // page now declines to read that as a decision — see [[SessionView.handled]].
+  // A test that moved the view the way no reader can would have gone on passing
+  // while the real gesture was broken, and it was the only check standing behind
+  // "does not yank a reader who has scrolled back".
+  await page.locator('.transcript').hover();
+  await page.mouse.wheel(0, -20000);
   await page.evaluate(() => new Promise((done) => requestAnimationFrame(done)));
   const away = await distanceFromTheEnd(page);
   expect(away, 'the scroll back did not take').toBeGreaterThan(200);

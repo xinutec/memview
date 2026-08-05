@@ -422,6 +422,32 @@ export class SessionView implements OnDestroy {
   private pinned = true;
 
   /**
+   * Whether the reader has ever scrolled this transcript by hand.
+   *
+   * ⚠ **Until they have, no scroll event may unpin, whatever the position
+   * says.** Measured on the phone, three times in a row: `follow` scrolled to the
+   * bottom of what had arrived and wrote 1941; the browser then moved it to
+   * 1960 on its own — scroll anchoring, holding the visible content still while
+   * the rest of the seed rendered around it. Eighteen or nineteen pixels, every
+   * time. That made `top !== wrote`, which was the only test for "the reader did
+   * this", so the handler measured a 12,699px gap against a 120px threshold,
+   * unpinned, and the transcript stopped following while the remaining 13,000
+   * pixels arrived. The conversation opened 13% of the way down and stayed there.
+   * Opening it again was fine, because a cached transcript renders in one pass
+   * and there is no growth for the browser to react to.
+   *
+   * A gesture is the thing that cannot be faked by layout: a wheel, a drag, a
+   * key. `touchstart` deliberately does not count — every tap on a tool row is
+   * one, and tapping is not scrolling.
+   */
+  private handled = false;
+
+  /** The reader moved it themselves. See [handled]. */
+  protected reached(): void {
+    this.handled = true;
+  }
+
+  /**
    * `NEAR` is the slack: a few lines, so a partly-scrolled view still counts as
    * following rather than as having been left behind.
    *
@@ -442,6 +468,14 @@ export class SessionView implements OnDestroy {
     const box = this.scroller()?.nativeElement;
     if (!box) return;
     if (box.scrollTop === this.wrote) return;
+    // ⚠ **A scroll with no gesture behind it is not a decision.** See [handled]
+    // for the measurement. The new position is taken as ours rather than
+    // ignored: the browser moved it, we did not object, and treating it as
+    // outstanding would make the next event look like a reader's move too.
+    if (!this.handled) {
+      this.wrote = box.scrollTop;
+      return;
+    }
     const NEAR = 120;
     const gap = box.scrollHeight - box.scrollTop - box.clientHeight;
     const followed = this.pinned;
