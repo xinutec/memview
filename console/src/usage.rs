@@ -168,6 +168,34 @@ impl Usage {
 /// Per window rather than whole: an event names one window (the *representative*
 /// one), so the five-hour figure can be seconds old while the weekly one is
 /// still the dashboard's.
+/// Which of two readings of the same window is the current one.
+///
+/// ⚠ **Not the one that arrived last, and that is the whole point.** Every
+/// session answers `get_usage` from its own process's cached rate-limit headers,
+/// which are as old as that process's last request to the API — so an idle
+/// session truthfully reports the account as it stood an hour ago, and it
+/// reports it *now*. Taking the newest arrival made a stale answer authoritative
+/// for a minute at a time: measured on the phone as the week's figure flipping
+/// 81 → 77 → 81 → 77 on the console's sixty-second beat, with one sample showing
+/// the two windows disagreeing about which hour it was.
+///
+/// What breaks the tie is the figure itself. Utilisation only rises inside one
+/// window, so of two readings of the *same* window instance the higher one is
+/// the later one, whoever heard it. A window that has turned over is a different
+/// instance with a later `resets_at`, and there the newer instance wins outright
+/// — otherwise the old window's high-water mark would outrank the fresh window's
+/// honest 3%.
+///
+/// Arrival time is the fallback for a reading with no reset time at all, which
+/// is what a `rate_limit_event` carries when the CLI declines to say.
+pub fn fresher(held: &Seen, candidate: &Seen) -> bool {
+    match (held.resets_at, candidate.resets_at) {
+        (Some(theirs), Some(ours)) if ours != theirs => ours > theirs,
+        (Some(_), Some(_)) => candidate.utilization > held.utilization,
+        _ => candidate.at > held.at,
+    }
+}
+
 pub fn merged(
     seen: &BTreeMap<String, Seen>,
     dashboard: Option<&Published>,

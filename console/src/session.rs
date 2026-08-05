@@ -394,6 +394,9 @@ struct State {
     /// Background tool calls started and not reported finished. See
     /// [`Summary::background`].
     background: std::collections::BTreeSet<String>,
+    /// When the process last wrote a line, in epoch milliseconds. See
+    /// [`Session::heard`]; zero for one that has never said anything.
+    heard: i64,
     asked: Option<String>,
     stderr: String,
 }
@@ -769,6 +772,12 @@ impl Session {
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
+                    // ⚠ **Every line, whatever it turns out to be.** This is the
+                    // record of when the *process* last spoke, which is how the
+                    // roster decides who to ask for the account's usage — and an
+                    // idle session answers that question from a cache as old as
+                    // its own last request. See [`Session::heard`].
+                    session.heard();
                     // Before the events, and separately from them: a control
                     // response is an answer to something the console asked, not
                     // something that happened in the conversation, so it has no
@@ -1014,6 +1023,22 @@ impl Session {
     /// Record an event as having happened now.
     fn push(&self, event: Event) {
         self.push_at(event, Some(now()));
+    }
+
+    /// Note that the process said something, whatever it was.
+    ///
+    /// Not the same as the transcript's last activity, which is about the
+    /// conversation and is read off the file. This is about the *process*: which
+    /// of them is currently talking to the API, and therefore which one holds a
+    /// current answer to `get_usage` rather than a cache from whenever it last
+    /// made a request. See [`crate::roster::Roster::ask_usage`].
+    fn heard(&self) {
+        self.state.lock().expect("session state poisoned").heard = now();
+    }
+
+    /// When this session's process last said anything. See [`Self::heard`].
+    pub fn last_heard(&self) -> i64 {
+        self.state.lock().expect("session state poisoned").heard
     }
 
     /// Record an event and hand it to whoever is listening.

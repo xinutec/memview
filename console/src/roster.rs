@@ -300,21 +300,30 @@ impl Roster {
     ///
     /// ⚠ **One session, not all of them.** The figure is account-wide, so asking
     /// a second would be asking the same question twice and putting a line down
-    /// a second conversation's stdin for an answer already known. The newest is
-    /// chosen because it is the likeliest to still be healthy.
+    /// a second conversation's stdin for an answer already known.
+    ///
+    /// ⚠ **The one that spoke most recently, not the one started most recently.**
+    /// A session answers `get_usage` out of its own process's cached rate-limit
+    /// headers, which are as old as that process's last request to the API — so
+    /// asking a session that has been sitting idle since it was picked up gets a
+    /// truthful answer about an hour ago. This used to choose by `started`, and
+    /// four conversations resumed in one evening made the newest of them
+    /// permanently the quietest: the figure on the phone flipped between now and
+    /// an hour ago on this loop's own beat. See [`crate::usage::fresher`] for the
+    /// half of the fix that survives being asked the wrong session anyway.
     ///
     /// Nothing is returned: the answer comes back on that session's stdout and
     /// lands in its tally, where [`Self::spent`] finds it.
     pub async fn ask_usage(&self) {
-        let newest = {
+        let busiest = {
             let sessions = self.sessions.read().expect("roster poisoned");
             sessions
                 .values()
-                .filter(|session| session.summary().alive)
-                .max_by_key(|session| session.summary().started)
+                .filter(|session| session.alive())
+                .max_by_key(|session| session.last_heard())
                 .cloned()
         };
-        if let Some(session) = newest {
+        if let Some(session) = busiest {
             session.ask_usage().await;
         }
     }
@@ -333,8 +342,11 @@ impl Roster {
             std::collections::BTreeMap::new();
         for session in sessions.values() {
             for (window, seen) in session.tally().spent {
+                // ⚠ Not "whichever arrived last" — see [`crate::usage::fresher`].
+                // An idle session answers from its own process's cache, so the
+                // freshest arrival is routinely the oldest figure.
                 match newest.get(&window) {
-                    Some(held) if held.at >= seen.at => {}
+                    Some(held) if !crate::usage::fresher(held, &seen) => {}
                     _ => {
                         newest.insert(window, seen);
                     }
