@@ -2454,3 +2454,26 @@ test('one event does not rebuild the rows already on screen @ phone width', asyn
   });
   expect(survived).toBe(true);
 });
+
+test('a seed that arrives in pieces still ends at the end @ phone width', async ({ page }) => {
+  await handControlOfTheStream(page);
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.transcript').waitFor();
+  let seq = 0;
+  // Delivered one at a time with a frame between, as the runner streams a seed
+  // it is reading off disk — not as one chunk, which is all the other tests do.
+  for (let n = 0; n < 30; n++) {
+    await say(
+      page,
+      { kind: 'text', text: `Message ${n}: ` + 'something said at some length. '.repeat(6) },
+      ++seq,
+    );
+  }
+  await say(page, { kind: 'text', text: 'THE NEWEST THING SAID' }, ++seq);
+  const gap = await page.evaluate(() => {
+    const box = document.querySelector('.transcript');
+    return box ? box.scrollHeight - box.scrollTop - box.clientHeight : -1;
+  });
+  expect(gap).toBeLessThan(4);
+});
