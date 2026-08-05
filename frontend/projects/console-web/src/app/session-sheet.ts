@@ -17,6 +17,20 @@ export interface Fact {
   readonly label: string;
   readonly value: string;
   readonly mono?: boolean;
+  /**
+   * Where the value came from, when that is not obvious and matters.
+   *
+   * Only one fact needs it so far and it is the one that is not a fact: the
+   * sentence a model wrote. On the card that provenance is an icon with a
+   * tooltip, because there is no room; here there is room, so it is words.
+   */
+  readonly note?: string;
+}
+
+/** What the sheet is opened with: the session, and what it is about. */
+export interface Details {
+  readonly session: Summary;
+  readonly gist?: { readonly text: string; readonly at: number };
 }
 
 /**
@@ -33,8 +47,23 @@ export interface Fact {
  * not finished reading has no name, no model and no mode, and a column of
  * em-dashes says "missing" where the truth is "not known yet".
  */
-export function factsOf(session: Summary): Fact[] {
-  const facts: Fact[] = [{ label: 'where', value: session.dir, mono: true }];
+export function factsOf(session: Summary, gist?: Details['gist']): Fact[] {
+  const facts: Fact[] = [];
+  // First, because it is the question the sheet is opened with. Whole, where the
+  // card clamps it to two lines — a sentence cut mid-clause on a card is a
+  // prompt to open this, and finding it cut here as well would be the panel
+  // failing at its one job.
+  if (gist) {
+    facts.push({
+      label: 'about',
+      value: gist.text,
+      // ⚠ Said in words rather than implied. Every other line here is read off
+      // a file or a process; this one was written by a model from the
+      // transcript, and it can be wrong in ways none of the others can.
+      note: `written by Haiku, ${when(gist.at)}`,
+    });
+  }
+  facts.push({ label: 'where', value: session.dir, mono: true });
   // ⚠ **No "started with" here, and it is not an omission.** It said the first
   // instruction the console heard — which for a resumed session is the first
   // prompt in the seeded page rather than the conversation's opening, and which
@@ -123,9 +152,9 @@ function megabytes(bytes: number): string {
   styleUrl: './session-sheet.scss',
 })
 export class SessionSheet {
-  protected readonly session = inject<Summary>(MAT_BOTTOM_SHEET_DATA);
+  private readonly details = inject<Details>(MAT_BOTTOM_SHEET_DATA);
   /** The same name the button that opened this shows, and the same one the list
    *  card showed before that. See `naming.ts`. */
-  protected readonly title = titleOf(this.session);
-  protected readonly facts = factsOf(this.session);
+  protected readonly title = titleOf(this.details.session);
+  protected readonly facts = factsOf(this.details.session, this.details.gist);
 }

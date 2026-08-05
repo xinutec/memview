@@ -1746,6 +1746,16 @@ const NAMED = {
     },
     STATE.sessions[1],
   ],
+  // What it is about, keyed by conversation the way the runner sends it. Long
+  // enough that the card clamps it, which is the case the sheet exists for.
+  gists: {
+    '6f7c2f11-0000-4000-8000-000000000001': {
+      text:
+        'porting the last of the matcher gate to Lean, proving it bit-exact against the ' +
+        'TypeScript twin, and running the golden set to see which journeys moved',
+      at: 1785600000000,
+    },
+  },
 };
 
 test('the toolbar says which session this is, beside what can be done to it @ phone width', async ({
@@ -2000,6 +2010,12 @@ test('the details sheet holds what the page has no room for @ phone width', asyn
   // gap between the two is the fact neither one states.
   expect(said).toContain('62 MB');
   expect(said).toContain('640k / 1M');
+  // ⚠ **Whole, and attributed.** The card clamps this sentence to two lines, so
+  // being cut there is a reason to open the sheet — finding it cut here as well
+  // would be the panel failing at its one job. And it is the only line in it a
+  // model wrote, which the sheet has room to say in words.
+  expect(said).toContain('running the golden set to see which journeys moved');
+  expect(said).toContain('written by Haiku');
 
   await expectNoTextOverlaps(page, testInfo, '.session-sheet');
   await expectNoHorizontalOverflow(page, testInfo, '.session-sheet');

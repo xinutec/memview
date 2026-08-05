@@ -38,6 +38,27 @@ describe('factsOf', () => {
     expect(labels(BARE)).not.toContain('last active');
   });
 
+  it('opens with what the conversation is about, whole and attributed', () => {
+    // The card clamps the sentence to two lines, so a long one is cut there —
+    // and being cut is a reason to open this. Finding it cut here too would be
+    // the panel failing at the one thing it is for.
+    const long =
+      'porting the last of the matcher gate to Lean, proving it bit-exact against the ' +
+      'TypeScript twin, and running the golden set to see which journeys moved';
+    const facts = factsOf(BARE, { text: long, at: new Date(2026, 7, 5, 8, 30).getTime() });
+
+    expect(facts[0].label, 'it is the question the sheet is opened with').toBe('about');
+    expect(facts[0].value).toBe(long);
+    // ⚠ Said in words. Every other line here is read off a file or a process.
+    expect(facts[0].note).toContain('written by Haiku');
+  });
+
+  it('says nothing about a conversation nothing has been written for', () => {
+    // A sweep has not reached it, or the last one failed. An empty `about` row
+    // would read as "this conversation is about nothing".
+    expect(labels(BARE)).not.toContain('about');
+  });
+
   it('does not claim what the session was started with', () => {
     // The console keeps the first prompt it heard, which for a resumed session
     // is the first one in the seeded page and for a long-running one is a job

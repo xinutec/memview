@@ -35,4 +35,15 @@ export class Here {
    * goes.
    */
   readonly at = signal<string | undefined>(undefined);
+
+  /**
+   * What this conversation is about, when a sentence has been written for it.
+   *
+   * ⚠ **Carried beside the summary rather than on it.** The sentences arrive
+   * keyed by conversation, because they cover the transcripts on disk as well —
+   * and those are not sessions and have no summary. Putting a copy on the
+   * summary too would be the same fact travelling two ways, which is how the two
+   * copies eventually disagree. See `console/src/gist.rs`.
+   */
+  readonly gist = signal<{ text: string; at: number } | undefined>(undefined);
 }

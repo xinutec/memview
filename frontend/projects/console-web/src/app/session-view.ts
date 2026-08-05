@@ -259,6 +259,7 @@ export class SessionView implements OnDestroy {
     // one was open last.
     this.here.open.set(undefined);
     this.here.at.set(undefined);
+    this.here.gist.set(undefined);
   }
 
   /** The header facts — cost, turns, whether it is working — come from the
@@ -283,6 +284,9 @@ export class SessionView implements OnDestroy {
           // the menu and the details sheet act on what is set here. The whole
           // summary, because the sheet shows nearly all of it.
           this.here.open.set(mine);
+          // And what it is about, which the sheet shows in full where the card
+          // has room for two lines. Keyed by conversation — see [[Here.gist]].
+          this.here.gist.set(state.gists?.[this.id()]);
           this.updates.saw(state.bundle);
           this.unreachable.set('');
         },

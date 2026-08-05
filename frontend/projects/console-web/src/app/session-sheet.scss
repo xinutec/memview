@@ -39,4 +39,14 @@
   .mono {
     font-family: ui-monospace, monospace;
   }
+
+  // Where a value came from, under it. Quieter than the value and louder than
+  // nothing: it qualifies the sentence above it, and a reader who takes that
+  // sentence for a fact has been misled by this panel.
+  .note {
+    display: block;
+    margin-top: 0.15rem;
+    font: var(--mat-sys-body-small);
+    color: var(--mat-sys-on-surface-variant);
+  }
 }

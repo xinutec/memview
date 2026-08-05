@@ -121,7 +121,12 @@ export class App {
    */
   protected details(session: Summary): void {
     this.dismiss.onBack(
-      this.sheet.open(SessionSheet, { data: session, panelClass: 'session-sheet' }),
+      this.sheet.open(SessionSheet, {
+        // The sentence travels beside the summary rather than on it — see
+        // [[Here.gist]] — so the sheet is handed both.
+        data: { session, gist: this.here.gist() },
+        panelClass: 'session-sheet',
+      }),
     );
   }
 
