@@ -98,12 +98,17 @@
 // The task count, quiet by default and only coloured when something is left:
 // on a page of a dozen rows the useful reading is which conversations still owe
 // work, and a list that is entirely finished should not compete for that.
+// ⚠ **Laid out inline, NOT as a flex box, and that is the whole of it.** This
+// was `inline-flex` with `align-items: center`, and an inline-flex box takes its
+// baseline from its first flex item — here a 0.9rem icon. So the digits rode
+// 3.8px above the line: measured on the real page, `2/3` sat at 11.89 where
+// `requesting` beside it in the same 11px font sat at 15.69. The head aligns its
+// children on their baselines, and a box that reports the wrong one is aligned
+// perfectly to the wrong place. Inline, the text is simply part of the line and
+// the icon is nudged to it.
 .list {
   font: var(--mat-sys-label-small);
   color: var(--mat-sys-on-surface-variant);
-  display: inline-flex;
-  align-items: center;
-  gap: 0.15rem;
   flex: 0 0 auto;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -118,6 +123,11 @@
     font-size: 0.9rem;
     width: 0.9rem;
     height: 0.9rem;
+    // Sat on the baseline it would otherwise stand on: a glyph whose box bottom
+    // is the baseline looks a little high beside digits, so it drops by its own
+    // descender's worth.
+    vertical-align: -0.15em;
+    margin-inline-end: 0.15rem;
   }
 }
 

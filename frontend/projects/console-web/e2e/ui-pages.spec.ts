@@ -489,6 +489,85 @@ async function expectSendAlignsWithTheBox(page: Page): Promise<void> {
 }
 
 /**
+ * Words that look like one line sit on one line.
+ *
+ * ⚠ **The failure class none of the others can see.** Text 3.8px above its
+ * neighbours is not clipped, not overlapping, not overflowing and not small — it
+ * is simply wrong, and the only symptom is that a row of cards reads as ragged.
+ * Found by eye on the phone, on the first build that put an icon in a card head.
+ *
+ * **What went wrong is worth stating exactly, because the CSS looked right.** The
+ * chip was `inline-flex` with `align-items: center` — sensible on its own — and
+ * an inline-flex box reports the baseline of its FIRST FLEX ITEM, which was a
+ * 0.9rem icon rather than the digits beside it. The head aligns its children on
+ * their baselines, so it aligned that box perfectly to a baseline the reader
+ * cannot see. Measured on the real page: `2/3` sat at 11.89 where `requesting`,
+ * in the same 11px font on the same line, sat at 15.69.
+ *
+ * Baselines are measured rather than estimated: a zero-height inline-block with
+ * `vertical-align: baseline` has its bottom edge ON the baseline of the line box
+ * it joins, so the probe reports what the browser actually did. Words are grouped
+ * into bands by their boxes overlapping vertically, which is what makes this
+ * survive a head that wraps — a second line is its own band, not a violation.
+ *
+ * Icon glyphs are excluded: an icon font's baseline is its own business, and
+ * nudging a glyph off the line to sit right beside digits is the fix, not the
+ * defect.
+ */
+async function expectOneBaseline(page: Page, rowSel: string, tol = 1): Promise<void> {
+  const ragged = await page.evaluate(
+    ([sel, tolerance]) => {
+      const bad: string[] = [];
+      for (const row of document.querySelectorAll(sel)) {
+        const words: { text: string; top: number; bottom: number; base: number }[] = [];
+        const walk = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+        for (let node = walk.nextNode(); node; node = walk.nextNode()) {
+          const text = node.textContent?.trim();
+          const parent = node.parentElement;
+          if (!text || !parent) continue;
+          if (parent.closest('mat-icon, .material-icons, .material-symbols-outlined')) continue;
+          const style = getComputedStyle(parent);
+          if (style.visibility === 'hidden' || style.display === 'none') continue;
+
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          const box = range.getBoundingClientRect();
+
+          // The text is moved into a holder so the probe shares its line even
+          // when the parent is a flex container, where a bare probe would become
+          // a flex item of its own and measure nothing.
+          const holder = document.createElement('span');
+          const probe = document.createElement('span');
+          probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
+          node.parentNode?.insertBefore(holder, node);
+          holder.append(node, probe);
+          const base = probe.getBoundingClientRect().bottom;
+          holder.parentNode?.insertBefore(node, holder);
+          holder.remove();
+
+          words.push({ text: text.slice(0, 20), top: box.top, bottom: box.bottom, base });
+        }
+        // One band per visual line: a word joins the band its box overlaps.
+        for (const word of words.sort((a, b) => a.top - b.top)) {
+          const band = words.filter((other) => other.top < word.bottom && other.bottom > word.top);
+          const spread =
+            Math.max(...band.map((w) => w.base)) - Math.min(...band.map((w) => w.base));
+          if (spread > tolerance) {
+            bad.push(
+              `${band.map((w) => `"${w.text}" at ${w.base.toFixed(1)}`).join(', ')} — ${spread.toFixed(1)}px apart`,
+            );
+            break;
+          }
+        }
+      }
+      return bad;
+    },
+    [rowSel, tol] as [string, number],
+  );
+  expect(ragged, `words on one line do not share a baseline in ${rowSel}`).toEqual([]);
+}
+
+/**
  * The stamp at the foot of the shell is not painted over by the page above it.
  *
  * ⚠ **A different failure from `expectNoPinnedOverlap`**, which compares the
@@ -1549,6 +1628,9 @@ test('session list — work still running says so, silence otherwise @ phone wid
   await expect(page.locator('.session', { hasText: 'quiet' })).not.toContainText('background');
   await expect(page.locator('.tasks')).toHaveCount(1);
 
+  // The other crowded head: a name long enough to push everything else along,
+  // and two things qualifying the status word. See [[expectOneBaseline]].
+  await expectOneBaseline(page, '.session .head');
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 });
@@ -1603,6 +1685,11 @@ test('session list — what each conversation still owes @ phone width', async (
   // been emptied, and most conversations never open one.
   await expect(page.locator('.session', { hasText: 'no-list' }).locator('.list')).toHaveCount(0);
 
+  // ⚠ **The assertion this feature earned.** The chip shipped as an inline-flex
+  // box, which reports its icon's baseline rather than its digits', so the count
+  // rode 3.8px above the name and the status word beside it. Nothing else here
+  // could see that — see [[expectOneBaseline]].
+  await expectOneBaseline(page, '.session .head');
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
   await expectNoClippedText(page, testInfo);
