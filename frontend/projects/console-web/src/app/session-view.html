@@ -37,17 +37,33 @@
   <p class="trouble">{{ what }}</p>
 }
 
-<!-- ⚠ **The three gestures are what make a scroll a decision** — see
-     [[SessionView.handled]]. A `scroll` event alone does not: the browser fires
-     one when it adjusts the position itself, and taking that for a reader's move
-     is what left a conversation stranded 13% of the way down. `touchstart` is
-     deliberately absent, since every tap on a tool row is one and tapping is not
-     scrolling; `touchmove` is the drag.
+<!-- ⚠ **A gesture is what makes a scroll a decision** — see
+     [[Following.byHand]]. A `scroll` event alone does not: the browser fires one
+     when it adjusts the position itself, and taking that for a reader's move is
+     what left a conversation stranded 13% of the way down. `touchmove` is the
+     drag; `wheel` is the desk.
      No `keydown`: this list is not focusable, so it would never receive one —
      the key that scrolls it goes to the document. Adding `tabindex` to hear it
      would put a tab stop on the transcript to serve a keyboard this app does not
-     have. -->
-<ol class="transcript" #scroller (scroll)="onScroll()" (wheel)="reached()" (touchmove)="reached()">
+     have.
+
+     ⚠ **`touchstart` says something different and is not in that group.** A
+     finger on the glass is not a scroll and must not unpin — every tap on a tool
+     row is one — but it is how a person stops a page that is moving, and while
+     it is down nothing here may write a scroll position. See
+     [[Following.took]]. `touchcancel` as well as `touchend`, or a hold
+     interrupted by the system — a notification, a gesture claimed by the shell —
+     leaves the transcript frozen for the life of the page. -->
+<ol
+  class="transcript"
+  #scroller
+  (scroll)="onScroll()"
+  (wheel)="reached()"
+  (touchmove)="reached()"
+  (touchstart)="took()"
+  (touchend)="released()"
+  (touchcancel)="released()"
+>
   @if (more()) {
     <!-- The seed is a page, not the conversation, and this is where the rest of
          it comes from. Not a button: reading back through a morning is one

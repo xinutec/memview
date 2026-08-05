@@ -943,6 +943,70 @@ test('a picture that was sent is on the screen, not a path to it @ phone width',
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
 });
 
+test('a finger on the transcript stops it being pulled to the end @ phone width', async ({
+  page,
+}) => {
+  // ⚠ **Reported from the phone.** A session writing its answer pulled the view
+  // to the end on every delta, including while the reader had a thumb on the
+  // glass reading the sentence as it arrived — they had not scrolled, so they
+  // were still pinned, and being pinned is exactly what moved the view.
+  //
+  // The rules themselves are unit-tested in `following.spec.ts`, which is where
+  // the numbers live. What only a browser can answer is whether the touch ever
+  // reaches them: the handlers are template bindings, and a binding that is not
+  // there fails silently and looks like the old behaviour.
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+        ...Array.from({ length: 60 }, (_, n) => ({
+          kind: 'text',
+          text: `paragraph ${n} of an answer long enough to scroll.\n\n`,
+          at: NEXT,
+        })),
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  const list = page.locator('.transcript');
+  await list.waitFor();
+
+  // Opened at the newest, which is the state the defect happens in.
+  const atEnd = () =>
+    list.evaluate((box) => Math.round(box.scrollHeight - box.scrollTop - box.clientHeight));
+  await expect.poll(atEnd).toBeLessThan(4);
+  const before = await list.evaluate((box) => box.scrollTop);
+
+  // A finger goes down and the window shrinks under it — the same thing a
+  // growing answer does to the distance from the end, and the one way to make
+  // it happen in a harness that hands the transcript over in a single chunk.
+  await list.dispatchEvent('touchstart');
+  await page.setViewportSize({ width: 412, height: 420 });
+
+  // ⚠ **Wait for the resize to have been acted on, then assert.** The claim here
+  // is that something did NOT happen, and there is no event for that — so the
+  // window has to be given its chance first. `expect.poll(...).toBe(before)`
+  // alone is worse than useless: `before` is the current value, so it passes on
+  // the first poll, ahead of the observer that would have moved it. Written that
+  // way, this test passed with the `touchstart` binding deleted.
+  await expect.poll(() => list.evaluate((box) => box.clientHeight)).toBeLessThan(420);
+  await page.waitForTimeout(250);
+
+  expect(await list.evaluate((box) => box.scrollTop), 'not pulled anywhere').toBe(before);
+  expect(await atEnd(), 'left behind the end, which is where the reader put it').toBeGreaterThan(
+    100,
+  );
+
+  // And letting go catches up, rather than leaving the transcript frozen for the
+  // life of the page.
+  await list.dispatchEvent('touchend');
+  await expect.poll(atEnd).toBeLessThan(4);
+});
+
 test('a picture can be put down again without being sent @ phone width', async ({ page }) => {
   // The discard is not decoration: the picker is a gallery on a phone and the
   // wrong screenshot is one tap away from the right one.

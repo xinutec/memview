@@ -30,6 +30,7 @@ import { Foreground } from './foreground';
 import { Entry, Summary } from './models';
 import { modelName } from './model';
 import { modeIcon, modeIsLoud, modeTitle } from './modes';
+import { Following, measure } from './following';
 import { Here } from './here';
 import { Updates } from './updates';
 import { Rendered } from './rendered';
@@ -409,138 +410,69 @@ export class SessionView implements OnDestroy {
   private follow(): void {
     const box = this.scroller()?.nativeElement;
     if (!box) return;
-    if (this.pinned || !this.settled) {
-      box.scrollTop = box.scrollHeight;
-      // Where we put it, so the scroll event this causes can be told apart from
-      // one the reader caused. See [onScroll].
-      this.wrote = box.scrollTop;
-      this.settled = true;
+    const to = this.following.wants(measure(box));
+    if (to !== undefined) {
+      box.scrollTop = to;
+      // Where it actually landed, so the scroll event this causes can be told
+      // apart from one the reader caused. See [[Following.moved]].
+      this.following.landed(box.scrollTop);
       return;
     }
-    // Asked to follow and declined, because the reader is somewhere else. The
-    // counterpart to the note in [onScroll]: between the two, the log says
-    // whether a transcript that opened part-way up was ever pulled to the end
-    // and let go, or never pulled at all.
+    // Asked to follow and declined. Which of the two reasons it was matters:
+    // a hold ends by itself and a reader who has scrolled away does not, so a
+    // page that never catches up is a different fault from one that follows
+    // something nobody is watching.
     this.telemetry.measured(
-      'stayed',
+      this.following.held ? 'holding' : 'stayed',
       `gap=${Math.round(box.scrollHeight - box.scrollTop - box.clientHeight)} entries=${this.entries().length}`,
     );
   }
 
-  /**
-   * Whether the reader is at the newest message.
-   *
-   * ⚠ **Remembered as they scroll, not measured when it is wanted.** It was
-   * measured, and the moment it is wanted includes the soft keyboard opening:
-   * by then the transcript has already lost half its height, so the arithmetic
-   * says "several hundred pixels from the bottom" about a reader who has not
-   * moved — and the message they tapped the box to answer slides off the screen
-   * exactly as they start typing.
-   */
-  private pinned = true;
+  /** A finger went down on the transcript, which suspends following until it
+   *  comes off again — see [[Following.took]]. */
+  protected took(): void {
+    this.following.took();
+  }
 
-  /**
-   * Whether the reader has ever scrolled this transcript by hand.
-   *
-   * ⚠ **Until they have, no scroll event may unpin, whatever the position
-   * says.** Measured on the phone, three times in a row: `follow` scrolled to the
-   * bottom of what had arrived and wrote 1941; the browser then moved it to
-   * 1960 on its own — scroll anchoring, holding the visible content still while
-   * the rest of the seed rendered around it. Eighteen or nineteen pixels, every
-   * time. That made `top !== wrote`, which was the only test for "the reader did
-   * this", so the handler measured a 12,699px gap against a 120px threshold,
-   * unpinned, and the transcript stopped following while the remaining 13,000
-   * pixels arrived. The conversation opened 13% of the way down and stayed there.
-   * Opening it again was fine, because a cached transcript renders in one pass
-   * and there is no growth for the browser to react to.
-   *
-   * A gesture is the thing that cannot be faked by layout: a wheel, a drag, a
-   * key. `touchstart` deliberately does not count — every tap on a tool row is
-   * one, and tapping is not scrolling.
-   */
-  private handled = false;
+  /** And came off. Catching up here rather than waiting for the next event: a
+   *  session that has just finished writing sends nothing more, so a transcript
+   *  released at that moment would sit one message short until the next turn. */
+  protected released(): void {
+    this.following.released();
+    this.follow();
+  }
 
-  /** The reader moved it themselves. See [handled]. */
+  /** The reader moved it themselves. See [[Following.byHand]]. */
   protected reached(): void {
-    this.handled = true;
+    this.following.byHand();
   }
 
   /**
-   * `NEAR` is the slack: a few lines, so a partly-scrolled view still counts as
-   * following rather than as having been left behind.
-   *
-   * ⚠ **A scroll this component performed is not a reader's decision**, and
-   * failing to tell the two apart is what made following stop at random. The
-   * sequence, measured: `follow` sets `scrollTop` to the bottom and the browser
-   * queues a scroll event; more of the answer renders before that event is
-   * delivered; the handler then runs against the NEW `scrollHeight` and the OLD
-   * `scrollTop`, computes a gap of one or two deltas' worth — 120px to 168px,
-   * where the slack is 120 — and files the reader as having scrolled away. From
-   * then on nothing follows, and nobody touched the screen. It bit two runs in
-   * five of the deltas measurement.
-   *
-   * Remembering where we put it is the whole fix: a scroll that lands exactly
-   * there is ours, and says nothing about where the reader wants to be.
+   * The view moved; the engine decides what it meant. See [[Following.moved]],
+   * which holds every rule and the measurement behind it.
    */
   onScroll(): void {
     const box = this.scroller()?.nativeElement;
     if (!box) return;
-    if (box.scrollTop === this.wrote) return;
-    // ⚠ **A scroll with no gesture behind it is not a decision.** See [handled]
-    // for the measurement. The new position is taken as ours rather than
-    // ignored: the browser moved it, we did not object, and treating it as
-    // outstanding would make the next event look like a reader's move too.
-    if (!this.handled) {
-      this.wrote = box.scrollTop;
-      return;
-    }
-    const NEAR = 120;
-    const gap = box.scrollHeight - box.scrollTop - box.clientHeight;
-    const followed = this.pinned;
-    // ⚠ **Leaving and returning are not the same measurement**, and asking the
-    // distance-from-the-end question for both is what kept unpinning a reader
-    // who had not moved. While following, the transcript is growing underneath
-    // them: `scrollHeight` rises before the scroll event is handled, so the gap
-    // widens on its own and crossed the 120px slack at 122, 125, 129, 130, 133
-    // — five captures, none of them a person. Their `scrollTop` never changed.
-    // So leaving is measured against where we last put them, which growth cannot
-    // move; returning is measured against the end, because the end is what they
-    // are coming back to and it has moved since they left.
-    // ⚠ **And the two directions do not share a threshold.** `NEAR` is the slack
-    // for arriving at the end, a few lines. Leaving it needs a bigger number:
-    // measured on the device, the browser's own adjustments reach 122px, so a
-    // 120px slack calls a motionless reader "gone" on the strength of movement
-    // they did not make. Somebody genuinely scrolling back through the morning
-    // travels screens, not a fifth of one — 609px is the viewport here — so
-    // `AWAY` costs nothing real and puts the decision well clear of the noise.
-    const AWAY = 300;
-    this.pinned = followed ? this.wrote < 0 || this.wrote - box.scrollTop < AWAY : gap < NEAR;
+    const followed = this.following.pinned;
+    this.following.moved(measure(box));
     // ⚠ **The moment following stops, with the numbers that stopped it.**
     // Reported from a phone as a conversation opening part-way up and coming
     // right on a second open — which the layout harness cannot reproduce,
     // because it hands the seed over in one chunk and the real runner streams
     // it. Whether this was the reader's decision or a scroll nobody made is
-    // exactly what the log has to settle, so it carries the position, the one
-    // this component last wrote, and how far from the end that leaves us.
-    if (followed && !this.pinned) {
+    // exactly what the log has to settle, so it carries the position and how far
+    // from the end that leaves us.
+    if (followed && !this.following.pinned) {
       this.telemetry.measured(
         'unpinned',
-        `gap=${Math.round(gap)} top=${Math.round(box.scrollTop)} wrote=${Math.round(this.wrote)} height=${box.scrollHeight} view=${box.clientHeight} entries=${this.entries().length} settled=${this.settled}`,
+        `gap=${Math.round(box.scrollHeight - box.scrollTop - box.clientHeight)} top=${Math.round(box.scrollTop)} height=${box.scrollHeight} view=${box.clientHeight} entries=${this.entries().length} settled=${this.following.settled}`,
       );
     }
-    // ⚠ **Kept, not cleared.** It was cleared here, which threw away the only
-    // record of where this component had put the view — and the rule above needs
-    // it for every scroll after the first, not just the one that follows a write.
-    // Cleared, `wrote` was -1 for exactly the events that mattered: every capture
-    // of this fault carries `wrote=-1`, because the handler had already run once
-    // and discarded the anchor before the growth arrived.
   }
 
-  /** The last scroll position this component set, or -1 for none outstanding. */
-  private wrote = -1;
-
-  /** Whether the first render has happened; before it there is nothing to keep. */
-  private settled = false;
+  /** Where the reader is meant to be, and everything that decides it. */
+  private readonly following = new Following();
 
   /**
    * The page before the one on screen.
