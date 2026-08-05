@@ -653,6 +653,34 @@ export class SessionView implements OnDestroy {
   protected readonly weight = weight;
 
   /**
+   * Where a picture in the transcript is fetched from.
+   *
+   * The entry carries a file name and the session id is this view's own input,
+   * so nothing about a picture needs to travel through the fold.
+   */
+  pictureAt(entry: Entry): string {
+    return this.api.pictureAt(this.id(), entry.picture ?? '');
+  }
+
+  /**
+   * The picture currently shown at full width, if any.
+   *
+   * ⚠ **One at a time, and by name rather than by entry.** A conversation can
+   * hold the same picture twice — a screenshot sent, discussed, and sent again —
+   * and both should open together rather than one of them silently doing
+   * nothing. Held here rather than on the entry for the same reason
+   * [`opened`](#opened) is: it is about this reading, not about the conversation.
+   */
+  protected readonly full = signal<string | undefined>(undefined);
+
+  /** Open a picture to the width of the column, or put it back. Thumbnails are
+   *  the default because a transcript of full-width screenshots is a transcript
+   *  you cannot scroll past. */
+  enlarge(entry: Entry): void {
+    this.full.update((open) => (open === entry.picture ? undefined : entry.picture));
+  }
+
+  /**
    * The tool results whose whole output is on screen.
    *
    * Held here rather than on the entry because it is about this reading of the

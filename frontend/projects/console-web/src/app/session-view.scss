@@ -357,6 +357,48 @@
   pointer-events: none;
 }
 
+// A picture already sent, in the transcript.
+//
+// A button rather than an image with a click handler: it is the one thing in a
+// transcript row that does something when tapped, and a keyboard and a screen
+// reader should both be told so by the element rather than by an attribute.
+// Everything a button brings visually is given back — the card row supplies it.
+.picture {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  // A thumb aims at this, and a picture two lines tall is a 32px target.
+  min-height: 3rem;
+
+  img {
+    // ⚠ **Both dimensions are bounded before it loads.** An image whose size is
+    // only known once the bytes arrive reflows the transcript under whoever is
+    // reading it — the same jolt the stream itself causes — and a phone
+    // screenshot is 2400px tall, so an unbounded one is a screenful of nothing
+    // between two sentences. A quarter of the viewport is enough to recognise a
+    // picture, which is all the closed state is for.
+    max-width: 100%;
+    max-height: 25vh;
+    width: auto;
+    border-radius: 0.5rem;
+    // Says the picture is the whole of what was sent rather than a crop of it.
+    object-fit: contain;
+    // Visible against both grounds without a border in either: a dark
+    // screenshot on a dark page has no edge of its own.
+    background: var(--mat-sys-surface-container-highest);
+  }
+
+  // Opened: as wide as the reading column, as tall as it needs. Not a lightbox
+  // — an overlay would cover the words that explain the picture, which on a
+  // phone are the reason for looking at it.
+  img.full {
+    max-height: none;
+    width: 100%;
+  }
+}
+
 // What is about to be sent, in the strip above the composer.
 .chosen {
   flex: 0 0 auto;

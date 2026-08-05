@@ -87,6 +87,18 @@ pub enum Event {
     Prompt {
         text: String,
     },
+    /// A picture that was sent to this session, by the name of the copy kept for
+    /// it — enough for a reader to ask for it back at
+    /// `/api/sessions/{id}/images/{name}`.
+    ///
+    /// ⚠ **The bytes are deliberately not here.** The transcript line holds the
+    /// whole image as base64, and passing that through would put a megabyte on
+    /// the wire every time somebody scrolled past it, in an event stream whose
+    /// whole design is small messages. The file is already on disk; a name is all
+    /// anyone needs to ask for it.
+    Shown {
+        name: String,
+    },
     Text {
         text: String,
     },
@@ -581,34 +593,11 @@ pub fn read(line: &str) -> Vec<Event> {
                 )
                 .collect()
         }
-        Line::User { message } => message
-            .content
-            .blocks()
-            .into_iter()
-            .filter_map(|block| match block {
-                Block::ToolResult {
-                    tool_use_id,
-                    is_error,
-                    content,
-                } => {
-                    let (detail, cut) = returned(content);
-                    Some(Event::ToolResult {
-                        id: tool_use_id,
-                        ok: !is_error,
-                        detail,
-                        cut,
-                    })
-                }
-                Block::Text { text } => match finished(&text) {
-                    Some(event) => Some(event),
-                    None if is_notification(&text) => None,
-                    // A replayed prompt: the text this console sent, coming back.
-                    None if !is_plumbing(&text) => Some(Event::Prompt { text }),
-                    None => None,
-                },
-                _ => None,
-            })
-            .collect(),
+        // A replayed prompt: what this console sent, coming back — and read by
+        // the same function that reads one out of a transcript, so a picture
+        // appears on screen when it is sent rather than only when the
+        // conversation is next opened.
+        Line::User { message } => from_user(message.content),
         Line::Result(turn) => vec![Event::Turn {
             // Whichever model answered; there is one entry in practice, and the
             // largest is the honest answer if a turn ever spanned two.
@@ -895,6 +884,90 @@ pub fn prompt(text: &str) -> String {
     .to_string()
 }
 
+/// Everything one user message says, live or read back off the disk.
+///
+/// One function for both readers because a user message is one shape wherever it
+/// is met — the live one is the CLI replaying what this console just sent, and
+/// the recorded one is the same message written down. Two copies of this drifted
+/// apart once already.
+///
+/// ⚠ **Read across the blocks, not within one.** A sent picture is two blocks —
+/// the image, then the words — and the image block is the only one that says a
+/// picture is here while the text block is the only one that says *which*.
+/// Neither answers alone, which is why this is not the plain per-block mapping
+/// the rest of the reader is.
+fn from_user(content: Content) -> Vec<Event> {
+    let blocks = content.blocks();
+    let carries = blocks.iter().any(|block| matches!(block, Block::Image));
+    blocks
+        .into_iter()
+        .flat_map(|block| match block {
+            Block::ToolResult {
+                tool_use_id,
+                is_error,
+                content,
+            } => {
+                let (detail, cut) = returned(content);
+                vec![Event::ToolResult {
+                    id: tool_use_id,
+                    ok: !is_error,
+                    detail,
+                    cut,
+                }]
+            }
+            Block::Text { text } if carries => {
+                let (name, words) = shown(&text);
+                // The picture first and the words after, in the order they were
+                // sent and for the same reason: a question reads as being about
+                // the thing above it.
+                name.map(|name| Event::Shown { name })
+                    .into_iter()
+                    .chain((!words.is_empty()).then_some(Event::Prompt { text: words }))
+                    .collect()
+            }
+            Block::Text { text } => match finished(&text) {
+                Some(event) => vec![event],
+                None if is_notification(&text) => Vec::new(),
+                None if !is_plumbing(&text) => vec![Event::Prompt { text }],
+                None => Vec::new(),
+            },
+            _ => Vec::new(),
+        })
+        .collect()
+}
+
+/// The phrase that ties a sent picture to the copy on disk. Written by
+/// [`prompt_with_image`], read by [`shown`], and of no interest to anyone else.
+const ALSO_AT: &str = "the image is also at ";
+
+/// The picture a user message carries, and the words with the note about it
+/// taken out.
+///
+/// The note is addressed to the session — it is how a model that has had the
+/// image compacted away can open the file again — and it is plumbing to anybody
+/// reading the conversation, who is about to be shown the picture itself. So the
+/// reader gets the words without it, and an empty result means the picture was
+/// sent with nothing said.
+///
+/// Only the file name comes back, never the path it was found in: the client
+/// asks for a picture by session and name, and a directory it cannot use is a
+/// directory it has no reason to be told.
+pub fn shown(text: &str) -> (Option<String>, String) {
+    let Some(open) = text.rfind(&format!("({ALSO_AT}")) else {
+        return (None, text.to_string());
+    };
+    let from = open + ALSO_AT.len() + 1;
+    let Some(shut) = text[from..].find(')') else {
+        return (None, text.to_string());
+    };
+    let name = std::path::Path::new(&text[from..from + shut])
+        .file_name()
+        .and_then(|it| it.to_str())
+        .map(String::from);
+    let words = format!("{}{}", &text[..open], &text[from + shut + 1..]);
+    (name, words.trim().to_string())
+}
+
 /// One user message carrying a picture and what was said about it.
 ///
 /// ⚠ **Measured against CLI 2.1.221 before it was built on.** The CLI takes an
@@ -910,6 +983,16 @@ pub fn prompt(text: &str) -> String {
 /// the conversation only until it is compacted away, and a session asked about it
 /// an hour later has no way back to it — with the path, it can simply open the
 /// file, at the size it was sent rather than the size that was sent.
+///
+/// ⚠ **That note is also how the picture is found again when the transcript is
+/// read back.** A recorded image block holds base64 and no name, so the only
+/// thing on the line that says *which* picture this was is the path in the words
+/// beside it. [`shown`] is the other half of this function and the two share
+/// [`ALSO_AT`]; changing the sentence here without changing that one leaves every
+/// picture already sent unreadable.
+///
+/// Wordless and worded messages carry the same note for the same reason — one
+/// shape to write, one shape to read.
 pub fn prompt_with_image(
     text: &str,
     media_type: &str,
@@ -917,11 +1000,8 @@ pub fn prompt_with_image(
     kept: &std::path::Path,
 ) -> String {
     let said = match text.trim() {
-        "" => format!(
-            "I am showing you an image. It is also at {}",
-            kept.display()
-        ),
-        words => format!("{words}\n\n(the image is also at {})", kept.display()),
+        "" => format!("({ALSO_AT}{})", kept.display()),
+        words => format!("{words}\n\n({ALSO_AT}{})", kept.display()),
     };
     serde_json::json!({
         "type": "user",
@@ -977,33 +1057,7 @@ pub fn read_recorded(line: &str) -> Vec<Event> {
                 )
                 .collect()
         }
-        Line::User { message } => message
-            .content
-            .blocks()
-            .into_iter()
-            .filter_map(|block| match block {
-                Block::ToolResult {
-                    tool_use_id,
-                    is_error,
-                    content,
-                } => {
-                    let (detail, cut) = returned(content);
-                    Some(Event::ToolResult {
-                        id: tool_use_id,
-                        ok: !is_error,
-                        detail,
-                        cut,
-                    })
-                }
-                Block::Text { text } => match finished(&text) {
-                    Some(event) => Some(event),
-                    None if is_notification(&text) => None,
-                    None if !is_plumbing(&text) => Some(Event::Prompt { text }),
-                    None => None,
-                },
-                _ => None,
-            })
-            .collect(),
+        Line::User { message } => from_user(message.content),
         Line::System(System::CompactBoundary) => vec![Event::Compacted],
         // Everything else a transcript carries — the bridge lines, the file
         // snapshots, the summaries — belongs to the CLI and not to a reader of

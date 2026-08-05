@@ -278,6 +278,29 @@
         <span class="who">you</span>
         <div class="body" [innerHTML]="entry.text | rendered"></div>
       }
+      @case ('shown') {
+        <!-- A picture that was sent from here. Marked `you` like the words
+             around it: it is a thing the person put into the conversation, and
+             without the label it reads as something the session produced.
+
+             ⚠ **Fetched by name, never carried in the event.** The transcript
+             line holds the whole image as base64; passing that through the
+             event stream would put a megabyte on the wire for every scroll
+             past it. The runner sends a file name and serves the file. -->
+        <span class="who">you</span>
+        <button
+          class="picture"
+          type="button"
+          [attr.aria-label]="full() === entry.picture ? 'show this image smaller' : 'show this image full size'"
+          (click)="enlarge(entry)"
+        >
+          <img
+            [class.full]="full() === entry.picture"
+            [src]="pictureAt(entry)"
+            alt="an image sent to this session"
+          />
+        </button>
+      }
       @case ('said') {
         <div class="body" [innerHTML]="entry.text | rendered"></div>
       }

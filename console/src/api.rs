@@ -17,9 +17,9 @@ use axum::Router;
 use axum::extract::{Path, Query, State};
 
 use crate::protocol as console_protocol;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::sse::{Event as Sse, KeepAlive};
-use axum::response::{IntoResponse, Sse as SseResponse};
+use axum::response::{IntoResponse, Response, Sse as SseResponse};
 use axum::routing::{delete, get, post};
 use serde::{Deserialize, Serialize};
 use tokio_stream::wrappers::BroadcastStream;
@@ -45,6 +45,7 @@ pub fn router(roster: Arc<Roster>) -> Router {
             "/api/sessions/{id}/image",
             post(show).layer(axum::extract::DefaultBodyLimit::max(BODY_LIMIT)),
         )
+        .route("/api/sessions/{id}/images/{name}", get(picture))
         .route("/api/sessions/{id}/decide", post(decide))
         .route("/api/sessions/{id}/mode", post(mode))
         .route("/api/sessions/{id}/stop", post(stop))
@@ -224,6 +225,38 @@ pub struct Shown {
     /// a complete message, and the commonest one.
     #[serde(default)]
     pub text: String,
+}
+
+/// Hand back a picture that was sent to a session.
+///
+/// The other half of showing one. Without it the person who took the screenshot
+/// is the only party to the conversation who cannot see it: the model gets the
+/// image, and the transcript on the phone had a sentence about a file path.
+///
+/// ⚠ **Not asked of the roster first.** Every other `/api/sessions/{id}` route
+/// wants a session that is running; this one wants a file, and the conversation
+/// it belongs to is usually one that stopped days ago — which is exactly when
+/// somebody scrolls back to look. What guards it instead is
+/// [`crate::images::find`], which will only read a name it could have written.
+///
+/// Cached hard: a kept picture is written once under a name carrying the second
+/// it arrived in, and is never rewritten. Without this the phone re-fetches every
+/// screenshot in a conversation on every scroll back through it.
+async fn picture(Path((id, name)): Path<(String, String)>) -> Response {
+    match crate::images::find(&crate::images::images_root(), &id, &name) {
+        Some((bytes, media_type)) => (
+            [
+                (header::CONTENT_TYPE, media_type),
+                (
+                    header::CACHE_CONTROL,
+                    "private, max-age=31536000, immutable",
+                ),
+            ],
+            bytes,
+        )
+            .into_response(),
+        None => (StatusCode::NOT_FOUND, "no such picture").into_response(),
+    }
 }
 
 /// Show a session a picture.

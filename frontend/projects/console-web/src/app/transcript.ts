@@ -21,6 +21,13 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
     case 'prompt':
       add(entries, { kind: 'asked', text: event.text ?? '', at: event.at });
       break;
+    // A picture that was sent to this session. Its own entry rather than an
+    // `asked` carrying an image, because the two are separately optional: a
+    // screenshot with nothing said is the commonest message this carries, and
+    // words about a picture arrive as an ordinary `prompt` straight after.
+    case 'shown':
+      add(entries, { kind: 'shown', text: '', picture: event.name, at: event.at });
+      break;
     case 'tool':
       // ⚠ **The same call can arrive twice, and did.** An upgrade re-seeds from
       // the transcript while the bytes still in the child's pipe are drained by

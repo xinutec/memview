@@ -1259,11 +1259,28 @@ sending its path for the session to open, was dropped on that evidence.
 - **A copy is kept**, under `~/.console/images/<session>/`, and the message says
   where. The image is in the conversation only until a compaction drops it, and
   the path is what makes it possible to look again — at full size, which is not
-  what was sent.
+  what was sent. It is kept for exactly as long as the conversation is: the
+  runner drops the pictures of transcripts that have gone from disk, judged
+  against every id that exists rather than against the front page's list, which
+  hides conversations that ran from a temporary directory.
 - **It is held, not sent, on choosing.** The words about a screenshot are usually
   the point of sending it, and a picture that left on the tap would have to be
   explained by a second message the model reads after it. Sending with nothing
   said is still a whole message, and the commonest one.
+- **And it comes back.** For a while a sent picture reached the model and left
+  the person who took it reading a sentence about a file path — the only party to
+  the conversation who could not see it. The runner now reads the image block
+  back out of the transcript and emits a `shown` event naming the kept copy,
+  which the page fetches from `/api/sessions/{id}/images/{name}`; the note about
+  where the file is kept is taken out of the words, because it is addressed to
+  the session and the reader is looking straight at what it describes.
+
+  ⚠ **The name is what travels, never the bytes.** The transcript line holds the
+  whole image as base64, and passing that through the event stream would put a
+  megabyte on the wire for every scroll past it. That note in the words is also
+  the _only_ thing on the line that says which picture it was — a recorded image
+  block has no name in it — so `protocol::prompt_with_image` and `protocol::shown`
+  share the phrase between them and neither may be reworded alone.
 
 ⚠ **The phone needed a change of its own, and without it nothing happens at
 all.** A WebView refuses every `<input type="file">` unless the host implements

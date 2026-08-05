@@ -890,6 +890,59 @@ test('a picture waits to be sent with what is said about it @ phone width', asyn
   await expect(page.locator('.chosen')).toHaveCount(0);
 });
 
+test('a picture that was sent is on the screen, not a path to it @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **The half of the feature that was missing.** A sent picture reached the
+  // model and left the person who took it with a sentence about a file path —
+  // the one party to the conversation who could not see it. The runner reads the
+  // image block back out of the transcript, keeps the note out of the words, and
+  // says which file; the page fetches it.
+  let asked = '';
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+        { kind: 'shown', name: '2026-08-05-184700Z.png', at: NEXT },
+        { kind: 'prompt', text: 'what is wrong with this?', at: NEXT },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.route('**/api/sessions/*/images/*', (r) => {
+    asked = r.request().url();
+    return r.fulfill({ path: tinyPng(), contentType: 'image/png' });
+  });
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+
+  const picture = page.locator('.picture img');
+  await picture.waitFor();
+  expect(asked, 'asked for by name, under the session it was sent to').toContain(
+    '2026-08-05-184700Z.png',
+  );
+  // Decoded, not merely requested: a broken image is a visible element with no
+  // pixels in it, which every assertion about visibility would still pass.
+  expect(await picture.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(2);
+  // The words came with it, and the note about where the file was kept did not:
+  // that sentence is addressed to the session, and the reader is looking at the
+  // thing it describes.
+  await expect(page.locator('.entry.asked')).toContainText('what is wrong with this?');
+  await expect(page.locator('.entry.asked')).not.toContainText('.console/images');
+
+  // Bounded until it is asked to be otherwise, or a screenshot is a screenful of
+  // scrolling between two sentences.
+  const closed = await picture.boundingBox();
+  await page.locator('.picture').click();
+  await expect(picture).toHaveClass(/full/);
+  const open = await picture.boundingBox();
+  expect(open?.width ?? 0).toBeGreaterThan(closed?.width ?? 0);
+
+  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+});
+
 test('a picture can be put down again without being sent @ phone width', async ({ page }) => {
   // The discard is not decoration: the picker is a gallery on a phone and the
   // wrong screenshot is one tap away from the right one.

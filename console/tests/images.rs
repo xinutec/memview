@@ -5,7 +5,7 @@
 
 use std::collections::BTreeSet;
 
-use console::images::{LIMIT, keep, tidy};
+use console::images::{LIMIT, find, keep, tidy};
 
 /// The first bytes of each format, which is all the sniffer reads.
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR";
@@ -162,7 +162,8 @@ fn the_message_puts_the_picture_before_the_question() {
 fn a_picture_sent_with_nothing_said_is_still_a_whole_message() {
     // The commonest message this endpoint carries: a screenshot and no words.
     // An empty text block would be a message that says the picture is not worth
-    // looking at.
+    // looking at — and the note is what names the file, so it is never the part
+    // that goes missing.
     let line = console::protocol::prompt_with_image(
         "   ",
         "image/jpeg",
@@ -174,8 +175,107 @@ fn a_picture_sent_with_nothing_said_is_still_a_whole_message() {
     let said = sent["message"]["content"][1]["text"]
         .as_str()
         .expect("text");
-    assert!(said.contains("showing you an image"), "{said}");
     assert!(said.contains("/tmp/shot.jpg"), "{said}");
+}
+
+#[test]
+fn a_sent_picture_is_read_back_as_a_picture_and_the_words_about_it() {
+    // ⚠ The round trip is the whole feature. What the runner writes to the CLI
+    // is what a reader meets again in the transcript, and until this the reader
+    // met a sentence about a file path — so the one person who could not see the
+    // screenshot was the one who took it.
+    let line = console::protocol::prompt_with_image(
+        "what is wrong with this?",
+        "image/png",
+        "AAAA",
+        std::path::Path::new("/home/example/.console/images/s1/2026-08-05-184700Z.png"),
+    );
+
+    let read = console::protocol::read_recorded(&line);
+
+    assert_eq!(
+        read,
+        vec![
+            console::protocol::Event::Shown {
+                name: "2026-08-05-184700Z.png".to_string()
+            },
+            console::protocol::Event::Prompt {
+                text: "what is wrong with this?".to_string()
+            },
+        ],
+        "the picture first, then the words, and the path is not among them"
+    );
+}
+
+#[test]
+fn a_picture_sent_wordlessly_reads_back_as_just_the_picture() {
+    // Its note is addressed to the session, not to the reader, who is looking
+    // straight at the thing it describes. A bubble saying where the file is kept
+    // beside the file itself is furniture.
+    let line = console::protocol::prompt_with_image(
+        "",
+        "image/png",
+        "AAAA",
+        std::path::Path::new("/home/example/.console/images/s1/2026-08-05-184700Z.png"),
+    );
+
+    assert_eq!(
+        console::protocol::read_recorded(&line),
+        vec![console::protocol::Event::Shown {
+            name: "2026-08-05-184700Z.png".to_string()
+        }]
+    );
+}
+
+#[test]
+fn words_that_merely_talk_about_an_image_are_left_whole() {
+    // The note is only read out of a message that actually carries a picture, so
+    // an ordinary sentence keeps every word of itself however it is phrased.
+    let said = "the image is also at the bottom of the page, oddly";
+    let line = console::protocol::prompt(said);
+
+    assert_eq!(
+        console::protocol::read_recorded(&line),
+        vec![console::protocol::Event::Prompt {
+            text: said.to_string()
+        }]
+    );
+}
+
+#[test]
+fn a_kept_picture_can_be_read_back_by_name() {
+    // What the transcript's thumbnail is fetched with.
+    let root = scratch("find");
+    let held = keep(&root, "s1", "image/png", PNG, "2026-08-05-184700Z").expect("kept");
+    let name = held.path.file_name().expect("name").to_string_lossy();
+
+    let (bytes, media_type) = find(&root, "s1", &name).expect("found");
+
+    assert_eq!(bytes, PNG);
+    assert_eq!(media_type, "image/png", "sniffed, not taken off the name");
+}
+
+#[test]
+fn a_name_that_climbs_out_of_the_directory_is_not_served() {
+    // ⚠ Both halves arrive off a URL, and this one hands the bytes back. Without
+    // the whitelist it is a file reader with the console's own permissions.
+    let root = scratch("climb");
+    keep(&root, "s1", "image/png", PNG, "2026-08-05-184700Z").expect("kept");
+
+    assert!(find(&root, "s1", "../s1/2026-08-05-184700Z.png").is_none());
+    assert!(find(&root, "..", "2026-08-05-184700Z.png").is_none());
+}
+
+#[test]
+fn a_file_that_is_not_a_picture_is_not_served_as_one() {
+    // Nothing else writes into these directories, but the media type is what a
+    // browser is told to trust, and it is cheaper to sniff than to reason about
+    // who could have put a file there.
+    let root = scratch("not-a-picture");
+    std::fs::create_dir_all(root.join("s1")).expect("dir");
+    std::fs::write(root.join("s1").join("notes.txt"), b"not an image").expect("write");
+
+    assert!(find(&root, "s1", "notes.txt").is_none());
 }
 
 /// A directory of pictures for each of `sessions`, as [`keep`] would leave them.

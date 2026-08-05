@@ -82,6 +82,18 @@ export class ConsoleApi {
     });
   }
 
+  /** Where a picture that was sent to a session can be fetched from.
+   *
+   *  A URL rather than a request: it is handed to an `<img>`, which does the
+   *  fetching, caching and decoding that this service would otherwise be
+   *  reimplementing. The runner serves these `immutable` — a kept picture is
+   *  written once under the second it arrived in and never rewritten — so
+   *  scrolling back through a conversation costs nothing after the first look.
+   */
+  pictureAt(id: string, name: string): string {
+    return `/api/sessions/${encodeURIComponent(id)}/images/${encodeURIComponent(name)}`;
+  }
+
   /** Answer a question the session is blocked on.
    *
    *  `answers` are the choices made about an `AskUserQuestion`, and the runner

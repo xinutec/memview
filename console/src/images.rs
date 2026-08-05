@@ -121,6 +121,25 @@ pub fn keep(
     })
 }
 
+/// Read one kept picture back, for a reader that wants to see what it sent.
+///
+/// ⚠ **Both halves of the name are checked here too, and for the stronger
+/// reason.** [`keep`] guards a name it is about to write; this guards one it is
+/// about to *read and hand out*, and both halves arrive off a URL. Without the
+/// whitelist, `..%2f..%2f.ssh%2fid_ed25519` is a file this would happily serve.
+///
+/// The media type is sniffed rather than taken from the extension, because it is
+/// sniffed everywhere else in this module and one place that trusts a file name
+/// is the place that will be wrong.
+pub fn find(root: &Path, session: &str, name: &str) -> Option<(Vec<u8>, &'static str)> {
+    if !plain(session) || !plain(name) {
+        return None;
+    }
+    let bytes = std::fs::read(root.join(session).join(name)).ok()?;
+    let (media_type, _) = sniff(&bytes)?;
+    Some((bytes, media_type))
+}
+
 /// Delete the copies belonging to conversations that are no longer on disk, and
 /// say how many went.
 ///
