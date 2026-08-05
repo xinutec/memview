@@ -51,12 +51,18 @@
       {{ loading() ? 'reading earlier messages…' : '' }}
     </li>
   }
-  <!-- Tracked by identity, not by index. `fold` extends an entry in place and
-       hands back the same objects, so identity is stable — while an index is
-       not: prepending a page of older messages shifts every one of them, and
-       Angular re-binds the whole list, re-rendering the markdown of every
-       message on screen in a single frame. -->
-  @for (block of blocks(); track block) {
+  <!-- Tracked by what is stable, which is NOT the block.
+       `fold` extends an entry in place and hands back the same objects, so an
+       entry's identity survives — but `blocks()` wraps those entries in fresh
+       `{kind, entry}` objects on every recompute, and `track block` tracked the
+       wrapper. So every event rebuilt every row on screen: measured with a probe
+       that stamped a rendered node and watched the stamp disappear when a later,
+       unrelated event arrived. That is the re-render this comment claimed to
+       prevent, happening on every delta of every answer.
+       A run is tracked by its own key for the same reason it has one — see
+       `blocks()` — and everything else by the entry, whose identity is the thing
+       `fold` is careful to keep. -->
+  @for (block of blocks(); track block.kind === 'one' ? block.entry : block.key) {
     @if (block.kind === 'tools') {
       <!-- ⚠ **A run of tool calls is what a reader scrolls past.** One call is
            115px at phone width — 48 of that the button that opens its result —

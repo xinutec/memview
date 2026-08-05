@@ -2412,3 +2412,42 @@ test('a run stays folded while it works, and says it is working @ phone width', 
   await expect(run, 'the run has finished').not.toContainText('2 running');
   await expect(page.getByText('cargo test --all-features')).toBeVisible();
 });
+
+test('one event does not rebuild the rows already on screen @ phone width', async ({ page }) => {
+  // ⚠ **The defect this exists for, and it was invisible.** `blocks()` wraps each
+  // entry in a fresh object on every recompute, so `track block` tracked the
+  // wrapper — and every event rebuilt every row, re-rendering the markdown of
+  // every message on screen. That is precisely what the comment above that loop
+  // claimed to prevent, happening on every delta of every answer. Nothing looked
+  // wrong, because the page is correct either way and only wasteful.
+  //
+  // Stamps a rendered node and watches whether the stamp survives an unrelated
+  // event later in the conversation: a property survives only if Angular kept the
+  // element instead of making a new one.
+  await handControlOfTheStream(page);
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.transcript').waitFor();
+  let seq = 0;
+  await say(page, { kind: 'text', text: 'the first thing' }, ++seq);
+  await say(page, { kind: 'turn', cost_usd: 0, turns: 1 }, ++seq);
+
+  // Stamp the node that is already on screen. A property survives a re-render
+  // only if Angular kept the element rather than making a new one.
+  const stamped = await page.evaluate(() => {
+    const first = document.querySelector('.transcript .entry');
+    if (!first) return false;
+    (first as unknown as { __probe?: number }).__probe = 1;
+    return true;
+  });
+  expect(stamped, 'nothing on screen to stamp').toBe(true);
+
+  // An unrelated event at the far end of the conversation.
+  await say(page, { kind: 'text', text: 'something later' }, ++seq);
+
+  const survived = await page.evaluate(() => {
+    const first = document.querySelector('.transcript .entry');
+    return !!(first as unknown as { __probe?: number })?.__probe;
+  });
+  expect(survived).toBe(true);
+});
