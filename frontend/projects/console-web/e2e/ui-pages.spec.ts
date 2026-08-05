@@ -214,6 +214,12 @@ const STATE = {
       asked: 'check the corpus',
     },
   ],
+  // What each conversation has left of its own list, keyed by id the way the
+  // runner sends it — swept off disk for every session at once, so the row and
+  // the ⋮ menu both read the same two numbers without opening anything. The
+  // second session keeps no list, which is the ordinary case and the reason a
+  // row can say nothing rather than `0/0`. See `console/src/tasks.rs`.
+  tasks: { '6f7c2f11-0000-4000-8000-000000000001': { open: 2, total: 3 } },
   // A reading in the state it usually arrives in: hours old, its short window
   // long since turned over. See `console/src/usage.rs`.
   usage: {
@@ -1547,6 +1553,61 @@ test('session list — work still running says so, silence otherwise @ phone wid
   await expectNoHorizontalOverflow(page, testInfo);
 });
 
+test('session list — what each conversation still owes @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **The list a session keeps for itself, on the page that lists sessions.**
+  // These numbers were behind the ⋮ of the session already on screen, which is
+  // the one conversation whose state you can already see. The question worth
+  // asking is the other one — which of a dozen has work left — and it needs the
+  // count for every row, so the runner sweeps them all off disk.
+  await mockRunner(page);
+  await page.route('**/api/state', (r) =>
+    r.fulfill({
+      json: {
+        ...STATE,
+        sessions: [
+          { ...STATE.sessions[0], id: 'aaaa0000-0000-4000-8000-000000000001', name: 'owing' },
+          { ...STATE.sessions[0], id: 'aaaa0000-0000-4000-8000-000000000002', name: 'no-list' },
+          { ...STATE.sessions[0], id: 'aaaa0000-0000-4000-8000-000000000003', name: 'all-done' },
+        ],
+        tasks: {
+          'aaaa0000-0000-4000-8000-000000000001': { open: 3, total: 17 },
+          'aaaa0000-0000-4000-8000-000000000003': { open: 0, total: 4 },
+          // A conversation nothing is running, which still has the list it kept.
+          'bbbb0000-0000-4000-8000-000000000001': { open: 2, total: 9 },
+        },
+      },
+    }),
+  );
+  await page.route('**/api/past', (r) => r.fulfill({ json: ON_DISK }));
+  await page.goto('/');
+  await expect(page.locator('.session')).toHaveCount(5);
+
+  await expect(page.locator('.session', { hasText: 'owing' }).locator('.list')).toContainText(
+    '3/17',
+  );
+  // ⚠ **A conversation that is not running says it too.** The list is on disk
+  // beside the transcript and outlives the process, so a session finished
+  // yesterday can still be the one holding three unfinished things — and that is
+  // exactly the row somebody scanning this page is looking for.
+  await expect(page.locator('.session', { hasText: 'older' }).locator('.list')).toContainText(
+    '2/9',
+  );
+  // A list with nothing left says so rather than disappearing: it is a finished
+  // list, which is a different thing from never having kept one.
+  await expect(page.locator('.session', { hasText: 'all-done' }).locator('.list')).toContainText(
+    '0/4',
+  );
+  // ⚠ And nothing at all where there is no list — `0/0` would claim one that had
+  // been emptied, and most conversations never open one.
+  await expect(page.locator('.session', { hasText: 'no-list' }).locator('.list')).toHaveCount(0);
+
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+  await expectNoClippedText(page, testInfo);
+});
+
 test('session list — what each conversation is about, marked as a guess @ phone width', async ({
   page,
 }, testInfo) => {
@@ -1806,13 +1867,19 @@ const TASKS = [
     subject: 'write the rule up',
     status: 'pending',
     detailed: false,
-    blockedBy: ['101'],
+    // ⚠ **Snake-cased, because that is what the runner sends.** On disk the CLI
+    // camel-cases these; `tasks::Listed` is the console's own shape and goes out
+    // like the rest of this API. The client declared them the CLI's way, so both
+    // fields were always undefined and the `waiting on …` line below could not
+    // render at all — and this fixture agreed with the client instead of with
+    // the runner, so nothing failed.
+    blocked_by: ['101'],
   },
   {
     id: '101',
     subject: 'port the matcher gate',
     status: 'in_progress',
-    activeForm: 'porting the matcher gate',
+    active_form: 'porting the matcher gate',
     detailed: true,
   },
 ];
@@ -2149,7 +2216,9 @@ test('the task sheet opens on what is left rather than what is done @ phone widt
     .getByRole('button', { name: /what to do with/ })
     .click();
   // Open over total on the menu item itself, so "is there anything left?" is
-  // answered without opening the sheet at all. Counted when the menu opens.
+  // answered without opening the sheet at all. Off the poll rather than counted
+  // on the tap: the runner sweeps every session's list, so this label is right
+  // the moment the menu opens and the front page shows the same numbers.
   await expect(page.locator('.session-menu .tally')).toHaveText('2/3');
   await page.getByRole('menuitem', { name: 'Tasks' }).click();
   const sheet = page.locator('.session-sheet');
@@ -2161,8 +2230,11 @@ test('the task sheet opens on what is left rather than what is done @ phone widt
     'write the rule up',
   ]);
   // With the numbers the session itself uses, in the same order — `waiting on
-  // 101` below is meaningless unless 101 is findable.
+  // 101` is meaningless unless 101 is findable.
   await expect(sheet.locator('.num')).toHaveText(['101', '100']);
+  // And that line itself, which never once rendered: the field arrives as
+  // `blocked_by` and the client read `blockedBy`.
+  await expect(sheet.locator('.blocked')).toHaveText('waiting on 101');
 
   // The write-up is behind a tap, because sending it with the list would be a
   // megabyte and a half to draw two subjects.

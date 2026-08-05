@@ -82,6 +82,14 @@ pub struct Overview {
     /// the ones a sentence helps most: a name you have not opened in a week is a
     /// word, and this says what the week's work was.
     pub gists: std::collections::BTreeMap<String, crate::gist::Gist>,
+    /// How much is left of each conversation's task list, by session id — see
+    /// [`crate::tasks`].
+    ///
+    /// Keyed for the same reason [`Self::gists`] is, and it is the same reason
+    /// twice: the front page draws the transcripts on disk beside the running
+    /// sessions, and a conversation that is not running still has the list it
+    /// kept. A copy folded onto each summary would cover only half the page.
+    pub tasks: std::collections::BTreeMap<String, crate::tasks::Count>,
 }
 
 /// The bundle's identity, from the bytes of the page that loads it.
@@ -121,6 +129,10 @@ async fn state(State(roster): State<Arc<Roster>>) -> Json<Overview> {
         // the front page's five-second poll. The writing happens on its own
         // timer.
         gists: roster.gists(),
+        // Swept per request rather than held, because two numbers that go stale
+        // are worse than no numbers — but off the executor, and off the cached
+        // marks. See [`Roster::tasks`].
+        tasks: roster.tasks().await,
     })
 }
 

@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { MatBottomSheet, MatBottomSheetModule } from '@angular/material/bottom-sheet';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDividerModule } from '@angular/material/divider';
@@ -132,47 +132,16 @@ export class App {
   }
 
   /**
-   * How many of a session's tasks are still open, and how many there are.
+   * How many of this session's tasks are still open, and how many there are.
    *
-   * Held per session id rather than as one value, so returning to a session
-   * shows its own numbers rather than the last one's — and so the answer is not
-   * refetched every time the menu opens.
+   * ⚠ **Read off the poll, not counted here.** This used to fetch the session's
+   * whole list when the menu opened — 63 kB for the session that keeps 355 tasks
+   * — and could therefore only ever answer for the conversation already on
+   * screen. The runner counts every session it can see in 1.4 ms of stats, so
+   * the numbers now arrive with the state both screens already poll for, and the
+   * list can show them too. See `console/src/tasks.rs`.
    */
-  private readonly counted = signal<Record<string, { open: number; total: number }>>({});
-  protected readonly taskCount = computed(() => {
-    const id = this.here.open()?.id;
-    return id ? this.counted()[id] : undefined;
-  });
-
-  /**
-   * Count them, when the menu is opened and not before.
-   *
-   * ⚠ **Not on the five-second poll.** The list is 63 kB for the session that
-   * keeps 355 tasks, and refreshing two numbers on a timer would read a megabyte
-   * a minute for a label nobody has looked at yet. A count on the way into the
-   * menu is as current as the tap that asked for it.
-   *
-   * A session with no list at all counts as nothing rather than as `0/0`: the
-   * ordinary case is a conversation that never opened one, and a pair of zeroes
-   * reads as a list that has been emptied.
-   */
-  protected countTasks(session: Summary): void {
-    this.api.tasks(session.id).subscribe({
-      next: (tasks) => {
-        if (tasks.length === 0) return;
-        this.counted.update((held) => ({
-          ...held,
-          [session.id]: {
-            open: tasks.filter((task) => task.status !== 'completed').length,
-            total: tasks.length,
-          },
-        }));
-      },
-      // Silent: the sheet says why when it is opened, and a menu label is not
-      // the place to report that a read failed.
-      error: (err: unknown) => this.telemetry.note('tasks-uncounted', reason(err)),
-    });
-  }
+  protected readonly taskCount = this.here.tasks;
 
   protected tasks(session: Summary): void {
     this.dismiss.onBack(

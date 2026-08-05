@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use console::tasks::{detail, listed};
+use console::tasks::{Count, Counts, detail, listed};
 
 /// One task file, exactly as Claude Code writes it — camel-cased on the wire,
 /// which is not this crate's convention and is why the mapping is tested.
@@ -111,6 +111,101 @@ fn a_session_that_never_made_a_task_has_an_empty_list_rather_than_a_failure() {
     let root = scratch("empty");
 
     assert_eq!(listed(&root, "never-made-one"), Vec::new());
+}
+
+#[test]
+fn a_count_says_how_much_is_left_and_how_much_there_ever_was() {
+    // Both kinds of open counted together: the row's question is whether there
+    // is work left here, and which kind of open it is belongs in the sheet.
+    let (root, session) = corpus("counted");
+
+    assert_eq!(
+        Counts::default().sweep(&root).get(&session),
+        Some(&Count { open: 2, total: 3 })
+    );
+}
+
+#[test]
+fn a_session_with_no_list_is_absent_from_the_counts_rather_than_zero() {
+    // ⚠ **The rule the client draws by.** Most conversations never open a list,
+    // and `0/0` on their rows would read as a list somebody emptied. A directory
+    // holding nothing but the CLI's lockfile is the same case.
+    let (root, session) = corpus("absent");
+    std::fs::create_dir_all(root.join("never-made-one")).expect("mkdir");
+    std::fs::write(root.join("never-made-one").join(".lock"), "").expect("write");
+
+    let all = Counts::default().sweep(&root);
+
+    assert_eq!(all.keys().collect::<Vec<_>>(), [&session]);
+}
+
+#[test]
+fn every_session_is_counted_in_one_sweep_of_the_root() {
+    // The front page draws far more conversations than there are lists, so the
+    // count is asked for the whole root at once rather than per row.
+    let (root, session) = corpus("sweep");
+    let second = "6f7c2f11-0000-4000-8000-000000000002";
+    std::fs::create_dir_all(root.join(second)).expect("mkdir");
+    task(&root.join(second), 1, "the only one", "completed", "");
+
+    let all = Counts::default().sweep(&root);
+
+    assert_eq!(all[&session], Count { open: 2, total: 3 });
+    assert_eq!(all[second], Count { open: 0, total: 1 });
+}
+
+#[test]
+fn a_swept_count_follows_the_list_rather_than_the_first_answer() {
+    // ⚠ **The whole risk the cache takes.** Sweeps are cheap because a session
+    // whose directory looks unchanged is not read again — so every way a list
+    // can change has to move the mark. Finishing a task leaves the file count
+    // exactly where it was and rewrites one word inside one file; adding one
+    // moves the count, and deleting it moves the count back.
+    let (root, session) = corpus("following");
+    let counts = Counts::default();
+    let dir = root.join(&session);
+    assert_eq!(counts.sweep(&root)[&session], Count { open: 2, total: 3 });
+
+    task(
+        &dir,
+        101,
+        "the hundred-and-first",
+        "completed",
+        "what to do",
+    );
+    assert_eq!(
+        counts.sweep(&root)[&session],
+        Count { open: 1, total: 3 },
+        "a task finished while the file count stayed the same"
+    );
+
+    task(&dir, 102, "a new one", "pending", "");
+    assert_eq!(
+        counts.sweep(&root)[&session],
+        Count { open: 2, total: 4 },
+        "a task added"
+    );
+
+    std::fs::remove_file(dir.join("102.json")).expect("remove");
+    assert_eq!(
+        counts.sweep(&root)[&session],
+        Count { open: 1, total: 3 },
+        "and taken away again"
+    );
+}
+
+#[test]
+fn a_session_whose_list_is_gone_is_forgotten_rather_than_held() {
+    // The map is rebuilt from what is on disk each sweep. A cache that only ever
+    // grew would go on reporting tasks for a conversation whose directory was
+    // cleared out — the one case where a stale number is not merely late.
+    let (root, session) = corpus("forgotten");
+    let counts = Counts::default();
+    assert!(counts.sweep(&root).contains_key(&session));
+
+    std::fs::remove_dir_all(root.join(&session)).expect("remove");
+
+    assert!(counts.sweep(&root).is_empty());
 }
 
 #[test]

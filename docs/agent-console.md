@@ -84,8 +84,11 @@ WebView wrapper.
 
 `console/src/`: `protocol.rs` reads the CLI's stream-json into a small closed set
 of events; `session.rs` owns one subprocess and its transcript; `roster.rs` holds
-them all; `api.rs` serves them, streaming with SSE. The UI lists sessions, opens
-one, streams its transcript and sends it messages.
+them all; `api.rs` serves them, streaming with SSE. Three modules read things the
+sessions leave on disk rather than asking them anything — `past.rs` the
+transcripts, `gist.rs` the sentence about each, `tasks.rs` the list a session
+keeps for itself. The UI lists sessions, opens one, streams its transcript and
+sends it messages.
 
 Four things were **measured against CLI 2.1.220 rather than assumed**, and each
 one changed the design:
@@ -1217,6 +1220,54 @@ field that reads like a measurement and is actually an aggregate.**
   Found by asking a straight question of `health`, which said five tasks were
   running: all five were started that afternoon, the newest nine hours gone, and
   the session had no child processes at all.
+
+### The list a session keeps for itself
+
+Claude Code files tasks under `~/.claude/tasks/<session-id>/<n>.json`, one small
+object each. The console **reads them and never writes**: two surfaces editing one
+list is how the two copies start disagreeing, and the session is the one doing
+the work. Read off disk like the transcripts — no control request, nothing asked
+of the process — so a session busy for ten minutes answers instantly and one that
+has exited answers at all.
+
+Three readers, because they want three different amounts of the same files:
+
+| reader | what it takes | where it goes |
+|---|---|---|
+| `tasks::counts` | two numbers per session | every row of the front page, and the ⋮ menu |
+| `tasks::listed` | everything but the prose | the tasks sheet |
+| `tasks::detail` | one task's write-up | the row that was tapped |
+
+- **Descriptions are why the list and the words are two requests.** They are
+  written-up results running to kilobytes: one live session's 355 tasks are 1.5 MB
+  of them, which is not a payload for drawing forty subjects on a phone.
+- **Absent is not zero.** A session that never opened a list is left out of the
+  counts entirely, so a row can say nothing at all. `0/0` reads as a list somebody
+  finished or emptied, which is a different fact — and most conversations have no
+  list, so that lie would be on most of the page.
+- **The count is keyed by conversation, like the sentences.** The front page draws
+  the transcripts on disk beside the running sessions, and a list outlives the
+  process that made it — so the numbers cannot ride on a session summary, which
+  half the rows do not have. That is also the case worth having: a session
+  finished yesterday is the one still holding three unfinished things.
+- ⚠ **Swept per request, not held on a timer** — unlike the usage and the
+  sentences directly above. Those are answered from memory because something else
+  already went to disk for them; these are two numbers that change while a session
+  works, and stale ones are worse than late ones.
+- **But off the executor, and off a mark.** Measured on this Mac in the build the
+  console runs: 516 tasks across eight sessions is **19 ms** warm and **4.8 s**
+  cold — the cold figure being what a poll costs after a restart, or once the page
+  cache has let go of 2.2 MB of task files. So a sweep stats what it counted
+  before and re-reads only the sessions whose file count, newest write or total
+  size moved: **1.4 ms** warm. Not the directory's own mtime — rewriting a file in
+  place does not touch it. It runs in `spawn_blocking`, because seconds of file
+  I/O on the async executor would stall every session's stream and not just the
+  poll that asked.
+
+This replaced a count the ⋮ menu did for itself, fetching the whole 63 kB list on
+opening. That could only ever answer for the conversation already on screen —
+which is the one whose state you can already see. The question worth asking is
+which of a dozen has work left.
 
 ### Updating the client
 

@@ -37,6 +37,12 @@
   display: flex;
   align-items: baseline;
   gap: 0.75rem;
+  // Wraps rather than overflowing. A full head is a long name, `waiting for
+  // you`, two background tasks and a task count, and on a four-inch screen that
+  // is more than one line — where the choice is between a second line and text
+  // running off the card.
+  flex-wrap: wrap;
+  row-gap: 0.25rem;
 }
 
 .place {
@@ -87,6 +93,32 @@
   // `1 background task` on a line of its own says nothing.
   flex: 0 0 auto;
   white-space: nowrap;
+}
+
+// The task count, quiet by default and only coloured when something is left:
+// on a page of a dozen rows the useful reading is which conversations still owe
+// work, and a list that is entirely finished should not compete for that.
+.list {
+  font: var(--mat-sys-label-small);
+  color: var(--mat-sys-on-surface-variant);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+
+  &.left {
+    color: var(--mat-sys-on-surface);
+  }
+
+  mat-icon {
+    // Material's own metrics are 24px on a 1rem line; this rides beside a
+    // number in label-small and has to be the number's height, not the row's.
+    font-size: 0.9rem;
+    width: 0.9rem;
+    height: 0.9rem;
+  }
 }
 
 .asked {

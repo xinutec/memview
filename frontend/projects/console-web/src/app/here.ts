@@ -1,6 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 
-import { Summary } from './models';
+import { Summary, TaskCount } from './models';
 
 /**
  * Which conversation the reader is looking at, for the parts of the shell that
@@ -46,4 +46,19 @@ export class Here {
    * copies eventually disagree. See `console/src/gist.rs`.
    */
   readonly gist = signal<{ text: string; at: number } | undefined>(undefined);
+
+  /**
+   * How much is left of this conversation's list, when it keeps one.
+   *
+   * Beside the summary rather than on it, exactly as [gist] is and for the same
+   * reason — the numbers arrive keyed by conversation because the front page
+   * shows them for transcripts that are not sessions.
+   *
+   * ⚠ **On the poll, where it used to be on the tap.** The ⋮ menu counted these
+   * itself when it opened, which cost a 63 kB list to draw two digits and left
+   * the front page unable to say anything at all. The runner now counts every
+   * session in 1.4 ms of stats — see `console/src/tasks.rs` — so the numbers
+   * ride the poll both screens already make.
+   */
+  readonly tasks = signal<TaskCount | undefined>(undefined);
 }

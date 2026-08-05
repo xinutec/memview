@@ -94,6 +94,16 @@ export interface Overview {
    * avoiding.
    */
   gists?: Record<string, { text: string; at: number }>;
+  /**
+   * How much is left of each conversation's task list, by id. Mirrors
+   * `tasks::Count`.
+   *
+   * ⚠ **Keyed like the sentences, and for the same reason.** The list draws the
+   * transcripts on disk beside the running sessions, and a conversation that is
+   * not running still has the list it kept — so this covers rows that have no
+   * summary to hang a field on.
+   */
+  tasks?: Record<string, TaskCount>;
 }
 
 /** One rate-limit window. Mirrors `usage::Window`. */
@@ -290,10 +300,30 @@ export interface Task {
   readonly subject: string;
   /** `pending`, `in_progress` or `completed`, in the CLI's own words. */
   readonly status: string;
-  /** What the session calls the doing of it, while it is underway. */
-  readonly activeForm?: string;
+  /**
+   * What the session calls the doing of it, while it is underway.
+   *
+   * ⚠ **Named as the runner sends it, which is not how the CLI writes it.** On
+   * disk these files are camel-cased; `tasks::Listed` is this crate's own shape
+   * and goes out snake_cased like everything else on this API. Declared here as
+   * `activeForm` and `blockedBy`, both were simply always undefined — the
+   * template's "waiting on …" line could not render at all.
+   */
+  readonly active_form?: string;
   /** Whether there is prose behind it worth opening. */
   readonly detailed: boolean;
   /** The ids this one is waiting on, when it is waiting on any. */
-  readonly blockedBy?: readonly string[];
+  readonly blocked_by?: readonly string[];
+}
+
+/**
+ * How much of a session's list is left. Mirrors `tasks::Count`.
+ *
+ * ⚠ **Absent means no list, not an empty one.** Most conversations never open
+ * one, and a row reading `0/0` claims a list that was finished or emptied. The
+ * runner leaves those out of the map entirely.
+ */
+export interface TaskCount {
+  readonly open: number;
+  readonly total: number;
 }

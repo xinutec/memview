@@ -63,8 +63,8 @@
         <!-- What it is waiting on. Ids rather than subjects: the list is on
              screen, and a subject repeated here is a second copy to disagree
              with the first. -->
-        @if (task.blockedBy?.length) {
-          <p class="blocked">waiting on {{ task.blockedBy.join(', ') }}</p>
+        @if (task.blocked_by?.length) {
+          <p class="blocked">waiting on {{ task.blocked_by.join(', ') }}</p>
         }
         @if (opened() === task.id) {
           @if (said()[task.id]; as words) {

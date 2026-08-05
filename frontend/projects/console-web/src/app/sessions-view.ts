@@ -11,7 +11,7 @@ import { ConsoleApi } from './console-api';
 import { Dismiss } from './dismiss';
 import { reason } from './errors';
 import { Foreground } from './foreground';
-import { Conversation, Overview, Summary } from './models';
+import { Conversation, Overview, Summary, TaskCount } from './models';
 import { modelName } from './model';
 import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { placeOf, titleOf } from './naming';
@@ -61,6 +61,15 @@ interface Row {
    * `console/src/gist.rs`.
    */
   readonly gist?: { readonly text: string; readonly at: number };
+  /**
+   * How much of its own task list is left, when it keeps one.
+   *
+   * ⚠ **Present for a conversation that is not running, too.** The list is on
+   * disk beside the transcript and outlives the process — so a session finished
+   * yesterday can still say it left three things open, which is exactly the row
+   * somebody scanning this page is looking for.
+   */
+  readonly tasks?: TaskCount;
   /** Working, waiting, idle, off — see [RANK]. */
   readonly rank: number;
   /** When it last did anything, in milliseconds, for ordering within a rank. */
@@ -143,6 +152,9 @@ export class SessionsView {
     const rows: Row[] = [];
     const seen = new Set<string>();
     const gists = this.state()?.gists ?? {};
+    // Keyed by conversation like the sentences, and read the same way for both
+    // halves of the list — see [[Overview.tasks]].
+    const tasks = this.state()?.tasks ?? {};
     for (const session of this.state()?.sessions ?? []) {
       seen.add(session.id);
       rows.push({
@@ -152,6 +164,7 @@ export class SessionsView {
         live: session,
         context: fullness(session.context, session.window),
         gist: gists[session.id],
+        tasks: tasks[session.id],
         rank: !session.alive
           ? RANK.off
           : session.busy
@@ -186,6 +199,7 @@ export class SessionsView {
         // Where it earns its keep: a name you have not opened in a week is a
         // word, and this says what the week's work was.
         gist: gists[conversation.id],
+        tasks: tasks[conversation.id],
         rank: RANK.off,
         at: conversation.modified,
       });

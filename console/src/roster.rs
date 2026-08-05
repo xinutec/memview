@@ -22,6 +22,9 @@ pub struct Roster {
     usage: Arc<crate::usage::Usage>,
     /// What each conversation is about, in a sentence. See [`crate::gist`].
     gists: Arc<crate::gist::Gists>,
+    /// How much is left of each session's task list, kept between sweeps. See
+    /// [`crate::tasks::Counts`].
+    tasks: Arc<crate::tasks::Counts>,
 }
 
 /// The environment variable an upgrade hands its sessions over in.
@@ -50,7 +53,27 @@ impl Roster {
             sessions: RwLock::new(BTreeMap::new()),
             usage,
             gists,
+            tasks: Arc::default(),
         }
+    }
+
+    /// How much is left of each session's task list, for the front page.
+    ///
+    /// ⚠ **On a blocking thread, unlike the two above it.** The usage and the
+    /// sentences are answered out of memory because something else already went
+    /// to disk for them; this reads the directory every time it is asked, which
+    /// is what keeps the numbers as current as the poll. A warm sweep is 1.4 ms
+    /// and a cold one is seconds — see [`crate::tasks::Counts`] — and seconds of
+    /// file I/O on the async executor would stall every session's stream, not
+    /// just this request.
+    pub async fn tasks(&self) -> BTreeMap<String, crate::tasks::Count> {
+        let counts = self.tasks.clone();
+        tokio::task::spawn_blocking(move || counts.sweep(&crate::tasks::tasks_root()))
+            .await
+            .unwrap_or_else(|failure| {
+                tracing::error!("the task sweep did not finish: {failure}");
+                BTreeMap::new()
+            })
     }
 
     /// The sentences, for the front page.
