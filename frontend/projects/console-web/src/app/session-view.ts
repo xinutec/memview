@@ -438,7 +438,9 @@ export class SessionView implements OnDestroy {
    *  session that has just finished writing sends nothing more, so a transcript
    *  released at that moment would sit one message short until the next turn. */
   protected released(): void {
-    this.following.released();
+    const box = this.scroller()?.nativeElement;
+    if (!box) return;
+    this.following.released(measure(box));
     this.follow();
   }
 

@@ -51,6 +51,39 @@ describe('while the reader holds the screen', () => {
     expect(following.wants(box(4400, 6000)), 'and keeps staying').toBeUndefined();
   });
 
+  it('leaves a short scroll where it was put rather than snapping back', () => {
+    // ⚠ **Reported within the hour of the first version, which caught up on
+    // release whatever had happened during the hold.** Scrolling up a little and
+    // letting go put the view straight back at the end — and only a scroll of
+    // more than [`AWAY`] escaped it, which is exactly how it was described: "I
+    // need to scroll up quite a lot, then it won't do that". Letting go of a
+    // drag is the end of a scroll, not the end of a pause.
+    const following = opened(10000);
+    following.byHand();
+
+    following.took();
+    following.moved(box(9400 - 200, 10000));
+    following.released(box(9400 - 200, 10000));
+
+    expect(following.pinned).toBe(false);
+    expect(following.wants(box(9200, 10600))).toBeUndefined();
+  });
+
+  it('still catches up from a drag that ends at the end', () => {
+    // Dragging back down to the newest message is how somebody says they are
+    // done reading back, and it is the one drag that should resume following.
+    const following = opened(10000);
+    following.byHand();
+    following.moved(box(5000, 10000));
+    expect(following.pinned, 'gone').toBe(false);
+
+    following.took();
+    following.moved(box(9380, 10000));
+    following.released(box(9380, 10000));
+
+    expect(following.pinned).toBe(true);
+  });
+
   it('does not count as leaving, so letting go catches up', () => {
     // Suspended, not unpinned. Otherwise every tap on a tool row would mean
     // "leave me here", and the transcript would stop following for the rest of
@@ -59,7 +92,7 @@ describe('while the reader holds the screen', () => {
 
     following.took();
     following.wants(box(4400, 6000));
-    following.released();
+    following.released(box(4400, 6000));
 
     expect(following.pinned).toBe(true);
     expect(following.wants(box(4400, 6000))).toBe(6000);
@@ -74,7 +107,7 @@ describe('while the reader holds the screen', () => {
     expect(following.pinned, 'gone by 7400px').toBe(false);
 
     following.took();
-    following.released();
+    following.released(box(2000, 10000));
 
     expect(following.wants(box(2000, 10600))).toBeUndefined();
   });

@@ -159,14 +159,37 @@ export class Following {
     this.gestured = true;
   }
 
+  /**
+   * Whether the view moved under the finger that is on it.
+   *
+   * ⚠ **A hold and a drag are not the same gesture, and treating them alike put
+   * the view back at the end the moment somebody let go of a scroll.** Catching
+   * up on release is right for a hold — they stopped the page to read a line and
+   * then released it — and wrong for a drag, where letting go is simply the end
+   * of the scroll they just performed. Reported within the hour of shipping the
+   * first version, which caught up unconditionally.
+   */
+  private dragged = false;
+
   /** A finger went down on the transcript. */
   took(): void {
     this.holding = true;
+    this.dragged = false;
   }
 
-  /** And came off it, which resumes following if they never went anywhere. */
-  released(): void {
+  /**
+   * And came off it.
+   *
+   * A hold that moved nothing leaves everything as it was, so a reader who was
+   * following still is and the view catches up. A hold that *scrolled* is a
+   * decision about where to be, and is answered here against the end — the
+   * measurement for arriving rather than for leaving, because letting go is the
+   * moment they arrive somewhere.
+   */
+  released(box: Box): void {
     this.holding = false;
+    if (!this.dragged) return;
+    this.at = box.height - box.top - box.view < NEAR;
   }
 
   /**
@@ -203,6 +226,10 @@ export class Following {
       this.wrote = box.top;
       return;
     }
+    // The view moved, a gesture is behind it, and a finger is on the glass: this
+    // is a drag, and letting go of it must not be read as letting go of a hold.
+    // See [`dragged`].
+    if (this.holding) this.dragged = true;
     const gap = box.height - box.top - box.view;
     this.at = this.at ? this.wrote < 0 || this.wrote - box.top < AWAY : gap < NEAR;
   }
