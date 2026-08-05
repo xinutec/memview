@@ -444,10 +444,6 @@ export class SessionView implements OnDestroy {
     this.follow();
   }
 
-  /** The reader moved it themselves. See [[Following.byHand]]. */
-  protected reached(): void {
-    this.following.byHand();
-  }
 
   /**
    * The view moved; the engine decides what it meant. See [[Following.moved]],

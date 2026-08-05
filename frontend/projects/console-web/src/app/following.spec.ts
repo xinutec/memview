@@ -7,13 +7,18 @@ function box(top: number, height: number, view = 600): Box {
   return { top, height, view };
 }
 
+/** The position that shows the end of a `height`-tall transcript. */
+function end(height: number, view = 600): number {
+  return height - view;
+}
+
 /** Open a transcript the way the view does: ask where to go, put it there,
  *  report where it landed. A box clamps, so what lands is the end. */
 function opened(height: number, view = 600): Following {
   const following = new Following();
   const to = following.wants(box(0, height, view));
   expect(to, 'a transcript opens at its newest message').toBe(height);
-  following.landed(height - view);
+  following.landed(end(height, view));
   return following;
 }
 
@@ -37,146 +42,138 @@ describe('opening', () => {
   });
 });
 
-describe('while the reader holds the screen', () => {
-  it('stops writing scroll positions', () => {
-    // ⚠ The reported defect. A session writing its answer pulled the view to the
-    // end on every delta, including while the reader had a thumb on the glass
-    // reading the sentence as it arrived — they had not scrolled, so they were
-    // still pinned, and being pinned is exactly what moved the view.
-    const following = opened(5000);
-
-    following.took();
-
-    expect(following.wants(box(4400, 5400)), 'the answer grew; the view stays').toBeUndefined();
-    expect(following.wants(box(4400, 6000)), 'and keeps staying').toBeUndefined();
-  });
-
-  it('leaves a short scroll where it was put rather than snapping back', () => {
-    // ⚠ **Reported within the hour of the first version, which caught up on
-    // release whatever had happened during the hold.** Scrolling up a little and
-    // letting go put the view straight back at the end — and only a scroll of
-    // more than [`AWAY`] escaped it, which is exactly how it was described: "I
-    // need to scroll up quite a lot, then it won't do that". Letting go of a
-    // drag is the end of a scroll, not the end of a pause.
+describe('scrolling away', () => {
+  it('stops following as soon as they leave the end', () => {
+    // ⚠ **A line, not a screen.** This wanted 300px of travel before it would
+    // believe somebody had scrolled up, so a small scroll ended with the page
+    // pulling itself back down — reported as "I need to scroll up quite a lot,
+    // then it won't do that". Scrolling up by a line stops a terminal, a
+    // messages app and a chat client following; there is no reason this should
+    // ask for more.
     const following = opened(10000);
-    following.byHand();
 
-    following.took();
-    following.moved(box(9400 - 200, 10000));
-    following.released(box(9400 - 200, 10000));
+    following.moved(box(end(10000) - 40, 10000));
 
     expect(following.pinned).toBe(false);
-    expect(following.wants(box(9200, 10600))).toBeUndefined();
+    expect(following.wants(box(end(10000) - 40, 10600))).toBeUndefined();
   });
 
-  it('still catches up from a drag that ends at the end', () => {
-    // Dragging back down to the newest message is how somebody says they are
-    // done reading back, and it is the one drag that should resume following.
+  it('follows again when they come back to the end', () => {
     const following = opened(10000);
-    following.byHand();
     following.moved(box(5000, 10000));
-    expect(following.pinned, 'gone').toBe(false);
+    expect(following.pinned).toBe(false);
 
-    following.took();
-    following.moved(box(9380, 10000));
-    following.released(box(9380, 10000));
+    following.moved(box(end(10000), 10000));
 
     expect(following.pinned).toBe(true);
   });
 
-  it('does not count as leaving, so letting go catches up', () => {
-    // Suspended, not unpinned. Otherwise every tap on a tool row would mean
+  it('counts a few pixels short of the end as the end', () => {
+    // Sub-pixel rounding and a stray pixel of over-scroll, and nothing wider:
+    // what the old slack was really covering was the browser's scroll
+    // anchoring, and that is turned off for this list.
+    const following = opened(10000);
+
+    following.moved(box(end(10000) - 4, 10000));
+
+    expect(following.pinned).toBe(true);
+  });
+});
+
+describe('growth under a reader who has not moved', () => {
+  it('does not count as leaving', () => {
+    // ⚠ **The reason the answer is remembered rather than measured.** Growth
+    // moves the end without firing a scroll event, so nothing here is asked
+    // again — a fresh measurement would watch the end run away and call it
+    // leaving. It was measured that way once: captures at 122, 125, 129, 130 and
+    // 133 pixels from the end, none of them a person.
+    const following = opened(5000);
+
+    for (const height of [5122, 5400, 6000, 9000]) {
+      expect(following.wants(box(end(5000), height)), `grew to ${height}`).toBe(height);
+      following.landed(end(height));
+    }
+  });
+
+  it('ignores the scroll event a write of its own causes', () => {
+    // ⚠ The view is set to the bottom and the browser queues a scroll event;
+    // more of the answer renders before that event is delivered; the handler
+    // then runs against the NEW height and the OLD position, and one or two
+    // deltas' worth of gap looks like a reader walking away. It bit two runs in
+    // five.
+    const following = opened(5000);
+
+    following.moved(box(end(5000), 5168));
+
+    expect(following.pinned, 'the position is exactly where it was put').toBe(true);
+  });
+});
+
+describe('while the reader holds the screen', () => {
+  it('stops writing scroll positions', () => {
+    // ⚠ A session writing its answer pulled the view to the end on every delta,
+    // including while the reader had a thumb on the glass reading the sentence
+    // as it arrived — they had not scrolled, so they were still at the end, and
+    // being at the end is exactly what moved the view.
+    const following = opened(5000);
+
+    following.took();
+
+    expect(following.wants(box(end(5000), 5400)), 'the answer grew; the view stays').toBeUndefined();
+    expect(following.wants(box(end(5000), 6000)), 'and keeps staying').toBeUndefined();
+  });
+
+  it('catches up when a hold that moved nothing ends', () => {
+    // Suspended, not stopped. Otherwise every tap on a tool row would mean
     // "leave me here", and the transcript would stop following for the rest of
     // the conversation on the strength of somebody opening a result.
     const following = opened(5000);
 
     following.took();
-    following.wants(box(4400, 6000));
-    following.released(box(4400, 6000));
+    following.wants(box(end(5000), 6000));
+    following.released(box(end(5000), 6000));
 
     expect(following.pinned).toBe(true);
-    expect(following.wants(box(4400, 6000))).toBe(6000);
+    expect(following.wants(box(end(5000), 6000))).toBe(6000);
   });
 
-  it('leaves a reader who scrolled away where they are', () => {
-    // Holding is not a way back. Somebody who scrolled up to the morning and
-    // then rested a thumb on the screen has not asked to be returned to the end.
+  it('leaves a drag where it ended rather than snapping back', () => {
+    // ⚠ Letting go of a drag is the end of a scroll, not the end of a pause.
+    // The first version caught up on release whatever had happened during the
+    // hold, which put the view straight back at the end.
     const following = opened(10000);
-    following.byHand();
+
+    following.took();
+    following.moved(box(end(10000) - 200, 10000));
+    following.released(box(end(10000) - 200, 10000));
+
+    expect(following.pinned).toBe(false);
+    expect(following.wants(box(end(10000) - 200, 10600))).toBeUndefined();
+  });
+
+  it('still catches up from a drag that ends at the end', () => {
+    // Dragging back down to the newest message is how somebody says they have
+    // finished reading back, and it is the one drag that should resume
+    // following.
+    const following = opened(10000);
+    following.moved(box(5000, 10000));
+    expect(following.pinned, 'gone').toBe(false);
+
+    following.took();
+    following.moved(box(end(10000), 10000));
+    following.released(box(end(10000), 10000));
+
+    expect(following.pinned).toBe(true);
+  });
+
+  it('is not a way back for a reader who had scrolled away', () => {
+    // Resting a thumb on the screen is not a request to be returned to the end.
+    const following = opened(10000);
     following.moved(box(2000, 10000));
-    expect(following.pinned, 'gone by 7400px').toBe(false);
 
     following.took();
     following.released(box(2000, 10000));
 
     expect(following.wants(box(2000, 10600))).toBeUndefined();
-  });
-});
-
-describe('what counts as the reader moving', () => {
-  it('ignores a scroll with no gesture behind it', () => {
-    // ⚠ Measured on the phone, three times in a row: the view was put at 1941
-    // and the browser moved it to 1960 on its own — scroll anchoring, holding
-    // the visible content still while the rest of the seed rendered. Read as a
-    // reader's move, that unpinned a conversation 13% of the way down and left
-    // it there.
-    const following = opened(20000);
-
-    following.moved(box(1960, 20000));
-
-    expect(following.pinned).toBe(true);
-  });
-
-  it('ignores growth under a reader who never moved', () => {
-    // ⚠ The other half of the same fault. While following, `scrollHeight` rises
-    // before the scroll event is handled, so the distance from the end widens on
-    // its own — captured at 122, 125, 129, 130 and 133 against a 120px slack,
-    // none of them a person. Their `scrollTop` never changed, which is why
-    // leaving is measured against where the view was put rather than against the
-    // end.
-    const following = opened(5000);
-    following.byHand();
-
-    for (const height of [5122, 5125, 5129, 5130, 5133]) {
-      following.moved(box(4400, height));
-      expect(following.pinned, `grew to ${height}`).toBe(true);
-    }
-  });
-
-  it('stops following when they scroll back through the morning', () => {
-    // Screens, not a fifth of one: the movement this is meant to catch is
-    // somebody going to find something, and the view is 600px here.
-    const following = opened(20000);
-    following.byHand();
-
-    following.moved(box(19400 - 1200, 20000));
-
-    expect(following.pinned).toBe(false);
-  });
-
-  it('follows again when they come back to the end', () => {
-    // Measured against the end rather than against where they left, because the
-    // end is what they are coming back to and it has moved since.
-    const following = opened(20000);
-    following.byHand();
-    following.moved(box(10000, 20000));
-    expect(following.pinned).toBe(false);
-
-    following.moved(box(25000 - 600 - 40, 25000));
-
-    expect(following.pinned).toBe(true);
-  });
-
-  it('says nothing about a scroll it asked for itself', () => {
-    // ⚠ The view is set to the bottom and the browser queues a scroll event;
-    // more of the answer renders before that event is delivered; the handler
-    // then runs against the NEW height and the OLD position and reads one or two
-    // deltas' worth of gap as a reader walking away. It bit two runs in five.
-    const following = opened(5000);
-    following.byHand();
-
-    following.moved(box(4400, 5168));
-
-    expect(following.pinned, 'the position is exactly where it was put').toBe(true);
   });
 });

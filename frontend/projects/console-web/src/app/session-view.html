@@ -37,29 +37,23 @@
   <p class="trouble">{{ what }}</p>
 }
 
-<!-- ⚠ **A gesture is what makes a scroll a decision** — see
-     [[Following.byHand]]. A `scroll` event alone does not: the browser fires one
-     when it adjusts the position itself, and taking that for a reader's move is
-     what left a conversation stranded 13% of the way down. `touchmove` is the
-     drag; `wheel` is the desk.
-     No `keydown`: this list is not focusable, so it would never receive one —
-     the key that scrolls it goes to the document. Adding `tabindex` to hear it
-     would put a tab stop on the transcript to serve a keyboard this app does not
-     have.
+<!-- ⚠ **The scroll position is the whole of the reader's side of this** — see
+     [[Following]], where the rule and everything it replaced are written down.
+     There were `wheel` and `touchmove` bindings here to tell a reader's scroll
+     from the browser's own; they are gone with the rule that needed them, since
+     the browser no longer moves this list behind our back (`overflow-anchor` in
+     the stylesheet).
 
-     ⚠ **`touchstart` says something different and is not in that group.** A
-     finger on the glass is not a scroll and must not unpin — every tap on a tool
-     row is one — but it is how a person stops a page that is moving, and while
-     it is down nothing here may write a scroll position. See
-     [[Following.took]]. `touchcancel` as well as `touchend`, or a hold
-     interrupted by the system — a notification, a gesture claimed by the shell —
-     leaves the transcript frozen for the life of the page. -->
+     ⚠ **`touchstart` is not about scrolling and is why it is still here.** A
+     finger on the glass is how a person stops a page that is moving, and while
+     it is down nothing may write a scroll position. See [[Following.took]].
+     `touchcancel` as well as `touchend`, or a hold interrupted by the system — a
+     notification, a gesture claimed by the shell — leaves the transcript frozen
+     for the life of the page. -->
 <ol
   class="transcript"
   #scroller
   (scroll)="onScroll()"
-  (wheel)="reached()"
-  (touchmove)="reached()"
   (touchstart)="took()"
   (touchend)="released()"
   (touchcancel)="released()"

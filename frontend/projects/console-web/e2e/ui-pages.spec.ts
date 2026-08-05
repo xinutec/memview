@@ -2835,6 +2835,38 @@ test('one event does not rebuild the rows already on screen @ phone width', asyn
   expect(survived).toBe(true);
 });
 
+test('scrolling up by a line stops it following @ phone width', async ({ page }) => {
+  // ⚠ **Reported twice from the phone, and the second report named the number:**
+  // "I need to scroll up quite a lot, then it won't do that". Following used to
+  // re-decide after every change whether the reader still counted as being at
+  // the end, and needed 300px of slack to survive the browser's own adjustments
+  // — so a small scroll up ended with the page pulling itself back down. A line
+  // is what stops a terminal, a messages app and a chat client following.
+  await handControlOfTheStream(page);
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  const list = page.locator('.transcript');
+  await list.waitFor();
+  let seq = 0;
+  for (let n = 0; n < 20; n++) {
+    await say(page, { kind: 'text', text: `Message ${n}: ` + 'said at some length. '.repeat(6) }, ++seq);
+  }
+
+  // Up by less than a line and a half — the movement that used to be treated as
+  // no movement at all.
+  await list.evaluate((box) => (box.scrollTop -= 40));
+  const left = await list.evaluate((box) => box.scrollTop);
+  await say(page, { kind: 'text', text: 'AND SOMETHING MORE ARRIVES' }, ++seq);
+
+  expect(await list.evaluate((box) => box.scrollTop), 'not pulled back down').toBe(left);
+
+  // And going back to the end resumes it, because the end is where they are.
+  await list.evaluate((box) => (box.scrollTop = box.scrollHeight));
+  await say(page, { kind: 'text', text: 'AND MORE AGAIN' }, ++seq);
+  const gap = await list.evaluate((box) => box.scrollHeight - box.scrollTop - box.clientHeight);
+  expect(gap, 'following again').toBeLessThan(4);
+});
+
 test('a seed that arrives in pieces still ends at the end @ phone width', async ({ page }) => {
   await handControlOfTheStream(page);
   await mockRunner(page);

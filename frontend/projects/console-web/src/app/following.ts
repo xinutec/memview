@@ -3,16 +3,29 @@
  *
  * A transcript that does not follow opens a hundred turns behind the present and
  * reads as a broken page; one that always follows yanks the view out from under
- * somebody reading back through the morning. Everything here is the second half
- * of that — the rules for when following is *wrong*.
+ * somebody reading back through the morning.
  *
- * ⚠ **Pure, and separated from the view for a reason.** Every rule below was
- * arrived at from a measurement on a phone, and none of them could be tested
- * where they used to live: jsdom has no layout, so a component test cannot make
- * a scroll happen, and the layout harness hands a transcript over in one chunk
- * where the runner streams it. As a state machine fed positions, the same rules
- * are ordinary arithmetic — the numbers in the comments are what the tests
- * replay.
+ * ⚠ **The rule is the narrow one every other app of this kind uses**, and it is
+ * worth stating precisely because a wider one was tried first: *when new content
+ * arrives, if the view was already at the end, keep it at the end.* Messages, a
+ * terminal, Slack — scroll up by a line in any of them and following stops, and
+ * none of them ever scrolls you back.
+ *
+ * ⚠ **What the wider rule cost.** This used to re-decide, after every change,
+ * whether the reader still counted as being at the end — and since the change
+ * itself moves the end, the measurement was contaminated by the thing that
+ * triggered it. Compensating for that took a gesture flag, two thresholds and
+ * 300px of slack, and the result was a page that pulled you back down unless you
+ * scrolled most of a screen: reported as "I need to scroll up quite a lot, then
+ * it won't do that". None of that machinery survives here. The one piece kept
+ * from it is [`wrote`], because the race it answers is real.
+ *
+ * ⚠ **Pure, and separated from the view for a reason.** Every rule was arrived
+ * at from a measurement on a phone, and none of them could be tested where they
+ * used to live: jsdom has no layout, so a component test cannot make a scroll
+ * happen, and the layout harness hands a transcript over in one chunk where the
+ * runner streams it. As a state machine fed positions, the same rules are
+ * ordinary arithmetic — the numbers in the comments are what the tests replay.
  *
  * The view owns the box and does the reading and writing; this owns the
  * decision.
@@ -35,54 +48,38 @@ export function measure(box: HTMLElement): Box {
   return { top: box.scrollTop, height: box.scrollHeight, view: box.clientHeight };
 }
 
-/** How near the end still counts as being at it: a few lines, so a
- *  partly-scrolled view is following rather than left behind. */
-const NEAR = 120;
-
 /**
- * And how far from where we put them counts as having left.
+ * How near the end still counts as being at it.
  *
- * ⚠ **The two directions do not share a threshold.** [`NEAR`] is the slack for
- * arriving at the end. Leaving it needs a bigger number: measured on the device,
- * the browser's own adjustments reach 122px, so a 120px slack calls a motionless
- * reader "gone" on the strength of movement they did not make. Somebody
- * genuinely scrolling back through the morning travels screens, not a fifth of
- * one — 609px is the viewport there — so this costs nothing real and puts the
- * decision well clear of the noise.
+ * ⚠ **Under a line, where this used to be 120px for arriving and 300px for
+ * leaving.** Those were sized around the browser's own scroll anchoring, which
+ * moved the position 18 or 19px unasked — and anchoring is now off for this list
+ * (see `session-view.scss`, which says why that is safe here). What is left to
+ * cover is rounding and a stray pixel, so scrolling up by one line stops the
+ * page following, because that is what scrolling up by one line means
+ * everywhere else on the phone.
  */
-const AWAY = 300;
+const SLACK = 16;
+
+/** Whether a box is showing its own end. */
+function atEnd(box: Box): boolean {
+  return box.height - box.top - box.view < SLACK;
+}
 
 export class Following {
   /**
-   * Whether the reader is at the newest message.
+   * Whether the view was at the end when it was last looked at.
    *
-   * ⚠ **Remembered as they scroll, not measured when it is wanted.** It was
-   * measured, and the moment it is wanted includes the soft keyboard opening: by
-   * then the transcript has already lost half its height, so the arithmetic says
-   * "several hundred pixels from the bottom" about a reader who has not moved —
-   * and the message they tapped the box to answer slides off the screen exactly
-   * as they start typing.
+   * ⚠ **Remembered as they scroll, not measured when it is wanted**, and the
+   * distinction is the whole design. Growth does not fire a scroll event, so a
+   * remembered answer survives the transcript getting longer underneath a reader
+   * who has not moved, where a fresh measurement would watch the end run away
+   * from them and call it leaving. It also survives the soft keyboard, which
+   * takes half the screen: measured afresh at that moment, a reader who has not
+   * moved is several hundred pixels from the bottom, and the message they tapped
+   * the box to answer slides off the screen exactly as they start typing.
    */
   private at = true;
-
-  /**
-   * Whether the reader has ever scrolled this transcript by hand.
-   *
-   * ⚠ **Until they have, no scroll may unpin, whatever the position says.**
-   * Measured on the phone, three times in a row: the view was scrolled to the
-   * bottom of what had arrived and 1941 written down; the browser then moved it
-   * to 1960 on its own — scroll anchoring, holding the visible content still
-   * while the rest of the seed rendered around it. Eighteen or nineteen pixels,
-   * every time. That made `top !== wrote`, which was the only test for "the
-   * reader did this", so a 12,699px gap was measured against a 120px threshold,
-   * following stopped, and the remaining 13,000 pixels arrived unwatched. The
-   * conversation opened 13% of the way down and stayed there. Opening it again
-   * was fine, because a cached transcript renders in one pass and there is no
-   * growth for the browser to react to.
-   *
-   * A gesture is the thing layout cannot fake: a wheel, a drag, a key.
-   */
-  private gestured = false;
 
   /**
    * Whether a finger is on the transcript right now.
@@ -91,27 +88,41 @@ export class Following {
    * one gesture that did nothing.** Reported from the phone: a session writing
    * its answer pulled the view to the end on every delta, including while the
    * reader had a thumb on the glass reading the sentence as it arrived. Nothing
-   * above catches it — they have not scrolled, so they are still pinned, and
-   * being pinned is precisely what makes the view move.
+   * else catches it — they have not scrolled, so they are still at the end, and
+   * being at the end is precisely what makes the view move.
    *
    * So a hold *suspends* following rather than ending it: while the finger is
    * down nothing is written, and letting go resumes wherever the conversation
-   * has got to. Suspending rather than unpinning is what keeps a tap on a tool
+   * has got to. Suspending rather than stopping is what keeps a tap on a tool
    * row from meaning "leave me here" — a tap is a hold that lasts a moment, and
    * it ends with the view catching up as though nothing had happened.
    */
   private holding = false;
 
   /**
+   * Whether the view moved under the finger that is on it.
+   *
+   * ⚠ **A hold and a drag are not the same gesture, and treating them alike put
+   * the view back at the end the moment somebody let go of a scroll.** Catching
+   * up on release is right for a hold — they stopped the page to read a line and
+   * then let it go — and wrong for a drag, where letting go is simply the end of
+   * the scroll they just performed.
+   */
+  private dragged = false;
+
+  /**
    * The last position this engine asked for, or -1 for none outstanding.
    *
-   * ⚠ **Kept, not cleared, once a scroll has been accounted for.** Clearing it
-   * threw away the only record of where the view had been put, and the rule in
-   * [`moved`] needs it for every scroll after the first rather than only the one
-   * that follows a write. Cleared, it was -1 for exactly the events that
-   * mattered: every capture of that fault carries `wrote=-1`, because the
-   * handler had already run once and discarded the anchor before the growth
-   * arrived.
+   * ⚠ **The one piece of the old machinery still needed.** The view is set to
+   * the bottom and the browser queues a scroll event; more of the answer renders
+   * before that event is delivered; the handler then runs against the NEW height
+   * and the OLD position and reads one or two deltas' worth of gap — 120px to
+   * 168px, measured — as a reader walking away. It bit two runs in five. The
+   * position carried by that event is exactly where this engine put it, which is
+   * what tells the two apart.
+   *
+   * Kept rather than cleared once used: the race can follow any write, not only
+   * the first.
    */
   private wrote = -1;
 
@@ -153,24 +164,6 @@ export class Following {
     this.started = true;
   }
 
-  /** A wheel, a drag or a key: the reader moved it themselves. Deliberately not
-   *  a touch that has not moved — see [`took`]. */
-  byHand(): void {
-    this.gestured = true;
-  }
-
-  /**
-   * Whether the view moved under the finger that is on it.
-   *
-   * ⚠ **A hold and a drag are not the same gesture, and treating them alike put
-   * the view back at the end the moment somebody let go of a scroll.** Catching
-   * up on release is right for a hold — they stopped the page to read a line and
-   * then released it — and wrong for a drag, where letting go is simply the end
-   * of the scroll they just performed. Reported within the hour of shipping the
-   * first version, which caught up unconditionally.
-   */
-  private dragged = false;
-
   /** A finger went down on the transcript. */
   took(): void {
     this.holding = true;
@@ -182,55 +175,28 @@ export class Following {
    *
    * A hold that moved nothing leaves everything as it was, so a reader who was
    * following still is and the view catches up. A hold that *scrolled* is a
-   * decision about where to be, and is answered here against the end — the
-   * measurement for arriving rather than for leaving, because letting go is the
-   * moment they arrive somewhere.
+   * decision about where to be, and is answered from where they let go.
    */
   released(box: Box): void {
     this.holding = false;
-    if (!this.dragged) return;
-    this.at = box.height - box.top - box.view < NEAR;
+    if (this.dragged) this.at = atEnd(box);
   }
 
   /**
-   * The view moved. Decides whether the reader is still meant to be at the end.
+   * The view moved.
    *
-   * ⚠ **A scroll this engine asked for is not a reader's decision**, and failing
-   * to tell the two apart is what made following stop at random. The sequence,
-   * measured: the view is set to the bottom and the browser queues a scroll
-   * event; more of the answer renders before that event is delivered; the
-   * handler then runs against the NEW `scrollHeight` and the OLD `scrollTop`,
-   * computes a gap of one or two deltas' worth — 120px to 168px, where the slack
-   * is 120 — and files the reader as having scrolled away. From then on nothing
-   * follows, and nobody touched the screen. It bit two runs in five of the
-   * deltas measurement. Remembering where we put it is the whole fix: a scroll
-   * that lands exactly there is ours.
-   *
-   * ⚠ **Leaving and returning are not the same measurement**, and asking the
-   * distance-from-the-end question for both is what kept unpinning a reader who
-   * had not moved. While following, the transcript grows underneath them:
-   * `scrollHeight` rises before the scroll event is handled, so the gap widens on
-   * its own and crossed the 120px slack at 122, 125, 129, 130, 133 — five
-   * captures, none of them a person. Their `scrollTop` never changed. So leaving
-   * is measured against where we last put them, which growth cannot move;
-   * returning is measured against the end, because the end is what they are
-   * coming back to and it has moved since they left.
+   * Whether that leaves the reader at the end is the whole question, and it is
+   * asked of where they are rather than of how far they travelled to get there.
    */
   moved(box: Box): void {
-    if (box.top === this.wrote) return;
-    // ⚠ **A scroll with no gesture behind it is not a decision.** See
-    // [`gestured`] for the measurement. The new position is taken as ours rather
-    // than ignored: the browser moved it, we did not object, and treating it as
-    // outstanding would make the next event look like a reader's move too.
-    if (!this.gestured) {
-      this.wrote = box.top;
-      return;
-    }
-    // The view moved, a gesture is behind it, and a finger is on the glass: this
-    // is a drag, and letting go of it must not be read as letting go of a hold.
-    // See [`dragged`].
+    // ⚠ **Only while following**, because that is the only time anything is
+    // written — see [`wrote`]. Once the reader has scrolled away nothing moves
+    // the view but them, so a scroll that happens to land on the last position
+    // this engine used is them coming back, and ignoring it would leave a reader
+    // standing at the newest message with the page refusing to follow.
+    if (this.at && box.top === this.wrote) return;
+    // A drag: a finger is down and the position changed. See [`dragged`].
     if (this.holding) this.dragged = true;
-    const gap = box.height - box.top - box.view;
-    this.at = this.at ? this.wrote < 0 || this.wrote - box.top < AWAY : gap < NEAR;
+    this.at = atEnd(box);
   }
 }

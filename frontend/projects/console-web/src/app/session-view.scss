@@ -92,6 +92,19 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  // ⚠ **The browser's scroll anchoring is turned off, and this page is one of
+  // the few that should.** Anchoring holds the visible content still when
+  // something is inserted above it — which is exactly what `loadEarlier` needs,
+  // and `loadEarlier` already does it itself, by measuring the height before the
+  // page lands and adding the difference after. Two mechanisms compensating for
+  // the same insertion is one too many.
+  //
+  // What it cost while it was on: during the streaming seed the browser moved
+  // the position by 18 or 19px on its own, three captures in a row — enough to
+  // read as the reader having scrolled, which stranded a conversation 13% of the
+  // way down. Every threshold in `following.ts` used to be sized around that
+  // noise. With the noise gone, being at the end can mean being at the end.
+  overflow-anchor: none;
   overscroll-behavior: contain;
 }
 
