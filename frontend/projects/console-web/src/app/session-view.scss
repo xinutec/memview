@@ -1,3 +1,24 @@
+// The biggest component stylesheet in this app, and deliberately so.
+//
+// ⚠ **`anyComponentStyle` is a complexity heuristic here, not a load-time
+// guard.** These styles are inlined into the one bundle we ship — nothing in this
+// console is lazily loaded — so 6 kB against 8 kB is the same bytes over the
+// wire. What the budget stands in for is "this component is doing a lot", which
+// of this one is true: it draws the transcript, folded tool runs, question cards,
+// the composer and the activity strip.
+//
+// Raised to 8 kB warn / 10 kB error on 2026-08-05 rather than left warning
+// permanently, because a build that always warns is a build nobody reads — which
+// is how a code block sat 618px past the right edge unnoticed. The hygiene the
+// budget cannot judge is checked properly instead, by five dev-lint rules that
+// are green on this file: DL-ANGULAR-DEAD-STYLE, -ENCAPSULATION-DEAD-SELECTOR,
+// -UNSTYLED-CLASS, -INNERHTML-SCOPED-STYLES and DL-SCSS-DUPLICATE-SELECTOR.
+//
+// Splitting the question card out was investigated as the alternative and
+// declined: its state is keyed by ask id so that options tapped before a dropped
+// connection survive the re-seed, and per-card state would lose them. See the
+// note on `chosen` in session-view.ts.
+
 :host {
   // The host is a real element between `.page` and everything below, and a custom
   // element is `display: inline` until something says otherwise — so without this
