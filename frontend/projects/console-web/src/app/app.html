@@ -51,6 +51,12 @@
           <mat-icon>info</mat-icon>
           <span>Details</span>
         </button>
+        <!-- The other reading item, beside it. The session's own list, which it
+             keeps whether anybody looks or not — see [[TasksSheet]]. -->
+        <button mat-menu-item aria-haspopup="dialog" (click)="tasks(open)">
+          <mat-icon>checklist</mat-icon>
+          <span>Tasks</span>
+        </button>
         <mat-divider />
         <div class="heading">Asks permission</div>
         <!-- The CLI's own modes in its own escalation order, least allowed first,

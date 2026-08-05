@@ -1,0 +1,119 @@
+:host {
+  display: block;
+  // ⚠ **No height cap and no scroller here** — `mat-bottom-sheet-container`
+  // already caps and scrolls, and a second scrolling region inside the first is
+  // how a swipe stops working (DL-ANGULAR-NESTED-SCROLLER). This list runs to
+  // hundreds of rows with "All" on, so the temptation is real.
+}
+
+.who {
+  font: var(--mat-sys-title-medium);
+  margin: 0 0 0.75rem;
+}
+
+.scope {
+  margin-bottom: 0.75rem;
+}
+
+.none,
+.trouble {
+  margin: 0;
+  font: var(--mat-sys-body-medium);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.trouble {
+  color: var(--mat-sys-error);
+}
+
+.tasks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.task {
+  border-top: 1px solid var(--mat-sys-outline-variant);
+
+  &:first-child {
+    border-top: none;
+  }
+}
+
+// The row. A button rather than a div with a click on it, so a keyboard reaches
+// it and a screen reader says what it does.
+.line {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  width: 100%;
+  // Room for a thumb: this is the whole target, and a subject is one line more
+  // often than not.
+  min-height: 3rem;
+  padding: 0.6rem 0.2rem;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+
+  // Nothing behind it to open, so it must not look pressable — but it keeps the
+  // same padding and alignment, or the list reads as two lists.
+  &.flat {
+    cursor: default;
+  }
+}
+
+.mark {
+  flex: 0 0 auto;
+  // Optical alignment with the first line of the subject rather than the top of
+  // the box, which sits a couple of pixels high against text this size.
+  margin-top: 0.1rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.subject {
+  flex: 1;
+  font: var(--mat-sys-body-medium);
+  // Subjects are written as sentences and run long; wrapping is the point, and
+  // nothing here may widen the sheet.
+  overflow-wrap: anywhere;
+}
+
+.chevron {
+  flex: 0 0 auto;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+// Finished work stays legible rather than being greyed into decoration: it is
+// shown because somebody asked to see it.
+.task.done .subject {
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.task.done .mark {
+  color: var(--mat-sys-primary);
+}
+
+.blocked {
+  margin: 0 0 0.5rem 2.2rem;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+// The write-up. Pre-wrapped because these are paragraphs with blank lines
+// between them — the shape is part of what they say.
+.said {
+  margin: 0 0 0.8rem 2.2rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+// A failed fetch, in the place the words would have been.
+.said.failed {
+  color: var(--mat-sys-error);
+}

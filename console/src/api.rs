@@ -42,6 +42,8 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/sessions/{id}", delete(forget))
         .route("/api/sessions/{id}/events", get(events))
         .route("/api/sessions/{id}/earlier", get(earlier))
+        .route("/api/sessions/{id}/tasks", get(tasks))
+        .route("/api/sessions/{id}/tasks/{task}", get(task))
         .route("/api/telemetry", post(trace::record))
         .with_state(roster)
 }
@@ -478,6 +480,27 @@ async fn past(State(roster): State<Arc<Roster>>) -> Json<Vec<crate::past::Conver
         .filter(|conversation| roster.config().resolve(&conversation.dir).is_ok())
         .collect();
     Json(allowed)
+}
+
+/// A session's task list, without the prose. See [`crate::tasks`].
+///
+/// Not gated on the session being one this console runs: the list belongs to the
+/// conversation, and a conversation that has ended still has one worth reading.
+async fn tasks(Path(id): Path<String>) -> Json<Vec<crate::tasks::Listed>> {
+    Json(crate::tasks::listed(&crate::tasks::tasks_root(), &id))
+}
+
+/// What one task says, fetched when it is opened rather than with the list.
+async fn task(Path((id, task)): Path<(String, String)>) -> impl IntoResponse {
+    match crate::tasks::detail(&crate::tasks::tasks_root(), &id, &task) {
+        Some(description) => Json(Described { description }).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct Described {
+    description: String,
 }
 
 /// The app itself, for a route the app owns — or a plain 404 for a file that is

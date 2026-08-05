@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
-import { Conversation, KINDS, Overview, SessionEvent, Summary } from './models';
+import { Conversation, KINDS, Overview, SessionEvent, Summary, Task } from './models';
 import { Answers, Notes } from './questions';
 
 /** Thin client over the console runner. Same origin in production (the runner
@@ -36,6 +36,25 @@ export class ConsoleApi {
 
   past(): Observable<Conversation[]> {
     return this.http.get<Conversation[]>('/api/past');
+  }
+
+  /** A session's task list, subjects only — see [[ConsoleApi.task]]. */
+  tasks(id: string): Observable<Task[]> {
+    return this.http.get<Task[]>(`/api/sessions/${encodeURIComponent(id)}/tasks`);
+  }
+
+  /**
+   * What one task says, fetched when it is opened.
+   *
+   * ⚠ **Not sent with the list, and that is not a micro-optimisation.** These
+   * descriptions are written-up results running to kilobytes each — one live
+   * session's 355 tasks are 1.5 MB of them, which is not a payload for drawing
+   * forty subjects on a phone.
+   */
+  task(id: string, task: string): Observable<{ description: string }> {
+    return this.http.get<{ description: string }>(
+      `/api/sessions/${encodeURIComponent(id)}/tasks/${encodeURIComponent(task)}`,
+    );
   }
 
   start(dir: string, prompt: string, resume?: string): Observable<Summary> {

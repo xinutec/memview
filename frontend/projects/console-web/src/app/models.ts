@@ -275,3 +275,25 @@ export interface Conversation {
   /** Something already has it open, as far as the runner can tell. */
   readonly busy: boolean;
 }
+
+/**
+ * One task on a session's own list.
+ *
+ * ⚠ **Not the console's idea of work — the session's.** These are written by the
+ * CLI's task tools into `~/.claude/tasks/<session>/`, so the list is whatever the
+ * conversation has been keeping for itself, including from runs long finished.
+ * The console reads them and never writes: two surfaces editing one list is how
+ * the two copies start disagreeing.
+ */
+export interface Task {
+  readonly id: string;
+  readonly subject: string;
+  /** `pending`, `in_progress` or `completed`, in the CLI's own words. */
+  readonly status: string;
+  /** What the session calls the doing of it, while it is underway. */
+  readonly activeForm?: string;
+  /** Whether there is prose behind it worth opening. */
+  readonly detailed: boolean;
+  /** The ids this one is waiting on, when it is waiting on any. */
+  readonly blockedBy?: readonly string[];
+}

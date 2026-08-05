@@ -1,0 +1,80 @@
+<h2 class="who">{{ which.name ?? 'this session' }} · tasks</h2>
+
+@if (all() === undefined) {
+  <mat-progress-bar mode="indeterminate" />
+} @else if (trouble(); as what) {
+  <p class="trouble">{{ what }}</p>
+} @else if (empty()) {
+  <!-- Not "0 open". Most conversations never open a task list at all, and a
+       zero would read as a session that had finished everything. -->
+  <p class="none">This session has never kept a task list.</p>
+} @else {
+  <!-- The toggle sits above the list rather than in the title: it changes what
+       is below it, and a control that reads as part of a heading reads as
+       decoration. Hidden entirely when nothing is finished — there is then
+       nothing for it to reveal, and an inert switch is a question with one
+       answer. -->
+  @if (done(); as done) {
+    <mat-button-toggle-group
+      class="scope"
+      [value]="everything() ? 'all' : 'open'"
+      (change)="everything.set($event.value === 'all')"
+      aria-label="which tasks to show"
+    >
+      <mat-button-toggle value="open">Open</mat-button-toggle>
+      <mat-button-toggle value="all">All ({{ done }} done)</mat-button-toggle>
+    </mat-button-toggle-group>
+  }
+
+  @if (shown().length === 0) {
+    <p class="none">Nothing open — every task on this list is done.</p>
+  }
+
+  <ol class="tasks">
+    @for (task of shown(); track task.id) {
+      <li class="task" [class.done]="task.status === 'completed'">
+        <!-- The whole row is the control when there is something to open, and
+             plain text when there is not: a button that does nothing is worse
+             than no button, and this list is mostly rows with nothing behind
+             them. -->
+        <button
+          type="button"
+          class="line"
+          [class.flat]="!task.detailed"
+          [disabled]="!task.detailed"
+          [attr.aria-expanded]="task.detailed ? opened() === task.id : null"
+          (click)="open(task)"
+        >
+          <mat-icon class="mark" [attr.aria-label]="statusOf(task).title">{{
+            statusOf(task).icon
+          }}</mat-icon>
+          <span class="subject">{{ task.subject }}</span>
+          @if (task.detailed) {
+            <mat-icon class="chevron">{{
+              opened() === task.id ? 'expand_less' : 'expand_more'
+            }}</mat-icon>
+          }
+        </button>
+        <!-- What it is waiting on. Ids rather than subjects: the list is on
+             screen, and a subject repeated here is a second copy to disagree
+             with the first. -->
+        @if (task.blockedBy?.length) {
+          <p class="blocked">waiting on {{ task.blockedBy.join(', ') }}</p>
+        }
+        @if (opened() === task.id) {
+          @if (said()[task.id]; as words) {
+            <!-- Pre-wrapped: these are written up as paragraphs with blank lines
+                 between them, and collapsing that turns a report into a wall. -->
+            <p class="said">{{ words }}</p>
+          } @else if (failed()[task.id]; as why) {
+            <!-- Says to tap again, because tapping again is the retry: this is
+                 not kept as the task's words, so a second attempt really is one. -->
+            <p class="said failed">{{ why }} — fold and open it again to retry</p>
+          } @else {
+            <mat-progress-bar mode="indeterminate" />
+          }
+        }
+      </li>
+    }
+  </ol>
+}

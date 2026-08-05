@@ -1783,6 +1783,36 @@ test('a window that has already reset shows no figure @ phone width', async ({ p
   await expect(strip, 'a figure from a window that has gone').not.toContainText('28%');
 });
 
+/**
+ * A session's own task list, in the proportions a real one has.
+ *
+ * Subjects run as sentences rather than labels — that is how the tools are used
+ * — and one row has nothing written up behind it, which is the row that must not
+ * offer to open.
+ */
+const TASKS = [
+  {
+    id: '2',
+    subject: 'bless the golden set after the oracle moved',
+    status: 'completed',
+    detailed: true,
+  },
+  {
+    id: '100',
+    subject: 'write the rule up',
+    status: 'pending',
+    detailed: false,
+    blockedBy: ['101'],
+  },
+  {
+    id: '101',
+    subject: 'port the matcher gate',
+    status: 'in_progress',
+    activeForm: 'porting the matcher gate',
+    detailed: true,
+  },
+];
+
 /** A session the runner has finished reading: it has a name, a model id and a
  *  permission mode, which is what the toolbar and the sheet divide between them. */
 const NAMED = {
@@ -2075,6 +2105,50 @@ test('the details sheet holds what the page has no room for @ phone width', asyn
   await expectNoTextOverlaps(page, testInfo, '.session-sheet');
   await expectNoHorizontalOverflow(page, testInfo, '.session-sheet');
   await expectNoClippedText(page, testInfo, '.session-sheet');
+});
+
+test('the task sheet opens on what is left rather than what is done @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **The list is mostly finished work, by an order of magnitude.** One live
+  // session here keeps 355 tasks: 307 done, 38 open, 10 underway. Opening on all
+  // of them puts three hundred completed rows above the eight that matter, so
+  // the default is what is left — and the toggle is there because the finished
+  // ones are a written record worth reading, not because the list is a total.
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/tasks', (r) => r.fulfill({ json: TASKS }));
+  await page.route('**/api/sessions/*/tasks/*', (r) =>
+    r.fulfill({ json: { description: 'Measured both ways, and the second arm moved.' } }),
+  );
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page
+    .locator('.bar')
+    .getByRole('button', { name: /what to do with/ })
+    .click();
+  await page.getByRole('menuitem', { name: 'Tasks' }).click();
+  const sheet = page.locator('.session-sheet');
+  await sheet.waitFor();
+
+  // Underway first, then open. What is done is not on screen at all.
+  await expect(sheet.locator('.subject')).toHaveText([
+    'port the matcher gate',
+    'write the rule up',
+  ]);
+
+  // The write-up is behind a tap, because sending it with the list would be a
+  // megabyte and a half to draw two subjects.
+  await expect(sheet.locator('.said')).toHaveCount(0);
+  await sheet.getByRole('button', { name: /port the matcher gate/ }).click();
+  await expect(sheet.locator('.said')).toContainText('the second arm moved');
+
+  // And the toggle brings back what was finished, saying how much it is.
+  await sheet.getByRole('radio', { name: /All \(1 done\)/ }).click();
+  await expect(sheet.locator('.subject')).toHaveCount(3);
+
+  await expectNoTextOverlaps(page, testInfo, '.session-sheet');
+  await expectNoHorizontalOverflow(page, testInfo, '.session-sheet');
+  await expectNoClippedText(page, testInfo, '.session-sheet');
+  await expectThumbTargets(page);
 });
 
 test('back dismisses an overlay rather than the page under it @ phone width', async ({ page }) => {

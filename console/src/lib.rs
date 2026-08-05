@@ -12,6 +12,7 @@ pub mod past;
 pub mod protocol;
 pub mod roster;
 pub mod session;
+pub mod tasks;
 pub mod tls;
 pub mod trace;
 pub mod usage;

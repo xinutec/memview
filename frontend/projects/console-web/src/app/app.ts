@@ -17,6 +17,7 @@ import { offeredModes } from './modes';
 import { titleOf } from './naming';
 import { Restyle } from './restyle';
 import { SessionSheet } from './session-sheet';
+import { TasksSheet } from './tasks-sheet';
 import { Telemetry } from './telemetry';
 
 @Component({
@@ -125,6 +126,15 @@ export class App {
         // The sentence travels beside the summary rather than on it — see
         // [[Here.gist]] — so the sheet is handed both.
         data: { session, gist: this.here.gist() },
+        panelClass: 'session-sheet',
+      }),
+    );
+  }
+
+  protected tasks(session: Summary): void {
+    this.dismiss.onBack(
+      this.sheet.open(TasksSheet, {
+        data: { session: session.id, name: session.name ?? undefined },
         panelClass: 'session-sheet',
       }),
     );
