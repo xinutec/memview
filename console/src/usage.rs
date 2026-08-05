@@ -23,7 +23,8 @@
 //! held before it turned over.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::ffi::CStr;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -221,7 +222,7 @@ pub fn merged(
         .max();
     Some(match heard {
         Some(at) => Reading {
-            host: HERE.to_string(),
+            host: HERE.clone(),
             age_ms: (now_ms - at.0).max(0),
             five_hour,
             seven_day,
@@ -238,9 +239,80 @@ pub fn merged(
 const FIVE_HOUR: &str = "five_hour";
 const SEVEN_DAY: &str = "seven_day";
 
-/// What to call a reading this console took itself. Not a hostname: the figure
-/// is account-wide, so the only useful provenance is *how* it was come by.
-const HERE: &str = "this console";
+/// The machine this console runs on, for a reading it took itself.
+///
+/// ⚠ **This was the literal string "this console" until 2026-08-05**, on the
+/// argument that the figure is account-wide so the only useful provenance is
+/// *how* it was come by rather than *where*. The "how" is real and still wanted
+/// — but `age_ms` already carries it, and better: a reading forty seconds old is
+/// first-hand on its face, while a name never says how stale it is.
+///
+/// What forced a real name is that the reading is no longer only drawn. home's
+/// `claude_usage` table is `PRIMARY KEY (host)` upserted, and its `GET
+/// /api/usage` serves the freshest row *across* hosts — so a constant here
+/// becomes a row that wins every freshness comparison under a name no machine
+/// answers to, permanently stranding the row belonging to the host that really
+/// took the reading.
+///
+/// Resolved once: the name cannot change while the process runs, and a console
+/// that has to ask the kernel for it on the way to answering every request is
+/// asking a question it already knows the answer to.
+static HERE: LazyLock<String> = LazyLock::new(|| short_name(&hostname()));
+
+/// What this machine calls itself, verbatim, or empty if the kernel will not say.
+///
+/// `libc::gethostname` rather than a crate: libc is already a direct dependency
+/// (see `session.rs`'s fd handling), and this is one call.
+///
+/// ⚠ **A truncated name is not reported as an error by POSIX** — `gethostname`
+/// may fill the buffer without a terminator and still return 0, which is why the
+/// buffer is over-sized and the last byte is forced to nul rather than trusted.
+/// The failure that guards against is a *silently shortened* hostname, which
+/// would key home's table under a name that looks plausible and is wrong.
+fn hostname() -> String {
+    const LEN: usize = 256;
+    let mut buf = [0_i8; LEN];
+    // SAFETY: `buf` is `LEN` bytes and the length passed matches it.
+    if unsafe { libc::gethostname(buf.as_mut_ptr(), LEN) } != 0 {
+        return String::new();
+    }
+    buf[LEN - 1] = 0;
+    // SAFETY: nul-terminated above, whatever the kernel wrote.
+    unsafe { CStr::from_ptr(buf.as_ptr()) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// The name the rest of the fleet uses, given whatever the kernel returned.
+///
+/// Split out from [`hostname`] because this is the part with decisions in it and
+/// the syscall is the part that cannot run twice the same way — a test can pin
+/// the rules without owning a machine called anything in particular.
+///
+/// A search domain makes `mac-mini` and `mac-mini.local` the same machine, and
+/// the short form is what `network.nix`, the `.vpn` names and home's existing
+/// rows all use. Keying home's table on the long form would silently open a
+/// second row for a host that already has one.
+pub fn short_name(raw: &str) -> String {
+    let short = raw.split('.').next().unwrap_or_default();
+    if short.is_empty() {
+        return UNKNOWN_HOST.to_string();
+    }
+    short.to_string()
+}
+
+/// What this console runs on, as it will be attributed.
+///
+/// Public so a test can say "attributed to this machine" without hard-coding the
+/// name of the machine it happens to run on — which would pass here and fail on
+/// every other box.
+pub fn here() -> &'static str {
+    &HERE
+}
+
+/// Never silently empty: a blank provenance reads as "no machine" rather than
+/// "this machine would not say", and the two want different reactions.
+const UNKNOWN_HOST: &str = "unknown host";
 
 fn live(seen: Option<&Seen>, now_ms: i64) -> Option<Window> {
     let seen = seen?;

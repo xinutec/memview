@@ -10,7 +10,7 @@
 use std::collections::BTreeMap;
 
 use console::session::{Heard, ResetsAt, Seen};
-use console::usage::{Published, fresher, merged, reading};
+use console::usage::{Published, fresher, here, merged, reading, short_name};
 
 /// The reading exactly as the dashboard served it while this was written.
 fn published() -> Published {
@@ -115,7 +115,28 @@ fn what_a_session_heard_beats_the_dashboard() {
     );
     // A minute old, not five hours.
     assert_eq!(read.age_ms, 60_000);
-    assert_eq!(read.host, "this console");
+    // Attributed to the machine that heard it rather than to the dashboard's
+    // `host` field. Compared against `here()` rather than a literal, since the
+    // name is whatever box the suite runs on — and NOT asserted to differ from
+    // the dashboard's, because the machine publishing to home is usually the one
+    // running the console, so the two names coinciding is ordinary.
+    assert_eq!(read.host, here());
+}
+
+#[test]
+fn a_search_domain_does_not_open_a_second_row_for_the_same_machine() {
+    // home's claude_usage is PRIMARY KEY (host); mac-mini and mac-mini.local are
+    // one machine, and keying on the long form would quietly give it two rows.
+    assert_eq!(short_name("mac-mini.local"), "mac-mini");
+    assert_eq!(short_name("mac-mini"), "mac-mini");
+}
+
+#[test]
+fn a_machine_that_will_not_say_its_name_is_named_as_such() {
+    // Not empty: a blank provenance reads as "no machine" rather than "this
+    // machine would not say", and those want different reactions.
+    assert_eq!(short_name(""), "unknown host");
+    assert_eq!(short_name(".local"), "unknown host");
 }
 
 #[test]
