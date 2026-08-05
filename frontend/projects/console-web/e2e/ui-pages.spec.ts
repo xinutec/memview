@@ -2134,6 +2134,9 @@ test('the task sheet opens on what is left rather than what is done @ phone widt
     'port the matcher gate',
     'write the rule up',
   ]);
+  // With the numbers the session itself uses, in the same order — `waiting on
+  // 101` below is meaningless unless 101 is findable.
+  await expect(sheet.locator('.num')).toHaveText(['101', '100']);
 
   // The write-up is behind a tap, because sending it with the list would be a
   // megabyte and a half to draw two subjects.

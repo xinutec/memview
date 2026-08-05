@@ -74,6 +74,17 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
+// Quieter than the subject and never wrapped: it is a handle for talking about
+// the row, not part of the sentence. Tabular figures so the subjects line up
+// down the list rather than stepping in and out by a digit's width.
+.num {
+  flex: 0 0 auto;
+  margin-top: 0.1rem;
+  font: var(--mat-sys-body-small);
+  font-variant-numeric: tabular-nums;
+  color: var(--mat-sys-on-surface-variant);
+}
+
 .subject {
   flex: 1;
   font: var(--mat-sys-body-medium);

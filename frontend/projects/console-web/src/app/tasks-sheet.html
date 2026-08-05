@@ -48,6 +48,11 @@
           <mat-icon class="mark" [attr.aria-label]="statusOf(task).title">{{
             statusOf(task).icon
           }}</mat-icon>
+          <!-- The number, because it is what a session calls a task in its own
+               prose — "#418 done" — and what `waiting on` below names. Without
+               it the sheet and the conversation are talking about the same
+               things in two vocabularies. -->
+          <span class="num">{{ task.id }}</span>
           <span class="subject">{{ task.subject }}</span>
           @if (task.detailed) {
             <mat-icon class="chevron">{{
