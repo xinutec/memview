@@ -75,6 +75,20 @@
   color: var(--mat-sys-on-primary-container);
 }
 
+// Work still going on, beside the word it qualifies. Not a pill: the pill is
+// the session's state and this is something happening *inside* that state — a
+// second pill beside the first would read as a competing answer to the same
+// question. Coloured, because everything else on the card is history and this
+// is not.
+.tasks {
+  font: var(--mat-sys-label-small);
+  color: var(--mat-sys-primary);
+  // Never the thing that wraps: the name beside it can be long, and half of
+  // `1 background task` on a line of its own says nothing.
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .asked {
   margin: 0.35rem 0;
   color: var(--mat-sys-on-surface-variant);
@@ -121,12 +135,6 @@
 
 .model {
   font-family: ui-monospace, monospace;
-}
-
-// The one fact in the row that is about work still going on, so it is the one
-// that is coloured. Everything else there is history.
-.tasks {
-  color: var(--mat-sys-primary);
 }
 
 .mode.loud {

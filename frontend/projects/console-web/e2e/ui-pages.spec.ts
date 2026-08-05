@@ -1505,7 +1505,7 @@ test('session list — work still running says so, silence otherwise @ phone wid
           {
             ...STATE.sessions[0],
             id: 'aaaa0000-0000-4000-8000-000000000001',
-            name: 'building',
+            name: 'a-session-with-a-name-long-enough-to-crowd',
             busy: undefined,
             waiting: 0,
             background: 1,
@@ -1525,9 +1525,15 @@ test('session list — work still running says so, silence otherwise @ phone wid
   await page.goto('/');
   await expect(page.locator('.session')).toHaveCount(2);
 
-  await expect(page.locator('.session', { hasText: 'building' })).toContainText(
-    '1 background task',
-  );
+  // ⚠ **In the head, beside the status word it qualifies** — not down in the
+  // facts row with the dates and counts, where it read as one more piece of
+  // history rather than as the thing still happening.
+  await expect(
+    page.locator('.session', { hasText: 'long-enough-to-crowd' }).locator('.head'),
+  ).toContainText('1 background task');
+  await expect(
+    page.locator('.session', { hasText: 'long-enough-to-crowd' }).locator('.head'),
+  ).toContainText('idle');
   // ⚠ Nothing at all for a session with none — `0 background tasks` would be a
   // claim, and the harness cannot see a command backgrounded inside a shell.
   await expect(page.locator('.session', { hasText: 'quiet' })).not.toContainText('background');
