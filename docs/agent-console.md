@@ -87,8 +87,9 @@ of events; `session.rs` owns one subprocess and its transcript; `roster.rs` hold
 them all; `api.rs` serves them, streaming with SSE. Four modules work off disk
 rather than asking a session anything: `past.rs` reads the transcripts, `gist.rs`
 the sentence about each, `tasks.rs` the list a session keeps for itself, and
-`images.rs` writes — it is the one thing here that puts a file down, keeping what
-the phone sent. The UI lists sessions, opens one, streams its transcript and
+`images.rs` writes — it is the one thing here that puts a file down and the one
+thing that takes one away, keeping what the phone sent for as long as the
+conversation it was sent to exists. The UI lists sessions, opens one, streams its transcript and
 sends it messages.
 
 Four things were **measured against CLI 2.1.220 rather than assumed**, and each

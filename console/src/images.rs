@@ -14,7 +14,9 @@
 //!
 //! A copy is kept on disk anyway. The conversation holds the image only until it
 //! is compacted away, and the file is what makes it possible to look again — at
-//! full size, which is not what was sent.
+//! full size, which is not what was sent. It is kept for exactly as long as that
+//! conversation is: see [`tidy`], which is what stops a directory of megabytes
+//! outliving every transcript that explains it.
 
 use std::path::{Path, PathBuf};
 
@@ -117,6 +119,56 @@ pub fn keep(
         media_type: sniffed.to_string(),
         path,
     })
+}
+
+/// Delete the copies belonging to conversations that are no longer on disk, and
+/// say how many went.
+///
+/// ⚠ **This deletes files, and it is the only thing in the console that does.**
+/// Everything about it is therefore written to fail closed:
+///
+/// - **An empty `keep` deletes nothing.** [`crate::past::transcript_ids`] returns
+///   nothing both when there are no conversations and when it could not read the
+///   directory, exactly as the gist store's walk does — but here the cost of
+///   reading the second as the first is somebody's pictures rather than a cache
+///   that pays a model to refill itself. The true empty case has nothing to tidy.
+/// - **Only names this module could have written.** A directory whose name fails
+///   [`plain`] is left where it is: it did not come from [`keep`], so whatever it
+///   is, it is not ours to remove.
+/// - **Only directories, only directly under `root`.** No recursion looking for
+///   more to do.
+///
+/// A picture is kept for as long as its conversation is, which is what makes it
+/// possible to look again after the context has moved on. **A conversation that
+/// is still there keeps all of its pictures however many it has** — a session
+/// that has been shown forty screenshots is not a leak, it is forty pieces of
+/// evidence somebody may want, and the moment to drop them is when the
+/// conversation itself goes.
+pub fn tidy(root: &Path, keep: &std::collections::BTreeSet<String>) -> usize {
+    if keep.is_empty() {
+        return 0;
+    }
+    let mut gone = 0;
+    for entry in std::fs::read_dir(root).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|it| it.to_str()) else {
+            continue;
+        };
+        if !plain(name) || keep.contains(name) {
+            continue;
+        }
+        match std::fs::remove_dir_all(&path) {
+            Ok(()) => {
+                tracing::info!("images: {name} has no transcript left — dropped its pictures");
+                gone += 1;
+            }
+            Err(why) => tracing::warn!("images: could not drop {}: {why}", path.display()),
+        }
+    }
+    gone
 }
 
 /// Whether a string is safe to be one segment of a path: letters, digits and the

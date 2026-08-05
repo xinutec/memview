@@ -89,6 +89,25 @@ impl Roster {
             .await;
     }
 
+    /// Drop the pictures whose conversations are gone. Called on a timer from
+    /// `main`; see [`crate::images::tidy`] for what it refuses to do.
+    ///
+    /// Off the runtime, like [`Self::tasks`]: this walks two directory trees and
+    /// may delete from one of them, and neither is work to do on a thread that is
+    /// meant to be answering requests.
+    pub async fn tidy_images(&self) {
+        let done = tokio::task::spawn_blocking(|| {
+            let keep = crate::past::transcript_ids(&crate::past::projects_root());
+            crate::images::tidy(&crate::images::images_root(), &keep)
+        })
+        .await;
+        match done {
+            Ok(0) => {}
+            Ok(gone) => tracing::info!("images: {gone} conversation(s) tidied away"),
+            Err(why) => tracing::warn!("images: the tidy did not finish ({why})"),
+        }
+    }
+
     /// The rate-limit reading, for the front page and for the watcher that
     /// keeps it current.
     pub fn usage(&self) -> &Arc<crate::usage::Usage> {

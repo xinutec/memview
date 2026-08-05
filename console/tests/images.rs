@@ -3,7 +3,9 @@
 //! The bytes come off a device and are handed to the API as whatever they claim
 //! to be, so the tests here are mostly about disbelieving the claim.
 
-use console::images::{LIMIT, keep};
+use std::collections::BTreeSet;
+
+use console::images::{LIMIT, keep, tidy};
 
 /// The first bytes of each format, which is all the sniffer reads.
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR";
@@ -174,4 +176,67 @@ fn a_picture_sent_with_nothing_said_is_still_a_whole_message() {
         .expect("text");
     assert!(said.contains("showing you an image"), "{said}");
     assert!(said.contains("/tmp/shot.jpg"), "{said}");
+}
+
+/// A directory of pictures for each of `sessions`, as [`keep`] would leave them.
+fn kept_for(root: &std::path::Path, sessions: &[&str]) {
+    for session in sessions {
+        keep(root, session, "image/png", PNG, "2026-08-05-184700Z").expect("kept");
+    }
+}
+
+fn directories(root: &std::path::Path) -> Vec<String> {
+    let mut found: Vec<String> = std::fs::read_dir(root)
+        .expect("root")
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    found.sort();
+    found
+}
+
+#[test]
+fn pictures_go_when_the_conversation_they_belong_to_does() {
+    // ⚠ Nothing removed one before this. Deleting a transcript left its pictures
+    // behind for good — megabytes each, under a name that no longer answered to
+    // anything, and no page that could ever show them again.
+    let root = scratch("tidy-gone");
+    kept_for(&root, &["alive", "deleted"]);
+
+    let gone = tidy(&root, &BTreeSet::from(["alive".to_string()]));
+
+    assert_eq!(gone, 1);
+    assert_eq!(directories(&root), vec!["alive".to_string()]);
+}
+
+#[test]
+fn nothing_to_keep_is_read_as_nothing_to_go_on() {
+    // An unreadable projects directory yields the same empty set as a machine
+    // with no conversations, and from here they look alike. One of those two
+    // readings deletes every picture on the disk, so neither is acted on.
+    let root = scratch("tidy-empty");
+    kept_for(&root, &["one", "two"]);
+
+    let gone = tidy(&root, &BTreeSet::new());
+
+    assert_eq!(gone, 0);
+    assert_eq!(directories(&root).len(), 2);
+}
+
+#[test]
+fn a_directory_this_never_wrote_is_left_alone() {
+    // The tidy deletes whole directories, so it only touches names it could have
+    // created itself. Anything else under there arrived some other way and is
+    // somebody else's to remove.
+    let root = scratch("tidy-foreign");
+    kept_for(&root, &["mine"]);
+    std::fs::create_dir_all(root.join("not a session id")).expect("foreign");
+
+    let gone = tidy(&root, &BTreeSet::from(["mine".to_string()]));
+
+    assert_eq!(gone, 0);
+    assert_eq!(
+        directories(&root),
+        vec!["mine".to_string(), "not a session id".to_string()]
+    );
 }

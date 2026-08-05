@@ -8,8 +8,8 @@
 use std::path::Path;
 
 use console::past::{
-    Counted, conversations, counted, named as named_of, touched as touched_of, transcript_of,
-    words_of_claude_processes,
+    Counted, conversations, counted, named as named_of, touched as touched_of, transcript_ids,
+    transcript_of, words_of_claude_processes,
 };
 
 /// A wrapper shell whose *path* says claude — the shape that caused the bug.
@@ -222,6 +222,25 @@ fn a_conversation_that_ran_in_a_temporary_directory_is_not_listed() {
     let found = conversations(&root);
     assert_eq!(found.len(), 1, "{found:?}");
     assert_eq!(found[0].id, "real");
+}
+
+#[test]
+fn a_conversation_that_is_not_listed_still_exists() {
+    // ⚠ The distinction the housekeeping turns on. `conversations` is a display
+    // list and hides the probe above; `transcript_ids` is asked which
+    // conversations are THERE, by whatever deletes things on the strength of the
+    // answer. Confusing the two would have `images::tidy` delete the pictures of
+    // a session for the crime of having run somewhere untidy.
+    let root = scratch("ids");
+    transcript(&root, "project", "real", Some("/home/example/Code"), 2);
+    transcript(&root, "encoded-tmp", "probe", Some("/private/tmp/probe"), 2);
+
+    assert_eq!(conversations(&root).len(), 1, "the display list hides one");
+    assert_eq!(
+        transcript_ids(&root),
+        std::collections::BTreeSet::from(["real".to_string(), "probe".to_string()]),
+        "and both of them are still on the disk"
+    );
 }
 
 #[test]

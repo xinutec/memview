@@ -103,6 +103,21 @@ async fn main() -> Result<()> {
             }
         });
     }
+    // The pictures the phone has sent, kept only as long as the conversations
+    // they belong to — see [`console::images::tidy`]. Its own loop rather than a
+    // second job inside the one above, because it is the only thing here that
+    // deletes and that deserves to be visible on its own line. Hourly: what it
+    // reclaims is one directory per conversation deleted, which is not something
+    // that happens on a timescale worth chasing.
+    {
+        let tidying = roster.clone();
+        tokio::spawn(async move {
+            loop {
+                tidying.tidy_images().await;
+                tokio::time::sleep(std::time::Duration::from_secs(60 * 60)).await;
+            }
+        });
+    }
     let carried = roster.inherit();
     if carried > 0 {
         tracing::info!("{carried} session(s) carried across an upgrade — none was restarted");

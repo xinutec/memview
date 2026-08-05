@@ -134,6 +134,34 @@ fn disposable(dir: &str) -> bool {
     DISPOSABLE.iter().any(|temp| dir.starts_with(temp))
 }
 
+/// Every id that has a transcript under `root`, filtered by nothing.
+///
+/// ⚠ **Deliberately not [`conversations`].** That one is a display list: it
+/// leaves out anything that ran from a temporary directory, and reads each file
+/// to learn what it is. This is the plain question of which conversations exist,
+/// asked by the housekeeping that deletes things — see [`crate::images::tidy`],
+/// where using the display list instead would throw away the pictures belonging
+/// to a conversation that was only ever hidden.
+pub fn transcript_ids(root: &Path) -> std::collections::BTreeSet<String> {
+    std::fs::read_dir(root)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().is_dir())
+        .flat_map(|project| std::fs::read_dir(project.path()).into_iter().flatten())
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        // The extension, for the reason [`transcript_of`] gives at length: there
+        // is a directory beside each transcript with the same name.
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
+        .filter_map(|path| {
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .map(String::from)
+        })
+        .collect()
+}
+
 /// Every conversation under `root`, newest first.
 pub fn conversations(root: &Path) -> Vec<Conversation> {
     let mut found: Vec<Conversation> = std::fs::read_dir(root)
