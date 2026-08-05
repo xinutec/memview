@@ -35,7 +35,16 @@
 
 .head {
   display: flex;
-  align-items: baseline;
+  // ⚠ **Centres, not baselines, and the row was baseline-aligned for a year.**
+  // A baseline is the right rule for words set on a line; this row is a 14px
+  // name beside an 11px pill and an 11px count, and two things follow from that.
+  // Smaller text on a shared baseline has its optical middle LOWER — measured
+  // here: the name's glyphs centred on 10.0 and the pill's on 11.1. And the pill
+  // is not words at all but a filled shape with padding, so aligning the text
+  // inside it hung the shape itself 2px low: its rectangle ran 2.4→21.6 against
+  // a name running 0→20. Read as a row that was slightly off without anything
+  // being nameably wrong, which is how it was reported.
+  align-items: center;
   gap: 0.75rem;
   // Wraps rather than overflowing. A full head is a long name, `waiting for
   // you`, two background tasks and a task count, and on a four-inch screen that

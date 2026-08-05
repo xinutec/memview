@@ -497,30 +497,33 @@ async function expectSendAlignsWithTheBox(page: Page): Promise<void> {
 /**
  * Words that look like one line sit on one line.
  *
- * ⚠ **The failure class none of the others can see.** Text 3.8px above its
+ * ⚠ **The failure class none of the others can see.** Text a few pixels off its
  * neighbours is not clipped, not overlapping, not overflowing and not small — it
- * is simply wrong, and the only symptom is that a row of cards reads as ragged.
- * Found by eye on the phone, on the first build that put an icon in a card head.
+ * is simply wrong, and the only symptom is a row that reads as ragged. Both
+ * defects this has caught were found by eye on the phone, not by a check.
  *
- * **What went wrong is worth stating exactly, because the CSS looked right.** The
- * chip was `inline-flex` with `align-items: center` — sensible on its own — and
- * an inline-flex box reports the baseline of its FIRST FLEX ITEM, which was a
- * 0.9rem icon rather than the digits beside it. The head aligns its children on
- * their baselines, so it aligned that box perfectly to a baseline the reader
- * cannot see. Measured on the real page: `2/3` sat at 11.89 where `requesting`,
- * in the same 11px font on the same line, sat at 15.69.
+ * **Optical middles, not baselines — and this was baselines first.** A baseline
+ * is the right rule for words of one size; a row mixing a 14px name with an 11px
+ * pill is a different problem, because the smaller text's glyphs then sit LOWER
+ * than the larger text's even though the two share a line perfectly. Measured on
+ * the real page while it was baseline-aligned: the name's glyphs centred on 10.0
+ * and everything beside it on 11.1, and the pill — a filled shape, not words —
+ * hung 2px lower still. Reported as "almost right, and I cannot say why", which
+ * is exactly what a rule that is nearly the right rule produces.
  *
- * Baselines are measured rather than estimated: a zero-height inline-block with
- * `vertical-align: baseline` has its bottom edge ON the baseline of the line box
- * it joins, so the probe reports what the browser actually did. Words are grouped
- * into bands by their boxes overlapping vertically, which is what makes this
- * survive a head that wraps — a second line is its own band, not a violation.
+ * So each word's middle is taken as half a cap height above its own baseline,
+ * and those are what have to agree. The baseline is measured rather than
+ * estimated: a zero-height inline-block with `vertical-align: baseline` has its
+ * bottom edge ON the line box's baseline, so the probe reports what the browser
+ * actually did. The cap height is Roboto's, which is the only face this app sets.
  *
- * Icon glyphs are excluded: an icon font's baseline is its own business, and
- * nudging a glyph off the line to sit right beside digits is the fix, not the
+ * Words are grouped into bands by their boxes overlapping vertically, which is
+ * what makes this survive a head that wraps — a second line is its own band, not
+ * a violation. Icon glyphs are excluded: an icon font's middle is its own
+ * business, and nudging a glyph to sit right beside digits is the fix, not the
  * defect.
  */
-async function expectOneBaseline(page: Page, rowSel: string, tol = 1): Promise<void> {
+async function expectOneLine(page: Page, rowSel: string, tol = 1): Promise<void> {
   const ragged = await page.evaluate(
     ([sel, tolerance]) => {
       const bad: string[] = [];
@@ -547,9 +550,14 @@ async function expectOneBaseline(page: Page, rowSel: string, tol = 1): Promise<v
           probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
           node.parentNode?.insertBefore(holder, node);
           holder.append(node, probe);
-          const base = probe.getBoundingClientRect().bottom;
+          const baseline = probe.getBoundingClientRect().bottom;
           holder.parentNode?.insertBefore(node, holder);
           holder.remove();
+
+          // Roboto's cap height, which is what the eye lines a row up by — half
+          // of it above the baseline is where a word's middle is.
+          const cap = 0.711 * Number.parseFloat(style.fontSize);
+          const base = baseline - cap / 2;
 
           words.push({ text: text.slice(0, 20), top: box.top, bottom: box.bottom, base });
         }
@@ -570,7 +578,7 @@ async function expectOneBaseline(page: Page, rowSel: string, tol = 1): Promise<v
     },
     [rowSel, tol] as [string, number],
   );
-  expect(ragged, `words on one line do not share a baseline in ${rowSel}`).toEqual([]);
+  expect(ragged, `words on one line do not share a middle in ${rowSel}`).toEqual([]);
 }
 
 /**
@@ -1719,8 +1727,8 @@ test('session list — work still running says so, silence otherwise @ phone wid
   await expect(page.locator('.tasks')).toHaveCount(1);
 
   // The other crowded head: a name long enough to push everything else along,
-  // and two things qualifying the status word. See [[expectOneBaseline]].
-  await expectOneBaseline(page, '.session .head');
+  // and two things qualifying the status word. See [[expectOneLine]].
+  await expectOneLine(page, '.session .head');
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 });
@@ -1775,11 +1783,13 @@ test('session list — what each conversation still owes @ phone width', async (
   // been emptied, and most conversations never open one.
   await expect(page.locator('.session', { hasText: 'no-list' }).locator('.list')).toHaveCount(0);
 
-  // ⚠ **The assertion this feature earned.** The chip shipped as an inline-flex
-  // box, which reports its icon's baseline rather than its digits', so the count
-  // rode 3.8px above the name and the status word beside it. Nothing else here
-  // could see that — see [[expectOneBaseline]].
-  await expectOneBaseline(page, '.session .head');
+  // ⚠ **The assertion this feature earned, twice.** The chip shipped as an
+  // inline-flex box, which reports its icon's baseline rather than its digits',
+  // so the count rode 3.8px above everything beside it; and the row it joined
+  // was aligned on baselines, which put the status pill 2px below the name. Two
+  // different faults, both invisible to every other check here, both found by
+  // eye on the phone — see [[expectOneLine]].
+  await expectOneLine(page, '.session .head');
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
   await expectNoClippedText(page, testInfo);
