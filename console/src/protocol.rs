@@ -256,6 +256,24 @@ enum Line {
         message: Message,
     },
     Result(Turn),
+    /// The CLI parking a message it has been handed but has not read yet.
+    ///
+    /// ⚠ **The earliest record that background work has ended, and by minutes.**
+    /// A notification is enqueued the moment the work finishes and dequeued only
+    /// when the turn in progress lets go — measured at `enqueue` 11:55:45,
+    /// `remove` 11:58:56, three minutes during which the only evidence on this
+    /// machine was this line. The `user` message it eventually becomes is written
+    /// at the far end of that gap, so waiting for it means a card that says work
+    /// is running for as long as the session keeps talking.
+    ///
+    /// Kebab-case on the wire, unlike every other line here, so it is renamed
+    /// rather than derived.
+    #[serde(rename = "queue-operation")]
+    QueueOperation {
+        operation: String,
+        #[serde(default)]
+        content: Content,
+    },
     RateLimitEvent {
         rate_limit_info: Limit,
     },
@@ -455,20 +473,26 @@ pub enum Running {
 
 /// Read one event for what it says about work left running.
 ///
-/// ⚠ **Two events mean "forget what you were counting", and both were learned
-/// the hard way.** A `Started` is a new process, which cannot have inherited the
-/// last one's tasks: their notifications died with the process that would have
-/// sent them, and without this a console restart left phantoms in the count for
-/// ever — measured at eleven. A `Joined` is the boundary between the transcript
-/// that was replayed and the stream being watched: the replay is full of calls
-/// that were backgrounded hours ago, and counting them said five tasks were
-/// running on a session whose newest was nine hours gone and which had no
-/// children at all.
+/// ⚠ **One event means "forget what you were counting", and it is not the
+/// obvious one.** A `Joined` is the boundary between the transcript that was
+/// replayed and the stream being watched: the replay is full of calls that were
+/// backgrounded hours ago, and counting them said five tasks were running on a
+/// session whose newest was nine hours gone and which had no children at all.
+/// It also covers the restart it looks like it does not: a re-seeded session
+/// replays that same history and then joins, so the phantoms a dead process left
+/// behind are cleared at the same boundary.
+///
+/// ⚠ **`Started` was here and was wrong.** An init line is not a new process —
+/// the CLI emits one at the head of *every turn*, measured on this console's own
+/// stream as `turn → started → busy → prompt`, while the session's cost, context
+/// and children all carry on. Reading it as a restart emptied the count on the
+/// next message sent, which is exactly when it is worth having: a commit sat in
+/// the gate for eight minutes with the card claiming nothing was running.
 pub fn running(event: &Event) -> Running {
     match event {
         Event::ToolResult { id, detail, .. } if detached(detail) => Running::Began(id.clone()),
         Event::Background { tool, .. } => Running::Ended(tool.clone()),
-        Event::Started { .. } | Event::Joined { .. } => Running::Gone,
+        Event::Joined { .. } => Running::Gone,
         _ => Running::Quiet,
     }
 }
@@ -606,6 +630,10 @@ pub fn read(line: &str) -> Vec<Event> {
         // rather than a silent drop into `Other`.
         Line::System(System::CompactBoundary) => Vec::new(),
         Line::System(System::Other) => Vec::new(),
+        // Also a file-only line, and for the same reason as the boundary above:
+        // what the CLI parks for itself it does not announce. It is read off the
+        // transcript instead — see [`crate::past::Appended::finished`].
+        Line::QueueOperation { .. } => Vec::new(),
         Line::StreamEvent { event } => match event {
             Stream::ContentBlockDelta { delta } => match delta {
                 Delta::Text { text } => vec![Event::Text { text }],
@@ -1126,6 +1154,18 @@ pub fn read_recorded(line: &str) -> Vec<Event> {
                 .collect()
         }
         Line::User { message } => from_user(message.content),
+        // Only what has just been handed over, and only if it is a notification.
+        // `remove` is the same message going the other way — reading it too would
+        // be the same finish twice, and `enqueue` is the one that happens when
+        // the work actually ended.
+        Line::QueueOperation { operation, content } if operation == "enqueue" => content
+            .blocks()
+            .into_iter()
+            .filter_map(|block| match block {
+                Block::Text { text } => finished(&text),
+                _ => None,
+            })
+            .collect(),
         Line::System(System::CompactBoundary) => vec![Event::Compacted],
         // Everything else a transcript carries — the bridge lines, the file
         // snapshots, the summaries — belongs to the CLI and not to a reader of

@@ -607,7 +607,7 @@ fn an_exchange_counts_once_however_many_messages_it_took() {
     spoken(&root, "counted", &[1, 4, 2], None);
     let path = transcript_of(&root, "counted").expect("transcript");
 
-    assert_eq!(counted(&path, Counted::default()).interactions, 3);
+    assert_eq!(counted(&path, Counted::default()).counted.interactions, 3);
 }
 
 #[test]
@@ -619,7 +619,7 @@ fn the_count_starts_again_after_a_compaction() {
     spoken(&root, "cut", &[1, 1, 1, 1, 1], Some(1));
     let path = transcript_of(&root, "cut").expect("transcript");
 
-    assert_eq!(counted(&path, Counted::default()).interactions, 3);
+    assert_eq!(counted(&path, Counted::default()).counted.interactions, 3);
 }
 
 #[test]
@@ -627,7 +627,9 @@ fn a_transcript_that_is_not_there_counts_no_exchanges() {
     // The session has just started and has written nothing yet. Zero is the
     // honest answer; the failure to answer at all is not.
     assert_eq!(
-        counted(Path::new("/no/such/transcript.jsonl"), Counted::default()).interactions,
+        counted(Path::new("/no/such/transcript.jsonl"), Counted::default())
+            .counted
+            .interactions,
         0
     );
 }
@@ -658,7 +660,7 @@ fn a_directory_named_after_the_session_is_not_its_transcript() {
 
     let path = transcript_of(&both, "twinned").expect("the file, not the directory");
     assert_eq!(path.extension().and_then(|e| e.to_str()), Some("jsonl"));
-    assert_eq!(counted(&path, Counted::default()).interactions, 2);
+    assert_eq!(counted(&path, Counted::default()).counted.interactions, 2);
 }
 
 #[test]
@@ -673,9 +675,9 @@ fn only_what_arrived_since_the_last_count_is_read_again() {
     let path = transcript_of(&root, "growing").expect("transcript");
 
     let first = counted(&path, Counted::default());
-    assert_eq!(first.interactions, 2);
+    assert_eq!(first.counted.interactions, 2);
     assert_eq!(
-        first.through,
+        first.counted.through,
         std::fs::metadata(&path).expect("stat").len(),
         "a file ending in a whole line is accounted for to its end"
     );
@@ -690,10 +692,50 @@ fn only_what_arrived_since_the_last_count_is_read_again() {
     writeln!(file, "{again}").expect("write");
     drop(file);
 
-    let then = counted(&path, first);
+    let then = counted(&path, first.counted);
     assert_eq!(
-        then.interactions, 3,
+        then.counted.interactions, 3,
         "the earlier two were not counted twice"
+    );
+}
+
+#[test]
+fn the_tail_is_where_a_finished_background_task_is_found() {
+    // ⚠ **Measured 2026-08-06, and it is the whole reason this read returns two
+    // things.** A backgrounded call answers at once with a task id, so the
+    // harness's notification is its only end-of-work signal — and that
+    // notification is injected as a user message nobody typed, which the CLI
+    // writes to the transcript and does NOT replay on stdout. So the reader of
+    // the stream never sees one: a 75-second task sat on the front page for 26
+    // minutes, and every close the console had ever shown turned out to come
+    // from a seed re-reading the file.
+    let root = scratch("finished");
+    spoken(&root, "still-going", &[1], None);
+    let path = transcript_of(&root, "still-going").expect("transcript");
+    let before = counted(&path, Counted::default());
+    assert!(before.finished.is_empty(), "nothing has finished yet");
+
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .expect("append");
+    use std::io::Write;
+    // ⚠ **The queue line, not the user message it later becomes.** Both are real
+    // and both are here, in the order and with the gap the CLI writes them:
+    // enqueued when the work ends, turned into a message only when the turn in
+    // progress lets go — measured three minutes apart. Reading only the second
+    // leaves the card claiming work is running for the whole of that.
+    let queued = r#"{"type":"queue-operation","operation":"enqueue","content":"<task-notification>\n<task-id>b7iotoait</task-id>\n<tool-use-id>toolu_probe</tool-use-id>\n<status>completed</status>\n</task-notification>"}"#;
+    writeln!(file, "{queued}").expect("write");
+    drop(file);
+
+    let after = counted(&path, before.counted);
+    assert_eq!(after.finished, vec!["toolu_probe".to_string()]);
+    // And it is not an exchange: nobody said anything. The count is cumulative,
+    // so the test is that it did not move.
+    assert_eq!(
+        after.counted.interactions, before.counted.interactions,
+        "a notification is not somebody speaking"
     );
 }
 
@@ -707,7 +749,7 @@ fn a_compaction_arriving_later_still_resets_the_count() {
     spoken(&root, "cut-later", &[1, 1], None);
     let path = transcript_of(&root, "cut-later").expect("transcript");
     let before = counted(&path, Counted::default());
-    assert_eq!(before.interactions, 2);
+    assert_eq!(before.counted.interactions, 2);
 
     let mut file = std::fs::OpenOptions::new()
         .append(true)
@@ -721,7 +763,7 @@ fn a_compaction_arriving_later_still_resets_the_count() {
     writeln!(file, "{after}").expect("write");
     drop(file);
 
-    assert_eq!(counted(&path, before).interactions, 1);
+    assert_eq!(counted(&path, before.counted).counted.interactions, 1);
 }
 
 #[test]
@@ -736,5 +778,5 @@ fn a_transcript_that_shrank_is_counted_from_the_start() {
         interactions: 99,
         through: 10_000_000,
     };
-    assert_eq!(counted(&path, stale).interactions, 2);
+    assert_eq!(counted(&path, stale).counted.interactions, 2);
 }

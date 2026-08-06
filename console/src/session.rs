@@ -582,8 +582,15 @@ impl Session {
             return;
         };
         let so_far = self.state.lock().expect("session state poisoned").counted;
-        let counted = crate::past::counted(&path, so_far);
-        self.state.lock().expect("session state poisoned").counted = counted;
+        let found = crate::past::counted(&path, so_far);
+        let mut state = self.state.lock().expect("session state poisoned");
+        state.counted = found.counted;
+        // The other half of what that read found: work the harness has reported
+        // finished. It closes the count here rather than through an event,
+        // because there is no event — see [`crate::past::Appended::finished`].
+        for tool in found.finished {
+            state.background.remove(&tool);
+        }
     }
 
     fn spawn(id: String, dir: &Path, spawn: &Spawn, resuming: bool) -> Result<Arc<Self>> {

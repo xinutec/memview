@@ -522,17 +522,24 @@ fn the_harness_notification_is_what_closes_one() {
 }
 
 #[test]
-fn a_new_process_inherits_nothing() {
-    // ⚠ Measured: a console restart left eleven phantom tasks in the count, all
-    // of them started by a process that no longer existed. Their notifications
-    // died with it, so nothing would ever have closed them.
+fn a_new_turn_does_not_forget_what_is_still_running() {
+    // ⚠ **An init line is not a new process — it opens every turn.** Measured on
+    // this console's own stream, where the order reads
+    // `turn → started → busy → prompt`: the CLI announces itself again each time
+    // it is spoken to, and the session, its cost and its context all carry on.
+    //
+    // Read as a restart it emptied the count on the next message, which is
+    // precisely when somebody wants it — a commit was in the gate for eight
+    // minutes and the card said nothing was running. The restart case this used
+    // to guard is already covered by `Joined`, which is pushed after the replay
+    // and clears whatever the transcript's own history put there.
     assert_eq!(
         console::protocol::running(&Event::Started {
             model: "claude-opus-5".to_string(),
             cwd: "/home/example/Code".to_string(),
             tools: 1,
         }),
-        console::protocol::Running::Gone
+        console::protocol::Running::Quiet
     );
 }
 

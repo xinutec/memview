@@ -486,6 +486,27 @@ pub struct Counted {
     pub through: u64,
 }
 
+/// What the bytes appended to a transcript since last time turned out to hold.
+///
+/// Two questions off one read, because they want the same few kilobytes and the
+/// file is measured in gigabytes.
+#[derive(Debug, Clone, Default)]
+pub struct Appended {
+    pub counted: Counted,
+    /// Background tasks the harness reported finished, by the id of the call
+    /// that started each — the same id [`crate::protocol::Running::Began`]
+    /// carries.
+    ///
+    /// ⚠ **This is the only way a live session ever finds out.** A backgrounded
+    /// call returns at once with a task id, so its notification is the sole
+    /// end-of-work signal — and the notification is injected as a user message
+    /// nobody typed, which the CLI writes to the transcript and does **not**
+    /// replay on stdout. Measured 2026-08-06: every `Background` event this
+    /// console had ever shown came from a seed replaying the file, and a task
+    /// that finished in 75 seconds sat on the front page for 26 minutes.
+    pub finished: Vec<String>,
+}
+
 /// Count what has been appended since `so_far` was true.
 ///
 /// `so_far.through` of 0 is the whole file, which is what a seed does once.
@@ -497,11 +518,15 @@ pub struct Counted {
 ///
 /// A file that has shrunk is one that was replaced, so the count starts again:
 /// an offset into a file that no longer exists would land mid-line at best.
-pub fn counted(path: &Path, so_far: Counted) -> Counted {
+pub fn counted(path: &Path, so_far: Counted) -> Appended {
     use std::io::{BufRead, Seek, SeekFrom};
 
+    let mut finished = Vec::new();
     let Ok(mut file) = std::fs::File::open(path) else {
-        return so_far;
+        return Appended {
+            counted: so_far,
+            finished,
+        };
     };
     let len = file.metadata().map(|meta| meta.len()).unwrap_or(0);
     let mut found = if so_far.through > len {
@@ -510,7 +535,10 @@ pub fn counted(path: &Path, so_far: Counted) -> Counted {
         so_far
     };
     if file.seek(SeekFrom::Start(found.through)).is_err() {
-        return so_far;
+        return Appended {
+            counted: so_far,
+            finished,
+        };
     }
     let mut reader = std::io::BufReader::new(file);
     let mut line = Vec::new();
@@ -527,11 +555,21 @@ pub fn counted(path: &Path, so_far: Counted) -> Counted {
             match event {
                 crate::protocol::Event::Compacted => found.interactions = 0,
                 crate::protocol::Event::Prompt { .. } => found.interactions += 1,
+                // ⚠ **The only place a live session learns that background work
+                // has ended.** The harness files the notification as a user
+                // message nobody typed, and the CLI does not put it on stdout —
+                // measured, and see [`Appended::finished`] — so the reader of the
+                // stream never sees one. It is in the file, in the same few
+                // kilobytes this is already reading for the count.
+                crate::protocol::Event::Background { tool, .. } => finished.push(tool),
                 _ => {}
             }
         }
     }
-    found
+    Appended {
+        counted: found,
+        finished,
+    }
 }
 
 /// The transcript file for a session id, wherever Claude Code filed it.

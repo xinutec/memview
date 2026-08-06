@@ -13,7 +13,9 @@ fn probe() {
             eprintln!("events={} from={}", page.events.len(), page.from);
             eprintln!(
                 "interactions={}",
-                console::past::counted(&path, console::past::Counted::default()).interactions
+                console::past::counted(&path, console::past::Counted::default())
+                    .counted
+                    .interactions
             );
         }
         None => eprintln!("transcript_of found nothing"),
