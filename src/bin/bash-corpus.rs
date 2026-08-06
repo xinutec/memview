@@ -3,10 +3,13 @@
 //!     cargo run --release --bin bash-corpus > /tmp/bash-corpus.jsonl
 //!     cargo run --bin shell-report -- /tmp/bash-corpus.jsonl
 //!
-//! One JSON object per line: the command as written, and the `cwd` it ran in.
-//! The cwd is carried because a relative path names nothing without it, and the
-//! transcripts record it on every line — it is the one piece of context that
-//! cannot be recovered later.
+//! One JSON object per line: the command as written, the `cwd` it ran in, and
+//! what became of it. The cwd is carried because a relative path names nothing
+//! without it, and the transcripts record it on every line — it is the one piece
+//! of context that cannot be recovered later.
+//!
+//! The outcome needs a second pass: a call's result is written further down the
+//! file than the call, and a transcript is read once from the top.
 //!
 //! Lives here rather than in a scratchpad script because the coverage figure in
 //! `shell.pest` is only checkable if the corpus behind it can be rebuilt.
@@ -14,6 +17,7 @@
 use std::io::Write;
 
 use memview::agents;
+use memview::doing::Verdict;
 
 fn main() -> anyhow::Result<()> {
     let home = std::env::var("HOME").unwrap_or_default();
@@ -31,15 +35,35 @@ fn main() -> anyhow::Result<()> {
             continue;
         };
         files += 1;
+        // What became of each call, gathered first because the answer is always
+        // below the question.
+        let mut outcomes: std::collections::HashMap<String, Verdict> =
+            std::collections::HashMap::new();
+        for line in text.lines() {
+            if let Some((call, verdict)) = agents::tool_result(line.as_bytes()) {
+                outcomes.insert(call, verdict);
+            }
+        }
         for line in text.lines() {
             // The same reader the miner uses, so the corpus a coverage figure is
             // measured against cannot drift from the text the miner parses.
-            let Some((cwd, commands)) = agents::bash_calls(line.as_bytes()) else {
+            let Some(agents::BashLine { cwd, calls: found }) =
+                agents::bash_calls_with_ids(line.as_bytes())
+            else {
                 continue;
             };
             let cwd = cwd.unwrap_or_default();
-            for cmd in commands {
-                writeln!(out, "{}", serde_json::json!({ "cmd": cmd, "cwd": cwd }))?;
+            for agents::BashCall { id, command } in found {
+                // No result at all is its own answer: the call was interrupted,
+                // is still running, or the transcript ends mid-turn. An
+                // interruption is not a result line but a separate message, so
+                // this is the only trace it leaves.
+                let ran = outcomes.get(&id).copied().unwrap_or(Verdict::Unknown);
+                writeln!(
+                    out,
+                    "{}",
+                    serde_json::json!({ "cmd": command, "cwd": cwd, "ran": ran })
+                )?;
                 calls += 1;
             }
         }

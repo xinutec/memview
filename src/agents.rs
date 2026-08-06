@@ -878,18 +878,52 @@ pub fn bash_calls_with_ids(line: &[u8]) -> Option<BashLine> {
     })
 }
 
-/// The call a `tool_result` line answers, and whether it failed.
+/// The harness's own words for a call the user would not allow. Anchored to the
+/// front of the content, which is what makes it safe to match — see
+/// [`crate::doing::Verdict`].
+const REFUSED: &[u8] = b"\"content\":\"The user doesn't want to proceed with this tool use";
+
+/// The calls in one transcript that never ran, by id.
+///
+/// A pass of its own, because a result is written below the call it answers and
+/// a transcript is read from the top. Cheap in spite of that: the needle is
+/// absent from all but a handful of transcripts, and where it is absent this
+/// costs one scan of the bytes and stops.
+fn refused(text: &[u8]) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    if find_at(text, REFUSED, 0).is_none() {
+        return out;
+    }
+    for line in text.split(|c| *c == b'\n') {
+        if let Some((call, crate::doing::Verdict::Rejected)) = tool_result(line) {
+            out.insert(call);
+        }
+    }
+    out
+}
+
+/// The call a `tool_result` line answers, and what became of it.
 ///
 /// Read with needles rather than parsed: a result carries the command's whole
 /// output, which is most of the corpus's bytes, and none of that text is wanted
-/// — only the id it names and the one flag saying how it went.
-pub fn tool_result(line: &[u8]) -> Option<(String, bool)> {
+/// — only the id it names and how it went.
+///
+/// The refusal needle is anchored to the front of the content on purpose; see
+/// [`crate::doing::Verdict`] for what goes wrong unanchored.
+pub fn tool_result(line: &[u8]) -> Option<(String, crate::doing::Verdict)> {
     find_at(line, b"\"type\":\"tool_result\"", 0)?;
     const ID: &[u8] = b"\"tool_use_id\":\"";
     let start = find_at(line, ID, 0)? + ID.len();
     let end = start + line[start..].iter().position(|c| *c == b'"')?;
     let id = std::str::from_utf8(&line[start..end]).ok()?.to_string();
-    Some((id, find_at(line, b"\"is_error\":true", 0).is_some()))
+    let verdict = if find_at(line, REFUSED, 0).is_some() {
+        crate::doing::Verdict::Rejected
+    } else if find_at(line, b"\"is_error\":true", 0).is_some() {
+        crate::doing::Verdict::Failed
+    } else {
+        crate::doing::Verdict::Ok
+    };
+    Some((id, verdict))
 }
 
 /// The first time each commit hash was mentioned, and by whom.
@@ -959,6 +993,9 @@ fn scan_transcript(
         last,
         ..
     } = agent;
+    // Which calls the user would not allow — read ahead, because the answer is
+    // always below the question.
+    let refused = refused(text);
     // Built once per transcript rather than once per line — the needles are
     // fixed and the corpus is millions of lines.
     let needles: Vec<(String, bool)> = READ_TOOLS
@@ -1000,8 +1037,8 @@ fn scan_transcript(
         // corpus, rather than buried in a mine that takes minutes to run.
         // The result of a call made earlier in this transcript, which is how a
         // row learns whether the work succeeded.
-        if let Some((call, failed)) = tool_result(line) {
-            log.resolve(&call, failed);
+        if let Some((call, verdict)) = tool_result(line) {
+            log.resolve(&call, verdict);
         }
         if let Some(BashLine { cwd, calls }) = bash_calls_with_ids(line) {
             for BashCall { id: call, command } in calls {
@@ -1009,6 +1046,11 @@ fn scan_transcript(
                     continue;
                 };
                 let found = crate::shell_files::extract(&parsed, cwd.as_deref(), home);
+                // ⚠ **A refused call ran nothing.** Its timeline row still goes
+                // in — being told no is part of what happened, and the verdict
+                // says which — but no path it names may reach anybody's record,
+                // because no file was opened to name.
+                let ran = !refused.contains(&call);
                 // What this turn was doing, one row per kind of work in it.
                 // Grouped rather than one row per command: a call that runs
                 // `sed` over four files is one edit to anybody reading it.
@@ -1036,7 +1078,7 @@ fn scan_transcript(
                         });
                     }
                 }
-                for used in found.files {
+                for used in found.files.into_iter().filter(|_| ran) {
                     let Some(rel) = relative_to(&used.path, code_root).filter(|p| attributable(p))
                     else {
                         continue;
@@ -1069,7 +1111,7 @@ fn scan_transcript(
                 // filter: `/etc/nixos` is where odin's work lives and there is
                 // no `~/Code` there — the shape of the filesystem is the remote
                 // machine's business, not this one's.
-                for used in found.remote {
+                for used in found.remote.into_iter().filter(|_| ran) {
                     if !remotely_attributable(&used.path) {
                         continue;
                     }

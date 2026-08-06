@@ -24,16 +24,30 @@ use serde::{Deserialize, Serialize};
 
 /// How a piece of work turned out.
 ///
-/// Two states and an absence, deliberately: the transcripts say whether the
-/// call errored and nothing finer without reading the output text, which is the
-/// line this must not cross. `Unknown` is rare — 12 calls in the whole corpus
-/// have no result at all — but it is a real state and not a synonym for `Ok`.
+/// ⚠ **`Rejected` is not a kind of failure — it means the command never ran.**
+/// Every other state here is about a process that started; this one is about one
+/// that did not exist. A file named by a rejected call was never opened, and
+/// recording it invents work out of an intention.
+///
+/// Reading the output text to tell the two apart is the one exception to the
+/// rule that this must not interpret what a command printed. It is not
+/// interpretation: the harness writes one fixed sentence at the start of the
+/// content, and matching it anchored there is reading a structural marker, not a
+/// program's stderr. Anchoring is what makes it safe — the same sentence
+/// appears 167 times across the transcripts and only 92 are real, the rest being
+/// sessions like this one that merely *searched* for the phrase and wrote it
+/// into their own record.
+///
+/// `Unknown` is a real state, not a synonym for `Ok`: an interruption is not a
+/// result at all but a separate message, so the call it stopped simply never
+/// gets an answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Verdict {
     Unknown,
     Ok,
     Failed,
+    Rejected,
 }
 
 /// One stretch of work: one kind of activity, in one turn.
@@ -142,11 +156,10 @@ impl Log {
     }
 
     /// The result of a call, applied to every row it produced.
-    pub fn resolve(&mut self, call: &str, failed: bool) {
+    pub fn resolve(&mut self, call: &str, verdict: Verdict) {
         let Some(rows) = self.pending.remove(call) else {
             return;
         };
-        let verdict = if failed { Verdict::Failed } else { Verdict::Ok };
         for at in rows {
             self.rows[at].v = verdict;
         }

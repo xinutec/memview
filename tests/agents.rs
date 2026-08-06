@@ -1339,3 +1339,90 @@ fn the_timeline_records_what_was_done_and_how_it_turned_out() {
     // Oldest first, so a reader walks it forwards.
     assert!(doing.rows[0].t < doing.rows[1].t);
 }
+
+#[test]
+fn a_call_the_user_refused_names_no_files() {
+    // ⚠ **A refused call never ran**, so every path in it is an intention and
+    // not an act. 76 such calls in the corpus name 105 file uses — 21 of them
+    // *writes*, to files that nothing ever wrote.
+    //
+    // The refusal still reaches the timeline, with its own verdict. That an
+    // agent tried and was told no is worth seeing; crediting it with the work
+    // is not. Knowing a command did not run is knowledge, not absence.
+    let dir = std::env::temp_dir().join(format!("refused-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let projects = dir.join("projects/-code");
+    let sessions = dir.join("sessions");
+    std::fs::create_dir_all(&projects).unwrap();
+    std::fs::create_dir_all(&sessions).unwrap();
+    let call = |id: &str, cmd: &str, stamp: &str| {
+        let input = serde_json::json!({ "command": cmd });
+        format!(
+            "{{\"type\":\"assistant\",\"cwd\":\"/code/health\",\"timestamp\":\"{stamp}\",\"message\":{{\"content\":[{{\"type\":\"tool_use\",\"id\":\"{id}\",\"name\":\"Bash\",\"input\":{input}}}]}}}}"
+        )
+    };
+    let done = |id: &str| {
+        format!(
+            "{{\"type\":\"user\",\"message\":{{\"content\":[{{\"type\":\"tool_result\",\"tool_use_id\":\"{id}\",\"is_error\":false,\"content\":\"…\"}}]}}}}"
+        )
+    };
+    // The harness's own sentence, at the front of the content — the anchor is
+    // what makes this safe to match, since the words also appear in the output
+    // of any session that searched for them.
+    let refused = |id: &str| {
+        format!(
+            "{{\"type\":\"user\",\"message\":{{\"content\":[{{\"type\":\"tool_result\",\"tool_use_id\":\"{id}\",\"is_error\":true,\"content\":\"The user doesn't want to proceed with this tool use. The tool use was rejected.\"}}]}}}}"
+        )
+    };
+    std::fs::write(
+        projects.join("s1.jsonl"),
+        [
+            call(
+                "t1",
+                "sed -i '' 's/a/b/' src/geo/kept.ts",
+                "2026-07-01T10:00:00Z",
+            ),
+            done("t1"),
+            call(
+                "t2",
+                "sed -i '' 's/a/b/' src/geo/never.ts",
+                "2026-07-01T10:05:00Z",
+            ),
+            refused("t2"),
+        ]
+        .join("\n"),
+    )
+    .unwrap();
+    std::fs::write(
+        sessions.join("1.json"),
+        r#"{"sessionId":"s1","name":"geo"}"#,
+    )
+    .unwrap();
+
+    let found = scan(
+        &dir.join("projects"),
+        &sessions,
+        "/code",
+        "/mem",
+        "/home/example",
+        "2026-07-31T00:00:00Z",
+    )
+    .unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+
+    assert_eq!(found.who_works_on("kept.ts").len(), 1, "the call that ran");
+    assert!(
+        found.who_works_on("never.ts").is_empty(),
+        "the refused call must not put a path in anyone's record"
+    );
+    // Refused is its own verdict, not a kind of failure: the two mean different
+    // things about whether a process existed.
+    let verdicts: Vec<memview::doing::Verdict> = found.doing.rows.iter().map(|row| row.v).collect();
+    assert_eq!(
+        verdicts,
+        [
+            memview::doing::Verdict::Ok,
+            memview::doing::Verdict::Rejected
+        ]
+    );
+}
