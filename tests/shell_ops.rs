@@ -156,14 +156,10 @@ fn a_directory_change_is_an_operation_not_a_file() {
             to: Some("/home/example/Code/memview".to_string()),
         }
     );
-    // An unresolvable target is honestly unknown — never a stale directory,
-    // which would resolve every later relative path where it never ran.
-    assert_eq!(
-        one("cd \"$WORKDIR\""),
-        Op::Unknown {
-            name: "cd".to_string(),
-        }
-    );
+    // An unreadable target is still a directory change, and saying so is what
+    // keeps the old directory from staying in force — as `Op::Unknown` did,
+    // resolving every later relative path where the script no longer was.
+    assert_eq!(one("cd \"$WORKDIR\""), Op::ChangeDir { to: None });
 }
 
 #[test]

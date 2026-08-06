@@ -475,6 +475,26 @@ fn a_remote_shell_is_not_descended_into() {
 }
 
 #[test]
+fn a_cd_to_nowhere_knowable_leaves_no_directory_behind() {
+    // ⚠ **The dangerous direction.** A `cd` whose destination cannot be read
+    // was filed as an unknown command, which left the *previous* directory in
+    // force — so every relative path after it resolved against a directory the
+    // script had already left. That is this table's one unacceptable failure:
+    // a path in an agent's record that no command ever named.
+    assert!(uses("cd $BUILD\ncat config.json").is_empty());
+    // Where it went is unknown; that it went somewhere is not. The domain
+    // already holds "a directory nobody can name", so this is a change of
+    // directory rather than an unreadable command.
+    assert!(unread("cd $BUILD\ncat config.json").is_empty());
+    // It poisons its own scope and no other, exactly as a successful `cd` moves
+    // only its own — the script the subshell returns to is untouched.
+    assert_eq!(
+        uses("(cd $BUILD; cat a.txt)\ncat b.txt"),
+        [("/home/example/Code/health/b.txt".to_string(), false)]
+    );
+}
+
+#[test]
 fn a_cd_inside_a_nested_shell_does_not_escape_it() {
     // `bash -c 'cd x && …'` moves that shell alone, exactly as a subshell does.
     assert_eq!(

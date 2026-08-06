@@ -921,11 +921,12 @@ fn act(verb: Verb, argv: &[String], heredocs: &[String], cwd: Option<&str>, home
             Some(word) if repeats(word, cwd) => Op::ChangeDir {
                 to: cwd.map(str::to_string),
             },
-            Some(word) => match resolve(word, cwd, home) {
-                Some(to) => Op::ChangeDir { to: Some(to) },
-                None => Op::Unknown {
-                    name: "cd".to_string(),
-                },
+            // ⚠ **A destination that cannot be read is still a destination.**
+            // Filed as an unknown command this would leave the *previous*
+            // directory in force, and every relative path after it would
+            // resolve against a directory the script had already left.
+            Some(word) => Op::ChangeDir {
+                to: resolve(word, cwd, home),
             },
             None => Op::ChangeDir {
                 to: Some(home.to_string()),
