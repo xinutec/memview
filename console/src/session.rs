@@ -591,6 +591,15 @@ impl Session {
         for tool in found.finished {
             state.background.remove(&tool);
         }
+        // ⚠ **A compaction is announced in the file and nowhere else**, so this
+        // read is the only way a running session learns that its own fullness
+        // describes a conversation it no longer holds. Taken from the file
+        // rather than simply cleared, because the same few kilobytes may carry a
+        // request made after the boundary — and then the new figure is already
+        // known and there is no reason to show nothing.
+        if found.compacted {
+            state.context = found.context;
+        }
     }
 
     fn spawn(id: String, dir: &Path, spawn: &Spawn, resuming: bool) -> Result<Arc<Self>> {
@@ -1148,6 +1157,16 @@ impl Session {
                 // The window, which only the result line declares. How full it
                 // is arrives per message — see [`Event::Context`].
                 Event::Context { tokens } => state.context = Some(*tokens),
+                // Everything the last measurement counted was replaced by a
+                // summary, so it is not a stale number — it is another
+                // conversation's. Cleared rather than estimated: a plausible
+                // figure is indistinguishable on screen from a measured one, and
+                // the client already draws nothing where there is nothing. The
+                // next message brings a real one.
+                //
+                // Seen only in a replayed transcript; the live path is
+                // [`Self::recount`], which reads the file for the same reason.
+                Event::Compacted => state.context = None,
                 Event::Turn {
                     cost_usd, window, ..
                 } => {

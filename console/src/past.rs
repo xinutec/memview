@@ -488,8 +488,8 @@ pub struct Counted {
 
 /// What the bytes appended to a transcript since last time turned out to hold.
 ///
-/// Two questions off one read, because they want the same few kilobytes and the
-/// file is measured in gigabytes.
+/// Three questions off one read, because they want the same few kilobytes and
+/// the file is measured in gigabytes.
 #[derive(Debug, Clone, Default)]
 pub struct Appended {
     pub counted: Counted,
@@ -505,6 +505,21 @@ pub struct Appended {
     /// console had ever shown came from a seed replaying the file, and a task
     /// that finished in 75 seconds sat on the front page for 26 minutes.
     pub finished: Vec<String>,
+    /// Whether a compaction was filed among these bytes.
+    ///
+    /// ⚠ **The only way a running session finds out.** The CLI writes the
+    /// boundary to the transcript and says nothing on stdout, so a console
+    /// watching the stream sees a compaction as silence — see
+    /// [`crate::protocol::Event::Compacted`]. Until it knows, it goes on showing
+    /// how full a conversation was that no longer exists.
+    pub compacted: bool,
+    /// The newest fullness these bytes recorded, and `None` when a compaction
+    /// came after the last of them.
+    ///
+    /// Only meaningful alongside [`Self::compacted`], and read only then: at any
+    /// other time the live stream is the better source, because it arrives per
+    /// message rather than per turn.
+    pub context: Option<u64>,
 }
 
 /// Count what has been appended since `so_far` was true.
@@ -522,10 +537,14 @@ pub fn counted(path: &Path, so_far: Counted) -> Appended {
     use std::io::{BufRead, Seek, SeekFrom};
 
     let mut finished = Vec::new();
+    let mut compacted = false;
+    let mut context = None;
     let Ok(mut file) = std::fs::File::open(path) else {
         return Appended {
             counted: so_far,
             finished,
+            compacted: false,
+            context: None,
         };
     };
     let len = file.metadata().map(|meta| meta.len()).unwrap_or(0);
@@ -538,6 +557,8 @@ pub fn counted(path: &Path, so_far: Counted) -> Appended {
         return Appended {
             counted: so_far,
             finished,
+            compacted: false,
+            context: None,
         };
     }
     let mut reader = std::io::BufReader::new(file);
@@ -553,7 +574,18 @@ pub fn counted(path: &Path, so_far: Counted) -> Appended {
         found.through += read as u64;
         for event in crate::protocol::read_recorded(&String::from_utf8_lossy(&line)) {
             match event {
-                crate::protocol::Event::Compacted => found.interactions = 0,
+                crate::protocol::Event::Compacted => {
+                    found.interactions = 0;
+                    compacted = true;
+                    // What was measured before the boundary described a
+                    // conversation that has just stopped existing.
+                    context = None;
+                }
+                // Kept only for the compaction case: these bytes may hold a
+                // request made *after* the boundary, and that one is the answer.
+                // Otherwise the live stream is the better source — it arrives
+                // per message where this arrives per turn.
+                crate::protocol::Event::Context { tokens } => context = Some(tokens),
                 crate::protocol::Event::Prompt { .. } => found.interactions += 1,
                 // ⚠ **The only place a live session learns that background work
                 // has ended.** The harness files the notification as a user
@@ -569,6 +601,8 @@ pub fn counted(path: &Path, so_far: Counted) -> Appended {
     Appended {
         counted: found,
         finished,
+        compacted,
+        context,
     }
 }
 
@@ -841,8 +875,14 @@ fn tail_of(path: &Path, len: u64) -> Tail {
             found.spoke = Some(at);
         }
         for event in events {
-            if let crate::protocol::Event::Context { tokens } = event {
-                found.context = Some(tokens);
+            match event {
+                crate::protocol::Event::Context { tokens } => found.context = Some(tokens),
+                // Everything measured above the boundary was replaced by a
+                // summary, so the last figure is not stale — it belongs to a
+                // conversation that no longer exists. Read forward, so a request
+                // made since the compaction takes the field back.
+                crate::protocol::Event::Compacted => found.context = None,
+                _ => {}
             }
         }
         let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {

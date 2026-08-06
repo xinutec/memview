@@ -338,21 +338,32 @@ fn a_later_name_replaces_an_earlier_one() {
     assert_eq!(conversations(&root)[0].name.as_deref(), Some("second"));
 }
 
-/// A transcript whose assistant messages carry the token counts the real ones do.
+/// A transcript whose assistant messages carry the token counts the real ones do,
+/// with a compaction filed after the `compacted_after`th of them.
 ///
 /// `input` is deliberately tiny beside `cache_read`, as it is in life: a cached
 /// prompt of half a million tokens reports two of input, so anything reading
 /// `input_tokens` alone calls a full conversation empty.
-fn spent(dir: &Path, id: &str, requests: &[(u64, u64, u64)]) {
+fn spent(dir: &Path, id: &str, requests: &[(u64, u64, u64)], compacted_after: Option<usize>) {
     let folder = dir.join("project");
     std::fs::create_dir_all(&folder).expect("project dir");
     let mut lines = vec![r#"{"type":"system","cwd":"/home/example/Code"}"#.to_string()];
-    for (input, creation, read) in requests {
+    for (nth, (input, creation, read)) in requests.iter().enumerate() {
         lines.push(format!(
             r#"{{"type":"assistant","message":{{"role":"assistant","usage":{{"input_tokens":{input},"cache_creation_input_tokens":{creation},"cache_read_input_tokens":{read},"output_tokens":9}},"content":[{{"type":"text","text":"hello"}}]}}}}"#
         ));
+        if compacted_after == Some(nth) {
+            lines.push(r#"{"type":"system","subtype":"compact_boundary"}"#.to_string());
+        }
     }
-    std::fs::write(folder.join(format!("{id}.jsonl")), lines.join("\n")).expect("transcript");
+    std::fs::write(
+        folder.join(format!("{id}.jsonl")),
+        // ⚠ With the trailing newline the CLI writes, because `counted` reads
+        // forward a whole line at a time and stops before a partial one — a
+        // fixture ending mid-line would hide its own last event from it.
+        format!("{}\n", lines.join("\n")),
+    )
+    .expect("transcript");
 }
 
 #[test]
@@ -361,7 +372,12 @@ fn a_conversation_says_how_full_it_was_when_it_stopped() {
     // to decide what to pick up, and what matters about a conversation there is
     // how much room is left in it.
     let root = scratch("fullness");
-    spent(&root, "deep", &[(2, 1272, 200_000), (2, 900, 546_967)]);
+    spent(
+        &root,
+        "deep",
+        &[(2, 1272, 200_000), (2, 900, 546_967)],
+        None,
+    );
 
     assert_eq!(
         conversations(&root)[0].context,
@@ -378,6 +394,64 @@ fn a_conversation_with_nothing_to_go_on_says_nothing() {
     named(&root, "quiet", Some("idle"), None);
 
     assert!(conversations(&root)[0].context.is_none());
+}
+
+#[test]
+fn a_compaction_leaves_the_fullness_unknown() {
+    // The measurement is not stale, it is about a conversation that no longer
+    // exists: everything it counted was replaced by a summary. Half a million
+    // tokens shown against a session that now holds a few is not a rounding
+    // error, it is the wrong conversation's number.
+    //
+    // Nothing is shown rather than an estimate of what a fresh context weighs.
+    // A plausible figure is indistinguishable on screen from a measured one, and
+    // every other number on that card is measured — see the sibling test above
+    // for the same rule where there has never been a measurement at all.
+    let root = scratch("compacted-fullness");
+    spent(
+        &root,
+        "deep",
+        &[(2, 1272, 200_000), (2, 900, 546_967)],
+        Some(1),
+    );
+
+    assert!(conversations(&root)[0].context.is_none());
+}
+
+#[test]
+fn a_measurement_after_a_compaction_is_the_one_that_counts() {
+    // The boundary clears what preceded it and nothing else. A session that has
+    // spoken since knows its new size, and that is the number to show — the
+    // unknown state lasts one message, not until the conversation ends.
+    let root = scratch("compacted-then-spoke");
+    spent(
+        &root,
+        "deep",
+        &[(2, 900, 546_967), (2, 40, 12_000)],
+        Some(0),
+    );
+
+    assert_eq!(conversations(&root)[0].context, Some(2 + 40 + 12_000));
+}
+
+#[test]
+fn a_live_session_is_told_when_its_fullness_is_gone() {
+    // ⚠ **The incremental read is the only way a running session finds out.**
+    // The CLI writes the boundary to the file and says nothing on stdout, so a
+    // console watching the stream sees a compaction happen as silence. Without
+    // this the card keeps the pre-compaction figure until the session finishes
+    // another turn — which, for a conversation compacted at the end of one, is
+    // however long it sits idle.
+    let root = scratch("compaction-reported");
+    spent(&root, "deep", &[(2, 900, 546_967)], Some(0));
+    let path = transcript_of(&root, "deep").expect("transcript");
+
+    let seen = counted(&path, Counted::default());
+    assert!(seen.compacted, "the boundary was in the bytes just read");
+    assert!(
+        seen.context.is_none(),
+        "and nothing has been measured since it"
+    );
 }
 
 #[test]
