@@ -1531,3 +1531,53 @@ fn a_use_the_outcome_cannot_confirm_is_possible_rather_than_lost() {
     let perhaps = &shell["health/src/perhaps.ts"];
     assert_eq!((perhaps.reads, perhaps.maybe_reads), (0, 1));
 }
+
+#[test]
+fn a_session_that_only_titles_another_is_not_an_agent() {
+    // ⚠ **These outnumbered the real agents four to one**: 307 of 324 rows on
+    // the page were one-shot Haiku sessions the CLI spawns to name a
+    // conversation, each a bare uuid with every counter at zero.
+    //
+    // Both halves of the test earn their place. Older CLI versions wrote the
+    // title into the working session's own transcript, so nine real sessions —
+    // 11,000 to 110,000 lines, thousands of tool calls — carry an `ai-title`
+    // line too. Excluding on that line alone would delete the largest sessions
+    // in the corpus.
+    let titler = |id: &str| {
+        format!(
+            "{{\"type\":\"user\",\"timestamp\":\"2026-07-01T10:00:00Z\",\"message\":{{\"content\":[{{\"type\":\"text\",\"text\":\"Below is part of a conversation…\"}}]}}}}\n\
+             {{\"type\":\"ai-title\",\"aiTitle\":\"Some title\",\"sessionId\":\"{id}\"}}"
+        )
+    };
+    let agents = mine(
+        &[
+            (
+                "s1",
+                vec![call(
+                    Tool::Edit,
+                    "/code/health/a.ts",
+                    "2026-07-01T10:00:00Z",
+                )],
+            ),
+            ("s2", vec![titler("s2")]),
+            // A working session that also carries a title line stays.
+            (
+                "s3",
+                vec![
+                    titler("s3"),
+                    call(Tool::Write, "/code/health/b.ts", "2026-07-01T11:00:00Z"),
+                ],
+            ),
+        ],
+        &[
+            ("100", r#"{"sessionId":"s1","name":"health"}"#),
+            ("101", r#"{"sessionId":"s3","name":"observe"}"#),
+        ],
+    );
+    let names: Vec<&String> = agents.iter().map(|a| &a.name).collect();
+    assert_eq!(
+        names,
+        ["health", "observe"],
+        "the titler is not one of them"
+    );
+}

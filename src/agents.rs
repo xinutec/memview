@@ -927,6 +927,28 @@ fn outcomes(text: &[u8]) -> std::collections::HashMap<String, crate::doing::Verd
     out
 }
 
+/// Whether this transcript exists only to name another conversation.
+///
+/// ⚠ **These are not agents, and they outnumber the agents four to one.** The
+/// CLI titles a conversation by handing a summary of it to a one-shot Haiku
+/// session, which persists a transcript like any other — 307 of them against 13
+/// real sessions, each a bare uuid with every counter at zero, filling the page
+/// they were supposed to be measured on.
+///
+/// **Both halves of the test are needed.** An `ai-title` line alone is not the
+/// marker: older CLI versions wrote the title into the working session's *own*
+/// transcript, and nine such sessions in the corpus carry one — 11,000 to
+/// 110,000 lines, thousands of tool calls, Opus and Fable. Excluding on the line
+/// alone would delete the largest sessions there are. A titler makes no tool
+/// call at all, and that is what separates them.
+///
+/// Ordered so the cheap half runs first: the `ai-title` needle is absent from
+/// almost every transcript, and where it is absent nothing else is read.
+fn titling(text: &[u8]) -> bool {
+    find_at(text, b"\"type\":\"ai-title\"", 0).is_some()
+        && find_at(text, b"\"type\":\"tool_use\"", 0).is_none()
+}
+
 /// Whether the tool call whose name begins at `at` did what it was asked.
 ///
 /// The id belongs to the same JSON object and is written before the name, so the
@@ -1327,6 +1349,9 @@ pub fn scan(
         let Ok(text) = std::fs::read(&transcript.path) else {
             continue;
         };
+        if titling(&text) {
+            continue;
+        }
         // The name it goes by now, then the registry, then the reminder it was
         // given once, then the id.
         //
