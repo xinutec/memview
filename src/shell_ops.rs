@@ -590,6 +590,31 @@ fn verb(name: &str) -> Option<Verb> {
             flags: Flags::valued(&["--config-file", "-p", "--project", "-k", "--python-version"]),
             writes: &[],
         },
+        // The JavaScript test runners, and the top of the unread list after the
+        // one name nothing can ever resolve: `vitest` 1,412 and `playwright`
+        // 1,330 calls, measured 2026-08-06. Their operands are spec files and
+        // nothing more — no grammar was needed for either, which is why they went
+        // unread for so long behind the assumption that JavaScript meant a
+        // parser. `node -e` really does need one and is worth 23 writes.
+        //
+        // Both rewrite on demand: a snapshot update is a real change to a real
+        // file, and it is the only way either of them writes anything.
+        "vitest" => Verb::Check {
+            flags: Flags::valued(&["--config", "-c", "--reporter", "-t", "--testNamePattern"]),
+            writes: &["-u", "--update"],
+        },
+        "playwright" => Verb::Check {
+            flags: Flags::valued(&["--config", "-c", "--project", "--reporter", "--grep", "-g"]),
+            writes: &["-u", "--update-snapshots"],
+        },
+        // Runs a TypeScript file the way `node` runs a JavaScript one. An
+        // interpreter rather than a checker: its operand is a program, not a
+        // subject, and what that program does to files is beyond this reader —
+        // the same refusal `node` gets, for the same reason.
+        "tsx" => Verb::Interpreter {
+            flags: Flags::valued(&["-e", "--eval", "--tsconfig"]),
+            inline: &[],
+        },
         "cd" => Verb::ChangeDir,
         "git" => Verb::Git,
 

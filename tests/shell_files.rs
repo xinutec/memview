@@ -342,6 +342,37 @@ fn a_local_shell_inside_a_command_is_read_too() {
 }
 
 #[test]
+fn the_test_runners_read_the_specs_they_are_given() {
+    // ⚠ **The top of the unread list, and no grammar was needed for any of it.**
+    // `vitest` 1,412 calls, `playwright` 1,330, `tsx` 1,459 — measured
+    // 2026-08-06 — sitting unread behind the assumption that JavaScript meant a
+    // parser. Their operands are spec files, which is a table row.
+    assert_eq!(
+        uses("vitest run src/geo/velocity.spec.ts"),
+        [(
+            "/home/example/Code/health/src/geo/velocity.spec.ts".to_string(),
+            false
+        )]
+    );
+    // A snapshot update is the one way either of them writes.
+    assert_eq!(
+        uses("vitest run -u src/geo/velocity.spec.ts"),
+        [(
+            "/home/example/Code/health/src/geo/velocity.spec.ts".to_string(),
+            true
+        )]
+    );
+    // A flag's value is not a subject: `--grep` takes a pattern.
+    assert_eq!(
+        uses("playwright test --grep smoke e2e/pages.spec.ts"),
+        [(
+            "/home/example/Code/health/e2e/pages.spec.ts".to_string(),
+            false
+        )]
+    );
+}
+
+#[test]
 fn a_remote_shell_is_not_descended_into() {
     // **The boundary.** `ssh host '…'` is 6,068 calls whose paths belong to
     // another machine; reading them would file that machine's filesystem
