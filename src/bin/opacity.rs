@@ -68,6 +68,8 @@ fn main() -> anyhow::Result<()> {
     let mut kinds: BTreeMap<&'static str, Weighed> = BTreeMap::new();
     // Heredoc bodies by the language they look like.
     let mut bodies: BTreeMap<&'static str, Weighed> = BTreeMap::new();
+    // Which command opened each unread body.
+    let mut openers: BTreeMap<String, usize> = BTreeMap::new();
     // Words we refuse to resolve, by why.
     let mut unresolved: BTreeMap<&'static str, Weighed> = BTreeMap::new();
 
@@ -84,12 +86,9 @@ fn main() -> anyhow::Result<()> {
             continue;
         };
 
-        // Heredoc bodies and unresolvable words come off the parse, because they
-        // are properties of the text as written rather than of what it does.
+        // Unresolvable words come off the parse: they are a property of the text
+        // as written rather than of what it does.
         for simple in &parsed {
-            for body in &simple.heredocs {
-                bodies.entry(looks_like(body)).or_default().add(body, show);
-            }
             for word in &simple.argv {
                 if let Some(why) = refuses(word) {
                     unresolved.entry(why).or_default().add(word, show);
@@ -98,6 +97,38 @@ fn main() -> anyhow::Result<()> {
         }
 
         let found = shell_files::extract(&parsed, cwd, &home);
+        // ⚠ **Only the bodies nobody read.** The first run of this counted every
+        // heredoc, so 6.1 MB of Python that `python.rs` reads in full was filed
+        // under opacity — and a census that counts work already done ranks the
+        // next reader wrongly. A body handed to a reader is not dark.
+        let carried: Vec<&str> = found
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                Op::Python { source } => Some(source.as_str()),
+                Op::Nested { script } => Some(script.as_str()),
+                Op::Remote { script, .. } => Some(script.as_str()),
+                _ => None,
+            })
+            .collect();
+        for simple in &parsed {
+            for body in &simple.heredocs {
+                if carried.iter().any(|source| source.contains(body.as_str())) {
+                    continue;
+                }
+                bodies.entry(looks_like(body)).or_default().add(body, show);
+                // ⚠ **And by the command that opened it, which is the question
+                // that actually decides anything.** A body fed to an interpreter
+                // is a program we cannot read; a body redirected into a file is
+                // that file's new contents, and the *effect* — a write, to a path
+                // we already know — is captured whether or not anyone reads the
+                // text. Ranking bodies by language conflates the two.
+                let opener = simple.argv.first().map_or("(a redirect)", |word| {
+                    word.rsplit('/').next().unwrap_or(word)
+                });
+                *openers.entry(opener.to_string()).or_default() += 1;
+            }
+        }
         for (name, n) in found.unhandled {
             *unread.entry(name).or_default() += n;
         }
@@ -161,7 +192,18 @@ fn main() -> anyhow::Result<()> {
             weighed.calls,
             bytes(weighed.bytes)
         );
+        // ⚠ **The samples are the point for the bucket that has no name.** A
+        // count of 3,589 unrecognised bodies is not a worklist; the first line of
+        // a dozen of them is. Printed for every bucket rather than only that one,
+        // because a sniff is a guess and the way to check a guess is to read what
+        // it guessed about.
+        for one in weighed.seen.iter().take(6) {
+            println!("           | {one}");
+        }
     }
+
+    println!("\n── who opened the bodies nobody reads ──");
+    ranked(&openers, show);
 
     println!("\n── words we refuse to resolve ──");
     for (why, weighed) in by_bytes(&unresolved) {
@@ -196,30 +238,70 @@ fn refuses(word: &str) -> Option<&'static str> {
 
 /// What a heredoc body looks like. A guess, reported as one.
 ///
-/// Ordered by how distinctive the mark is rather than by how common the language
-/// is: a `SELECT` is unmistakable, an indented line is not.
+/// ⚠ **Anchored, and rewritten once because the first version was mostly wrong.**
+/// It tested for marks *anywhere* in the body: `contains("SELECT ")` filed Python
+/// and shell under SQL because prose says "select", `starts_with('[')` filed an
+/// INI file under JSON, and `contains("\n#")` filed Rust under shell on the
+/// strength of `#[test]`. A sniff that can fire on a substring of a comment is
+/// not a sniff. Every test below is anchored to the start of the body or to the
+/// start of a line, and JSON is not sniffed at all — it is parsed.
+///
+/// Order is by how distinctive the mark is, not by how common the language is.
+/// The Python test carries a second shape because the corpus's commonest Python
+/// heredoc does not open with an import: it opens with `p='some/path'` and goes
+/// straight to `open(p).read()`.
 fn looks_like(body: &str) -> &'static str {
     let head = body.trim_start();
-    let upper = body.to_uppercase();
+    let line_starts = |mark: &str| head.starts_with(mark) || body.contains(&format!("\n{mark}"));
     if head.starts_with("#!") {
         "a script with a shebang"
-    } else if head.starts_with('{') || head.starts_with('[') {
+    } else if serde_json::from_str::<serde_json::Value>(head).is_ok() {
         "JSON"
-    } else if upper.contains("SELECT ") || upper.contains("CREATE TABLE") {
+    } else if starts_with_word(
+        head,
+        &[
+            "SELECT", "CREATE", "INSERT", "UPDATE", "DELETE", "PRAGMA", "ATTACH", "BEGIN", "WITH",
+        ],
+    ) {
         "SQL"
-    } else if head.starts_with("import ") || head.starts_with("from ") || head.contains("\ndef ") {
+    } else if line_starts("import ")
+        || line_starts("from ")
+        || line_starts("def ")
+        || (body.contains("open(") && body.contains(".read()"))
+        || body.contains(".read_text()")
+        || body.contains(".write_text(")
+    {
         "Python"
+    } else if line_starts("#[") || line_starts("fn ") || line_starts("pub fn ") {
+        "Rust"
+    } else if line_starts("package ") || body.contains("kotlinx") || line_starts("fun ") {
+        "Kotlin or Java"
     } else if head.starts_with("let ") && body.contains(" in ") {
         "Dhall"
-    } else if head.starts_with("---") || head.starts_with("apiVersion:") {
+    } else if head.starts_with("---") || line_starts("apiVersion:") {
         "YAML"
+    } else if head.starts_with('[') && body.contains('=') {
+        "INI"
     } else if head.starts_with('<') {
         "markup"
-    } else if body.contains("\n#") || head.starts_with("set -e") || body.contains("$(") {
+    } else if head.starts_with("set -e") || line_starts("for ") || line_starts("if [") {
         "shell"
     } else {
         "prose, or nothing recognised"
     }
+}
+
+/// Whether the text opens with one of these words, as a word.
+///
+/// `starts_with("WITH")` would match `WITHOUT`, and case is not a signal here —
+/// the corpus writes SQL both ways.
+fn starts_with_word(head: &str, words: &[&str]) -> bool {
+    let first: String = head
+        .chars()
+        .take_while(|c| c.is_ascii_alphabetic())
+        .collect::<String>()
+        .to_uppercase();
+    words.contains(&first.as_str())
 }
 
 fn by_bytes<K: Copy + Ord>(all: &BTreeMap<K, Weighed>) -> Vec<(K, &Weighed)> {
