@@ -47,6 +47,27 @@ fn call(tool: Tool, path: &str, stamp: &str) -> String {
     )
 }
 
+/// A tool call whose result came back an error.
+///
+/// The tool ran and did nothing: an `Edit` fails when its `old_string` is not
+/// there, and the file is left exactly as it was.
+fn failed_call(tool: Tool, path: &str, stamp: &str) -> String {
+    let (name, input) = (tool.name(), tool.input(path));
+    format!(
+        "{{\"type\":\"assistant\",\"timestamp\":\"{stamp}\",\"message\":{{\"content\":[{{\"type\":\"tool_use\",\"id\":\"{stamp}\",\"name\":\"{name}\",\"input\":{input}}}]}}}}\n\
+         {{\"type\":\"user\",\"message\":{{\"content\":[{{\"type\":\"tool_result\",\"tool_use_id\":\"{stamp}\",\"is_error\":true,\"content\":\"String to replace not found in file.\"}}]}}}}"
+    )
+}
+
+/// A `Bash` call whose result came back an error.
+fn failed_bash(command: &str, cwd: &str, stamp: &str) -> String {
+    let input = serde_json::json!({ "command": command });
+    format!(
+        "{{\"type\":\"assistant\",\"cwd\":\"{cwd}\",\"timestamp\":\"{stamp}\",\"message\":{{\"content\":[{{\"type\":\"tool_use\",\"id\":\"{stamp}\",\"name\":\"Bash\",\"input\":{input}}}]}}}}\n\
+         {{\"type\":\"user\",\"message\":{{\"content\":[{{\"type\":\"tool_result\",\"tool_use_id\":\"{stamp}\",\"is_error\":true,\"content\":\"Exit code 1\"}}]}}}}"
+    )
+}
+
 /// A `Bash` call line **and the result that came back**, with the directory it
 /// ran in.
 ///
@@ -1436,4 +1457,77 @@ fn a_call_the_user_refused_names_no_files() {
             memview::doing::Verdict::Rejected
         ]
     );
+}
+
+#[test]
+fn a_tool_call_that_failed_changed_nothing() {
+    // ⚠ **990 failed `Edit`s and 289 failed `Write`s in the live corpus, every
+    // one counted as work.** An `Edit` fails when its `old_string` is not in the
+    // file, which means the file was left exactly as it was — crediting an agent
+    // with that change credits it with something that did not happen.
+    //
+    // A tool call settles this outright, unlike a shell script: it does one
+    // thing, so its result is a fact about that thing rather than about a list
+    // of them. No reachability reasoning applies.
+    let agents = mine(
+        &[(
+            "s1",
+            vec![
+                call(
+                    Tool::Edit,
+                    "/code/health/src/kept.ts",
+                    "2026-07-01T10:00:00Z",
+                ),
+                failed_call(
+                    Tool::Edit,
+                    "/code/health/src/never.ts",
+                    "2026-07-01T10:01:00Z",
+                ),
+                failed_call(
+                    Tool::Write,
+                    "/code/health/src/nor.ts",
+                    "2026-07-01T10:02:00Z",
+                ),
+                failed_call(
+                    Tool::Read,
+                    "/code/health/src/missing.ts",
+                    "2026-07-01T10:03:00Z",
+                ),
+            ],
+        )],
+        &[("100", r#"{"sessionId":"s1","name":"health"}"#)],
+    );
+    let paths: Vec<&String> = agents[0].paths.keys().collect();
+    assert_eq!(paths, ["health/src/kept.ts"]);
+    assert_eq!(agents[0].writes.get("health"), Some(&1));
+    // A `Read` that errored opened nothing either — the file was not there.
+    assert_eq!(agents[0].reads.get("health"), None);
+}
+
+#[test]
+fn a_use_the_outcome_cannot_confirm_is_possible_rather_than_lost() {
+    // ⚠ **Neither counting it nor dropping it is true.** In `a && b` under a
+    // call that failed, `b` may or may not have run: counting it claims work
+    // that may never have happened, and dropping it denies work that may well
+    // have. 19,256 file uses in the corpus are of this kind, and the record
+    // holds the two claims apart rather than picking one.
+    let agents = mine(
+        &[(
+            "s1",
+            vec![failed_bash(
+                "cat src/certain.ts && cat src/perhaps.ts",
+                "/code/health",
+                "2026-07-01T10:00:00Z",
+            )],
+        )],
+        &[("100", r#"{"sessionId":"s1","name":"health"}"#)],
+    );
+    let shell = &agents[0].shell_paths;
+    // The first command runs whatever happens, so it is not in doubt.
+    let certain = &shell["health/src/certain.ts"];
+    assert_eq!((certain.reads, certain.maybe_reads), (1, 0));
+    // The second needed the first to have worked, and the call reports only
+    // that something in it did not.
+    let perhaps = &shell["health/src/perhaps.ts"];
+    assert_eq!((perhaps.reads, perhaps.maybe_reads), (0, 1));
 }

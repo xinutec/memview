@@ -156,6 +156,18 @@ export interface ShareInfo {
 export interface MemoryUse {
   reads: number;
   edits: number;
+  /**
+   * Uses a command *may* have made — a weaker claim, kept apart.
+   *
+   * A shell command after `&&` runs only if what preceded it succeeded, and one
+   * exit status for a whole script often cannot say whether it did. Counting
+   * those as fact overstates the record and dropping them understates it, so
+   * they are neither: they are their own kind of evidence. Absent from the
+   * artefact when zero, which is every tool-call path — an `Edit` either
+   * replaced the text or changed nothing, and its result says which.
+   */
+  maybe_reads?: number;
+  maybe_edits?: number;
 }
 
 /**

@@ -61,6 +61,20 @@ impl Verdict {
     /// [`crate::shell::Reached::Always`] carries most of the corpus, and it is
     /// the case the exit status cannot spoil: `a; b; c` runs all three whatever
     /// any of them returns.
+    /// Whether a call that does exactly **one** thing did it.
+    ///
+    /// A tool call is atomic — an `Edit` either replaced the text or changed
+    /// nothing at all — so its result settles the matter outright, with none of
+    /// the reachability reasoning a shell script needs. Without this, 990 failed
+    /// `Edit`s and 289 failed `Write`s count as changes to files they left
+    /// exactly as they were.
+    ///
+    /// `Unknown` counts: silence means the outcome went unrecorded, not that the
+    /// tool declined to act.
+    pub fn completed(self) -> bool {
+        matches!(self, Verdict::Ok | Verdict::Unknown)
+    }
+
     pub fn admits(self, reached: crate::shell::Reached) -> bool {
         use crate::shell::Reached;
         match (self, reached) {

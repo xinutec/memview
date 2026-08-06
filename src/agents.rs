@@ -32,7 +32,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::couse::{field, find_at};
+use crate::couse::{field, find_at, last_at};
 
 /// One named session, and where its work actually landed.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -168,6 +168,30 @@ pub struct MemoryUse {
     pub reads: usize,
     /// Times this agent wrote or edited it — the strongest claim to it.
     pub edits: usize,
+    /// Times a command that **may** have opened it did.
+    ///
+    /// ⚠ **A weaker claim, kept apart rather than merged or discarded.** A shell
+    /// command after `&&` runs only if what came before it worked, and one exit
+    /// status for a whole script often cannot say whether it did — 19,256 file
+    /// uses in the corpus. Counting those as fact overstates the record and
+    /// dropping them understates it; both were tried, and the truth is that they
+    /// are a different kind of evidence.
+    ///
+    /// Always zero for tool calls, which are atomic: an `Edit` either replaced
+    /// the text or changed nothing, and its result says which.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub maybe_reads: usize,
+    /// Times a command that **may** have changed it did. See
+    /// [`maybe_reads`](Self::maybe_reads).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub maybe_edits: usize,
+}
+
+/// Kept out of the artefact when nothing is uncertain, which is most entries —
+/// the file is read over a VPN and these two fields would otherwise be written
+/// as zeroes on every path anyone ever opened.
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 /// What one agent's commits did to one file.
@@ -803,7 +827,7 @@ fn titled_in_transcript(text: &[u8], owner: &str) -> Option<String> {
 
 /// The value on the last line opening with `needle`, when that line is `owner`'s.
 fn last_titled(text: &[u8], needle: &[u8], owner: &str) -> Option<String> {
-    let start = crate::couse::last_at(text, needle)? + needle.len();
+    let start = last_at(text, needle)? + needle.len();
     let end = find_at(text, b"\"", start)?;
     let line = find_at(text, b"\n", end).unwrap_or(text.len());
     // The id is on the same line, after the name. A line naming another session
@@ -901,6 +925,37 @@ fn outcomes(text: &[u8]) -> std::collections::HashMap<String, crate::doing::Verd
         }
     }
     out
+}
+
+/// Whether the tool call whose name begins at `at` did what it was asked.
+///
+/// The id belongs to the same JSON object and is written before the name, so the
+/// nearest `"id":"` behind the needle is this call's. A line can carry several
+/// calls, which is why it is the *nearest* rather than the first.
+///
+/// A call whose id cannot be read is treated as completed: the alternative is to
+/// drop real work over a parse this function is not confident about, and being
+/// unable to find an id says nothing about whether the tool acted.
+fn call_completed(
+    line: &[u8],
+    at: usize,
+    outcomes: &std::collections::HashMap<String, crate::doing::Verdict>,
+) -> bool {
+    const ID: &[u8] = b"\"id\":\"";
+    let Some(start) = crate::couse::last_at(&line[..at], ID).map(|pos| pos + ID.len()) else {
+        return true;
+    };
+    let Some(end) = find_at(line, b"\"", start) else {
+        return true;
+    };
+    let Ok(id) = std::str::from_utf8(&line[start..end]) else {
+        return true;
+    };
+    outcomes
+        .get(id)
+        .copied()
+        .unwrap_or(crate::doing::Verdict::Unknown)
+        .completed()
 }
 
 /// The call a `tool_result` line answers, and what became of it.
@@ -1083,15 +1138,18 @@ fn scan_transcript(
                         });
                     }
                 }
+                // A refusal drops the whole call; everything else is recorded
+                // under one of two claims, never thrown away for being unsure.
                 for used in found
                     .files
                     .into_iter()
-                    .filter(|used| verdict.admits(used.reached))
+                    .filter(|_| verdict != crate::doing::Verdict::Rejected)
                 {
                     let Some(rel) = relative_to(&used.path, code_root).filter(|p| attributable(p))
                     else {
                         continue;
                     };
+                    let certain = verdict.admits(used.reached);
                     // **The day counts, even though the count does not.**
                     // Recency decides which project an agent is listed under,
                     // and deciding that from tool calls alone was the very
@@ -1110,10 +1168,11 @@ fn scan_transcript(
                         days.entry(project).or_default().insert(day);
                     }
                     let use_ = shell_paths.entry(rel).or_default();
-                    if used.write {
-                        use_.edits += 1;
-                    } else {
-                        use_.reads += 1;
+                    match (certain, used.write) {
+                        (true, true) => use_.edits += 1,
+                        (true, false) => use_.reads += 1,
+                        (false, true) => use_.maybe_edits += 1,
+                        (false, false) => use_.maybe_reads += 1,
                     }
                 }
                 // Work on another machine, kept under its host. No code-root
@@ -1154,6 +1213,17 @@ fn scan_transcript(
             while let Some(at) = find_at(line, head.as_bytes(), from) {
                 let input = at + head.len();
                 from = input;
+                // ⚠ **A tool call that failed did nothing.** `Edit` fails when
+                // its `old_string` is absent and leaves the file untouched; 990
+                // of them in the corpus, plus 289 `Write`s, were counted as
+                // changes to files they never altered. One thing, one result —
+                // none of the reachability reasoning a shell script needs.
+                //
+                // The id sits just before the name in the same object, so the
+                // nearest one behind this needle is this call's.
+                if !call_completed(line, at, &outcomes) {
+                    continue;
+                }
                 // **`file_path` is not always the input's first key.** `Edit`
                 // serialises `replace_all` ahead of it — every one of the 28,546
                 // in the live corpus — so a needle demanding the path directly
@@ -1439,8 +1509,21 @@ pub trait Merge {
 
 impl Merge for MemoryUse {
     fn merge(&mut self, other: Self) {
-        self.reads += other.reads;
-        self.edits += other.edits;
+        // ⚠ **Destructured so a new field cannot quietly go unmerged.**
+        // `rename_keys` rebuilds every path map through this, so a counter
+        // missing here is not merely un-added — it is reset to zero for every
+        // entry, renamed or not. Naming the fields makes that a compile error
+        // instead of a silent loss, which is how `maybe_reads` was first lost.
+        let MemoryUse {
+            reads,
+            edits,
+            maybe_reads,
+            maybe_edits,
+        } = other;
+        self.reads += reads;
+        self.edits += edits;
+        self.maybe_reads += maybe_reads;
+        self.maybe_edits += maybe_edits;
     }
 }
 
