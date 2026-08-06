@@ -106,7 +106,16 @@ operator = _{ "|" | "&" | ";" | "(" | ")" | "<" | ">" | "$(" }
 
 // `&` ends a command by backgrounding it: `nohup … > log 2>&1 &`. The fd forms
 // are matched before this by `fd_dup`.
-term = _{ ";" | "&&" | "||" | "&" | NEWLINE }
+//
+// The separator is KEPT, unlike every other punctuation here, because it is the
+// only thing in the text that says whether the command after it ran: `a; b` runs
+// both whatever happens, `a && b` runs `b` only if `a` worked. `term` stays
+// silent and its three alternatives carry the meaning — see `shell::Reached`.
+// `and_if` must precede `seq`, or `&&` matches as a background `&`.
+term   = _{ and_if | or_if | seq }
+and_if = { "&&" }
+or_if  = { "||" }
+seq    = { ";" | "&" | NEWLINE }
 
 WHITESPACE = _{ " " | "\t" | line_continuation }
 // A backslash-newline joins two lines into one command.

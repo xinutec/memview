@@ -27,11 +27,53 @@ use pest_derive::Parser;
 #[grammar = "shell.pest"]
 struct ShellParser;
 
+/// What had to hold for a command to run, as far as the text can say.
+///
+/// A three-point domain over "did this run", ordered by how much it takes on
+/// trust. The point of it is that **a file use is only worth recording if the
+/// command that made it actually ran**, and the separator before a command is
+/// the only thing in the script that says whether it did.
+///
+/// [`Reached::and`] is the meet: a command inside a group that may not run is
+/// itself uncertain, whatever separator precedes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reached {
+    /// First in its list, or after `;`, a newline, or `&`. Runs whatever
+    /// happened before it — which is why `a; b; c` runs all three even when the
+    /// call as a whole reports failure.
+    Always,
+    /// After `&&`. Runs only if what precedes it succeeded.
+    OnSuccess,
+    /// After `||`, or under some condition this does not model. Runs sometimes,
+    /// and the text cannot say when — the bucket that must never be counted as
+    /// certain, whatever the call's exit status turned out to be.
+    Sometimes,
+}
+
+impl Reached {
+    /// Both conditions at once: this command's own, and that of whatever
+    /// encloses it.
+    ///
+    /// Two `&&`s meet as one, because a chain of them is still just "everything
+    /// before me worked". Anything touching [`Reached::Sometimes`] stays there:
+    /// `a && b || c` reaches `c` under a condition made of both, and a domain
+    /// this small should say "cannot tell" rather than pick a side.
+    pub fn and(self, inner: Reached) -> Reached {
+        match (self, inner) {
+            (Reached::Always, other) | (other, Reached::Always) => other,
+            (Reached::OnSuccess, Reached::OnSuccess) => Reached::OnSuccess,
+            _ => Reached::Sometimes,
+        }
+    }
+}
+
 /// One command as written: its words, in order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Simple {
     /// The command and its arguments, quotes removed, expansions left alone.
     pub argv: Vec<String>,
+    /// What had to hold for this command to run at all.
+    pub reached: Reached,
     /// The subshells enclosing this command, outermost first — `[]` at the top
     /// level, `[1]` inside the first `( … )`, `[1, 2]` inside a group within it.
     ///
@@ -253,8 +295,33 @@ pub fn parse(script: &str) -> Result<Vec<Simple>, String> {
         })?
         .next()
         .expect("script always yields one pair");
-    walk(top, &[], &mut 0, &mut out);
+    walk(top, &[], &mut 0, &mut out, Reached::Always);
+    forget_discarded_status(&mut out);
     Ok(out)
+}
+
+/// Demote every `&&` whose success the script threw away.
+///
+/// ⚠ **A call reports one exit status, and `;` discards the one before it.** In
+/// `a && b; c`, exit 0 says `c` worked and says *nothing whatever* about `a` —
+/// so `b` cannot be confirmed by the status however the call turned out. Only
+/// the last `;`-separated segment ends in the status that gets reported, so only
+/// its `&&` chain is ever answerable.
+///
+/// Without this, "the call exited 0, so every `&&` ran" is a plain over-claim,
+/// and it is the kind that reads as precision.
+fn forget_discarded_status(cmds: &mut [Simple]) {
+    // The final segment begins at the last unconditional command at the top
+    // level; anything nested after it belongs to that segment too.
+    let final_segment = cmds
+        .iter()
+        .rposition(|cmd| cmd.scope.is_empty() && cmd.reached == Reached::Always)
+        .unwrap_or(0);
+    for cmd in &mut cmds[..final_segment] {
+        if cmd.reached == Reached::OnSuccess {
+            cmd.reached = Reached::Sometimes;
+        }
+    }
 }
 
 /// Collect every simple command under a node, innermost first.
@@ -264,16 +331,21 @@ pub fn parse(script: &str) -> Result<Vec<Simple>, String> {
 ///
 /// `scope` is the chain of subshells the node sits in, and `next` hands out the
 /// ids, so two sibling groups are never confused for one.
+///
+/// `reached` is the condition on this node from everything enclosing it; the
+/// separators between siblings refine it as the walk moves along them.
 fn walk(
     pair: pest::iterators::Pair<Rule>,
     scope: &[usize],
     next: &mut usize,
     out: &mut Vec<Simple>,
+    reached: Reached,
 ) {
     match pair.as_rule() {
         Rule::command => {
             let mut cmd = Simple {
                 argv: Vec::new(),
+                reached,
                 scope: scope.to_vec(),
                 redirects: Vec::new(),
                 heredocs: Vec::new(),
@@ -285,7 +357,7 @@ fn walk(
                         // first and are emitted before this one.
                         for inner in part.clone().into_inner() {
                             if matches!(inner.as_rule(), Rule::subst | Rule::backtick) {
-                                nested(inner, scope, next, out);
+                                nested(inner, scope, next, out, reached);
                             }
                         }
                         cmd.argv.push(unquote(part.as_str()));
@@ -296,9 +368,9 @@ fn walk(
                     // shares the caller's, in bash and so here.
                     _ => {
                         if subshell(&part) {
-                            walk(part, &descend(scope, next), next, out);
+                            walk(part, &descend(scope, next), next, out, reached);
                         } else {
-                            walk(part, scope, next, out);
+                            walk(part, scope, next, out, reached);
                         }
                     }
                 }
@@ -308,8 +380,19 @@ fn walk(
             }
         }
         _ => {
+            // The separators are read as they are passed, so each command is
+            // walked under the condition standing at its own position: in
+            // `a && b; c`, `b` needs `a` to have worked and `c` needs nothing.
+            let mut here = Reached::Always;
             for inner in pair.into_inner() {
-                walk(inner, scope, next, out);
+                match inner.as_rule() {
+                    Rule::and_if => here = here.and(Reached::OnSuccess),
+                    Rule::or_if => here = here.and(Reached::Sometimes),
+                    // `;`, a newline or `&` end the chain: what follows runs
+                    // however the last one went.
+                    Rule::seq => here = Reached::Always,
+                    _ => walk(inner, scope, next, out, reached.and(here)),
+                }
             }
         }
     }
@@ -365,7 +448,9 @@ fn collect_redirect(
             // `<<<x` is a value and `2>&1` a descriptor: neither is a file, and
             // neither belongs in argv either.
             Rule::herestring | Rule::fd_dup => {}
-            Rule::procsub => walk(part, &descend(scope, next), next, out),
+            // `diff <(ls a) <(ls b)` — the inner commands run exactly when the
+            // command they feed does, so they inherit its condition.
+            Rule::procsub => walk(part, &descend(scope, next), next, out, cmd.reached),
             _ => {}
         }
     }
@@ -381,6 +466,7 @@ fn nested(
     scope: &[usize],
     next: &mut usize,
     out: &mut Vec<Simple>,
+    reached: Reached,
 ) {
     let text = pair.as_str();
     let inner = text
@@ -396,6 +482,10 @@ fn nested(
         let own = descend(scope, next);
         out.extend(cmds.into_iter().map(|c| Simple {
             scope: own.iter().copied().chain(c.scope).collect(),
+            // The substitution runs in order to run the command that holds it,
+            // so it is reached exactly as often — and the re-parse starts from
+            // `Always`, which is only true relative to the substitution itself.
+            reached: reached.and(c.reached),
             ..c
         }));
     }

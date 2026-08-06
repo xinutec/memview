@@ -15,6 +15,8 @@
 
 use std::collections::BTreeMap;
 
+use anyhow::Context;
+
 use memview::shell_ops::{GitOp, Op};
 use memview::{shell, shell_files};
 
@@ -97,6 +99,10 @@ fn main() -> anyhow::Result<()> {
     let mut renames = 0usize;
     let mut nested_unparsed = 0usize;
     let mut unrolled = 0usize;
+    // File uses by what had to hold for the command naming them to run.
+    let (mut always, mut on_success, mut sometimes) = (0usize, 0usize, 0usize);
+    // Those the call's outcome confirms actually happened.
+    let mut certain = 0usize;
     // What happens on the other machines — read from the same scripts, kept out
     // of every local figure.
     let mut remote: BTreeMap<String, (usize, usize)> = BTreeMap::new();
@@ -110,6 +116,19 @@ fn main() -> anyhow::Result<()> {
             continue;
         };
         let cwd = row["cwd"].as_str().filter(|c| !c.is_empty());
+        // What became of the call. A corpus written before outcomes were
+        // recorded has no such field, and that silence is `Unknown` rather than
+        // success — the figures below then show only what runs unconditionally,
+        // which is the honest answer to "with no outcome, what is certain".
+        //
+        // An outcome that is *present and unreadable* is a different thing
+        // entirely, and is an error: quietly reading it as `Unknown` would turn
+        // a corrupt corpus into a modest-looking one.
+        let ran: memview::doing::Verdict = match row.get("ran") {
+            None | Some(serde_json::Value::Null) => memview::doing::Verdict::Unknown,
+            Some(outcome) => serde_json::from_value(outcome.clone())
+                .with_context(|| format!("unreadable outcome in the corpus: {outcome}"))?,
+        };
         calls += 1;
         let Ok(parsed) = shell::parse(cmd) else {
             unparsed += 1;
@@ -160,6 +179,14 @@ fn main() -> anyhow::Result<()> {
                 let mark = if file.write { "write" } else { "read " };
                 println!("{mark}  {}\n       {}\n", file.path, cmd.replace('\n', "⏎"));
             }
+            match file.reached {
+                memview::shell::Reached::Always => always += 1,
+                memview::shell::Reached::OnSuccess => on_success += 1,
+                memview::shell::Reached::Sometimes => sometimes += 1,
+            }
+            if ran.admits(file.reached) {
+                certain += 1;
+            }
             let entry = distinct.entry(file.path).or_default();
             if file.write {
                 writes += 1;
@@ -189,6 +216,11 @@ fn main() -> anyhow::Result<()> {
     // at — the same rule as every other refusal here.
     println!("  nested, unparsed  {nested_unparsed}");
     println!("file uses           {} reads, {writes} writes", reads);
+    println!("  ran regardless    {always}   on `&&` {on_success}   conditional {sometimes}");
+    println!(
+        "  certainly ran     {certain}  ({} unconfirmable)",
+        always + on_success + sometimes - certain
+    );
     println!("distinct paths      {}", distinct.len());
 
     println!("\nwhat the shell was doing:");

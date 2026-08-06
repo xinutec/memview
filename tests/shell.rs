@@ -4,7 +4,7 @@
 //! are constructs the grammar got wrong at some point — each cost a measurable
 //! slice of the 83,799 distinct commands.
 
-use memview::shell::{Simple, parse};
+use memview::shell::{Reached, Simple, parse};
 
 /// One command's argv, for compact assertions.
 fn argv(cmd: &Simple) -> &[String] {
@@ -234,4 +234,85 @@ fn an_unclosed_quote_is_an_error_not_a_silent_half_parse() {
     // read. A parser that accepts this would report a command list that quietly
     // omits whatever followed.
     assert!(parse("echo 'unterminated").is_err());
+}
+
+/// What had to hold for each command in a script to run, in order.
+fn conditions(script: &str) -> Vec<Reached> {
+    parse(script)
+        .unwrap_or_else(|at| panic!("failed to parse, stopped at {at:?}"))
+        .into_iter()
+        .map(|c: Simple| c.reached)
+        .collect()
+}
+
+#[test]
+fn the_separator_says_whether_the_next_command_runs() {
+    // ⚠ **The only thing in the text that says a command happened.** Without
+    // this the reader credits an agent with `b` in `a && b` when `a` failed and
+    // `b` never ran — 1,220 file uses in the corpus's failed calls.
+    assert_eq!(conditions("a; b"), [Reached::Always, Reached::Always]);
+    assert_eq!(conditions("a && b"), [Reached::Always, Reached::OnSuccess]);
+    // `||` is not the mirror of `&&`: exit 0 on `a || b` cannot tell "a worked
+    // and b was skipped" from "a failed and b worked", so it is never certain.
+    assert_eq!(conditions("a || b"), [Reached::Always, Reached::Sometimes]);
+    // A newline and `&` end a list exactly as `;` does.
+    assert_eq!(conditions("a\nb"), [Reached::Always, Reached::Always]);
+}
+
+#[test]
+fn a_chain_of_ands_is_still_one_condition() {
+    // Each link needs everything before it, which is the same condition, not a
+    // deeper one — otherwise a long chain would decay into "cannot tell".
+    assert_eq!(
+        conditions("a && b && c"),
+        [Reached::Always, Reached::OnSuccess, Reached::OnSuccess]
+    );
+}
+
+#[test]
+fn a_status_a_semicolon_threw_away_can_never_be_confirmed() {
+    // ⚠ **The call reports ONE exit status, and `;` discards the one before
+    // it.** In `a && b; c` exit 0 says `c` worked and nothing whatever about
+    // `a`, so `b` is unconfirmable however the call turned out — not merely
+    // conditional on success. Counting it as certain is an over-claim worth
+    // 15,981 file uses in the corpus's *successful* calls alone.
+    assert_eq!(
+        conditions("a && b; c"),
+        [Reached::Always, Reached::Sometimes, Reached::Always]
+    );
+    // The last segment keeps its chain: this is the one the status answers.
+    assert_eq!(
+        conditions("a; b && c"),
+        [Reached::Always, Reached::Always, Reached::OnSuccess]
+    );
+}
+
+#[test]
+fn a_condition_reaches_inside_what_it_guards() {
+    // A subshell that may not run holds commands that may not run, whatever
+    // separates them from each other.
+    assert_eq!(
+        conditions("a && (b; c)"),
+        [Reached::Always, Reached::OnSuccess, Reached::OnSuccess]
+    );
+}
+
+#[test]
+fn a_verdict_and_a_condition_together_decide_what_certainly_ran() {
+    use memview::doing::Verdict;
+    // The one that carries the corpus: unconditional commands survive any
+    // outcome, which is why `a; b; c` keeps all three even when the call failed.
+    assert!(Verdict::Failed.admits(Reached::Always));
+    assert!(Verdict::Ok.admits(Reached::Always));
+    // An `&&` is answered by exit 0 and by nothing else.
+    assert!(Verdict::Ok.admits(Reached::OnSuccess));
+    assert!(!Verdict::Failed.admits(Reached::OnSuccess));
+    // A refusal is a fact about the process rather than about how it went, so
+    // it overrides even an unconditional command.
+    assert!(!Verdict::Rejected.admits(Reached::Always));
+    // Silence is not refusal: a transcript can lack a result because it was
+    // interrupted or is still running, and reading that as "nothing ran" would
+    // drop every shell file use in it.
+    assert!(Verdict::Unknown.admits(Reached::Always));
+    assert!(!Verdict::Unknown.admits(Reached::OnSuccess));
 }

@@ -883,20 +883,21 @@ pub fn bash_calls_with_ids(line: &[u8]) -> Option<BashLine> {
 /// [`crate::doing::Verdict`].
 const REFUSED: &[u8] = b"\"content\":\"The user doesn't want to proceed with this tool use";
 
-/// The calls in one transcript that never ran, by id.
+/// What became of every call in one transcript, by id.
 ///
 /// A pass of its own, because a result is written below the call it answers and
-/// a transcript is read from the top. Cheap in spite of that: the needle is
-/// absent from all but a handful of transcripts, and where it is absent this
-/// costs one scan of the bytes and stops.
-fn refused(text: &[u8]) -> std::collections::HashSet<String> {
-    let mut out = std::collections::HashSet::new();
-    if find_at(text, REFUSED, 0).is_none() {
-        return out;
-    }
+/// a transcript is read from the top.
+///
+/// ⚠ **`Ok` is kept rather than left implicit.** Absent from this map means *no
+/// result came back at all* — interrupted, or still running — which is
+/// [`crate::doing::Verdict::Unknown`] and admits nothing. Dropping the
+/// successes to save space would make silence and success the same answer.
+/// The map is per transcript and freed with it, so there is no space to save.
+fn outcomes(text: &[u8]) -> std::collections::HashMap<String, crate::doing::Verdict> {
+    let mut out = std::collections::HashMap::new();
     for line in text.split(|c| *c == b'\n') {
-        if let Some((call, crate::doing::Verdict::Rejected)) = tool_result(line) {
-            out.insert(call);
+        if let Some((call, verdict)) = tool_result(line) {
+            out.insert(call, verdict);
         }
     }
     out
@@ -993,9 +994,9 @@ fn scan_transcript(
         last,
         ..
     } = agent;
-    // Which calls the user would not allow — read ahead, because the answer is
-    // always below the question.
-    let refused = refused(text);
+    // What became of each call — read ahead, because the answer is always below
+    // the question.
+    let outcomes = outcomes(text);
     // Built once per transcript rather than once per line — the needles are
     // fixed and the corpus is millions of lines.
     let needles: Vec<(String, bool)> = READ_TOOLS
@@ -1046,11 +1047,15 @@ fn scan_transcript(
                     continue;
                 };
                 let found = crate::shell_files::extract(&parsed, cwd.as_deref(), home);
-                // ⚠ **A refused call ran nothing.** Its timeline row still goes
-                // in — being told no is part of what happened, and the verdict
-                // says which — but no path it names may reach anybody's record,
-                // because no file was opened to name.
-                let ran = !refused.contains(&call);
+                // ⚠ **What the text required, met with what the call returned.**
+                // The timeline row goes in whatever happened — being refused or
+                // failing is part of the record — but a path only reaches
+                // somebody's name when the command that opened it certainly
+                // ran. Absent from the map is a call that never answered.
+                let verdict = outcomes
+                    .get(&call)
+                    .copied()
+                    .unwrap_or(crate::doing::Verdict::Unknown);
                 // What this turn was doing, one row per kind of work in it.
                 // Grouped rather than one row per command: a call that runs
                 // `sed` over four files is one edit to anybody reading it.
@@ -1078,7 +1083,11 @@ fn scan_transcript(
                         });
                     }
                 }
-                for used in found.files.into_iter().filter(|_| ran) {
+                for used in found
+                    .files
+                    .into_iter()
+                    .filter(|used| verdict.admits(used.reached))
+                {
                     let Some(rel) = relative_to(&used.path, code_root).filter(|p| attributable(p))
                     else {
                         continue;
@@ -1111,7 +1120,11 @@ fn scan_transcript(
                 // filter: `/etc/nixos` is where odin's work lives and there is
                 // no `~/Code` there — the shape of the filesystem is the remote
                 // machine's business, not this one's.
-                for used in found.remote.into_iter().filter(|_| ran) {
+                for used in found
+                    .remote
+                    .into_iter()
+                    .filter(|_| verdict != crate::doing::Verdict::Rejected)
+                {
                     if !remotely_attributable(&used.path) {
                         continue;
                     }

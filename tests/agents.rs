@@ -47,15 +47,26 @@ fn call(tool: Tool, path: &str, stamp: &str) -> String {
     )
 }
 
-/// A `Bash` call line, with the directory it ran in.
+/// A `Bash` call line **and the result that came back**, with the directory it
+/// ran in.
 ///
 /// `cwd` is a top-level field of the transcript line rather than part of the
 /// tool input, and the command is a JSON string — both are why the miner parses
 /// these lines instead of scanning them for a needle.
+///
+/// ⚠ **The result is not optional decoration.** A call whose outcome is
+/// unrecorded cannot have its `&&` confirmed — `a && b` only certainly runs `b`
+/// when the call is known to have exited 0 — so a fixture without one silently
+/// tests the rarest state there is (12 calls in the whole corpus) instead of the
+/// ordinary one. Both lines are returned together because the caller joins them
+/// with newlines anyway.
 fn bash(command: &str, cwd: &str, stamp: &str) -> String {
     let input = serde_json::json!({ "command": command });
+    // The timestamp is unique per call in these fixtures, so it serves as the id
+    // joining the call to its answer.
     format!(
-        "{{\"type\":\"assistant\",\"cwd\":\"{cwd}\",\"timestamp\":\"{stamp}\",\"message\":{{\"content\":[{{\"type\":\"tool_use\",\"name\":\"Bash\",\"input\":{input}}}]}}}}"
+        "{{\"type\":\"assistant\",\"cwd\":\"{cwd}\",\"timestamp\":\"{stamp}\",\"message\":{{\"content\":[{{\"type\":\"tool_use\",\"id\":\"{stamp}\",\"name\":\"Bash\",\"input\":{input}}}]}}}}\n\
+         {{\"type\":\"user\",\"message\":{{\"content\":[{{\"type\":\"tool_result\",\"tool_use_id\":\"{stamp}\",\"is_error\":false,\"content\":\"…\"}}]}}}}"
     )
 }
 

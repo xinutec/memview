@@ -46,6 +46,14 @@ pub struct FileUse {
     /// reason they do in the tool-call miner — consulting a file and being
     /// responsible for it are different claims.
     pub write: bool,
+    /// What had to hold for the command naming this file to run.
+    ///
+    /// Carried rather than acted on here, because this layer cannot know: the
+    /// condition comes from the text and the answer comes from the call's exit
+    /// status, which lives with whoever read the transcript. Keeping them apart
+    /// is what lets the same extraction serve a report that wants everything and
+    /// an index that wants only what certainly happened.
+    pub reached: crate::shell::Reached,
 }
 
 /// What one script's worth of commands used, with the misses on the record.
@@ -112,7 +120,14 @@ impl Extract {
 
     /// Record a file use against this machine, or against `host` when the
     /// command is running somewhere else.
-    fn push(&mut self, host: Option<&str>, command: &str, path: String, write: bool) {
+    fn push(
+        &mut self,
+        host: Option<&str>,
+        command: &str,
+        path: String,
+        write: bool,
+        reached: crate::shell::Reached,
+    ) {
         self.note(command, write);
         match host {
             Some(host) => self.remote.push(RemoteUse {
@@ -120,7 +135,11 @@ impl Extract {
                 path,
                 write,
             }),
-            None => self.files.push(FileUse { path, write }),
+            None => self.files.push(FileUse {
+                path,
+                write,
+                reached,
+            }),
         }
     }
 
@@ -156,13 +175,14 @@ const MAX_NESTING: usize = 4;
 /// The whole projection, in one place. Every direction here is a property of the
 /// operation rather than of a lookup table: a `Move` writes where it lands and
 /// reads where it came from, and neither fact needs stating twice.
-pub fn files_of(op: &Op) -> Vec<FileUse> {
+pub fn files_of(op: &Op, reached: crate::shell::Reached) -> Vec<FileUse> {
     let read = |paths: &Vec<String>| -> Vec<FileUse> {
         paths
             .iter()
             .map(|path| FileUse {
                 path: path.clone(),
                 write: false,
+                reached,
             })
             .collect()
     };
@@ -172,6 +192,7 @@ pub fn files_of(op: &Op) -> Vec<FileUse> {
             .map(|path| FileUse {
                 path: path.clone(),
                 write: true,
+                reached,
             })
             .collect()
     };
@@ -183,6 +204,7 @@ pub fn files_of(op: &Op) -> Vec<FileUse> {
             out.push(FileUse {
                 path: to.clone(),
                 write: true,
+                reached,
             });
             out
         }
@@ -198,6 +220,7 @@ pub fn files_of(op: &Op) -> Vec<FileUse> {
                 .map(|path| FileUse {
                     path: path.clone(),
                     write: false,
+                    reached,
                 })
                 .collect();
             out.extend(if *in_place { write(paths) } else { read(paths) });
@@ -211,6 +234,7 @@ pub fn files_of(op: &Op) -> Vec<FileUse> {
         Op::Run { script } => vec![FileUse {
             path: script.clone(),
             write: false,
+            reached,
         }],
         // **Staging changes no file.** The edit already happened — through
         // `Edit`, `sed` or a redirect — and was counted where it occurred.
@@ -304,6 +328,7 @@ fn extract_nested(
         };
         let cmd = &Simple {
             argv,
+            reached: cmd.reached,
             scope: cmd.scope.clone(),
             redirects: cmd
                 .redirects
@@ -326,7 +351,7 @@ fn extract_nested(
             if looks_like_path(&redirect.target)
                 && let Some(path) = resolve(&redirect.target, here.as_deref(), home)
             {
-                out.push(host, &carrier, path, redirect.write);
+                out.push(host, &carrier, path, redirect.write, cmd.reached);
             }
         }
         if cmd.argv.is_empty() {
@@ -407,7 +432,7 @@ fn extract_nested(
                         && looks_like_path(&used.path)
                         && let Some(path) = resolve(&used.path, here.as_deref(), home)
                     {
-                        out.push(host, "python", path, used.write);
+                        out.push(host, "python", path, used.write, cmd.reached);
                         kept += 1;
                     }
                 }
@@ -416,8 +441,8 @@ fn extract_nested(
             }
             _ => {
                 out.handled += 1;
-                for used in files_of(&op) {
-                    out.push(host, &name, used.path, used.write);
+                for used in files_of(&op, cmd.reached) {
+                    out.push(host, &name, used.path, used.write, used.reached);
                 }
             }
         }
@@ -543,6 +568,7 @@ fn closing_done(cmds: &[Simple], at: usize) -> Option<usize> {
 fn substituted(cmd: &Simple, env: &BTreeMap<String, String>) -> Simple {
     Simple {
         argv: cmd.argv.iter().map(|word| expand(word, env)).collect(),
+        reached: cmd.reached,
         scope: cmd.scope.clone(),
         redirects: cmd
             .redirects

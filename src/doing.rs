@@ -50,6 +50,44 @@ pub enum Verdict {
     Rejected,
 }
 
+impl Verdict {
+    /// Whether a command under this condition certainly ran.
+    ///
+    /// The join between what the *text* says had to hold and what the *result*
+    /// says happened — neither alone answers it. Deliberately one-sided: `true`
+    /// means certain, `false` means "cannot say", never "did not run". A file
+    /// use may only be attributed to somebody on a `true`.
+    ///
+    /// [`crate::shell::Reached::Always`] carries most of the corpus, and it is
+    /// the case the exit status cannot spoil: `a; b; c` runs all three whatever
+    /// any of them returns.
+    pub fn admits(self, reached: crate::shell::Reached) -> bool {
+        use crate::shell::Reached;
+        match (self, reached) {
+            // Refused before it began: nothing in it ran, whatever it said.
+            // The one verdict that is a fact about the *process*, not about how
+            // the process went, which is why it alone overrides the text.
+            (Verdict::Rejected, _) => false,
+            // Everything else started. An unconditional command in a script
+            // that started is the one thing no exit status can take away.
+            //
+            // `Unknown` — no result line at all — is read as "started, outcome
+            // unrecorded" rather than "never ran". A transcript can lack results
+            // for reasons that say nothing about the shell: it was interrupted,
+            // it is still running, mining caught it mid-turn. Reading silence as
+            // refusal would drop every shell file use in such a transcript at
+            // once, which is a far larger error than the 12 calls it protects.
+            (_, Reached::Always) => true,
+            // Exit 0 at the end of an `&&` chain means every link in it
+            // succeeded, so every link ran. Only the final segment's chain
+            // reaches the reported status — the parser has already demoted the
+            // rest, so this needs no further condition.
+            (Verdict::Ok, Reached::OnSuccess) => true,
+            _ => false,
+        }
+    }
+}
+
 /// One stretch of work: one kind of activity, in one turn.
 ///
 /// Field names are one character because there are a hundred thousand of these
