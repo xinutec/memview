@@ -1147,8 +1147,18 @@ fn finished(text: &str) -> Option<Event> {
 /// Separate from parsing it, because one that cannot be parsed still must not
 /// become a prompt: a half-recognised notification rendered as somebody's words
 /// is the exact failure this whole path exists to prevent.
+///
+/// ⚠ **The block has to be the end of the message, not merely somewhere in it.**
+/// This was a bare `contains`, and it ate the compact summary — a message that
+/// happened to explain what a notification looks like, so the one turn that
+/// says what the conversation was about vanished from the screen.
+///
+/// Both ends rather than the opening tag alone, because the tag is not always
+/// first: the harness prefixes a banner saying this is not the person talking.
+/// Measured over a 267 MB transcript — 1,385 notifications, every one of them
+/// closing the block as its last characters.
 fn is_notification(text: &str) -> bool {
-    text.contains("<task-notification>")
+    text.contains("<task-notification>") && text.trim_end().ends_with("</task-notification>")
 }
 
 /// What sits between two markers, when both are there and in that order.

@@ -313,6 +313,21 @@ fn a_notification_without_a_tool_call_names_nothing() {
 }
 
 #[test]
+fn a_message_that_merely_mentions_a_notification_is_still_a_prompt() {
+    // Verbatim from this project's own compact summary, which described the
+    // shape of a notification and was swallowed whole for it — so the one
+    // message that says what a conversation had been doing never appeared.
+    //
+    // Also the compact summary's own shape: a plain string where every other
+    // user turn carries blocks.
+    let line = r#"{"type":"user","message":{"role":"user","content":"the harness's own word for a detached command, a subagent and a monitor is \"background task\" — each gets a task id and reports via `<task-notification>` carrying `<tool-use-id>`."}}"#;
+    assert!(matches!(
+        read(line).as_slice(),
+        [Event::Prompt { text }] if text.contains("background task")
+    ));
+}
+
+#[test]
 fn an_ordinary_message_is_still_a_prompt() {
     let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"do the thing"}]}}"#;
     assert!(matches!(read(line).as_slice(), [Event::Prompt { text }] if text == "do the thing"));
