@@ -29,6 +29,22 @@
 //! A name bound twice, bound to anything computed, or bound by a `for`, an `as`
 //! or an `import` is not a constant: `for p in files:` names every file and
 //! therefore none.
+//!
+//! ⚠ **That last rule is a limitation, not a principle, and the shape of its
+//! replacement is already decided.** "Bound exactly once to a literal" is
+//! constant propagation with a domain of two values, written by hand for one
+//! language. **`for p in ['a.ts', 'b.ts']:` is fully determined by the text** —
+//! it names two files, not none — and the same is true of the shell's 3,078
+//! loops over a literal word list. What this cannot follow is a value that
+//! depends on the world: a loop over `Path('.').glob(…)`, a name assigned in
+//! both arms of an `if`, an argument built from `sys.argv`. Measured, the gap is
+//! **3,694 of 13,828 operations that name no file** — "computed, f-string, loop
+//! variable" — and the loop-variable share of that comes back with the value
+//! domain in the README's Roadmap.
+//!
+//! What stays, whatever replaces it: **an undetermined value is recorded as
+//! undetermined and never approximated.** An unread call is an undercount; an
+//! invented path is a lie.
 
 use std::collections::{BTreeMap, BTreeSet};
 

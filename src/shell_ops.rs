@@ -17,6 +17,25 @@
 //! command is [`Op::Unknown`] and contributes nothing, nothing is expanded
 //! beyond `~`/`$HOME`, nothing is looked up on disk, and a word must be shaped
 //! like a path before it can be one.
+//!
+//! ⚠ **Two of those are principles and two are limitations, and the difference
+//! decides which may be lifted.**
+//!
+//! *Principles, permanent:* nothing is looked up on disk — the filesystem of the
+//! day is gone and today's is a different machine's answer — and **nothing is
+//! ever guessed**. A subject we cannot determine is recorded as undetermined,
+//! never approximated, because an invented path is the one failure that makes
+//! every count downstream a lie.
+//!
+//! *Limitations, to be lifted:* **nothing is bound and nothing is evaluated.**
+//! There is no environment here, so `ADB=/nix/store/…/adb` two words earlier
+//! cannot resolve the `$ADB` that follows — measured over the corpus, **564 of
+//! the 1,023 commands using `$ADB` assign it in the same command text**, and it
+//! is the largest unread name there is. Likewise a loop over a literal word list
+//! (3,078 of 10,398) or over `$(seq N M)` with constant bounds (1,008) is fully
+//! determined by the text and is read as nothing at all. That is a gap in the
+//! model, not a limit on what is knowable, and closing it is the work in the
+//! README's Roadmap.
 
 /// What one command does.
 ///
@@ -176,7 +195,12 @@ pub fn looks_like_path(word: &str) -> bool {
 ///
 /// Refuses more than it accepts, and each refusal is a category that would
 /// otherwise put a wrong path in the index:
-/// - an unexpanded `$VAR` — its value is not knowable now, if ever;
+/// - an unexpanded `$VAR` — ⚠ **not because its value is unknowable, which is
+///   what this said and what turned out to be wrong.** Measured: 564 of the
+///   1,023 commands using `$ADB` bind it in the same command, usually to a
+///   literal. The value is in reach; this reader simply has nowhere to keep it.
+///   Until it does, refusing is right — a variable read as its own name would
+///   file work against a path called `$ADB`;
 /// - `host:path` and anything with a scheme — another machine, or a URL;
 /// - `/dev/*`, which is plumbing: left in, `/dev/null` is the busiest path in
 ///   the whole corpus at 25,407 writes and says nothing about anyone's work;

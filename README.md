@@ -55,9 +55,23 @@ Three choices worth knowing before changing it:
 ## The transcript side
 
 The corpus is what the sessions *wrote down*. Beside it, memview mines what they
-actually **did**, from the session transcripts under `~/.claude/projects`. The
-goal is to understand almost every part of it at a level above the shell: not to
-reconstruct a command, but to be able to say in hindsight what it was doing.
+actually **did**, from the session transcripts under `~/.claude/projects`.
+
+**The aim is to understand what a command actually did, to a near-complete
+degree, without ever running it.** Not a summary a level above the shell — the
+execution itself: which constant a name was bound to, which three files a loop
+over a literal list touched, which machine a path belonged to, which program a
+heredoc carried and what *that* did in turn. A command is understood when we can
+say what it named and what it changed; the exceptions should be few, and each
+one should be a known kind rather than a shrug.
+
+Read as a language problem, that means the reader is an **abstract
+interpreter**: it evaluates as far as the text determines and stops, never
+guessing past the end of what it knows. What it cannot determine is recorded as
+undetermined and counted, so the gap is a number rather than a silence.
+
+Some of that is built and measured; some is planned. **The Roadmap section below
+says which is which**, and the reports say how far it currently reaches.
 
 Each stage's authoritative explanation is its module doc-comment; the chain is:
 
@@ -88,23 +102,64 @@ cargo run --release --bin shell-report     -- /tmp/bash-corpus.jsonl  # the gram
 cargo run --release --bin shell-files      -- /tmp/bash-corpus.jsonl  # the semantics
 cargo run --release --bin activity-report  -- /tmp/bash-corpus.jsonl [--sample KIND]
 cargo run --release --bin python-report    -- /tmp/bash-corpus.jsonl [--why|--sample]
+cargo run --release --bin opacity          -- /tmp/bash-corpus.jsonl  # what nothing reads
 ```
 
 The `*-report` bins are how coverage is measured — what fraction of the real
 corpus each layer can name, and what the biggest unnamed thing still is. Run
-them rather than trusting a number written down here.
+them rather than trusting a number written down here. `opacity` is the fourth and
+answers the opposite question: of the text these commands carry, how much does
+nobody look inside, and who handed it over.
 
-**Not built yet**, in the order to do it:
+### Roadmap
 
-1. **The timeline is Bash-only.** Rows are pushed inside the `Bash` branch of
+**Where it reaches today** (2026-08-06, 134,004 Bash calls from 1,205
+transcripts): 99.7% of 98,321 distinct commands parse; **98.6% of 648,051 simple
+commands are understood**; 9,006 Python programs are read inside the shell that
+ran them. Nested shells (`nix -c`, `bash -c`, `nix-shell --run`) are followed;
+`ssh`/`kubectl`/`docker` are followed and filed against the machine, never here.
+
+**The distance left to the aim above.** Each of these is a way the reader stops
+short of what the text actually determines — they are limitations, not
+principles, and they are what `#92` is for:
+
+1. **Nothing is ever bound.** There is no environment, so `$ADB` is unreadable
+   even though **564 of the 1,023 commands using it assign it in the same
+   command**, mostly to a literal nix-store path. This is the single largest
+   unread name in the corpus and its value is one line above its use.
+2. **No loop is unrolled.** Of 10,398 `for` loops, **3,078 iterate a literal
+   word list and 1,008 iterate `$(seq N M)` with constant bounds** — both fully
+   determined. A further 2,101 iterate a glob, which the filesystem of the day
+   decided and which survives only as the pattern.
+3. **A value is trusted or refused, never partial.** `ADB="$ANDROID_HOME/…"`
+   resolves to nothing today, where it should keep the suffix it does know.
+4. **An undetermined subject vanishes instead of counting.** A `sed -i` on a path
+   we cannot resolve is a write to *something*, and dropping it makes the record
+   look complete when it is not.
+5. **The timeline is Bash-only.** Rows are pushed inside the `Bash` branch of
    `agents::scan_transcript`, so `Read`, `Write`, `Edit`, `Grep` and `Task` calls
-   produce no activity — it currently means "what the sessions did *in the
-   shell*". The tool calls are parsed a few lines away in the same function.
-2. **The timeline has no page.** `/api/doing` is reachable only by curl.
-3. **Episodes** — grouping rows into stretches of one intent. Deliberately
-   deferred until there is a real activity stream to find the boundaries in; the
-   rows already carry session, minute, agent, repository and verdict, so it needs
-   no re-mining.
+   produce no activity. The tool calls are parsed a few lines away.
+6. **The timeline has no page** — `/api/doing` is reachable only by curl — and
+   no **episodes**, the grouping of rows into stretches of one intent.
+
+**Deliberately not done, each decided from a measurement** so that none of it is
+re-opened on instinct:
+
+- **No third-party parser.** `tree-sitter-bash` was tried against the pest
+  grammar: 299 commands gained, **165 lost**, and the losses were the heredoc
+  shapes carrying the remote work. `examples/tree-sitter-probe.rs` holds the
+  numbers and can be re-run when the upstream bug is fixed.
+- **No third language reader.** Of the heredoc bodies nobody reads, `cat` opens
+  3,397 and `git` 882 — file contents and commit messages, whose *effects* are
+  already recorded. SQL is 44 bodies. See `examples/tree-sitter-python-probe.rs`
+  and `src/bin/opacity.rs`.
+- **Regexes are not parsed yet.** 89,362 calls, the largest single payload we
+  carry, but a regex names no file. Worth reading later for intent, not for files.
+- **Scripts on disk are not opened.** `./scripts/deploy.sh` ran 23,168 times and
+  what it contained *then* is not recoverable — much of it was temporary, wrong,
+  or never committed. That region stays dark on purpose.
+- **`node -e` is not read.** 724 calls, 23 `writeFileSync`, mostly against
+  `./dist`, which attribution excludes anyway.
 
 ## The console
 
