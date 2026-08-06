@@ -70,9 +70,6 @@ interpreter**: it evaluates as far as the text determines and stops, never
 guessing past the end of what it knows. What it cannot determine is recorded as
 undetermined and counted, so the gap is a number rather than a silence.
 
-Some of that is built and measured; some is planned. **The Roadmap section below
-says which is which**, and the reports say how far it currently reaches.
-
 Each stage's authoritative explanation is its module doc-comment; the chain is:
 
 | module | question it answers |
@@ -90,6 +87,46 @@ Each stage's authoritative explanation is its module doc-comment; the chain is:
 **Derived, never verbatim.** No command line, no prompt, no output text reaches
 any artefact — only typed structure and counts. The rule and its one lifted half
 (timelines are allowed, as of 2026-08-02) are recorded in `doing.rs`.
+
+### One command through the chain
+
+The doc-comments explain each stage; what they cannot show is how a path
+survives all four, or where it stops. A real shape from the corpus:
+
+```
+cd health && nix develop -c bash -c "sed -i 's/a/b/' src/geo/velocity.ts"
+
+shell.rs        two commands. The inner script is ONE WORD here — the quoting is
+                the parser's job, the meaning is not.
+shell_ops.rs    ChangeDir{to:"health"} · Carries("-c") unwraps the argv to `bash
+                -c …`, which is Nested{script} — parsed again, in its own scope
+                → Transform{program:"s/a/b/", in_place:true, paths:[…]}
+shell_files.rs  cwd is now …/health, so the relative path resolves. in_place
+                makes it a write rather than a read.
+activity.rs     an edit.
+```
+
+**Where it stops, and each stop is deliberate.** If `cd`'s target cannot be
+resolved the working directory becomes *unknown*, not stale — so the relative
+path names nothing rather than the wrong thing. If the outer command were `ssh`,
+everything inside belongs to that machine and never reaches the local index. If
+`sed`'s operand were `$F`, it is refused today (README Roadmap, item 1).
+
+### Changing the reader
+
+The reports are the method, not a status line. The loop:
+
+1. **Rebuild the corpus first.** It moves fast — 87,918 calls on 1 August,
+   134,004 on the 6th — and a coverage claim against a stale one is worthless.
+2. Change the table or the grammar.
+3. Re-run the report. The number that matters is the one that *moved*, and the
+   failure list is the next thing to build.
+4. **Ablate the test.** Undo the change; the new test must fail. Twice this month
+   a test that could not fail was found this way and no other.
+
+Two ways a figure has misled here, each written up where it happened: a rate that
+hid a trade (`examples/tree-sitter-probe.rs`) and a census that counted text
+already read (`src/bin/opacity.rs`).
 
 Mining is offline and writes JSON beside the transcripts, which `scripts/sync.sh`
 pushes to the pod:
@@ -119,47 +156,35 @@ commands are understood**; 9,006 Python programs are read inside the shell that
 ran them. Nested shells (`nix -c`, `bash -c`, `nix-shell --run`) are followed;
 `ssh`/`kubectl`/`docker` are followed and filed against the machine, never here.
 
-**The distance left to the aim above.** Each of these is a way the reader stops
-short of what the text actually determines — they are limitations, not
-principles, and they are what `#92` is for:
+**The distance left to the aim.** Four ways the reader stops short of what the
+text already determines. They are limitations rather than principles —
+`shell_ops.rs` draws that line and carries the measurements:
 
-1. **Nothing is ever bound.** There is no environment, so `$ADB` is unreadable
-   even though **564 of the 1,023 commands using it assign it in the same
-   command**, mostly to a literal nix-store path. This is the single largest
-   unread name in the corpus and its value is one line above its use.
-2. **No loop is unrolled.** Of 10,398 `for` loops, **3,078 iterate a literal
-   word list and 1,008 iterate `$(seq N M)` with constant bounds** — both fully
-   determined. A further 2,101 iterate a glob, which the filesystem of the day
-   decided and which survives only as the pattern.
-3. **A value is trusted or refused, never partial.** `ADB="$ANDROID_HOME/…"`
-   resolves to nothing today, where it should keep the suffix it does know.
-4. **An undetermined subject vanishes instead of counting.** A `sed -i` on a path
-   we cannot resolve is a write to *something*, and dropping it makes the record
-   look complete when it is not.
-5. **The timeline is Bash-only.** Rows are pushed inside the `Bash` branch of
-   `agents::scan_transcript`, so `Read`, `Write`, `Edit`, `Grep` and `Task` calls
-   produce no activity. The tool calls are parsed a few lines away.
-6. **The timeline has no page** — `/api/doing` is reachable only by curl — and
-   no **episodes**, the grouping of rows into stretches of one intent.
+1. **Nothing is ever bound**, so a variable assigned in the same command is still
+   unreadable.
+2. **No loop is unrolled**, so a loop over a literal list — or over `seq` with
+   constant bounds — names nothing.
+3. **A value is trusted or refused, never partial.** A literal suffix joined to
+   an unknown variable should keep the suffix.
+4. **An undetermined subject vanishes instead of counting**, which makes the
+   record look complete when it is not.
 
-**Deliberately not done, each decided from a measurement** so that none of it is
-re-opened on instinct:
+Then the timeline, which is a separate thread: it is **Bash-only** (rows are
+pushed inside the `Bash` branch of `agents::scan_transcript`, so `Read`, `Write`,
+`Edit`, `Grep` and `Task` produce no activity), it has **no page** — `/api/doing`
+is curl-only — and it has no **episodes**, the grouping of rows into stretches of
+one intent.
 
-- **No third-party parser.** `tree-sitter-bash` was tried against the pest
-  grammar: 299 commands gained, **165 lost**, and the losses were the heredoc
-  shapes carrying the remote work. `examples/tree-sitter-probe.rs` holds the
-  numbers and can be re-run when the upstream bug is fixed.
-- **No third language reader.** Of the heredoc bodies nobody reads, `cat` opens
-  3,397 and `git` 882 — file contents and commit messages, whose *effects* are
-  already recorded. SQL is 44 bodies. See `examples/tree-sitter-python-probe.rs`
-  and `src/bin/opacity.rs`.
-- **Regexes are not parsed yet.** 89,362 calls, the largest single payload we
-  carry, but a regex names no file. Worth reading later for intent, not for files.
-- **Scripts on disk are not opened.** `./scripts/deploy.sh` ran 23,168 times and
-  what it contained *then* is not recoverable — much of it was temporary, wrong,
-  or never committed. That region stays dark on purpose.
-- **`node -e` is not read.** 724 calls, 23 `writeFileSync`, mostly against
-  `./dist`, which attribution excludes anyway.
+**Deliberately not done**, so none of it is re-opened on instinct. Each was
+decided from a measurement kept with the thing it decided:
+
+| not done | why, in one line | where the numbers are |
+| --- | --- | --- |
+| a third-party parser | swapping loses more than it gains | `examples/tree-sitter-probe.rs` |
+| a third language reader | what is left is file content and commit messages | `src/bin/opacity.rs` |
+| parsing regexes | biggest by volume, but a regex names no file | `src/bin/opacity.rs` |
+| opening scripts on disk | what `deploy.sh` held *then* is not recoverable | — |
+| reading `node -e` | a query tool, not an editor | `src/shell_ops.rs` |
 
 ## The console
 

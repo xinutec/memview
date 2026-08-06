@@ -373,6 +373,64 @@ fn the_test_runners_read_the_specs_they_are_given() {
 }
 
 #[test]
+fn a_name_bound_to_a_literal_is_the_path_it_holds() {
+    // ⚠ **The largest unread name in the corpus, and its value is one line
+    // above its use.** `$ADB` appears in 1,023 commands and **564 of them assign
+    // it in the same command text**, usually to a literal nix-store path. It was
+    // written off as unresolvable — measured 2026-08-06, it never was: the
+    // reader simply had nowhere to keep a binding.
+    assert_eq!(
+        uses("ADB=/nix/store/abc-androidsdk/platform-tools/adb\ncat $ADB"),
+        [(
+            "/nix/store/abc-androidsdk/platform-tools/adb".to_string(),
+            false
+        )]
+    );
+    // `${NAME}` is written here too, and a name nobody bound is left as it was
+    // — so the path guard refuses it rather than filing work against `$NOPE`.
+    assert_eq!(
+        uses("OUT=/tmp/report.json\ncat ${OUT} $NOPE"),
+        [("/tmp/report.json".to_string(), false)]
+    );
+}
+
+#[test]
+fn a_name_bound_twice_is_trusted_no_further() {
+    // Read top to bottom, "the last one wins" looks obvious. It is a guess the
+    // moment a branch or a loop is involved, and this reader takes no branches —
+    // the same line `python.rs` draws with its bind-exactly-once rule.
+    assert!(uses("F=/tmp/a.txt\nF=/tmp/b.txt\ncat $F").is_empty());
+    // The same value twice is not a rebinding, and the corpus does it constantly
+    // — the same `ADB=…` in front of one command after another.
+    assert_eq!(
+        uses("F=/tmp/a.txt\nF=/tmp/a.txt\ncat $F"),
+        [("/tmp/a.txt".to_string(), false)]
+    );
+}
+
+#[test]
+fn a_binding_inside_a_subshell_does_not_escape_it() {
+    // The rule the working directory already follows, for the same reason: the
+    // shell that held the binding is gone. Without this, `(F=x; …)` would resolve
+    // every later `$F` in the script to a value that was never set there.
+    assert!(uses("(F=/tmp/a.txt; cat $F)\ncat $F").len() == 1);
+    // A prefix assignment binds for its own command and nothing after it.
+    assert_eq!(
+        uses("F=/tmp/a.txt cat $F\ncat $F"),
+        [("/tmp/a.txt".to_string(), false)]
+    );
+}
+
+#[test]
+fn a_value_that_is_itself_a_variable_binds_nothing() {
+    // `ADB="$ANDROID_HOME/platform-tools/adb"` is 354 of the corpus's
+    // assignments. It resolves to nothing here on purpose: a value that is
+    // partly known needs a domain that can hold "partly", which is the next
+    // slice. What must not happen is the suffix being taken for the whole path.
+    assert!(uses("ADB=$ANDROID_HOME/platform-tools/adb\ncat $ADB").is_empty());
+}
+
+#[test]
 fn a_remote_shell_is_not_descended_into() {
     // **The boundary.** `ssh host '…'` is 6,068 calls whose paths belong to
     // another machine; reading them would file that machine's filesystem

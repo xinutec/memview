@@ -37,6 +37,8 @@
 //! model, not a limit on what is knowable, and closing it is the work in the
 //! README's Roadmap.
 
+use std::collections::BTreeMap;
+
 /// What one command does.
 ///
 /// The variants are the operations this corpus actually performs — the same
@@ -191,16 +193,79 @@ pub fn looks_like_path(word: &str) -> bool {
     }
 }
 
+/// A `NAME=value` word, split — the shell's assignment, whether it stands alone
+/// or prefixes a command.
+///
+/// The name has to be a name: a leading `-` makes `--flag=value` a flag, and a
+/// `/` makes `a/b=c` a path that happens to contain one. Both appear in the
+/// corpus and neither binds anything.
+pub fn assignment(word: &str) -> Option<(&str, &str)> {
+    let (name, value) = word.split_once('=')?;
+    let mut chars = name.chars();
+    let first = chars.next()?;
+    (first.is_ascii_alphabetic() || first == '_')
+        .then(|| name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|ok| *ok)
+        .map(|_| (name, value))
+}
+
+/// Put the values this scope has bound back into a word.
+///
+/// ⚠ **A name nobody bound is left exactly as it was**, which matters more than
+/// it looks: `resolve` refuses a word still holding a `$`, so an unexpanded
+/// variable stays refused rather than becoming a path named `$ADB`. Expansion
+/// can only ever turn a refusal into a resolution, never the reverse.
+///
+/// `${NAME}` as well as `$NAME`, because both are written here. Nothing else of
+/// the shell's expansion vocabulary — no `${NAME:-default}`, no `$*` — since a
+/// half-understood expansion is the way to invent a path.
+pub fn expand(word: &str, env: &BTreeMap<String, String>) -> String {
+    if !word.contains('$') || env.is_empty() {
+        return word.to_string();
+    }
+    let mut out = String::with_capacity(word.len());
+    let mut rest = word;
+    while let Some(at) = rest.find('$') {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + 1..];
+        let (name, tail) = if let Some(braced) = after.strip_prefix('{') {
+            match braced.split_once('}') {
+                Some((name, tail)) => (name, tail),
+                None => break,
+            }
+        } else {
+            let end = after
+                .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                .unwrap_or(after.len());
+            (&after[..end], &after[end..])
+        };
+        match env.get(name) {
+            Some(value) => out.push_str(value),
+            // Put it back the way it was written, braces and all.
+            None if after.starts_with('{') => {
+                out.push_str("${");
+                out.push_str(name);
+                out.push('}');
+            }
+            None => {
+                out.push('$');
+                out.push_str(name);
+            }
+        }
+        rest = tail;
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Turn a word into an absolute path, or refuse it.
 ///
 /// Refuses more than it accepts, and each refusal is a category that would
 /// otherwise put a wrong path in the index:
-/// - an unexpanded `$VAR` — ⚠ **not because its value is unknowable, which is
-///   what this said and what turned out to be wrong.** Measured: 564 of the
-///   1,023 commands using `$ADB` bind it in the same command, usually to a
-///   literal. The value is in reach; this reader simply has nowhere to keep it.
-///   Until it does, refusing is right — a variable read as its own name would
-///   file work against a path called `$ADB`;
+/// - an unexpanded `$VAR` — because there is nowhere to keep a binding, not
+///   because the value is unknowable; see the module doc. Refusing stays right
+///   until there is: a variable read as its own name files work against a path
+///   called `$ADB`;
 /// - `host:path` and anything with a scheme — another machine, or a URL;
 /// - `/dev/*`, which is plumbing: left in, `/dev/null` is the busiest path in
 ///   the whole corpus at 25,407 writes and says nothing about anyone's work;

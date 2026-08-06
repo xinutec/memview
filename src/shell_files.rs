@@ -16,7 +16,9 @@
 use std::collections::BTreeMap;
 
 use crate::shell::Simple;
-use crate::shell_ops::{GitOp, Op, basename, classify, looks_like_path, resolve, unwrap_command};
+use crate::shell_ops::{
+    GitOp, Op, assignment, basename, classify, expand, looks_like_path, resolve, unwrap_command,
+};
 
 /// A file another machine's command used.
 ///
@@ -232,9 +234,66 @@ fn extract_nested(
     // to is unaffected — which is what the shell does.
     let mut dirs: BTreeMap<Vec<usize>, Option<String>> = BTreeMap::new();
     dirs.insert(Vec::new(), cwd.map(str::to_string));
+    // What each scope has bound, by the same rule as the directory above it: an
+    // assignment inside `( … )` is invisible outside it, because the subshell it
+    // ran in is gone. `None` is a name bound twice — see [`bind`].
+    let mut binds: BTreeMap<Vec<usize>, BTreeMap<String, Option<String>>> = BTreeMap::new();
 
     for cmd in cmds {
         let here = current(&dirs, &cmd.scope);
+        // ⚠ **Expansion happens before anything else looks at the words**, so
+        // every stage below — the verb table, the path guard, the nested parse —
+        // sees the command the shell would have run. A name nobody bound is left
+        // written as it was and refused later, exactly as before.
+        let env = visible(&binds, &cmd.scope);
+        let argv: Vec<String> = cmd.argv.iter().map(|word| expand(word, &env)).collect();
+        // A run of `NAME=value` words at the front. Alone they are the whole
+        // command and bind the scope; in front of a command they bind for that
+        // command only and are gone after it — which is why they are applied to
+        // a copy of the environment rather than to the scope.
+        let assignments = argv
+            .iter()
+            .take_while(|word| assignment(word).is_some())
+            .count();
+        if assignments > 0 && assignments == argv.len() {
+            let scope = binds.entry(cmd.scope.clone()).or_default();
+            for word in &argv {
+                if let Some((name, value)) = assignment(word) {
+                    bind(scope, name, value);
+                }
+            }
+            out.handled += 1;
+            continue;
+        }
+        let argv: Vec<String> = if assignments > 0 {
+            let mut prefixed = env.clone();
+            for word in &argv[..assignments] {
+                if let Some((name, value)) = assignment(word)
+                    && !value.contains('$')
+                {
+                    prefixed.insert(name.to_string(), value.to_string());
+                }
+            }
+            argv[assignments..]
+                .iter()
+                .map(|word| expand(word, &prefixed))
+                .collect()
+        } else {
+            argv
+        };
+        let cmd = &Simple {
+            argv,
+            scope: cmd.scope.clone(),
+            redirects: cmd
+                .redirects
+                .iter()
+                .map(|redirect| crate::shell::Redirect {
+                    target: expand(&redirect.target, &env),
+                    write: redirect.write,
+                })
+                .collect(),
+            heredocs: cmd.heredocs.clone(),
+        };
         // A redirect names a file whatever the command is, so it counts even for
         // one that is not understood: `./gradlew build > /tmp/out` is a write.
         let carrier = cmd
@@ -349,6 +408,62 @@ fn extract_nested(
 
 /// The working directory in force for a scope: its own if it has moved, else
 /// the nearest enclosing one that has.
+/// Record what a name was bound to, or that it can no longer be trusted.
+///
+/// ⚠ **A name bound twice to different values becomes unknown, and stays
+/// unknown.** Reading a script top to bottom, "the last assignment wins" looks
+/// obvious — but the moment a branch or a loop is involved it is a guess, and
+/// this reader takes no branches. `python.rs` drew the same line for the same
+/// reason (a name bound exactly once), and two different rules for one idea in
+/// one codebase is how they drift apart.
+///
+/// Bound to the same value twice is not a rebinding. The corpus does it often —
+/// the same `ADB=/nix/store/…` in front of several commands — and calling that
+/// ambiguous would lose the commonest shape there is.
+fn bind(scope: &mut BTreeMap<String, Option<String>>, name: &str, value: &str) {
+    // Only a literal. `ADB="$ANDROID_HOME/platform-tools/adb"` is 354 of the
+    // corpus's assignments and resolves to nothing yet: it needs a value that
+    // can be partly known, which is the next slice of work, not this one.
+    if value.contains('$') || value.contains('`') {
+        scope.insert(name.to_string(), None);
+        return;
+    }
+    match scope.get(name) {
+        Some(Some(already)) if already == value => {}
+        Some(_) => {
+            scope.insert(name.to_string(), None);
+        }
+        None => {
+            scope.insert(name.to_string(), Some(value.to_string()));
+        }
+    }
+}
+
+/// Every binding this scope can see, innermost winning — the environment as the
+/// shell would have it at this point in the script.
+///
+/// Only the names that are still trusted: one that was bound twice is absent
+/// rather than present-and-wrong, so [`expand`] leaves it written as `$NAME` and
+/// the path guard refuses it.
+fn visible(
+    binds: &BTreeMap<Vec<usize>, BTreeMap<String, Option<String>>>,
+    scope: &[usize],
+) -> BTreeMap<String, String> {
+    let mut env = BTreeMap::new();
+    for n in 0..=scope.len() {
+        let Some(here) = binds.get(&scope[..n].to_vec()) else {
+            continue;
+        };
+        for (name, value) in here {
+            match value {
+                Some(value) => env.insert(name.clone(), value.clone()),
+                None => env.remove(name),
+            };
+        }
+    }
+    env
+}
+
 fn current(dirs: &BTreeMap<Vec<usize>, Option<String>>, scope: &[usize]) -> Option<String> {
     (0..=scope.len())
         .rev()
