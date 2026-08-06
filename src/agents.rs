@@ -942,11 +942,29 @@ fn outcomes(text: &[u8]) -> std::collections::HashMap<String, crate::doing::Verd
 /// alone would delete the largest sessions there are. A titler makes no tool
 /// call at all, and that is what separates them.
 ///
-/// Ordered so the cheap half runs first: the `ai-title` needle is absent from
-/// almost every transcript, and where it is absent nothing else is read.
+/// Two markers, because neither alone is complete: four of these produced a
+/// title in their reply without an `ai-title` line ever being written, and are
+/// recognisable only by the prompt they were handed.
+///
+/// ⚠ **The tool-call test runs first, and that ordering is load-bearing.** Any
+/// session that *investigates* this problem quotes the titling prompt into its
+/// own transcript — this very rule was written in one that now contains the
+/// string twice. Matching the prompt first would make a session disappear for
+/// having looked into why sessions disappear. Making a tool call is what no
+/// titler ever does, and it is checked before any text is.
+///
+/// Deleting the rest is not the alternative: a transcript with no tool call
+/// contributes nothing either way, so if these markers ever go stale the cost is
+/// a few visible empty rows rather than lost work. A bare "made no tool call"
+/// test would be simpler and would also drop the 7 dispatched subagents (of 940)
+/// that answered without using one, which is real delegation and worth counting.
 fn titling(text: &[u8]) -> bool {
-    find_at(text, b"\"type\":\"ai-title\"", 0).is_some()
-        && find_at(text, b"\"type\":\"tool_use\"", 0).is_none()
+    if find_at(text, b"\"type\":\"tool_use\"", 0).is_some() {
+        return false;
+    }
+    const TITLED: &[u8] = b"\"type\":\"ai-title\"";
+    const ASKED: &[u8] = b"Below is part of a conversation between a person and a coding agent";
+    find_at(text, TITLED, 0).is_some() || find_at(text, ASKED, 0).is_some()
 }
 
 /// Whether the tool call whose name begins at `at` did what it was asked.

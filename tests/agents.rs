@@ -1543,6 +1543,9 @@ fn a_session_that_only_titles_another_is_not_an_agent() {
     // 11,000 to 110,000 lines, thousands of tool calls — carry an `ai-title`
     // line too. Excluding on that line alone would delete the largest sessions
     // in the corpus.
+    // The four that never got an `ai-title` line are known only by the prompt
+    // they were handed.
+    let untitled = "{\"type\":\"user\",\"timestamp\":\"2026-07-01T09:00:00Z\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Below is part of a conversation between a person and a coding agent, with the tool calls removed.\"}]}}".to_string();
     let titler = |id: &str| {
         format!(
             "{{\"type\":\"user\",\"timestamp\":\"2026-07-01T10:00:00Z\",\"message\":{{\"content\":[{{\"type\":\"text\",\"text\":\"Below is part of a conversation…\"}}]}}}}\n\
@@ -1560,6 +1563,7 @@ fn a_session_that_only_titles_another_is_not_an_agent() {
                 )],
             ),
             ("s2", vec![titler("s2")]),
+            ("s4", vec![untitled]),
             // A working session that also carries a title line stays.
             (
                 "s3",
