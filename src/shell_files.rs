@@ -9,9 +9,12 @@
 //! over the operations rather than a second table to keep in step with the
 //! first.
 //!
-//! What is left here that is not a projection is the one thing an operation
-//! cannot know alone: **the working directory**, which `cd` moves and a subshell
-//! restores. That needs the sequence, so it lives with the loop over it.
+//! What is left here that is not a projection is everything an operation cannot
+//! know alone, because it belongs to the *sequence* rather than to any one
+//! command: **the working directory**, which `cd` moves and a subshell restores;
+//! **what each name is bound to**, which an assignment sets and a second one
+//! takes away; and **how many times a body ran**, which only its `for` says. All
+//! three need the commands in order, so they live with the loop over them.
 
 use std::collections::BTreeMap;
 

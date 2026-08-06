@@ -151,24 +151,30 @@ nobody look inside, and who handed it over.
 ### Roadmap
 
 **Where it reaches today** (2026-08-06, 134,004 Bash calls from 1,205
-transcripts): 99.7% of 98,321 distinct commands parse; **99.0% of 648,142 simple
+transcripts): 99.7% of 98,321 distinct commands parse; **98.9% of 746,241 simple
 commands are understood**; 9,006 Python programs are read inside the shell that
 ran them. Nested shells (`nix -c`, `bash -c`, `nix-shell --run`) are followed;
 `ssh`/`kubectl`/`docker` are followed and filed against the machine, never here.
 
-**The distance left to the aim.** Two ways the reader stops short of what the
-text already determines. They are limitations rather than principles —
-`shell_ops.rs` draws that line and carries the measurements:
+⚠ **That denominator counts commands *run*, not commands written** — 94,377 of
+them exist because a determinate loop was run out. A percentage against it is
+not comparable with one from before loops were unrolled, which is why the tool
+prints the two apart.
 
-1. **No loop is unrolled**, so a loop over a literal list — or over `seq` with
-   constant bounds — names nothing.
-2. **An undetermined subject vanishes instead of counting**, which makes the
-   record look complete when it is not.
+**The distance left to the aim.** One way the reader still stops short of what
+the text determines, and it is now a narrow one:
 
-Below those, the remaining 6,775 unread commands are no longer a structural
-gap: the list is headed by `dhall-to-json`, `k3s`, `screen`, `journalctl` — all
-missing rows in the verb table rather than shapes the reader cannot express.
-Adding a row is worth doing when the command names files; most of these do not.
+1. **An undetermined subject vanishes instead of counting.** A word refused by
+   the path guard leaves no trace, so a command that used a file we could not
+   name looks like a command that used none. 592 distinct such subjects remain
+   (down from 1,025 before unrolling); what is left is led by `$f`, `$p` and
+   `$d` inside loops whose list is a glob or a `$(…)` — the two things that
+   genuinely are not in the text.
+
+Below that, the remaining unread commands are not a structural gap: the list is
+headed by `dhall-to-json`, `k3s`, `screen`, `journalctl` — all missing rows in
+the verb table rather than shapes the reader cannot express. Adding a row is
+worth doing when the command names files; most of these do not.
 
 Then the timeline, which is a separate thread: it is **Bash-only** (rows are
 pushed inside the `Bash` branch of `agents::scan_transcript`, so `Read`, `Write`,

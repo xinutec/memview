@@ -18,24 +18,24 @@
 //! beyond `~`/`$HOME`, nothing is looked up on disk, and a word must be shaped
 //! like a path before it can be one.
 //!
-//! ⚠ **Two of those are principles and two are limitations, and the difference
+//! ⚠ **Two of those are principles and one is a limitation, and the difference
 //! decides which may be lifted.**
 //!
 //! *Principles, permanent:* nothing is looked up on disk — the filesystem of the
 //! day is gone and today's is a different machine's answer — and **nothing is
-//! ever guessed**. A subject we cannot determine is recorded as undetermined,
-//! never approximated, because an invented path is the one failure that makes
-//! every count downstream a lie.
+//! ever guessed**, because an invented path is the one failure that makes every
+//! count downstream a lie.
 //!
-//! *Limitations, to be lifted:* **nothing is bound and nothing is evaluated.**
-//! There is no environment here, so `ADB=/nix/store/…/adb` two words earlier
-//! cannot resolve the `$ADB` that follows — measured over the corpus, **564 of
-//! the 1,023 commands using `$ADB` assign it in the same command text**, and it
-//! is the largest unread name there is. Likewise a loop over a literal word list
-//! (3,078 of 10,398) or over `$(seq N M)` with constant bounds (1,008) is fully
-//! determined by the text and is read as nothing at all. That is a gap in the
-//! model, not a limit on what is knowable, and closing it is the work in the
-//! README's Roadmap.
+//! *The limitation:* a subject that cannot be determined **vanishes instead of
+//! counting**. `resolve` answering `None` leaves nothing behind, so a command
+//! that named a file no one can read looks exactly like a command that named
+//! none, and the record reads as complete when it is not. 592 distinct subjects
+//! are lost this way, led by loop variables whose list is a glob or a `$(…)` —
+//! the two things that genuinely are not in the text.
+//!
+//! What used to stand here alongside it — nothing is bound, nothing is
+//! evaluated — is done: `shell_files.rs` carries an environment and runs
+//! determinate loops out into the commands they ran.
 
 use std::collections::BTreeMap;
 
