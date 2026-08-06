@@ -267,6 +267,58 @@ fn the_registry_beats_the_name_the_transcript_remembers() {
 }
 
 #[test]
+fn the_name_a_session_goes_by_beats_the_one_the_registry_made_up() {
+    // ⚠ Real shapes, both of them. The registry stopped holding chosen names and
+    // now carries the CLI's own handle for a session — `code-c4`, the working
+    // directory and two hex digits — while the name somebody picked is appended
+    // to the transcript as the session goes along. Trusting the registry first
+    // renamed every conversation on the page to a placeholder.
+    let lines = vec![
+        call(Tool::Write, "/code/thing/x", "2026-07-01T10:00:00Z"),
+        r#"{"type":"agent-name","agentName":"health","sessionId":"s1"}"#.to_string(),
+    ];
+    let agents = mine(
+        &[("s1", lines)],
+        &[("100", r#"{"pid":100,"sessionId":"s1","name":"code-c4"}"#)],
+    );
+
+    assert_eq!(agents[0].name, "health");
+}
+
+#[test]
+fn a_rename_wins_because_the_last_line_is_the_one_read() {
+    // The property the registry was trusted for in the first place. These lines
+    // are appended as the session goes, so the newest is what it goes by — and
+    // a session named twice must not answer to its first name.
+    let lines = vec![
+        r#"{"type":"agent-name","agentName":"first","sessionId":"s1"}"#.to_string(),
+        call(Tool::Write, "/code/thing/x", "2026-07-01T10:00:00Z"),
+        r#"{"type":"agent-name","agentName":"second","sessionId":"s1"}"#.to_string(),
+    ];
+    let agents = mine(&[("s1", lines)], &[]);
+
+    assert_eq!(agents[0].name, "second");
+}
+
+#[test]
+fn a_name_line_belonging_to_another_session_names_nobody() {
+    // A transcript prints other sessions' lines — this one does, in the output of
+    // the very command that found the bug. The id on the line is what settles
+    // whose name it is, and a line about somebody else falls through to the
+    // fallbacks rather than renaming this agent.
+    let lines = vec![
+        call(Tool::Write, "/code/thing/x", "2026-07-01T10:00:00Z"),
+        r#"{"type":"agent-name","agentName":"elsewhere","sessionId":"s2"}"#.to_string(),
+    ];
+    let agents = mine(
+        &[("s1", lines)],
+        &[("100", r#"{"pid":100,"sessionId":"s1","name":"code-c4"}"#)],
+    );
+
+    assert_eq!(agents[0].name, "code-c4");
+}
+
+#[test]
 fn a_session_the_registry_forgot_falls_back_to_the_transcript_then_the_id() {
     let named = vec![
         r#"{"type":"user","message":{"content":"the user named this session \"remembered\""}}"#

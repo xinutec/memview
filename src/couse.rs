@@ -182,6 +182,22 @@ pub(crate) fn find_at(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
     (from..=hay.len() - needle.len()).find(|&i| &hay[i..i + needle.len()] == needle)
 }
 
+/// Find the LAST `needle` in `hay`, searched from the end.
+///
+/// The pair of [`find_at`], and worth having as its own function rather than as
+/// a forward scan that keeps the last hit: what this is for is a line the CLI
+/// re-appends as a session goes along, so the answer is a few kilobytes from the
+/// end of a file that can be gigabytes. Searching backwards stops there; the
+/// full pass is only paid when there is nothing to find.
+pub(crate) fn last_at(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || hay.len() < needle.len() {
+        return None;
+    }
+    (0..=hay.len() - needle.len())
+        .rev()
+        .find(|&i| &hay[i..i + needle.len()] == needle)
+}
+
 /// The value of a `"key":"…"` field, as bytes, without parsing the line.
 ///
 /// A full `serde_json` parse of every line costs minutes across three gigabytes,

@@ -764,6 +764,55 @@ fn named_in_transcript(text: &[u8]) -> Option<String> {
     (!name.is_empty() && name.len() <= 40).then(|| name.to_string())
 }
 
+/// The name a session is going by *now*, from the line the CLI re-appends as it
+/// goes along.
+///
+/// ⚠ **This, not the registry, is where a chosen name lives.** `~/.claude/sessions`
+/// used to hold it and no longer does: every entry there now carries a name the
+/// CLI made up for itself — `code-c4`, `code-fa`, the working directory's last
+/// segment and two hex digits — so a conversation called `health` was shown as
+/// `code-c4` while the console's own front page, which reads these lines, called
+/// it `health`. Measured 2026-08-06: all fourteen registry entries were of that
+/// form and not one carried a name anybody had chosen.
+///
+/// **Last occurrence wins**, which is what makes this current where the
+/// once-written `named this session` reminder goes stale — a rename appends
+/// another of these, and the newest is the answer.
+///
+/// Anchored on the whole opening of the line, `{"type":"agent-name",`, rather
+/// than on the key alone. Inside a transcript every quote of a quoted line is
+/// backslash-escaped, so this shape occurs only where the CLI wrote the line
+/// itself and never in a tool result that happens to print one — which
+/// transcripts on this machine do.
+///
+/// The session id on the line has to be the transcript's own, so a line copied
+/// from elsewhere cannot rename an agent. Returns `None` when the CLI changes the
+/// shape, which costs the fallbacks and not correctness.
+fn titled_in_transcript(text: &[u8], owner: &str) -> Option<String> {
+    // The name it was given, then the title it shows under — the same word in
+    // every transcript here, and this order because one is a name and the other
+    // is a caption.
+    const WRITTEN: [&[u8]; 2] = [
+        br#"{"type":"agent-name","agentName":""#,
+        br#"{"type":"custom-title","customTitle":""#,
+    ];
+    WRITTEN
+        .iter()
+        .find_map(|needle| last_titled(text, needle, owner))
+}
+
+/// The value on the last line opening with `needle`, when that line is `owner`'s.
+fn last_titled(text: &[u8], needle: &[u8], owner: &str) -> Option<String> {
+    let start = crate::couse::last_at(text, needle)? + needle.len();
+    let end = find_at(text, b"\"", start)?;
+    let line = find_at(text, b"\n", end).unwrap_or(text.len());
+    // The id is on the same line, after the name. A line naming another session
+    // is not this session's name, however it got here — so no id, no name.
+    find_at(&text[end..line], owner.as_bytes(), 0)?;
+    let name = std::str::from_utf8(&text[start..end]).ok()?;
+    (!name.is_empty() && name.len() <= 40).then(|| name.to_string())
+}
+
 /// The key holding the path, inside a tool call's `input` object.
 const PATH_KEY: &[u8] = b"\"file_path\":\"";
 
@@ -1153,19 +1202,30 @@ pub fn scan(
         let Ok(text) = std::fs::read(&transcript.path) else {
             continue;
         };
-        // Registry first, transcript second, id last. An unnamed session is
-        // shown as its id rather than merged into an "unknown" bucket —
-        // several distinct agents pooled under one label would be a claim
-        // about the work that nothing supports.
+        // The name it goes by now, then the registry, then the reminder it was
+        // given once, then the id.
+        //
+        // ⚠ **The registry used to come first and no longer can.** It is still
+        // live where the once-written reminder goes stale, which was the whole
+        // argument for it — but what it now holds is a name the CLI made up
+        // (`code-c4`), so trusting it first renamed every conversation on the
+        // page to a placeholder. See [`titled_in_transcript`]. It stays ahead of
+        // the reminder, and a session nobody named still shows the CLI's short
+        // handle in preference to a bare uuid.
+        //
+        // An unnamed session is shown as its id rather than merged into an
+        // "unknown" bucket — several distinct agents pooled under one label
+        // would be a claim about the work that nothing supports.
         let name = resolved
             .entry(transcript.owner.clone())
             .or_insert_with(|| {
-                names
-                    .get(&transcript.owner)
-                    .cloned()
-                    // Only a session's own transcript carries the naming
-                    // reminder; a subagent that quotes one is quoting its
-                    // parent's context, not naming itself.
+                // Only a session's own transcript names it; a subagent carries
+                // its parent's context, and quoting a name is not being called
+                // one.
+                (!transcript.delegated)
+                    .then(|| titled_in_transcript(&text, &transcript.owner))
+                    .flatten()
+                    .or_else(|| names.get(&transcript.owner).cloned())
                     .or_else(|| {
                         (!transcript.delegated)
                             .then(|| named_in_transcript(&text))
