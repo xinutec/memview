@@ -977,7 +977,31 @@ fn from_user(content: Content) -> Vec<Event> {
             },
             _ => Vec::new(),
         })
-        .collect()
+        .collect::<Vec<Event>>()
+        .into_iter()
+        .fold(Vec::new(), one_thing_said)
+}
+
+/// One message is one thing said, however many blocks it arrived in.
+///
+/// ⚠ **Measured, and it made somebody doubt their own memory.** A prompt reached
+/// the CLI twice within a millisecond and was merged into a single message
+/// carrying the same words in two blocks — which this reader turned into two
+/// prompts, so the transcript showed a question asked twice that was asked once.
+/// One in every user message in this project's transcripts, so the merging is
+/// rare; the misattribution it caused is not the kind worth leaving in.
+///
+/// Blank line between, because separate blocks are separate paragraphs — that is
+/// how the model was given them.
+fn one_thing_said(mut said: Vec<Event>, event: Event) -> Vec<Event> {
+    match (said.last_mut(), event) {
+        (Some(Event::Prompt { text: held }), Event::Prompt { text }) => {
+            held.push_str("\n\n");
+            held.push_str(&text);
+        }
+        (_, event) => said.push(event),
+    }
+    said
 }
 
 /// The phrase that ties a sent picture to the copy on disk. Written by

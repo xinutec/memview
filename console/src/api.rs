@@ -203,6 +203,16 @@ async fn input(
     let session = roster
         .get(&id)
         .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
+    // ⚠ **A receipt, because a message arriving twice leaves no other trace.**
+    // One did: the same words reached the CLI inside a millisecond and were
+    // merged into a single message carrying them twice, and nothing on this
+    // machine could say whether the phone had sent once or twice. The length
+    // rather than the words — this is enough to count arrivals, and a log is not
+    // where a conversation belongs.
+    tracing::info!(
+        "{id}: accepted {} characters to send",
+        body.text.chars().count()
+    );
     session
         .send(&body.text)
         .await

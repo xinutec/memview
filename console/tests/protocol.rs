@@ -328,6 +328,18 @@ fn a_message_that_merely_mentions_a_notification_is_still_a_prompt() {
 }
 
 #[test]
+fn one_message_is_one_thing_said_however_many_blocks_it_came_in() {
+    // Verbatim from a real transcript: the same words reached the CLI twice
+    // inside a millisecond and were merged into one message of two blocks. Read
+    // per block it showed a question asked twice that was asked once.
+    let line = r#"{"type":"user","message":{"role":"user","content":[{"text":"What's next?","type":"text"},{"text":"What's next?","type":"text"}]}}"#;
+    assert!(matches!(
+        read(line).as_slice(),
+        [Event::Prompt { text }] if text == "What's next?\n\nWhat's next?"
+    ));
+}
+
+#[test]
 fn an_ordinary_message_is_still_a_prompt() {
     let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"do the thing"}]}}"#;
     assert!(matches!(read(line).as_slice(), [Event::Prompt { text }] if text == "do the thing"));
