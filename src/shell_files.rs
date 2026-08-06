@@ -281,8 +281,14 @@ fn extract_nested(
 
     // A loop the text already determines is run out into the commands it ran,
     // before anything looks at any of them — see [`unrolled`].
-    let ran = unrolled(cmds);
+    let mut ran = unrolled(cmds);
     out.unrolled += ran.len() - cmds.len();
+    // ⚠ **Again, now that the iterations exist separately.** The parser demoted
+    // the `&&`s the exit status cannot reach, but it saw a loop body *once*. A
+    // loop reports only its last iteration's status, so every earlier
+    // iteration's `&&` is unconfirmable — and that is only visible after the
+    // body has been run out into one copy per value.
+    crate::shell::forget_discarded_status(&mut ran);
     let cmds = &ran;
     for cmd in cmds {
         let here = current(&dirs, &cmd.scope);

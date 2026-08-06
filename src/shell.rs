@@ -310,12 +310,26 @@ pub fn parse(script: &str) -> Result<Vec<Simple>, String> {
 ///
 /// Without this, "the call exited 0, so every `&&` ran" is a plain over-claim,
 /// and it is the kind that reads as precision.
-fn forget_discarded_status(cmds: &mut [Simple]) {
+pub(crate) fn forget_discarded_status(cmds: &mut [Simple]) {
+    // ⚠ **A closing keyword is not a command and has no status of its own.**
+    // The grammar surfaces `done`, `fi` and `esac` as ordinary words, so they
+    // arrive here looking like unconditional commands sitting *after* the body
+    // they close. Left in, the last one anchors the final segment and demotes
+    // every `&&` in the whole script — measured on the corpus, that is what a
+    // single `for` loop did to everything before it.
+    const CLOSERS: [&str; 3] = ["done", "fi", "esac"];
     // The final segment begins at the last unconditional command at the top
     // level; anything nested after it belongs to that segment too.
     let final_segment = cmds
         .iter()
-        .rposition(|cmd| cmd.scope.is_empty() && cmd.reached == Reached::Always)
+        .rposition(|cmd| {
+            cmd.scope.is_empty()
+                && cmd.reached == Reached::Always
+                && !cmd
+                    .argv
+                    .first()
+                    .is_some_and(|word| CLOSERS.contains(&word.as_str()))
+        })
         .unwrap_or(0);
     for cmd in &mut cmds[..final_segment] {
         if cmd.reached == Reached::OnSuccess {

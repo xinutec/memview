@@ -316,3 +316,21 @@ fn a_verdict_and_a_condition_together_decide_what_certainly_ran() {
     assert!(Verdict::Unknown.admits(Reached::Always));
     assert!(!Verdict::Unknown.admits(Reached::OnSuccess));
 }
+
+#[test]
+fn a_closing_keyword_is_not_a_command_and_ends_no_segment() {
+    // ⚠ **`done`, `fi` and `esac` arrive here looking like unconditional
+    // commands sitting after the body they close.** Treated as real ones, the
+    // last of them anchors the final segment and demotes every `&&` in the whole
+    // script — one `for` loop was enough to make everything before it
+    // unconfirmable.
+    assert_eq!(
+        conditions("for f in x; do a && b; done"),
+        [
+            Reached::Always,
+            Reached::Always,
+            Reached::OnSuccess,
+            Reached::Always
+        ]
+    );
+}
