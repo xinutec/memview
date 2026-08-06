@@ -96,6 +96,7 @@ fn main() -> anyhow::Result<()> {
     let mut searched: BTreeMap<String, usize> = BTreeMap::new();
     let mut renames = 0usize;
     let mut nested_unparsed = 0usize;
+    let mut unrolled = 0usize;
     // What happens on the other machines — read from the same scripts, kept out
     // of every local figure.
     let mut remote: BTreeMap<String, (usize, usize)> = BTreeMap::new();
@@ -117,6 +118,7 @@ fn main() -> anyhow::Result<()> {
         let found = shell_files::extract(&parsed, cwd, &home);
         handled += found.handled;
         nested_unparsed += found.nested_unparsed;
+        unrolled += found.unrolled;
         for use_ in &found.remote {
             let host = remote.entry(use_.host.clone()).or_default();
             let path = remote_paths
@@ -172,7 +174,11 @@ fn main() -> anyhow::Result<()> {
     let commands = handled + unhandled;
     println!("Bash calls          {calls}");
     println!("  unparsed          {unparsed}");
+    // Commands *run*, not commands written: a determinate loop is run out into
+    // its iterations before any of this counts them. Stated next to the total
+    // because it moves the denominator under every percentage below.
     println!("simple commands     {commands}");
+    println!("  from unrolling    {unrolled}");
     println!(
         "  understood        {handled}  ({:.1}%)",
         100.0 * handled as f64 / commands.max(1) as f64

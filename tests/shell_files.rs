@@ -192,12 +192,21 @@ fn a_redirect_counts_even_when_the_command_is_unknown() {
 fn a_loop_body_is_read_through_its_keyword() {
     // The grammar leaves `do` as an ordinary word, so the command behind it is
     // hidden until the keyword is stripped — 5,594 commands' worth.
+    //
+    // Twice, because the loop ran twice. A body that names the same file every
+    // time still used it once per iteration, and the record says so.
     assert_eq!(
         uses("for f in a b; do cat src/geo/osm.ts; done"),
-        [(
-            "/home/example/Code/health/src/geo/osm.ts".to_string(),
-            false
-        )]
+        [
+            (
+                "/home/example/Code/health/src/geo/osm.ts".to_string(),
+                false
+            ),
+            (
+                "/home/example/Code/health/src/geo/osm.ts".to_string(),
+                false
+            )
+        ]
     );
 }
 
@@ -472,6 +481,64 @@ fn a_remote_shell_is_not_descended_into() {
     assert!(uses("ssh root@isis 'sed -i s/a/b/ /etc/hosts'").is_empty());
     assert!(uses("kubectl exec deploy/app -- sh -c 'cat /app/config.yaml'").is_empty());
     assert!(uses("docker exec api sh -c 'rm /srv/data.db'").is_empty());
+}
+
+#[test]
+fn a_loop_over_a_literal_list_runs_once_per_value() {
+    // ⚠ **The largest vanished subject in the corpus.** 6,474 shell `for` loops,
+    // 4,524 of them over a literal word list — fully determined by the text and
+    // read as nothing at all, because the loop variable expanded to nothing.
+    // `$f` alone was refused 1,416 times, `$r` 338, `$d` 308.
+    assert_eq!(
+        uses("for f in a.txt b.txt; do cat $f; done"),
+        [
+            ("/home/example/Code/health/a.txt".to_string(), false),
+            ("/home/example/Code/health/b.txt".to_string(), false),
+        ]
+    );
+    // The corpus's real shape: a name per repository, joined to a path.
+    assert_eq!(
+        uses("for r in life coach; do cat $r/package.json; done"),
+        [
+            (
+                "/home/example/Code/health/life/package.json".to_string(),
+                false
+            ),
+            (
+                "/home/example/Code/health/coach/package.json".to_string(),
+                false
+            ),
+        ]
+    );
+    // A value binds inside the loop and nowhere after it. Bash would leave the
+    // last one standing; refusing it is the safe direction, and inventing
+    // `a.txt` for a command outside the loop is not.
+    assert!(uses("for f in a.txt; do :; done\ncat $f").is_empty());
+}
+
+#[test]
+fn a_loop_whose_list_is_not_determined_is_left_alone() {
+    // A glob is answered by the filesystem of the day, which is gone; `$(…)`
+    // is answered by running something. Neither is in the text, so neither is
+    // unrolled — 727 glob loops and 330 substitutions stay dark on purpose.
+    assert!(uses("for f in *.ts; do cat $f; done").is_empty());
+    assert!(uses("for f in $(ls); do cat $f; done").is_empty());
+    assert!(uses("for f in $LIST; do cat $f; done").is_empty());
+}
+
+#[test]
+fn a_loop_inside_a_loop_is_unrolled_by_both() {
+    // The inner loop is unrolled first, then duplicated by the outer — so the
+    // body runs the product of the two lists, as it did.
+    assert_eq!(
+        uses("for d in x y; do for f in a.txt b.txt; do cat $d/$f; done; done"),
+        [
+            ("/home/example/Code/health/x/a.txt".to_string(), false),
+            ("/home/example/Code/health/x/b.txt".to_string(), false),
+            ("/home/example/Code/health/y/a.txt".to_string(), false),
+            ("/home/example/Code/health/y/b.txt".to_string(), false),
+        ]
+    );
 }
 
 #[test]

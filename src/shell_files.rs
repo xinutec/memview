@@ -79,6 +79,17 @@ pub struct Extract {
     /// `files`; this is what could not be read, and is the worklist for
     /// [`crate::python`] exactly as `unhandled` is for the table above.
     pub python: crate::python::Tally,
+    /// Commands that exist because a determinate loop was run out — the
+    /// difference between the commands a script *wrote* and the ones it *ran*.
+    ///
+    /// Reported because it moves the denominator under every other figure here:
+    /// once loops are unrolled, "simple commands" counts executions, and a
+    /// percentage against it is no longer comparable with one from before.
+    ///
+    /// ⚠ **Subtracting it does not give the commands written.** A `bash -c`
+    /// inside a loop body is parsed once per iteration, so the commands *it*
+    /// contains are duplicated without any level counting them here.
+    pub unrolled: usize,
     /// Nested scripts the grammar could not read. Reported rather than dropped:
     /// a devshell wrapper whose inner shell fails to parse is a silent hole in
     /// exactly the third of the corpus that runs through one.
@@ -117,6 +128,7 @@ impl Extract {
         self.ops.extend(inner.ops);
         self.activities.extend(inner.activities);
         self.handled += inner.handled;
+        self.unrolled += inner.unrolled;
         self.nested_unparsed += inner.nested_unparsed;
         self.python.merge(inner.python);
         for (name, n) in inner.unhandled {
@@ -240,6 +252,11 @@ fn extract_nested(
     // twice, or bound to something only running it would answer — see [`bind`].
     let mut binds: BTreeMap<Vec<usize>, BTreeMap<String, Option<String>>> = BTreeMap::new();
 
+    // A loop the text already determines is run out into the commands it ran,
+    // before anything looks at any of them — see [`unrolled`].
+    let ran = unrolled(cmds);
+    out.unrolled += ran.len() - cmds.len();
+    let cmds = &ran;
     for cmd in cmds {
         let here = current(&dirs, &cmd.scope);
         // ⚠ **Expansion happens before anything else looks at the words**, so
@@ -405,6 +422,135 @@ fn extract_nested(
         out.ops.push(op);
     }
     out
+}
+
+/// How far a determinate loop may be run out.
+///
+/// A backstop against a generated script whose word list is a thousand long
+/// turning one body into a thousand commands, not a limit anything real meets:
+/// the corpus's longest literal list is well inside it. A loop over the cap is
+/// left folded, exactly as every loop was before.
+const MAX_UNROLL: usize = 256;
+
+/// Run the loops the text already determines out into the commands they ran.
+///
+/// ⚠ **This is where the reader stops looking commands up and starts evaluating
+/// them.** A `for` over a literal word list says exactly what happened — 4,524
+/// of the corpus's 6,474 shell loops — and reading it as a header plus a body
+/// full of `$f` threw away the largest single class of subject there is: `$f`
+/// alone was refused 1,416 times, `$r` 338, `$d` 308.
+///
+/// A list is run out only when every value is in the text. A glob is answered by
+/// the filesystem of the day, which is gone, and `$(…)` by running something,
+/// which never happens here; those loops are left as they were for the path
+/// guard to refuse.
+///
+/// Heredoc bodies are not substituted into. They are data handed to another
+/// reader, and a loop variable inside one is rare enough not to be worth the
+/// risk of rewriting a program's text.
+fn unrolled(cmds: &[Simple]) -> Vec<Simple> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at < cmds.len() {
+        match run_out(cmds, at) {
+            Some((commands, next)) => {
+                out.extend(commands);
+                at = next;
+            }
+            None => {
+                out.push(cmds[at].clone());
+                at += 1;
+            }
+        }
+    }
+    out
+}
+
+/// One loop run out, with the index just past its `done` — or `None` when the
+/// command at `at` does not open a loop the text determines.
+///
+/// The `for` and its `done` are kept, so the commands a script *wrote* are still
+/// all counted; what grows is the body, once per value.
+fn run_out(cmds: &[Simple], at: usize) -> Option<(Vec<Simple>, usize)> {
+    let (name, values) = literal_loop(&cmds[at].argv)?;
+    let end = closing_done(cmds, at)?;
+    // Inner loops first, so an outer list multiplies a body already run out.
+    let body = unrolled(&cmds[at + 1..end]);
+    if values.len().checked_mul(body.len())? > MAX_UNROLL {
+        return None;
+    }
+    let mut out = vec![cmds[at].clone()];
+    for value in values {
+        let env = BTreeMap::from([(name.to_string(), value.to_string())]);
+        out.extend(body.iter().map(|cmd| substituted(cmd, &env)));
+    }
+    out.push(cmds[end].clone());
+    Some((out, end + 1))
+}
+
+/// `for NAME in W1 W2 …`, when every value is written out.
+///
+/// Read through [`unwrap_command`] because a nested loop arrives with the
+/// keyword in front of it: `for d in x y; do for f in a b; do …` splits on `;`
+/// into a command whose first word is `do`, with the inner `for` behind it.
+fn literal_loop(argv: &[String]) -> Option<(&str, Vec<&str>)> {
+    let [head, name, over, values @ ..] = unwrap_command(argv) else {
+        return None;
+    };
+    if head != "for" || over != "in" || values.is_empty() {
+        return None;
+    }
+    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return None;
+    }
+    values
+        .iter()
+        .map(|value| determinate(value).then_some(value.as_str()))
+        .collect::<Option<Vec<_>>>()
+        .map(|values| (name.as_str(), values))
+}
+
+/// Whether a word is a value in its own right, needing nothing run and nothing
+/// looked up to know it.
+fn determinate(word: &str) -> bool {
+    !word.is_empty() && !word.contains(['$', '`', '*', '?', '[', '{'])
+}
+
+/// The `done` that closes the loop opened at `at`, counting the loops between.
+fn closing_done(cmds: &[Simple], at: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    for (n, cmd) in cmds.iter().enumerate().skip(at) {
+        match unwrap_command(&cmd.argv).first().map(String::as_str) {
+            Some("for" | "while" | "until" | "select") => depth += 1,
+            // `echo done` is not a `done` — this reads the command's own name,
+            // which is why the grammar was right to leave the keyword ordinary.
+            Some("done") => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(n);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// One command with the loop's value put in place of its name.
+fn substituted(cmd: &Simple, env: &BTreeMap<String, String>) -> Simple {
+    Simple {
+        argv: cmd.argv.iter().map(|word| expand(word, env)).collect(),
+        scope: cmd.scope.clone(),
+        redirects: cmd
+            .redirects
+            .iter()
+            .map(|redirect| crate::shell::Redirect {
+                target: expand(&redirect.target, env),
+                write: redirect.write,
+            })
+            .collect(),
+        heredocs: cmd.heredocs.clone(),
+    }
 }
 
 /// Whether a value is worth keeping at all, as opposed to being kept as a
