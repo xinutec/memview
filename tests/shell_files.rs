@@ -422,12 +422,45 @@ fn a_binding_inside_a_subshell_does_not_escape_it() {
 }
 
 #[test]
-fn a_value_that_is_itself_a_variable_binds_nothing() {
-    // `ADB="$ANDROID_HOME/platform-tools/adb"` is 354 of the corpus's
-    // assignments. It resolves to nothing here on purpose: a value that is
-    // partly known needs a domain that can hold "partly", which is the next
-    // slice. What must not happen is the suffix being taken for the whole path.
+fn a_partly_known_value_names_no_file() {
+    // A value carrying a `$` it cannot expand is kept, but only as far as it is
+    // known. What must not happen is the suffix being taken for the whole path
+    // — `/platform-tools/adb` is not where anything lives.
     assert!(uses("ADB=$ANDROID_HOME/platform-tools/adb\ncat $ADB").is_empty());
+}
+
+#[test]
+fn a_partly_known_value_still_names_the_command() {
+    // ⚠ **The unknown part of a value must not hide the known part.** 354 of
+    // the corpus's assignments hold a `$` they cannot expand, and refusing them
+    // whole threw away the one thing that was written down plainly: the name of
+    // the tool being run. `$ADB` was the largest unread command in the corpus
+    // at 1,071 calls — none of them a command called `$ADB`.
+    // `adb` is a verb the table already knows, so those calls stop being unread
+    // at all — the head was the only thing standing between them and it.
+    assert!(unread("ADB=\"$ANDROID_HOME/platform-tools/adb\"\n$ADB shell ls").is_empty());
+    // A tool the table does not know is now unread under its own name instead
+    // of the variable's, which is what makes the unread list worth ranking.
+    assert_eq!(unread("P=\"$ROOT/bin/probe\"\n$P --list"), ["probe"]);
+    // And when it is a tool the table reads, its arguments come with it. The
+    // head being unknown never said anything about the operands.
+    assert_eq!(
+        uses("PY=\"$VENV/bin/python\"\n$PY scripts/mine.py"),
+        [(
+            "/home/example/Code/health/scripts/mine.py".to_string(),
+            false
+        )]
+    );
+}
+
+#[test]
+fn a_value_that_must_be_run_binds_nothing() {
+    // The one shape where keeping the text is worse than keeping nothing: the
+    // substitution becomes the command's own name, and the index grows an entry
+    // for a tool called `$(which adb)`. 13 of 1,023 `$ADB` uses, so the cost of
+    // refusing is 13 commands and the cost of guessing is a corrupt index.
+    assert_eq!(unread("ADB=$(which adb)\n$ADB shell ls"), ["$ADB"]);
+    assert_eq!(unread("ADB=`which adb`\n$ADB shell ls"), ["$ADB"]);
 }
 
 #[test]

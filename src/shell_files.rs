@@ -236,7 +236,8 @@ fn extract_nested(
     dirs.insert(Vec::new(), cwd.map(str::to_string));
     // What each scope has bound, by the same rule as the directory above it: an
     // assignment inside `( … )` is invisible outside it, because the subshell it
-    // ran in is gone. `None` is a name bound twice — see [`bind`].
+    // ran in is gone. `None` is a name that can no longer be trusted: bound
+    // twice, or bound to something only running it would answer — see [`bind`].
     let mut binds: BTreeMap<Vec<usize>, BTreeMap<String, Option<String>>> = BTreeMap::new();
 
     for cmd in cmds {
@@ -269,7 +270,7 @@ fn extract_nested(
             let mut prefixed = env.clone();
             for word in &argv[..assignments] {
                 if let Some((name, value)) = assignment(word)
-                    && !value.contains('$')
+                    && keepable(value)
                 {
                     prefixed.insert(name.to_string(), value.to_string());
                 }
@@ -406,9 +407,28 @@ fn extract_nested(
     out
 }
 
-/// The working directory in force for a scope: its own if it has moved, else
-/// the nearest enclosing one that has.
+/// Whether a value is worth keeping at all, as opposed to being kept as a
+/// partial one.
+///
+/// A value the shell would have had to *run* to know — `$(which adb)`,
+/// `` `date` `` — is worth nothing, and keeping its text does active harm: the
+/// substitution becomes the command's own name, and the index grows an entry
+/// called `$(which adb)`. Only 13 of the corpus's 1,023 `$ADB` uses are this
+/// shape, so refusing them costs almost nothing.
+///
+/// Everything else is kept exactly as written, `$NAME` and all — see [`bind`].
+fn keepable(value: &str) -> bool {
+    !value.contains("$(") && !value.contains('`')
+}
+
 /// Record what a name was bound to, or that it can no longer be trusted.
+///
+/// A value may be **partly** known: `ADB="$ANDROID_HOME/platform-tools/adb"` is
+/// kept whole, with the unexpanded head still in it. Nothing downstream can
+/// invent a path from that — [`resolve`] refuses any word still holding a `$` —
+/// but `basename` reads `adb`, so the verb table is reachable and the unread
+/// list names the tool rather than the variable. That is the whole point: the
+/// unknown part of a value must not hide the known part.
 ///
 /// ⚠ **A name bound twice to different values becomes unknown, and stays
 /// unknown.** Reading a script top to bottom, "the last assignment wins" looks
@@ -421,10 +441,7 @@ fn extract_nested(
 /// the same `ADB=/nix/store/…` in front of several commands — and calling that
 /// ambiguous would lose the commonest shape there is.
 fn bind(scope: &mut BTreeMap<String, Option<String>>, name: &str, value: &str) {
-    // Only a literal. `ADB="$ANDROID_HOME/platform-tools/adb"` is 354 of the
-    // corpus's assignments and resolves to nothing yet: it needs a value that
-    // can be partly known, which is the next slice of work, not this one.
-    if value.contains('$') || value.contains('`') {
+    if !keepable(value) {
         scope.insert(name.to_string(), None);
         return;
     }
@@ -464,6 +481,8 @@ fn visible(
     env
 }
 
+/// The working directory in force for a scope: its own if it has moved, else
+/// the nearest enclosing one that has.
 fn current(dirs: &BTreeMap<Vec<usize>, Option<String>>, scope: &[usize]) -> Option<String> {
     (0..=scope.len())
         .rev()

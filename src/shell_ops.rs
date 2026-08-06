@@ -262,10 +262,10 @@ pub fn expand(word: &str, env: &BTreeMap<String, String>) -> String {
 ///
 /// Refuses more than it accepts, and each refusal is a category that would
 /// otherwise put a wrong path in the index:
-/// - an unexpanded `$VAR` — because there is nowhere to keep a binding, not
-///   because the value is unknowable; see the module doc. Refusing stays right
-///   until there is: a variable read as its own name files work against a path
-///   called `$ADB`;
+/// - an unexpanded `$VAR` — every value the binder knows is already in the word
+///   by the time it arrives here, so what is left is a name nobody bound, one
+///   bound twice, or one only running the command would answer. Filing it would
+///   put a path called `$ADB` in the index;
 /// - `host:path` and anything with a scheme — another machine, or a URL;
 /// - `/dev/*`, which is plumbing: left in, `/dev/null` is the busiest path in
 ///   the whole corpus at 25,407 writes and says nothing about anyone's work;
