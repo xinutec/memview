@@ -1210,9 +1210,7 @@ field that reads like a measurement and is actually an aggregate.**
   `allowed` / `allowed_warning` / `rejected`) says the allowance is running out.
 - **Background tasks are only the ones the harness tracks.** A command
   backgrounded inside a shell announces nothing, so the label says "background
-  tasks", not "nothing is running". The count is cleared on `started`: a new
-  process cannot have inherited the last one's work, and a task killed with a
-  console restart never reports.
+  tasks", not "nothing is running".
 - ⚠ **What counts is read off what a call ANSWERS, never off its arguments.**
   This was `run_in_background: true` on the input for a long time, which is a
   *request* to detach — and measured across 27,731 calls in one 241 MB
@@ -1238,6 +1236,25 @@ field that reads like a measurement and is actually an aggregate.**
   chosen: a reworded CLI undercounts, which is visibly wrong one way and is
   exactly what this replaced. A rule guessing from the tool's *name* would count
   work that never started and leave the number stuck for the life of the session.
+- ⚠ **The phrase has to OPEN the result, or reading this page starts a task.**
+  The match was a `contains`, so any result that merely *quoted* one of the four
+  openings counted as a launch — a grep for them, a read of the module that
+  defines them, a read of the test that lists them verbatim. The console inflated
+  its own count whenever anybody opened the rule behind it. Measured over this
+  machine's transcripts: 7,416 results matched anywhere against 7,405 at the
+  front, and **all 11 of the difference were quotations**. No genuine launch
+  announces itself in the middle of a sentence.
+- ⚠ **A killed task is the one ending that reports nothing, so the kill is read
+  instead.** Stopping a task answers on the *stopping* call and names the task
+  rather than the call that started the work — and no notification ever follows,
+  because the work did not finish. Measured: **162 kills, not one of them
+  notified**, and they were 162 of the 209 counts that never came down. Seen
+  here — a watcher started at 11:03:34 and stopped thirteen seconds later still
+  read as one task running two hours later.
+
+  So an entry carries both names: keyed by the call, because that is what a
+  notification names, and holding the task, because that is all a kill has to
+  give. The task id was readable on every one of the 7,405 launches.
 - ⚠ **And cleared on `joined`, because history is not evidence.** The seed
   replays the transcript through the same reader as the live stream, so every
   backgrounded call on the last page was counted a second time — and a resumed

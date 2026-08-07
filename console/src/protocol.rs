@@ -461,10 +461,17 @@ struct Recorded {
 pub enum Running {
     /// A call was started and left going, named by its own id. The call itself
     /// returns at once with a task id and nothing else.
-    Began(String),
-    /// The harness says one has finished, naming the call that started it. This
-    /// is the *only* end-of-work signal a backgrounded call has.
+    ///
+    /// Both names are kept because the two endings speak different ones: a
+    /// notification names the `tool` that started the work, a kill names the
+    /// `task` the harness gave it. `task` is `None` for a detach whose id could
+    /// not be read — still running, merely not matchable to a kill.
+    Began { tool: String, task: Option<String> },
+    /// The harness says one has finished, naming the call that started it.
     Ended(String),
+    /// A task was stopped from here, named by its task id. Killing one is the
+    /// other way work ends, and the only way that reports nothing afterwards.
+    Killed(String),
     /// Nothing that was running still is — as far as anybody can tell.
     Gone,
     /// This event says nothing about background work.
@@ -488,9 +495,23 @@ pub enum Running {
 /// and children all carry on. Reading it as a restart emptied the count on the
 /// next message sent, which is exactly when it is worth having: a commit sat in
 /// the gate for eight minutes with the card claiming nothing was running.
+///
+/// ⚠ **A killed task is never reported finished, so the kill has to be read
+/// here.** Stopping one answers on the *stopping* call — the started call has
+/// already returned — and no notification ever follows. Measured over this
+/// machine's transcripts: 162 kills, not one of them notified. A watcher started
+/// and stopped thirteen seconds later held the count at one for the rest of the
+/// session.
 pub fn running(event: &Event) -> Running {
     match event {
-        Event::ToolResult { id, detail, .. } if detached(detail) => Running::Began(id.clone()),
+        Event::ToolResult { id, detail, .. } => match (detached(detail), stopped(detail)) {
+            (Some(task), _) => Running::Began {
+                tool: id.clone(),
+                task,
+            },
+            (None, Some(task)) => Running::Killed(task),
+            (None, None) => Running::Quiet,
+        },
         Event::Background { tool, .. } => Running::Ended(tool.clone()),
         Event::Joined { .. } => Running::Gone,
         _ => Running::Quiet,
@@ -531,18 +552,78 @@ pub fn running(event: &Event) -> Running {
 /// in one direction only; a rule that guessed from the tool's *name* would count
 /// work that never started and leave the number stuck at one for the life of the
 /// session. Failing closed is worth a fragile match.
-fn detached(said: &str) -> bool {
-    const SAYS: [&str; 4] = [
+///
+/// ⚠ **The phrase has to *open* the result, not merely appear in it — because
+/// otherwise reading this file starts a task.** A `contains` counted every
+/// result that *quoted* one of these sentences: a grep for the phrase, a `Read`
+/// of this module, a `Read` of the test that lists the openings verbatim. The
+/// console inflated its own count whenever anyone opened the rule that defines
+/// it. Measured over this machine's transcripts: 7,416 results matched
+/// anywhere, 7,405 at the front, and all 11 of the difference were quotations —
+/// no genuine launch announces itself in the middle of a sentence.
+///
+/// Returns the task id the harness gave the work, since a kill names that and
+/// not the call. `Some(None)` is a detach whose id could not be read: still
+/// running, merely not matchable to a kill. It was readable on all 7,405.
+fn detached(said: &str) -> Option<Option<String>> {
+    /// One way a result opens when it has left work running: the words it starts
+    /// with, and the marker its task id follows.
+    struct Opening {
+        opens: &'static str,
+        before_id: &'static str,
+    }
+    const SAYS: [Opening; 4] = [
         // Bash, asked to detach.
-        "Command running in background with ID:",
-        // Bash, not asked to, and moved anyway when it outran its timeout.
-        "and was moved to the background",
-        // Agent, which runs in the background unless told otherwise.
-        "Async agent launched successfully",
-        // Monitor, the tool this whole change came from.
-        "Monitor started (task ",
+        Opening {
+            opens: "Command running in background with ID: ",
+            before_id: "Command running in background with ID: ",
+        },
+        // Bash, not asked to, and moved anyway when it outran its timeout. The
+        // opening stops short of the id because the timeout itself — a number
+        // that varies by call — sits between the two.
+        Opening {
+            opens: "Command did not complete within its",
+            before_id: "and was moved to the background (ID: ",
+        },
+        // Agent, which runs in the background unless told otherwise. Its id is
+        // on the following line, and the result asks that it never be repeated
+        // to anyone — so it is matched on here and rendered nowhere.
+        Opening {
+            opens: "Async agent launched successfully",
+            before_id: "\nagentId: ",
+        },
+        // Monitor, the tool the whole rule came from.
+        Opening {
+            opens: "Monitor started (task ",
+            before_id: "Monitor started (task ",
+        },
     ];
-    SAYS.iter().any(|phrase| said.contains(phrase))
+    let opening = SAYS
+        .iter()
+        .find(|opening| said.starts_with(opening.opens))?;
+    Some(
+        said.split_once(opening.before_id)
+            .and_then(|(_, id)| id_at(id)),
+    )
+}
+
+/// The task a kill has just ended, when this result is one.
+///
+/// The stopping call answers in JSON rather than prose, which is why this is a
+/// prefix of the whole document and not a sentence: `{"message":"Successfully
+/// stopped task: …`. Only the one tool says it.
+fn stopped(said: &str) -> Option<String> {
+    id_at(said.strip_prefix(r#"{"message":"Successfully stopped task: "#)?)
+}
+
+/// The id starting here, which runs until whatever ends it — a full stop, a
+/// comma, a bracket or a space, depending on which sentence it was found in.
+fn id_at(rest: &str) -> Option<String> {
+    let id: String = rest
+        .chars()
+        .take_while(char::is_ascii_alphanumeric)
+        .collect();
+    (!id.is_empty()).then_some(id)
 }
 
 pub fn recorded_at(line: &str) -> Option<i64> {

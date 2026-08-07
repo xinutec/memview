@@ -433,9 +433,13 @@ struct State {
     limit: Option<String>,
     /// What the API last said about each rate-limit window. See [`Tally::spent`].
     spent: BTreeMap<String, Seen>,
-    /// Background tool calls started and not reported finished. See
+    /// Background tool calls started and not yet ended, by the id of the call
+    /// that started each, against the task id the harness gave it. See
     /// [`Summary::background`].
-    background: std::collections::BTreeSet<String>,
+    ///
+    /// Keyed by the call because that is what a notification names; carrying the
+    /// task because that is what a kill names, and a kill is silent afterwards.
+    background: std::collections::BTreeMap<String, Option<String>>,
     /// When the process last wrote a line, in epoch milliseconds. See
     /// [`Session::heard`]; zero for one that has never said anything.
     heard: i64,
@@ -1247,12 +1251,17 @@ impl Session {
             // See [`protocol::running`] for the two cases that mean "forget what
             // you were counting".
             match protocol::running(&event) {
-                protocol::Running::Began(id) => {
-                    state.background.insert(id);
+                protocol::Running::Began { tool, task } => {
+                    state.background.insert(tool, task);
                 }
                 protocol::Running::Ended(id) => {
                     state.background.remove(&id);
                 }
+                // By the task, because that is the only name a kill gives — and
+                // the call it belonged to is never heard from again.
+                protocol::Running::Killed(task) => state
+                    .background
+                    .retain(|_, started| started.as_deref() != Some(task.as_str())),
                 protocol::Running::Gone => state.background.clear(),
                 protocol::Running::Quiet => {}
             }

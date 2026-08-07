@@ -157,6 +157,48 @@ async fn work_left_running_is_counted_until_the_harness_says_it_is_done() {
 }
 
 #[tokio::test]
+async fn killing_one_brings_the_count_down_because_nothing_else_will() {
+    // ⚠ **The ending that reports nothing.** A stopped task never produces a
+    // notification, and the notification is what the count is keyed by — so the
+    // number stayed up for the life of the session. Measured over this machine's
+    // transcripts: 162 kills, none of them notified, 162 of the 209 counts that
+    // never came down. Seen on this console — a watcher started at 11:03:34 and
+    // stopped thirteen seconds later still read as one task running two hours on.
+    //
+    // The stopping call names the *task*, which is the only name it has to give;
+    // the started call is never heard from again. That is why the session holds
+    // both names against one entry.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Started { .. }))
+    })
+    .await;
+
+    session.send("do it in the background").await.expect("send");
+    until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::ToolResult { .. }))
+    })
+    .await;
+    assert_eq!(session.summary().background, 1, "started and left running");
+
+    session.send("stop that").await.expect("send");
+    until(&session, |seen| {
+        seen.iter()
+            .filter(|e| matches!(e, Event::ToolResult { .. }))
+            .count()
+            > 1
+    })
+    .await;
+    assert_eq!(
+        session.summary().background,
+        0,
+        "a kill ends the work as surely as a notification does"
+    );
+}
+
+#[tokio::test]
 async fn one_process_serves_several_turns() {
     // The property the whole design rests on: a session is a conversation, not a
     // series of cold starts.

@@ -457,32 +457,93 @@ fn every_way_a_tool_says_it_left_something_running() {
     // `Bash` accepts — measured across 27,731 calls, it appears on nothing else.
     // These four are the phrases the CLI actually emits; see `protocol::detached`
     // for the precision and recall behind them.
-    for (what, said) in [
+    // Each also yields the task id, which is the name the *kill* speaks and the
+    // only one it speaks. All four openings carry one; it was readable on every
+    // one of the 7,405 launches measured.
+    for (what, task, said) in [
         (
             "a shell command asked to detach",
+            "bh0ynhbpb",
             "Command running in background with ID: bh0ynhbpb. Output is being written to /tmp/x",
         ),
         (
             // ⚠ The one no rule about arguments could have found: its input says
             // `run_in_background: false`, because that is what was asked for.
             "a shell command moved there for outliving its timeout",
-            "Command did not complete within its 120s timeout and was moved to the background",
+            "bzfolz7cw",
+            "Command did not complete within its 120s timeout and was moved to the background (ID: bzfolz7cw). Output is being written to /tmp/x",
         ),
         (
             "a subagent, which detaches unless told not to",
-            "Async agent launched successfully. (This tool result is internal metadata",
+            "a57ea009199806c73",
+            "Async agent launched successfully. (This tool result is internal metadata\nagentId: a57ea009199806c73 (internal ID - do not mention to user.",
         ),
         (
             "a monitor, the tool this whole rule came from",
+            "bajuqh4xe",
             "Monitor started (task bajuqh4xe, timeout 1800000ms). You will be notified on each event",
         ),
     ] {
         assert_eq!(
             console::protocol::running(&answered("toolu_bg", said)),
-            console::protocol::Running::Began("toolu_bg".to_string()),
+            console::protocol::Running::Began {
+                tool: "toolu_bg".to_string(),
+                task: Some(task.to_string()),
+            },
             "{what}"
         );
     }
+}
+
+#[test]
+fn quoting_the_phrase_is_not_saying_it() {
+    // ⚠ **This test is itself the reason for the rule.** A `contains` matched
+    // any result that merely repeated one of the openings — a grep for them, a
+    // `Read` of `protocol::detached`, a `Read` of the list above — so opening
+    // the file that defines the count added to it. Measured over this machine's
+    // transcripts: 7,416 results matched anywhere against 7,405 at the front,
+    // and every one of the 11 was a quotation.
+    for (what, said) in [
+        (
+            "a file read back with line numbers",
+            "   537	        \"Command running in background with ID:\",\n   538	        // Bash",
+        ),
+        (
+            "a grep counting the openings",
+            "3 matches\nAsync agent launched successfully\nMonitor started (task ",
+        ),
+        (
+            "a tally that names them",
+            "notified/marked  495\n--- marked but never notified:\n    Monitor :: Monitor started (task b7rsrkzgb",
+        ),
+    ] {
+        assert_eq!(
+            console::protocol::running(&answered("toolu_read", said)),
+            console::protocol::Running::Quiet,
+            "{what}"
+        );
+    }
+}
+
+#[test]
+fn a_kill_is_the_ending_that_announces_nothing() {
+    // ⚠ **The only ending with no notification behind it.** Stopping a task
+    // answers on the *stopping* call, and the call that started the work — the
+    // one the count is keyed by — is never heard from again. Measured: 162 kills
+    // across this machine's transcripts, every one matched to a launch we had
+    // recorded, and not one of them notified afterwards. They were 162 of the
+    // 209 counts that never came down.
+    //
+    // Named by task rather than by call for the same reason: the kill has only
+    // that name to give. JSON rather than prose because this tool, alone among
+    // them, answers in it.
+    assert_eq!(
+        console::protocol::running(&answered(
+            "toolu_stop",
+            r#"{"message":"Successfully stopped task: bpb1qb1ty (cd /home/example && until ! pgrep -qf \"cargo clippy\"; do sleep 20; done)"}"#,
+        )),
+        console::protocol::Running::Killed("bpb1qb1ty".to_string())
+    );
 }
 
 #[test]
