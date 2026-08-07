@@ -393,6 +393,7 @@ fn roster_of(agents: Vec<Agent>) -> Agents {
     Agents {
         doing: Default::default(),
         renames: Default::default(),
+        memory_days: Default::default(),
         generated: "2026-08-01T00:00:00Z".into(),
         commits: 0,
         unattributed: 0,
@@ -537,6 +538,7 @@ fn a_session_resolves_to_its_agent_and_a_forgotten_one_to_nobody() {
     let roster = Agents {
         doing: Default::default(),
         renames: Default::default(),
+        memory_days: Default::default(),
         generated: "2026-07-31T00:00:00Z".into(),
         commits: 0,
         unattributed: 0,
@@ -960,6 +962,7 @@ fn a_file_changed_from_the_shell_is_counted_as_its_own_dimension() {
     let roster = Agents {
         doing: Default::default(),
         renames: Default::default(),
+        memory_days: Default::default(),
         generated: String::new(),
         commits: 0,
         unattributed: 0,

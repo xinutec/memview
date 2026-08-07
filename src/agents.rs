@@ -311,6 +311,18 @@ pub struct Agents {
     /// be told the history came from somewhere else.
     #[serde(default)]
     pub renames: BTreeMap<String, String>,
+    /// When each memory was opened and changed, corpus-wide rather than per
+    /// agent — the evidence for which of them the index should still carry.
+    ///
+    /// **Never serialised with the roster**, like [`Self::doing`] and for the
+    /// same two reasons: `/api/agents` answers "who works where" and this
+    /// answers a different question entirely, and it is tens of kilobytes of
+    /// integers that no view draws, sent to a phone over a VPN. The miner takes
+    /// it out and saves it beside, where `memory-rank` reads it.
+    ///
+    /// See [`MemoryDays`] for why the days are kept and the weight is not.
+    #[serde(skip)]
+    pub memory_days: BTreeMap<String, MemoryDays>,
     /// Named sessions, busiest first.
     pub agents: Vec<Agent>,
 }
@@ -499,14 +511,14 @@ const WRITE_TOOLS: [&str; 2] = ["Write", "Edit"];
 /// did, and — unlike event decay — the answer did not move when the half-life
 /// was halved. A signal that is insensitive to a tuning constant is one the
 /// constant is not secretly carrying.
-const HALF_LIFE_DAYS: f64 = 14.0;
+pub const HALF_LIFE_DAYS: f64 = 14.0;
 
 /// Days since the epoch for an ISO-8601 stamp, from its `YYYY-MM-DD` prefix.
 ///
 /// Hinnant's civil-days algorithm, inline rather than pulled from a date crate:
 /// the whole need is "how many days between these two dates", and the miner
 /// otherwise has no date dependency at all.
-fn day_number(stamp: &str) -> Option<i64> {
+pub fn day_number(stamp: &str) -> Option<i64> {
     let bytes = stamp.as_bytes();
     if bytes.len() < 10 || bytes[4] != b'-' || bytes[7] != b'-' {
         return None;
@@ -538,17 +550,65 @@ fn day_number(stamp: &str) -> Option<i64> {
 /// Nothing decays to zero, so an old project fades out of the ordering rather
 /// than disappearing — the lifetime counts alongside it stay undecayed.
 pub fn recency(days: &std::collections::BTreeSet<i64>, today: i64) -> f64 {
-    days.iter()
-        .map(|&d| 0.5f64.powf(((today - d).max(0)) as f64 / HALF_LIFE_DAYS))
-        .sum()
+    weighted(days.iter().copied(), today, HALF_LIFE_DAYS)
+}
+
+/// The same, over any days and any half-life.
+///
+/// ⚠ **The half-life is a parameter so that it can be doubted.** The constant
+/// above is trusted on the evidence that halving it did not move the answer, and
+/// that evidence has to be reproducible on demand rather than remembered from
+/// the afternoon somebody checked. A weighting nobody can re-run is a weighting
+/// that has quietly become the thing deciding.
+pub fn weighted(days: impl Iterator<Item = i64>, today: i64, half_life: f64) -> f64 {
+    let total: f64 = days
+        .map(|d| 0.5f64.powf(((today - d).max(0)) as f64 / half_life))
+        .sum();
+    // ⚠ **`+ 0.0` is not redundant.** Rust sums `f64` from an identity of `-0.0`,
+    // deliberately, because `-0.0 + x == x` preserves the sign of every term
+    // where `0.0 + -0.0` would not. So a memory with no days at all comes back
+    // as negative zero, which is numerically zero and prints as `-0.00` — a
+    // column of those in a report reads as a bug in the weighting rather than as
+    // the absence of any use. Adding positive zero normalises the sign and
+    // nothing else.
+    total + 0.0
+}
+
+/// The days one memory was opened and the days it was changed, corpus-wide.
+///
+/// ⚠ **The days themselves, not a score.** A weight is a reading of the days
+/// through one half-life, and the whole method here rests on being able to take
+/// that reading twice: the constant is trustworthy only for as long as halving
+/// it does not move the answer. Storing the weight would make that check
+/// impossible without re-mining three gigabytes, which is how a constant quietly
+/// becomes the thing deciding.
+///
+/// Days since the epoch, as [`day_number`] counts them. Sorted and unique, so
+/// the set is the same fact however many times a memory was opened that day.
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MemoryDays {
+    /// Days something opened it with `Read`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reads: Vec<i64>,
+    /// Days something wrote or edited it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub edits: Vec<i64>,
 }
 
 /// The days an agent was present in each project, kept apart from the counts
 /// because a day is not a tally — the same day seen twice is still one day.
+///
+/// The same question is asked of memories, and for a sharper reason: whether a
+/// memory belongs in the index is decided by how *recently and repeatedly* it is
+/// consulted, and one afternoon of forty opens is a worse claim on the index
+/// than a fortnight of one a day. Counting events answered that wrong; counting
+/// days answers it right, which is the one thing settled by measurement here.
 #[derive(Default)]
 struct DaysSeen {
     reads: BTreeMap<String, std::collections::BTreeSet<i64>>,
     writes: BTreeMap<String, std::collections::BTreeSet<i64>>,
+    memory_reads: BTreeMap<String, std::collections::BTreeSet<i64>>,
+    memory_edits: BTreeMap<String, std::collections::BTreeSet<i64>>,
 }
 
 /// The project a path belongs to: the first element under the code root.
@@ -1308,6 +1368,19 @@ fn scan_transcript(
                             }
                         }
                     } else if let Some(memory) = memory_of(path, memory_root) {
+                        // The day, beside the count. Which memories the index
+                        // should hold is a question about what is live, and a
+                        // total cannot answer it: a memory opened forty times
+                        // during one afternoon's work on a dead project outranks
+                        // one opened daily for a fortnight, on counts alone.
+                        if let Some(day) = day {
+                            let days = if is_write {
+                                &mut seen.memory_edits
+                            } else {
+                                &mut seen.memory_reads
+                            };
+                            days.entry(memory.clone()).or_default().insert(day);
+                        }
                         let use_ = memories.entry(memory).or_default();
                         if is_write {
                             use_.edits += 1;
@@ -1435,7 +1508,32 @@ pub fn scan(
         );
     }
 
+    // ⚠ **Memory days are unioned across agents, where project days are not.**
+    // A project is somebody's work and the question is who; a memory is the
+    // corpus's and the question is whether the index should still carry it. Two
+    // agents opening one memory on the same day is one day of that memory being
+    // live, and summing per-agent weights instead would let a memory several
+    // sessions share outrank one that a single session depends on daily.
+    type DaySet = std::collections::BTreeSet<i64>;
+    let mut memory_read_days: BTreeMap<String, DaySet> = BTreeMap::new();
+    let mut memory_edit_days: BTreeMap<String, DaySet> = BTreeMap::new();
     for (name, seen) in &days {
+        // Sets, because two agents opening one memory on the same day is one day
+        // of it being live — appending to a list would count it twice and make
+        // the shared memories look busier than the depended-on ones.
+        for (memory, when) in &seen.memory_reads {
+            memory_read_days
+                .entry(memory.clone())
+                .or_default()
+                .extend(when);
+        }
+        for (memory, when) in &seen.memory_edits {
+            memory_edit_days
+                .entry(memory.clone())
+                .or_default()
+                .extend(when);
+        }
+
         let Some(agent) = by_name.get_mut(name) else {
             continue;
         };
@@ -1493,12 +1591,33 @@ pub fn scan(
         let total: usize = a.reads.values().sum::<usize>() + a.writes.values().sum::<usize>();
         (std::cmp::Reverse(total), a.name.clone())
     });
+    let memory_days = memory_read_days
+        .keys()
+        .chain(memory_edit_days.keys())
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .map(|memory| {
+            let days = |from: &BTreeMap<String, DaySet>| {
+                from.get(&memory)
+                    .map(|set| set.iter().copied().collect())
+                    .unwrap_or_default()
+            };
+            let use_ = MemoryDays {
+                reads: days(&memory_read_days),
+                edits: days(&memory_edit_days),
+            };
+            (memory, use_)
+        })
+        .collect();
+
     Ok(Agents {
         doing: log.finish(generated),
         generated: generated.to_string(),
         commits: history.len(),
         unattributed,
         renames,
+        memory_days,
         agents,
     })
 }

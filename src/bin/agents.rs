@@ -7,7 +7,7 @@
 //! never inside `memory/`, which `scripts/sync.sh` replaces wholesale, so
 //! anything parked there is destroyed on the next sync.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use memview::agents;
 use memview::couse::stamp;
 
@@ -104,6 +104,18 @@ fn main() -> Result<()> {
     let timeline = std::mem::take(&mut found.doing);
     let beside = std::path::Path::new(&out).with_file_name("doing.json");
     timeline.save(&beside)?;
+
+    // The memory days go the same way and for the same reason — a different
+    // question, and one no view draws. `memory-rank` reads this file.
+    let days = std::mem::take(&mut found.memory_days);
+    let days_file = std::path::Path::new(&out).with_file_name("memory-days.json");
+    std::fs::write(&days_file, serde_json::to_string(&days)?)
+        .with_context(|| format!("writing {}", days_file.display()))?;
+    println!(
+        "{} memories carry days → {}",
+        days.len(),
+        days_file.display()
+    );
     let failed = timeline
         .rows
         .iter()
