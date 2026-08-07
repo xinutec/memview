@@ -463,6 +463,13 @@ export class SessionView implements OnDestroy {
     const box = this.scroller()?.nativeElement;
     if (!box) return;
     const followed = this.following.pinned;
+    // ⚠ **Read before the engine is told**, because both change: `lastWrite` is
+    // overwritten by the next write and `held` by the next touch, and an unpin
+    // explained by the state *after* it is explained by the wrong state.
+    const wrote = this.following.lastWrite;
+    const held = this.following.held;
+    const was = this.was;
+    this.was = box.scrollTop;
     this.following.moved(measure(box));
     // ⚠ **The moment following stops, with the numbers that stopped it.**
     // Reported from a phone as a conversation opening part-way up and coming
@@ -474,13 +481,22 @@ export class SessionView implements OnDestroy {
     if (followed && !this.following.pinned) {
       this.telemetry.measured(
         'unpinned',
-        `gap=${Math.round(box.scrollHeight - box.scrollTop - box.clientHeight)} top=${Math.round(box.scrollTop)} height=${box.scrollHeight} view=${box.clientHeight} entries=${this.entries().length} settled=${this.following.settled}`,
+        `gap=${Math.round(box.scrollHeight - box.scrollTop - box.clientHeight)} top=${Math.round(box.scrollTop)} was=${Math.round(was)} wrote=${Math.round(wrote)} held=${held} height=${box.scrollHeight} view=${box.clientHeight} entries=${this.entries().length} settled=${this.following.settled}`,
       );
     }
   }
 
   /** Where the reader is meant to be, and everything that decides it. */
   private readonly following = new Following();
+
+  /**
+   * Where the view was at the previous scroll event — for the trace alone.
+   *
+   * Direction is the one thing a single measurement cannot carry, and it is
+   * exactly what separates a reader scrolling back from a box changing shape
+   * underneath one who has not moved.
+   */
+  private was = 0;
 
   /**
    * The page before the one on screen.

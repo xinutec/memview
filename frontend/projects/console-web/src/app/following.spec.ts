@@ -177,3 +177,49 @@ describe('while the reader holds the screen', () => {
     expect(following.wants(box(2000, 10600))).toBeUndefined();
   });
 });
+
+describe('following · a gap the reader did not make', () => {
+  // ⚠ **Replays the measurement that caused it**, from the console's own client
+  // telemetry on 2026-08-07: `top=15730 height=16360 view=609`, a gap of 21 —
+  // five pixels past SLACK — while `entries` climbed 163 → 164 → 165 and the
+  // view never moved again. The transcript was live and read as a dead session.
+  const AT_END = { top: 15730, height: 16360, view: 630 };
+
+  it('keeps following when the viewport shrinks under a reader who has not moved', () => {
+    const following = new Following();
+    following.landed(AT_END.top);
+    expect(following.pinned).toBe(true);
+
+    // The URL bar slides in: `view` loses 21px, `top` does not move a pixel. On
+    // a phone this fires a scroll event, and it is not a scroll.
+    following.moved({ ...AT_END, view: 609 });
+    expect(following.pinned, 'the box changed shape; the reader did not move').toBe(true);
+  });
+
+  it('keeps following when the conversation grows underneath', () => {
+    const following = new Following();
+    following.landed(AT_END.top);
+    // Another entry arrives: the end runs away from a reader standing still.
+    following.moved({ ...AT_END, height: AT_END.height + 240 });
+    expect(following.pinned).toBe(true);
+  });
+
+  it('still stops following the moment they scroll back', () => {
+    // The rule this must not break — one line up means leave me here, which is
+    // what it means in every other app on the phone.
+    const following = new Following();
+    following.landed(AT_END.top);
+    following.moved({ ...AT_END, top: AT_END.top - 40 });
+    expect(following.pinned).toBe(false);
+  });
+
+  it('picks them up again when they scroll back down to the end', () => {
+    // Once away, every move is theirs — including the one that comes back.
+    const following = new Following();
+    following.landed(AT_END.top);
+    following.moved({ ...AT_END, top: AT_END.top - 400 });
+    expect(following.pinned).toBe(false);
+    following.moved(AT_END);
+    expect(following.pinned).toBe(true);
+  });
+});

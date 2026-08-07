@@ -145,6 +145,21 @@ export class Following {
   }
 
   /**
+   * The last position this engine put the view at — for the trace, not for a
+   * decision.
+   *
+   * ⚠ **Exposed because reasoning about it from the source failed twice.** A
+   * scroll that carries exactly this position is the engine's own write coming
+   * back (see [`wrote`]); one that does not is somebody or something else. From
+   * outside, the two are the same event, and the console's trace could not tell
+   * them apart — so an unpin every fifteen seconds had no explanation and got a
+   * guessed one, which was wrong.
+   */
+  get lastWrite(): number {
+    return this.wrote;
+  }
+
+  /**
    * Where the view should be put, or `undefined` to leave it where it is.
    *
    * The first positioning is not refused for anything: a transcript has to open
