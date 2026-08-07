@@ -4,9 +4,9 @@
 //! `cargo build` name no file and are not the same work, and `echo x > f` names
 //! no file in its arguments and is an edit.
 
-use memview::activity::{Activity, of};
-use memview::shell::parse;
-use memview::shell_files::extract;
+use reader::activity::{Activity, of};
+use reader::shell::parse;
+use reader::shell_files::extract;
 
 const HOME: &str = "/home/example";
 const CWD: &str = "/home/example/Code/health";
@@ -89,7 +89,7 @@ fn what_it_cannot_name_says_so() {
     assert_eq!(doing("$ADB logcat -d"), ["$ADB"]);
     assert!(matches!(
         of(
-            &memview::shell_ops::Op::Unknown {
+            &reader::shell_ops::Op::Unknown {
                 name: "frobnicate".into()
             },
             &parse("frobnicate x").unwrap()[0]

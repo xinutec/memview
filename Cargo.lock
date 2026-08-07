@@ -1421,9 +1421,8 @@ dependencies = [
  "comrak",
  "hex",
  "hmac",
- "pest",
- "pest_derive",
  "rand 0.9.5",
+ "reader",
  "reqwest 0.13.4",
  "serde",
  "serde_json",
@@ -1438,9 +1437,6 @@ dependencies = [
  "tower-http 0.7.0",
  "tracing",
  "tracing-subscriber",
- "tree-sitter",
- "tree-sitter-bash",
- "tree-sitter-python",
  "url",
 ]
 
@@ -1931,6 +1927,21 @@ dependencies = [
  "time",
  "x509-parser 0.18.1",
  "yasna",
+]
+
+[[package]]
+name = "reader"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "pest",
+ "pest_derive",
+ "serde",
+ "serde_json",
+ "tree-sitter",
+ "tree-sitter-bash",
+ "tree-sitter-python",
 ]
 
 [[package]]

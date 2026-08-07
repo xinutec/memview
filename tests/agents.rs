@@ -1349,7 +1349,7 @@ fn the_timeline_records_what_was_done_and_how_it_turned_out() {
     std::fs::remove_dir_all(&dir).unwrap();
 
     let doing = &found.doing;
-    let rows: Vec<(&str, &str, memview::doing::Verdict)> = doing
+    let rows: Vec<(&str, &str, reader::doing::Verdict)> = doing
         .rows
         .iter()
         .map(|row| {
@@ -1363,8 +1363,8 @@ fn the_timeline_records_what_was_done_and_how_it_turned_out() {
     assert_eq!(
         rows,
         [
-            ("test", "health", memview::doing::Verdict::Failed),
-            ("edit", "health", memview::doing::Verdict::Ok),
+            ("test", "health", reader::doing::Verdict::Failed),
+            ("edit", "health", reader::doing::Verdict::Ok),
         ]
     );
     assert_eq!(doing.agents, ["geo"]);
@@ -1449,13 +1449,10 @@ fn a_call_the_user_refused_names_no_files() {
     );
     // Refused is its own verdict, not a kind of failure: the two mean different
     // things about whether a process existed.
-    let verdicts: Vec<memview::doing::Verdict> = found.doing.rows.iter().map(|row| row.v).collect();
+    let verdicts: Vec<reader::doing::Verdict> = found.doing.rows.iter().map(|row| row.v).collect();
     assert_eq!(
         verdicts,
-        [
-            memview::doing::Verdict::Ok,
-            memview::doing::Verdict::Rejected
-        ]
+        [reader::doing::Verdict::Ok, reader::doing::Verdict::Rejected]
     );
 }
 

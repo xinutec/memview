@@ -1,22 +1,21 @@
 //! memview — web viewer for the Claude memory markdown corpus.
 
+//! What the sessions *did* is read by the `reader` crate beside this one, and
+//! reached as `reader::shell`, `reader::doing` and so on. It moved out because
+//! the console must be able to read a command without linking a viewer; see
+//! `reader/src/lib.rs` for the boundary that makes that safe.
+
 pub mod access;
-pub mod activity;
 pub mod agents;
 pub mod commits;
 pub mod config;
 pub mod couse;
-pub mod doing;
 pub mod error;
 pub mod lint;
 pub mod nextcloud;
-pub mod python;
 pub mod rank;
 pub mod routes;
 pub mod session;
 pub mod share;
-pub mod shell;
-pub mod shell_files;
-pub mod shell_ops;
 pub mod state;
 pub mod store;

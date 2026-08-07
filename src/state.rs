@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 use rand::RngCore;
 
 use crate::config::Config;
-use crate::doing::Doing;
 use crate::share::ShareStore;
+use reader::doing::Doing;
 
 const OAUTH_TTL: Duration = Duration::from_secs(600); // 10 minutes
 

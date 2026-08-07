@@ -33,7 +33,7 @@ product that needs a brand of its own.
 memview keeps the watching half and does not gain the talking half.
 
 memview already answers "what are the Claudes doing": `/agents` (which named
-session works where), `src/doing.rs` (the timeline, with a verdict per stretch of
+session works where), `reader/src/doing.rs` (the timeline, with a verdict per stretch of
 work), `/api/work?q=` (who owns a subtree). That is the distilled view and it
 should keep growing there.
 
@@ -51,7 +51,7 @@ only has to happen once.
 
 **The display rule.** `feedback_memview_distils_never_serves_history` was lifted
 in part on 2026-08-02 — timelines are allowed — and the surviving half is _never
-verbatim_: no prompt, no reply, no command line, no output. `src/doing.rs`
+verbatim_: no prompt, no reply, no command line, no output. `reader/src/doing.rs`
 carries that rule in its module documentation. A console is verbatim by
 definition, and `--resume` puts a past session's scrollback one tap from a live
 one. That is the path back to the `/history` page that was cut after it shipped.

@@ -4,7 +4,7 @@
 //! are constructs the grammar got wrong at some point — each cost a measurable
 //! slice of the 83,799 distinct commands.
 
-use memview::shell::{Reached, Simple, parse};
+use reader::shell::{Reached, Simple, parse};
 
 /// One command's argv, for compact assertions.
 fn argv(cmd: &Simple) -> &[String] {
@@ -299,7 +299,7 @@ fn a_condition_reaches_inside_what_it_guards() {
 
 #[test]
 fn a_verdict_and_a_condition_together_decide_what_certainly_ran() {
-    use memview::doing::Verdict;
+    use reader::doing::Verdict;
     // The one that carries the corpus: unconditional commands survive any
     // outcome, which is why `a; b; c` keeps all three even when the call failed.
     assert!(Verdict::Failed.admits(Reached::Always));

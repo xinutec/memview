@@ -13,11 +13,17 @@
 //!
 //! Lives here rather than in a scratchpad script because the coverage figure in
 //! `shell.pest` is only checkable if the corpus behind it can be rebuilt.
+//!
+//! ⚠ **The odd one out of the report family.** Its four siblings moved to the
+//! `reader` crate with the grammars they measure; this one stayed, because it is
+//! the only one that reads *transcripts* rather than a corpus already extracted,
+//! and transcript access is still the viewer's. It is what makes the corpus the
+//! others consume, so it will follow them when that moves.
 
 use std::io::Write;
 
 use memview::agents;
-use memview::doing::Verdict;
+use reader::doing::Verdict;
 
 fn main() -> anyhow::Result<()> {
     let home = std::env::var("HOME").unwrap_or_default();

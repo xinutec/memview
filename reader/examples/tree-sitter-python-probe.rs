@@ -43,8 +43,8 @@
 
 use std::collections::BTreeMap;
 
-use memview::shell_ops::Op;
-use memview::{python, shell, shell_files};
+use reader::shell_ops::Op;
+use reader::{python, shell, shell_files};
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();

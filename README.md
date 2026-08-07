@@ -74,15 +74,23 @@ Each stage's authoritative explanation is its module doc-comment; the chain is:
 
 | module | question it answers |
 | --- | --- |
-| `shell.rs` + `shell.pest` | what commands does this script run? |
-| `shell_ops.rs` | what does one command do — to which paths? |
-| `python.rs` + `python.pest` | same, for the Python that Claude runs inline |
-| `shell_files.rs` | resolved against a working directory, which files? |
-| `activity.rs` | what *kind of work* was that — test, build, edit, deploy? |
-| `commits.rs` | what did the repositories record, renames followed |
-| `agents.rs` | who works where — the roster behind `/agents` |
-| `doing.rs` | the timeline: agent · minute · repo · kind · count · verdict |
-| `couse.rs` | which memories get used together in one turn |
+| `reader/src/shell.rs` + `shell.pest` | what commands does this script run? |
+| `reader/src/shell_ops.rs` | what does one command do — to which paths? |
+| `reader/src/python.rs` + `python.pest` | same, for the Python that Claude runs inline |
+| `reader/src/shell_files.rs` | resolved against a working directory, which files? |
+| `reader/src/activity.rs` | what *kind of work* was that — test, build, edit, deploy? |
+| `reader/src/doing.rs` | the timeline: agent · minute · repo · kind · count · verdict |
+| `src/commits.rs` | what did the repositories record, renames followed |
+| `src/agents.rs` | who works where — the roster behind `/agents` |
+| `src/couse.rs` | which memories get used together in one turn |
+
+**The reader is its own crate, and the split is a boundary rather than tidying.**
+Everything that answers *what does this text mean* lives in `reader/`; everything
+that answers *whose work was it* stays in the viewer. That is what lets the agent
+console — which spawns processes on the root-of-truth Mac — read a command
+without linking a viewer that carries routes, auth and configuration. See
+`reader/src/lib.rs` for why a leaf makes that safe, and the bug the two crates
+already paid for by re-deriving the same knowledge separately.
 
 **Derived, never verbatim.** No command line, no prompt, no output text reaches
 any artefact — only typed structure and counts. The rule and its one lifted half
@@ -125,8 +133,8 @@ The reports are the method, not a status line. The loop:
    a test that could not fail was found this way and no other.
 
 Two ways a figure has misled here, each written up where it happened: a rate that
-hid a trade (`examples/tree-sitter-probe.rs`) and a census that counted text
-already read (`src/bin/opacity.rs`).
+hid a trade (`reader/examples/tree-sitter-probe.rs`) and a census that counted text
+already read (`reader/src/bin/opacity.rs`).
 
 Mining is offline and writes JSON beside the transcripts, which `scripts/sync.sh`
 pushes to the pod:
@@ -187,11 +195,11 @@ decided from a measurement kept with the thing it decided:
 
 | not done | why, in one line | where the numbers are |
 | --- | --- | --- |
-| a third-party parser | swapping loses more than it gains | `examples/tree-sitter-probe.rs` |
-| a third language reader | what is left is file content and commit messages | `src/bin/opacity.rs` |
-| parsing regexes | biggest by volume, but a regex names no file | `src/bin/opacity.rs` |
+| a third-party parser | swapping loses more than it gains | `reader/examples/tree-sitter-probe.rs` |
+| a third language reader | what is left is file content and commit messages | `reader/src/bin/opacity.rs` |
+| parsing regexes | biggest by volume, but a regex names no file | `reader/src/bin/opacity.rs` |
 | opening scripts on disk | what `deploy.sh` held *then* is not recoverable | — |
-| reading `node -e` | a query tool, not an editor | `src/shell_ops.rs` |
+| reading `node -e` | a query tool, not an editor | `reader/src/shell_ops.rs` |
 
 ## The console
 

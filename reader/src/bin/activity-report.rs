@@ -7,8 +7,8 @@
 
 use std::collections::BTreeMap;
 
-use memview::activity::Activity;
-use memview::{shell, shell_files};
+use reader::activity::Activity;
+use reader::{shell, shell_files};
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();

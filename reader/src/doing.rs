@@ -261,8 +261,10 @@ pub fn minute(stamp: &str) -> Option<i64> {
     Some((days_from_civil(year, month, day) * 24 + hour) * 60 + min)
 }
 
-/// Howard Hinnant's civil-days algorithm, as [`crate::agents`] uses it — the
+/// Howard Hinnant's civil-days algorithm, as the viewer's roster uses it — the
 /// whole need is a day number, and a date crate would be a dependency for it.
+/// Twice over now that this is a leaf: see `Cargo.toml` for why the list there
+/// is the boundary rather than a convenience.
 fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let year = year - i64::from(month <= 2);
     let era = if year >= 0 { year } else { year - 399 } / 400;

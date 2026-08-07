@@ -17,8 +17,8 @@ use std::collections::BTreeMap;
 
 use anyhow::Context;
 
-use memview::shell_ops::{GitOp, Op};
-use memview::{shell, shell_files};
+use reader::shell_ops::{GitOp, Op};
+use reader::{shell, shell_files};
 
 /// The shape of an operation, for the distribution.
 fn op_name(op: &Op) -> &'static str {
@@ -124,8 +124,8 @@ fn main() -> anyhow::Result<()> {
         // An outcome that is *present and unreadable* is a different thing
         // entirely, and is an error: quietly reading it as `Unknown` would turn
         // a corrupt corpus into a modest-looking one.
-        let ran: memview::doing::Verdict = match row.get("ran") {
-            None | Some(serde_json::Value::Null) => memview::doing::Verdict::Unknown,
+        let ran: reader::doing::Verdict = match row.get("ran") {
+            None | Some(serde_json::Value::Null) => reader::doing::Verdict::Unknown,
             Some(outcome) => serde_json::from_value(outcome.clone())
                 .with_context(|| format!("unreadable outcome in the corpus: {outcome}"))?,
         };
@@ -180,9 +180,9 @@ fn main() -> anyhow::Result<()> {
                 println!("{mark}  {}\n       {}\n", file.path, cmd.replace('\n', "⏎"));
             }
             match file.reached {
-                memview::shell::Reached::Always => always += 1,
-                memview::shell::Reached::OnSuccess => on_success += 1,
-                memview::shell::Reached::Sometimes => sometimes += 1,
+                reader::shell::Reached::Always => always += 1,
+                reader::shell::Reached::OnSuccess => on_success += 1,
+                reader::shell::Reached::Sometimes => sometimes += 1,
             }
             if ran.admits(file.reached) {
                 certain += 1;

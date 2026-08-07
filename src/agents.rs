@@ -302,7 +302,7 @@ pub struct Agents {
     /// answers a different question; `/api/agents` must not carry it, and the
     /// miner takes it out and saves it separately.
     #[serde(skip)]
-    pub doing: crate::doing::Doing,
+    pub doing: reader::doing::Doing,
     /// Where each renamed file ended up, old name to current.
     ///
     /// Kept in the artefact rather than applied and forgotten, for two reasons:
@@ -904,7 +904,7 @@ pub fn bash_calls_with_ids(line: &[u8]) -> Option<BashLine> {
 
 /// The harness's own words for a call the user would not allow. Anchored to the
 /// front of the content, which is what makes it safe to match — see
-/// [`crate::doing::Verdict`].
+/// [`reader::doing::Verdict`].
 const REFUSED: &[u8] = b"\"content\":\"The user doesn't want to proceed with this tool use";
 
 /// What became of every call in one transcript, by id.
@@ -914,10 +914,10 @@ const REFUSED: &[u8] = b"\"content\":\"The user doesn't want to proceed with thi
 ///
 /// ⚠ **`Ok` is kept rather than left implicit.** Absent from this map means *no
 /// result came back at all* — interrupted, or still running — which is
-/// [`crate::doing::Verdict::Unknown`] and admits nothing. Dropping the
+/// [`reader::doing::Verdict::Unknown`] and admits nothing. Dropping the
 /// successes to save space would make silence and success the same answer.
 /// The map is per transcript and freed with it, so there is no space to save.
-fn outcomes(text: &[u8]) -> std::collections::HashMap<String, crate::doing::Verdict> {
+fn outcomes(text: &[u8]) -> std::collections::HashMap<String, reader::doing::Verdict> {
     let mut out = std::collections::HashMap::new();
     for line in text.split(|c| *c == b'\n') {
         if let Some((call, verdict)) = tool_result(line) {
@@ -979,7 +979,7 @@ fn titling(text: &[u8]) -> bool {
 fn call_completed(
     line: &[u8],
     at: usize,
-    outcomes: &std::collections::HashMap<String, crate::doing::Verdict>,
+    outcomes: &std::collections::HashMap<String, reader::doing::Verdict>,
 ) -> bool {
     const ID: &[u8] = b"\"id\":\"";
     let Some(start) = crate::couse::last_at(&line[..at], ID).map(|pos| pos + ID.len()) else {
@@ -994,7 +994,7 @@ fn call_completed(
     outcomes
         .get(id)
         .copied()
-        .unwrap_or(crate::doing::Verdict::Unknown)
+        .unwrap_or(reader::doing::Verdict::Unknown)
         .completed()
 }
 
@@ -1005,19 +1005,19 @@ fn call_completed(
 /// — only the id it names and how it went.
 ///
 /// The refusal needle is anchored to the front of the content on purpose; see
-/// [`crate::doing::Verdict`] for what goes wrong unanchored.
-pub fn tool_result(line: &[u8]) -> Option<(String, crate::doing::Verdict)> {
+/// [`reader::doing::Verdict`] for what goes wrong unanchored.
+pub fn tool_result(line: &[u8]) -> Option<(String, reader::doing::Verdict)> {
     find_at(line, b"\"type\":\"tool_result\"", 0)?;
     const ID: &[u8] = b"\"tool_use_id\":\"";
     let start = find_at(line, ID, 0)? + ID.len();
     let end = start + line[start..].iter().position(|c| *c == b'"')?;
     let id = std::str::from_utf8(&line[start..end]).ok()?.to_string();
     let verdict = if find_at(line, REFUSED, 0).is_some() {
-        crate::doing::Verdict::Rejected
+        reader::doing::Verdict::Rejected
     } else if find_at(line, b"\"is_error\":true", 0).is_some() {
-        crate::doing::Verdict::Failed
+        reader::doing::Verdict::Failed
     } else {
-        crate::doing::Verdict::Ok
+        reader::doing::Verdict::Ok
     };
     Some((id, verdict))
 }
@@ -1072,7 +1072,7 @@ fn scan_transcript(
     first: &mut FirstSeen,
     agent: &mut Agent,
     seen: &mut DaysSeen,
-    log: &mut crate::doing::Log,
+    log: &mut reader::doing::Log,
 ) {
     // Borrowed field by field: one tool call updates either a project counter
     // or a memory counter, and the compiler cannot see they are disjoint
@@ -1138,10 +1138,10 @@ fn scan_transcript(
         }
         if let Some(BashLine { cwd, calls }) = bash_calls_with_ids(line) {
             for BashCall { id: call, command } in calls {
-                let Ok(parsed) = crate::shell::parse(&command) else {
+                let Ok(parsed) = reader::shell::parse(&command) else {
                     continue;
                 };
-                let found = crate::shell_files::extract(&parsed, cwd.as_deref(), home);
+                let found = reader::shell_files::extract(&parsed, cwd.as_deref(), home);
                 // ⚠ **What the text required, met with what the call returned.**
                 // The timeline row goes in whatever happened — being refused or
                 // failing is part of the record — but a path only reaches
@@ -1150,7 +1150,7 @@ fn scan_transcript(
                 let verdict = outcomes
                     .get(&call)
                     .copied()
-                    .unwrap_or(crate::doing::Verdict::Unknown);
+                    .unwrap_or(reader::doing::Verdict::Unknown);
                 // What this turn was doing, one row per kind of work in it.
                 // Grouped rather than one row per command: a call that runs
                 // `sed` over four files is one edit to anybody reading it.
@@ -1160,14 +1160,14 @@ fn scan_transcript(
                         *kinds.entry(activity.label()).or_default() += 1;
                     }
                 }
-                if let Some(minute) = stamp.and_then(crate::doing::minute) {
+                if let Some(minute) = stamp.and_then(reader::doing::minute) {
                     let project = cwd.as_deref().and_then(|dir| project_of(dir, code_root));
                     // One host or none: a turn that reached two machines is
                     // rare enough that naming the first is honest and naming
                     // both would need a row shape nothing else wants.
                     let host = found.remote.first().map(|use_| use_.host.clone());
                     for (kind, n) in kinds {
-                        log.push(crate::doing::Work {
+                        log.push(reader::doing::Work {
                             call: &call,
                             agent: agent_name,
                             project: project.as_deref(),
@@ -1183,7 +1183,7 @@ fn scan_transcript(
                 for used in found
                     .files
                     .into_iter()
-                    .filter(|_| verdict != crate::doing::Verdict::Rejected)
+                    .filter(|_| verdict != reader::doing::Verdict::Rejected)
                 {
                     let Some(rel) = relative_to(&used.path, code_root).filter(|p| attributable(p))
                     else {
@@ -1222,7 +1222,7 @@ fn scan_transcript(
                 for used in found
                     .remote
                     .into_iter()
-                    .filter(|_| verdict != crate::doing::Verdict::Rejected)
+                    .filter(|_| verdict != reader::doing::Verdict::Rejected)
                 {
                     if !remotely_attributable(&used.path) {
                         continue;
@@ -1337,7 +1337,7 @@ pub fn scan(
     let names = registry_names(sessions_dir);
     let mut by_name: BTreeMap<String, Agent> = BTreeMap::new();
     // The timeline, built across every transcript and frozen at the end.
-    let mut log = crate::doing::Log::default();
+    let mut log = reader::doing::Log::default();
     let mut days: BTreeMap<String, DaysSeen> = BTreeMap::new();
     // Read before the transcripts, because recognising a hash in one needs the
     // set of hashes to look for. Empty when the code root has no repositories,

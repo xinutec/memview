@@ -4,7 +4,7 @@
 //! matter more than the successes: a missed write is an undercount, and an
 //! invented path is a claim that somebody changed a file they never opened.
 
-use memview::python::{Use, read};
+use reader::python::{Use, read};
 
 /// The uses a program made, as `(path, write)` pairs in the order they happened.
 fn uses(source: &str) -> Vec<(String, bool)> {

@@ -1,8 +1,14 @@
 # The console is a workspace member and NOT a feature of this package, so that
 # no configuration of the viewer can turn into a way to execute code on the Mac.
 # It links nothing from here and ships in no image; see docs/agent-console.md.
+#
+# `reader` is the one thing both of them may link, and it does not weaken that:
+# it is a leaf that runs nothing, serves nothing and opens nothing, so there is
+# no configuration of it to get wrong. Its own Cargo.toml is where that is kept
+# true. Sharing it is what stops the two from re-deriving the same transcript
+# knowledge separately, which has already produced one bug — see reader/src/lib.rs.
 [workspace]
-members = ["console"]
+members = ["console", "reader"]
 
 [package]
 # Adding src/bin/memory-lint.rs made `cargo run` ambiguous, which silently broke
@@ -46,17 +52,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 time = "0.3"
 url = "2"
-pest = "2.8"
-pest_derive = "2.8"
+reader = { path = "reader" }
 
 [dev-dependencies]
-# Tried against the pest grammar and NOT adopted — `examples/tree-sitter-probe.rs`
-# has the numbers. A dev-dependency on purpose: the probe is worth keeping so the
-# decision can be re-checked when the upstream heredoc bug is fixed, but the
-# product must not carry a C toolchain for a measurement.
-tree-sitter = "0.25"
-tree-sitter-bash = "0.25"
-tree-sitter-python = "0.25"
 tempfile = "3"
 # Drives the router in-process for the access-control tests: the owner/share
 # split is a security property and should not rest on reading the code.

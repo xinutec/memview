@@ -26,8 +26,8 @@
 
 use std::collections::BTreeMap;
 
-use memview::shell_ops::Op;
-use memview::{shell, shell_files};
+use reader::shell_ops::Op;
+use reader::{shell, shell_files};
 
 /// A tally of things and how many bytes they came to.
 #[derive(Default)]

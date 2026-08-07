@@ -4,8 +4,8 @@
 //! searched for, what a file used to be called, which script ran. A test here
 //! is a claim about meaning; `tests/shell_files.rs` still tests the projection.
 
-use memview::shell::parse;
-use memview::shell_ops::{GitOp, Op, classify};
+use reader::shell::parse;
+use reader::shell_ops::{GitOp, Op, classify};
 
 const HOME: &str = "/home/example";
 const CWD: &str = "/home/example/Code/health";

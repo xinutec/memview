@@ -1,0 +1,37 @@
+[package]
+name = "reader"
+version = "0.1.0"
+edition = "2024"
+
+# What the agents on this machine actually did, read out of the text they wrote.
+#
+# Two grammars — the shell they run and the Python inside it — a table of what
+# each command means, a projection of that onto files, and the two domains that
+# decide whether a use may be counted at all. See src/lib.rs for why it is its
+# own crate rather than a module of the viewer.
+
+# ⚠ **A LEAF, and the dependency list is the boundary.** Nothing here runs a
+# process, opens a socket, serves a request or authenticates anybody: two parser
+# generators, a base64 decoder for a heredoc, and serde for the artefact types.
+# Both binaries in this workspace may depend on this precisely because there is
+# nothing in it to misconfigure — see the crate doc. A dependency added here is
+# a decision about that, not a convenience.
+[dependencies]
+pest = "2.8"
+pest_derive = "2.8"
+base64 = "0.22"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+# Tried against the pest grammar and NOT adopted — `examples/tree-sitter-probe.rs`
+# has the numbers. A dev-dependency on purpose: the probe is worth keeping so the
+# decision can be re-checked when the upstream heredoc bug is fixed, but the
+# product must not carry a C toolchain for a measurement.
+#
+# Beside the grammars it measures rather than in the viewer, and a dev-dependency
+# is not part of the leaf claim above: nothing links it into either binary.
+tree-sitter = "0.25"
+tree-sitter-bash = "0.25"
+tree-sitter-python = "0.25"

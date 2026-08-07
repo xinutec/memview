@@ -107,7 +107,7 @@ fn main() -> Result<()> {
     let failed = timeline
         .rows
         .iter()
-        .filter(|row| row.v == memview::doing::Verdict::Failed)
+        .filter(|row| row.v == reader::doing::Verdict::Failed)
         .count();
     println!(
         "\n{} activities, {} of them failed ({:.1}%), {} kinds",

@@ -4,8 +4,8 @@
 //! as much weight as the positive: this table's only real failure mode is
 //! putting a path into an agent's record that the command never named.
 
-use memview::shell::parse;
-use memview::shell_files::extract;
+use reader::shell::parse;
+use reader::shell_files::extract;
 
 const HOME: &str = "/home/example";
 const CWD: &str = "/home/example/Code/health";
@@ -746,7 +746,7 @@ fn a_cd_into_the_directory_it_is_already_in_moves_nothing() {
 }
 
 /// Every file use, as `(path, wrote, what had to hold)`.
-fn conditions(script: &str) -> Vec<(String, bool, memview::shell::Reached)> {
+fn conditions(script: &str) -> Vec<(String, bool, reader::shell::Reached)> {
     let cmds = parse(script).unwrap_or_else(|at| panic!("failed to parse, stopped at {at:?}"));
     extract(&cmds, Some(CWD), HOME)
         .files
@@ -761,9 +761,9 @@ fn only_the_last_turn_of_a_loop_ends_in_the_reported_status() {
     // body is confirmable for that turn alone and unconfirmable for every
     // earlier one — and that is visible only once the body has been run out into
     // one copy per value, which happens after the parser has had its say.
-    use memview::shell::Reached;
+    use reader::shell::Reached;
     let found = conditions("for f in a.txt b.txt c.txt; do cat $f && wc -l $f; done");
-    let conds: Vec<memview::shell::Reached> = found.iter().map(|(_, _, r)| *r).collect();
+    let conds: Vec<reader::shell::Reached> = found.iter().map(|(_, _, r)| *r).collect();
     assert_eq!(
         conds,
         [

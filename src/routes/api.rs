@@ -228,7 +228,7 @@ pub struct Moment {
     pub host: Option<String>,
     pub kind: String,
     pub n: u32,
-    pub verdict: crate::doing::Verdict,
+    pub verdict: reader::doing::Verdict,
 }
 
 /// A slice of the timeline, and what the whole of the filtered range contains.
@@ -294,7 +294,7 @@ pub async fn doing(
     let limit = query.limit.unwrap_or(PAGE).min(PAGE);
     for row in matching {
         total += 1;
-        failed += usize::from(row.v == crate::doing::Verdict::Failed);
+        failed += usize::from(row.v == reader::doing::Verdict::Failed);
         let kind = log
             .kinds
             .get(row.k as usize)
