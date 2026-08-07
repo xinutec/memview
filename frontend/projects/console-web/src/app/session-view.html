@@ -242,6 +242,13 @@
         </div>
       }
       @case ('tool') {
+        <!-- ⚠ **Which tool, before what it was given.** Dropped by accident in
+             65607c7 when the argument grew a parse button and this row was
+             rewritten into two branches — the name went with the old single
+             line, and a standalone call showed a bare path with nothing saying
+             whether it had been read, written or deleted. The folded run kept
+             its copy, so the two rows disagreed. Reported from the phone. -->
+        <span class="tool-name">{{ entry.tool }}</span>
         @if (parseable(entry)) {
           <!-- ⚠ **The command is a button; every other tool's argument is not.**
                This row shows one ellipsised line, so for a shell command there

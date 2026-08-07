@@ -2805,6 +2805,36 @@ test('a run of tool calls is folded into one row @ phone width', async ({ page }
   await expect(page.getByText('verified_cli')).toHaveCount(0);
 });
 
+test('a tool call on its own says which tool it was @ phone width', async ({ page }) => {
+  // ⚠ **A path with no verb attached says nothing that matters.** `Read` and
+  // `Write` on the same file are opposite events, and the argument alone cannot
+  // tell them apart — nor can it say a file was deleted rather than looked at.
+  //
+  // ⚠ **This is a REGRESSION test, and the shape of it is the point.** The name
+  // was dropped from the standalone row in 65607c7, when the argument grew a
+  // parse button and the row became two branches; the FOLDED run kept its copy,
+  // so every existing assertion about tool rows still passed while a lone call
+  // showed a bare path. Hence the seed below is one call between prose: a run of
+  // two folds (`A_RUN`), and a folded row would exercise the wrong markup and
+  // pass against the defect.
+  await handControlOfTheStream(page);
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.transcript').waitFor();
+  let seq = 0;
+  await say(page, { kind: 'said', text: 'Let me look at the gate.' }, ++seq);
+  await say(
+    page,
+    { kind: 'tool', id: 'lone', name: 'Read', input: { file_path: '/home/example/gate.ts' } },
+    ++seq,
+  );
+  await say(page, { kind: 'said', text: 'That is the one.' }, ++seq);
+
+  const row = page.locator('.entry').filter({ hasText: '/home/example/gate.ts' }).last();
+  await expect(row.locator('.tool-name'), 'the row names its tool').toHaveText('Read');
+  await expect(row.locator('.tool-arg')).toContainText('gate.ts');
+});
+
 test('a running thing says how long it has been running @ phone width', async ({ page }) => {
   // ⚠ **"running" is the same word at four seconds and at forty minutes**, and
   // only one of those is worth interrupting. The bar above the composer had the
