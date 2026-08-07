@@ -27,6 +27,14 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4"] }
+
+# The one thing shared with the viewer beside it, and it is not the viewer: a
+# leaf that runs nothing, serves nothing and opens nothing. The rule about which
+# files under ~/.claude/projects are conversations lives there because getting it
+# wrong here once already opened a 119 MB session as blank — see
+# ../reader/src/transcript.rs. `reader/tests/leaf.rs` is what keeps it harmless
+# to depend on from a process that spawns Claude Code.
+reader = { path = "../reader" }
 # For the descriptor work an upgrade needs: clearing close-on-exec, going
 # non-blocking, and killing a session whose Child handle exec'd away.
 libc = "0.2"

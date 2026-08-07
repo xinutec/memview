@@ -153,7 +153,7 @@ pub fn transcript_ids(root: &Path) -> std::collections::BTreeSet<String> {
         .map(|entry| entry.path())
         // The extension, for the reason [`transcript_of`] gives at length: there
         // is a directory beside each transcript with the same name.
-        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
+        .filter(|path| reader::transcript::is_transcript(path))
         .filter_map(|path| {
             path.file_stem()
                 .and_then(|stem| stem.to_str())
@@ -619,14 +619,12 @@ pub fn transcript_of(root: &Path, id: &str) -> Option<PathBuf> {
         .flat_map(|project| std::fs::read_dir(project.path()).into_iter().flatten())
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
-        // ⚠ **The extension is what makes this a transcript.** Claude Code puts a
-        // DIRECTORY beside the file with exactly the same name — holding
-        // `subagents/` and `tool-results/` — and a directory's file stem is its
-        // whole name, so a stem match alone finds it first about half the time.
-        // Everything downstream then reads a directory as a conversation and
-        // reports it empty: no history, no name, no count, and no error anywhere
-        // to say why. Seen live — a resumed 119 MB session opened blank.
-        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
+        // ⚠ **The extension is what makes this a transcript**, and matching on
+        // the stem alone opens the directory Claude Code puts beside the file as
+        // if it were the conversation. The whole account is in
+        // [`reader::transcript::is_transcript`], which the viewer calls too —
+        // this bug existed here because the two crates knew it separately.
+        .filter(|path| reader::transcript::is_transcript(path))
         .find(|path| path.file_stem().and_then(|stem| stem.to_str()) == Some(id))
 }
 
@@ -762,7 +760,7 @@ pub fn page(path: &Path, before: Option<u64>) -> Page {
 }
 
 fn read(path: &Path) -> Option<Conversation> {
-    if path.extension()? != "jsonl" {
+    if !reader::transcript::is_transcript(path) {
         return None;
     }
     let id = path.file_stem()?.to_str()?.to_string();
@@ -888,13 +886,25 @@ fn tail_of(path: &Path, len: u64) -> Tail {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
             continue;
         };
-        if let Some(name) = value.get("customTitle").and_then(|v| v.as_str()) {
+        // Field names from the shared vocabulary, so this and the viewer cannot
+        // drift on the spelling of a line they both read.
+        if let Some(name) = value
+            .get(reader::transcript::CUSTOM_TITLE.field)
+            .and_then(|v| v.as_str())
+        {
             title = Some(name.to_string());
         }
-        if let Some(name) = value.get("agentName").and_then(|v| v.as_str()) {
+        if let Some(name) = value
+            .get(reader::transcript::AGENT_NAME.field)
+            .and_then(|v| v.as_str())
+        {
             agent = Some(name.to_string());
         }
     }
+    // ⚠ **The viewer resolves this the other way round**, preferring the agent
+    // name. Both orders are defended in their own module and neither is wrong
+    // today, because enrolment writes the two values the same; the divergence
+    // and why a refactor did not settle it are in `reader::transcript`.
     found.name = title.or(agent).filter(|name| !name.trim().is_empty());
     found
 }

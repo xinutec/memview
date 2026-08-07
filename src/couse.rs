@@ -389,7 +389,7 @@ pub fn scan(
     let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
         .with_context(|| format!("reading transcripts in {}", dir.display()))?
         .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|e| e == "jsonl"))
+        .filter(|p| reader::transcript::is_transcript(p))
         .collect();
     paths.sort();
     let session_count = paths.len();

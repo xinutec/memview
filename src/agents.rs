@@ -681,7 +681,7 @@ fn transcripts_under(projects_root: &Path) -> Vec<Transcript> {
             };
             if kind.is_dir() {
                 descend(&path, owner, out);
-            } else if path.extension().is_some_and(|e| e == "jsonl") {
+            } else if reader::transcript::is_transcript(&path) {
                 out.push(Transcript {
                     path,
                     owner: owner.to_string(),
@@ -716,7 +716,7 @@ fn transcripts_under(projects_root: &Path) -> Vec<Transcript> {
                 // A session's own directory: everything beneath it is work it
                 // dispatched, however deeply nested.
                 descend(&path, &stem, &mut out);
-            } else if path.extension().is_some_and(|e| e == "jsonl") {
+            } else if reader::transcript::is_transcript(&path) {
                 out.push(Transcript {
                     path,
                     owner: stem,
@@ -816,11 +816,17 @@ fn titled_in_transcript(text: &[u8], owner: &str) -> Option<String> {
     // The name it was given, then the title it shows under — the same word in
     // every transcript here, and this order because one is a name and the other
     // is a caption.
-    const WRITTEN: [&[u8]; 2] = [
-        br#"{"type":"agent-name","agentName":""#,
-        br#"{"type":"custom-title","customTitle":""#,
+    //
+    // ⚠ **The console applies the opposite order**, and its reasons are as good
+    // as these. Neither is wrong today, because enrolment writes both values the
+    // same; `reader::transcript` states the divergence in full and says why it
+    // was not settled by a refactor. The spelling of the lines comes from there
+    // so that at least the vocabulary cannot drift.
+    let written = [
+        reader::transcript::name_needle(&reader::transcript::AGENT_NAME),
+        reader::transcript::name_needle(&reader::transcript::CUSTOM_TITLE),
     ];
-    WRITTEN
+    written
         .iter()
         .find_map(|needle| last_titled(text, needle, owner))
 }
