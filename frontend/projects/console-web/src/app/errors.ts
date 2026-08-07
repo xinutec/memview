@@ -34,8 +34,15 @@ export function reason(err: unknown): string {
     // prompts and every request fails in silence. Naming only the far cause sent
     // us looking at the Mac, the tunnel and isis while the answer was in the
     // phone's own log.
+    //
+    // ⚠ **And then it named both, in the wrong order.** Measured over 3.9 days
+    // of this console's telemetry, the 235 status-0 episodes track waking hours
+    // — 20 at 09:00, 21 at 20:00, and essentially none between 01:00 and 07:00,
+    // which is the opposite of what a sleeping Mac produces. The phone is the
+    // likelier end, so it is named first; the Mac stays, because it is the case
+    // somebody would otherwise never think of.
     if (err.status === 0)
-      return 'no answer — the Mac may be asleep, or this phone may need unlocking';
+      return 'no answer — this phone may need unlocking, or the Mac may be asleep';
     return `the runner answered ${err.status}`;
   }
   if (err instanceof Error) return err.message;

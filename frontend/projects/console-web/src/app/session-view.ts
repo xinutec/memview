@@ -26,6 +26,7 @@ import { Clock } from './clock';
 import { Lasted } from './lasted';
 import { ConsoleApi } from './console-api';
 import { reason } from './errors';
+import { Reach } from './reach';
 import { Foreground } from './foreground';
 import { Entry, Summary } from './models';
 import { modelName } from './model';
@@ -190,6 +191,8 @@ export class SessionView implements OnDestroy {
    * was open, over a console that had been answering the whole time.
    */
   readonly unreachable = signal('');
+  /** How patient the banner above is. See [[Reach]]. */
+  private readonly reach = new Reach();
   readonly sending = signal(false);
   readonly text = signal('');
   /**
@@ -389,9 +392,11 @@ export class SessionView implements OnDestroy {
           // keying, same reason — see [[Here.tasks]].
           this.here.tasks.set(state.tasks?.[this.id()]);
           this.updates.saw(state.bundle);
-          this.unreachable.set('');
+          this.unreachable.set(this.reach.answered());
         },
-        error: (err: unknown) => this.unreachable.set(`cannot reach the runner: ${reason(err)}`),
+        // Only once it has outlived a poll — see [[Reach]] for the measurement.
+        error: (err: unknown) =>
+          this.unreachable.set(this.reach.failed(`cannot reach the runner: ${reason(err)}`)),
       });
   }
 

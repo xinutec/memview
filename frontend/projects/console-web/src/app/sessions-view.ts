@@ -10,6 +10,7 @@ import { Router, RouterLink } from '@angular/router';
 import { ConsoleApi } from './console-api';
 import { Dismiss } from './dismiss';
 import { reason } from './errors';
+import { Reach } from './reach';
 import { Foreground } from './foreground';
 import { Conversation, Overview, Summary, TaskCount } from './models';
 import { modelName } from './model';
@@ -134,6 +135,8 @@ export class SessionsView {
    * was open, over a console that had been answering the whole time.
    */
   readonly unreachable = signal('');
+  /** How patient the banner above is. See [[Reach]]. */
+  private readonly reach = new Reach();
   readonly starting = signal(false);
   /** Conversations on disk, newest first. Held in a root store so opening a
    *  session and coming back does not blank the list — see [[PastStore]]. */
@@ -250,9 +253,11 @@ export class SessionsView {
       next: (state) => {
         this.state.set(state);
         this.updates.saw(state.bundle);
-        this.unreachable.set('');
+        this.unreachable.set(this.reach.answered());
       },
-      error: (err: unknown) => this.unreachable.set(`cannot reach the runner: ${reason(err)}`),
+      // Only once it has outlived a poll — see [[Reach]] for the measurement.
+      error: (err: unknown) =>
+        this.unreachable.set(this.reach.failed(`cannot reach the runner: ${reason(err)}`)),
     });
   }
 
