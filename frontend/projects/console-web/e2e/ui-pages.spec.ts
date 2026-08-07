@@ -686,6 +686,16 @@ async function handControlOfTheStream(page: Page): Promise<void> {
     (window as unknown as { __say: unknown }).__say = (event: unknown, seq: number) => {
       const stream = (window as unknown as { __stream?: Held }).__stream;
       if (!stream?.onmessage) return false;
+      // ⚠ **The boundary first, exactly as the runner sends it.** Every real
+      // connection carries `caught-up` once its backlog is flushed, and the page
+      // treats everything before it as replayed history that may not speak for
+      // the present. A mock that skipped it would have the page ignoring its own
+      // fixtures — which is not a failure any assertion here would explain.
+      const stated = stream as unknown as { __live?: boolean };
+      if (!stated.__live) {
+        stated.__live = true;
+        stream.dispatchEvent(new Event('caught-up'));
+      }
       stream.onmessage({ data: JSON.stringify(event), lastEventId: String(seq) });
       return true;
     };

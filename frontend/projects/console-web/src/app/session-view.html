@@ -297,6 +297,17 @@
                phone the only cue was a background you stop noticing after two
                screens. -->
         <span class="who">you</span>
+        @if (entry.queued) {
+          <!-- ⚠ **Says what is true, not "sending".** The message is written and
+               safe; the session simply has not read it, and will not until its
+               turn reaches a point where it can. Wording it as an in-flight send
+               would invite a re-send, which is the very thing this exists to
+               stop. -->
+          <span class="queued">
+            <mat-icon>schedule</mat-icon>
+            waiting to be read — the session is mid-turn
+          </span>
+        }
         <div class="body" [innerHTML]="entry.text | rendered"></div>
       }
       @case ('shown') {

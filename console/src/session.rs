@@ -929,6 +929,13 @@ impl Session {
             .context("writing to the session")?;
         stdin.flush().await.context("flushing to the session")?;
         drop(held);
+        // ⚠ **Announced on the way in, not on the echo.** The write above has
+        // succeeded, so the message is the CLI's problem now — but the CLI may
+        // not read it for minutes, and until it does nothing else on the wire
+        // mentions it. See [`Event::Accepted`] for the measurements.
+        self.push(Event::Accepted {
+            text: text.to_string(),
+        });
         // Held even if the CLI never echoes it, so the record of what was asked
         // does not depend on the CLI's replay behaviour.
         let mut state = self.state.lock().expect("session state poisoned");

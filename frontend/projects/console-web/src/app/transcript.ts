@@ -18,9 +18,28 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
       if (last?.kind === 'said') last.text += event.text ?? '';
       else add(entries, { kind: 'said', text: event.text ?? '', at: event.at });
       break;
-    case 'prompt':
-      add(entries, { kind: 'asked', text: event.text ?? '', at: event.at });
+    // Written to the session, not yet read by it. On screen immediately, marked
+    // — see [[Entry.queued]] for why the wait must be visible.
+    case 'accepted':
+      add(entries, { kind: 'asked', text: event.text ?? '', at: event.at, queued: true });
       break;
+    case 'prompt': {
+      // ⚠ **The echo promotes the waiting entry rather than adding a second
+      // one.** The two events describe one message — the runner taking it and
+      // the CLI reading it — and appending would show every message twice.
+      //
+      // The FIRST match, by text: stdin is a queue and the echo comes back in
+      // the order it was written, so the oldest waiting copy is the one this
+      // answers. Matching the newest would leave the oldest waiting for ever
+      // whenever the same words are sent twice — which is exactly what somebody
+      // does when they think the first one failed.
+      const waiting = entries.find(
+        (entry) => entry.kind === 'asked' && entry.queued && entry.text === (event.text ?? ''),
+      );
+      if (waiting) waiting.queued = undefined;
+      else add(entries, { kind: 'asked', text: event.text ?? '', at: event.at });
+      break;
+    }
     // A picture that was sent to this session. Its own entry rather than an
     // `asked` carrying an image, because the two are separately optional: a
     // screenshot with nothing said is the commonest message this carries, and

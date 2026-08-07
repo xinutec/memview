@@ -124,6 +124,24 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
+// A message the runner holds and the session has not read. Quiet: it is not a
+// warning, and it resolves itself. Tertiary rather than error for exactly that
+// reason — nothing has gone wrong, something has not happened *yet*.
+.queued {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font: var(--mat-sys-label-small);
+  color: var(--mat-sys-tertiary);
+  margin-bottom: 0.15rem;
+
+  mat-icon {
+    font-size: 0.875rem;
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+}
+
 .turn,
 .note {
   font: var(--mat-sys-body-small);

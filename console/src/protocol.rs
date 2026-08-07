@@ -80,6 +80,28 @@ pub enum Event {
         cwd: String,
         tools: usize,
     },
+    /// A message this console has written to the session's stdin, before the CLI
+    /// has read it.
+    ///
+    /// ⚠ **The gap between this and [`Event::Prompt`] is minutes, not
+    /// milliseconds, and nothing used to show it.** The CLI parks input that
+    /// arrives mid-turn — it appears in the transcript as a `queued_command` —
+    /// and releases it in batches: measured on 2026-08-07, four messages taken
+    /// at 19:46:07, 19:46:22, 19:53:57 and 19:55:07 were all read at 19:57:59,
+    /// the oldest after **twelve minutes**. Between turns the same trip is
+    /// seconds.
+    ///
+    /// With only the echo to go on, a message sent to a working session left no
+    /// trace at all until it was read, which is indistinguishable from a message
+    /// that never arrived — so it gets sent again. Three duplicates in one
+    /// evening, from the phone, by somebody who had every reason to believe the
+    /// first had failed.
+    ///
+    /// The pair is deliberate: this says *the runner has it*, `Prompt` says *the
+    /// session has read it*, and only both together describe the trip.
+    Accepted {
+        text: String,
+    },
     /// The prompt, echoed back by `--replay-user-messages`. It is the CLI's own
     /// acknowledgement that the message arrived, which is worth showing: it is
     /// the difference between "sent" and "received" when the phone is on a

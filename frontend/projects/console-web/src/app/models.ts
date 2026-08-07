@@ -151,6 +151,7 @@ export const KINDS = [
   'joined',
   'started',
   'prompt',
+  'accepted',
   'shown',
   'text',
   'tool',
@@ -248,6 +249,18 @@ export interface Entry {
   /** Tool entries only: the call's own id, which is what a result is matched
    *  against. Absent for a transcript line that carried none. */
   call?: string;
+  /**
+   * `asked` entries only: the runner has the message but the session has not
+   * read it yet.
+   *
+   * ⚠ **Not a delivery failure and must not read as one.** The write to the
+   * session succeeded; the CLI parks input that arrives mid-turn and releases it
+   * in batches, up to twelve minutes later. Shown because the alternative —
+   * nothing on screen at all until it is read — is indistinguishable from a
+   * message that never arrived, which is why the same sentence got sent three
+   * times in one evening.
+   */
+  queued?: boolean;
   /** `ask` entries only: the control-request id to answer with, and the verdict
    *  once there is one. Undecided is the state that needs a person. */
   ask?: string;

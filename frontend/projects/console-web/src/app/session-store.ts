@@ -55,6 +55,27 @@ export interface Held {
    * that was plainly working, having simply not been listening when it said so.
    */
   readonly spoken: WritableSignal<boolean>;
+  /**
+   * Whether the stream has got past the replay and is describing now.
+   *
+   * ⚠ **The replay and the live stream arrive on one connection**, which is
+   * convenient and was the whole trap: a replayed `turn` is indistinguishable
+   * from a turn that just ended unless somebody marks the boundary. The runner
+   * marks it with a named `caught-up` event once the backlog is flushed, and
+   * until that arrives nothing on this stream is evidence about the present.
+   *
+   * ⚠ **Not the `joined` event, though it looks like the obvious candidate.**
+   * That one lives in the session's log and can therefore be trimmed out from
+   * under a client that connects late — and it is never pushed at all by a
+   * session that had no transcript to replay. The marker has to be a property of
+   * the connection, which is what makes it unmissable.
+   *
+   * Separate from [spoken] because they answer different questions and were
+   * conflated into one wrong answer: this is *has the past finished*, that is
+   * *has the present been described*. Only the second may turn `undefined` into
+   * "idle"; only the first may let an event set it.
+   */
+  readonly live: WritableSignal<boolean>;
   // ⚠ **No background count here, and there was one.** It was derived from this
   // stream, which was the only way to know until the runner started counting
   // for the list — and then the same question had two answers: this one reset
@@ -115,6 +136,8 @@ export class SessionStore {
       // Everything held has to go: it would otherwise be appended to by a replay
       // of itself, and there is no way to tell the two copies apart.
       () => this.forget(held),
+      // The replay is over; what follows is happening — see [Held.live].
+      () => held.live.set(true),
     );
     this.evict();
     return held;
@@ -164,6 +187,7 @@ export class SessionStore {
       doing: signal<string | undefined>(undefined),
       since: signal<number | undefined>(undefined),
       spoken: signal(false),
+      live: signal(false),
       seen: 0,
       used: ++this.clock,
     };
@@ -183,16 +207,26 @@ export class SessionStore {
     // Activity is state, so it is kept beside the transcript rather than in it.
     // A turn ending is what says the work stopped: the runner clears its own
     // busy on the same event, and nothing else on the wire announces idleness.
-    if (event.kind === 'busy') {
-      // Only the first one starts the clock — see [Held.since].
-      if (held.doing() === undefined) held.since.set(event.at ?? Date.now());
-      held.doing.set(event.status ?? 'working');
-      held.spoken.set(true);
-    }
-    if (event.kind === 'turn' || event.kind === 'exited') {
-      held.doing.set(undefined);
-      held.since.set(undefined);
-      held.spoken.set(true);
+    //
+    // ⚠ **Live events only, and that was a real defect.** A seed ends with the
+    // `turn` that closed the previous piece of work; applied as news it cleared
+    // `doing` and set `spoken`, which switched off the fallback to the runner's
+    // own flag — so a session that was already working when this client joined
+    // read `idle`, and stayed that way, because the CLI announces a status only
+    // when it CHANGES and had nothing further to say until it stopped. Twelve
+    // minutes of it on the phone, over a session running tools throughout.
+    if (held.live()) {
+      if (event.kind === 'busy') {
+        // Only the first one starts the clock — see [Held.since].
+        if (held.doing() === undefined) held.since.set(event.at ?? Date.now());
+        held.doing.set(event.status ?? 'working');
+        held.spoken.set(true);
+      }
+      if (event.kind === 'turn' || event.kind === 'exited') {
+        held.doing.set(undefined);
+        held.since.set(undefined);
+        held.spoken.set(true);
+      }
     }
     held.entries.update((entries) => [...fold(entries, event)]);
   }
@@ -219,6 +253,7 @@ export class SessionStore {
     held.doing.set(undefined);
     held.since.set(undefined);
     held.spoken.set(false);
+    held.live.set(false);
   }
 
   /** Let go of the least recently opened transcripts past [KEPT].

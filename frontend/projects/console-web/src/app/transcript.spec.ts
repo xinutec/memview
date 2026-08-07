@@ -370,3 +370,46 @@ describe('folding runs of tool calls', () => {
     expect(found).toEqual({ calls: 3, failed: 1, running: 1 });
   });
 });
+
+describe('transcript · a message the session has not read yet', () => {
+  it('shows it at once, marked, rather than after the CLI gets to it', () => {
+    // ⚠ **The wait is minutes, and it used to be invisible.** The runner writes
+    // to stdin immediately; the CLI parks input that arrives mid-turn and reads
+    // it in batches — twelve minutes for the oldest of four, measured from the
+    // phone on 2026-08-07. With only the echo to go on there was nothing on
+    // screen in the meantime, which reads exactly like a message that failed.
+    const seen = transcript({ kind: 'accepted', text: 'is the gate green?' });
+    expect(seen).toEqual([{ kind: 'asked', text: 'is the gate green?', queued: true }]);
+  });
+
+  it('promotes the waiting message rather than showing it twice', () => {
+    // The two events are one message: the runner taking it, the CLI reading it.
+    const seen = transcript(
+      { kind: 'accepted', text: 'is the gate green?' },
+      { kind: 'prompt', text: 'is the gate green?' },
+    );
+    expect(seen).toEqual([{ kind: 'asked', text: 'is the gate green?', queued: undefined }]);
+  });
+
+  it('answers the oldest copy when the same words were sent twice', () => {
+    // ⚠ **The shape that actually happened.** Believing the first had failed,
+    // the same sentence was sent again fifteen seconds later — twice, that
+    // evening. Matching the newest copy would clear the second and leave the
+    // first marked as waiting for ever, which is the worse of the two lies: it
+    // says a message that has been read is still stuck.
+    const seen = transcript(
+      { kind: 'accepted', text: 'why is it idle?' },
+      { kind: 'accepted', text: 'why is it idle?' },
+      { kind: 'prompt', text: 'why is it idle?' },
+    );
+    expect(seen.map((entry) => entry.queued)).toEqual([undefined, true]);
+  });
+
+  it('shows a replayed message plainly, having never seen it wait', () => {
+    // A re-seed replays the transcript, which holds the conversation and not the
+    // runner's own bookkeeping — so the echo arrives with nothing to promote and
+    // must still produce the message.
+    const seen = transcript({ kind: 'prompt', text: 'from the transcript' });
+    expect(seen).toEqual([{ kind: 'asked', text: 'from the transcript' }]);
+  });
+});

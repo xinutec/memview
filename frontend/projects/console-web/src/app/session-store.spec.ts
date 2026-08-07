@@ -12,6 +12,8 @@ interface Opened {
   readonly after: number;
   readonly send: (event: SessionEvent, seq: number) => void;
   readonly reset: () => void;
+  /** The runner's per-connection marker: the replay is over. */
+  readonly caughtUp: () => void;
   closed: boolean;
 }
 
@@ -29,8 +31,16 @@ class Runner {
     after: number,
     onEvent: (event: SessionEvent, seq: number) => void,
     onReset: () => void,
+    onCaughtUp: () => void,
   ): () => void {
-    const stream: Opened = { id, after, send: onEvent, reset: onReset, closed: false };
+    const stream: Opened = {
+      id,
+      after,
+      send: onEvent,
+      reset: onReset,
+      caughtUp: onCaughtUp,
+      closed: false,
+    };
     this.opened.push(stream);
     return () => (stream.closed = true);
   }
@@ -121,6 +131,8 @@ describe('SessionStore', () => {
     // idle. A re-seed means this client knows nothing about the present, and
     // `spoken` is how it says so rather than claiming the session is idle.
     const held = store.open('restarted');
+    // The boundary first, as every connection sends it — see [Held.live].
+    runner.latest.caughtUp();
     runner.latest.send({ kind: 'busy', status: 'requesting' }, 1);
     expect(held.doing()).toBe('requesting');
     expect(held.spoken()).toBe(true);
@@ -130,6 +142,38 @@ describe('SessionStore', () => {
     expect(held.doing()).toBeUndefined();
     expect(held.since()).toBeUndefined();
     expect(held.spoken()).toBe(false);
+  });
+
+  it('does not let the replayed transcript answer for the present', () => {
+    // ⚠ **The defect this exists for, reported from the phone on 2026-08-07:**
+    // the page said `idle` for twelve minutes over a session that was working
+    // the whole time, so messages sent to it looked like messages going nowhere.
+    //
+    // The seed is the tail of the transcript and it ends, as almost every tail
+    // does, with the `turn` that closed the *previous* piece of work. Applied as
+    // if it were news, that clears `doing` and — the real damage — sets `spoken`,
+    // which switches off the fallback to the runner's own flag. The CLI
+    // announces a status only when it CHANGES, so a session already working when
+    // this client joined says nothing further until it stops: nothing ever
+    // corrects the claim.
+    //
+    // The runner marks the boundary per connection, once the backlog is
+    // flushed. Everything before it is history and may not speak for now.
+    const held = store.open('seeded');
+    runner.latest.send({ kind: 'busy', status: 'requesting' }, 1);
+    runner.latest.send({ kind: 'turn', turns: 3, duration_ms: 1000 }, 2);
+    runner.latest.caughtUp();
+
+    expect(held.doing(), 'history says nothing about what is happening now').toBeUndefined();
+    expect(
+      held.spoken(),
+      'the replay is not the stream speaking, so the summary still answers',
+    ).toBe(false);
+
+    // And the first genuinely live status takes over, as it always did.
+    runner.latest.send({ kind: 'busy', status: 'tool_use' }, 4);
+    expect(held.doing()).toBe('tool_use');
+    expect(held.spoken()).toBe(true);
   });
 
   it('forgets the transcripts nobody has looked at for longest', () => {

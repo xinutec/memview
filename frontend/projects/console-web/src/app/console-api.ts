@@ -175,6 +175,7 @@ export class ConsoleApi {
     after: number,
     onEvent: (event: SessionEvent, seq: number) => void,
     onReset: () => void,
+    onCaughtUp: () => void,
   ): () => void {
     const url = `/api/sessions/${encodeURIComponent(id)}/events`;
     const source = new EventSource(after > 0 ? `${url}?after=${after}` : url);
@@ -186,6 +187,14 @@ export class ConsoleApi {
     // the runner says it genuinely cannot resume: a console restarted, or a
     // session busy enough to have dropped that far out of its scrollback.
     source.addEventListener('reset', () => onReset());
+    // ⚠ **Where the replay ends and the present begins.** Everything before it
+    // is the transcript being caught up on, and a replayed `turn` is
+    // indistinguishable from one that just ended — which is how the page came to
+    // report `idle` over twelve minutes of work. Named rather than a domain
+    // event because it is a fact about this connection, and per connection
+    // rather than in the log because the log can be trimmed out from under a
+    // client that joins late.
+    source.addEventListener('caught-up', () => onCaughtUp());
     source.onmessage = (message: MessageEvent<unknown>) => {
       const event = parse(message.data);
       // A line that is not an event this version knows is dropped rather than

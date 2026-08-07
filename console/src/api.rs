@@ -583,6 +583,24 @@ async fn events(
 
     let held = tokio_stream::iter(backlog.events).map(wire);
 
+    // ⚠ **Where the past stops, said per connection rather than per session.**
+    // Everything above is a replay; everything below is happening. A client
+    // cannot tell them apart otherwise — a replayed `turn` looks exactly like a
+    // turn that just ended — and it *must*, because the CLI announces a status
+    // only when it changes: a session already working when somebody joined said
+    // nothing further until it stopped, so the replayed `turn` at the end of the
+    // backlog stood as the client's last word on the matter and the page read
+    // `idle` over twelve minutes of work.
+    //
+    // Named, like `reset`, and for the same reason: it is a fact about this
+    // stream, not about the conversation, so `onmessage` never sees it and no
+    // transcript entry comes of it. Deliberately NOT the `Joined` event, which
+    // is in the log and can therefore be trimmed out from under a client that
+    // connects late — this one is emitted on every connection by construction.
+    let caught_up = tokio_stream::iter([Sse::default()
+        .event("caught-up")
+        .data("everything after this is happening now")]);
+
     let live = live.filter_map(move |got| match got {
         // Already sent as part of the backlog.
         Ok(stamped) if stamped.seq <= through => None,
@@ -602,7 +620,11 @@ async fn events(
         ),
     });
 
-    let stream = prelude.chain(held).chain(live).map(Ok::<Sse, Infallible>);
+    let stream = prelude
+        .chain(held)
+        .chain(caught_up)
+        .chain(live)
+        .map(Ok::<Sse, Infallible>);
 
     Ok(SseResponse::new(stream).keep_alive(
         // A session can sit silent for a long time while a tool runs, and a
