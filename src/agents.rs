@@ -873,19 +873,16 @@ fn named_in_transcript(text: &[u8]) -> Option<String> {
 /// from elsewhere cannot rename an agent. Returns `None` when the CLI changes the
 /// shape, which costs the fallbacks and not correctness.
 fn titled_in_transcript(text: &[u8], owner: &str) -> Option<String> {
-    // The name it was given, then the title it shows under — the same word in
-    // every transcript here, and this order because one is a name and the other
-    // is a caption.
-    //
-    // ⚠ **The console applies the opposite order**, and its reasons are as good
-    // as these. Neither is wrong today, because enrolment writes both values the
-    // same; `reader::transcript` states the divergence in full and says why it
-    // was not settled by a refactor. The spelling of the lines comes from there
-    // so that at least the vocabulary cannot drift.
-    let written = [
-        reader::transcript::name_needle(&reader::transcript::AGENT_NAME),
-        reader::transcript::name_needle(&reader::transcript::CUSTOM_TITLE),
-    ];
+    // ⚠ **The actor's order, and the console deliberately uses the other one.**
+    // This page answers "who did this work", so the name it was given wins over
+    // the title one view shows it under. The console lists conversations to pick
+    // between and prefers the title, which is the same split the CLI itself
+    // makes — see [`reader::transcript::AS_ACTOR`], where both orders and the
+    // CLI's two chains are set out.
+    let written: Vec<Vec<u8>> = reader::transcript::AS_ACTOR
+        .iter()
+        .map(|line| reader::transcript::name_needle(line))
+        .collect();
     written
         .iter()
         .find_map(|needle| last_titled(text, needle, owner))

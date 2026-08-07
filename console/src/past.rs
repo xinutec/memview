@@ -858,8 +858,10 @@ fn tail_of(path: &Path, len: u64) -> Tail {
         return found;
     }
 
-    let mut title = None;
-    let mut agent = None;
+    // Keyed by the field the line declares, so the precedence below is decided by
+    // the shared order and never by which local happens to be checked first.
+    let mut names: std::collections::BTreeMap<&'static str, String> =
+        std::collections::BTreeMap::new();
     for line in String::from_utf8_lossy(&tail).lines() {
         let events = crate::protocol::read_recorded(line);
         // ⚠ **A line that carries a conversation event is a line somebody said**
@@ -887,24 +889,24 @@ fn tail_of(path: &Path, len: u64) -> Tail {
             continue;
         };
         // Field names from the shared vocabulary, so this and the viewer cannot
-        // drift on the spelling of a line they both read.
-        if let Some(name) = value
-            .get(reader::transcript::CUSTOM_TITLE.field)
-            .and_then(|v| v.as_str())
-        {
-            title = Some(name.to_string());
-        }
-        if let Some(name) = value
-            .get(reader::transcript::AGENT_NAME.field)
-            .and_then(|v| v.as_str())
-        {
-            agent = Some(name.to_string());
+        // drift on the spelling of a line they both read. Read forward, so the
+        // last of each kind in the tail is the one kept.
+        for line in reader::transcript::AS_CONVERSATION {
+            if let Some(name) = value.get(line.field).and_then(|v| v.as_str()) {
+                names.insert(line.field, name.to_string());
+            }
         }
     }
-    // ⚠ **The viewer resolves this the other way round**, preferring the agent
-    // name. Both orders are defended in their own module and neither is wrong
-    // today, because enrolment writes the two values the same; the divergence
-    // and why a refactor did not settle it are in `reader::transcript`.
-    found.name = title.or(agent).filter(|name| !name.trim().is_empty());
+    // ⚠ **The conversation's order, and the viewer deliberately uses the other
+    // one.** This names a conversation in a list somebody picks from, so the
+    // title a person last chose wins; `/agents` asks who did the work and
+    // prefers the agent name. That is the CLI's own split — see
+    // [`reader::transcript::AS_CONVERSATION`], which sets out both orders and
+    // the two chains in the CLI they come from.
+    found.name = reader::transcript::AS_CONVERSATION
+        .iter()
+        .find_map(|line| names.get(line.field))
+        .filter(|name| !name.trim().is_empty())
+        .cloned();
     found
 }

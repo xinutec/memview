@@ -63,19 +63,45 @@ pub fn name_needle(line: &NameLine) -> Vec<u8> {
     format!(r#"{{"type":"{}","{}":""#, line.line_type, line.field).into_bytes()
 }
 
-// ⚠ **THE TWO CRATES DISAGREE ABOUT WHICH OF THESE WINS, and it is not yet a
-// defect.** The console prefers `custom-title`, on the grounds that one is a
-// decision and the other is a default. The viewer prefers `agent-name`, on the
-// grounds that one is a name and the other is a caption. Both are documented
-// with a confident rationale, and they are opposite.
+/// The order to read a name in when the question is **which conversation is
+/// this**, for a list somebody picks from.
+///
+/// The title first, because that is what a person last chose to call it.
+pub const AS_CONVERSATION: [&NameLine; 2] = [&CUSTOM_TITLE, &AGENT_NAME];
+
+/// The order to read a name in when the question is **who did this work**.
+///
+/// The agent name first, because that is the identity the work was done under;
+/// a title is what one view calls it.
+pub const AS_ACTOR: [&NameLine; 2] = [&AGENT_NAME, &CUSTOM_TITLE];
+
+// ⚠ **THE TWO CRATES DISAGREED, AND THE ANSWER IS THAT BOTH WERE RIGHT.** The
+// console preferred `custom-title`, the viewer `agent-name`, each with a
+// confident rationale, and the rationales were opposite. Resolved 2026-08-07 by
+// reading the CLI rather than by choosing: **it carries both orders, split by
+// what the name is for.** From the 2.1.221 binary —
 //
-// Measured on the live corpus 2026-08-06: 13 sessions carry both line types, and
-// in all 13 the values are identical, because enrolment writes both. So nothing
-// has diverged and no screen is wrong today.
+//     the session labeller: agentName || customTitle || aiTitle || summary
+//                           || firstPrompt || … || sessionId.slice(0, 8)
+//     the resume picker   : customTitle || aiTitle || lastPrompt || summaryHint
+//                           || firstPrompt          (agentName is never consulted)
 //
-// It diverges the first time a session is renamed through one mechanism only —
-// and then the console and the /agents page call the same conversation different
-// things, with no error anywhere. Deliberately NOT resolved by moving the
-// precedence in here: which one should win is a judgement about what a name is
-// for, not a fact about the file format, and picking one silently while
-// refactoring is how a decision gets made by nobody.
+// So the disagreement was this distinction, discovered twice and named nowhere.
+// The console lists conversations to pick between, which is the picker's
+// question; `/agents` says who works where, which is the labeller's. Each keeps
+// the behaviour it already had, and the order is now a stated decision instead
+// of two independent guesses that happened to agree.
+//
+// ⚠ **`ai-title` is deliberately in neither.** It is the CLI's own description of
+// a conversation — "Review DICOM scan documentation" — written once near the head
+// of the file and never changed. Acceptable as a caption; wrong as a name on a
+// page about who did the work. The actor chain falls through to the session id
+// instead.
+//
+// Measured on the live corpus while deciding: 13 of 13 conversations carry both
+// line types and **none disagree at the end**, because the CLI writes both on
+// adjacent lines. But 6 of the 13 have been renamed at least once — one four
+// times, one five — so the agreement is the CLI's doing rather than luck, and the
+// precedence still has to be right for the day a single mechanism writes one of
+// them. In one file `agent-name` had taken a value `custom-title` never did: that
+// file's `ai-title`.

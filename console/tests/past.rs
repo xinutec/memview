@@ -70,6 +70,14 @@ fn named(dir: &Path, id: &str, title: Option<&str>, agent: Option<&str>) {
     std::fs::write(folder.join(format!("{id}.jsonl")), lines.join("\n")).expect("transcript");
 }
 
+/// A directory of this test's own.
+///
+/// ⚠ **`name` must be unique across the file, and nothing checks it.** Two tests
+/// sharing one silently share a directory — each `remove_dir_all`s the other's
+/// fixture and whichever writes last wins, so the pair passes alone and fails
+/// perhaps one run in six. Cost an hour on 2026-08-07, where the reused name read
+/// its neighbour's transcript and reported a conversation called `health` that
+/// the test had never written.
 fn scratch(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("console-past-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -292,10 +300,18 @@ fn a_conversation_is_shown_by_the_name_it_gave_itself() {
 
     let found = conversations(&root);
     assert_eq!(found.len(), 1);
+    // ⚠ **The title wins here and the agent name wins in the viewer, and that is
+    // the decision rather than an accident.** The reason used to be given as "one
+    // is a decision, the other a default" — a rationale the viewer answered with
+    // an equally confident opposite one. Settled 2026-08-07 by reading the CLI,
+    // which carries both orders split by what the name is for: its resume picker
+    // reads `customTitle` and never consults `agentName`, its session labeller
+    // reads `agentName` first. This is a list of conversations to pick from, so
+    // it is the picker's question. See `reader::transcript::AS_CONVERSATION`.
     assert_eq!(
         found[0].name.as_deref(),
         Some("music"),
-        "custom-title wins: one is a decision, the other a default"
+        "a list of conversations shows what a person last renamed one to"
     );
 }
 

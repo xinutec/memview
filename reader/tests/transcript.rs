@@ -59,3 +59,53 @@ fn the_vocabulary_is_what_the_cli_writes() {
         r#"{"type":"custom-title","customTitle":""#
     );
 }
+
+#[test]
+fn the_two_orders_are_opposite_on_purpose() {
+    // ⚠ **This asserts a DECISION, not an implementation.** The console and the
+    // viewer disagreed about which name wins, each with a confident rationale,
+    // and the answer turned out to be that both were right: the CLI carries both
+    // orders, split by what the name is for. Its session labeller reads
+    // `agentName` first; its resume picker reads `customTitle` first and never
+    // consults `agentName` at all.
+    //
+    // So a future reader who finds these opposed should not "fix" one to match
+    // the other — that is the bug this pair replaced. Which order a call site
+    // wants follows from the question it is answering, and is named at each of
+    // them.
+    let conversation: Vec<&str> = reader::transcript::AS_CONVERSATION
+        .iter()
+        .map(|line| line.line_type)
+        .collect();
+    let actor: Vec<&str> = reader::transcript::AS_ACTOR
+        .iter()
+        .map(|line| line.line_type)
+        .collect();
+
+    assert_eq!(conversation, ["custom-title", "agent-name"]);
+    assert_eq!(actor, ["agent-name", "custom-title"]);
+
+    let mut reversed = actor.clone();
+    reversed.reverse();
+    assert_eq!(
+        conversation, reversed,
+        "the two orders answer opposite questions and must stay opposite",
+    );
+}
+
+#[test]
+fn the_cli_s_own_description_is_not_a_name() {
+    // `ai-title` is the CLI's summary of a conversation — "Review DICOM scan
+    // documentation" — written once near the head of the file and never changed.
+    // Fine as a caption; wrong on a page about who did the work. It is in neither
+    // order, and the actor chain falls through to the session id instead.
+    for order in [
+        reader::transcript::AS_CONVERSATION,
+        reader::transcript::AS_ACTOR,
+    ] {
+        assert!(
+            !order.iter().any(|line| line.line_type.contains("ai-title")),
+            "a description must not become a name",
+        );
+    }
+}
