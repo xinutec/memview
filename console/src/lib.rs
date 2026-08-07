@@ -9,6 +9,7 @@ pub mod attest;
 pub mod config;
 pub mod gist;
 pub mod images;
+pub mod parse;
 pub mod past;
 pub mod protocol;
 pub mod roster;

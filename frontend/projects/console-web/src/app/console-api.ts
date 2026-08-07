@@ -2,7 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
-import { Conversation, KINDS, Overview, SessionEvent, Summary, Task } from './models';
+import { Conversation, KINDS, Overview, Parsed, SessionEvent, Summary, Task } from './models';
 import { Answers, Notes } from './questions';
 
 /** Thin client over the console runner. Same origin in production (the runner
@@ -55,6 +55,22 @@ export class ConsoleApi {
     return this.http.get<{ description: string }>(
       `/api/sessions/${encodeURIComponent(id)}/tasks/${encodeURIComponent(task)}`,
     );
+  }
+
+  /**
+   * One `Bash` command, read by the same library the index is built from.
+   *
+   * ⚠ **The working directory is deliberately not sent.** The runner takes it
+   * from the session, because a relative operand resolves against it and a
+   * client free to choose it could make the answer name any file it liked —
+   * where the whole worth of this view is that it says what the miner would say.
+   *
+   * `ok` is the call's own verdict, `undefined` while it is still running. That
+   * is a third state and not a synonym for failure: half of what this view shows
+   * is which uses the outcome makes certain.
+   */
+  parse(id: string, command: string, ok?: boolean): Observable<Parsed> {
+    return this.http.post<Parsed>(`/api/sessions/${encodeURIComponent(id)}/parse`, { command, ok });
   }
 
   start(dir: string, prompt: string, resume?: string): Observable<Summary> {

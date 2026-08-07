@@ -778,3 +778,175 @@ fn only_the_last_turn_of_a_loop_ends_in_the_reported_status() {
         ]
     );
 }
+
+// ---------------------------------------------------------------------------
+// The trace: the same walk, saying what it did as it did it.
+//
+// These exist because a *view* of the parse is only worth showing if it is the
+// walk's own account. Every case below is therefore written as an agreement
+// between `trace` and `extract` on the same script, rather than as a fact about
+// the trace alone: the moment the two can differ, the view starts lying about
+// what the index was built from.
+// ---------------------------------------------------------------------------
+
+use reader::shell_files::trace;
+
+/// The steps of one script, as `(depth, first word, how many uses)`.
+fn walked(script: &str) -> Vec<(usize, String, usize)> {
+    let cmds = parse(script).unwrap_or_else(|at| panic!("failed to parse, stopped at {at:?}"));
+    trace(&cmds, Some(CWD), HOME)
+        .steps
+        .into_iter()
+        .map(|s| {
+            (
+                s.depth,
+                s.argv.first().cloned().unwrap_or_default(),
+                s.files.len() + s.away.len(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn tracing_changes_nothing_about_what_was_found() {
+    // The point of the flag: it adds an account of the walk and moves no result
+    // of it. Asserted on the shape that exercises every layer at once — a
+    // devshell wrapper, a redirect on it, a `cd` inside, and a use after.
+    let script = "nix develop -c bash -c 'cd frontend && cp a.ts b.ts' > /tmp/log 2>&1";
+    let cmds = parse(script).unwrap();
+    let plain = extract(&cmds, Some(CWD), HOME);
+    let traced = trace(&cmds, Some(CWD), HOME);
+    assert_eq!(plain.files, traced.files);
+    assert_eq!(plain.remote, traced.remote);
+    assert_eq!(plain.handled, traced.handled);
+    assert_eq!(plain.unhandled, traced.unhandled);
+    assert!(plain.steps.is_empty(), "extract must not pay for the trace");
+    assert!(!traced.steps.is_empty());
+}
+
+#[test]
+fn every_use_belongs_to_exactly_one_step() {
+    // ⚠ **The defect this guards is double-counting at two depths.** A wrapper
+    // absorbs the files of the script it opens; if its own step claimed them
+    // too, the view would show one `cp` as two writes — the bug being that the
+    // totals would still be right, so nothing else would ever catch it.
+    let script = "nix develop -c bash -c 'cp a.ts b.ts' > /tmp/log";
+    let cmds = parse(script).unwrap();
+    let traced = trace(&cmds, Some(CWD), HOME);
+    let claimed: usize = traced.steps.iter().map(|s| s.files.len()).sum();
+    assert_eq!(claimed, traced.files.len());
+}
+
+#[test]
+fn a_wrapper_stands_in_front_of_what_it_opens() {
+    // Outwards-in, the order the shell opens them — so indenting by `depth`
+    // draws the nesting without the reader having to sort anything.
+    //
+    // ⚠ **`nix develop -c bash -c '…'` is ONE step, not two.** `-c` on `nix`
+    // carries an argv rather than a script, so the wrapper is unwrapped and the
+    // command that gets classified is the `bash -c` inside it — which is where
+    // the one and only parse of a nested script happens. Two visible wrappers,
+    // one nesting: the view would be wrong to draw two indents here, and this is
+    // the case that says so.
+    assert_eq!(
+        walked("nix develop -c bash -c 'cd frontend && cat main.ts'"),
+        [
+            // The wrapper named no file itself; its script is followed, not read.
+            (0, "nix".to_string(), 0),
+            (1, "cd".to_string(), 0),
+            (1, "cat".to_string(), 1),
+        ]
+    );
+}
+
+#[test]
+fn a_wrappers_own_redirect_stays_with_the_wrapper() {
+    // The one thing a wrapper *does* name. It must not fall through to the
+    // inner command, which never saw it.
+    let cmds = parse("nix develop -c bash -c 'cp a.ts b.ts' > /tmp/log").unwrap();
+    let traced = trace(&cmds, Some(CWD), HOME);
+    let wrapper = &traced.steps[0];
+    assert_eq!(wrapper.argv.first().unwrap(), "nix");
+    assert_eq!(
+        wrapper.files,
+        [reader::shell_files::FileUse {
+            path: "/tmp/log".to_string(),
+            write: true,
+            reached: reader::shell::Reached::Always,
+        }]
+    );
+}
+
+#[test]
+fn a_step_says_which_directory_it_resolved_against() {
+    // The question the view exists to answer — why *that* path — and for a
+    // relative operand the answer is always the directory, which the text does
+    // not show.
+    let cmds = parse("cd frontend && cat main.ts").unwrap();
+    let traced = trace(&cmds, Some(CWD), HOME);
+    let read = traced.steps.last().unwrap();
+    assert_eq!(read.argv, ["cat", "main.ts"]);
+    assert_eq!(
+        read.cwd.as_deref(),
+        Some("/home/example/Code/health/frontend")
+    );
+    assert_eq!(
+        read.files[0].path,
+        "/home/example/Code/health/frontend/main.ts"
+    );
+}
+
+#[test]
+fn a_step_carries_the_words_the_shell_would_have_run() {
+    // Not the words as written. A loop variable and an assignment are both
+    // gone by the time a path is resolved, and a reader looking at `$f` cannot
+    // see why the file came out as it did.
+    //
+    // ⚠ **`do` leads the body's words**, because `do`/`done`/`then` are ordinary
+    // words here by design — a keyword rule would have to decide whether
+    // `echo done` ends a loop. The view inherits that: the first word of a step
+    // is not always the command, and labelling steps by it would file two reads
+    // under `do`.
+    assert_eq!(
+        walked("for f in a.ts b.ts; do cat $f; done")
+            .into_iter()
+            .map(|(_, word, _)| word)
+            .collect::<Vec<_>>(),
+        ["for", "do", "do", "done"]
+    );
+    let cmds = parse("for f in a.ts b.ts; do cat $f; done").unwrap();
+    let traced = trace(&cmds, Some(CWD), HOME);
+    // The body once per value, with `$f` gone — which is the actual claim.
+    assert_eq!(traced.steps[1].argv, ["do", "cat", "a.ts"]);
+    assert_eq!(traced.steps[2].argv, ["do", "cat", "b.ts"]);
+}
+
+#[test]
+fn a_line_that_is_only_a_redirect_still_gets_a_step() {
+    // 8,386 of the corpus's commands are a redirect and nothing else. Without a
+    // step they would write a file that the view never shows — the one failure
+    // mode that makes a debugging view actively misleading.
+    let cmds = parse("> /tmp/log").unwrap();
+    let traced = trace(&cmds, Some(CWD), HOME);
+    assert_eq!(traced.steps.len(), 1);
+    assert!(traced.steps[0].argv.is_empty());
+    assert!(
+        traced.steps[0].op.is_none(),
+        "no command was classified, so there is no operation to name"
+    );
+    assert_eq!(traced.steps[0].files.len(), 1);
+    assert!(traced.steps[0].files[0].write);
+}
+
+#[test]
+fn a_remote_commands_files_never_reach_the_local_ones() {
+    // The separation `RemoteUse` exists for, held at the step level too: a view
+    // that showed isis's paths beside this machine's would undo it by eye.
+    let cmds = parse("ssh root@isis.xinutec.org 'cat /etc/nixos/configuration.nix'").unwrap();
+    let traced = trace(&cmds, Some(CWD), HOME);
+    let inner = traced.steps.last().unwrap();
+    assert_eq!(inner.host.as_deref(), Some("isis"));
+    assert!(inner.files.is_empty(), "nothing local was used");
+    assert_eq!(inner.away.len(), 1);
+    assert_eq!(inner.away[0].path, "/etc/nixos/configuration.nix");
+}

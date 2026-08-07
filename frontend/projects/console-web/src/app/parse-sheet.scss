@@ -1,0 +1,246 @@
+:host {
+  display: block;
+  // No height cap and no scroller: `mat-bottom-sheet-container` already caps and
+  // scrolls, and a second scrolling region inside the first is how a swipe stops
+  // working (DL-ANGULAR-NESTED-SCROLLER).
+}
+
+.who {
+  font: var(--mat-sys-title-medium);
+  margin: 0 0 0.75rem;
+}
+
+// The command as written. ⚠ **`pre-wrap` with `break-word`, never `anywhere`** —
+// `overflow-wrap: anywhere` drops the min-content width to a single character,
+// which collapses any grid or flex column this sits in. `break-word` wraps the
+// long unbroken paths a command line is full of without that side effect.
+// ⚠ **No height cap and no scroller of its own** (DL-ANGULAR-NESTED-SCROLLER).
+// It had both — `max-height: 30vh; overflow-y: auto` — to keep the parse on
+// screen under a long command, and that is a second scrolling region inside the
+// sheet's own: two gestures competing for one swipe, which is how a sheet stops
+// being draggable. A long command pushes the parse down and the reader scrolls
+// the sheet, once.
+.raw {
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: 0.5rem;
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface);
+  // The scale first, then the family it does not carry: `font:` is a shorthand
+  // and resets `font-family` to the initial value if it comes after.
+  font: var(--mat-sys-body-small);
+  font-family: ui-monospace, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.summary {
+  margin: 0 0 0.25rem;
+  font: var(--mat-sys-label-large);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.unproven {
+  color: var(--mat-sys-tertiary);
+}
+
+.against,
+.note,
+.here {
+  margin: 0 0 0.5rem;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.trouble,
+.unread {
+  margin: 0;
+  display: flex;
+  gap: 0.375rem;
+  align-items: flex-start;
+  font: var(--mat-sys-body-medium);
+  color: var(--mat-sys-error);
+}
+
+code {
+  font: var(--mat-sys-body-small);
+  font-family: ui-monospace, monospace;
+  overflow-wrap: break-word;
+}
+
+.steps {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.step {
+  // The rule down the left is what makes nesting legible at a glance without
+  // spending width on it: one line, moved right by the indent below.
+  border-left: 2px solid var(--mat-sys-outline-variant);
+  padding: 0.125rem 0 0.125rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  // ⚠ **`min-width: 0` or the monospace words refuse to wrap.** A flex item's
+  // default `min-width: auto` is its content's min-content width, and a long
+  // path has none worth speaking of — the column grows past the phone instead.
+  min-width: 0;
+
+  // A step's own depth. Capped by the component at three: past that the indent
+  // costs more than the nesting is worth on a 412px screen.
+  &[data-indent='1'] {
+    margin-left: 0.75rem;
+  }
+
+  &[data-indent='2'] {
+    margin-left: 1.5rem;
+  }
+
+  &[data-indent='3'] {
+    margin-left: 2.25rem;
+  }
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+// The operation, as a label. Colour separates the three that change a file from
+// the many that do not — a reader scanning for "what did this touch" is looking
+// for exactly those.
+.kind {
+  font: var(--mat-sys-label-small);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.0625rem 0.375rem;
+  border-radius: 0.25rem;
+  background: var(--mat-sys-surface-container-highest);
+  color: var(--mat-sys-on-surface-variant);
+
+  &[data-kind='write'],
+  &[data-kind='remove'],
+  &[data-kind='copy'],
+  &[data-kind='move'],
+  &[data-kind='redirect'] {
+    background: var(--mat-sys-error-container);
+    color: var(--mat-sys-on-error-container);
+  }
+
+  &[data-kind='shell'],
+  &[data-kind='python'],
+  &[data-kind='remote'] {
+    background: var(--mat-sys-secondary-container);
+    color: var(--mat-sys-on-secondary-container);
+  }
+
+  &[data-kind='unknown'] {
+    background: var(--mat-sys-tertiary-container);
+    color: var(--mat-sys-on-tertiary-container);
+  }
+}
+
+.host,
+.depth {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  font: var(--mat-sys-label-small);
+  color: var(--mat-sys-on-surface-variant);
+
+  mat-icon {
+    font-size: 0.875rem;
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+}
+
+.words {
+  font: var(--mat-sys-body-small);
+  font-family: ui-monospace, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  color: var(--mat-sys-on-surface);
+}
+
+.says {
+  margin: 0;
+  font: var(--mat-sys-body-small);
+  font-style: italic;
+  color: var(--mat-sys-on-surface-variant);
+  overflow-wrap: break-word;
+}
+
+.when {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-tertiary);
+
+  mat-icon {
+    font-size: 0.875rem;
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+}
+
+// A file the command used, in two columns rather than three items in a row: the
+// mark, then everything about the
+// file. A path wraps to three lines here, and a grid keeps every one of them
+// under the first rather than running back beneath the icon.
+.used {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.375rem;
+  font: var(--mat-sys-body-small);
+  font-family: ui-monospace, monospace;
+  color: var(--mat-sys-on-surface-variant);
+
+  mat-icon {
+    font-size: 0.875rem;
+    width: 0.875rem;
+    height: 0.875rem;
+    // Top of the first line, not the middle of a three-line block — a mark
+    // floating beside the second line labels nothing.
+    align-self: start;
+    position: relative;
+    top: 0.1rem;
+  }
+
+  &.wrote {
+    color: var(--mat-sys-error);
+  }
+
+  // Not greyed out and not struck through: this use may well have happened, and
+  // both of those read as "did not". Dashed, which reads as "open question".
+  &.unsure .path {
+    text-decoration: underline dashed;
+    text-underline-offset: 0.2em;
+  }
+}
+
+// The file and what qualifies it, as one run of text — so the qualifier follows
+// the path's last line instead of being pinned to its first.
+.what {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.elsewhere {
+  font: var(--mat-sys-label-small);
+  font-style: italic;
+  color: var(--mat-sys-outline);
+  // A space the markup does not have to carry, since the two spans are on
+  // separate lines in the template.
+  margin-left: 0.25rem;
+}

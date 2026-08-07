@@ -156,6 +156,35 @@
   flex: 1;
 }
 
+// A shell command, which opens its parse. Styled to sit exactly where the span
+// it replaces sat: this is one row in a list of hundreds, and a control that
+// changed the row's height would make every Bash call taller than every Edit.
+//
+// ⚠ **The padding is cancelled by the margin on purpose.** It buys eight pixels
+// of thumb either side of a 20px line without moving anything — the row is dense
+// by design, and the alternative was a target nobody could hit.
+button.parse {
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0.25rem 0;
+  margin: -0.25rem 0;
+  // Says it is a control without spending a row on saying so. Dotted rather
+  // than solid: solid reads as a link to somewhere else, and this opens a view
+  // of the thing already on screen.
+  text-decoration: underline dotted var(--mat-sys-outline);
+  text-underline-offset: 0.25em;
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: 2px;
+    border-radius: 0.125rem;
+  }
+}
+
 // A question is the one thing on this page that stops everything until it is
 // answered, so it is the only thing allowed to shout.
 .question {

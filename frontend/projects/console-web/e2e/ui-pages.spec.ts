@@ -2889,3 +2889,224 @@ test('a seed that arrives in pieces still ends at the end @ phone width', async 
   });
   expect(gap).toBeLessThan(4);
 });
+
+/**
+ * The runner's real answer for the transcript fixture's own failed command.
+ *
+ * ⚠ **Not invented.** Produced by `console::parse::parsed` for exactly that
+ * command line, in exactly that session's directory, with `ok: false` — and
+ * pinned from the Rust side by `the_shape_the_phone_is_drawn_from` in
+ * `console/tests/parse.rs`, so a change in the reader breaks a test instead of
+ * leaving this file quietly drawing something the runner would never send.
+ *
+ * It is the interesting case rather than a tidy one: the call failed, so
+ * everything after the `&&` parses, classifies, names a real path — and none of
+ * it is certain. That is the whole reason the sheet exists.
+ */
+const PARSED = {
+  steps: [
+    {
+      depth: 0,
+      argv: ['nix', 'develop', '-c', 'lake', 'build'],
+      reached: 'always',
+      cwd: '/home/example/Code/health/packages/health-sync-backend/src/decode',
+      kind: 'nothing',
+    },
+    {
+      depth: 0,
+      argv: ['./verified_cli', 'match', '--serve', '--timeout', '30000ms'],
+      reached: 'on-success',
+      cwd: '/home/example/Code/health/packages/health-sync-backend/src/decode',
+      kind: 'run',
+      uses: [
+        {
+          path: '/home/example/Code/health/packages/health-sync-backend/src/decode/verified_cli',
+          write: false,
+          reached: 'on-success',
+          certain: false,
+        },
+      ],
+    },
+    {
+      depth: 0,
+      argv: ['tee', '/tmp/lean-gate.log'],
+      reached: 'on-success',
+      cwd: '/home/example/Code/health/packages/health-sync-backend/src/decode',
+      kind: 'write',
+      uses: [
+        { path: '/tmp/lean-gate.log', write: true, reached: 'on-success', certain: false },
+      ],
+    },
+  ],
+};
+
+/** As [[mockRunner]], and answering the parse the sheet asks for. */
+async function mockParse(page: Page, answer: unknown = PARSED): Promise<void> {
+  await page.route('**/api/sessions/*/parse', (r) => r.fulfill({ json: answer }));
+}
+
+/**
+ * The sheet, and the scope every layout check on it is given.
+ *
+ * ⚠ **An overlay legitimately covers the page it is over.** Unscoped, the
+ * overlap check compares this sheet's text against the transcript still rendered
+ * behind it and reports seventeen collisions that are the whole point of a
+ * bottom sheet. Same reasoning, and the same argument, as the details sheet.
+ */
+const SHEET = '.session-sheet';
+
+/**
+ * Open the parse of the fixture's failed shell command, with the sheet settled.
+ *
+ * ⚠ **Waits for the animation, not for the element.** A Material bottom sheet
+ * slides up, so a locator is visible — and measurable, and wrong — while it is
+ * still 300px below where it will come to rest. That is not flakiness to retry
+ * around: it is a box that has not finished moving, and the fix is to wait for
+ * the thing that is moving it.
+ */
+async function openParse(page: Page): Promise<void> {
+  await openTools(page);
+  await page.getByRole('button', { name: /verified_cli/ }).click();
+  const sheet = page.locator(SHEET);
+  await sheet.waitFor();
+  // ⚠ **Settled by watching the box, not by asking the element for its
+  // animations.** `getAnimations()` on the container came back empty and the
+  // sheet was still 210px below its resting place — Material drives the slide
+  // somewhere this element does not report. Where it *is* is not deniable.
+  //
+  // Bounded at two seconds' worth of frames: a wait that cannot end is
+  // indistinguishable from a wait still going, and this one would hang the suite
+  // rather than fail it.
+  await sheet.evaluate(
+    (el) =>
+      new Promise<void>((settled) => {
+        let last = Number.NaN;
+        let frames = 0;
+        const look = (): void => {
+          const top = el.getBoundingClientRect().top;
+          if (top === last || ++frames > 120) return settled();
+          last = top;
+          requestAnimationFrame(look);
+        };
+        requestAnimationFrame(look);
+      }),
+  );
+}
+
+test('a shell command opens as written and as read @ phone width', async ({ page }, testInfo) => {
+  // ⚠ **The two halves have to be comparable without scrolling between them.**
+  // That is the whole reason they are stacked rather than switched between, and
+  // it is a claim about a rendered page that no amount of reading the source can
+  // settle: the raw text is unbreakable path-shaped strings and the parse below
+  // it is a list of the same.
+  await mockRunner(page);
+  await mockParse(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await openParse(page);
+
+  // The command entire, which the row it was opened from could only ellipsise.
+  const raw = page.locator('.raw');
+  await expect(raw).toContainText('nix develop -c lake build');
+  await expect(raw).toContainText('tee /tmp/lean-gate.log');
+
+  // And the parse under it, in the shell's own order.
+  await expect(page.locator('.step')).toHaveCount(3);
+  await expect(page.locator('.step .kind').nth(2)).toHaveText('write');
+
+  // ⚠ **The claim the sheet is for.** The call failed, so the write after the
+  // `&&` may never have happened — and the summary says how many such uses there
+  // are without hiding any of them.
+  await expect(page.locator('.summary')).toContainText('2 unproven');
+  await expect(page.locator('.used.unsure')).toHaveCount(2);
+
+  await expectNoTextOverlaps(page, testInfo, SHEET);
+  await expectNoHorizontalOverflow(page, testInfo, SHEET);
+  await expectNoClippedText(page, testInfo, SHEET);
+});
+
+test('both halves of a parsed command fit one screen @ phone width', async ({ page }) => {
+  // The layout claim, measured rather than eyeballed: the raw text and the first
+  // classified step have to be on screen together, or the sheet has failed at
+  // the one thing it was stacked this way to do.
+  await mockRunner(page);
+  await mockParse(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await openParse(page);
+
+  const together = await page.evaluate(() => {
+    const raw = document.querySelector('.raw')?.getBoundingClientRect();
+    const step = document.querySelector('.step')?.getBoundingClientRect();
+    return raw && step ? { top: raw.top, bottom: step.bottom, screen: window.innerHeight } : null;
+  });
+  expect(together).not.toBeNull();
+  expect(together!.top, 'the raw command starts above the fold').toBeLessThan(
+    together!.screen,
+  );
+  expect(
+    together!.bottom,
+    'the first step of the parse is off the bottom of the screen',
+  ).toBeLessThanOrEqual(together!.screen);
+});
+
+test('a command that will not parse says so rather than looking empty @ phone width', async ({
+  page,
+}, testInfo) => {
+  // 0.4% of the corpus's calls land here. An empty sheet would read as a command
+  // that did nothing, which is the opposite of what it means.
+  await mockRunner(page);
+  await mockParse(page, { error: 'a case arm', steps: [] });
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await openParse(page);
+
+  await expect(page.locator('.unread')).toContainText('does not parse');
+  await expect(page.locator('.step')).toHaveCount(0);
+  await expectNoHorizontalOverflow(page, testInfo, SHEET);
+});
+
+test('another machine is named on the step and on every path @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **A path that looks local and is not is the mistake the whole separation
+  // exists to prevent** — so it is said twice, and a reader scrolling fast sees
+  // it either way.
+  await mockRunner(page);
+  await mockParse(page, {
+    steps: [
+      {
+        depth: 0,
+        argv: ['ssh', 'root@isis.xinutec.org', 'cat /etc/nixos/configuration.nix'],
+        reached: 'always',
+        kind: 'remote',
+        says: 'isis',
+      },
+      {
+        depth: 1,
+        host: 'isis',
+        argv: ['cat', '/etc/nixos/configuration.nix'],
+        reached: 'always',
+        kind: 'read',
+        uses: [
+          {
+            path: '/etc/nixos/configuration.nix',
+            write: false,
+            reached: 'sometimes',
+            certain: false,
+            host: 'isis',
+          },
+        ],
+      },
+    ],
+  });
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await openParse(page);
+
+  await expect(page.locator('.step').nth(1).locator('.host')).toContainText('isis');
+  await expect(page.locator('.used .elsewhere')).toContainText('on isis');
+  // Indented, so the wrapper is visibly not the thing that read the file.
+  const indents = await page.evaluate(() =>
+    [...document.querySelectorAll('.step')].map((s) => s.getBoundingClientRect().left),
+  );
+  expect(indents[1], 'the command inside the wrapper is not indented').toBeGreaterThan(indents[0]);
+  await expectNoHorizontalOverflow(page, testInfo, SHEET);
+  await expectNoClippedText(page, testInfo, SHEET);
+});

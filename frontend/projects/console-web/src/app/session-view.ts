@@ -13,6 +13,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { MatBottomSheet } from '@angular/material/bottom-sheet';
 import { TextFieldModule } from '@angular/cdk/text-field';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -31,6 +32,7 @@ import { Foreground } from './foreground';
 import { Entry, Summary } from './models';
 import { modelName } from './model';
 import { modeIcon, modeIsLoud, modeTitle } from './modes';
+import { Dismiss } from './dismiss';
 import { Following, measure } from './following';
 import { Here } from './here';
 import { Updates } from './updates';
@@ -38,6 +40,7 @@ import { Rendered } from './rendered';
 import { Picture, shrink, weight } from './picture';
 import { Answers, Notes, Question, choiceOf, complete } from './questions';
 import { Held, SessionStore } from './session-store';
+import { ParseSheet } from './parse-sheet';
 import { Block, blocks, ran } from './transcript';
 import { Telemetry } from './telemetry';
 import { fullness } from './tokens';
@@ -66,6 +69,8 @@ export class SessionView implements OnDestroy {
   readonly id = input.required<string>();
 
   private api = inject(ConsoleApi);
+  private sheet = inject(MatBottomSheet);
+  private dismiss = inject(Dismiss);
   private updates = inject(Updates);
   private here = inject(Here);
   /** A newer build is downloaded and held. See `Updates` for why it waits. */
@@ -631,6 +636,35 @@ export class SessionView implements OnDestroy {
    *  is what makes it cheap enough to run for every row on every pass. */
   shows(entry: Entry): boolean {
     return this.opened().has(entry);
+  }
+
+  /**
+   * Whether this row is a shell command there is a parse to show.
+   *
+   * ⚠ **Only `Bash`.** The reader reads shell, and the Python and the nested and
+   * remote shells inside it — all of which arrive as a `Bash` call. Offering the
+   * parse on an `Edit` or a `Read` would open a sheet that could only say the
+   * text is not a command.
+   */
+  protected parseable(entry: Entry): boolean {
+    return entry.tool === 'Bash' && !!entry.text.trim();
+  }
+
+  /**
+   * Open the command, as written and as the index reads it.
+   *
+   * The row itself stays a single ellipsised line: this is where the whole text
+   * lives, and there is nowhere else on the phone that holds it. See
+   * `parse-sheet.ts` for why the two halves are stacked rather than switched
+   * between.
+   */
+  protected parse(entry: Entry): void {
+    this.dismiss.onBack(
+      this.sheet.open(ParseSheet, {
+        data: { session: this.id(), command: entry.text, ok: entry.ok },
+        panelClass: 'session-sheet',
+      }),
+    );
   }
 
   /**

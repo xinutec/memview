@@ -628,6 +628,15 @@ pub fn transcript_of(root: &Path, id: &str) -> Option<PathBuf> {
         .find(|path| path.file_stem().and_then(|stem| stem.to_str()) == Some(id))
 }
 
+/// The directory one conversation was working in.
+///
+/// By id, without listing anything: a caller that wants one conversation's
+/// directory must not pay for every conversation on the machine, which is what
+/// filtering [`conversations`] would cost.
+pub fn dir_of(root: &Path, id: &str) -> Option<String> {
+    cwd_of(&transcript_of(root, id)?)
+}
+
 /// One page of a transcript, and where in the file it started.
 ///
 /// `from` is the cursor: the byte offset of the first line this page contains.

@@ -1,0 +1,146 @@
+<h2 class="who">the command, as written and as read</h2>
+
+<!-- ⚠ **Raw first, entire, and never truncated.** The transcript row this was
+     opened from shows one ellipsised line; if this sheet cut the text too there
+     would be nowhere left on the phone that holds the whole command. It wraps
+     rather than scrolling sideways: a horizontal scroller inside a bottom sheet
+     is a swipe that fights the sheet's own. -->
+<pre class="raw">{{ about.command }}</pre>
+
+@if (parsed() === undefined) {
+  @if (trouble(); as what) {
+    <p class="trouble">{{ what }}</p>
+  } @else {
+    <mat-progress-bar mode="indeterminate" />
+  }
+} @else if (parsed()?.error; as where) {
+  <!-- A command the grammar could not read. An answer, not a failure — 0.4% of
+       the calls in the corpus land here, and saying so is the point. -->
+  <p class="unread">
+    <mat-icon>report</mat-icon>
+    This one does not parse. The reader stopped at <code>{{ where }}</code
+    >, so nothing below it was classified and no file was attributed to it.
+  </p>
+} @else {
+  <p class="summary">
+    {{ counted().steps }} commands · {{ counted().reads }} read ·
+    {{ counted().writes }} written
+    @if (counted().unproven) {
+      <!-- Said in the summary rather than left to be discovered row by row: it
+           is the number a reader came for when a call failed. -->
+      · <span class="unproven">{{ counted().unproven }} unproven</span>
+    }
+  </p>
+
+  @if (parsed()?.unrolled) {
+    <!-- Otherwise a reader counts three steps against one line of text and
+         assumes the view is broken. -->
+    <p class="note">
+      {{ parsed()?.unrolled }} of these are a loop run out — one step per value it
+      actually took.
+    </p>
+  }
+
+  <ol class="steps">
+    @for (row of steps(); track $index) {
+      <li class="step" [attr.data-indent]="row.indent">
+        <div class="head">
+          <span class="kind" [attr.data-kind]="row.step.kind">{{ row.step.kind }}</span>
+          @if (row.step.host; as host) {
+            <!-- The machine, said on the step and again on every path it named.
+                 Twice on purpose: a reader scrolling fast sees paths, and a path
+                 that looks local and is not is the one mistake this whole
+                 separation exists to prevent. -->
+            <span class="host"><mat-icon>dns</mat-icon>{{ host }}</span>
+          }
+          @if (row.step.depth > 0) {
+            <span class="depth">inside a shell it opened</span>
+          }
+        </div>
+
+        <!-- The words the shell would have run, which is not always the words
+             that were typed. -->
+        <code class="words">{{ row.words }}</code>
+
+        @if (row.step.says; as says) {
+          <p class="says">{{ says }}</p>
+        }
+
+        @if (condition(row.step); as when) {
+          <p class="when"><mat-icon>call_split</mat-icon>{{ when }}</p>
+        }
+
+        @if (moved(row.step)) {
+          <p class="here">
+            @if (row.step.cwd) {
+              in <code>{{ row.step.cwd }}</code>
+            } @else {
+              <!-- A `cd` this reader cannot follow. Saying so is what keeps a
+                   later relative path from being resolved somewhere it never
+                   ran — the defect that invents a file out of nothing. -->
+              in a directory this reader cannot follow, so only absolute paths
+              survive
+            }
+          </p>
+        }
+
+        @for (used of row.step.uses ?? []; track $index) {
+          <p class="used" [class.wrote]="used.write" [class.unsure]="!used.certain">
+            <mat-icon>{{ used.write ? 'edit' : 'visibility' }}</mat-icon>
+            <!-- ⚠ **Path and marker in ONE column**, which is why they are
+                 wrapped together rather than laid out as three flex items. A
+                 path here is 78 characters and wraps to three lines; as
+                 siblings, the icon stranded itself beside the middle line and
+                 the marker pinned itself to the end of the first, so one file
+                 read as three fragments. Found by looking at the render. -->
+            <span class="what">
+              <span class="path">{{ used.path }}</span>
+              @if (used.host) {
+                <span class="elsewhere">on {{ used.host }}</span>
+              } @else if (!used.certain) {
+                <!-- ⚠ **One-sided, and the wording has to carry that.** This
+                     means "cannot say", never "did not happen" — and
+                     "unconfirmed" is the only short phrase that does not quietly
+                     claim the stronger thing. -->
+                <span class="elsewhere">unconfirmed</span>
+              }
+            </span>
+          </p>
+        }
+      </li>
+    }
+  </ol>
+
+  <!-- ⚠ **Below the parse, not above it, and that was a measurement.** This is
+       three lines of absolute path at phone width, and above the steps it put
+       the first of them 15px off the bottom of the screen — which breaks the one
+       thing the sheet is stacked this way to do. It loses nothing by moving:
+       every path in the steps is already absolute, so this explains how a
+       relative operand got there rather than saying anything a reader needs
+       first. -->
+  @if (against(); as dir) {
+    <p class="against">
+      relative paths resolved against <code>{{ dir }}</code>
+    </p>
+  }
+
+  @if (parsed()?.unread?.length) {
+    <p class="note">
+      not in the table:
+      @for (miss of parsed()?.unread ?? []; track miss.name) {
+        <code>{{ miss.name }}</code>
+        @if (miss.count > 1) {
+          ×{{ miss.count }}
+        }
+      }
+      — so anything they touched is not on this list.
+    </p>
+  }
+
+  @if (parsed()?.nested_unparsed) {
+    <p class="note">
+      {{ parsed()?.nested_unparsed }} script(s) inside a wrapper could not be
+      read, so their commands are missing from the middle of this.
+    </p>
+  }
+}

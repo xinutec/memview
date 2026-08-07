@@ -52,6 +52,7 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/sessions/{id}", delete(forget))
         .route("/api/sessions/{id}/events", get(events))
         .route("/api/sessions/{id}/earlier", get(earlier))
+        .route("/api/sessions/{id}/parse", post(parse))
         .route("/api/sessions/{id}/tasks", get(tasks))
         .route("/api/sessions/{id}/tasks/{task}", get(task))
         .route("/api/telemetry", post(trace::record))
@@ -622,6 +623,30 @@ async fn past(State(roster): State<Arc<Roster>>) -> Json<Vec<crate::past::Conver
         .filter(|conversation| roster.config().resolve(&conversation.dir).is_ok())
         .collect();
     Json(allowed)
+}
+
+/// One `Bash` command, read the way the index reads it. See [`crate::parse`].
+///
+/// ⚠ **The working directory comes from the session, never from the body.** A
+/// relative operand resolves against it, so a caller free to choose it could
+/// make this view name any file it liked — and the whole worth of the view is
+/// that it says what the miner would say. A live session's own directory is
+/// used where there is one; otherwise the conversation's transcript is asked,
+/// which is the same answer one turn staler.
+///
+/// Ungated on the session being one this console runs, like [`tasks`]: reading a
+/// finished conversation's command is exactly when somebody wants this.
+async fn parse(
+    State(roster): State<Arc<Roster>>,
+    Path(id): Path<String>,
+    Json(asked): Json<crate::parse::Asked>,
+) -> Json<crate::parse::Parsed> {
+    let dir = match roster.get(&id) {
+        Some(session) => Some(session.dir.to_string_lossy().into_owned()),
+        None => crate::past::dir_of(&crate::past::projects_root(), &id),
+    };
+    let home = std::env::var("HOME").unwrap_or_default();
+    Json(crate::parse::parsed(&asked, dir.as_deref(), &home))
 }
 
 /// A session's task list, without the prose. See [`crate::tasks`].

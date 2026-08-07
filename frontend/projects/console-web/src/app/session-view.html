@@ -242,8 +242,19 @@
         </div>
       }
       @case ('tool') {
-        <span class="tool-name">{{ entry.tool }}</span>
-        <span class="tool-arg">{{ entry.text }}</span>
+        @if (parseable(entry)) {
+          <!-- ⚠ **The command is a button; every other tool's argument is not.**
+               This row shows one ellipsised line, so for a shell command there
+               was nowhere at all that held the whole text — and the parse is the
+               other half of the same question. A whole-row control would collide
+               with the result's own expander, which is why the target is the
+               argument itself. -->
+          <button type="button" class="tool-arg parse" (click)="parse(entry)">
+            {{ entry.text }}
+          </button>
+        } @else {
+          <span class="tool-arg">{{ entry.text }}</span>
+        }
         @if (entry.ok === undefined) {
           <!-- With how long, because "running" alone is the same word at four
                seconds and at forty minutes, and only one of those is worth

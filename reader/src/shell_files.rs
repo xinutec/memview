@@ -105,6 +105,62 @@ pub struct Extract {
     /// a devshell wrapper whose inner shell fails to parse is a silent hole in
     /// exactly the third of the corpus that runs through one.
     pub nested_unparsed: usize,
+    /// The walk itself, command by command — empty unless [`trace`] asked for it.
+    ///
+    /// ⚠ **Recorded by the walk rather than reconstructed from its results**,
+    /// and that is the whole reason it exists. Everything else on this struct is
+    /// a *total*: the paths, the tallies, the ops. Given only those, anybody
+    /// wanting to know why one command attributed one file has to run the walk
+    /// again in their own code — with their own idea of expansion, of what a
+    /// `cd` did, of which loop was run out — and a second implementation that
+    /// disagrees with this one is worse than no view at all, because it disagrees
+    /// silently. A step is what this walk saw, at the moment it saw it.
+    pub steps: Vec<Step>,
+}
+
+/// One command as the walk met it, with everything it decided about it.
+///
+/// The four layers of [`crate::shell_files`] for a single command, kept together
+/// so they can be shown against each other: the words after expansion, the
+/// [`Op`] they classified to, the files that projected out, and the
+/// [`crate::shell::Reached`] each of those carries. Read on its own, any one of
+/// them can look right while the answer is wrong.
+#[derive(Debug, Clone)]
+pub struct Step {
+    /// How many wrappers enclose this command — 0 at the top level, 1 inside the
+    /// first `bash -c`, and so on. What a reader sees as indentation.
+    pub depth: usize,
+    /// The machine it ran on; `None` for this one. Set for every command inside
+    /// an `ssh` payload, which is why those steps' uses are in `away` and never
+    /// in `files`.
+    pub host: Option<String>,
+    /// The words **as the shell would have run them**: expansions applied,
+    /// leading assignments consumed, a loop's variable replaced by the value
+    /// this iteration had. Deliberately not the words as written — the whole
+    /// question a reader brings here is why a path came out the way it did, and
+    /// the answer is usually something the text does not show.
+    pub argv: Vec<String>,
+    pub reached: crate::shell::Reached,
+    pub scope: Vec<usize>,
+    /// The directory its relative paths resolved against, `None` when a `cd`
+    /// this reader could not follow made it unknowable.
+    pub cwd: Option<String>,
+    /// What it classified to — `None` for a line that is a redirection and
+    /// nothing else, `> /tmp/log`.
+    ///
+    /// Absent rather than [`Op::Nothing`], which means something different and
+    /// stronger: *this command was understood, and it touches no file*. A line
+    /// with no command was never classified at all, and it does write a file.
+    pub op: Option<Op>,
+    /// The local files this command alone produced, redirects included.
+    ///
+    /// A wrapper's own step carries only what its *redirect* named: the commands
+    /// inside it have steps of their own, and counting their files here too
+    /// would show the same use twice at two depths.
+    pub files: Vec<FileUse>,
+    /// The same for a command that ran on another machine — never mixed into
+    /// `files`, for the reason [`RemoteUse`] gives.
+    pub away: Vec<RemoteUse>,
 }
 
 impl Extract {
@@ -143,11 +199,58 @@ impl Extract {
         }
     }
 
+    /// Begin a step for one command, before anything is decided about it, and
+    /// say where it landed so its uses can be attached once they exist.
+    fn step(
+        &mut self,
+        op: Option<Op>,
+        cmd: &Simple,
+        cwd: Option<&str>,
+        host: Option<&str>,
+        depth: usize,
+    ) -> usize {
+        self.steps.push(Step {
+            depth,
+            host: host.map(str::to_string),
+            argv: cmd.argv.clone(),
+            reached: cmd.reached,
+            scope: cmd.scope.clone(),
+            cwd: cwd.map(str::to_string),
+            op,
+            files: Vec::new(),
+            away: Vec::new(),
+        });
+        self.steps.len() - 1
+    }
+
+    /// Hand a step the uses that turned out to be its own.
+    ///
+    /// By range rather than "everything since", because a wrapper's range closes
+    /// before the script it opened begins.
+    fn attribute(
+        &mut self,
+        at: usize,
+        files: std::ops::Range<usize>,
+        away: std::ops::Range<usize>,
+    ) {
+        let mine = self.files[files].to_vec();
+        let theirs = self.remote[away].to_vec();
+        let Some(step) = self.steps.get_mut(at) else {
+            return;
+        };
+        step.files.extend(mine);
+        step.away.extend(theirs);
+    }
+
     /// Fold a nested script's findings into this one.
     fn absorb(&mut self, inner: Extract) {
         self.files.extend(inner.files);
         self.remote.extend(inner.remote);
         self.ops.extend(inner.ops);
+        // After the wrapper's own step, which was pushed before the inner script
+        // was read — so a reader scrolling down goes outwards-in, the order the
+        // shell itself opens them.
+        self.steps.extend(inner.steps);
         self.activities.extend(inner.activities);
         self.handled += inner.handled;
         self.unrolled += inner.unrolled;
@@ -255,7 +358,17 @@ pub fn files_of(op: &Op, reached: crate::shell::Reached) -> Vec<FileUse> {
 /// without. `None` where it is unknown, in which case only absolute paths
 /// survive.
 pub fn extract(cmds: &[Simple], cwd: Option<&str>, home: &str) -> Extract {
-    extract_nested(cmds, cwd, home, None, 0)
+    extract_nested(cmds, cwd, home, None, 0, false)
+}
+
+/// As [`extract`], and keeping [`Extract::steps`]: the same walk, saying what it
+/// did as it did it.
+///
+/// ⚠ **A separate entry point rather than the default**, because the corpus runs
+/// this 883,000 times in one pass and a step per command is a hundred megabytes
+/// nobody asked for. One command's worth is free; every command's is not.
+pub fn trace(cmds: &[Simple], cwd: Option<&str>, home: &str) -> Extract {
+    extract_nested(cmds, cwd, home, None, 0, true)
 }
 
 /// As [`extract`], tracking how deep inside `bash -c` this script sits and which
@@ -266,6 +379,7 @@ fn extract_nested(
     home: &str,
     host: Option<&str>,
     depth: usize,
+    trace: bool,
 ) -> Extract {
     let mut out = Extract::default();
     // Working directory per subshell scope. A `cd` inside `( … )` writes an
@@ -346,6 +460,10 @@ fn extract_nested(
                 .collect(),
             heredocs: cmd.heredocs.clone(),
         };
+        // Where this command's own uses begin, so the step below can claim
+        // exactly them. Taken before the redirects, which are the first thing
+        // pushed and belong to the command as much as its operands do.
+        let (files_from, away_from) = (out.files.len(), out.remote.len());
         // A redirect names a file whatever the command is, so it counts even for
         // one that is not understood: `./gradlew build > /tmp/out` is a write.
         let carrier = cmd
@@ -360,11 +478,28 @@ fn extract_nested(
                 out.push(host, &carrier, path, redirect.write, cmd.reached);
             }
         }
+        // Where the redirects end. A wrapper's step keeps these and nothing
+        // after them, because what follows is the inner script's and has steps
+        // of its own.
+        let redirected = (out.files.len(), out.remote.len());
         if cmd.argv.is_empty() {
+            // No command at all — `> /tmp/log` on its own, which the corpus does
+            // 8,386 times. It writes a file, so it is worth a step; it
+            // classifies to nothing, so it gets no `Op` rather than a borrowed
+            // one saying it does nothing with files.
+            if trace {
+                let at = out.step(None, cmd, here.as_deref(), host, depth);
+                out.attribute(at, files_from..redirected.0, away_from..redirected.1);
+            }
             continue;
         }
 
         let op = classify(&cmd.argv, &cmd.heredocs, here.as_deref(), home);
+        // ⚠ **Pushed before the operation is carried out**, so that a wrapper
+        // stands in front of the commands it opens instead of behind them. Its
+        // files are attached afterwards, once it is known which of them are this
+        // command's own.
+        let at = trace.then(|| out.step(Some(op.clone()), cmd, here.as_deref(), host, depth));
         // The name to file this under is the real command's, not the wrapper's.
         let name = unwrap_command(&cmd.argv)
             .first()
@@ -395,7 +530,8 @@ fn extract_nested(
                 out.handled += 1;
                 match crate::shell::parse(script) {
                     Ok(inner) if depth < MAX_NESTING => {
-                        let found = extract_nested(&inner, here.as_deref(), home, host, depth + 1);
+                        let found =
+                            extract_nested(&inner, here.as_deref(), home, host, depth + 1, trace);
                         out.absorb(found);
                     }
                     Ok(_) => {}
@@ -413,7 +549,8 @@ fn extract_nested(
                 out.handled += 1;
                 match crate::shell::parse(script) {
                     Ok(inner) if depth < MAX_NESTING => {
-                        let found = extract_nested(&inner, None, home, Some(there), depth + 1);
+                        let found =
+                            extract_nested(&inner, None, home, Some(there), depth + 1, trace);
                         out.absorb(found);
                     }
                     Ok(_) => {}
@@ -451,6 +588,18 @@ fn extract_nested(
                     out.push(host, &name, used.path, used.write, used.reached);
                 }
             }
+        }
+        if let Some(at) = at {
+            // ⚠ **A wrapper claims its redirects and stops there.** Everything
+            // pushed after them came from the script it opened, and those
+            // commands have steps of their own — attributing them here as well
+            // would show one write twice, once against `nix develop -c …` and
+            // once against the `cp` that actually did it.
+            let (files_to, away_to) = match op {
+                Op::Nested { .. } | Op::Remote { .. } => redirected,
+                _ => (out.files.len(), out.remote.len()),
+            };
+            out.attribute(at, files_from..files_to, away_from..away_to);
         }
         out.activities.push(crate::activity::of(&op, cmd));
         out.ops.push(op);

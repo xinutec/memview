@@ -333,3 +333,66 @@ export interface TaskCount {
   readonly open: number;
   readonly total: number;
 }
+
+/**
+ * One `Bash` command read the way the index reads it. Mirrors `parse::Parsed`.
+ *
+ * ⚠ **This is a report, not an offer to run anything.** Everything here
+ * describes a command that already ran; the runner parses text and executes
+ * none of it.
+ */
+export interface Parsed {
+  /** Why the grammar could not read it. 0.4% of the corpus's calls fail, and a
+   *  view that showed those as "did nothing" would be the worst kind of wrong. */
+  readonly error?: string;
+  readonly steps: readonly Step[];
+  /** Commands whose operation is not in the table. Usually the whole answer to
+   *  "why did this attribute nothing". */
+  readonly unread?: readonly { readonly name: string; readonly count: number }[];
+  /** Commands that exist because a determinate loop was run out — so a reader
+   *  counting steps against the text they wrote is not left puzzled. */
+  readonly unrolled?: number;
+  /** Scripts inside a wrapper the grammar could not read: a hole in the middle
+   *  of a parse that otherwise worked. */
+  readonly nested_unparsed?: number;
+}
+
+/** One command in a parse, with what was decided about it. */
+export interface Step {
+  /** How many wrappers enclose it. Drawn as indentation. */
+  readonly depth: number;
+  /** The machine it ran on, when it was not this one. */
+  readonly host?: string;
+  /** The words **as the shell would have run them** — expanded, with a loop's
+   *  variable replaced by this iteration's value. Deliberately not the words as
+   *  written: why a path came out as it did is usually not in the text. */
+  readonly argv: readonly string[];
+  readonly reached: 'always' | 'on-success' | 'sometimes';
+  /** The subshells enclosing it, outermost first. Two sibling `( … )` groups
+   *  differ here, which is the difference between one directory and two. */
+  readonly scope?: readonly number[];
+  /** What its relative paths resolved against. Absent when a `cd` the reader
+   *  could not follow made it unknowable. */
+  readonly cwd?: string;
+  /** The operation in one word. */
+  readonly kind: string;
+  /** What the operation says that its paths cannot — a search's pattern, a
+   *  transform's program, the name of a command nobody has taught this yet. */
+  readonly says?: string;
+  readonly uses?: readonly Used[];
+}
+
+/** One file a command used, and whether that use is a fact. */
+export interface Used {
+  readonly path: string;
+  readonly write: boolean;
+  /** What the *text* said had to hold. */
+  readonly reached: 'always' | 'on-success' | 'sometimes';
+  /** Whether the text's condition and the call's outcome together make it
+   *  certain.
+   *
+   *  ⚠ **One-sided.** `false` means "cannot say", never "did not happen". */
+  readonly certain: boolean;
+  /** The machine it is on, for a use that is not local. */
+  readonly host?: string;
+}
