@@ -100,6 +100,65 @@ const SEARCH = {
   ],
 };
 
+/**
+ * Agents at the sizes the real artefact reaches, because the totals line is a
+ * run of numbers and words that only collides once the numbers are wide. Taken
+ * from the live figures: five digits of shell reads, four of maybes, and the
+ * whole provenance phrase after them. The second agent carries no maybes at all,
+ * so both branches of the template are on screen at once.
+ */
+const AGENTS = {
+  generated: '2026-08-07T12:00:00Z',
+  renames: {},
+  commits: 3120,
+  unattributed: 402,
+  agents: [
+    {
+      name: 'health',
+      transcripts: 41,
+      delegated: 18,
+      sessions: ['a'],
+      paths: { 'health/src/geo/annotate-road-matches.ts': { reads: 4820, edits: 3110 } },
+      shell_paths: {
+        'health/src/geo/velocity.ts': {
+          reads: 21689,
+          edits: 4114,
+          maybe_reads: 1942,
+          maybe_edits: 203,
+        },
+      },
+      remote_paths: { 'odin:/etc/nixos/configuration.nix': { reads: 312, edits: 44 } },
+      commit_lines: { 'health/src/geo/velocity.ts': { added: 38104, deleted: 12960, commits: 214 } },
+      commits: 214,
+      reads: { health: 4820 },
+      writes: { health: 3110 },
+      memories: { project_health_verified_core_lean: { reads: 96, edits: 41 } },
+      recent_reads: { health: 12 },
+      recent_writes: { health: 9 },
+      first: '2026-06-01T00:00:00Z',
+      last: '2026-08-07T00:00:00Z',
+    },
+    {
+      name: 'utterance',
+      transcripts: 6,
+      delegated: 0,
+      sessions: ['b'],
+      paths: { 'utterance/src/voice/tonnetz.ts': { reads: 210, edits: 88 } },
+      shell_paths: {},
+      remote_paths: {},
+      commit_lines: {},
+      commits: 0,
+      reads: { utterance: 210 },
+      writes: { utterance: 88 },
+      memories: { project_utterance_chord_dwell: { reads: 14, edits: 2 } },
+      recent_reads: { utterance: 3 },
+      recent_writes: { utterance: 2 },
+      first: '2026-07-19T00:00:00Z',
+      last: '2026-08-05T00:00:00Z',
+    },
+  ],
+};
+
 /** A graph shaped like the real one: three groups that link densely inside
  *  themselves and thinly across, so the clustering has something to find and the
  *  legend has more than one row. Long slugs throughout — a cluster is named
@@ -177,6 +236,7 @@ async function mockApi(page: Page): Promise<void> {
   await page.route('**/api/memory/**', (r) => r.fulfill({ json: MEMORY_PAGE }));
   await page.route('**/api/graph', (r) => r.fulfill({ json: GRAPH }));
   await page.route('**/api/search**', (r) => r.fulfill({ json: SEARCH }));
+  await page.route('**/api/agents', (r) => r.fulfill({ json: AGENTS }));
 }
 
 // The checker-checker: fail loudly here if the device preset is ever lost and
@@ -225,6 +285,23 @@ test('all list — type filters + long slugs @ phone width', async ({ page }, te
   await page.goto('/all');
   await page.getByRole('button', { name: 'reference', exact: true }).waitFor();
   await page.getByText('user_cycling').waitFor();
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+});
+
+/**
+ * The agents page was the only one the harness never looked at, and it is the
+ * densest text on the site: a totals line of five numbers and four phrases, then
+ * a project row carrying a bar, two counts, a shell aside, an uncertainty aside
+ * and a line delta. Every one of those is a wrapping risk at 390px.
+ */
+test('agents — a dense totals line and its provenance @ phone width', async ({ page }, testInfo) => {
+  await mockApi(page);
+  await page.goto('/agents');
+  // Scoped to the row, because the page's own lede explains the shell reader in
+  // the same words the figure uses.
+  await page.locator('.totals .via-shell').first().waitFor();
+  await page.locator('.totals .maybe').first().waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 });

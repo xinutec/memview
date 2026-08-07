@@ -18,6 +18,12 @@ interface Place {
   /** How much of the above came from a Bash call rather than `Write`/`Edit`. */
   shellReads: number;
   shellWrites: number;
+  /**
+   * Uses a command may never have made, and which are therefore in none of the
+   * counts above. See [`AgentRow.maybeWrites`].
+   */
+  maybeReads: number;
+  maybeWrites: number;
   /** Lines committed here — size, where the counts beside it are frequency. */
   added: number;
   deleted: number;
@@ -53,6 +59,22 @@ interface AgentRow {
   /** The Bash share of the totals above, kept beside them and never inside. */
   shellReads: number;
   shellWrites: number;
+  /**
+   * Uses a command **may** have made, and which are in none of the counts above.
+   *
+   * ⚠ **Never added to them, and that is the whole point of the number.** A
+   * command after `&&` runs only if what preceded it worked, and one exit status
+   * for a script often cannot say whether it did — so these are files something
+   * may never have touched. Summing them into `reads`/`writes` would spend the
+   * distinction the miner went to the trouble of keeping.
+   *
+   * Only ever non-zero through the shell: measured over the artefact, `paths`,
+   * `remote_paths` and `memories` carry 0, because a tool call is atomic and its
+   * result says which way it went. That is why they are drawn inside the "through
+   * the shell" phrase and nowhere else.
+   */
+  maybeReads: number;
+  maybeWrites: number;
   added: number;
   deleted: number;
   commits: number;
@@ -60,6 +82,16 @@ interface AgentRow {
   machines: Machine[];
   knows: Known[];
 }
+
+/** Uses folded onto one project: certain, and the ones only a shell can leave. */
+interface Counted {
+  reads: number;
+  writes: number;
+  maybeReads: number;
+  maybeWrites: number;
+}
+
+const NOTHING = (): Counted => ({ reads: 0, writes: 0, maybeReads: 0, maybeWrites: 0 });
 
 /** Machines listed per agent. */
 const MACHINES_SHOWN = 4;
@@ -178,7 +210,7 @@ export class AgentsView {
       (a.recent_writes[project] ?? 0) + (a.recent_reads[project] ?? 0) / 1000;
     const places: Place[] = [...projects]
       .map((project) => {
-        const s = shell.get(project) ?? { reads: 0, writes: 0 };
+        const s = shell.get(project) ?? NOTHING();
         const l = lines.get(project) ?? { added: 0, deleted: 0 };
         return {
           project,
@@ -186,6 +218,8 @@ export class AgentsView {
           writes: (a.writes[project] ?? 0) + s.writes,
           shellReads: s.reads,
           shellWrites: s.writes,
+          maybeReads: s.maybeReads,
+          maybeWrites: s.maybeWrites,
           added: l.added,
           deleted: l.deleted,
           share: weight(project),
@@ -219,8 +253,13 @@ export class AgentsView {
 
     const total = (m: Record<string, number>) => Object.values(m).reduce((n, v) => n + v, 0);
     const shellTotal = [...shell.values()].reduce(
-      (t, u) => ({ reads: t.reads + u.reads, writes: t.writes + u.writes }),
-      { reads: 0, writes: 0 },
+      (t, u) => ({
+        reads: t.reads + u.reads,
+        writes: t.writes + u.writes,
+        maybeReads: t.maybeReads + u.maybeReads,
+        maybeWrites: t.maybeWrites + u.maybeWrites,
+      }),
+      NOTHING(),
     );
     const committed = Object.values(a.commit_lines ?? {}).reduce(
       (t, l) => ({ added: t.added + l.added, deleted: t.deleted + l.deleted }),
@@ -235,6 +274,8 @@ export class AgentsView {
       writes: total(a.writes) + shellTotal.writes,
       shellReads: shellTotal.reads,
       shellWrites: shellTotal.writes,
+      maybeReads: shellTotal.maybeReads,
+      maybeWrites: shellTotal.maybeWrites,
       added: committed.added,
       deleted: committed.deleted,
       commits: a.commits ?? 0,
@@ -249,13 +290,18 @@ export class AgentsView {
 
   /** Path-keyed uses, folded onto the project each path sits in. */
   private byProject(paths: Record<string, MemoryUse> | undefined) {
-    const out = new Map<string, { reads: number; writes: number }>();
+    const out = new Map<string, Counted>();
     for (const [path, use] of Object.entries(paths ?? {})) {
       const project = projectOf(path);
       if (!project) continue;
-      const at = out.get(project) ?? { reads: 0, writes: 0 };
+      const at = out.get(project) ?? NOTHING();
       at.reads += use.reads;
       at.writes += use.edits;
+      // Kept in their own two fields rather than added to the two above: the
+      // artefact separates them because they are a different kind of evidence,
+      // and folding them here would undo that at the last step.
+      at.maybeReads += use.maybe_reads ?? 0;
+      at.maybeWrites += use.maybe_edits ?? 0;
       out.set(project, at);
     }
     return out;

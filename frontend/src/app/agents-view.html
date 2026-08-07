@@ -29,9 +29,18 @@
                file changes never pass through Write or Edit, and unlabelled they
                would read as a jump in the counting rather than as what they are. -->
           @if (a.shellReads || a.shellWrites) {
-            <span class="via-shell"
-              >{{ a.shellReads }}r {{ a.shellWrites }}w through the shell ·</span
-            >
+            <span class="via-shell">{{ a.shellReads }}r {{ a.shellWrites }}w through the shell</span>
+            <!-- Files a command may never have touched — a command after `&&`
+                 runs only if what came before it worked, and one exit status for
+                 a script often cannot say. In none of the counts beside it, and
+                 written as its own phrase rather than a bigger number, because
+                 adding the two would spend the distinction the miner keeps. -->
+            @if (a.maybeReads || a.maybeWrites) {
+              <span class="maybe"
+                >, {{ a.maybeReads }}r {{ a.maybeWrites }}w that may not have run</span
+              >
+            }
+            <span class="via-shell"> ·</span>
           }
           <!-- Size, where everything beside it is frequency: a 300-line Write
                and a one-character Edit both count 1 above. Absent for work that
@@ -61,9 +70,15 @@
               <span class="project">{{ p.project }}</span>
               <span class="bar" [style.width.%]="p.share * 100"></span>
               <span class="counts">
-                {{ p.reads }}r {{ p.writes }}w
+                <!-- Wrapped rather than bare, because loose text in a flex box
+                     becomes an anonymous item that no selector reaches — and it
+                     would be the one figure still able to break in half. -->
+                <span class="both">{{ p.reads }}r {{ p.writes }}w</span>
                 @if (p.shellWrites) {
                   <span class="via-shell">{{ p.shellWrites }}w in the shell</span>
+                }
+                @if (p.maybeWrites) {
+                  <span class="maybe">{{ p.maybeWrites }}w unproven</span>
                 }
                 @if (p.added || p.deleted) {
                   <span class="lines">+{{ p.added }}/−{{ p.deleted }}</span>
