@@ -2292,13 +2292,91 @@ test('a session with no name yet says where it runs @ phone width', async ({ pag
 
 test('the list says nothing about which machine it is @ phone width', async ({ page }) => {
   // "this Mac" was true of every session on the list and news to nobody. What
-  // replaced it is nothing: the toolbar's right-hand side is about the session on
-  // screen, and on the list there is no session on screen.
+  // replaced it is nothing about a session: everything the ⋮ menu offers acts on
+  // one, and on the list there is no session on screen.
+  //
+  // ⚠ **This used to assert the bar held no button at all**, which was a
+  // stronger claim than the reason above supports and it stopped being true.
+  // Keeping the screen on is about the screen, not about a session, so it is
+  // offered here as well — see the test below. What must stay absent is anything
+  // aimed at a session that has not been chosen yet.
   await mockRunner(page);
   await page.goto('/');
   await page.getByText('decode').first().waitFor();
   await expect(page.locator('.bar')).not.toContainText('Mac');
-  await expect(page.locator('.bar').getByRole('button')).toHaveCount(0);
+  await expect(page.locator('.bar button[aria-haspopup="menu"]')).toHaveCount(0);
+  await expect(page.locator('.bar .leave')).toHaveCount(0);
+});
+
+/**
+ * Give the page a wake lock that always works, before anything runs.
+ *
+ * ⚠ **Stubbed rather than used.** Headless Chromium has no display to keep on
+ * and refuses the real request, which the app correctly treats as a refusal and
+ * puts the button back — so a test of the wiring would fail on the one thing it
+ * is not testing. What Android actually does with a lock is a phone's answer,
+ * not a harness's; this asserts the console asks, draws the answer, and offers
+ * the control in both places.
+ */
+async function withWakeLock(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'wakeLock', {
+      configurable: true,
+      value: {
+        request: () => Promise.resolve({ released: false, release: () => Promise.resolve() }),
+      },
+    });
+  });
+}
+
+test('the screen can be kept on from either screen @ phone width', async ({ page }) => {
+  // Watching a session work is done with no hands for minutes at a time, and the
+  // phone's display timeout cannot tell looking from idling. The choice belongs
+  // wherever somebody is when they make it — the session they are about to
+  // watch, or the list they are about to pick one from.
+  await withWakeLock(page);
+  await mockRunner(page);
+
+  for (const url of ['/', `/s/${STATE.sessions[0].id}`]) {
+    await page.goto(url);
+    const button = page.locator('.bar .awake');
+    await button.waitFor();
+    // Hollow until it is holding anything, and the label says what pressing it
+    // will do rather than what the state is.
+    await expect(button).toHaveAttribute('aria-pressed', 'false');
+    await expect(button.locator('mat-icon')).toHaveText('bedtime');
+    await expect(button).toHaveAttribute('aria-label', 'keep the screen on');
+
+    await button.click();
+    await expect(button).toHaveAttribute('aria-pressed', 'true');
+    await expect(button.locator('mat-icon')).toHaveText('bedtime_off');
+    await expect(button).toHaveAttribute('aria-label', 'let the screen sleep');
+
+    await button.click();
+    await expect(button).toHaveAttribute('aria-pressed', 'false');
+  }
+});
+
+test('a browser that cannot keep the screen on is not offered it @ phone width', async ({
+  page,
+}) => {
+  // 412px of toolbar is already a back arrow, a name that has to be allowed to
+  // lose, and a ⋮. A control that cannot do anything is the one thing there that
+  // need not be — and a disabled button says "not now" where the truth is
+  // "never here".
+  await page.addInitScript(() => {
+    // ⚠ **Off the PROTOTYPE, not off the instance.** `wakeLock` is an accessor on
+    // `Navigator.prototype`, so `delete navigator.wakeLock` removes an own
+    // property that was never there and silently succeeds — the first version of
+    // this test did exactly that and asserted against a browser that still had
+    // the API. `delete` rather than assigning undefined, because the app asks
+    // with `in`, which an own property set to undefined satisfies.
+    delete (Navigator.prototype as { wakeLock?: unknown }).wakeLock;
+  });
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.bar .name').waitFor();
+  await expect(page.locator('.bar .awake')).toHaveCount(0);
 });
 
 /** Where the toolbar's leading glyph starts — the terminal mark, or the arrow. */
@@ -2318,7 +2396,10 @@ test('the toolbar starts in the same place on both screens @ phone width', async
   // two renders, which is why this test loads both.
   await mockRunner(page);
   await page.goto('/');
-  await page.locator('.bar mat-icon').waitFor();
+  // `.first()`, because the bar now carries a second glyph: the screen-awake
+  // control sits at the end of both branches, and a bare locator matching two
+  // elements is a strict-mode violation rather than a measurement.
+  await page.locator('.bar mat-icon').first().waitFor();
   const list = await leadingGlyph(page);
   await page.goto(`/s/${STATE.sessions[0].id}`);
   await page.locator('.bar .leave').waitFor();
@@ -2688,7 +2769,16 @@ test('leaving a session leaves its name behind @ phone width', async ({ page }) 
     page.locator('.bar .name'),
     'the list is titled with the session just left',
   ).toHaveCount(0);
-  await expect(page.locator('.bar').getByRole('button')).toHaveCount(0);
+  // ⚠ **Narrowed from "no buttons at all" once the screen-awake control arrived.**
+  // What this test is about is a session that is no longer on screen still being
+  // actionable — so the assertion is about the controls that act on ONE, not
+  // about the toolbar being empty. Keeping the screen on acts on the screen and
+  // is offered on the list by design; see the test that covers it.
+  await expect(
+    page.locator('.bar button[aria-haspopup="menu"]'),
+    'the ⋮ still acts on the session just left',
+  ).toHaveCount(0);
+  await expect(page.locator('.bar .leave')).toHaveCount(0);
 });
 
 test('a run of tool calls is folded into one row @ phone width', async ({ page }) => {

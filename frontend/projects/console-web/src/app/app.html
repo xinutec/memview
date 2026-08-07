@@ -31,6 +31,7 @@
     </button>
     <h1 class="name" [class.anonymous]="anonymous()">{{ title() }}</h1>
     <span class="spacer"></span>
+    <ng-container [ngTemplateOutlet]="keepAwake" />
     <!-- The one thing here that does have to wait: every item in this menu acts
          on a session, and until the summary lands there is nothing to act on.
          An empty ⋮ that silently does nothing is worse than one that arrives a
@@ -104,8 +105,47 @@
          session on the list and news to nobody. -->
     <mat-icon>terminal</mat-icon>
     <h1 class="title">console</h1>
+    <span class="spacer"></span>
+    <ng-container [ngTemplateOutlet]="keepAwake" />
   }
 </mat-toolbar>
+
+<!-- ⚠ **On both screens, and one template rather than two copies.** Watching is
+     what this app is for and it is done with no hands: the display timeout has
+     no way to tell looking from idling, so the screen darkens mid-answer and
+     waking it by hand is also the gesture that stops the transcript following.
+     The choice belongs wherever you are when you make it — a session you are
+     about to watch, or the list you are about to pick one from — and a second
+     copy of the markup is a second thing to forget when either changes.
+
+     Absent, not disabled, where the browser has no wake lock: 412px of toolbar
+     is already three controls and a name that has to be allowed to lose, and a
+     button that cannot do anything is the one thing there that need not be. -->
+<ng-template #keepAwake>
+  @if (awake.possible) {
+    <button
+      matIconButton
+      class="awake"
+      [attr.aria-pressed]="awake.lit()"
+      [attr.aria-label]="awake.lit() ? 'let the screen sleep' : 'keep the screen on'"
+      (click)="awake.toggle()"
+    >
+      <!-- A moon the screen may go to sleep under, struck through while it may
+           not. Two glyphs rather than one tinted glyph, because the state has to
+           be readable at a glance in daylight and a tint on a coloured toolbar
+           is not — and a struck-through icon already means "this is suppressed"
+           in this bar, where `notifications_off` stands for Don't Ask.
+
+           ⚠ **Not `lightbulb`/`lightbulb_outline`, which was the first choice.**
+           `lightbulb_outline` is in `material-icons/css/_codepoints.scss` and NOT
+           in the ligature font `angular.json` actually bundles
+           (`iconfont/filled.css`) — so it would have painted the literal word
+           across the toolbar. DL-ANGULAR-ICON-EXISTS caught it; the inventory it
+           reads, `material-icons/_data/versions.json`, is the one to check. -->
+      <mat-icon>{{ awake.lit() ? 'bedtime_off' : 'bedtime' }}</mat-icon>
+    </button>
+  }
+</ng-template>
 
 <main class="page">
   <router-outlet />

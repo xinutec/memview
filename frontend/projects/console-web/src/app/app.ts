@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, inject } from '@angular/core';
 import { MatBottomSheet, MatBottomSheetModule } from '@angular/material/bottom-sheet';
 import { MatButtonModule } from '@angular/material/button';
@@ -7,6 +8,7 @@ import { MatMenuModule } from '@angular/material/menu';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { RouterLink, RouterOutlet } from '@angular/router';
 
+import { Awake } from './awake';
 import { BUILD_INFO } from './build-info';
 import { ConsoleApi } from './console-api';
 import { Dismiss } from './dismiss';
@@ -25,6 +27,7 @@ import { Telemetry } from './telemetry';
   templateUrl: './app.html',
   styleUrl: './app.scss',
   imports: [
+    NgTemplateOutlet,
     RouterOutlet,
     RouterLink,
     MatToolbarModule,
@@ -43,6 +46,8 @@ export class App {
   private dismiss = inject(Dismiss);
   /** Read by the toolbar: the conversation on screen, when there is one. */
   readonly here = inject(Here);
+  /** Read by the toolbar: whether the screen is being kept on. See [[Awake]]. */
+  readonly awake = inject(Awake);
 
   /** The permission modes to offer, least allowed first. See `modes.ts`. */
   protected readonly modes = offeredModes();
@@ -88,6 +93,9 @@ export class App {
     // Before anything else on screen: an unstyled console is one showing the
     // words `more_vert` and `send` where its buttons were.
     this.restyle.init();
+    // Whether the screen was left held open is a decision from a previous visit,
+    // and one nobody should have to make twice a day.
+    this.awake.init();
   }
 
   /**
