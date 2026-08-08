@@ -2318,12 +2318,19 @@ test('the bar is a session bar before the runner has answered @ phone width', as
   await expect(page.locator('.bar .name')).toHaveText('health');
 });
 
-test('a session with no name yet says where it runs @ phone width', async ({ page }) => {
+test('a session with no name yet says where it runs, and which one it is @ phone width', async ({
+  page,
+}) => {
   // The state every session starts in: the runner has not read a name out of the
   // transcript, and the bar still has to say which conversation this is.
+  //
+  // ⚠ **The folder is not enough on its own any more.** Every session is started
+  // in `~/Code`, the parent of every repository, so the folder answers the same
+  // for all of them — the short id is what tells two new sessions apart, and it
+  // is also what claims a task list.
   await mockRunner(page);
   await page.goto(`/s/${STATE.sessions[0].id}`);
-  await expect(page.locator('.bar .name')).toHaveText('decode');
+  await expect(page.locator('.bar .name')).toHaveText('decode · 6f7c2f11');
   await expect(page.locator('.bar .name')).toHaveClass(/anonymous/);
 });
 
