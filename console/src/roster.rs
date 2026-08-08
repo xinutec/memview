@@ -33,6 +33,9 @@ pub struct Roster {
     /// How much is left of each session's task list, kept between sweeps. See
     /// [`crate::tasks::Counts`].
     tasks: Arc<crate::tasks::Counts>,
+    /// What each conversation was last allowed to do without asking. See
+    /// [`crate::modes`] — the only record of it anywhere.
+    modes: Arc<crate::modes::Modes>,
 }
 
 /// The environment variable an upgrade hands its sessions over in.
@@ -56,13 +59,21 @@ impl Roster {
     pub fn new(config: Config) -> Self {
         let usage = Arc::new(crate::usage::Usage::new(config.usage_url.clone()));
         let gists = Arc::new(crate::gist::Gists::load(config.gists.clone()));
+        let modes = Arc::new(crate::modes::Modes::load(config.modes.clone()));
         Self {
             config,
             sessions: RwLock::new(BTreeMap::new()),
             usage,
             gists,
             tasks: Arc::default(),
+            modes,
         }
+    }
+
+    /// Remember what a conversation is allowed to do, so a later resume can put
+    /// it back. See [`crate::modes`].
+    pub fn remember_mode(&self, id: &str, mode: &str) {
+        self.modes.set(id, mode);
     }
 
     /// How much is left of each session's task list, for the front page.
@@ -198,7 +209,17 @@ impl Roster {
         })?;
         let id = uuid::Uuid::new_v4().to_string();
         tracing::info!("starting {id} in {}", real.display());
-        self.hold(id.clone(), Session::start(id, &real, &self.config.spawn))
+        let session = self.hold(
+            id.clone(),
+            Session::start(id.clone(), &real, &self.config.spawn),
+        )?;
+        // From the very first spawn, so that a conversation resumed after this
+        // console is gone comes back on the mode it was actually started with
+        // rather than on whatever the default is by then. See [`crate::modes`].
+        if let Some(mode) = session.mode() {
+            self.modes.set(&id, &mode);
+        }
+        Ok(session)
     }
 
     /// Pick up an existing conversation, keeping its id.
@@ -208,13 +229,30 @@ impl Roster {
     /// turns the other does not know about. It cannot refuse a `claude` in a
     /// terminal, which the console has no way to see, so the guard is a rail and
     /// not a boundary.
+    /// Pick a conversation back up on the mode it was last on.
+    ///
+    /// ⚠ **Resuming used to drop a session to Manual without saying so.**
+    /// Measured 2026-08-08: `hardware` was running in `auto`, was stopped and
+    /// resumed, and came back `default` — and the console reported that as
+    /// though it had always been the mode. A session left in `auto` was left
+    /// that way because nobody is watching it, so Manual means it stops at the
+    /// first tool call needing approval and waits, which from a phone looks
+    /// exactly like the stall that prompted the restart (memview #119).
+    ///
+    /// The mode comes from the session still in hand if there is one, and from
+    /// [`crate::modes`] otherwise — which is the case that matters, because a
+    /// console upgrade drops ended sessions and it is precisely a session that
+    /// has ended that somebody is resuming.
     pub fn resume(&self, dir: &str, id: &str) -> Result<Arc<Session>, String> {
-        self.resume_as(dir, id, None)
+        let known = self
+            .get(id)
+            .and_then(|held| held.mode())
+            .or_else(|| self.modes.get(id));
+        self.resume_as(dir, id, known)
     }
 
-    /// The same, with the mode to bring the session back on — `None` for the
-    /// console's configured one. See [`Self::revive`], which is the caller that
-    /// has a mode worth keeping.
+    /// The same, with the mode to bring the session back on stated outright —
+    /// `None` for the console's configured one. See [`Self::revive`].
     fn resume_as(&self, dir: &str, id: &str, mode: Option<String>) -> Result<Arc<Session>, String> {
         let real = self.config.resolve(dir).inspect_err(|why| {
             tracing::warn!("refused a resume of {id} in {dir}: {why}");
@@ -243,18 +281,33 @@ impl Roster {
                  on one transcript both append, and neither sees the other's turns."
             ));
         }
-        tracing::info!("resuming {id} in {}", real.display());
-        let spawn = match mode {
+        let spawn = match &mode {
             Some(mode) => crate::session::Spawn {
-                permission_mode: Some(mode),
+                permission_mode: Some(mode.clone()),
                 ..self.config.spawn.clone()
             },
             None => self.config.spawn.clone(),
         };
-        self.hold(
+        // Said out loud, because it is the one thing about a resume that used to
+        // change silently.
+        tracing::info!(
+            "resuming {id} in {} on {}",
+            real.display(),
+            spawn
+                .permission_mode
+                .as_deref()
+                .unwrap_or(crate::session::DEFAULT_MODE)
+        );
+        let session = self.hold(
             id.to_string(),
             Session::resume(id.to_string(), &real, &spawn),
-        )
+        )?;
+        // Remembered on the way out as well as in, so a conversation this
+        // console has never held before is known from its first resume onward.
+        if let Some(mode) = session.mode() {
+            self.modes.set(id, &mode);
+        }
+        Ok(session)
     }
 
     /// Stop a session that has stopped listening, start it again on the same

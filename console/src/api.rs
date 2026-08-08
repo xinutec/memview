@@ -409,6 +409,10 @@ async fn mode(
         .set_mode(&body.mode)
         .await
         .map_err(|err| (StatusCode::CONFLICT, format!("{err:#}")))?;
+    // Only once the session has taken it. Remembering a mode the request failed
+    // to apply would put the console back on it at the next resume, which is the
+    // one direction this must never get wrong — see [`crate::modes`].
+    roster.remember_mode(&id, &body.mode);
     Ok(Json(session.summary()))
 }
 

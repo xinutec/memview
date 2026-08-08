@@ -10,6 +10,7 @@ pub mod config;
 pub mod deaf;
 pub mod gist;
 pub mod images;
+pub mod modes;
 pub mod parse;
 pub mod past;
 pub mod protocol;

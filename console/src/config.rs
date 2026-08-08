@@ -48,6 +48,9 @@ pub struct Config {
     /// Where the one-sentence summaries are kept between runs. See
     /// [`crate::gist`].
     pub gists: PathBuf,
+    /// Where each conversation's permission mode is kept between runs. See
+    /// [`crate::modes`] — nothing else on disk records it.
+    pub modes: PathBuf,
 }
 
 /// The home dashboard, which is where the rate-limit figure is published. See
@@ -143,6 +146,17 @@ impl Config {
                 )
             }))
             .join("gists.json"),
+            // Beside the sentences, and for a sharper reason: this is the only
+            // record anywhere of what a session was allowed to do. Lose it and a
+            // conversation resumes Manual, which is a session that stops at the
+            // first approval and waits — see [`crate::modes`].
+            modes: PathBuf::from(std::env::var("CONSOLE_HOME").unwrap_or_else(|_| {
+                format!(
+                    "{}/.config/agent-console",
+                    std::env::var("HOME").unwrap_or_default()
+                )
+            }))
+            .join("modes.json"),
         }
     }
 

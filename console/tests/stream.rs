@@ -49,6 +49,7 @@ fn roster(dir: &std::path::Path) -> Arc<Roster> {
         // Into the scratch directory, so a test neither reads nor writes the
         // sentences this machine has paid for.
         gists: dir.join("gists.json"),
+        modes: dir.join("modes.json"),
     }))
 }
 

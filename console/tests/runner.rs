@@ -41,6 +41,7 @@ fn roster(dir: &std::path::Path) -> Arc<Roster> {
         // Into the scratch directory, so a test neither reads nor writes the
         // sentences this machine has paid for.
         gists: dir.join("gists.json"),
+        modes: dir.join("modes.json"),
     }))
 }
 
@@ -391,6 +392,7 @@ fn a_symlink_out_of_an_allowed_directory_does_not_escape_it() {
         // Into the scratch directory, so a test neither reads nor writes the
         // sentences this machine has paid for.
         gists: root.join("gists.json"),
+        modes: root.join("modes.json"),
     };
     assert!(
         config.resolve(&link.display().to_string()).is_err(),
@@ -1261,4 +1263,68 @@ async fn a_slash_command_is_never_counted_as_in_flight() {
             .any(|e| matches!(e, Event::Command { text } if text == "/compact"))
     })
     .await;
+}
+
+/// What a conversation is allowed to do, across everything that forgets.
+///
+/// ⚠ **Resuming used to drop a session to Manual and report that as the truth.**
+/// Measured 2026-08-08: `hardware` was in `auto`, was stopped and resumed, and
+/// came back `default` — a session that then stops at the first tool call
+/// needing approval and waits, which from a phone is the stall it was restarted
+/// for (memview #119).
+mod remembering_the_mode {
+    use super::*;
+    use console::modes::Modes;
+
+    #[test]
+    fn a_mode_survives_the_console_that_learnt_it() {
+        // ⚠ **The case that actually happened, and the reason memory is not
+        // enough.** An upgrade carries only LIVE sessions, so the ended one is
+        // dropped from the roster — and an ended session is precisely what
+        // somebody is resuming. Nothing in the process knows the mode by then;
+        // only the file does.
+        let dir = std::env::temp_dir().join(format!("modes-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("scratch");
+        let store = dir.join("modes.json");
+        let _ = std::fs::remove_file(&store);
+
+        let learnt = Modes::load(store.clone());
+        learnt.set("hardware", "auto");
+        drop(learnt);
+
+        assert_eq!(
+            Modes::load(store).get("hardware").as_deref(),
+            Some("auto"),
+            "a console that has restarted still knows"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_conversation_nobody_has_spoken_for_claims_nothing() {
+        // Absent, not `default`. The two are different: one is "it was left on
+        // Manual" and the other is "nobody knows", and only the second may be
+        // overridden by the console's own configuration.
+        let store = std::env::temp_dir().join("modes-never-written-at-all.json");
+        let _ = std::fs::remove_file(&store);
+        assert_eq!(Modes::load(store).get("whoever"), None);
+    }
+
+    #[tokio::test]
+    async fn a_resumed_session_comes_back_on_the_mode_it_was_left_in() {
+        let dir = std::env::temp_dir();
+        let roster = roster(&dir);
+        // Left deliberately on something other than the console's default, which
+        // is what makes losing it cost anything.
+        roster.remember_mode("a-conversation-from-before", "acceptEdits");
+
+        let session = roster
+            .resume(&dir.display().to_string(), "a-conversation-from-before")
+            .expect("resume");
+        assert_eq!(
+            session.summary().mode.as_deref(),
+            Some("acceptEdits"),
+            "not the console's configured mode, and not Manual"
+        );
+    }
 }
