@@ -951,6 +951,59 @@ fn a_remote_commands_files_never_reach_the_local_ones() {
     assert_eq!(inner.away[0].path, "/etc/nixos/configuration.nix");
 }
 
+#[test]
+fn a_download_saved_by_flag_is_a_write() {
+    // ⚠ **27% of the corpus's curl/wget calls, writing files credited to
+    // nobody.** `curl URL > file` was always counted, because a redirect is
+    // collected whatever the command is; `curl -o file URL` was not — the same
+    // shape as the `sed -e` defect, where an operand given by a flag leaves
+    // nothing in the operand position to notice.
+    assert_eq!(
+        uses("curl -sS -o /tmp/state.json https://home.xinutec.org/api/usage"),
+        [("/tmp/state.json".to_string(), true)]
+    );
+    assert_eq!(
+        uses("wget -O logs/fleet.log https://example.org/fleet.log"),
+        [("/home/example/Code/health/logs/fleet.log".to_string(), true)]
+    );
+}
+
+#[test]
+fn a_download_that_names_no_local_file_still_names_none() {
+    // The reason these sat in the no-files list in the first place, and it is
+    // still right for every other shape: a URL is not a path, and what is at the
+    // far end is not this machine's.
+    assert!(uses("curl -sS https://home.xinutec.org/api/usage").is_empty());
+    assert!(
+        uses("curl -X POST -H 'content-type: application/json' -d '{}' http://127.0.0.1:8096/api")
+            .is_empty()
+    );
+}
+
+#[test]
+fn curls_capital_o_names_a_file_only_wget_can_resolve() {
+    // ⚠ **The same letter, opposite meanings.** wget's `-O` takes the name;
+    // curl's takes none and derives it from the URL's last segment — which this
+    // reader cannot resolve without the URL, and must therefore refuse rather
+    // than guess. Guessing here would invent a path, which is the one failure
+    // that makes every count downstream a lie.
+    assert!(uses("curl -O https://example.org/dist/app.tar.gz").is_empty());
+    assert_eq!(
+        uses("wget -O /tmp/app.tar.gz https://example.org/dist/app.tar.gz"),
+        [("/tmp/app.tar.gz".to_string(), true)]
+    );
+}
+
+#[test]
+fn a_download_to_a_redirect_is_still_counted_once() {
+    // The spelling that always worked. Both forms must now agree, and neither
+    // may double-count.
+    assert_eq!(
+        uses("curl -sS https://example.org/x.json > /tmp/x.json"),
+        [("/tmp/x.json".to_string(), true)]
+    );
+}
+
 /// Every file one script used, told which `cd` targets the shell refused.
 fn uses_knowing(script: &str, refused: &[&str]) -> Vec<(String, bool)> {
     let cmds = parse(script).unwrap_or_else(|at| panic!("failed to parse, stopped at {at:?}"));

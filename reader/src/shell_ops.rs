@@ -564,6 +564,27 @@ enum Verb {
         flags: Flags,
         writes: &'static [&'static str],
     },
+    /// Fetches from the network, and names a local file only where a flag says
+    /// to save into one: `curl -o x.json`, `wget -O x.json`.
+    ///
+    /// ⚠ **These were `NoFiles` until 2026-08-07, and the asymmetry is what gave
+    /// it away.** `curl URL > file` was always counted, because a redirect is
+    /// collected whatever the command is; `curl -o file URL` was not. Two
+    /// spellings of one act, counted differently — **335 of the corpus's 1,223
+    /// curl/wget calls, 27%**, writing files credited to nobody. The same shape
+    /// as the `sed -e` defect: an operand given by a FLAG leaves nothing in the
+    /// operand position to notice.
+    ///
+    /// Everything else about them stays invisible on purpose: a URL is not a
+    /// path, and what is at the other end is not this machine's.
+    Fetch {
+        /// The flags whose *value* is the file written. `-O` appears in both
+        /// tools and means opposite things — wget's takes the name, curl's takes
+        /// none and derives it from the URL — so only the ones that carry a name
+        /// are listed, and curl's `-O` is left to name nothing rather than
+        /// resolve to a guess.
+        writes: &'static [&'static str],
+    },
     /// Moves the working directory.
     ChangeDir,
     /// Needs its own reading — revisions sit where paths would.
@@ -713,6 +734,15 @@ fn verb(name: &str) -> Option<Verb> {
         "nix" => Verb::Carries(&["-c", "--command"]),
         "nix-shell" => Verb::Script(&["--run"]),
 
+        // See [`Verb::Fetch`]: the only local file either one names is the one a
+        // flag tells it to save into.
+        "curl" => Verb::Fetch {
+            writes: &["-o", "--output"],
+        },
+        "wget" => Verb::Fetch {
+            writes: &["-O", "--output-document"],
+        },
+
         "ssh" => Verb::Remote(Remote::Ssh),
         "kubectl" => Verb::Remote(Remote::Kubectl),
         "docker" => Verb::Remote(Remote::Docker),
@@ -731,7 +761,7 @@ fn verb(name: &str) -> Option<Verb> {
         | "mkdir" | "rmdir" | "pushd" | "popd"
         // Another machine's filesystem, whatever the operands look like.
         | "sftp" | "podman" | "helm" | "systemctl"
-        | "launchctl" | "adb" | "xcrun" | "curl" | "wget" | "gh" | "aws" | "rclone"
+        | "launchctl" | "adb" | "xcrun" | "gh" | "aws" | "rclone"
         | "restic" | "borg"
         // Build and package tooling: it reads whole trees by convention rather
         // than by argument, so its operands are targets, never paths.
@@ -948,6 +978,11 @@ fn act(verb: Verb, argv: &[String], heredocs: &[String], cwd: Option<&str>, home
                 Op::Read { paths }
             }
         }
+        // Only the saved-into file. The URL is not a path, and the far end is
+        // not this machine's — see [`Verb::Fetch`].
+        Verb::Fetch { writes } => Op::Write {
+            paths: paths(&flag_values(argv, writes), cwd, home),
+        },
         Verb::Git => git(argv, cwd, home),
         Verb::Remote(kind) => remote(kind, argv),
         Verb::NoFiles => Op::Nothing,
