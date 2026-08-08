@@ -48,6 +48,7 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/sessions/{id}/images/{name}", get(picture))
         .route("/api/sessions/{id}/decide", post(decide))
         .route("/api/sessions/{id}/mode", post(mode))
+        .route("/api/sessions/{id}/rename", post(rename))
         .route("/api/sessions/{id}/stop", post(stop))
         .route("/api/sessions/{id}/revive", post(revive))
         .route("/api/sessions/{id}", delete(forget))
@@ -413,6 +414,38 @@ async fn mode(
     // to apply would put the console back on it at the next resume, which is the
     // one direction this must never get wrong — see [`crate::modes`].
     roster.remember_mode(&id, &body.mode);
+    Ok(Json(session.summary()))
+}
+
+/// What to call a conversation. See [`Session::rename`].
+#[derive(serde::Deserialize)]
+struct Renaming {
+    title: String,
+}
+
+/// Rename a conversation, including one that is working.
+///
+/// ⚠ **The answer is not the new name.** The CLI writes a `custom-title` line to
+/// the transcript and the roster reads every name from there, so the summary
+/// returned here still carries the old one until the next listing reads the
+/// file. That is deliberate: reporting the requested name as the session's would
+/// be the console describing its own intent again.
+async fn rename(
+    State(roster): State<Arc<Roster>>,
+    Path(id): Path<String>,
+    Json(body): Json<Renaming>,
+) -> Result<Json<Summary>, (StatusCode, String)> {
+    let title = body.title.trim();
+    if title.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "a name cannot be blank".into()));
+    }
+    let session = roster
+        .get(&id)
+        .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
+    session
+        .rename(title)
+        .await
+        .map_err(|err| (StatusCode::CONFLICT, format!("{err:#}")))?;
     Ok(Json(session.summary()))
 }
 

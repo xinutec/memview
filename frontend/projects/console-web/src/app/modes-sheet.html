@@ -1,0 +1,21 @@
+<h2 class="what">Asks permission</h2>
+
+<!-- The CLI's own modes in its own escalation order, least allowed first, so the
+     list reads as a dial rather than a set. Each carries the icon that stands
+     for it elsewhere — this is the only place both are shown, so it is where the
+     icons are learnt. -->
+@for (mode of modes; track mode.mode) {
+  <button
+    type="button"
+    class="mode"
+    [class.taken]="mode.mode === chosen()"
+    [attr.aria-pressed]="mode.mode === chosen()"
+    (click)="pick(mode.mode)"
+  >
+    <mat-icon [class.loud]="mode.loud">{{ mode.icon }}</mat-icon>
+    <span class="label" [class.loud]="mode.loud">{{ mode.title }}</span>
+    @if (mode.mode === chosen()) {
+      <mat-icon class="ticked">check</mat-icon>
+    }
+  </button>
+}

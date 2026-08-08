@@ -15,8 +15,10 @@ import { Dismiss } from './dismiss';
 import { reason } from './errors';
 import { Here } from './here';
 import { Summary } from './models';
-import { offeredModes } from './modes';
+import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { titleOf } from './naming';
+import { Choosing, ModesSheet } from './modes-sheet';
+import { RenameSheet } from './rename-sheet';
 import { Restyle } from './restyle';
 import { SessionSheet } from './session-sheet';
 import { TasksSheet } from './tasks-sheet';
@@ -49,8 +51,11 @@ export class App {
   /** Read by the toolbar: whether the screen is being kept on. See [[Awake]]. */
   readonly awake = inject(Awake);
 
-  /** The permission modes to offer, least allowed first. See `modes.ts`. */
-  protected readonly modes = offeredModes();
+  /** What the open session may do without asking, for the one menu row that
+   *  now stands in for the whole list. See [[ModesSheet]]. */
+  protected readonly mode = computed(() => modeTitle(this.here.open()?.mode));
+  protected readonly modeIcon = computed(() => modeIcon(this.here.open()?.mode));
+  protected readonly loud = computed(() => modeIsLoud(this.here.open()?.mode));
 
   /**
    * What to call the conversation on screen — its name, else where it runs.
@@ -156,6 +161,37 @@ export class App {
       this.sheet.open(TasksSheet, {
         data: { session: session.id, name: session.name ?? undefined },
         panelClass: 'session-sheet',
+      }),
+    );
+  }
+
+  /** Offer what the session may do without asking. See [[ModesSheet]] for why
+   *  this is a sheet rather than six rows in the menu. */
+  protected chooseMode(session: Summary): void {
+    // Typed on the way in, so the dismissal value is a `string | undefined`
+    // rather than `any` — the sheet declares the same pair on its own ref.
+    const sheet = this.sheet.open<ModesSheet, Choosing, string>(ModesSheet, {
+      data: { id: session.id, mode: session.mode },
+      panelClass: 'start-sheet',
+    });
+    this.dismiss.onBack(sheet);
+    // The sheet chooses; this still records and rolls back, so there is exactly
+    // one place that knows what the header is claiming.
+    sheet.afterDismissed().subscribe((mode) => {
+      if (mode) this.setMode(mode);
+    });
+  }
+
+  /** Name the conversation. See [[RenameSheet]] for why the console does this
+   *  itself instead of leaving it to `/rename`. */
+  protected rename(session: Summary): void {
+    this.dismiss.onBack(
+      this.sheet.open(RenameSheet, {
+        // The name it has, not what the list shows — a session that has never
+        // been named shows `Code · 3f8a1c2b`, and prefilling that is prefilling
+        // something to delete.
+        data: { id: session.id, title: session.name ?? '' },
+        panelClass: 'start-sheet',
       }),
     );
   }

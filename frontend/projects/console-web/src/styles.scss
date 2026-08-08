@@ -213,14 +213,14 @@ app-tasks-sheet .said {
     color: var(--mat-sys-on-surface-variant);
   }
 
-  // What the modes are answering. Without it the list is six words with no
-  // question, and "Manual" beside "Plan" reads as two unrelated settings.
-  .heading {
-    padding: 0.5rem 1rem 0.25rem;
-    font: var(--mat-sys-label-small);
+  // The mode the session is on, at the right-hand end of its row — the only
+  // part of the old inline list anybody needed to see without opening anything.
+  // Its own class rather than `.tally`: that one is a count of tasks, and a
+  // shared name made a test asking for the count find this instead.
+  .current {
+    margin-left: auto;
+    padding-left: 1rem;
     color: var(--mat-sys-on-surface-variant);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
   }
 
   // The two the CLI itself colours as errors: nothing is asked before it

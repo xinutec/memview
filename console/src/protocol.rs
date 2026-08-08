@@ -1036,6 +1036,36 @@ fn answered(input: &serde_json::Value, reply: Option<&Reply>) -> serde_json::Val
 /// transaction, and a client that blocked on it would freeze a session whose CLI
 /// was busy. What it costs is knowing for certain the change landed — see
 /// [`crate::session::Session::set_mode`].
+/// Rename a conversation, over the CONTROL channel.
+///
+/// ⚠ **This is the only way to rename a session that is working**, and the
+/// reason is the channel rather than the wording. `/rename` is *input*: written
+/// to stdin, and the CLI parks input that arrives mid-turn and releases it as a
+/// **prompt** — `commandMode: "prompt"`, which is what all 1,756 queued messages
+/// in this machine's transcripts are. So the model reads the words `/rename
+/// tasks` and the command never runs. Measured 2026-08-08 on a session that was
+/// mid-turn: the agent replied "Noted the rename (CLI-side, nothing for me to
+/// do)" and no `custom-title` line was ever written.
+///
+/// A control request is out-of-band and is handled whatever the turn is doing.
+/// Measured against 2.1.226, sent two seconds into a running turn: `success`
+/// came back at once and the transcript gained
+/// `{"type":"custom-title","customTitle":…}` — which is the first field in the
+/// console's own naming chain, so the new name is on the list at the next poll.
+///
+/// ⚠ **`title`, and it must be a string** — the CLI's own validation message.
+/// The subtype is also refused outright by hosts that register no rename
+/// callback ("not supported in this context"); a `-p` session does support it,
+/// which is what the probe above established before this was written.
+pub fn rename(request_id: &str, title: &str) -> String {
+    serde_json::json!({
+        "type": "control_request",
+        "request_id": request_id,
+        "request": {"subtype": "rename_session", "title": title},
+    })
+    .to_string()
+}
+
 pub fn set_mode(request_id: &str, mode: &str) -> String {
     serde_json::json!({
         "type": "control_request",

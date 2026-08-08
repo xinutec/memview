@@ -1,0 +1,19 @@
+<h2 class="what">Rename this conversation</h2>
+
+@if (trouble(); as what) {
+  <p class="trouble">{{ what }}</p>
+}
+
+<mat-form-field appearance="outline" class="title">
+  <mat-label>name</mat-label>
+  <input matInput [(ngModel)]="title" (keydown.enter)="save()" placeholder="tasks" />
+</mat-form-field>
+
+<!-- ⚠ **Works while the session is busy, which `/rename` does not.** A slash
+     command written to a working session is parked and released as a prompt, so
+     the model reads the words and the name never changes — measured. This goes
+     over the control channel. See `protocol::rename`. -->
+<button matButton="filled" class="go" (click)="save()" [disabled]="saving() || !title().trim()">
+  <mat-icon>edit</mat-icon>
+  {{ saving() ? 'renaming…' : 'rename' }}
+</button>

@@ -144,6 +144,21 @@ export class ConsoleApi {
     return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/mode`, { mode });
   }
 
+  /** Rename a conversation, including one that is working.
+   *
+   *  ⚠ **Not `/rename`.** A slash command sent to a busy session is parked and
+   *  handed to the model as words — measured: the agent replied "nothing for me
+   *  to do" and the name never changed. This goes over the control channel,
+   *  which is answered whatever the turn is doing. See `protocol::rename`.
+   *
+   *  ⚠ **The answer still carries the OLD name.** The CLI writes the new one to
+   *  the transcript and the runner reads names from there, so it arrives on the
+   *  next poll — a second or so. Anything that redraws from this response alone
+   *  will look like it did nothing. */
+  rename(id: string, title: string): Observable<Summary> {
+    return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/rename`, { title });
+  }
+
   stop(id: string): Observable<Summary> {
     return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/stop`, {});
   }

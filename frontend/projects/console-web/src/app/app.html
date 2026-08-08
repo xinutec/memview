@@ -72,21 +72,29 @@
             <span class="tally">{{ count.open }}/{{ count.total }}</span>
           }
         </button>
-        <mat-divider />
-        <div class="heading">Asks permission</div>
-        <!-- The CLI's own modes in its own escalation order, least allowed first,
-           so the list reads as a dial rather than a set. Each carries the icon
-           that stands for it elsewhere — this menu is the only place both are
-           shown, so it is where the icons are learnt. -->
-        @for (mode of modes; track mode.mode) {
-          <button mat-menu-item (click)="setMode(mode.mode)">
-            <mat-icon [class.loud]="mode.loud">{{ mode.icon }}</mat-icon>
-            <span [class.loud]="mode.loud">{{ mode.title }}</span>
-            @if (mode.mode === open.mode) {
-              <mat-icon class="ticked">check</mat-icon>
-            }
-          </button>
-        }
+        <!-- ⚠ **Here rather than as a `/rename`.** A slash command sent to a
+             working session is parked and handed to the model as words, so the
+             name never changes — measured. This goes over the control channel
+             and takes effect mid-turn. See `protocol::rename`. -->
+        <button mat-menu-item (click)="rename(open)">
+          <mat-icon>edit</mat-icon>
+          <span>Rename</span>
+        </button>
+        <!-- ⚠ **One row, not six.** The modes used to be listed inline here,
+             under a heading — most of the menu, so the two things it is actually
+             opened for sat above a wall of settings. The current one is on the
+             row, which is the only part anybody needed to see without opening
+             anything. See [[ModesSheet]]. -->
+        <button mat-menu-item (click)="chooseMode(open)">
+          <!-- The mode's own icon when there is one, so the state is readable
+               without opening anything — and a neutral one when the runner has
+               not said, rather than the empty circle that left. -->
+          <mat-icon [class.loud]="loud()">{{ modeIcon() ?? 'shield' }}</mat-icon>
+          <span>Asks permission</span>
+          @if (mode(); as now) {
+            <span class="current" [class.loud]="loud()">{{ now }}</span>
+          }
+        </button>
         @if (open.alive) {
           <!-- Last, and behind a divider: ending a session is the one thing here
              that cannot be undone, and it is wanted about as often. -->

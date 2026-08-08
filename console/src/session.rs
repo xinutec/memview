@@ -1287,6 +1287,32 @@ impl Session {
         Ok(())
     }
 
+    /// Rename the conversation, so the list says what it is.
+    ///
+    /// ⚠ **A control request, not `/rename`**, and that is the whole of why this
+    /// exists: a slash command written to a working session is parked and handed
+    /// to the MODEL as words — measured, and the agent politely said "nothing for
+    /// me to do" while the name never changed. See [`protocol::rename`].
+    ///
+    /// Nothing is recorded here on the way out. The CLI writes a `custom-title`
+    /// line to the transcript, which is where the roster reads every name from
+    /// ([`crate::past::about`]), so the new one arrives by the same route as a
+    /// rename typed in a terminal — and a request that failed leaves the old name
+    /// standing rather than a claim nobody checked.
+    pub async fn rename(&self, title: &str) -> Result<()> {
+        let line = protocol::rename(&format!("rename-{}", self.id), title);
+        let mut held = self.stdin.lock().await;
+        let stdin = held
+            .as_mut()
+            .context("session is no longer accepting input")?;
+        stdin
+            .write_all(format!("{line}\n").as_bytes())
+            .await
+            .context("renaming the session")?;
+        stdin.flush().await.context("flushing the rename")?;
+        Ok(())
+    }
+
     /// Change what this session may do without asking.
     ///
     /// ⚠ **Recorded optimistically.** The CLI answers with a `control_response`

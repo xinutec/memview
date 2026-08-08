@@ -1,0 +1,50 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  // ⚠ No height cap and no scroller: `mat-bottom-sheet-container` caps and
+  // scrolls itself, and a second scroller inside it fights the first
+  // (DL-ANGULAR-NESTED-SCROLLER).
+}
+
+.what {
+  font: var(--mat-sys-title-medium);
+  margin: 0 0 0.75rem;
+}
+
+// A row per mode. Not a Material menu item: these are choices in a list with a
+// current one, and the pressed state is the whole point of the row.
+.mode {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  appearance: none;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: var(--mat-sys-body-large);
+  text-align: left;
+  // A thumb target, on the one screen that is only ever used with one.
+  min-height: 3rem;
+  padding: 0 0.5rem;
+  border-radius: var(--mat-sys-corner-small);
+
+  .label {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &.taken {
+    background: var(--mat-sys-secondary-container);
+    color: var(--mat-sys-on-secondary-container);
+  }
+
+  // The one setting that lets a session do anything it likes without asking.
+  // Named loudly wherever it appears; see `modes.ts`.
+  .loud {
+    color: var(--mat-sys-error);
+  }
+
+  .ticked {
+    flex: none;
+  }
+}

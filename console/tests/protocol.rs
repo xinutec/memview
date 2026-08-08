@@ -739,3 +739,24 @@ mod synthetic {
         assert!(read(bare).is_empty(), "got {:?}", read(bare));
     }
 }
+
+#[test]
+fn renaming_goes_over_the_control_channel() {
+    // ⚠ **The whole reason this exists.** `/rename` is INPUT: written to stdin,
+    // parked by the CLI when it arrives mid-turn, and released as a prompt
+    // (`commandMode: "prompt"`) — so the model reads the words and the name never
+    // changes. Measured 2026-08-08 on a working session, which replied "Noted the
+    // rename (CLI-side, nothing for me to do)".
+    //
+    // A control request is answered whatever the turn is doing. Measured against
+    // 2.1.226 two seconds into a running turn: `success` at once, and the
+    // transcript gained a `custom-title` line — the first field in the console's
+    // own naming chain.
+    let line = console::protocol::rename("rename-abc", "tasks");
+    let sent: serde_json::Value = serde_json::from_str(&line).expect("valid json");
+    assert_eq!(sent["type"], "control_request");
+    assert_eq!(sent["request"]["subtype"], "rename_session");
+    // `title`, and a string — the CLI's own validation says so in as many words.
+    assert_eq!(sent["request"]["title"], "tasks");
+    assert!(sent["request"]["title"].is_string());
+}

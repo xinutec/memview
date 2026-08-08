@@ -1,0 +1,27 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  // ⚠ No height cap and no scroller: `mat-bottom-sheet-container` caps and
+  // scrolls itself, and a second scroller inside it fights the first
+  // (DL-ANGULAR-NESTED-SCROLLER). Same note as start-sheet.scss.
+}
+
+.what {
+  font: var(--mat-sys-title-medium);
+  margin: 0 0 0.75rem;
+}
+
+.trouble {
+  margin: 0 0 0.5rem;
+  color: var(--mat-sys-error);
+}
+
+// Full width: a conversation's name is short, but the field it is typed into is
+// the only thing on this sheet and a boxed-in input on a phone reads as disabled.
+.title {
+  width: 100%;
+}
+
+.go {
+  align-self: stretch;
+}

@@ -3353,3 +3353,66 @@ test('the verdict becomes the plain one once the session acts on it @ phone widt
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
 });
+
+test('a working session can be renamed from the menu @ phone width', async ({ page }, testInfo) => {
+  // ⚠ **`/rename` cannot do this.** A slash command sent to a busy session is
+  // parked and released as a prompt, so the model reads the words and the name
+  // never changes — measured 2026-08-08. This route is a control request, which
+  // the CLI answers mid-turn.
+  let sent: Record<string, unknown> | undefined;
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/rename', (r) => {
+    sent = r.request().postDataJSON() as Record<string, unknown>;
+    return r.fulfill({ json: STATE.sessions[0] });
+  });
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page
+    .locator('.bar')
+    .getByRole('button', { name: /what to do with/ })
+    .click();
+  await page.getByRole('menuitem', { name: 'Rename' }).click();
+
+  const name = page.getByLabel('name');
+  await expect(name, 'the sheet did not open').toBeVisible();
+  await name.fill('tasks');
+  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
+  await expectNoClippedText(page, testInfo, 'mat-bottom-sheet-container');
+  await page.getByRole('button', { name: /^rename$/ }).click();
+
+  await expect.poll(() => sent).toMatchObject({ title: 'tasks' });
+  // Dismissed rather than redrawn: the new name arrives from the transcript on
+  // the next poll, and claiming it from this response would be the console
+  // reporting its own intent again.
+  await expect(page.locator('mat-bottom-sheet-container')).toHaveCount(0);
+});
+
+test('the permission modes are one row that opens a sheet @ phone width', async ({
+  page,
+}, testInfo) => {
+  // Six modes and a heading were most of the menu, so Details and Tasks — the
+  // two things it is actually opened for — sat above a wall of settings.
+  await mockRunner(page);
+  // With a mode set, which every real session has — the runner records one at
+  // spawn. The row shows it, so the state is readable without opening anything.
+  const onAuto = { ...STATE.sessions[0], mode: 'acceptEdits' };
+  await page.route('**/api/state', (r) =>
+    r.fulfill({ json: { ...STATE, sessions: [onAuto, STATE.sessions[1]] } }),
+  );
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page
+    .locator('.bar')
+    .getByRole('button', { name: /what to do with/ })
+    .click();
+  await expect(page.locator('.session-menu .current')).toHaveText('Accept edits');
+  await expect(page.getByRole('menuitem', { name: /Asks permission/ })).toBeVisible();
+  await page.getByRole('menuitem', { name: /Asks permission/ }).click();
+  const sheet = page.locator('mat-bottom-sheet-container');
+  await sheet.waitFor();
+  await expect(sheet.locator('.mode')).toHaveCount(6);
+  // ⚠ The slide is invisible to `getAnimations`, so waiting on the last row
+  // being IN the viewport is what says the sheet has finished arriving.
+  await expect(sheet.locator('.mode').last()).toBeInViewport();
+  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
+  await expectNoClippedText(page, testInfo, 'mat-bottom-sheet-container');
+  await expectThumbTargets(page);
+});
