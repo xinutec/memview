@@ -2020,6 +2020,26 @@ test('session list — the opening instruction stands in for a missing name @ ph
   ).not.toContainText('Proceed');
 });
 
+test('the list says working, and how many messages are still queued @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **Two wrong signals that compounded.** A session running tools showed
+  // `idle`, because `busy` is announced only when it CHANGES (#112) — and a
+  // message written to it was invisible from here (#111). A message sent to a
+  // session the page calls idle should land at once, so its not landing read as
+  // a failure, and the same sentence went twice.
+  await mockRunner(page);
+  const busy = { ...STATE.sessions[0], busy: undefined, waiting: 0, working: true, unread: 2 };
+  await page.route('**/api/state', (r) =>
+    r.fulfill({ json: { ...STATE, sessions: [busy, STATE.sessions[1]] } }),
+  );
+  await page.goto('/');
+  await page.getByText('working').first().waitFor();
+  await expect(page.locator('.unread')).toHaveText('2 unread');
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+});
+
 test('session list — a blocked session says so first @ phone width', async ({ page }, testInfo) => {
   await mockRunner(page);
   await page.goto('/');

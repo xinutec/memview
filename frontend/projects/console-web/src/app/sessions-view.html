@@ -78,9 +78,24 @@
                  that needs the reader to do something. -->
             <span class="waiting">waiting for you</span>
           } @else if (session.alive) {
-            <span class="live" [class.working]="session.busy">
-              {{ session.busy ?? 'idle' }}
+            <!-- ⚠ **`working` decides, `busy` only names it.** Falling back to
+                 `idle` on the absence of a status called a session that was
+                 running tools throughout idle — a status is announced when it
+                 CHANGES, so having none says nothing at all. See
+                 `session::Summary::working`. -->
+            <span class="live" [class.working]="session.working">
+              {{ session.busy ?? (session.working ? 'working' : 'idle') }}
             </span>
+            @if (session.unread) {
+              <!-- ⚠ **The list is where the re-sending starts.** A message
+                   written to a working session is parked by the CLI and shown to
+                   the model up to twelve minutes later (measured 2026-08-07),
+                   and the session page is the only screen that has ever said so.
+                   From here the conversation looked untouched, so the same
+                   sentence went twice — three duplicates in one evening.
+                   See `session::Summary::unread`. -->
+              <span class="unread">{{ session.unread }} unread</span>
+            }
           } @else {
             <span class="ended">ended</span>
           }

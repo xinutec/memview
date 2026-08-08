@@ -121,6 +121,18 @@ export class SessionView implements OnDestroy {
    */
   readonly arriving = computed(() => (this.session()?.waiting ? undefined : this.doing()));
   /**
+   * Whether a turn is running, from the runner's own observation.
+   *
+   * ⚠ **Separate from [doing], which is only what the CLI last narrated.** A
+   * status is announced when it CHANGES, so a session working steadily for
+   * minutes can have nothing standing — and `doing() ?? 'idle'` drew that as
+   * idle, about a session running tools throughout (memview #112). See
+   * `session::Summary::working`.
+   */
+  readonly inTurn = computed(() => this.session()?.working ?? false);
+  /** The word for it when the CLI has narrated nothing. */
+  readonly state = computed(() => (this.inTurn() ? 'working' : 'idle'));
+  /**
    * Now, to the second, but only while something is still happening.
    *
    * ⚠ **A clock that ticks for ever is a change-detection pass every second, for

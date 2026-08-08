@@ -690,3 +690,52 @@ fn the_seed_boundary_forgets_what_the_transcript_replayed() {
         console::protocol::Running::Gone
     );
 }
+
+/// What a slash command's answer does on the live wire.
+///
+/// ⚠ **Every slash command's output was silently dropped, not only `/tasks`.**
+/// A command runs locally and answers as one complete `assistant` message with
+/// no deltas before it, and the live reader keeps only tool calls from a
+/// completed message — a rule that is right for generated text and wrong for the
+/// one case that has none (memview #106).
+mod synthetic {
+    use console::protocol::{Event, read};
+
+    /// Measured 2026-08-08 against CLI 2.1.221, from a real `/context`.
+    // `r###`, because the answer is markdown: `"## Context Usage` contains
+    // both `"#` and `"##`, which end an `r#` and an `r##` string respectively,
+    // in the middle of the fixture.
+    const ANSWER: &str = r###"{"type":"assistant","message":{"model":"<synthetic>","role":"assistant","content":[{"type":"text","text":"## Context Usage\n\n**Tokens:** 20.2k / 1m (2%)"}]},"session_id":"s"}"###;
+
+    #[test]
+    fn a_command_answer_reaches_the_screen() {
+        assert!(
+            matches!(read(ANSWER).as_slice(), [Event::Text { text }] if text.contains("Context Usage")),
+            "got {:?}",
+            read(ANSWER)
+        );
+    }
+
+    #[test]
+    fn an_ordinary_reply_is_still_taken_from_the_deltas_alone() {
+        // The rule this preserves: the same text arrives twice on the wire, and
+        // taking both shows the answer twice. Only the model field separates the
+        // two cases.
+        let generated = r#"{"type":"assistant","message":{"model":"claude-opus-5","role":"assistant","content":[{"type":"text","text":"hello"}]},"session_id":"s"}"#;
+        assert!(
+            !read(generated)
+                .iter()
+                .any(|e| matches!(e, Event::Text { .. })),
+            "got {:?}",
+            read(generated)
+        );
+    }
+
+    #[test]
+    fn a_message_with_no_model_at_all_keeps_the_old_behaviour() {
+        // Older transcripts and stub lines carry no `model`. Absent is not
+        // synthetic — treating it as such would double every reply on the wire.
+        let bare = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hello"}]},"session_id":"s"}"#;
+        assert!(read(bare).is_empty(), "got {:?}", read(bare));
+    }
+}

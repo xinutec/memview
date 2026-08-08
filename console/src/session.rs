@@ -235,6 +235,24 @@ pub struct Summary {
     /// What the CLI last said it was doing, when it is doing anything.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub busy: Option<String>,
+    /// Whether a turn is running — observed by the runner, not narrated by the
+    /// CLI.
+    ///
+    /// ⚠ **[`Self::busy`] cannot answer this and reading it as though it could
+    /// called a working session idle.** A status is announced when it *changes*,
+    /// so a long stretch of one activity, or one the CLI does not narrate, leaves
+    /// nothing standing — and no status was drawn as *idle*. Reported from the
+    /// phone 2026-08-07 about a session that was running tools throughout
+    /// (memview #112), and it made #111's invisible queue actively misleading:
+    /// a message sent to a session the page calls idle should land at once, so
+    /// its not landing reads as a failure.
+    ///
+    /// A turn ending is an event the runner sees; so is the traffic while one
+    /// runs. This is those, and nothing the CLI has to be asked for. Deliberately
+    /// **not** a timeout over the last status — the console has had two defects
+    /// from inferring state on a timer, and a turn can legitimately be quiet for
+    /// minutes.
+    pub working: bool,
     /// How many times someone has spoken to this session since it was last
     /// compacted — exchanges, not messages, and not the result line's
     /// `num_turns`. See [`crate::past::counted`] for why it is counted from
@@ -524,6 +542,14 @@ fn in_flight(state: &mut State, event: &Event) {
         }
         // A turn ended, so from here the session owes us a read.
         Event::Turn { .. } => state.idle_since = Some(now()),
+        // Nothing is running as of now.
+        //
+        // ⚠ **Both, and `Joined` matters most.** It is pushed *after* the seeded
+        // transcript, so it is what stops a conversation whose file ends
+        // mid-turn — killed, crashed, compacted — from reading as a turn that is
+        // still going in a process that has only just started. `Started` covers
+        // the fresh spawn, which has never had a turn to end.
+        Event::Started { .. } | Event::Joined { .. } => state.idle_since = Some(now()),
         Event::Command { text } if text.starts_with("/compact") => state.compacting = true,
         // A decision written down the pipe of a session that ASKED for it and is
         // blocked until it arrives.
@@ -1666,6 +1692,7 @@ impl Session {
             alive: state.alive,
             model: state.model.clone(),
             busy: state.busy.clone(),
+            working: state.idle_since.is_none(),
             interactions: state.counted.interactions,
             mode: state.mode.clone(),
             cost_usd: state.cost_usd,

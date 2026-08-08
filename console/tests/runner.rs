@@ -1374,3 +1374,49 @@ mod remembering_the_mode {
         );
     }
 }
+
+/// Whether a turn is running, as the runner observes it.
+///
+/// ⚠ **The console called a working session idle.** Reported from the phone
+/// 2026-08-07: "It says you're idle. My messages aren't seen by you yet." The
+/// session was mid-turn throughout, running tools — but `busy` is announced only
+/// when it CHANGES, and no status was drawn as *idle* (memview #112).
+mod whether_it_is_working {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_fresh_session_with_nothing_to_do_is_not_working() {
+        let dir = std::env::temp_dir();
+        let roster = roster(&dir);
+        let session = roster.start(&dir.display().to_string()).expect("start");
+        until(&session, |seen| {
+            seen.iter().any(|e| matches!(e, Event::Started { .. }))
+        })
+        .await;
+        assert!(
+            !session.summary().working,
+            "it has never had a turn to end, which is not the same as being in one"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_session_is_working_from_the_first_thing_it_says_until_the_turn_ends() {
+        let dir = std::env::temp_dir();
+        let roster = roster(&dir);
+        let session = roster.start(&dir.display().to_string()).expect("start");
+        until(&session, |seen| {
+            seen.iter().any(|e| matches!(e, Event::Started { .. }))
+        })
+        .await;
+
+        session.send("do the thing").await.expect("send");
+        // The stub answers in one go, so catching the middle of a turn reliably
+        // is not what this can test. What it CAN pin is the end state, which is
+        // the half that was wrong: after the result line, not working.
+        until(&session, |seen| {
+            seen.iter().any(|e| matches!(e, Event::Turn { .. }))
+        })
+        .await;
+        assert!(!session.summary().working, "the turn ended");
+    }
+}

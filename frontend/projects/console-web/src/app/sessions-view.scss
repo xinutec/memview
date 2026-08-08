@@ -84,6 +84,14 @@
   color: var(--mat-sys-on-error-container);
 }
 
+// Not a badge at all: a message in the queue is the ordinary way of things, and
+// the point is only that the row stops looking untouched. Loud enough to notice
+// beside the status word, quiet enough not to compete with the two above.
+.unread {
+  font: var(--mat-sys-label-small);
+  color: var(--mat-sys-tertiary);
+}
+
 .live,
 .ended {
   font: var(--mat-sys-label-small);

@@ -52,11 +52,30 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
       // answers. Matching the newest would leave the oldest waiting for ever
       // whenever the same words are sent twice — which is exactly what somebody
       // does when they think the first one failed.
-      const waiting = entries.find(
+      const at = entries.findIndex(
         (entry) => entry.kind === 'asked' && entry.queued && entry.text === (event.text ?? ''),
       );
-      if (waiting) waiting.queued = undefined;
-      else add(entries, { kind: 'asked', text: event.text ?? '', at: event.at });
+      if (at < 0) {
+        add(entries, { kind: 'asked', text: event.text ?? '', at: event.at });
+        break;
+      }
+      // ⚠ **Moved to the end, not cleared where it sits.** The entry went in when
+      // the RUNNER took the message, and the CLI may not read it for minutes —
+      // twelve, measured. Everything the session did in between was appended
+      // below it, so the transcript read as though the message had been seen and
+      // then the work continued, when all of it predates the session reading a
+      // word (memview #117).
+      //
+      // Where it waited is the sender's own timeline and is why it is shown at
+      // once; where it lands is where it enters the conversation. The jump is the
+      // information: above it is what happened before it was read, below it is
+      // what happened after.
+      const [read] = entries.splice(at, 1);
+      read.queued = undefined;
+      // Stamped when it was read, so the clock down the page stays monotonic —
+      // the position and the time have to agree or the day markers lie.
+      read.at = event.at ?? read.at;
+      entries.push(read);
       break;
     }
     // A picture that was sent to this session. Its own entry rather than an

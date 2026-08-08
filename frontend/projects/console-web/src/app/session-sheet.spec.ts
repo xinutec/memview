@@ -14,6 +14,7 @@ const BARE: Summary = {
   cost_usd: 0,
   waiting: 0,
   unread: 0,
+  working: false,
 };
 
 const labels = (session: Summary): string[] => factsOf(session).map((fact) => fact.label);

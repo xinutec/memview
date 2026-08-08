@@ -42,6 +42,13 @@ export interface Summary {
    * the utilisation strip's question and it answers it from measurement.
    */
   cost_usd: number;
+  /** Whether a turn is running, as the runner observes it.
+   *
+   *  ⚠ **Not the absence of [[busy]], which is what this replaces.** A status is
+   *  announced only when it changes, so a session running tools for ten minutes
+   *  can have nothing standing — and the screens drew that as *idle*. See
+   *  `session::Summary::working`. */
+  working: boolean;
   /** The account's own rate-limit verdict: allowed, allowed_warning, rejected. */
   limit?: string;
   /** Questions it is blocked on. Nonzero means it cannot go on without you. */

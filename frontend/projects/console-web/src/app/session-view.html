@@ -7,7 +7,10 @@
   <header class="head">
     <div class="facts">
       @if (session.alive) {
-        <span class="live" [class.working]="doing()">{{ doing() ?? 'idle' }}</span>
+        <!-- See the note on the card in `sessions-view.html`: what the CLI last
+             narrated names the work, but only `working` knows whether there is
+             any. -->
+        <span class="live" [class.working]="inTurn()">{{ doing() ?? state() }}</span>
       } @else {
         <span class="ended">ended</span>
       }

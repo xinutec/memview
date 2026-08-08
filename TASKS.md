@@ -19,14 +19,11 @@ costs every future turn that reads this.
 - [ ] **#95** Notice finished background work while the session is mid-tool-call
 - [ ] **#96** The mode on the card should be the session's, not the one we asked for
 - [ ] **#101** Recover the `||` knowledge the three-point domain throws away
-- [ ] **#106** Typing /tasks in the console does nothing
+- [ ] **#106** The console's task reader points at a store we deliberately emptied
 - [ ] **#110** Nothing watches the boot disk, and nix deletes store paths mid-build before it fills
-- [ ] **#111** A message the runner has taken but the session has not read should say so
-- [ ] **#112** The console calls a working session idle, because a status is only announced when it changes
 - [ ] **#113** A stale live reading outranks a fresher dashboard one
 - [ ] **#114** curl -o writes a file and nobody is credited with it
 - [ ] **#115** Going back restores the pre-update page, still running the old bundle
 - [ ] **#116** Following oscillates: it unpins every 10-25 seconds and stops catching up
-- [ ] **#117** A waiting message sits above work that happened before it was read
 - [ ] **#123** Nix-build the console, but keep the plist pointing at a stable symlink
 - [ ] **#124** console-live grows for ever — nothing prunes the superseded bundles

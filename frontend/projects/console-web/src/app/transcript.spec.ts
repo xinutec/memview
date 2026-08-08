@@ -402,7 +402,10 @@ describe('transcript · a message the session has not read yet', () => {
       { kind: 'accepted', text: 'why is it idle?' },
       { kind: 'prompt', text: 'why is it idle?' },
     );
-    expect(seen.map((entry) => entry.queued)).toEqual([undefined, true]);
+    // The answered one is LAST, because being read moves it to where it entered
+    // the conversation — see #117 and the suite below. The one still waiting
+    // stays where it was sent.
+    expect(seen.map((entry) => entry.queued)).toEqual([true, undefined]);
   });
 
   it('shows a replayed message plainly, having never seen it wait', () => {
@@ -486,5 +489,51 @@ describe('transcript · an answer the session has not acted on', () => {
       { kind: 'busy', status: 'requesting' },
     );
     expect(seen[0].settling).toBe(true);
+  });
+});
+
+describe('transcript · where a message that waited belongs', () => {
+  it('moves it below the work that happened before it was read', () => {
+    // ⚠ **A defect the queued marker introduced.** The entry goes in when the
+    // runner takes the message, and the CLI may not read it for minutes — so
+    // everything the session did meanwhile was appended below it, reading as
+    // though the message had been seen first (memview #117).
+    const seen = transcript(
+      { kind: 'accepted', text: 'is the gate green?', at: 1000 },
+      { kind: 'tool', id: 't1', name: 'Bash', input: { command: 'cargo test' } },
+      { kind: 'text', text: 'still on the last thing' },
+      { kind: 'prompt', text: 'is the gate green?', at: 9000 },
+    );
+    // The leading `day` is the date row any timestamped entry introduces.
+    expect(seen.map((e) => e.kind)).toEqual(['day', 'tool', 'said', 'asked']);
+    expect(seen[3].queued).toBeUndefined();
+    expect(seen[3].at, 'stamped when it was read, so the clock stays monotonic').toBe(9000);
+  });
+
+  it('moves the oldest copy when the same words were sent twice', () => {
+    // ⚠ Extends the matching rule rather than replacing it: believing the first
+    // had failed, the same sentence was sent again fifteen seconds later —
+    // twice, in one evening. The echo answers the oldest waiting copy, and the
+    // move has to take that same entry.
+    const seen = transcript(
+      { kind: 'accepted', text: 'why is it idle?', at: 1000 },
+      { kind: 'accepted', text: 'why is it idle?', at: 2000 },
+      { kind: 'prompt', text: 'why is it idle?', at: 9000 },
+    );
+    expect(seen.filter((e) => e.kind === 'asked').map((e) => [e.at, e.queued])).toEqual([
+      [2000, true],
+      [9000, undefined],
+    ]);
+  });
+
+  it('leaves a message alone while it is still waiting', () => {
+    // Where it waits is the sender's own timeline, and showing it there at once
+    // is the whole of what stops the re-sending.
+    const seen = transcript(
+      { kind: 'accepted', text: 'have a look', at: 1000 },
+      { kind: 'tool', id: 't1', name: 'Bash', input: { command: 'ls' } },
+    );
+    expect(seen.map((e) => e.kind)).toEqual(['day', 'asked', 'tool']);
+    expect(seen[1].queued).toBe(true);
   });
 });

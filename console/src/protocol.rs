@@ -414,7 +414,25 @@ struct Message {
     /// What this one request carried. See [`Usage`].
     #[serde(default)]
     usage: Option<Usage>,
+    /// Which model answered — read only to recognise the one that is not a
+    /// model at all. See [`SYNTHETIC`].
+    #[serde(default)]
+    model: Option<String>,
 }
+
+/// The `model` a message carries when nothing generated it.
+///
+/// ⚠ **This is how a slash command answers, and the live reader threw it away.**
+/// A command runs locally and its output arrives as one complete `assistant`
+/// message — no `content_block_delta` before it, because nothing was generated.
+/// [`read`] keeps only tool calls from a completed message, on the sound rule
+/// that the deltas already carried the text, and that rule is wrong about the
+/// one case that has no deltas: **every** slash command's output was silently
+/// dropped, not only `/tasks` (memview #106).
+///
+/// Measured 2026-08-08 against CLI 2.1.221: `/context` on a session's stdin came
+/// back as `"model": "<synthetic>"` carrying the whole context table.
+const SYNTHETIC: &str = "<synthetic>";
 
 /// ⚠ `content` is a list of blocks — except on the user lines where it is a bare
 /// string. Both shapes are in every transcript on this machine. Declared as
@@ -783,13 +801,16 @@ pub fn read(line: &str) -> Vec<Event> {
             Stream::Other => Vec::new(),
         },
         // Text is taken from the deltas, so the completed message contributes
-        // only what the deltas cannot carry whole.
+        // only what the deltas cannot carry whole — unless nothing generated it,
+        // in which case there were no deltas and this is the only copy. See
+        // [`SYNTHETIC`].
         Line::Assistant { message } => {
             // The context as it stood for THIS request, ahead of the blocks, so
             // a reader sees the fullness that produced what follows.
             let context = message.usage.as_ref().map(|usage| Event::Context {
                 tokens: usage.prompt(),
             });
+            let spoken = message.model.as_deref() == Some(SYNTHETIC);
             context
                 .into_iter()
                 .chain(
@@ -800,6 +821,9 @@ pub fn read(line: &str) -> Vec<Event> {
                         .filter_map(|block| match block {
                             Block::ToolUse { id, name, input } => {
                                 Some(Event::Tool { id, name, input })
+                            }
+                            Block::Text { text } if spoken && !text.trim().is_empty() => {
+                                Some(Event::Text { text })
                             }
                             _ => None,
                         }),
