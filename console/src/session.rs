@@ -933,8 +933,19 @@ impl Session {
         // succeeded, so the message is the CLI's problem now — but the CLI may
         // not read it for minutes, and until it does nothing else on the wire
         // mentions it. See [`Event::Accepted`] for the measurements.
-        self.push(Event::Accepted {
-            text: text.to_string(),
+        //
+        // Which of the two it is has to be decided here, because it is a
+        // statement about what will come back and only the text can say: a
+        // prompt is echoed by `--replay-user-messages` and a command is not.
+        // See [`Event::Command`].
+        self.push(if protocol::is_command(text) {
+            Event::Command {
+                text: text.to_string(),
+            }
+        } else {
+            Event::Accepted {
+                text: text.to_string(),
+            }
         });
         // Held even if the CLI never echoes it, so the record of what was asked
         // does not depend on the CLI's replay behaviour.

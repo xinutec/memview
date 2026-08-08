@@ -412,4 +412,29 @@ describe('transcript · a message the session has not read yet', () => {
     const seen = transcript({ kind: 'prompt', text: 'from the transcript' });
     expect(seen).toEqual([{ kind: 'asked', text: 'from the transcript' }]);
   });
+
+  it('never marks a slash command as waiting, because nothing will answer', () => {
+    // ⚠ **Measured, and it is the whole of #120.** `--replay-user-messages` does
+    // not replay a command: `/context` on stdin produced `system`, a synthetic
+    // `assistant` and `result`, and no user message at all. So a *waiting to be
+    // read* marker on one can never be cleared — `life` wore one right through
+    // the compaction it had already started.
+    //
+    // The runner decides which of the two events to send, so this side has no
+    // rule to get wrong.
+    const seen = transcript({ kind: 'command', text: '/compact' });
+    expect(seen).toEqual([{ kind: 'asked', text: '/compact' }]);
+  });
+
+  it('reads a command back out of the transcript, where it used to vanish', () => {
+    // The CLI writes a command down as a `<command-name>` wrapper, which the
+    // reader dropped as plumbing — so scrolling back through a conversation gave
+    // no sign that anyone had ever compacted it. Sent and recorded arrive as the
+    // same event by design: it is one thing that happened.
+    const seen = transcript(
+      { kind: 'command', text: '/compact' },
+      { kind: 'command', text: '/loop check eval output' },
+    );
+    expect(seen.map((entry) => entry.text)).toEqual(['/compact', '/loop check eval output']);
+  });
 });

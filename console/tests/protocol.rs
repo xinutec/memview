@@ -120,12 +120,84 @@ mod recorded {
     }
 
     #[test]
+    fn a_slash_command_comes_back_as_the_command_that_was_typed() {
+        // The CLI expands a slash command locally, so what reaches the transcript
+        // is a wrapper and not the words. Reading it back as the typed command is
+        // what tells the console the session has READ the message — without it
+        // nothing ever answers the write, and the marker saying so stays up for
+        // ever (memview #120).
+        //
+        // The args are part of it: `/loop check eval output` and `/loop` are two
+        // different messages, and only the whole of it matches what was sent.
+        for (wrapper, typed) in [
+            (
+                "<command-name>/compact</command-name>\n            <command-message>compact</command-message>\n            <command-args></command-args>",
+                "/compact",
+            ),
+            (
+                "<command-name>/loop</command-name>\n<command-message>loop</command-message>\n<command-args>check eval output</command-args>",
+                "/loop check eval output",
+            ),
+            // Measured: 95 of them in this machine's transcripts open with the
+            // message rather than the name, and carry no args element at all.
+            (
+                "<command-message>statusline</command-message>\n<command-name>/statusline</command-name>",
+                "/statusline",
+            ),
+        ] {
+            let line = format!(
+                r#"{{"type":"user","message":{{"role":"user","content":{}}}}}"#,
+                serde_json::to_string(wrapper).expect("a string encodes")
+            );
+            assert!(
+                matches!(read_recorded(&line).as_slice(), [Event::Command { text }] if text == typed),
+                "{wrapper} should read as {typed}, got {:?}",
+                read_recorded(&line)
+            );
+        }
+    }
+
+    #[test]
+    fn what_counts_as_a_command_on_the_way_in() {
+        use console::protocol::is_command;
+        for text in [
+            "/compact",
+            "  /compact  ",
+            "/loop check eval output",
+            "/model:opus",
+        ] {
+            assert!(is_command(text), "{text}");
+        }
+        for text in [
+            "/home/example/Code/memview is where it lives",
+            "/ ",
+            "what does /compact do?",
+            "",
+        ] {
+            // A pasted path opens with a slash too, and losing a read receipt on
+            // an ordinary message is the failure this rule is shaped to prefer.
+            assert!(!is_command(text), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_command_is_not_a_prompt() {
+        // Its own variant, so that everything counting what a person said keeps
+        // counting what a person said: `past::material` opens a summary with the
+        // first prompt, and `/exit` is not what the conversation was about.
+        let line = r#"{"type":"user","message":{"role":"user","content":"<command-name>/exit</command-name>"}}"#;
+        assert!(!matches!(
+            read_recorded(line).as_slice(),
+            [Event::Prompt { .. }]
+        ));
+    }
+
+    #[test]
     fn the_cli_talking_to_itself_is_not_your_message() {
         // A transcript files these as user turns, and replayed as prompts they
-        // outnumber the real ones: `/exit`, `Goodbye!` and a system reminder all
-        // reading as things the person said.
+        // outnumber the real ones: `Goodbye!` and a system reminder both reading
+        // as things the person said.
         for text in [
-            "<command-name>/exit</command-name>",
             "<local-command-stdout>Goodbye!</local-command-stdout>",
             "<local-command-caveat>Caveat: …</local-command-caveat>",
             "<system-reminder>a nudge</system-reminder>",

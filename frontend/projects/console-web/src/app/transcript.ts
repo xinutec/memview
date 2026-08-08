@@ -23,6 +23,17 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
     case 'accepted':
       add(entries, { kind: 'asked', text: event.text ?? '', at: event.at, queued: true });
       break;
+    // A slash command, sent or read back off the transcript — and deliberately
+    // NOT marked, unlike every other message this console writes.
+    //
+    // ⚠ **A command has no read receipt and cannot be given one.** Measured
+    // 2026-08-08: `--replay-user-messages` replays a prompt and does not replay a
+    // command, so the event that clears the marker never arrives. Marking one
+    // made `life` show *waiting to be read* right through the compaction it had
+    // already begun — a claim the console had no way left to withdraw.
+    case 'command':
+      add(entries, { kind: 'asked', text: event.text ?? '', at: event.at });
+      break;
     case 'prompt': {
       // ⚠ **The echo promotes the waiting entry rather than adding a second
       // one.** The two events describe one message — the runner taking it and

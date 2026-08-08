@@ -109,6 +109,31 @@ pub enum Event {
     Prompt {
         text: String,
     },
+    /// A slash command — `/compact`, `/context` — rather than something said to
+    /// the model.
+    ///
+    /// ⚠ **A command has no read receipt, and there is no way to give it one.**
+    /// Measured 2026-08-08 against CLI 2.1.221, spawned with the same flags the
+    /// runner uses: `/context` written to stdin produced `system`, a
+    /// synthetic `assistant` and `result` on stdout, and **no user message at
+    /// all**. `--replay-user-messages` does not replay a command. The transcript
+    /// on disk does record it, as a `<command-name>` wrapper the CLI expanded it
+    /// into, so the two readers see different things — the only place in this
+    /// protocol where that is true.
+    ///
+    /// So this is what [`Event::Accepted`] would be if waiting were honest.
+    /// Accepted promises an echo is coming; for a command none ever is, and a
+    /// *waiting to be read* marker on one is a lie the console cannot stop
+    /// telling — which it did, on `life`, throughout a compaction that was
+    /// already running (memview #120).
+    ///
+    /// Its own variant rather than a `Prompt`, so that everything counting what a
+    /// person said keeps counting what a person said: [`crate::past::material`]
+    /// opens a summary with the first prompt, and `/exit` is not what the
+    /// conversation was about.
+    Command {
+        text: String,
+    },
     /// A picture that was sent to this session, by the name of the copy kept for
     /// it — enough for a reader to ask for it back at
     /// `/api/sessions/{id}/images/{name}`.
@@ -1103,8 +1128,11 @@ fn from_user(content: Content) -> Vec<Event> {
             Block::Text { text } => match finished(&text) {
                 Some(event) => vec![event],
                 None if is_notification(&text) => Vec::new(),
-                None if !is_plumbing(&text) => vec![Event::Prompt { text }],
-                None => Vec::new(),
+                None => match commanded(&text) {
+                    Some(text) => vec![Event::Command { text }],
+                    None if !is_plumbing(&text) => vec![Event::Prompt { text }],
+                    None => Vec::new(),
+                },
             },
             _ => Vec::new(),
         })
@@ -1333,6 +1361,50 @@ fn between<'a>(text: &'a str, open: &str, close: &str) -> Option<&'a str> {
     let start = text.find(open)? + open.len();
     let end = text[start..].find(close)? + start;
     Some(text[start..end].trim())
+}
+
+/// The slash command a message typed into the console is, if it is one.
+///
+/// The console has to decide this on the way *in*, before anything comes back,
+/// because what comes back differs: a prompt is echoed and a command is not.
+/// See [`Event::Command`].
+///
+/// **A leading slash and then a word.** That is the CLI's own rule, and the
+/// second half of it is doing work: `/Users/pippijn/Code/…` opens with a slash
+/// and is a path somebody pasted, so the word must run to whitespace or to the
+/// end. Getting this wrong costs a read receipt on an ordinary message, never a
+/// false one on a command.
+pub fn is_command(text: &str) -> bool {
+    let Some(rest) = text.trim().strip_prefix('/') else {
+        return false;
+    };
+    let word = rest.split_whitespace().next().unwrap_or_default();
+    !word.is_empty()
+        && word
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':'))
+}
+
+/// The command a recorded message is the expansion of, put back the way it was
+/// typed.
+///
+/// The wrapper is the only trace a command leaves, and it is the CLI's, not the
+/// person's: `<command-name>` with the slash, `<command-args>` with whatever
+/// followed. Both halves matter — `/loop check eval output` and `/loop` are two
+/// different messages, and only the whole of it matches what the console sent.
+///
+/// Recognised by how the block opens, so that asking *what does
+/// `<command-name>` mean* stays a question. ⚠ Both openings occur: measured over
+/// this machine's transcripts, 1,369 lead with the name and 95 lead with the
+/// message and carry no args at all.
+fn commanded(text: &str) -> Option<String> {
+    let head = text.trim_start();
+    if !head.starts_with("<command-name>") && !head.starts_with("<command-message>") {
+        return None;
+    }
+    let name = between(head, "<command-name>", "</command-name>")?;
+    let args = between(head, "<command-args>", "</command-args>").unwrap_or_default();
+    Some(format!("{name} {args}").trim().to_string())
 }
 
 fn is_plumbing(text: &str) -> bool {

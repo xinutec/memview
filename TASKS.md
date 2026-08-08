@@ -29,7 +29,6 @@ costs every future turn that reads this.
 - [ ] **#116** Following oscillates: it unpins every 10-25 seconds and stops catching up
 - [ ] **#117** A waiting message sits above work that happened before it was read
 - [ ] **#119** Resuming a session silently drops it back to Manual
-- [ ] **#120** A slash command typed in the console stays "waiting to be read" for ever
 - [ ] **#121** The console should name a deaf session instead of saying "waiting to be read" for ever
 - [ ] **#122** "answered" is drawn from the write, not the read — so a deaf session shows a green answered card and stays blocked
 - [ ] **#123** Nix-build the console, but keep the plist pointing at a stable symlink

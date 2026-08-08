@@ -152,6 +152,7 @@ export const KINDS = [
   'started',
   'prompt',
   'accepted',
+  'command',
   'shown',
   'text',
   'tool',
