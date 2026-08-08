@@ -3405,6 +3405,12 @@ test('the permission modes are one row that opens a sheet @ phone width', async 
     .click();
   await expect(page.locator('.session-menu .current')).toHaveText('Accept edits');
   await expect(page.getByRole('menuitem', { name: /Asks permission/ })).toBeVisible();
+  // ⚠ **Rename must not wear the `acceptEdits` pencil**, which is the row
+  // directly below it — the same glyph a thumb apart, meaning two unrelated
+  // things. Reported from the phone 2026-08-08.
+  const icon = (name: RegExp) =>
+    page.getByRole('menuitem', { name }).locator('mat-icon').first().textContent();
+  expect(await icon(/Rename/)).not.toBe(await icon(/Asks permission/));
   await page.getByRole('menuitem', { name: /Asks permission/ }).click();
   const sheet = page.locator('mat-bottom-sheet-container');
   await sheet.waitFor();

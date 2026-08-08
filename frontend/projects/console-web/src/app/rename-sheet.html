@@ -14,6 +14,6 @@
      the model reads the words and the name never changes — measured. This goes
      over the control channel. See `protocol::rename`. -->
 <button matButton="filled" class="go" (click)="save()" [disabled]="saving() || !title().trim()">
-  <mat-icon>edit</mat-icon>
+  <mat-icon>label</mat-icon>
   {{ saving() ? 'renaming…' : 'rename' }}
 </button>

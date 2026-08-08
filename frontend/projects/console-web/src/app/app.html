@@ -77,7 +77,18 @@
              name never changes — measured. This goes over the control channel
              and takes effect mid-turn. See `protocol::rename`. -->
         <button mat-menu-item (click)="rename(open)">
-          <mat-icon>edit</mat-icon>
+          <!-- ⚠ **Not `edit`, which is the `acceptEdits` mode's icon** — and that
+               row sits directly below this one, so the same pencil meant two
+               unrelated things a thumb apart. The mode keeps it: a pencil is
+               literally what that permission grants, and the mode icons are a
+               set learnt from the sheet where they appear together, whereas this
+               one appears here and nowhere else.
+
+               `label` rather than `drive_file_rename_outline`: that one is
+               Material's own rename glyph and is *also* a pencil, which at 24px
+               on a phone reads as the same icon one row apart. A name-plate does
+               not. Verified present in `material-icons/css/_codepoints.scss`. -->
+          <mat-icon>label</mat-icon>
           <span>Rename</span>
         </button>
         <!-- ⚠ **One row, not six.** The modes used to be listed inline here,
