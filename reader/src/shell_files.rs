@@ -580,8 +580,15 @@ fn extract_nested(
                 out.handled += 1;
                 match crate::shell::parse(script) {
                     Ok(inner) if depth < MAX_NESTING => {
-                        let found =
-                            extract_nested(&inner, here.as_deref(), home, host, depth + 1, trace, refused);
+                        let found = extract_nested(
+                            &inner,
+                            here.as_deref(),
+                            home,
+                            host,
+                            depth + 1,
+                            trace,
+                            refused,
+                        );
                         out.absorb(found);
                     }
                     Ok(_) => {}

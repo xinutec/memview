@@ -1006,7 +1006,8 @@ pub fn refusals(text: &[u8]) -> std::collections::HashMap<String, Vec<String>> {
     const ENDING: &[u8] = b"No such file or directory";
     let mut out = std::collections::HashMap::new();
     for line in text.split(|c| *c == b'\n') {
-        if find_at(line, ENDING, 0).is_none() || find_at(line, b"\"type\":\"tool_result\"", 0).is_none()
+        if find_at(line, ENDING, 0).is_none()
+            || find_at(line, b"\"type\":\"tool_result\"", 0).is_none()
         {
             continue;
         }

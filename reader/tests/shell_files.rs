@@ -1024,7 +1024,10 @@ fn a_cd_the_shell_refused_does_not_move_the_directory() {
     let script = "cd nowhere; cat Cargo.toml";
     assert_eq!(
         uses(script),
-        vec![("/home/example/Code/health/nowhere/Cargo.toml".to_string(), false)],
+        vec![(
+            "/home/example/Code/health/nowhere/Cargo.toml".to_string(),
+            false
+        )],
         "with nothing known the move has to be taken at its word",
     );
     assert_eq!(
@@ -1041,7 +1044,10 @@ fn only_the_refused_cd_is_held_back() {
     let uses = uses_knowing("cd gone; cd lean && cat lakefile.toml", &["gone"]);
     assert_eq!(
         uses,
-        vec![("/home/example/Code/health/lean/lakefile.toml".to_string(), false)],
+        vec![(
+            "/home/example/Code/health/lean/lakefile.toml".to_string(),
+            false
+        )],
     );
 }
 
@@ -1061,6 +1067,9 @@ fn a_refusal_from_one_command_does_not_silence_another() {
     // though a refusal was reported somewhere in the same call.
     assert_eq!(
         uses_knowing("cd lean; cat lakefile.toml", &["nowhere"]),
-        vec![("/home/example/Code/health/lean/lakefile.toml".to_string(), false)],
+        vec![(
+            "/home/example/Code/health/lean/lakefile.toml".to_string(),
+            false
+        )],
     );
 }

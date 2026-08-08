@@ -63,7 +63,11 @@ fn main() -> anyhow::Result<()> {
         // see `agents::refusals`. Absent on all but a handful of rows.
         let refused: Vec<String> = row["refused"]
             .as_array()
-            .map(|it| it.iter().filter_map(|t| t.as_str().map(str::to_string)).collect())
+            .map(|it| {
+                it.iter()
+                    .filter_map(|t| t.as_str().map(str::to_string))
+                    .collect()
+            })
             .unwrap_or_default();
         calls += 1;
         let Ok(parsed) = shell::parse(cmd) else {
