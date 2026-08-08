@@ -115,6 +115,15 @@ pub struct Count {
     pub open: usize,
     /// Open and finished together. Never smaller than [`Self::open`].
     pub total: usize,
+    /// How many are still in the built-in store this replaced — see
+    /// [`strays`]. Zero for a conversation that has migrated and cleared up,
+    /// which is most of the point of showing it.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub stray: usize,
+}
+
+fn is_zero(count: &usize) -> bool {
+    *count == 0
 }
 
 /// Somebody holding tasks who is not one of this console's conversations:
@@ -139,6 +148,41 @@ pub struct Sweep {
     pub sessions: BTreeMap<String, Count>,
     /// The holders who are not sessions, in the order the service put them.
     pub elsewhere: Vec<Held>,
+}
+
+/// What each conversation has left in `~/.claude/tasks/<session-id>/`, the
+/// built-in store the service replaced.
+///
+/// ⚠ **A count of a store nothing should be writing to.** Every file here is
+/// re-sent to its session as a `task_reminder` attachment 1.75 times per
+/// message, whole bodies included — 527 kB a turn on one conversation, which is
+/// why the lists moved. So a number on a card is not trivia: it says either that
+/// a session migrated and never deleted, or that something is still filing work
+/// into the store that costs a fortune to keep.
+///
+/// Counts files rather than reading them: the fix for any of them is `rm`, and
+/// what a stray task *says* is a question for whoever migrates it. `.lock` and
+/// `.highwatermark` are the CLI's and are not tasks.
+///
+/// Unreadable — no `HOME`, no directory, a permission — is nothing rather than
+/// an error. A console that cannot see the old store is the ordinary state of
+/// one running anywhere but this Mac.
+fn strays(store: &std::path::Path) -> BTreeMap<String, usize> {
+    let Ok(sessions) = std::fs::read_dir(store) else {
+        return BTreeMap::new();
+    };
+    sessions
+        .flatten()
+        .filter_map(|session| {
+            let id = session.file_name().to_str()?.to_string();
+            let left = std::fs::read_dir(session.path())
+                .ok()?
+                .flatten()
+                .filter(|task| task.path().extension().is_some_and(|kind| kind == "json"))
+                .count();
+            (left > 0).then_some((id, left))
+        })
+        .collect()
 }
 
 /// One holder as the service reports it.
@@ -169,6 +213,10 @@ pub struct Tasks {
     http: reqwest::Client,
     base: String,
     token: Option<String>,
+    /// The built-in store to count leftovers in — see [`strays`]. A path rather
+    /// than `$HOME` read on the spot, so a test can point at a fixture without
+    /// touching a process-wide variable its neighbours share.
+    store: std::path::PathBuf,
     held: tokio::sync::RwLock<Option<Kept>>,
 }
 
@@ -220,8 +268,17 @@ impl Tasks {
                 .unwrap_or_default(),
             base: base.into().trim_end_matches('/').to_string(),
             token: token(),
+            store: std::env::var_os("HOME")
+                .map(|home| std::path::Path::new(&home).join(".claude/tasks"))
+                .unwrap_or_default(),
             held: tokio::sync::RwLock::new(None),
         }
+    }
+
+    /// Count leftovers in `store` instead of the one beside `$HOME`.
+    pub fn counting(mut self, store: impl Into<std::path::PathBuf>) -> Self {
+        self.store = store.into();
+        self
     }
 
     fn asking(&self, path: &str) -> reqwest::RequestBuilder {
@@ -285,32 +342,57 @@ impl Tasks {
             .error_for_status()?
             .json()
             .await?;
+        // Off the executor: a handful of `readdir`s is quick on a warm cache and
+        // is not quick on a cold one, and this runs behind the front page's poll.
+        let store = self.store.clone();
+        let mut left = tokio::task::spawn_blocking(move || strays(&store))
+            .await
+            .unwrap_or_default();
+
         let mut swept = Sweep::default();
         for row in holders {
             let open = usize::try_from(row.open).unwrap_or(0);
             let total = usize::try_from(row.total).unwrap_or(0);
-            // ⚠ **Nothing ever assigned, rather than nothing open.** The rule the
-            // client draws by is "absent means this conversation was never
-            // handed anything", and until there was a total that could only be
-            // approximated by `open > 0` — which hid a session that had
-            // *finished* its list, the one case where the row is worth drawing.
-            // `0/366` is a good day; no row at all is a different fact.
-            if total == 0 {
-                continue;
-            }
             match (row.kind.as_str(), row.id) {
                 ("session", Some(id)) => {
-                    swept.sessions.insert(id, Count { open, total });
+                    let stray = left.remove(&id).unwrap_or(0);
+                    // ⚠ **Nothing ever assigned, rather than nothing open.** The
+                    // rule the client draws by is "absent means this
+                    // conversation was never handed anything", and until there
+                    // was a total that could only be approximated by `open > 0`
+                    // — which hid a session that had *finished* its list, the
+                    // one case where the row is worth drawing. `0/366` is a good
+                    // day; no row at all is a different fact.
+                    if total == 0 && stray == 0 {
+                        continue;
+                    }
+                    swept.sessions.insert(id, Count { open, total, stray });
                 }
                 // Person and pile keep the service's order: it decides who is
                 // loaded, in one place, so `task sessions`, the app and this
                 // cannot disagree about it.
-                _ => swept.elsewhere.push(Held {
+                _ if total > 0 => swept.elsewhere.push(Held {
                     name: row.name.unwrap_or_else(|| row.kind.clone()),
                     open,
                     total,
                 }),
+                _ => {}
             }
+        }
+        // ⚠ **What is left over from a session the service has never heard of.**
+        // The sharpest case there is: a conversation filing work into the store
+        // that costs 527 kB a turn, with nothing in the one anybody reads. It has
+        // no holder row by definition, so a loop over holders alone cannot find
+        // it — and it is the case worth finding.
+        for (id, stray) in left {
+            swept.sessions.insert(
+                id,
+                Count {
+                    open: 0,
+                    total: 0,
+                    stray,
+                },
+            );
         }
         Ok(swept)
     }

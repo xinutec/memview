@@ -211,6 +211,13 @@ app-tasks-sheet .said {
     padding-left: 1rem;
     font-variant-numeric: tabular-nums;
     color: var(--mat-sys-on-surface-variant);
+
+    // What is left in the built-in store — a fault rather than a quantity, so
+    // it is coloured as one. See `sessions-view.html` for what it costs.
+    .stray {
+      margin-inline-start: 0.25rem;
+      color: var(--mat-sys-error);
+    }
   }
 
   // The mode the session is on, at the right-hand end of its row — the only

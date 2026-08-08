@@ -69,7 +69,17 @@
                — a tally there would say nothing. -->
           <span>Tasks</span>
           @if (taskCount(); as count) {
-            <span class="tally">{{ count.open }}/{{ count.total }}</span>
+            <span class="tally">
+              @if (count.total) {
+                {{ count.open }}/{{ count.total }}
+              }
+              <!-- What this conversation has left in the built-in store, which
+                   the sheet below cannot show because it does not read it. See
+                   the same figure on the card, in `sessions-view.html`. -->
+              @if (count.stray) {
+                <span class="stray">({{ count.stray }})</span>
+              }
+            </span>
           }
         </button>
         <!-- ⚠ **Here rather than as a `/rename`.** A slash command sent to a

@@ -402,6 +402,16 @@ export interface Task {
 export interface TaskCount {
   readonly open: number;
   readonly total: number;
+  /**
+   * How many are still in the built-in store the service replaced — absent
+   * when there are none, which is the state to be in.
+   *
+   * ⚠ **Not part of the fraction, and drawn as a problem.** Every file there is
+   * re-sent to its session 1.75 times per message with its whole body, which is
+   * why the lists moved. A number here means a conversation migrated without
+   * deleting, or is still filing work into the store nothing reads.
+   */
+  readonly stray?: number;
 }
 
 /**

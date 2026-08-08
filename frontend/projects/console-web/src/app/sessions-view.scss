@@ -143,6 +143,14 @@
     color: var(--mat-sys-on-surface);
   }
 
+  // What is left in the built-in store: a fault, so it reads as one. Angular
+  // drops the whitespace-only nodes between these spans, so the gap to the
+  // fraction is set here rather than being a space in the template.
+  .stray {
+    margin-inline-start: 0.25rem;
+    color: var(--mat-sys-error);
+  }
+
   mat-icon {
     // Material's own metrics are 24px on a 1rem line; this rides beside a
     // number in label-small and has to be the number's height, not the row's.

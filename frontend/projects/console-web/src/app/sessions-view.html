@@ -165,10 +165,26 @@
           <span
             class="list"
             [class.left]="tasks.open > 0"
-            [title]="tasks.open + ' of ' + tasks.total + ' still open'"
-            [attr.aria-label]="tasks.open + ' of ' + tasks.total + ' tasks still open'"
+            [title]="tally(tasks)"
+            [attr.aria-label]="tally(tasks)"
           >
-            <mat-icon>checklist</mat-icon>{{ tasks.open }}/{{ tasks.total }}
+            <mat-icon>checklist</mat-icon>
+            @if (tasks.total) {
+              <span class="fraction">{{ tasks.open }}/{{ tasks.total }}</span>
+            }
+            <!-- ⚠ **In parentheses and in the error colour, because it is a
+                 fault rather than a quantity.** Every file still in the built-in
+                 store is re-sent to its session 1.75 times per message with its
+                 whole body — 527 kB a turn on one conversation, which is what
+                 moved the lists out. So this says either "migrated and never
+                 deleted" or "still filing work into the store nothing reads",
+                 and both are something to do rather than something to know.
+
+                 A row with this and no fraction beside it is the second kind,
+                 and the one worth catching. -->
+            @if (tasks.stray) {
+              <span class="stray">({{ tasks.stray }})</span>
+            }
           </span>
         }
       </div>

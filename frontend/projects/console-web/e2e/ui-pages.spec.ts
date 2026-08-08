@@ -1897,13 +1897,19 @@ test('session list — what each conversation still owes @ phone width', async (
           { ...STATE.sessions[0], id: 'aaaa0000-0000-4000-8000-000000000001', name: 'owing' },
           { ...STATE.sessions[0], id: 'aaaa0000-0000-4000-8000-000000000002', name: 'no-list' },
           { ...STATE.sessions[0], id: 'aaaa0000-0000-4000-8000-000000000003', name: 'all-done' },
+          { ...STATE.sessions[0], id: 'aaaa0000-0000-4000-8000-000000000004', name: 'astray' },
         ],
         tasks: {
           sessions: {
             'aaaa0000-0000-4000-8000-000000000001': { open: 3, total: 17 },
             'aaaa0000-0000-4000-8000-000000000003': { open: 0, total: 4 },
-            // A conversation nothing is running, which still has the list it kept.
-            'bbbb0000-0000-4000-8000-000000000001': { open: 2, total: 9 },
+            // A conversation nothing is running, which still has the list it kept
+            // — and which migrated without deleting what it left behind.
+            'bbbb0000-0000-4000-8000-000000000001': { open: 2, total: 9, stray: 5 },
+            // ⚠ **Nothing in the service and eleven in the store it replaced.**
+            // The case the sweep of holders cannot produce on its own: work
+            // being filed where nothing reads it. No fraction, just the fault.
+            'aaaa0000-0000-4000-8000-000000000004': { open: 0, total: 0, stray: 11 },
           },
           // The holders that are on no card, because they are not conversations.
           elsewhere: [
@@ -1916,7 +1922,7 @@ test('session list — what each conversation still owes @ phone width', async (
   );
   await page.route('**/api/past', (r) => r.fulfill({ json: ON_DISK }));
   await page.goto('/');
-  await expect(page.locator('.session')).toHaveCount(5);
+  await expect(page.locator('.session')).toHaveCount(6);
 
   await expect(page.locator('.session', { hasText: 'owing' }).locator('.list')).toContainText(
     '3/17',
@@ -1936,6 +1942,25 @@ test('session list — what each conversation still owes @ phone width', async (
   // ⚠ And nothing at all where there is no list — `0/0` would claim one that had
   // been emptied, and most conversations never open one.
   await expect(page.locator('.session', { hasText: 'no-list' }).locator('.list')).toHaveCount(0);
+
+  // ⚠ **What a conversation left in the store the service replaced.** Every file
+  // there is re-sent to it 1.75 times per message with its whole body, so this
+  // is a fault to clear rather than a quantity to know — in parentheses, beside
+  // the fraction, and not part of it.
+  // ⚠ Read as two elements, because the space between them is a margin and not
+  // a character: Angular drops whitespace-only nodes, so the text is `2/9(5)`.
+  const older = page.locator('.session', { hasText: 'older' });
+  await expect(older.locator('.fraction')).toHaveText('2/9');
+  await expect(older.locator('.stray')).toHaveText('(5)');
+  // ⚠ **And with no fraction at all when the service has never heard of it** —
+  // work being filed where nothing reads it, which is the case a sweep of the
+  // service's own holders cannot produce.
+  const astray = page.locator('.session', { hasText: 'astray' });
+  await expect(astray.locator('.stray')).toHaveText('(11)');
+  await expect(astray.locator('.fraction')).toHaveCount(0);
+  // Nothing at all on a session that has cleaned up: the number only ever
+  // appears when there is something to do about it.
+  await expect(page.locator('.session', { hasText: 'owing' }).locator('.stray')).toHaveCount(0);
 
   // ⚠ **What is on no card, because it belongs to no conversation.** The pile is
   // the one queue nobody is working, and every other thing on this page is drawn

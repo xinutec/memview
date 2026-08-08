@@ -57,7 +57,33 @@ fn reading(address: SocketAddr) -> Tasks {
     // No crypto provider to install here: `Tasks::at` does it, because a type
     // that panics unless the caller remembered something is a trap — see the
     // note there.
-    Tasks::at(format!("http://{address}"))
+    //
+    // ⚠ **Pointed at a store that is not there.** Left at its default this
+    // counts the leftovers in the real `~/.claude/tasks` of whoever is running
+    // the suite, so every assertion about which sessions appear would depend on
+    // the machine — eleven extra rows on this Mac today, none on a fresh one.
+    Tasks::at(format!("http://{address}")).counting(scratch("empty"))
+}
+
+/// A directory under the temp dir, emptied. Named by the caller so two tests
+/// cannot share one: they run in parallel in this process.
+fn scratch(what: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("console-strays-{what}"));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("scratch");
+    dir
+}
+
+/// A built-in store holding `count` task files for `session`, plus the two
+/// dotfiles the CLI owns and that are not tasks.
+fn leaving(store: &std::path::Path, session: &str, count: usize) {
+    let dir = store.join(session);
+    std::fs::create_dir_all(&dir).expect("session dir");
+    std::fs::write(dir.join(".lock"), "").expect("lock");
+    std::fs::write(dir.join(".highwatermark"), "7").expect("highwatermark");
+    for id in 0..count {
+        std::fs::write(dir.join(format!("{id}.json")), "{}").expect("task");
+    }
 }
 
 /// The holder rows, as the live service gives them: sessions first by open
@@ -123,6 +149,43 @@ async fn the_person_and_the_pile_are_kept_in_the_order_they_came() {
         (swept.elsewhere[1].open, swept.elsewhere[1].total),
         (23, 26)
     );
+}
+
+#[tokio::test]
+async fn what_is_left_in_the_store_this_replaced_is_counted_beside_it() {
+    // Every file there is re-sent to its session 1.75 times per message, bodies
+    // and all. A number on the card says either "migrated but never deleted" or
+    // "still filing work into the expensive store".
+    let store = scratch("left-behind");
+    leaving(&store, "alive", 3);
+    let (address, _) = serving(vec![("/api/holders", HOLDERS)]).await;
+    let swept = Tasks::at(format!("http://{address}"))
+        .counting(&store)
+        .sweep()
+        .await;
+    assert_eq!(
+        swept.sessions["alive"].stray, 3,
+        "the dotfiles are not tasks"
+    );
+    // ⚠ The one that has cleaned up says nothing rather than zero, so the number
+    // on a card only ever means there is something to do about it.
+    assert_eq!(swept.sessions["cleared"].stray, 0);
+}
+
+#[tokio::test]
+async fn a_session_with_only_leftovers_gets_a_row_the_service_cannot_give_it() {
+    // The sharpest case: work being filed into the store nothing reads, by a
+    // conversation with nothing in the one everybody does. It has no holder row
+    // by definition, so a sweep of holders alone would never show it.
+    let store = scratch("only-leftovers");
+    leaving(&store, "astray", 12);
+    let (address, _) = serving(vec![("/api/holders", HOLDERS)]).await;
+    let swept = Tasks::at(format!("http://{address}"))
+        .counting(&store)
+        .sweep()
+        .await;
+    let stranded = swept.sessions.get("astray").expect("a row of its own");
+    assert_eq!((stranded.open, stranded.total, stranded.stray), (0, 0, 12));
 }
 
 #[tokio::test]

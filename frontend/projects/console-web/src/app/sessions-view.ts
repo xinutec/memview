@@ -143,6 +143,22 @@ export class SessionsView {
   readonly past = this.pastStore.conversations;
 
   /**
+   * What the card's tally says out loud — the hover and the accessible name,
+   * which are the same sentence because the question is the same one.
+   *
+   * A sentence rather than template concatenation: with the leftovers it has
+   * two clauses, either of which can be the only one.
+   */
+  protected tally(tasks: TaskCount): string {
+    return [
+      tasks.total ? `${tasks.open} of ${tasks.total} tasks still open` : '',
+      tasks.stray ? `${tasks.stray} still in the built-in store, which nothing reads` : '',
+    ]
+      .filter(Boolean)
+      .join('; ');
+  }
+
+  /**
    * Who is holding tasks who is not a conversation: Pippijn, and the unassigned
    * pile.
    *
