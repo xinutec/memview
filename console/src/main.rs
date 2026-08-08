@@ -90,6 +90,19 @@ async fn main() -> Result<()> {
             }
         });
     }
+    // Sessions that have stopped reading what is written to them. Fifteen
+    // seconds apart: a sweep that finds nothing costs one comparison per
+    // session, and the number that matters is how long somebody stares at a
+    // *waiting to be read* marker before the console admits what it means.
+    {
+        let watching = roster.clone();
+        tokio::spawn(async move {
+            loop {
+                watching.watch_for_deafness().await;
+                tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+            }
+        });
+    }
     // What each conversation is about, written by the cheapest model there is
     // from the transcript itself — see [`console::gist`]. A quarter of an hour
     // apart, and each sweep pays only for the conversations whose files have

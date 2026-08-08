@@ -314,6 +314,16 @@ pub struct Summary {
     /// session cannot go on without you", so it belongs in the list of sessions
     /// and not only on the page of one.
     pub waiting: usize,
+    /// How many messages have been written to this session and not read back.
+    pub unread: usize,
+    /// How long it has been failing to read them, in **seconds** — present only
+    /// when the console is prepared to call it deaf. See [`Session::deaf`].
+    ///
+    /// Seconds, not milliseconds: this is a duration somebody reads off a card
+    /// to decide whether to restart a session, and the millisecond it began is
+    /// not a fact anybody wants at that moment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deaf: Option<u64>,
 }
 
 /// An event and its place in the session's order.
@@ -445,6 +455,143 @@ struct State {
     heard: i64,
     asked: Option<String>,
     stderr: String,
+    /// Messages written to stdin that the CLI has not echoed back, oldest
+    /// first. See [`Session::deaf`].
+    unread: VecDeque<Unread>,
+    /// When the last turn ended, in epoch milliseconds — `None` whenever the
+    /// session is working. See [`Session::deaf`] for why this and not silence.
+    idle_since: Option<i64>,
+    /// Whether this episode of deafness has already been announced. See
+    /// [`Session::check_deaf`].
+    announced_deaf: bool,
+    /// A `/compact` has been sent and the conversation has not moved since.
+    ///
+    /// The one long silence that is not a fault: a compaction summarises the
+    /// whole history before anything else happens, and measured on `hardware`
+    /// 2026-08-08 it left the transcript frozen for minutes. See
+    /// [`Session::deaf`].
+    compacting: bool,
+}
+
+/// How long a message may sit unread, between turns and with the session
+/// otherwise silent, before the console stops calling it *waiting* and calls the
+/// session deaf.
+///
+/// ⚠ **Bounded by evidence at both ends.** The legitimate wait this has to clear
+/// is a message that arrives just as a turn ends, which is seconds — the long
+/// waits measured on 2026-08-07, up to twelve minutes for the oldest of four,
+/// were input parked *mid-turn*, and a working session never reaches this test
+/// at all because [`State::idle_since`] is unset while it works. The failures
+/// this has to catch were both silent for over twenty minutes. Ninety seconds
+/// sits an order of magnitude clear of each.
+const DEAF_AFTER_MS: i64 = 90_000;
+
+/// The same wait, while a compaction is outstanding.
+///
+/// ⚠ **A compaction is a legitimate silence with no pulse at all.** Measured on
+/// `hardware` 2026-08-08: `/compact` sent at 09:50:46, and twenty seconds later
+/// the transcript was still frozen where it had been at 09:49:53 — it stays that
+/// way for minutes while a 437k-token context is summarised, so neither the file
+/// nor the process says anything a shorter wait could tell apart from deafness.
+///
+/// Longer rather than suppressed outright, because a session can go deaf *around*
+/// a compaction — one of the two episodes this task is named for did — and an
+/// alarm that a single command can switch off for ever is worth less than the
+/// wolf it might cry.
+const DEAF_AFTER_COMPACT_MS: i64 = 15 * 60_000;
+
+/// Keep track of what is in flight, and of whether the session is in a position
+/// to read it.
+///
+/// Everything [`Session::deaf`] decides on is maintained here, in one place,
+/// because the verdict is a conjunction and a field updated in only some of the
+/// arms that should update it fails silently — as an alarm that never fires.
+fn in_flight(state: &mut State, event: &Event) {
+    match event {
+        // The read receipt. Oldest match first, for the same reason the client
+        // promotes the oldest waiting entry: stdin is a queue, and the same
+        // words sent twice must be answered in the order they were written.
+        Event::Prompt { text } => {
+            if let Some(at) = state.unread.iter().position(|held| &held.text == text) {
+                state.unread.remove(at);
+            }
+            // It read something, so whatever this episode was, it is over — and
+            // if it happens again it is worth saying again.
+            state.announced_deaf = false;
+        }
+        // A turn ended, so from here the session owes us a read.
+        Event::Turn { .. } => state.idle_since = Some(now()),
+        Event::Command { text } if text.starts_with("/compact") => state.compacting = true,
+        _ => {}
+    }
+    // Anything the session says of its own accord means it is working, and a
+    // working session is not deaf however long it has been quiet. Deliberately
+    // NOT `Busy`: a status is announced only when it changes (memview #112), so
+    // its absence says nothing and its presence can be minutes old.
+    if matches!(
+        event,
+        Event::Text { .. } | Event::Tool { .. } | Event::Context { .. } | Event::Prompt { .. }
+    ) {
+        state.idle_since = None;
+        state.compacting = false;
+    }
+}
+
+/// The verdict itself, taken against state a caller is already holding — see
+/// [`Session::deaf`], which is this with the lock taken and the documentation.
+fn deaf_for(state: &State) -> Option<i64> {
+    if !state.alive {
+        return None;
+    }
+    deaf_after(
+        state.idle_since,
+        state.unread.front().map(|held| held.at),
+        state.compacting,
+        now(),
+    )
+}
+
+/// The verdict as arithmetic, apart from where its inputs come from.
+///
+/// Public because it is the part worth testing: the conjunction, and which of
+/// the two clocks the wait is measured from. Waiting ninety seconds in a test to
+/// find out would make it a test nobody runs.
+///
+/// * `idle_since` — when the last turn ended, `None` while the session works.
+/// * `oldest` — when the oldest unread message was written, `None` for none.
+///
+/// See [`Session::deaf`] for what each means and why all three are needed.
+pub fn deaf_after(
+    idle_since: Option<i64>,
+    oldest: Option<i64>,
+    compacting: bool,
+    now: i64,
+) -> Option<i64> {
+    // The LATER of the two: before the turn ended the session was entitled to
+    // park the message, and before the message arrived there was nothing to
+    // read. Only after both has it been given the chance this measures.
+    let since = idle_since?.max(oldest?);
+    let allowed = if compacting {
+        DEAF_AFTER_COMPACT_MS
+    } else {
+        DEAF_AFTER_MS
+    };
+    let waited = now - since;
+    (waited >= allowed).then_some(waited)
+}
+
+/// A message written to the session's stdin that it has not read back.
+///
+/// The pair of it is what makes deafness observable at all:
+/// [`Event::Accepted`] says the bytes reached the pipe and the CLI's replay
+/// says they were taken out of it, so an entry that sits here is a message in
+/// flight and nothing else. Commands are deliberately absent — the CLI does not
+/// replay one, so a command would sit here for ever. See [`Event::Command`].
+#[derive(Debug, Clone)]
+struct Unread {
+    text: String,
+    /// When it was written, in epoch milliseconds.
+    at: i64,
 }
 
 pub struct Session {
@@ -938,15 +1085,25 @@ impl Session {
         // statement about what will come back and only the text can say: a
         // prompt is echoed by `--replay-user-messages` and a command is not.
         // See [`Event::Command`].
-        self.push(if protocol::is_command(text) {
-            Event::Command {
+        if protocol::is_command(text) {
+            self.push(Event::Command {
                 text: text.to_string(),
-            }
+            });
         } else {
-            Event::Accepted {
+            // In flight until the CLI replays it, which is the whole of what
+            // [`Self::deaf`] has to go on.
+            self.state
+                .lock()
+                .expect("session state poisoned")
+                .unread
+                .push_back(Unread {
+                    text: text.to_string(),
+                    at: now(),
+                });
+            self.push(Event::Accepted {
                 text: text.to_string(),
-            }
-        });
+            });
+        }
         // Held even if the CLI never echoes it, so the record of what was asked
         // does not depend on the CLI's replay behaviour.
         let mut state = self.state.lock().expect("session state poisoned");
@@ -1164,6 +1321,87 @@ impl Session {
         self.state.lock().expect("session state poisoned").heard
     }
 
+    /// How long this session has been failing to read what was written to it,
+    /// in milliseconds — `None` for one that is merely busy, or quiet.
+    ///
+    /// ⚠ **The console has always held the evidence and never drawn the
+    /// conclusion.** A message written to a session that has stopped reading its
+    /// stdin gets an *Accepted*, which the client draws as *waiting to be read* —
+    /// the identical words it uses for a message a working session will get to in
+    /// a minute. On 2026-08-08 `hardware` went deaf twice in seventy-five
+    /// minutes and both times the screen said the ordinary thing, so both times
+    /// somebody had to work out by hand that it was not ordinary. See
+    /// [`crate::past`] and the memory `reference_console_session_stops_reading_stdin`.
+    ///
+    /// **Three things at once, and the conjunction is the point:**
+    ///
+    /// * a message is in flight — nothing to read is not deafness;
+    /// * the session is between turns ([`State::idle_since`]) — a session
+    ///   working through a ten-minute tool call is silent and perfectly well,
+    ///   and it parks input on purpose;
+    /// * long enough — [`DEAF_AFTER_MS`], or [`DEAF_AFTER_COMPACT_MS`] while a
+    ///   compaction is outstanding.
+    ///
+    /// The clock starts at whichever came second, the turn ending or the message
+    /// arriving: before both of those the session has not yet been given the
+    /// chance this measures.
+    ///
+    /// ⚠ **It cannot see a session that goes deaf mid-turn**, because there is
+    /// nothing to distinguish that from work. Both measured episodes were between
+    /// turns, which is also what the failure mode predicts — the reader stops
+    /// when it goes back to waiting on the pipe.
+    pub fn deaf(&self) -> Option<i64> {
+        deaf_for(&self.state.lock().expect("session state poisoned"))
+    }
+
+    /// Say so, once, if this session has stopped reading.
+    ///
+    /// Returns how long it has been deaf when this is the call that noticed —
+    /// `None` on every later sweep of the same episode, and `None` for a session
+    /// that is fine. Swept rather than pushed from the read loop because
+    /// deafness is the absence of events, and nothing arrives to trigger it.
+    ///
+    /// The pid comes back with it because the caller's next job is to capture
+    /// what the process looks like before the cure destroys it — see
+    /// [`crate::roster::Roster::watch_for_deafness`].
+    pub fn check_deaf(&self) -> Option<(u64, usize)> {
+        let mut state = self.state.lock().expect("session state poisoned");
+        let seconds = (deaf_for(&state)? / 1000) as u64;
+        if state.announced_deaf {
+            return None;
+        }
+        state.announced_deaf = true;
+        let unread = state.unread.len();
+        drop(state);
+        self.push(Event::Deaf { unread, seconds });
+        Some((seconds, unread))
+    }
+
+    /// What this session was last told it may do without asking. See
+    /// [`Summary::mode`] — the console is the only thing that knows.
+    pub fn mode(&self) -> Option<String> {
+        self.state
+            .lock()
+            .expect("session state poisoned")
+            .mode
+            .clone()
+    }
+
+    /// What was written to this session and never read, oldest first.
+    ///
+    /// The other half of the cure: a restart loses whatever is still sitting in
+    /// the old pipe, so it has to be given back afterwards. See
+    /// [`crate::roster::Roster::revive`].
+    pub fn unread(&self) -> Vec<String> {
+        self.state
+            .lock()
+            .expect("session state poisoned")
+            .unread
+            .iter()
+            .map(|held| held.text.clone())
+            .collect()
+    }
+
     /// Record an event and hand it to whoever is listening.
     ///
     /// `at` is passed rather than taken because a seeded event did not happen
@@ -1283,6 +1521,7 @@ impl Session {
                 protocol::Running::Gone => state.background.clear(),
                 protocol::Running::Quiet => {}
             }
+            in_flight(&mut state, &event);
             state.issued += 1;
             let stamped = Stamped {
                 seq: state.issued,
@@ -1403,6 +1642,8 @@ impl Session {
             // Filled in by the roster, which knows where the transcripts are.
             name: None,
             waiting: state.pending.len(),
+            unread: state.unread.len(),
+            deaf: deaf_for(&state).map(|ms| (ms / 1000) as u64),
         }
     }
 }

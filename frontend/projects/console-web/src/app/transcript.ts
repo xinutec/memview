@@ -186,6 +186,17 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
         at: event.at,
       });
       break;
+    // The session has stopped reading its stdin. In the transcript and not only
+    // in the header, because it is a thing that happened at a moment — it
+    // belongs *after* the message it failed to read, where somebody scrolling
+    // back can see which message went unanswered and when.
+    case 'deaf':
+      add(entries, {
+        kind: 'note',
+        text: `not reading — ${count(event.unread, 'message')} written and untouched for ${elapsed((event.seconds ?? 0) * 1000)}`,
+        at: event.at,
+      });
+      break;
     // `started`, `busy` and `limit` are session state rather than transcript;
     // they belong in the header, and repeating them between paragraphs would
     // turn the page into a log.
@@ -252,6 +263,12 @@ function describe(name: string | undefined, args: Record<string, unknown> | unde
  * sub-second precision is kept where it is the whole point — a call that either
  * returned at once or did not.
  */
+/** `1 message`, `3 messages` — plural only when it should be. */
+function count(many: number | undefined, thing: string): string {
+  const n = many ?? 0;
+  return `${n} ${thing}${n === 1 ? '' : 's'}`;
+}
+
 function elapsed(ms: number | undefined): string {
   if (!ms) return '0s';
   if (ms < 1000) return `${ms}ms`;

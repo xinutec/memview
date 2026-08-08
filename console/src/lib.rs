@@ -7,6 +7,7 @@
 pub mod api;
 pub mod attest;
 pub mod config;
+pub mod deaf;
 pub mod gist;
 pub mod images;
 pub mod parse;

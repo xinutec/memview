@@ -3240,3 +3240,40 @@ test('another machine is named on the step and on every path @ phone width', asy
   await expectNoHorizontalOverflow(page, testInfo, SHEET);
   await expectNoClippedText(page, testInfo, SHEET);
 });
+
+test('a session that has stopped reading names it, with the cure @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **The row this replaces said the ordinary thing.** A deaf session's
+  // messages carry the same *waiting to be read* marker as a busy session's, so
+  // both of 2026-08-08's episodes cost a diagnosis by hand. This is the banner
+  // that says which it is — see `session::Session::deaf`.
+  //
+  // At phone width because that is where it has to fit: a sentence, a duration
+  // and a button on one row beside a transcript that is already tight.
+  await mockRunner(page);
+  const deaf = { ...STATE.sessions[0], busy: undefined, waiting: 0, unread: 2, deaf: 1284 };
+  await page.route('**/api/state', (r) =>
+    r.fulfill({ json: { ...STATE, sessions: [deaf, STATE.sessions[1]] } }),
+  );
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.deaf').waitFor();
+  await expect(page.locator('.deaf')).toContainText('Not reading');
+  await expect(page.locator('.deaf')).toContainText('21m');
+  await expect(page.getByRole('button', { name: 'Restart it' })).toBeEnabled();
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectNoPinnedOverlap(page);
+});
+
+test('an ended session offers the way back @ phone width', async ({ page }, testInfo) => {
+  // The list has no way back from an ended session: the roster keeps it, so its
+  // card stays a link to this page, and the resume affordance on the front page
+  // exists only for a conversation the console is NOT holding. This is it.
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[1].id}`);
+  await page.locator('.deaf.ended').waitFor();
+  await expect(page.getByRole('button', { name: 'Start it again' })).toBeEnabled();
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+});

@@ -426,6 +426,18 @@ describe('transcript · a message the session has not read yet', () => {
     expect(seen).toEqual([{ kind: 'asked', text: '/compact' }]);
   });
 
+  it('says on the page which message went unread, and for how long', () => {
+    // In the transcript and not only in the header, because it happened at a
+    // moment: it belongs after the message it names, where scrolling back shows
+    // what was asked and never taken.
+    const seen = transcript(
+      { kind: 'accepted', text: 'is the gate green?' },
+      { kind: 'deaf', unread: 1, seconds: 1284 },
+    );
+    expect(seen.map((entry) => entry.kind)).toEqual(['asked', 'note']);
+    expect(seen[1].text).toBe('not reading — 1 message written and untouched for 21m 24s');
+  });
+
   it('reads a command back out of the transcript, where it used to vanish', () => {
     // The CLI writes a command down as a `<command-name>` wrapper, which the
     // reader dropped as plumbing — so scrolling back through a conversation gave

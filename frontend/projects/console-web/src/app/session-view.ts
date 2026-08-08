@@ -198,6 +198,8 @@ export class SessionView implements OnDestroy {
   readonly unreachable = signal('');
   /** How patient the banner above is. See [[Reach]]. */
   private readonly reach = new Reach();
+  /** A restart of a session that stopped reading is in flight. See [[revive]]. */
+  readonly reviving = signal(false);
   readonly sending = signal(false);
   readonly text = signal('');
   /**
@@ -570,6 +572,50 @@ export class SessionView implements OnDestroy {
         // that was not reachable for a moment — losing it would mean choosing it
         // again from a gallery.
         this.trouble.set(reason(err));
+      },
+    });
+  }
+
+  /**
+   * How long this session has been failing to read, in words.
+   *
+   * Coarse on purpose: the number is read to decide whether to restart, and
+   * `21m` and `21m 14s` lead to the same decision.
+   */
+  readonly silence = computed(() => {
+    const seconds = this.session()?.deaf ?? 0;
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.round(seconds / 60);
+    return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  });
+
+  /**
+   * Stop a session that has stopped listening and start it again on the same
+   * conversation.
+   *
+   * ⚠ **The only known cure, and it keeps the conversation.** The id, the
+   * transcript and everything said survive; what is lost is the process's own
+   * state and the messages still sitting in its pipe — which the runner hands
+   * back, because that is the step somebody doing this by hand forgets. See
+   * `roster::Roster::revive`.
+   *
+   * Tens of seconds, because the old process has to leave the process table
+   * before the conversation may be resumed; [[reviving]] is what keeps the
+   * button from being pressed twice in the meantime.
+   */
+  revive(id: string): void {
+    if (this.reviving()) return;
+    this.reviving.set(true);
+    this.api.revive(id).subscribe({
+      next: (summary) => {
+        this.reviving.set(false);
+        this.trouble.set('');
+        this.session.set(summary);
+      },
+      error: (err: unknown) => {
+        this.reviving.set(false);
+        this.trouble.set(reason(err));
+        this.telemetry.note('revive-refused', reason(err));
       },
     });
   }

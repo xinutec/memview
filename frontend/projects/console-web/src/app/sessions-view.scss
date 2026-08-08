@@ -66,13 +66,22 @@
   }
 }
 
-.waiting {
+.waiting,
+.deaf {
   font: var(--mat-sys-label-small);
   padding: 0.1rem 0.5rem;
   border-radius: 1rem;
   background: var(--mat-sys-tertiary-container);
   color: var(--mat-sys-on-tertiary-container);
   font-weight: 600;
+}
+
+// The same badge, in the colour that means somebody has to act. A session
+// waiting for an answer is working as designed; one that has stopped reading is
+// not, and the two must not read as the same kind of news.
+.deaf {
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
 }
 
 .live,

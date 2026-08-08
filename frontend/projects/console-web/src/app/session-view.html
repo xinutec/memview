@@ -31,6 +31,57 @@
   </header>
 }
 
+@if (session(); as session) {
+  @if (!session.alive) {
+    <!-- ⚠ **The list has no way back from here, and this is it.** The roster
+         keeps an ended session listed, which means its card stays a *link* to
+         this page — the resume affordance on the front page exists only for a
+         conversation the console is NOT holding, and nothing in the app calls
+         `forget`. So an ended session was a dead end: the only ways back were a
+         terminal or restarting the console.
+
+         The same verb as the deaf case below, because it is the same three
+         steps: the stop is simply already done. -->
+    <div class="deaf ended" role="status">
+      <mat-icon>power_settings_new</mat-icon>
+      <div class="what">
+        <strong>Ended.</strong>
+        <span>The conversation is on disk — starting it again picks up where it stopped.</span>
+      </div>
+      <button mat-flat-button [disabled]="reviving()" (click)="revive(session.id)">
+        {{ reviving() ? 'Starting…' : 'Start it again' }}
+      </button>
+    </div>
+  }
+  @if (session.deaf; as seconds) {
+    <!-- ⚠ **Named, with the cure attached.** The console has always been able to
+         work this out and has always drawn it as *waiting to be read* — the same
+         words it uses for a message a busy session picks up in a minute. On
+         2026-08-08 that cost two diagnoses by hand in seventy-five minutes. See
+         `session::Session::deaf`.
+
+         The button rather than a link to instructions: a restart is the only
+         known cure, it is three steps done in a particular order, and the middle
+         one — handing back the messages the old pipe still holds — is the step
+         somebody doing it by hand forgets. -->
+    <div class="deaf" role="alert">
+      <mat-icon>hearing_disabled</mat-icon>
+      <div class="what">
+        <strong>Not reading.</strong>
+        <span
+          >{{ session.unread }} message{{ session.unread === 1 ? '' : 's' }} written and untouched
+          for {{ silence() }}, with nothing running.</span
+        >
+      </div>
+      <!-- Disabled while it works and saying so: this takes tens of seconds,
+           and a button that looks idle for half a minute gets pressed twice. -->
+      <button mat-flat-button [disabled]="reviving()" (click)="revive(session.id)">
+        {{ reviving() ? 'Restarting…' : 'Restart it' }}
+      </button>
+    </div>
+  }
+}
+
 @if (trouble() || unreachable(); as what) {
   <!-- An action's failure wins the line: it is the more specific of the two and
        the one the reader just caused. -->
@@ -310,10 +361,22 @@
                turn reaches a point where it can. Wording it as an in-flight send
                would invite a re-send, which is the very thing this exists to
                stop. -->
-          <span class="queued">
-            <mat-icon>schedule</mat-icon>
-            waiting to be read — the session is mid-turn
-          </span>
+          <!-- ⚠ **"mid-turn" is a claim, and it stops being true.** Once the
+               runner has concluded the session is not reading at all, the same
+               marker on the same message would be asserting the one thing that
+               has just been ruled out — the wording has to follow the verdict,
+               or the banner above and the line here contradict each other. -->
+          @if (session()?.deaf) {
+            <span class="queued unheard">
+              <mat-icon>hearing_disabled</mat-icon>
+              not read — the session has stopped listening
+            </span>
+          } @else {
+            <span class="queued">
+              <mat-icon>schedule</mat-icon>
+              waiting to be read — the session is mid-turn
+            </span>
+          }
         }
         <div class="body" [innerHTML]="entry.text | rendered"></div>
       }

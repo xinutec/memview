@@ -14,6 +14,14 @@ use anyhow::Result;
 use crate::config::Config;
 use crate::session::{Session, Summary};
 
+/// How long [`Roster::revive`] will wait for a stopped session to actually go.
+///
+/// A stop closes stdin and kills only after a grace period, and one measured
+/// session took about thirty seconds to leave the process table — where the
+/// resume guard can still see it. Bounded rather than patient for ever, because
+/// the caller is somebody holding a phone.
+const REVIVE_PATIENCE: std::time::Duration = std::time::Duration::from_secs(90);
+
 pub struct Roster {
     config: Config,
     sessions: RwLock<BTreeMap<String, Arc<Session>>>,
@@ -201,6 +209,13 @@ impl Roster {
     /// terminal, which the console has no way to see, so the guard is a rail and
     /// not a boundary.
     pub fn resume(&self, dir: &str, id: &str) -> Result<Arc<Session>, String> {
+        self.resume_as(dir, id, None)
+    }
+
+    /// The same, with the mode to bring the session back on — `None` for the
+    /// console's configured one. See [`Self::revive`], which is the caller that
+    /// has a mode worth keeping.
+    fn resume_as(&self, dir: &str, id: &str, mode: Option<String>) -> Result<Arc<Session>, String> {
         let real = self.config.resolve(dir).inspect_err(|why| {
             tracing::warn!("refused a resume of {id} in {dir}: {why}");
         })?;
@@ -229,10 +244,78 @@ impl Roster {
             ));
         }
         tracing::info!("resuming {id} in {}", real.display());
+        let spawn = match mode {
+            Some(mode) => crate::session::Spawn {
+                permission_mode: Some(mode),
+                ..self.config.spawn.clone()
+            },
+            None => self.config.spawn.clone(),
+        };
         self.hold(
             id.to_string(),
-            Session::resume(id.to_string(), &real, &self.config.spawn),
+            Session::resume(id.to_string(), &real, &spawn),
         )
+    }
+
+    /// Stop a session that has stopped listening, start it again on the same
+    /// conversation, and give it back what it never read.
+    ///
+    /// **The only known cure**, and it is not a repair — nothing here fixes
+    /// whatever stops the CLI draining its pipe. What it does keep is the part
+    /// that matters: the id, the transcript and the conversation all survive, so
+    /// the cost is the in-memory state and the wait.
+    ///
+    /// **The unread messages have to be re-sent by hand**, because they are in
+    /// the old process's pipe and the old process is being killed. This is the
+    /// step somebody doing it manually forgets, and then the session is answering
+    /// a question nobody remembers asking.
+    ///
+    /// ⚠ **The mode is carried across deliberately.** A plain resume passes the
+    /// console's configured mode and a session that was on `acceptEdits` comes
+    /// back on `default`, asking permission for every call (memview #119). A cure
+    /// that quietly takes a session's permissions away is a cure people learn not
+    /// to use.
+    pub async fn revive(&self, id: &str) -> Result<Arc<Session>, String> {
+        let old = self
+            .get(id)
+            .ok_or_else(|| format!("{id} is not open on this console"))?;
+        let dir = old.dir.display().to_string();
+        let mode = old.mode();
+        let unread = old.unread();
+        tracing::info!(
+            "reviving {id}: {} message(s) to re-send afterwards",
+            unread.len()
+        );
+        // ⚠ **Only if it is still running.** `stop` arms a timer that kills the
+        // pid thirty seconds later if it has not gone — and for a session that
+        // has *already* gone, that is a SIGKILL sent to a pid this console no
+        // longer owns, thirty seconds after a new process was started in its
+        // place. Rare, and the kind of rare that is untraceable when it happens.
+        if old.alive() {
+            old.stop().await;
+        }
+        // Bounded, and the bound is generous on purpose: a stop closes stdin and
+        // only kills after a grace period, and a session has been measured taking
+        // about thirty seconds to go — passing through `Z` on the way, which is a
+        // process the resume guard can still see.
+        let gone = std::time::Instant::now();
+        while old.alive() && gone.elapsed() < REVIVE_PATIENCE {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+        if old.alive() {
+            return Err(format!(
+                "{id} would not stop within {}s, so it has not been restarted — \
+                 nothing has been lost, but it needs looking at by hand",
+                REVIVE_PATIENCE.as_secs()
+            ));
+        }
+        let fresh = self.resume_as(&dir, id, mode)?;
+        for text in unread {
+            if let Err(why) = fresh.send(&text).await {
+                tracing::warn!("could not re-send a message to the revived {id}: {why:#}");
+            }
+        }
+        Ok(fresh)
     }
 
     fn hold(
@@ -396,6 +479,53 @@ impl Roster {
             }
         }
         newest
+    }
+
+    /// Notice sessions that have stopped reading their stdin, and write down
+    /// what they look like before anybody restarts them.
+    ///
+    /// Swept rather than pushed, because deafness is the absence of events:
+    /// nothing arrives to announce it, which is the whole difficulty. See
+    /// [`crate::session::Session::deaf`] for the verdict and [`crate::deaf`] for
+    /// what is captured.
+    ///
+    /// Each session is announced once per episode, so this can be run as often
+    /// as the sharpness of the alarm is worth — the cost of a sweep that finds
+    /// nothing is one comparison per session.
+    pub async fn watch_for_deafness(&self) {
+        let live: Vec<_> = {
+            let sessions = self.sessions.read().expect("roster poisoned");
+            sessions
+                .values()
+                .filter(|session| session.alive())
+                .cloned()
+                .collect()
+        };
+        let root = crate::past::projects_root();
+        for session in live {
+            let Some((seconds, unread)) = session.check_deaf() else {
+                continue;
+            };
+            tracing::warn!(
+                "{} has not read {unread} message(s) in {seconds}s — capturing before it is cured",
+                session.id
+            );
+            // UTC and named so, like every other stamped file this console
+            // writes — see the note in [`crate::api`].
+            let stamp = time::OffsetDateTime::now_utc()
+                .format(&time::macros::format_description!(
+                    "[year]-[month]-[day]-[hour][minute][second]Z"
+                ))
+                .unwrap_or_else(|_| "deaf".to_string());
+            crate::deaf::capture(
+                &crate::deaf::evidence_root(),
+                &session.id,
+                session.pid(),
+                crate::past::transcript_of(&root, &session.id).as_deref(),
+                &stamp,
+            )
+            .await;
+        }
     }
 
     pub fn list(&self) -> Vec<Summary> {

@@ -1127,3 +1127,138 @@ async fn a_session_carried_by_an_older_image_is_not_left_blank_about_permissions
     assert_eq!(session.summary().mode, None);
     assert_eq!(console::session::DEFAULT_MODE, "default");
 }
+
+/// When the console is prepared to say a session has stopped listening.
+///
+/// ⚠ **This is the alarm that was missing, and its absence cost two manual
+/// diagnoses in one morning.** A message written to a session that has gone deaf
+/// gets the same *waiting to be read* marker as one a busy session will pick up
+/// in a minute, so on 2026-08-08 `hardware` sat silent for twenty minutes twice
+/// while the screen said the ordinary thing. See
+/// `reference_console_session_stops_reading_stdin`.
+mod deafness {
+    use console::session::deaf_after;
+
+    /// Ninety seconds, in milliseconds — the threshold, restated here so a test
+    /// that disagrees with the constant fails rather than following it.
+    const AFTER: i64 = 90_000;
+    const NOW: i64 = 1_000_000_000;
+
+    #[test]
+    fn nothing_unread_is_never_deaf() {
+        // The commonest state there is: a session that finished its turn an hour
+        // ago and has been asked nothing since. Silence is not the symptom.
+        assert_eq!(deaf_after(Some(NOW - 3_600_000), None, false, NOW), None);
+    }
+
+    #[test]
+    fn a_working_session_is_never_deaf_however_long_it_is_quiet() {
+        // ⚠ **The false positive that would have made this useless.** A session
+        // ten minutes into a tool call says nothing at all, and parks incoming
+        // messages on purpose — measured 2026-08-07, four messages held and
+        // released together, the oldest after twelve minutes. `idle_since` is
+        // unset while it works, and that is what keeps this quiet.
+        assert_eq!(deaf_after(None, Some(NOW - 12 * 60_000), false, NOW), None);
+    }
+
+    #[test]
+    fn the_wait_is_measured_from_whichever_came_second() {
+        // A message sent long after the turn ended has not been ignored for as
+        // long as the session has been idle — it has been ignored since it was
+        // sent, which is the only number that means anything.
+        assert_eq!(
+            deaf_after(Some(NOW - 3_600_000), Some(NOW - 10_000), false, NOW),
+            None,
+            "sent ten seconds ago, into an hour-old silence"
+        );
+        // And the other way round: the message was parked mid-turn and the turn
+        // has only just ended, so the session has had a second to read it.
+        assert_eq!(
+            deaf_after(Some(NOW - 1_000), Some(NOW - 3_600_000), false, NOW),
+            None,
+            "the turn ended a second ago"
+        );
+    }
+
+    #[test]
+    fn unread_between_turns_for_long_enough_is_deaf() {
+        let idle = Some(NOW - AFTER - 1);
+        assert_eq!(
+            deaf_after(idle, Some(NOW - AFTER - 1), false, NOW),
+            Some(AFTER + 1)
+        );
+        assert_eq!(deaf_after(idle, Some(NOW - AFTER + 1), false, NOW), None);
+    }
+
+    #[test]
+    fn a_compaction_is_given_far_longer_but_not_for_ever() {
+        // ⚠ **The one legitimate silence with no pulse.** A compaction leaves
+        // the transcript frozen for minutes — measured on `hardware`, sent at
+        // 09:50:46 with the file still stopped at 09:49:53 twenty seconds
+        // later — so nothing shorter than this can tell it from a fault.
+        let waited = |ms: i64| deaf_after(Some(NOW - ms), Some(NOW - ms), true, NOW);
+        assert_eq!(
+            waited(5 * 60_000),
+            None,
+            "five minutes in, still summarising"
+        );
+        assert_eq!(
+            waited(20 * 60_000),
+            Some(20 * 60_000),
+            "a session can go deaf around a compaction too, and one did"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_message_stops_being_in_flight_when_the_session_reads_it_back() {
+    // The pair the whole alarm rests on: the write says the bytes reached the
+    // pipe, and the CLI's replay is the only thing that says they were taken out
+    // of it. Nothing else on the wire mentions the trip.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Started { .. }))
+    })
+    .await;
+
+    session.send("do the thing").await.expect("send");
+    assert_eq!(
+        session.unread(),
+        vec!["do the thing".to_string()],
+        "in flight the moment it is written"
+    );
+    until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Turn { .. }))
+    })
+    .await;
+    assert!(
+        session.unread().is_empty(),
+        "the replay is the read receipt: {:?}",
+        session.unread()
+    );
+}
+
+#[tokio::test]
+async fn a_slash_command_is_never_counted_as_in_flight() {
+    // ⚠ **Measured against CLI 2.1.221:** `--replay-user-messages` does not
+    // replay a command. Counting one would leave it in flight for ever, and
+    // ninety seconds later the console would call a perfectly well session deaf
+    // every time anybody typed `/compact`.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Started { .. }))
+    })
+    .await;
+
+    session.send("/compact").await.expect("send");
+    assert!(session.unread().is_empty(), "{:?}", session.unread());
+    until(&session, |seen| {
+        seen.iter()
+            .any(|e| matches!(e, Event::Command { text } if text == "/compact"))
+    })
+    .await;
+}

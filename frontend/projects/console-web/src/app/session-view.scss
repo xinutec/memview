@@ -127,6 +127,13 @@
 // A message the runner holds and the session has not read. Quiet: it is not a
 // warning, and it resolves itself. Tertiary rather than error for exactly that
 // reason — nothing has gone wrong, something has not happened *yet*.
+// The same marker once the runner has stopped calling it a wait. Its own colour
+// because the tertiary one is deliberately quiet — right for "this will happen
+// shortly", wrong for "this will not happen until you act".
+.queued.unheard {
+  color: var(--mat-sys-error);
+}
+
 .queued {
   display: flex;
   align-items: center;
@@ -488,6 +495,63 @@ button.parse {
 
 .trouble {
   color: var(--mat-sys-error);
+}
+
+// A session that has stopped reading, and the one thing that fixes it.
+//
+// Loud, because it is the opposite of what the transcript below it appears to
+// say: the messages are all there, marked as waiting, and nothing is coming.
+// The error container rather than the error colour on the page — this is a
+// standing condition to be acted on, not a line about something that just
+// failed.
+.deaf {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.5rem 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--mat-sys-corner-medium);
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+
+  .what {
+    // Takes the slack so the button keeps its own width, and wraps rather than
+    // pushing it off a four-inch screen.
+    flex: 1;
+    min-width: 0;
+  }
+
+  strong {
+    margin-inline-end: 0.3rem;
+  }
+
+  button {
+    flex: none;
+    // In the container's own palette, not the app's primary. The default green
+    // on the error container is the one colour pair here that was never chosen
+    // — it reads as an unrelated control that happens to have landed inside the
+    // warning, which is the opposite of what it is.
+    //
+    // ⚠ **Through Material's own tokens, not `background`.** A plain
+    // declaration loses to the filled button's own rule and the button stays
+    // green — which is exactly what the first render showed.
+    --mat-button-filled-container-color: var(--mat-sys-error);
+    --mat-button-filled-label-text-color: var(--mat-sys-on-error);
+  }
+}
+
+// The same row for a session that has simply ended. Quiet, because nothing has
+// gone wrong: it is an offer, not an alarm.
+.deaf.ended {
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface);
+
+  // Back to the app's own accent: on a neutral surface nothing has gone wrong,
+  // and the error red would be claiming otherwise.
+  button {
+    --mat-button-filled-container-color: var(--mat-sys-primary);
+    --mat-button-filled-label-text-color: var(--mat-sys-on-primary);
+  }
 }
 
 // A message says whose it is, and reads as it was written.

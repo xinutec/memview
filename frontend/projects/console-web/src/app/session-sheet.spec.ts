@@ -13,6 +13,7 @@ const BARE: Summary = {
   interactions: 0,
   cost_usd: 0,
   waiting: 0,
+  unread: 0,
 };
 
 const labels = (session: Summary): string[] => factsOf(session).map((fact) => fact.label);

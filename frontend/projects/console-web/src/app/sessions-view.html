@@ -65,7 +65,15 @@
       <div class="head">
         <span class="place" [class.anonymous]="!row.named">{{ row.title }}</span>
         @if (row.live; as session) {
-          @if (session.waiting) {
+          @if (session.deaf) {
+            <!-- ⚠ **Ahead even of a blocked session**, because it is the one
+                 state the reader cannot learn any other way. A session waiting
+                 for an answer says so the moment it is opened; one that has
+                 stopped reading looks exactly like one that is busy, from here
+                 and from inside — which is what cost two diagnoses by hand on
+                 2026-08-08. See `session::Session::deaf`. -->
+            <span class="deaf">not reading</span>
+          } @else if (session.waiting) {
             <!-- Ahead of every other state: a blocked session is the only one
                  that needs the reader to do something. -->
             <span class="waiting">waiting for you</span>

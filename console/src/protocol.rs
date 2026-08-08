@@ -275,6 +275,19 @@ pub enum Event {
     /// stdout — so a session watched from the start will not see one happen,
     /// while a session seeded from disk will find every one that already had.
     Compacted,
+    /// The session has stopped reading its stdin: messages were written to it,
+    /// it is between turns, and it has not taken them.
+    ///
+    /// Announced once per episode rather than repeated, and never read from a
+    /// transcript — it is the console's own conclusion about a process, not
+    /// something the conversation records. See [`crate::session::Session::deaf`]
+    /// for what it is concluded from and what it cannot see.
+    Deaf {
+        /// How many messages are waiting in the pipe.
+        unread: usize,
+        /// How long it has been failing to take them, in seconds.
+        seconds: u64,
+    },
     /// The subprocess ended. Terminal: nothing follows it.
     Exited {
         #[serde(skip_serializing_if = "Option::is_none")]

@@ -117,7 +117,14 @@ while IFS= read -r line; do
     # so no test could see the difference.
     *)
       total=$(awk "BEGIN { printf \"%.2f\", $total + 0.25 }")
-      printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"replayed"}]},"session_id":"%s"}\n' "$session"
+      # The replay carries back the words it was given, exactly as
+      # `--replay-user-messages` does. It used to say a fixed "replayed", which
+      # is indistinguishable from the real thing for a test that only asks
+      # whether an echo arrived — and useless for one that asks WHICH message
+      # was read, which is what tells a waiting message apart from a deaf
+      # session.
+      said=$(printf '%s' "$line" | sed -e 's/.*"text":"//' -e 's/".*//')
+      printf '{"type":"user","message":{"role":"user","content":[{"type":"text","text":"%s"}]},"session_id":"%s"}\n' "$said" "$session"
       printf '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ack"}},"session_id":"%s"}\n' "$session"
       printf '{"type":"result","subtype":"success","total_cost_usd":%s,"num_turns":1,"duration_ms":5,"session_id":"%s"}\n' "$total" "$session"
       ;;

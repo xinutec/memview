@@ -148,6 +148,17 @@ export class ConsoleApi {
     return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/stop`, {});
   }
 
+  /** Stop a session that has stopped listening and start it again on the same
+   *  conversation, handing back the messages it never read.
+   *
+   *  ⚠ **Tens of seconds, not a moment.** The server waits for the old process
+   *  to leave the process table before resuming, because two processes on one
+   *  transcript both append and neither sees the other. Whatever calls this has
+   *  to stay disabled and say what it is doing until it answers. */
+  revive(id: string): Observable<Summary> {
+    return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/revive`, {});
+  }
+
   forget(id: string): Observable<unknown> {
     return this.http.delete(`/api/sessions/${encodeURIComponent(id)}`);
   }

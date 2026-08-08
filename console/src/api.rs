@@ -49,6 +49,7 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/sessions/{id}/decide", post(decide))
         .route("/api/sessions/{id}/mode", post(mode))
         .route("/api/sessions/{id}/stop", post(stop))
+        .route("/api/sessions/{id}/revive", post(revive))
         .route("/api/sessions/{id}", delete(forget))
         .route("/api/sessions/{id}/events", get(events))
         .route("/api/sessions/{id}/earlier", get(earlier))
@@ -419,6 +420,25 @@ async fn stop(
         .get(&id)
         .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
     session.stop().await;
+    Ok(Json(session.summary()))
+}
+
+/// Stop a session that has stopped listening and start it again on the same
+/// conversation. See [`Roster::revive`] — including why the unread messages have
+/// to be handed back.
+///
+/// ⚠ **Slow on purpose, and the client has to expect that.** It waits for the
+/// old process to actually leave the process table, which has been measured at
+/// about thirty seconds, because resuming before it does gives one transcript
+/// two writers.
+async fn revive(
+    State(roster): State<Arc<Roster>>,
+    Path(id): Path<String>,
+) -> Result<Json<Summary>, (StatusCode, String)> {
+    let session = roster
+        .revive(&id)
+        .await
+        .map_err(|why| (StatusCode::CONFLICT, why))?;
     Ok(Json(session.summary()))
 }
 

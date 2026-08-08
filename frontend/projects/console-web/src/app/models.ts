@@ -46,6 +46,14 @@ export interface Summary {
   limit?: string;
   /** Questions it is blocked on. Nonzero means it cannot go on without you. */
   waiting: number;
+  /** Messages written to the session that it has not read back. */
+  unread: number;
+  /** How long it has been failing to read them, in seconds.
+   *
+   *  Present only when the runner is prepared to call the session deaf — see
+   *  `session::Session::deaf`. A number here means a restart is the only known
+   *  cure, and that `revive` is what performs it. */
+  deaf?: number;
   /** The first instruction, kept as the session's name. */
   asked?: string;
   /** What the conversation calls itself — `memview`, `health`. */
@@ -162,6 +170,7 @@ export const KINDS = [
   'busy',
   'background',
   'exited',
+  'deaf',
   'trouble',
   'ask',
   'answered',
@@ -214,6 +223,10 @@ export interface SessionEvent {
   /** `answered` only: what was chosen. See `protocol::Event::Answered` for why
    *  it travels with the verdict rather than being kept by whoever chose. */
   reply?: Reply;
+  /** `deaf` only: how many messages are sitting in the pipe unread. */
+  readonly unread?: number;
+  /** `deaf` only: how long they have gone untouched, in seconds. */
+  readonly seconds?: number;
 }
 
 /** What the transcript is drawn from.
