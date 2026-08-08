@@ -122,25 +122,23 @@
         } @else {
           <span class="ended">off</span>
         }
-        <!-- What the conversation has left to do, from the list it keeps for
-             itself. Outside the branches above because it is the one fact here
-             that does not care whether the process is running: the list is on
-             disk beside the transcript, so a session that ended yesterday can
-             still say it left three things open.
+        <!-- What this conversation is holding. Outside the branches above
+             because it is the one fact here that does not care whether the
+             process is running: the work is in the tasks service, so a session
+             that ended yesterday can still say three things were left with it.
 
-             ⚠ **Open over total, and absent rather than `0/0`.** Most
-             conversations never open a list at all, and a pair of zeroes on
-             their rows would read as a list somebody had finished. Same two
-             numbers as the ⋮ menu inside, from the same sweep — see
-             `console/src/tasks.rs`. -->
+             ⚠ **Absent rather than `0`.** Most conversations have never been
+             handed anything, and a zero on their rows would read as work
+             somebody had finished. Same number as the ⋮ menu inside, from the
+             same sweep — see `console/src/tasks.rs`. -->
         @if (row.tasks; as tasks) {
           <span
             class="list"
             [class.left]="tasks.open > 0"
-            [title]="tasks.open + ' of ' + tasks.total + ' tasks still open'"
-            [attr.aria-label]="tasks.open + ' of ' + tasks.total + ' tasks still open'"
+            [title]="tasks.open + ' tasks still open'"
+            [attr.aria-label]="tasks.open + ' tasks still open'"
           >
-            <mat-icon>checklist</mat-icon>{{ tasks.open }}/{{ tasks.total }}
+            <mat-icon>checklist</mat-icon>{{ tasks.open }}
           </span>
         }
       </div>

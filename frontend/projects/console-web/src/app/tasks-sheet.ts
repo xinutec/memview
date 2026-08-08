@@ -19,15 +19,15 @@ export interface Which {
 /**
  * How the statuses sort, and how they read.
  *
- * ⚠ **Underway above merely open.** The CLI keeps three states and the middle
+ * ⚠ **Underway above merely open.** The service keeps three states and the middle
  * one is the answer to "what is this session actually on", which is the question
  * this sheet is opened with. Completed sorts last and is hidden by default:
  * three hundred done things above eight open ones is a list nobody scrolls.
  */
 const STATUS: Record<string, { rank: number; title: string; icon: string }> = {
-  in_progress: { rank: 0, title: 'underway', icon: 'pending' },
-  pending: { rank: 1, title: 'open', icon: 'radio_button_unchecked' },
-  completed: { rank: 2, title: 'done', icon: 'check_circle' },
+  doing: { rank: 0, title: 'underway', icon: 'pending' },
+  open: { rank: 1, title: 'open', icon: 'radio_button_unchecked' },
+  done: { rank: 2, title: 'done', icon: 'check_circle' },
 };
 
 /** Anything the CLI grows later sorts with the open ones rather than vanishing:
@@ -83,7 +83,7 @@ export class TasksSheet {
 
   protected readonly shown = computed(() => {
     const all = this.all() ?? [];
-    const wanted = this.everything() ? all : all.filter((task) => task.status !== 'completed');
+    const wanted = this.everything() ? all : all.filter((task) => task.status !== 'done');
     // Stable within a status: the list is already in the order the session made
     // them, and the sort only lifts what is underway to the top.
     return [...wanted].sort((left, right) => rankOf(left) - rankOf(right));
@@ -92,7 +92,7 @@ export class TasksSheet {
    *  with nothing left open are different facts about a session. */
   protected readonly empty = computed(() => (this.all() ?? []).length === 0);
   protected readonly done = computed(
-    () => (this.all() ?? []).filter((task) => task.status === 'completed').length,
+    () => (this.all() ?? []).filter((task) => task.status === 'done').length,
   );
 
   constructor() {

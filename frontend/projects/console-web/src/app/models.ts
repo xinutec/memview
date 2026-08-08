@@ -347,42 +347,36 @@ export interface Conversation {
  * One task on a session's own list.
  *
  * ⚠ **Not the console's idea of work — the session's.** These are written by the
- * CLI's task tools into `~/.claude/tasks/<session>/`, so the list is whatever the
- * conversation has been keeping for itself, including from runs long finished.
- * The console reads them and never writes: two surfaces editing one list is how
- * the two copies start disagreeing.
+ * tasks service, so the list is what this conversation is holding — the tasks
+ * assigned to it, whoever filed them. The console reads and never writes: two
+ * surfaces editing one list is how the two copies start disagreeing, and the
+ * `task` CLI is the other one.
+ *
+ * ⚠ **`active_form` and `blocked_by` are gone**, and were declared here for a
+ * while against a runner that never sent them. The service has neither.
  */
 export interface Task {
   readonly id: string;
   readonly subject: string;
-  /** `pending`, `in_progress` or `completed`, in the CLI's own words. */
+  /** `open`, `doing` or `done`, in the service's own words. */
   readonly status: string;
-  /**
-   * What the session calls the doing of it, while it is underway.
-   *
-   * ⚠ **Named as the runner sends it, which is not how the CLI writes it.** On
-   * disk these files are camel-cased; `tasks::Listed` is this crate's own shape
-   * and goes out snake_cased like everything else on this API. Declared here as
-   * `activeForm` and `blockedBy`, both were simply always undefined — the
-   * template's "waiting on …" line could not render at all.
-   */
-  readonly active_form?: string;
   /** Whether there is prose behind it worth opening. */
   readonly detailed: boolean;
-  /** The ids this one is waiting on, when it is waiting on any. */
-  readonly blocked_by?: readonly string[];
 }
 
 /**
  * How much of a session's list is left. Mirrors `tasks::Count`.
  *
- * ⚠ **Absent means no list, not an empty one.** Most conversations never open
- * one, and a row reading `0/0` claims a list that was finished or emptied. The
- * runner leaves those out of the map entirely.
+ * ⚠ **Absent means holding nothing, not an empty list.** A row reading `0`
+ * claims a conversation that finished its work; most conversations have simply
+ * never been handed any. The runner leaves those out of the map entirely.
+ *
+ * ⚠ **One number, where this was `open` over `total`.** A task is assigned here
+ * rather than owned, so a total would be everything ever handed to this
+ * conversation including all of it finished — a denominator that only grows.
  */
 export interface TaskCount {
   readonly open: number;
-  readonly total: number;
 }
 
 /**

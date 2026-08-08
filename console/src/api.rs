@@ -732,13 +732,23 @@ async fn parse(
 ///
 /// Not gated on the session being one this console runs: the list belongs to the
 /// conversation, and a conversation that has ended still has one worth reading.
-async fn tasks(Path(id): Path<String>) -> Json<Vec<crate::tasks::Listed>> {
-    Json(crate::tasks::listed(&crate::tasks::tasks_root(), &id))
+async fn tasks(
+    State(roster): State<Arc<Roster>>,
+    Path(id): Path<String>,
+) -> Json<Vec<crate::tasks::Listed>> {
+    Json(roster.task_list(&id).await)
 }
 
 /// What one task says, fetched when it is opened rather than with the list.
-async fn task(Path((id, task)): Path<(String, String)>) -> impl IntoResponse {
-    match crate::tasks::detail(&crate::tasks::tasks_root(), &id, &task) {
+async fn task(
+    State(roster): State<Arc<Roster>>,
+    // ⚠ The session is in the route and deliberately unused: a task belongs to
+    // the service now, and its number is unique across every conversation. The
+    // path keeps the session so the client's URLs — and anything bookmarked —
+    // stay what they were.
+    Path((_session, task)): Path<(String, String)>,
+) -> impl IntoResponse {
+    match roster.task_detail(&task).await {
         Some(description) => Json(Described { description }).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     }

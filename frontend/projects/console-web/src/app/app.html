@@ -63,13 +63,13 @@
              keeps whether anybody looks or not — see [[TasksSheet]]. -->
         <button mat-menu-item aria-haspopup="dialog" (click)="tasks(open)">
           <mat-icon>checklist</mat-icon>
-          <!-- Open over total, so the sheet does not have to be opened to learn
-               whether anything is left. Absent until counted and absent for a
-               session that never kept a list — `0/0` would be a claim, where
-               nothing is the truth. -->
+          <!-- How much is open, so the sheet does not have to be opened to
+               learn whether anything is left. Absent until counted and absent
+               for a conversation holding nothing — `0` would be a claim that it
+               finished something, where nothing is the truth. -->
           <span>Tasks</span>
           @if (taskCount(); as count) {
-            <span class="tally">{{ count.open }}/{{ count.total }}</span>
+            <span class="tally">{{ count.open }}</span>
           }
         </button>
         <!-- ⚠ **Here rather than as a `/rename`.** A slash command sent to a

@@ -31,8 +31,8 @@ pub struct Roster {
     /// What each conversation is about, in a sentence. See [`crate::gist`].
     gists: Arc<crate::gist::Gists>,
     /// How much is left of each session's task list, kept between sweeps. See
-    /// [`crate::tasks::Counts`].
-    tasks: Arc<crate::tasks::Counts>,
+    /// [`crate::tasks::Tasks`].
+    tasks: Arc<crate::tasks::Tasks>,
     /// What each conversation was last allowed to do without asking. See
     /// [`crate::modes`] — the only record of it anywhere.
     modes: Arc<crate::modes::Modes>,
@@ -78,21 +78,24 @@ impl Roster {
 
     /// How much is left of each session's task list, for the front page.
     ///
-    /// ⚠ **On a blocking thread, unlike the two above it.** The usage and the
-    /// sentences are answered out of memory because something else already went
-    /// to disk for them; this reads the directory every time it is asked, which
-    /// is what keeps the numbers as current as the poll. A warm sweep is 1.4 ms
-    /// and a cold one is seconds — see [`crate::tasks::Counts`] — and seconds of
-    /// file I/O on the async executor would stall every session's stream, not
-    /// just this request.
+    /// ⚠ **Over the network now, where this was a sweep of a directory.** It
+    /// used to be `spawn_blocking`, because reading every session's task files
+    /// cold was seconds of I/O and would have stalled every stream on the
+    /// executor. The service answers in 56-139 ms and the answer is cached for
+    /// thirty seconds — see [`crate::tasks::Tasks`] — so this is now an ordinary
+    /// await that is usually not a request at all.
     pub async fn tasks(&self) -> BTreeMap<String, crate::tasks::Count> {
-        let counts = self.tasks.clone();
-        tokio::task::spawn_blocking(move || counts.sweep(&crate::tasks::tasks_root()))
-            .await
-            .unwrap_or_else(|failure| {
-                tracing::error!("the task sweep did not finish: {failure}");
-                BTreeMap::new()
-            })
+        self.tasks.sweep().await
+    }
+
+    /// One conversation's tasks, for the sheet that lists them.
+    pub async fn task_list(&self, session: &str) -> Vec<crate::tasks::Listed> {
+        self.tasks.listed(session).await
+    }
+
+    /// One task's prose, fetched when a row is opened.
+    pub async fn task_detail(&self, task: &str) -> Option<String> {
+        self.tasks.detail(task).await
     }
 
     /// The sentences, for the front page.

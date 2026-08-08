@@ -1,268 +1,294 @@
-//! The task list a session keeps for itself.
+//! The work a conversation is holding, read from the tasks service.
 //!
-//! Claude Code files these under `~/.claude/tasks/<session-id>/<n>.json`, one
-//! small object per task, written as the session creates and updates them. So
-//! this is read exactly as [`crate::past`] reads transcripts: off disk, with no
-//! control request and nothing asked of the process — a session that is busy for
-//! ten minutes answers this instantly, and one that has exited answers it at all.
+//! ⚠ **This used to read `~/.claude/tasks/<session-id>/`, and that store was
+//! deliberately emptied.** The CLI re-sent its whole contents as a
+//! `task_reminder` attachment 1.75 times per message — 527 kB a turn on one
+//! session, 93% of it a `description` the prompt never rendered — so the lists
+//! were moved to a service at `tasks.xinutec.org` and the local files deleted.
+//! Everything here kept reading the empty directory and reported nothing, which
+//! looked exactly like conversations that keep no list.
 //!
-//! ⚠ **The list and a task's own words are two requests, on purpose.** A
-//! description here is not a label: they run to several kilobytes of written-up
-//! result, and one live session's 355 tasks are 1.5 MB of them. Sent with the
-//! list that is a megabyte and a half onto a phone to draw forty subjects. So
-//! [`listed`] carries what a list needs and [`detail`] fetches the prose for the
-//! one that was tapped.
+//! **Sessions, not repos.** The service files a task under a repo as well as an
+//! assignee, but a repo is not a thing this console knows about: its unit is the
+//! conversation, its cards are sessions, and the nearest it comes to a repo is
+//! the directory a process happens to run in. So every read here is keyed on a
+//! session id, which the console already has in hand for every row it draws.
 //!
-//! [`counts`] is the third and cheapest reader, and the only one that runs
-//! unasked: two numbers per session, swept for the whole root at once so the
-//! front page can say what is left in a conversation without anybody opening it.
+//! **What "this session's tasks" means here: the ones assigned to it.** Not the
+//! ones its prompt sees — the prompt hook injects by *claimed repo*, which is
+//! the repo vocabulary this console does not have. A card therefore says what
+//! the conversation is holding, and a task nobody has been given shows on no
+//! card at all, which is the truth about it.
+//!
+//! ⚠ **Reading is not being.** The service requires a caller to name the
+//! conversation it speaks for, because a change filed against nobody is the one
+//! thing its history must not contain. That is a rule about writes; this only
+//! ever reads, and it is not a conversation. So it names itself — see
+//! [`IDENTITY`] — rather than impersonating whichever session it is asking
+//! about, which would put the console's reads in that session's name.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-/// Where Claude Code keeps them. Overridable for the same reason
-/// [`crate::past::projects_root`] is: a test has no `~/.claude` worth writing to.
-pub fn tasks_root() -> PathBuf {
-    if let Ok(set) = std::env::var("CLAUDE_TASKS_DIR") {
-        return PathBuf::from(set);
-    }
-    PathBuf::from(std::env::var("HOME").unwrap_or_default())
-        .join(".claude")
-        .join("tasks")
+/// Where the service is. Overridable so a test can point at a local one, and so
+/// a machine off the VPN could be pointed through a tunnel — the same variable
+/// the `task` CLI and the prompt hook read.
+fn service() -> String {
+    std::env::var("TASKS_URL")
+        .ok()
+        .filter(|url| !url.trim().is_empty())
+        .unwrap_or_else(|| "https://tasks.xinutec.org".to_string())
+        .trim_end_matches('/')
+        .to_string()
 }
 
-/// A task exactly as the file holds it.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Stored {
-    id: String,
-    subject: String,
-    #[serde(default)]
-    description: String,
-    /// What the session says it is doing while this is underway — its own
-    /// present-tense phrasing, which is not always the subject reworded.
-    #[serde(default)]
-    active_form: Option<String>,
-    status: String,
-    #[serde(default)]
-    blocked_by: Vec<String>,
+/// Who the console says it is.
+///
+/// A constant, and deliberately not a session id. The alternative was to send
+/// the id of whichever session a request is about, which reads as that
+/// conversation asking — so the service's own record of who did what would show
+/// a session making requests while it was asleep, or after it had ended.
+const IDENTITY: &str = "agent-console";
+
+/// The shared secret, from the environment or the file the Mac keeps it in —
+/// the same two places the `task` CLI looks, in the same order.
+///
+/// Never on argv: a token in a command line is in every process listing on the
+/// machine.
+fn token() -> Option<String> {
+    if let Ok(value) = std::env::var("TASKS_TOKEN")
+        && !value.trim().is_empty()
+    {
+        return Some(value.trim().to_string());
+    }
+    let home = std::env::var("HOME").ok()?;
+    std::fs::read_to_string(
+        std::path::Path::new(&home)
+            .join(".config")
+            .join("tasks")
+            .join("token"),
+    )
+    .ok()
+    .map(|held| held.trim().to_string())
+    .filter(|held| !held.is_empty())
 }
 
 /// One row of the list: what it is, and whether it is done.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Listed {
+    /// The service's number, as a string — it is what a session calls a task in
+    /// its own prose (`#418 done`) and what the sheet prints.
+    #[serde(deserialize_with = "as_text")]
     pub id: String,
     pub subject: String,
-    /// `pending`, `in_progress` or `completed`, in the CLI's own words rather
-    /// than a boolean of our own — a third state exists and the client sorts on
-    /// it, and an "open" flag would throw away which kind of open it is.
+    /// `open`, `doing` or `done`, in the service's own words rather than a
+    /// boolean of our own: a third state exists and the client sorts on it.
     pub status: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub active_form: Option<String>,
     /// Whether there is prose behind it worth fetching. A task written as a
     /// one-line reminder has none, and offering to open an empty sheet is worse
     /// than not offering.
+    #[serde(default)]
     pub detailed: bool,
-    /// Tasks this one is waiting on, when it is waiting on any.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub blocked_by: Vec<String>,
 }
 
-/// Every task a session has, oldest first.
+/// The id arrives as a number and is used as a string everywhere above this.
+fn as_text<'de, D: serde::Deserializer<'de>>(from: D) -> Result<String, D::Error> {
+    Ok(match serde_json::Value::deserialize(from)? {
+        serde_json::Value::String(text) => text,
+        other => other.to_string(),
+    })
+}
+
+/// How much a conversation is holding, for a row drawn without opening it.
 ///
-/// ⚠ **Numerically, not as the directory lists them.** These are named for their
-/// ids, so a plain readdir puts `100` before `2` and a list that has run past a
-/// hundred reads as shuffled. An id that is not a number sorts last rather than
-/// being dropped: the CLI owns this format and may widen it.
-pub fn listed(root: &std::path::Path, session: &str) -> Vec<Listed> {
-    let mut tasks: Vec<(u64, Listed)> = read::<Stored>(root, session)
-        .map(|(stored, ordinal)| {
-            (
-                ordinal,
-                Listed {
-                    id: stored.id,
-                    subject: stored.subject,
-                    status: stored.status,
-                    active_form: stored.active_form,
-                    detailed: !stored.description.trim().is_empty(),
-                    blocked_by: stored.blocked_by,
-                },
-            )
-        })
-        .collect();
-    tasks.sort_by_key(|(ordinal, _)| *ordinal);
-    tasks.into_iter().map(|(_, task)| task).collect()
-}
-
-/// How much of a list is left, for a row that is drawn without opening it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+/// ⚠ **One number, where this was `open` over `total`.** The old store held a
+/// session's whole list, so a total was the size of the job. Here a task is
+/// assigned rather than owned, and everything ever assigned to a conversation —
+/// including all of it finished — is a denominator that only grows and answers
+/// no question anybody asks of a card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Count {
-    /// Anything not `completed` — pending and in progress together, because the
-    /// front page's question is "is there work left here", and the difference
-    /// between the two kinds of open is what the sheet is for.
+    /// Anything not done. The difference between the two kinds of open is what
+    /// the sheet is for.
     pub open: usize,
-    pub total: usize,
 }
 
-/// Only the field a count needs. Deliberately not [`Stored`]: the descriptions
-/// are most of the bytes on disk — 1.5 MB for the session with 355 tasks — and
-/// counting statuses has no use for a single one of them. serde still walks the
-/// document, but it allocates nothing for what it skips.
+/// A session as the service's own front page draws it. Only the two fields this
+/// console reads; the rest of the row is names and times it already has.
 #[derive(Debug, Deserialize)]
-struct Progress {
-    status: String,
+struct Holding {
+    id: String,
+    open: i64,
 }
 
-/// What a session's directory looked like when it was last counted.
+/// The service, and the last answer it gave.
 ///
-/// Three cheap facts off the metadata, and all three because each covers a
-/// change the others miss: a task created or deleted moves the count, a status
-/// rewritten moves the newest write, and a rewrite landing in the same clock
-/// tick as the last one still moves the total size, since no two of the CLI's
-/// status words are the same length. The directory's own mtime is not among them
-/// — rewriting a file in place does not touch it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Mark {
-    files: usize,
-    newest: Option<std::time::SystemTime>,
-    bytes: u64,
+/// ⚠ **The cache is what makes a per-poll read affordable, and it is not an
+/// optimisation.** The front page polls every five seconds, per client; the
+/// service is on isis, across the VPN. Without this, a phone left open is a
+/// request every five seconds to another machine for two numbers that change a
+/// few times an hour — and a sleeping isis would stall the poll behind a
+/// timeout. Measured against the live service, a request is 56-139 ms.
+pub struct Tasks {
+    http: reqwest::Client,
+    base: String,
+    token: Option<String>,
+    held: tokio::sync::RwLock<Option<Kept>>,
 }
 
-/// What was counted last time, so an unchanged list is not read twice.
-#[derive(Debug, Clone, Copy)]
+/// What was last had, and when.
 struct Kept {
-    mark: Mark,
-    count: Count,
+    counts: BTreeMap<String, Count>,
+    at: Instant,
 }
 
-/// The counts, kept between sweeps.
-///
-/// ⚠ **Because counting them all is not free.** Measured on this Mac, in the
-/// build the console runs: 516 tasks across eight sessions is **19 ms** warm and
-/// **4.8 s** cold, the cold figure being what a poll costs after a restart or
-/// once the page cache has let go of 2.2 MB of task files. On a five-second poll
-/// that is not a cost to pay for two numbers that change a few times an hour.
-///
-/// A sweep now stats what it counted before and re-reads only the sessions whose
-/// [`Mark`] moved.
-#[derive(Debug, Default)]
-pub struct Counts {
-    held: std::sync::RwLock<BTreeMap<String, Kept>>,
+impl Default for Tasks {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
-impl Counts {
-    /// Every session that keeps a list, and how much of each is left.
+impl Tasks {
+    /// How long an answer is served without asking again.
+    const TTL: Duration = Duration::from_secs(30);
+
+    /// Hard ceiling on a request. An order above the measured 56-139 ms and far
+    /// below anything a person waiting for a page would notice.
+    const TIMEOUT: Duration = Duration::from_secs(2);
+
+    pub fn new() -> Self {
+        Self::at(service())
+    }
+
+    /// A reader pointed at one service.
     ///
-    /// ⚠ **One sweep of the root, keyed by session — not a lookup per row.** The
-    /// front page draws both the sessions this console runs and the
-    /// conversations on disk, and there are far more of the latter than there are
-    /// lists: asked one row at a time, most of the calls would be a readdir of a
-    /// directory that was never made. The root names exactly the sessions that
-    /// have one.
+    /// ⚠ **The address is an argument, not read from the environment here.** It
+    /// was, and the tests set `TASKS_URL` before building each reader — which is
+    /// process-wide, so tests running in parallel clobbered each other's stub
+    /// and five of seven failed against the wrong server. A reader that is told
+    /// where to look can be built twice in one process.
+    pub fn at(base: impl Into<String>) -> Self {
+        Self {
+            http: reqwest::Client::builder()
+                .timeout(Self::TIMEOUT)
+                .build()
+                .unwrap_or_default(),
+            base: base.into().trim_end_matches('/').to_string(),
+            token: token(),
+            held: tokio::sync::RwLock::new(None),
+        }
+    }
+
+    fn asking(&self, path: &str) -> reqwest::RequestBuilder {
+        let mut request = self.http.get(format!("{}{path}", self.base));
+        if let Some(token) = &self.token {
+            request = request.bearer_auth(token);
+        }
+        request.header("X-Session-Id", IDENTITY)
+    }
+
+    /// Every conversation holding something, and how much.
     ///
-    /// A session with a directory and nothing in it is absent rather than `0/0`,
-    /// which is the rule the client draws by: no list is not an empty list. A
-    /// session whose directory has gone is dropped rather than remembered — the
-    /// map is rebuilt from what is there each time.
-    pub fn sweep(&self, root: &std::path::Path) -> BTreeMap<String, Count> {
-        let held = self.held.read().expect("counts poisoned").clone();
-        let sessions = std::fs::read_dir(root).into_iter().flatten().flatten();
-        let swept: BTreeMap<String, Kept> = sessions
-            .filter_map(|entry| {
-                let session = entry.file_name().to_str()?.to_string();
-                let mark = mark(&entry.path())?;
-                let count = match held.get(&session) {
-                    Some(kept) if kept.mark == mark => kept.count,
-                    _ => count(root, &session),
-                };
-                Some((session, Kept { mark, count }))
-            })
-            .collect();
-        let counts = swept
-            .iter()
-            .map(|(session, kept)| (session.clone(), kept.count))
-            .collect();
-        *self.held.write().expect("counts poisoned") = swept;
-        counts
-    }
-}
-
-/// How a session's directory stands, without opening a single task.
-/// `None` when nothing in it is a task — see [`Counts::sweep`].
-fn mark(dir: &std::path::Path) -> Option<Mark> {
-    let mut mark = Mark {
-        files: 0,
-        newest: None,
-        bytes: 0,
-    };
-    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-        if entry.path().extension().is_none_or(|it| it != "json") {
-            continue;
+    /// One request for the whole page rather than one per row: the service
+    /// sweeps its sessions in a single query, exactly as this used to sweep one
+    /// directory. A session holding nothing is **absent** rather than zero,
+    /// which is the rule the client draws by — no work is not an empty list.
+    ///
+    /// Whatever goes wrong — isis asleep, tunnel down, token missing, service
+    /// mid-deploy — the last known answer is served, and an empty map only when
+    /// there has never been one. Stale beats blocking, and both beat failing.
+    pub async fn sweep(&self) -> BTreeMap<String, Count> {
+        if let Some(kept) = self.held.read().await.as_ref()
+            && kept.at.elapsed() < Self::TTL
+        {
+            return kept.counts.clone();
         }
-        let Ok(about) = entry.metadata() else {
-            continue;
-        };
-        mark.files += 1;
-        mark.bytes += about.len();
-        mark.newest = mark.newest.max(about.modified().ok());
-    }
-    (mark.files > 0).then_some(mark)
-}
-
-/// One session's list, counted by reading it.
-fn count(root: &std::path::Path, session: &str) -> Count {
-    let mut count = Count { open: 0, total: 0 };
-    for (task, _) in read::<Progress>(root, session) {
-        count.total += 1;
-        count.open += usize::from(task.status != "completed");
-    }
-    count
-}
-
-/// What one task says, for the sheet that opened it.
-pub fn detail(root: &std::path::Path, session: &str, id: &str) -> Option<String> {
-    read::<Stored>(root, session)
-        .find(|(stored, _)| stored.id == id)
-        .map(|(stored, _)| stored.description)
-}
-
-/// Every task file a session has, with the number its name sorts by.
-///
-/// Generic in what is taken off each file, because the three readers want three
-/// different amounts of it: the list wants everything but the prose, a count
-/// wants one word, and [`detail`] wants the prose alone. What they share is the
-/// awkward part — which files count, what their names mean, and what to do with
-/// one that will not parse.
-///
-/// A file that will not parse is skipped and said so, rather than taken as an
-/// empty task: the CLI writes these and a shape we do not know is news, not a
-/// blank row.
-fn read<T: DeserializeOwned>(
-    root: &std::path::Path,
-    session: &str,
-) -> impl Iterator<Item = (T, u64)> {
-    let dir = root.join(session);
-    let entries = std::fs::read_dir(&dir).into_iter().flatten().flatten();
-    entries.filter_map(move |entry| {
-        let path = entry.path();
-        if path.extension().is_none_or(|it| it != "json") {
-            return None;
-        }
-        let ordinal = path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .and_then(|stem| stem.parse::<u64>().ok())
-            .unwrap_or(u64::MAX);
-        let raw = std::fs::read_to_string(&path).ok()?;
-        match serde_json::from_str::<T>(&raw) {
-            Ok(stored) => Some((stored, ordinal)),
+        match self.ask().await {
+            Ok(counts) => {
+                *self.held.write().await = Some(Kept {
+                    counts: counts.clone(),
+                    at: Instant::now(),
+                });
+                counts
+            }
             Err(failure) => {
-                tracing::error!("unreadable task {}: {failure}", path.display());
-                None
+                // Logged at debug: a console left running through a reboot of
+                // isis would otherwise fill the log with one line every thirty
+                // seconds, describing something already visible as a list that
+                // stopped moving.
+                tracing::debug!("the tasks service did not answer: {failure}");
+                self.held
+                    .read()
+                    .await
+                    .as_ref()
+                    .map(|kept| kept.counts.clone())
+                    .unwrap_or_default()
             }
         }
-    })
+    }
+
+    async fn ask(&self) -> reqwest::Result<BTreeMap<String, Count>> {
+        let holding: Vec<Holding> = self
+            .asking("/api/sessions")
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        Ok(holding
+            .into_iter()
+            .filter(|row| row.open > 0)
+            .map(|row| {
+                let open = usize::try_from(row.open).unwrap_or(0);
+                (row.id, Count { open })
+            })
+            .collect())
+    }
+
+    /// One conversation's tasks, oldest first, without their prose.
+    ///
+    /// ⚠ **The list and a task's own words are two requests, on purpose.** A
+    /// body is not a label: these run to several kilobytes of written-up result,
+    /// and sending them with the list is a megabyte onto a phone to draw forty
+    /// subjects.
+    pub async fn listed(&self, session: &str) -> Vec<Listed> {
+        let asked = self
+            .asking("/api/tasks")
+            .query(&[("session", session), ("done", "true")])
+            .send()
+            .await
+            .and_then(reqwest::Response::error_for_status);
+        match asked {
+            Ok(answer) => answer.json().await.unwrap_or_else(|failure| {
+                tracing::warn!("unreadable task list for {session}: {failure}");
+                Vec::new()
+            }),
+            Err(failure) => {
+                tracing::warn!("no task list for {session}: {failure}");
+                Vec::new()
+            }
+        }
+    }
+
+    /// One task's prose, fetched when a row is opened and not before.
+    ///
+    /// `None` rather than an empty string for a task that has none, so the sheet
+    /// can tell "nothing written" from "not fetched yet".
+    pub async fn detail(&self, id: &str) -> Option<String> {
+        #[derive(Deserialize)]
+        struct Body {
+            #[serde(default)]
+            body: String,
+        }
+        let asked = self
+            .asking(&format!("/api/tasks/{id}"))
+            .send()
+            .await
+            .and_then(reqwest::Response::error_for_status)
+            .ok()?;
+        let detail: Body = asked.json().await.ok()?;
+        Some(detail.body).filter(|prose| !prose.trim().is_empty())
+    }
 }
