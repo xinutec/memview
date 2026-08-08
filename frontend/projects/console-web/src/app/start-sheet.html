@@ -6,13 +6,32 @@
 
 <mat-form-field appearance="outline" class="where">
   <mat-label>where</mat-label>
-  <input matInput [(ngModel)]="dir" list="start-repos" placeholder="/path/to/a/repository" />
+  <input matInput [(ngModel)]="dir" placeholder="/path/to/a/repository" />
 </mat-form-field>
-<datalist id="start-repos">
-  @for (repo of repos; track repo) {
-    <option [value]="repo"></option>
+
+<!-- ⚠ **Inline, not an autocomplete panel, and not a `<datalist>`.** Both of
+     those are OVERLAYS, and this is a bottom sheet — which clips them and is
+     covered by them. All three failures were seen: the native datalist matched
+     the whole value, and since the field opens on `~/Code`, a prefix of all 24
+     repositories, pressing + painted the lot over the phone; the Material panel
+     then sat on top of the start button so it could not be tapped, and the sheet
+     sheared the last row by 3.6px.
+
+     Rows in the sheet's own flow have none of those problems: the sheet grows,
+     this scrolls, and nothing is ever on top of anything. Matching is on the
+     last path element, so the default — no repository is called `Code` — offers
+     nothing at all, and typing `mem` finds `memview`. -->
+@if (suggestions(); as found) {
+  @if (found.length) {
+    <div class="suggestions" role="listbox" aria-label="repositories">
+      @for (repo of found; track repo) {
+        <button type="button" role="option" [attr.aria-selected]="false" (click)="dir.set(repo)">
+          {{ shortened(repo) }}
+        </button>
+      }
+    </div>
   }
-</datalist>
+}
 
 <!-- ⚠ **No opening instruction here, on purpose.** It was optional, it duplicated
      the composer this sheet navigates straight to, and it did the same thing:

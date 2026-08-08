@@ -26,3 +26,30 @@
 .go {
   align-self: stretch;
 }
+
+// The repositories matching what has been typed, in the sheet's own flow.
+//
+// ⚠ **No scroller of its own** — the bottom sheet already caps its height and
+// scrolls, and a second scroller inside it fights the first (dev-lint
+// DL-ANGULAR-NESTED-SCROLLER). What keeps this short is the matching rule rather
+// than a height: the field opens on `~/Code`, no repository is called `Code`, so
+// the common case is no rows at all.
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0.75rem;
+  border-radius: var(--mat-sys-corner-small);
+  background: var(--mat-sys-surface-container-high);
+
+  button {
+    appearance: none;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: var(--mat-sys-body-medium);
+    text-align: left;
+    // A thumb target, on the one screen that is only ever used with one.
+    min-height: 2.75rem;
+    padding: 0 0.75rem;
+  }
+}

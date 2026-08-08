@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MAT_BOTTOM_SHEET_DATA, MatBottomSheetRef } from '@angular/material/bottom-sheet';
 import { MatButtonModule } from '@angular/material/button';
@@ -60,6 +60,33 @@ export class StartSheet {
    * was to notice and retype it.
    */
   protected readonly dir = signal(this.given.common ?? this.repos[0] ?? '');
+
+  /**
+   * The repositories worth offering for what has been typed so far.
+   *
+   * ⚠ **Matched on the last path element, not the whole value.** Every
+   * repository here lives under `~/Code`, which is also what the field opens on
+   * — so a whole-value match offers all twenty-four of them the moment the sheet
+   * is opened, which is exactly what a native `<datalist>` did.
+   *
+   * Nothing is called `Code`, so the default offers nothing at all; typing `mem`
+   * still finds `memview`. An empty field offers everything, which is right —
+   * and is why the panel is height-capped rather than merely short.
+   */
+  protected readonly suggestions = computed(() => {
+    const whole = this.dir().trim();
+    // Nothing to suggest once the answer is typed: a row identical to what is
+    // already in the field can only take space.
+    if (this.repos.some((repo) => repo === whole)) return [];
+    const typed = whole.split('/').filter(Boolean).at(-1)?.toLowerCase() ?? '';
+    return this.repos.filter((repo) => this.shortened(repo).toLowerCase().includes(typed));
+  });
+
+  /** What a repository is called, which is the only part worth reading in a
+   *  list where every row shares the same parent. */
+  protected shortened(repo: string): string {
+    return repo.split('/').filter(Boolean).at(-1) ?? repo;
+  }
   protected readonly starting = signal(false);
   protected readonly trouble = signal('');
 

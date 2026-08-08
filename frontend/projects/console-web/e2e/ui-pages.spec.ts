@@ -789,6 +789,16 @@ test('starting a session is behind one button, not in the way @ phone width', as
   // [[SessionsView.commonest]]. Here that is the busiest session's own
   // directory, which both mocked sessions share.
   await expect(where).toHaveValue(STATE.sessions[0].dir);
+  // ⚠ **Opening the sheet must not open a list.** The field opens on `~/Code`,
+  // a prefix of every repository, and the native `<datalist>` this replaced
+  // matched the whole value — so pressing + painted all 24 over the phone.
+  const offered = page.locator('.suggestions button');
+  await expect(offered, 'the default offers nothing').toHaveCount(0);
+  await where.fill('/home/example/Code/mem');
+  await expect(offered).toHaveText(['memview']);
+  // And nothing once the answer is typed, so no row is left over the button.
+  await where.fill('/home/example/Code/memview');
+  await expect(offered).toHaveCount(0);
   // Scoped to the sheet: it is the only thing on screen that matters now, and
   // the list behind it is still in the DOM.
   await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
