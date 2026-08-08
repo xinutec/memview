@@ -806,6 +806,14 @@ export class SessionView implements OnDestroy {
    * below, which is where it reads best.
    */
   verdict(entry: Entry): string {
+    // ⚠ **Until the session acts on it, this is a claim about the pipe.**
+    // `Answered` is pushed once the decision has been written and flushed, which
+    // is not the same as the CLI having read it — and against a session that has
+    // stopped reading, the old wording reported the answer as delivered and
+    // accepted while the session stayed blocked on the same question. `health`
+    // showed a green *answered* for thirty-one minutes (memview #122). See
+    // [[Entry.settling]].
+    if (entry.settling) return 'sent — not taken up yet';
     if (!entry.questions) return entry.allowed ? 'allowed' : 'refused';
     if (!entry.allowed) return 'skipped';
     return entry.reply?.response?.trim() ? 'replied' : 'answered';

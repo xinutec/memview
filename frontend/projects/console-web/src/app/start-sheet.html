@@ -14,11 +14,11 @@
   }
 </datalist>
 
-<mat-form-field appearance="outline" class="asked">
-  <mat-label>what to do (optional)</mat-label>
-  <textarea matInput rows="2" [(ngModel)]="prompt" (keydown.control.enter)="start()"></textarea>
-</mat-form-field>
-
+<!-- ⚠ **No opening instruction here, on purpose.** It was optional, it duplicated
+     the composer this sheet navigates straight to, and it did the same thing:
+     `POST /api/sessions` with a prompt sends exactly the message the composer
+     would. So it bought nothing and cost a textarea on a phone — and the resume
+     path had already dropped its copy for the same reason. -->
 <button matButton="filled" class="go" (click)="start()" [disabled]="starting() || !dir()">
   <mat-icon>play_arrow</mat-icon>
   start a session

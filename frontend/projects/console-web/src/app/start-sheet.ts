@@ -10,6 +10,14 @@ import { Router } from '@angular/router';
 import { ConsoleApi } from './console-api';
 import { reason } from './errors';
 
+/** What the list hands the sheet: where a session may be started, and where they
+ *  actually are. */
+export interface StartWhere {
+  readonly repos: readonly string[];
+  /** The commonest directory, or absent when nothing has ever been started. */
+  readonly common?: string;
+}
+
 /**
  * Start a session, from behind the one control that offers it.
  *
@@ -31,18 +39,27 @@ import { reason } from './errors';
   imports: [FormsModule, MatButtonModule, MatFormFieldModule, MatIconModule, MatInputModule],
 })
 export class StartSheet {
-  /** The repositories the runner offers, for the field's own list. */
-  protected readonly repos = inject<readonly string[]>(MAT_BOTTOM_SHEET_DATA);
+  /** The repositories the runner offers, and where conversations are actually
+   *  started. See [[SessionsView.commonest]]. */
+  private readonly given = inject<StartWhere>(MAT_BOTTOM_SHEET_DATA);
+  /** For the field's own list of suggestions. */
+  protected readonly repos = this.given.repos;
 
   private api = inject(ConsoleApi);
   private router = inject(Router);
   private sheet = inject(MatBottomSheetRef<StartSheet>);
 
-  /** Prefilled with the first repository the runner offers, which is where the
-   *  list used to start it from. One less thing to type on a phone, and still
-   *  editable — the field carries the whole list as its own suggestions. */
-  protected readonly dir = signal(this.repos[0] ?? '');
-  protected readonly prompt = signal('');
+  /**
+   * Prefilled with the directory this machine's conversations are actually
+   * started in — one less thing to type on a phone, and still editable, since
+   * the field carries the whole list as its suggestions.
+   *
+   * ⚠ **It used to be `repos[0]`**, the first repository alphabetically. That is
+   * a real directory and a plausible-looking default, which is what made it
+   * quietly wrong: nothing had ever been started there, so the commonest action
+   * was to notice and retype it.
+   */
+  protected readonly dir = signal(this.given.common ?? this.repos[0] ?? '');
   protected readonly starting = signal(false);
   protected readonly trouble = signal('');
 
@@ -51,7 +68,9 @@ export class StartSheet {
     if (!dir || this.starting()) return;
     this.starting.set(true);
     this.trouble.set('');
-    this.api.start(dir, this.prompt().trim()).subscribe({
+    // No opening instruction: the sheet navigates straight to the session, where
+    // the composer is. See the note in the template.
+    this.api.start(dir, '').subscribe({
       next: (session) => {
         this.starting.set(false);
         // Closed before navigating: the sheet is a sibling of the router outlet

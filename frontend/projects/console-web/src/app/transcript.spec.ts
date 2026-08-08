@@ -450,3 +450,41 @@ describe('transcript · a message the session has not read yet', () => {
     expect(seen.map((entry) => entry.text)).toEqual(['/compact', '/loop check eval output']);
   });
 });
+
+describe('transcript · an answer the session has not acted on', () => {
+  const ASK = { kind: 'ask' as const, id: 'q1', tool: 'AskUserQuestion', title: 'which way?' };
+
+  it('does not claim the session has it merely because it was written', () => {
+    // ⚠ **The defect this replaces was affirmatively wrong, in green.**
+    // `Answered` is pushed once the decision reaches the pipe, and the card drew
+    // its verdict from that — so `health` showed *answered* for thirty-one
+    // minutes while blocked on the very same question (memview #122).
+    const seen = transcript(ASK, { kind: 'answered', id: 'q1', allowed: true });
+    expect(seen[0].allowed).toBe(true);
+    expect(seen[0].settling, 'written, not yet taken up').toBe(true);
+  });
+
+  it('takes the session speaking as the receipt', () => {
+    // There is no dedicated echo for a decision the way a prompt has its replay.
+    // None is needed: the question blocked the turn, so anything at all
+    // afterwards means the answer was read.
+    const seen = transcript(
+      ASK,
+      { kind: 'answered', id: 'q1', allowed: true },
+      { kind: 'tool', id: 't1', name: 'Bash', input: { command: 'ls' } },
+    );
+    expect(seen[0].settling).toBeUndefined();
+  });
+
+  it('does not take a status announcement as one', () => {
+    // ⚠ A status is announced only when it CHANGES (memview #112), so `busy` can
+    // arrive from a session that then goes silent for half an hour — which is
+    // the state this is here to tell apart.
+    const seen = transcript(
+      ASK,
+      { kind: 'answered', id: 'q1', allowed: true },
+      { kind: 'busy', status: 'requesting' },
+    );
+    expect(seen[0].settling).toBe(true);
+  });
+});

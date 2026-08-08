@@ -13,6 +13,14 @@ import { QUESTION_TOOL, questionsOf } from './questions';
  *  be tested without a component, a browser or a running session. */
 export function fold(entries: Entry[], event: SessionEvent): Entry[] {
   const last = entries[entries.length - 1];
+  // The session speaking is the receipt for every decision written to it. A
+  // question blocks the turn, so a tool call, a result or a word of text can only
+  // mean the answer was read and acted on — see [[Entry.settling]]. Ahead of the
+  // switch because it is true of the whole page rather than of one entry, and
+  // several kinds of event carry it.
+  if (SPOKE.has(event.kind)) {
+    for (const entry of entries) if (entry.settling) entry.settling = undefined;
+  }
   switch (event.kind) {
     case 'text':
       if (last?.kind === 'said') last.text += event.text ?? '';
@@ -126,6 +134,10 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
       const question = entries.find((e) => e.kind === 'ask' && e.ask === event.id);
       if (question) {
         question.allowed = event.allowed;
+        // Written to the pipe, not yet acted on — see [[Entry.settling]]. The
+        // card takes the answer immediately, because the tap must land somewhere
+        // at once, but it does not yet claim the session has it.
+        question.settling = true;
         // What was chosen, which only the runner knows for every client — see
         // `protocol::Event::Answered`. Absent for every tool that is not a
         // question, and for a refusal.
@@ -263,6 +275,17 @@ function describe(name: string | undefined, args: Record<string, unknown> | unde
  * sub-second precision is kept where it is the whole point — a call that either
  * returned at once or did not.
  */
+/**
+ * The events that can only come from the session's own process.
+ *
+ * ⚠ **`busy` is deliberately absent.** A status is announced only when it
+ * changes (memview #112), so it can arrive from a session that then goes quiet
+ * for half an hour — which is exactly the state this is meant to distinguish.
+ * `exited` too: a session that died without reading the answer did not take it
+ * up, and saying otherwise on its last card would be the same lie one last time.
+ */
+const SPOKE = new Set(['text', 'tool', 'tool_result', 'turn', 'prompt']);
+
 /** `1 message`, `3 messages` — plural only when it should be. */
 function count(many: number | undefined, thing: string): string {
   const n = many ?? 0;

@@ -267,8 +267,36 @@ export class SessionsView {
     // matters most: the list is the root, so a back press with this open leaves
     // the app altogether. See [[Dismiss]].
     this.dismiss.onBack(
-      this.sheet.open(StartSheet, { data: this.state()?.repos ?? [], panelClass: 'start-sheet' }),
+      this.sheet.open(StartSheet, {
+        data: { repos: this.state()?.repos ?? [], common: this.commonest() },
+        panelClass: 'start-sheet',
+      }),
     );
+  }
+
+  /**
+   * The directory this machine's conversations actually run in.
+   *
+   * ⚠ **Not the first repository alphabetically**, which is what the field used
+   * to open on — a real directory, but one nothing had ever been started in. It
+   * looked deliberate and was not: `repos` is `read_dir` sorted, so the default
+   * was whichever name happened to come first.
+   *
+   * Counted over the live sessions and the transcripts together, because a
+   * console that has just started holds no sessions at all and the conversations
+   * on disk are the whole of what it knows.
+   */
+  private commonest(): string | undefined {
+    const seen = new Map<string, number>();
+    for (const dir of [
+      ...(this.state()?.sessions ?? []).map((s) => s.dir),
+      ...this.past().map((c) => c.dir),
+    ]) {
+      if (dir) seen.set(dir, (seen.get(dir) ?? 0) + 1);
+    }
+    // Ties broken by whichever was counted first, which is the live sessions —
+    // what is running now beats what once ran.
+    return [...seen.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
   }
 
   /**

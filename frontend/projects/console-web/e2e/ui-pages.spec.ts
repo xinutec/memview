@@ -783,24 +783,25 @@ test('starting a session is behind one button, not in the way @ phone width', as
   await add.click();
   const where = page.getByLabel('where');
   await expect(where, 'the form did not open').toBeVisible();
-  // Prefilled with the first repository, which is where the page used to start
-  // from — one less thing to type on a phone.
-  await expect(where).toHaveValue(REPOS[0]);
+  // ⚠ **Prefilled with where sessions ACTUALLY run**, not with the first
+  // repository alphabetically. The old default was a real directory nothing had
+  // ever been started in, which is the kind of wrong that looks deliberate — see
+  // [[SessionsView.commonest]]. Here that is the busiest session's own
+  // directory, which both mocked sessions share.
+  await expect(where).toHaveValue(STATE.sessions[0].dir);
   // Scoped to the sheet: it is the only thing on screen that matters now, and
   // the list behind it is still in the DOM.
   await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
   await expectNoClippedText(page, testInfo, 'mat-bottom-sheet-container');
 
+  // The opening-instruction field is gone: it duplicated the composer this sheet
+  // navigates straight to, and did exactly the same thing.
+  await expect(page.getByLabel('what to do (optional)')).toHaveCount(0);
+
   await where.fill('/home/example/Code/memview');
-  await page.getByLabel('what to do (optional)').fill('check the corpus');
   await page.getByRole('button', { name: /start a session/ }).click();
 
-  await expect
-    .poll(() => sent)
-    .toMatchObject({
-      dir: '/home/example/Code/memview',
-      prompt: 'check the corpus',
-    });
+  await expect.poll(() => sent).toMatchObject({ dir: '/home/example/Code/memview', prompt: '' });
 });
 
 test('session list — a dozen sessions do not reach the build stamp @ phone width', async ({
@@ -1125,7 +1126,12 @@ test('an answered question says what was chosen @ phone width', async ({ page },
   await page.goto(`/s/${STATE.sessions[0].id}`);
   await page.locator('.chose').waitFor();
 
-  await expect(page.locator('.verdict')).toHaveText('answered');
+  // ⚠ **Not yet 'answered', and that is the fix.** The verdict used to be drawn
+  // straight from the write reaching the pipe, so a session that had stopped
+  // reading showed a green *answered* while still blocked on the same question
+  // (memview #122). Nothing has come back from the session in this stream, so
+  // the honest state is the intermediate one.
+  await expect(page.locator('.verdict')).toHaveText('sent — not taken up yet');
   await expect(page.locator('.chose')).toHaveText('options only · the description, the topic');
   // Nothing left to tap: the question is over.
   await expect(page.getByRole('button', { name: /options only/ })).toHaveCount(0);
@@ -1153,7 +1159,8 @@ test('a typed reply is recorded as one, not as a choice @ phone width', async ({
   );
   await page.goto(`/s/${STATE.sessions[0].id}`);
   await page.locator('.chose').waitFor();
-  await expect(page.locator('.verdict')).toHaveText('replied');
+  // Sent, not yet taken up — see the note in the test above.
+  await expect(page.locator('.verdict')).toHaveText('sent — not taken up yet');
   await expect(page.locator('.chose')).toHaveText('neither — do the read-only part first');
 });
 
@@ -3274,6 +3281,38 @@ test('an ended session offers the way back @ phone width', async ({ page }, test
   await page.goto(`/s/${STATE.sessions[1].id}`);
   await page.locator('.deaf.ended').waitFor();
   await expect(page.getByRole('button', { name: 'Start it again' })).toBeEnabled();
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+});
+
+test('the verdict becomes the plain one once the session acts on it @ phone width', async ({
+  page,
+}, testInfo) => {
+  // The other half of #122: *sent — not taken up yet* has to actually resolve.
+  // The receipt is the session speaking, because a question blocks the turn — so
+  // one tool call after the answer is proof it was read.
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        ...QUESTION_TRANSCRIPT,
+        {
+          kind: 'answered',
+          id: 'c9f0a1b2-0000-4000-8000-00000000000a',
+          allowed: true,
+          reply: { answers: { 'How far should the question UI go?': 'options only' } },
+        },
+        { kind: 'tool', id: 'toolu_after', name: 'Bash', input: { command: 'echo taken up' } },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.chose').waitFor();
+
+  await expect(page.locator('.verdict')).toHaveText('answered');
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
 });

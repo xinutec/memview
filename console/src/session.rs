@@ -464,6 +464,9 @@ struct State {
     /// Whether this episode of deafness has already been announced. See
     /// [`Session::check_deaf`].
     announced_deaf: bool,
+    /// When the oldest decision the session has not acted on was written, in
+    /// epoch milliseconds. See [`Session::deaf`].
+    decided: Option<i64>,
     /// A `/compact` has been sent and the conversation has not moved since.
     ///
     /// The one long silence that is not a fault: a compaction summarises the
@@ -522,18 +525,40 @@ fn in_flight(state: &mut State, event: &Event) {
         // A turn ended, so from here the session owes us a read.
         Event::Turn { .. } => state.idle_since = Some(now()),
         Event::Command { text } if text.starts_with("/compact") => state.compacting = true,
+        // A decision written down the pipe of a session that ASKED for it and is
+        // blocked until it arrives.
+        //
+        // ⚠ **Its own clock, needing no `idle_since`.** A session blocked on a
+        // question is mid-turn, so the message test above can never fire for it —
+        // which is why `health` sat on an answered question for thirty-one
+        // minutes with nothing on screen but a green tick (memview #122). Here
+        // there is no ambiguity to allow for: the session said it could go no
+        // further without this, so silence afterwards is not work.
+        Event::Answered { .. } => state.decided = state.decided.or(Some(now())),
         _ => {}
     }
     // Anything the session says of its own accord means it is working, and a
     // working session is not deaf however long it has been quiet. Deliberately
     // NOT `Busy`: a status is announced only when it changes (memview #112), so
     // its absence says nothing and its presence can be minutes old.
+    //
+    // A `Turn` counts here too — it is the session speaking — but it must not
+    // clear `idle_since`, which it has just set.
     if matches!(
         event,
-        Event::Text { .. } | Event::Tool { .. } | Event::Context { .. } | Event::Prompt { .. }
+        Event::Text { .. }
+            | Event::Tool { .. }
+            | Event::ToolResult { .. }
+            | Event::Context { .. }
+            | Event::Prompt { .. }
+            | Event::Turn { .. }
     ) {
-        state.idle_since = None;
         state.compacting = false;
+        // Taken up: the tool it asked about has run, or the turn moved on.
+        state.decided = None;
+        if !matches!(event, Event::Turn { .. }) {
+            state.idle_since = None;
+        }
     }
 }
 
@@ -546,6 +571,7 @@ fn deaf_for(state: &State) -> Option<i64> {
     deaf_after(
         state.idle_since,
         state.unread.front().map(|held| held.at),
+        state.decided,
         state.compacting,
         now(),
     )
@@ -559,18 +585,27 @@ fn deaf_for(state: &State) -> Option<i64> {
 ///
 /// * `idle_since` — when the last turn ended, `None` while the session works.
 /// * `oldest` — when the oldest unread message was written, `None` for none.
+/// * `decided` — when the oldest unacted-on decision was written, `None` for
+///   none. See [`Session::deaf`] for why this one needs no `idle_since`.
 ///
-/// See [`Session::deaf`] for what each means and why all three are needed.
+/// **Two ways to be waiting, and either is enough.** They are not variants of
+/// one test: a message needs the session to be between turns before its silence
+/// means anything, and a decision does not, because the session asked for it and
+/// stopped. Whichever has waited longer is the one reported.
 pub fn deaf_after(
     idle_since: Option<i64>,
     oldest: Option<i64>,
+    decided: Option<i64>,
     compacting: bool,
     now: i64,
 ) -> Option<i64> {
     // The LATER of the two: before the turn ended the session was entitled to
     // park the message, and before the message arrived there was nothing to
     // read. Only after both has it been given the chance this measures.
-    let since = idle_since?.max(oldest?);
+    let unread_since = idle_since.zip(oldest).map(|(idle, at)| idle.max(at));
+    // The EARLIER of the two cases, so a long wait is not hidden by a short one
+    // that started later.
+    let since = [unread_since, decided].into_iter().flatten().min()?;
     let allowed = if compacting {
         DEAF_AFTER_COMPACT_MS
     } else {

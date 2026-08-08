@@ -275,6 +275,23 @@ export interface Entry {
    * times in one evening.
    */
   queued?: boolean;
+  /**
+   * `ask` entries only: the decision has been written to the session and the
+   * session has not acted on it yet.
+   *
+   * ⚠ **The same lie as [[queued]], told in green.** `Answered` is pushed once
+   * the bytes reach the pipe, and the card drew its verdict straight from that —
+   * so a session that had stopped reading showed *answered*, in the colour that
+   * means done, while it sat blocked on the identical question. `health` wore
+   * one for thirty-one minutes on 2026-08-08 having already reported it could go
+   * no further without the answer.
+   *
+   * Cleared by the session speaking — a tool call, its result, a word of text.
+   * There is no dedicated receipt for a decision the way a prompt has its
+   * replay, and none is needed: the question blocked the turn, so anything at
+   * all afterwards means the answer was taken up.
+   */
+  settling?: boolean;
   /** `ask` entries only: the control-request id to answer with, and the verdict
    *  once there is one. Undecided is the state that needs a person. */
   ask?: string;

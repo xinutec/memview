@@ -28,6 +28,5 @@ costs every future turn that reads this.
 - [ ] **#115** Going back restores the pre-update page, still running the old bundle
 - [ ] **#116** Following oscillates: it unpins every 10-25 seconds and stops catching up
 - [ ] **#117** A waiting message sits above work that happened before it was read
-- [ ] **#122** "answered" is drawn from the write, not the read — so a deaf session shows a green answered card and stays blocked
 - [ ] **#123** Nix-build the console, but keep the plist pointing at a stable symlink
 - [ ] **#124** console-live grows for ever — nothing prunes the superseded bundles

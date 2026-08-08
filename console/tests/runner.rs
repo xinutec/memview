@@ -1150,7 +1150,10 @@ mod deafness {
     fn nothing_unread_is_never_deaf() {
         // The commonest state there is: a session that finished its turn an hour
         // ago and has been asked nothing since. Silence is not the symptom.
-        assert_eq!(deaf_after(Some(NOW - 3_600_000), None, false, NOW), None);
+        assert_eq!(
+            deaf_after(Some(NOW - 3_600_000), None, None, false, NOW),
+            None
+        );
     }
 
     #[test]
@@ -1160,7 +1163,10 @@ mod deafness {
         // messages on purpose — measured 2026-08-07, four messages held and
         // released together, the oldest after twelve minutes. `idle_since` is
         // unset while it works, and that is what keeps this quiet.
-        assert_eq!(deaf_after(None, Some(NOW - 12 * 60_000), false, NOW), None);
+        assert_eq!(
+            deaf_after(None, Some(NOW - 12 * 60_000), None, false, NOW),
+            None
+        );
     }
 
     #[test]
@@ -1169,14 +1175,14 @@ mod deafness {
         // long as the session has been idle — it has been ignored since it was
         // sent, which is the only number that means anything.
         assert_eq!(
-            deaf_after(Some(NOW - 3_600_000), Some(NOW - 10_000), false, NOW),
+            deaf_after(Some(NOW - 3_600_000), Some(NOW - 10_000), None, false, NOW),
             None,
             "sent ten seconds ago, into an hour-old silence"
         );
         // And the other way round: the message was parked mid-turn and the turn
         // has only just ended, so the session has had a second to read it.
         assert_eq!(
-            deaf_after(Some(NOW - 1_000), Some(NOW - 3_600_000), false, NOW),
+            deaf_after(Some(NOW - 1_000), Some(NOW - 3_600_000), None, false, NOW),
             None,
             "the turn ended a second ago"
         );
@@ -1186,10 +1192,50 @@ mod deafness {
     fn unread_between_turns_for_long_enough_is_deaf() {
         let idle = Some(NOW - AFTER - 1);
         assert_eq!(
-            deaf_after(idle, Some(NOW - AFTER - 1), false, NOW),
+            deaf_after(idle, Some(NOW - AFTER - 1), None, false, NOW),
             Some(AFTER + 1)
         );
-        assert_eq!(deaf_after(idle, Some(NOW - AFTER + 1), false, NOW), None);
+        assert_eq!(
+            deaf_after(idle, Some(NOW - AFTER + 1), None, false, NOW),
+            None
+        );
+    }
+
+    #[test]
+    fn an_answer_the_session_never_acted_on_is_deafness_on_its_own() {
+        // ⚠ **The case the message test cannot see, and it cost thirty-one
+        // minutes.** A session blocked on a question is MID-TURN, so
+        // `idle_since` is unset and the test above is silent for ever. But a
+        // session that asked a question and stopped is not working — it said so —
+        // and the console had written the answer into its pipe. `health`,
+        // 2026-08-08: answered at 09:30:44, still blocked at 10:01, and the card
+        // on the phone was green (memview #122).
+        assert_eq!(
+            deaf_after(None, None, Some(NOW - AFTER - 1), false, NOW),
+            Some(AFTER + 1),
+            "no turn has ended and nothing is unread — the decision alone is enough"
+        );
+        assert_eq!(
+            deaf_after(None, None, Some(NOW - AFTER + 1), false, NOW),
+            None,
+            "a decision written a moment ago is an ordinary wait"
+        );
+    }
+
+    #[test]
+    fn the_longer_of_the_two_waits_is_the_one_reported() {
+        // Two ways to be waiting, and a short one starting later must not hide a
+        // long one already running.
+        assert_eq!(
+            deaf_after(
+                Some(NOW - 40 * 60_000),
+                Some(NOW - 40 * 60_000),
+                Some(NOW - 60_000),
+                false,
+                NOW
+            ),
+            Some(40 * 60_000)
+        );
     }
 
     #[test]
@@ -1198,7 +1244,7 @@ mod deafness {
         // the transcript frozen for minutes — measured on `hardware`, sent at
         // 09:50:46 with the file still stopped at 09:49:53 twenty seconds
         // later — so nothing shorter than this can tell it from a fault.
-        let waited = |ms: i64| deaf_after(Some(NOW - ms), Some(NOW - ms), true, NOW);
+        let waited = |ms: i64| deaf_after(Some(NOW - ms), Some(NOW - ms), None, true, NOW);
         assert_eq!(
             waited(5 * 60_000),
             None,
