@@ -358,7 +358,48 @@ pub fn files_of(op: &Op, reached: crate::shell::Reached) -> Vec<FileUse> {
 /// without. `None` where it is unknown, in which case only absolute paths
 /// survive.
 pub fn extract(cmds: &[Simple], cwd: Option<&str>, home: &str) -> Extract {
-    extract_nested(cmds, cwd, home, None, 0, false)
+    extract_nested(cmds, cwd, home, None, 0, false, &[])
+}
+
+/// As [`extract`], told which `cd` targets the shell refused.
+///
+/// **The one thing about a script that the script cannot say.** `cd nope; cat x`
+/// reads `x` in the directory it was already in, and nothing in the text says
+/// so — the parser applies the move, and every relative path after it is filed
+/// under a directory the command never entered. The shell reports the refusal in
+/// its output, naming the target; [`crate::doing::refused_dirs`] reads it out.
+///
+/// A caller with the call's output should use this. `extract` remains for the
+/// callers that have none — a corpus row carries a verdict but not the words —
+/// and is the same walk with nothing known.
+pub fn extract_knowing(
+    cmds: &[Simple],
+    cwd: Option<&str>,
+    home: &str,
+    refused: &[String],
+) -> Extract {
+    extract_nested(cmds, cwd, home, None, 0, false, refused)
+}
+
+/// Whether this `cd` is one the shell reported it could not carry out.
+///
+/// Matched on the target **as written**, because that is what the shell echoes
+/// back: `cd: memcheck: No such file or directory` names the word, not the path
+/// it would have become. Comparing resolved paths instead would need this layer
+/// to reproduce the shell's own expansion of a word it never entered.
+///
+/// A trailing slash is ignored on both sides — `cd frontend/` is refused as
+/// `frontend` — and every operand is tried, so a flagged form like `cd -P dir`
+/// is covered without a table of `cd`'s own flags.
+fn turned_down(argv: &[String], refused: &[String]) -> bool {
+    if refused.is_empty() {
+        return false;
+    }
+    unwrap_command(argv)
+        .iter()
+        .skip(1)
+        .map(|word| word.trim_end_matches('/'))
+        .any(|word| refused.iter().any(|target| target == word))
 }
 
 /// As [`extract`], and keeping [`Extract::steps`]: the same walk, saying what it
@@ -368,7 +409,7 @@ pub fn extract(cmds: &[Simple], cwd: Option<&str>, home: &str) -> Extract {
 /// this 883,000 times in one pass and a step per command is a hundred megabytes
 /// nobody asked for. One command's worth is free; every command's is not.
 pub fn trace(cmds: &[Simple], cwd: Option<&str>, home: &str) -> Extract {
-    extract_nested(cmds, cwd, home, None, 0, true)
+    extract_nested(cmds, cwd, home, None, 0, true, &[])
 }
 
 /// As [`extract`], tracking how deep inside `bash -c` this script sits and which
@@ -380,6 +421,7 @@ fn extract_nested(
     host: Option<&str>,
     depth: usize,
     trace: bool,
+    refused: &[String],
 ) -> Extract {
     let mut out = Extract::default();
     // Working directory per subshell scope. A `cd` inside `( … )` writes an
@@ -511,7 +553,15 @@ fn extract_nested(
             // producing a file: the scope's own directory moves, and no
             // enclosing one does.
             Op::ChangeDir { to } => {
-                dirs.insert(cmd.scope.clone(), to.clone());
+                // ⚠ **A move the shell refused is not a move.** Everything after
+                // `cd nope` in the script ran where it already was, so applying
+                // this would file each of its relative paths under a directory
+                // that does not exist — `~/Code/memcheck/Cargo.toml` for a
+                // `Cargo.toml` read in `~/Code`. Only ever known from the call's
+                // own output; see [`crate::doing::refused_dirs`].
+                if !turned_down(&cmd.argv, refused) {
+                    dirs.insert(cmd.scope.clone(), to.clone());
+                }
                 out.handled += 1;
             }
             Op::Unknown { name } => {
@@ -531,7 +581,7 @@ fn extract_nested(
                 match crate::shell::parse(script) {
                     Ok(inner) if depth < MAX_NESTING => {
                         let found =
-                            extract_nested(&inner, here.as_deref(), home, host, depth + 1, trace);
+                            extract_nested(&inner, here.as_deref(), home, host, depth + 1, trace, refused);
                         out.absorb(found);
                     }
                     Ok(_) => {}
@@ -550,7 +600,7 @@ fn extract_nested(
                 match crate::shell::parse(script) {
                     Ok(inner) if depth < MAX_NESTING => {
                         let found =
-                            extract_nested(&inner, None, home, Some(there), depth + 1, trace);
+                            extract_nested(&inner, None, home, Some(there), depth + 1, trace, &[]);
                         out.absorb(found);
                     }
                     Ok(_) => {}

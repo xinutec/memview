@@ -27,4 +27,4 @@ costs every future turn that reads this.
 - [ ] **#116** Following oscillates: it unpins every 10-25 seconds and stops catching up
 - [ ] **#123** Nix-build the console, but keep the plist pointing at a stable symlink
 - [ ] **#124** console-live grows for ever — nothing prunes the superseded bundles
-- [ ] **#125** A path used before a script's first `cd` is credited to the wrong directory
+- [ ] **#125** What the transcript's `cwd` field actually means is not settled

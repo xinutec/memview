@@ -50,6 +50,12 @@ fn main() -> anyhow::Result<()> {
                 outcomes.insert(call, verdict);
             }
         }
+        // ⚠ **What the shell said, which the verdict cannot carry.** `cd nope;
+        // cat x` exits 0 — the verdict is `Ok` and the directory still never
+        // moved, so a reader of this corpus applying the `cd` files every later
+        // relative path under a directory the command never entered. The words
+        // are the only evidence and they are in the transcript, not in the row.
+        let refused = agents::refusals(text.as_bytes());
         for line in text.lines() {
             // The same reader the miner uses, so the corpus a coverage figure is
             // measured against cannot drift from the text the miner parses.
@@ -65,11 +71,14 @@ fn main() -> anyhow::Result<()> {
                 // interruption is not a result line but a separate message, so
                 // this is the only trace it leaves.
                 let ran = outcomes.get(&id).copied().unwrap_or(Verdict::Unknown);
-                writeln!(
-                    out,
-                    "{}",
-                    serde_json::json!({ "cmd": command, "cwd": cwd, "ran": ran })
-                )?;
+                let mut row = serde_json::json!({ "cmd": command, "cwd": cwd, "ran": ran });
+                // Written only when there is one — 247 calls in the whole corpus
+                // carry a refusal, and an empty list on the other 880,000 rows is
+                // megabytes saying nothing.
+                if let Some(targets) = refused.get(&id) {
+                    row["refused"] = serde_json::json!(targets);
+                }
+                writeln!(out, "{row}")?;
                 calls += 1;
             }
         }

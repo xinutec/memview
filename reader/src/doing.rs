@@ -245,6 +245,55 @@ impl Doing {
     }
 }
 
+/// The `cd` targets the shell said it could not enter, read off a call's output.
+///
+/// **Why the text and not the exit code.** `cd nope; cat x` can succeed as a
+/// whole — the `cd` failed, `cat` ran, the call exits 0 — so a verdict cannot
+/// say that the directory never moved. The shell says it in words, naming the
+/// target it refused, and that is the only place it is said.
+///
+/// This matters because a `cd` the parser applies but the shell did not leaves
+/// every later relative path in the script resolved against a directory the
+/// command never entered. Measured across this project's transcripts: **247
+/// results report one.**
+///
+/// **Anchored to the whole message, not to `cd: `.** That prefix alone matches
+/// prose — the corpus has `cd: TLS handshake + banner (amun.xinutec.org)` and
+/// `cd: harden inspircd …`, which are commit subjects in a `git log`, not a
+/// shell. What identifies a refusal is the shell's own suffix after the target.
+///
+/// bash's wording, which is what these sessions run (`SHELL` is
+/// `bashInteractive` — see `hm-agents.nix`). zsh reverses it to
+/// `cd: no such file or directory: <target>` and is deliberately not read here:
+/// no measured call in the corpus uses it, and a guess at a second grammar is a
+/// second thing to be wrong about.
+pub fn refused_dirs(text: &str) -> Vec<String> {
+    const ENDINGS: [&str; 2] = ["No such file or directory", "Not a directory"];
+    let mut out: Vec<String> = Vec::new();
+    for line in text.lines() {
+        // The LAST `cd: ` on the line: bash prefixes its own name and the line
+        // number — `bash: line 1: cd: memcheck: …` — and a path in the target
+        // could itself contain the needle.
+        let Some(at) = line.rfind("cd: ") else {
+            continue;
+        };
+        let rest = line[at + "cd: ".len()..].trim_end();
+        for ending in ENDINGS {
+            let Some(target) = rest
+                .strip_suffix(ending)
+                .and_then(|head| head.strip_suffix(": "))
+            else {
+                continue;
+            };
+            let target = target.trim().trim_end_matches('/');
+            if !target.is_empty() && !out.iter().any(|seen| seen == target) {
+                out.push(target.to_string());
+            }
+        }
+    }
+    out
+}
+
 /// Minutes since the epoch, from an ISO-8601 stamp.
 ///
 /// Parsed by hand rather than through chrono: the stamps are all

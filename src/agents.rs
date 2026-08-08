@@ -990,6 +990,60 @@ fn outcomes(text: &[u8]) -> std::collections::HashMap<String, reader::doing::Ver
     out
 }
 
+/// The `cd` targets each call's own output says the shell refused.
+///
+/// A second map rather than a field on the verdict, because it is a different
+/// kind of fact: a verdict is what became of the call, and this is something the
+/// shell said *during* it. `cd nope; cat x` exits 0 — the verdict is `Ok` and the
+/// directory still never moved. See [`reader::doing::refused_dirs`].
+///
+/// ⚠ **The cheap byte test first, then the JSON.** This walks the same gigabytes
+/// as [`outcomes`], and a `serde_json` parse per result line would cost minutes;
+/// a refusal is rare enough (247 in the whole corpus) that parsing only the lines
+/// carrying the wording is free. The needle is the shell's own ending rather than
+/// `cd: `, which matches prose — commit subjects in a `git log` begin that way.
+pub fn refusals(text: &[u8]) -> std::collections::HashMap<String, Vec<String>> {
+    const ENDING: &[u8] = b"No such file or directory";
+    let mut out = std::collections::HashMap::new();
+    for line in text.split(|c| *c == b'\n') {
+        if find_at(line, ENDING, 0).is_none() || find_at(line, b"\"type\":\"tool_result\"", 0).is_none()
+        {
+            continue;
+        }
+        let Ok(row) = serde_json::from_slice::<serde_json::Value>(line) else {
+            continue;
+        };
+        let Some(items) = row["message"]["content"].as_array() else {
+            continue;
+        };
+        for item in items {
+            let Some(call) = item["tool_use_id"].as_str() else {
+                continue;
+            };
+            // A result's content is a string on some rows and a list of blocks
+            // on others. ⚠ **Not `to_string()` on the list** — that re-escapes,
+            // turning every newline back into a two-character `\n` and leaving
+            // the whole output as one line, where only the last refusal could be
+            // found and only if nothing followed it. The blocks' own text is
+            // already unescaped.
+            let said = match &item["content"] {
+                serde_json::Value::String(text) => text.clone(),
+                serde_json::Value::Array(blocks) => blocks
+                    .iter()
+                    .filter_map(|block| block["text"].as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                _ => continue,
+            };
+            let refused = reader::doing::refused_dirs(&said);
+            if !refused.is_empty() {
+                out.insert(call.to_string(), refused);
+            }
+        }
+    }
+    out
+}
+
 /// Whether this transcript exists only to name another conversation.
 ///
 /// ⚠ **These are not agents, and they outnumber the agents four to one.** The
@@ -1155,6 +1209,9 @@ fn scan_transcript(
     // What became of each call — read ahead, because the answer is always below
     // the question.
     let outcomes = outcomes(text);
+    // What the shell said it could not do, which no verdict can carry — see
+    // [`refusals`]. A `cd` it refused must not be applied to the walk below.
+    let refusals = refusals(text);
     // Built once per transcript rather than once per line — the needles are
     // fixed and the corpus is millions of lines.
     let needles: Vec<(String, bool)> = READ_TOOLS
@@ -1204,7 +1261,12 @@ fn scan_transcript(
                 let Ok(parsed) = reader::shell::parse(&command) else {
                     continue;
                 };
-                let found = reader::shell_files::extract(&parsed, cwd.as_deref(), home);
+                let found = reader::shell_files::extract_knowing(
+                    &parsed,
+                    cwd.as_deref(),
+                    home,
+                    refusals.get(&call).map_or(&[][..], Vec::as_slice),
+                );
                 // ⚠ **What the text required, met with what the call returned.**
                 // The timeline row goes in whatever happened — being refused or
                 // failing is part of the record — but a path only reaches

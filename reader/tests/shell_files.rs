@@ -950,3 +950,64 @@ fn a_remote_commands_files_never_reach_the_local_ones() {
     assert_eq!(inner.away.len(), 1);
     assert_eq!(inner.away[0].path, "/etc/nixos/configuration.nix");
 }
+
+/// Every file one script used, told which `cd` targets the shell refused.
+fn uses_knowing(script: &str, refused: &[&str]) -> Vec<(String, bool)> {
+    let cmds = parse(script).unwrap_or_else(|at| panic!("failed to parse, stopped at {at:?}"));
+    let refused: Vec<String> = refused.iter().map(|it| (*it).to_string()).collect();
+    reader::shell_files::extract_knowing(&cmds, Some(CWD), HOME, &refused)
+        .files
+        .into_iter()
+        .map(|f| (f.path, f.write))
+        .collect()
+}
+
+#[test]
+fn a_cd_the_shell_refused_does_not_move_the_directory() {
+    // Reported from the console 2026-08-08 by typing it: `cd memcheck` into a
+    // directory with no `memcheck` in it, then reading a file. The `cat` ran
+    // where it already was, and the path recorded was under a directory that has
+    // never existed.
+    let script = "cd nowhere; cat Cargo.toml";
+    assert_eq!(
+        uses(script),
+        vec![("/home/example/Code/health/nowhere/Cargo.toml".to_string(), false)],
+        "with nothing known the move has to be taken at its word",
+    );
+    assert_eq!(
+        uses_knowing(script, &["nowhere"]),
+        vec![("/home/example/Code/health/Cargo.toml".to_string(), false)],
+        "the shell said it never entered `nowhere`",
+    );
+}
+
+#[test]
+fn only_the_refused_cd_is_held_back() {
+    // A script that changes directory twice, one of which worked. Holding both
+    // back would be the same defect pointing the other way.
+    let uses = uses_knowing("cd gone; cd lean && cat lakefile.toml", &["gone"]);
+    assert_eq!(
+        uses,
+        vec![("/home/example/Code/health/lean/lakefile.toml".to_string(), false)],
+    );
+}
+
+#[test]
+fn a_refusal_is_matched_on_the_word_not_the_path() {
+    // The shell echoes the operand as written, so a trailing slash on either
+    // side is the same target.
+    assert_eq!(
+        uses_knowing("cd nowhere/; cat Cargo.toml", &["nowhere"]),
+        vec![("/home/example/Code/health/Cargo.toml".to_string(), false)],
+    );
+}
+
+#[test]
+fn a_refusal_from_one_command_does_not_silence_another() {
+    // `nowhere` was refused; `lean` was not, and its `cd` must still apply even
+    // though a refusal was reported somewhere in the same call.
+    assert_eq!(
+        uses_knowing("cd lean; cat lakefile.toml", &["nowhere"]),
+        vec![("/home/example/Code/health/lean/lakefile.toml".to_string(), false)],
+    );
+}
