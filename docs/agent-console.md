@@ -4,7 +4,11 @@ A front end for talking to live Claude Code sessions on the Mac: read what they
 are doing, send new instructions, approve what they want to run.
 
 **Phase 1 and the approvals half of phase 2 are built** — `console/` (the runner)
-and `frontend/projects/console-web` (the UI), run with `scripts/console.sh`. What
+and `frontend/projects/console-web` (the UI). It runs as the launchd service
+`org.xinutec.agent-console` (`scripts/console-service.sh`, declared in
+xinutec-infra's `mac-mini/hm-agents.nix`); `scripts/console.sh` is the by-hand
+launcher, and `scripts/console-upgrade.sh` is how a running one is replaced
+without dropping its sessions. What
 is not built is the part the security argument rests on: the client-certificate
 gate, and the phone. This document records the decisions and the reasoning
 behind them, so the parts that are not obvious from the code do not have to be

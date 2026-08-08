@@ -207,8 +207,17 @@ A second application in this repository: a front end for the *live* Claude Code
 sessions on the Mac — start one, watch it work, send it instructions.
 
 ```sh
-./scripts/console.sh          # → http://127.0.0.1:8097, loopback only
+./scripts/console-upgrade.sh  # build, install, and move a RUNNING one onto it
+./scripts/console.sh          # a one-off by hand, loopback only
 ```
+
+⚠ **On the Mac it runs as a launchd service**, `org.xinutec.agent-console`
+(declared in `xinutec-infra/mac-mini/hm-agents.nix`), so it comes up with the
+machine and survives the terminal it was started from. **Restart it with
+`console-upgrade.sh`, never `launchctl kickstart -k`**: kickstart sends SIGTERM,
+which is the console's deliberate *stop* path and takes every open session with
+it. The upgrade signal is SIGUSR2 — `Roster::handover` `execve`s the binary,
+keeping the same pid, so the `claude` children never notice.
 
 It is deliberately **not** part of the viewer. memview is read-only over
 documents and runs on an internet-facing host; the console runs subprocesses on
