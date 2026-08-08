@@ -476,6 +476,15 @@ struct State {
     /// Messages written to stdin that the CLI has not echoed back, oldest
     /// first. See [`Session::deaf`].
     unread: VecDeque<Unread>,
+    /// Whether the session has spoken since its last turn ended — the whole of
+    /// what [`Summary::working`] reports.
+    ///
+    /// ⚠ **A positive fact, not the absence of a negative one.** This was first
+    /// derived from `idle_since.is_none()`, which is true for a session that has
+    /// said *nothing at all* — so a freshly started session, still loading and
+    /// with no `Started` line on the wire yet, was reported as working. Seen on
+    /// screen within a minute of shipping it.
+    working: bool,
     /// When the last turn ended, in epoch milliseconds — `None` whenever the
     /// session is working. See [`Session::deaf`] for why this and not silence.
     idle_since: Option<i64>,
@@ -550,6 +559,18 @@ fn in_flight(state: &mut State, event: &Event) {
         // still going in a process that has only just started. `Started` covers
         // the fresh spawn, which has never had a turn to end.
         Event::Started { .. } | Event::Joined { .. } => state.idle_since = Some(now()),
+        _ => {}
+    }
+    // Whether a turn is running. Set by the session speaking, cleared when the
+    // turn ends — and false until it has ever spoken, which is what a session
+    // that is still starting up actually is.
+    match event {
+        Event::Text { .. }
+        | Event::Tool { .. }
+        | Event::ToolResult { .. }
+        | Event::Context { .. }
+        | Event::Prompt { .. } => state.working = true,
+        Event::Turn { .. } | Event::Exited { .. } => state.working = false,
         Event::Command { text } if text.starts_with("/compact") => state.compacting = true,
         // A decision written down the pipe of a session that ASKED for it and is
         // blocked until it arrives.
@@ -1692,7 +1713,7 @@ impl Session {
             alive: state.alive,
             model: state.model.clone(),
             busy: state.busy.clone(),
-            working: state.idle_since.is_none(),
+            working: state.working,
             interactions: state.counted.interactions,
             mode: state.mode.clone(),
             cost_usd: state.cost_usd,

@@ -1385,6 +1385,22 @@ mod whether_it_is_working {
     use super::*;
 
     #[tokio::test]
+    async fn a_session_that_has_not_said_anything_yet_is_not_working() {
+        // ⚠ **The case that shipped wrong.** `working` was derived from "no turn
+        // has ended", which is also true of a session that has said NOTHING —
+        // still starting, no `Started` line on the wire. A brand-new session
+        // with an empty transcript was reported as working, on screen, within a
+        // minute of shipping it.
+        let dir = std::env::temp_dir();
+        let roster = roster(&dir);
+        let session = roster.start(&dir.display().to_string()).expect("start");
+        assert!(
+            !session.summary().working,
+            "nothing has been heard from it at all"
+        );
+    }
+
+    #[tokio::test]
     async fn a_fresh_session_with_nothing_to_do_is_not_working() {
         let dir = std::env::temp_dir();
         let roster = roster(&dir);
