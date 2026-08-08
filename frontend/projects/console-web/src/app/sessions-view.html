@@ -166,18 +166,21 @@
         </div>
       }
       @if (row.live; as session) {
-        <!-- ⚠ **Only while it has no name of its own, because that is the only
-             time it is true.** This is the first instruction the console heard,
-             kept for ever — and a conversation's job drifts, so on anything that
-             has been running a while it describes work finished days ago. Worse,
-             a resumed session's view starts at the seed, so what it kept was the
-             first prompt in the last page of the transcript: `push`, `Proceed`,
-             a compact summary's boilerplate.
+        <!-- ⚠ **Only while nothing better has been said, because that is the
+             only time it is true.** This is the first instruction the console
+             heard, kept for ever — and a conversation's job drifts, so on
+             anything that has been running a while it describes work finished
+             days ago. Worse, a resumed session's view starts at the seed, so
+             what it kept was the first prompt in the last page of the
+             transcript: `push`, `Proceed`, a compact summary's boilerplate.
 
-             A session that has taken a name has something better to say for
-             itself, and the CLI keeps that name current as the job changes. So
-             this is what stands in until there is one. -->
-        @if (!row.named) {
+             Two things say it better and both are kept current: a name, which
+             the CLI rewrites as the job changes, and the gist above, which is
+             re-read from the transcript every quarter of an hour. Either one
+             makes this a second, staler answer to the question the reader has
+             already had answered. So this stands in only for the first minutes
+             of a nameless session, before the first gist lands. -->
+        @if (!row.named && !row.gist) {
           <div class="asked">{{ session.asked ?? 'nothing asked yet' }}</div>
         }
         <div class="facts">
