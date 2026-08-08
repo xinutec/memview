@@ -31,7 +31,10 @@ async fn serving(answers: Vec<(&'static str, &'static str)>) -> (SocketAddr, Arc
                 .iter()
                 .find(|(at, _)| *at == path)
                 .map(|(_, body)| {
-                    ([(axum::http::header::CONTENT_TYPE, "application/json")], *body)
+                    (
+                        [(axum::http::header::CONTENT_TYPE, "application/json")],
+                        *body,
+                    )
                         .into_response()
                 })
                 .unwrap_or_else(|| axum::http::StatusCode::NOT_FOUND.into_response())
@@ -51,36 +54,85 @@ use axum::response::IntoResponse;
 /// parallel in one process, and an environment variable is shared by all of
 /// them: setting it per test had each stub answering somebody else's reader.
 fn reading(address: SocketAddr) -> Tasks {
-    // ⚠ **The provider, which `main.rs` installs and a test harness does not.**
-    // The console builds reqwest against `rustls-…-no-provider`, so a client
-    // built without this panics inside the builder with `No provider set` —
-    // before any request, and identically for every test here. Idempotent, so
-    // every test may call it.
-    let _ = rustls::crypto::ring::default_provider().install_default();
+    // No crypto provider to install here: `Tasks::at` does it, because a type
+    // that panics unless the caller remembered something is a trap — see the
+    // note there.
     Tasks::at(format!("http://{address}"))
 }
 
+/// The holder rows, as the live service gives them: sessions first by open
+/// descending, then the person, then the pile — and the pile with no `id` at
+/// all, because it is not anybody.
+const HOLDERS: &str = r#"[{"kind":"session","id":"alive","name":"health","open":3,"total":47},
+                          {"kind":"session","id":"cleared","open":0,"total":9},
+                          {"kind":"session","id":"idle","open":0,"total":0},
+                          {"kind":"person","id":"pippijn","name":"Pippijn","open":1,"total":12},
+                          {"kind":"nobody","name":"nobody","open":23,"total":26}]"#;
+
 #[tokio::test]
-async fn a_session_holding_nothing_is_absent_rather_than_zero() {
+async fn a_session_that_was_never_handed_anything_is_absent_rather_than_zero() {
     // The rule the client draws by: no work is not an empty list, and a card
     // saying `0` would be a claim where nothing is the truth.
-    let body = r#"[{"id":"alive","open":3,"first_seen":"2026-08-08T10:00:00Z","last_seen":"2026-08-08T10:00:00Z"},
-                   {"id":"idle","open":0,"first_seen":"2026-08-08T10:00:00Z","last_seen":"2026-08-08T10:00:00Z"}]"#;
-    let (address, _) = serving(vec![("/api/sessions", body)]).await;
-    let counts = reading(address).sweep().await;
-    assert_eq!(counts.get("alive").map(|c| c.open), Some(3));
-    assert!(!counts.contains_key("idle"), "a session with nothing to do");
+    let (address, _) = serving(vec![("/api/holders", HOLDERS)]).await;
+    let swept = reading(address).sweep().await;
+    assert_eq!(swept.sessions.get("alive").map(|c| c.open), Some(3));
+    assert!(
+        !swept.sessions.contains_key("idle"),
+        "a session that has never held anything"
+    );
+}
+
+#[tokio::test]
+async fn a_session_that_finished_its_list_still_gets_a_row() {
+    // ⚠ The case `open > 0` used to hide, and the reason the rule is now keyed
+    // on the total: `0/9` is a session that cleared its plate, which is a
+    // different fact from never having been given one — and the better of the
+    // two to be able to see.
+    let (address, _) = serving(vec![("/api/holders", HOLDERS)]).await;
+    let swept = reading(address).sweep().await;
+    let cleared = swept.sessions.get("cleared").expect("a finished list");
+    assert_eq!((cleared.open, cleared.total), (0, 9));
+}
+
+#[tokio::test]
+async fn the_total_is_what_is_assigned_now_and_never_smaller_than_the_open() {
+    let (address, _) = serving(vec![("/api/holders", HOLDERS)]).await;
+    let swept = reading(address).sweep().await;
+    for (id, count) in &swept.sessions {
+        assert!(
+            count.total >= count.open,
+            "{id} holds more open than it has"
+        );
+    }
+}
+
+#[tokio::test]
+async fn the_person_and_the_pile_are_kept_in_the_order_they_came() {
+    // Not sessions, and not thrown away: a card reading `3/47` means one thing
+    // beside "23 are in the pile" and another without it. The pile is on no
+    // card, because it belongs to no conversation.
+    let (address, _) = serving(vec![("/api/holders", HOLDERS)]).await;
+    let swept = reading(address).sweep().await;
+    let named: Vec<_> = swept.elsewhere.iter().map(|held| &*held.name).collect();
+    assert_eq!(
+        named,
+        ["Pippijn", "nobody"],
+        "the service decides the order"
+    );
+    assert_eq!(
+        (swept.elsewhere[1].open, swept.elsewhere[1].total),
+        (23, 26)
+    );
 }
 
 #[tokio::test]
 async fn a_second_read_inside_the_ttl_is_not_a_second_request() {
     // The whole reason a per-poll read is affordable: the front page polls every
     // five seconds, per client, and the service is on another machine.
-    let body = r#"[{"id":"alive","open":1,"first_seen":"2026-08-08T10:00:00Z","last_seen":"2026-08-08T10:00:00Z"}]"#;
-    let (address, asked) = serving(vec![("/api/sessions", body)]).await;
+    let (address, asked) = serving(vec![("/api/holders", HOLDERS)]).await;
     let tasks = reading(address);
-    assert_eq!(tasks.sweep().await.len(), 1);
-    assert_eq!(tasks.sweep().await.len(), 1);
+    assert_eq!(tasks.sweep().await.sessions.len(), 2);
+    assert_eq!(tasks.sweep().await.sessions.len(), 2);
     assert_eq!(asked.load(Ordering::SeqCst), 1, "the cache was skipped");
 }
 
@@ -88,16 +140,21 @@ async fn a_second_read_inside_the_ttl_is_not_a_second_request() {
 async fn a_service_that_will_not_answer_serves_the_last_known_counts() {
     // Stale beats blocking, and both beat failing. A console left running
     // through a reboot of isis shows the list it had, not an empty page.
-    let body = r#"[{"id":"alive","open":2,"first_seen":"2026-08-08T10:00:00Z","last_seen":"2026-08-08T10:00:00Z"}]"#;
-    let (address, _) = serving(vec![("/api/sessions", body)]).await;
+    let (address, _) = serving(vec![("/api/holders", HOLDERS)]).await;
     let tasks = reading(address);
-    assert_eq!(tasks.sweep().await.get("alive").map(|c| c.open), Some(2));
+    assert_eq!(
+        tasks.sweep().await.sessions.get("alive").map(|c| c.open),
+        Some(3)
+    );
 
     // Point it at a port with nothing behind it and expire the cache by hand is
     // not possible from here, so the failure is proven the other way: a reader
     // that has never had an answer returns nothing rather than raising.
     let dead = reading("127.0.0.1:1".parse().expect("addr"));
-    assert!(dead.sweep().await.is_empty(), "no answer, and no panic");
+    assert!(
+        dead.sweep().await.sessions.is_empty(),
+        "no answer, and no panic"
+    );
 }
 
 #[tokio::test]

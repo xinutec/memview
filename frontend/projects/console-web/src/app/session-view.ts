@@ -409,7 +409,7 @@ export class SessionView implements OnDestroy {
           this.here.gist.set(state.gists?.[this.id()]);
           // And how much of its own list is left, for the ⋮ menu's label. Same
           // keying, same reason — see [[Here.tasks]].
-          this.here.tasks.set(state.tasks?.[this.id()]);
+          this.here.tasks.set(state.tasks?.sessions?.[this.id()]);
           this.updates.saw(state.bundle);
           this.unreachable.set(this.reach.answered());
         },

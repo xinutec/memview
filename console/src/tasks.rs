@@ -103,24 +103,58 @@ fn as_text<'de, D: serde::Deserializer<'de>>(from: D) -> Result<String, D::Error
 
 /// How much a conversation is holding, for a row drawn without opening it.
 ///
-/// ⚠ **One number, where this was `open` over `total`.** The old store held a
-/// session's whole list, so a total was the size of the job. Here a task is
-/// assigned rather than owned, and everything ever assigned to a conversation —
-/// including all of it finished — is a denominator that only grows and answers
-/// no question anybody asks of a card.
+/// ⚠ **`total` is what is assigned *now*, not what ever was.** A denominator
+/// counting everything ever handed to a conversation only grows, so finishing
+/// work would make the fraction worse — which is why this was one number for a
+/// while. The service counts current assignment (tasks#636), so a task handed
+/// on leaves both halves and `3/47` says what it looks like it says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Count {
     /// Anything not done. The difference between the two kinds of open is what
     /// the sheet is for.
     pub open: usize,
+    /// Open and finished together. Never smaller than [`Self::open`].
+    pub total: usize,
 }
 
-/// A session as the service's own front page draws it. Only the two fields this
-/// console reads; the rest of the row is names and times it already has.
+/// Somebody holding tasks who is not one of this console's conversations:
+/// Pippijn, and the unassigned pile.
+///
+/// Kept rather than filtered away because a card reading `12/34` means one thing
+/// beside "Pippijn is holding 4" and another beside "23 are in the pile" — and
+/// the pile is the one nothing else on this page can show, since it belongs to
+/// no session and therefore appears on no card.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Held {
+    /// What to call them. The service's own word — `Pippijn`, `nobody`.
+    pub name: String,
+    pub open: usize,
+    pub total: usize,
+}
+
+/// Everything the sweep learnt, in one request.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Sweep {
+    /// By session id, for the cards.
+    pub sessions: BTreeMap<String, Count>,
+    /// The holders who are not sessions, in the order the service put them.
+    pub elsewhere: Vec<Held>,
+}
+
+/// One holder as the service reports it.
+///
+/// ⚠ **`id` is absent on the `nobody` row** — the pile is not anybody, so it has
+/// no id to give. A non-optional field here fails the whole sweep on that one
+/// row, and the sessions would go with it.
 #[derive(Debug, Deserialize)]
-struct Holding {
-    id: String,
+struct Holder {
+    kind: String,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
     open: i64,
+    total: i64,
 }
 
 /// The service, and the last answer it gave.
@@ -140,7 +174,7 @@ pub struct Tasks {
 
 /// What was last had, and when.
 struct Kept {
-    counts: BTreeMap<String, Count>,
+    swept: Sweep,
     at: Instant,
 }
 
@@ -170,6 +204,15 @@ impl Tasks {
     /// and five of seven failed against the wrong server. A reader that is told
     /// where to look can be built twice in one process.
     pub fn at(base: impl Into<String>) -> Self {
+        // ⚠ **Here, and not only in `main`.** Building a TLS client with no
+        // process-wide crypto provider panics inside reqwest — `No provider
+        // set`, at run time, and `unwrap_or_default()` below is no escape
+        // because the default client panics identically. `main.rs` installs one
+        // before anything asks; a test that builds a [`crate::roster::Roster`]
+        // does not, and 32 of them died in here rather than in the code they
+        // were testing. Idempotent: already-installed means somebody got there
+        // first, which is the ordinary case in the binary.
+        let _ = rustls::crypto::ring::default_provider().install_default();
         Self {
             http: reqwest::Client::builder()
                 .timeout(Self::TIMEOUT)
@@ -189,29 +232,34 @@ impl Tasks {
         request.header("X-Session-Id", IDENTITY)
     }
 
-    /// Every conversation holding something, and how much.
+    /// Everybody holding something, and how much.
     ///
     /// One request for the whole page rather than one per row: the service
-    /// sweeps its sessions in a single query, exactly as this used to sweep one
-    /// directory. A session holding nothing is **absent** rather than zero,
+    /// counts every holder in a single query, exactly as this used to sweep one
+    /// directory. A conversation holding nothing is **absent** rather than zero,
     /// which is the rule the client draws by — no work is not an empty list.
     ///
+    /// ⚠ **`/api/holders`, not `/api/sessions`.** The session table has the
+    /// names and the times and feeds the assignee picker; the tally is its own
+    /// endpoint so that two of them cannot drift, and because it can answer for
+    /// the person and the pile, which a table of sessions structurally cannot.
+    ///
     /// Whatever goes wrong — isis asleep, tunnel down, token missing, service
-    /// mid-deploy — the last known answer is served, and an empty map only when
+    /// mid-deploy — the last known answer is served, and an empty one only when
     /// there has never been one. Stale beats blocking, and both beat failing.
-    pub async fn sweep(&self) -> BTreeMap<String, Count> {
+    pub async fn sweep(&self) -> Sweep {
         if let Some(kept) = self.held.read().await.as_ref()
             && kept.at.elapsed() < Self::TTL
         {
-            return kept.counts.clone();
+            return kept.swept.clone();
         }
         match self.ask().await {
-            Ok(counts) => {
+            Ok(swept) => {
                 *self.held.write().await = Some(Kept {
-                    counts: counts.clone(),
+                    swept: swept.clone(),
                     at: Instant::now(),
                 });
-                counts
+                swept
             }
             Err(failure) => {
                 // Logged at debug: a console left running through a reboot of
@@ -223,28 +271,48 @@ impl Tasks {
                     .read()
                     .await
                     .as_ref()
-                    .map(|kept| kept.counts.clone())
+                    .map(|kept| kept.swept.clone())
                     .unwrap_or_default()
             }
         }
     }
 
-    async fn ask(&self) -> reqwest::Result<BTreeMap<String, Count>> {
-        let holding: Vec<Holding> = self
-            .asking("/api/sessions")
+    async fn ask(&self) -> reqwest::Result<Sweep> {
+        let holders: Vec<Holder> = self
+            .asking("/api/holders")
             .send()
             .await?
             .error_for_status()?
             .json()
             .await?;
-        Ok(holding
-            .into_iter()
-            .filter(|row| row.open > 0)
-            .map(|row| {
-                let open = usize::try_from(row.open).unwrap_or(0);
-                (row.id, Count { open })
-            })
-            .collect())
+        let mut swept = Sweep::default();
+        for row in holders {
+            let open = usize::try_from(row.open).unwrap_or(0);
+            let total = usize::try_from(row.total).unwrap_or(0);
+            // ⚠ **Nothing ever assigned, rather than nothing open.** The rule the
+            // client draws by is "absent means this conversation was never
+            // handed anything", and until there was a total that could only be
+            // approximated by `open > 0` — which hid a session that had
+            // *finished* its list, the one case where the row is worth drawing.
+            // `0/366` is a good day; no row at all is a different fact.
+            if total == 0 {
+                continue;
+            }
+            match (row.kind.as_str(), row.id) {
+                ("session", Some(id)) => {
+                    swept.sessions.insert(id, Count { open, total });
+                }
+                // Person and pile keep the service's order: it decides who is
+                // loaded, in one place, so `task sessions`, the app and this
+                // cannot disagree about it.
+                _ => swept.elsewhere.push(Held {
+                    name: row.name.unwrap_or_else(|| row.kind.clone()),
+                    open,
+                    total,
+                }),
+            }
+        }
+        Ok(swept)
     }
 
     /// One conversation's tasks, oldest first, without their prose.

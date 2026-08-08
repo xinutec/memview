@@ -76,7 +76,8 @@ impl Roster {
         self.modes.set(id, mode);
     }
 
-    /// How much is left of each session's task list, for the front page.
+    /// Who is holding what, for the front page: every conversation's tally, and
+    /// the two holders that are not conversations.
     ///
     /// ⚠ **Over the network now, where this was a sweep of a directory.** It
     /// used to be `spawn_blocking`, because reading every session's task files
@@ -84,7 +85,7 @@ impl Roster {
     /// executor. The service answers in 56-139 ms and the answer is cached for
     /// thirty seconds — see [`crate::tasks::Tasks`] — so this is now an ordinary
     /// await that is usually not a request at all.
-    pub async fn tasks(&self) -> BTreeMap<String, crate::tasks::Count> {
+    pub async fn tasks(&self) -> crate::tasks::Sweep {
         self.tasks.sweep().await
     }
 

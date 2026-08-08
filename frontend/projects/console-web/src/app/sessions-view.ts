@@ -12,7 +12,7 @@ import { Dismiss } from './dismiss';
 import { reason } from './errors';
 import { Reach } from './reach';
 import { Foreground } from './foreground';
-import { Conversation, Overview, Summary, TaskCount } from './models';
+import { Conversation, Held, Overview, Summary, TaskCount } from './models';
 import { modelName } from './model';
 import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { placeOf, titleOf } from './naming';
@@ -143,6 +143,16 @@ export class SessionsView {
   readonly past = this.pastStore.conversations;
 
   /**
+   * Who is holding tasks who is not a conversation: Pippijn, and the unassigned
+   * pile.
+   *
+   * ⚠ **In the service's order, not re-sorted here.** It decides who is loaded
+   * in one place, so `task sessions`, the app and this cannot disagree about it.
+   * A holder with nothing at all is already left out upstream.
+   */
+  readonly elsewhere = computed<readonly Held[]>(() => this.state()?.tasks?.elsewhere ?? []);
+
+  /**
    * Everything there is, awake first.
    *
    * ⚠ **Deduped by id, and the running process wins.** A session the console
@@ -157,7 +167,7 @@ export class SessionsView {
     const gists = this.state()?.gists ?? {};
     // Keyed by conversation like the sentences, and read the same way for both
     // halves of the list — see [[Overview.tasks]].
-    const tasks = this.state()?.tasks ?? {};
+    const tasks = this.state()?.tasks?.sessions ?? {};
     for (const session of this.state()?.sessions ?? []) {
       seen.add(session.id);
       rows.push({

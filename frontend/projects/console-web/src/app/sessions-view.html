@@ -3,6 +3,29 @@
      I got room to start this?") is asked before choosing one, not after. -->
 <app-usage-strip [usage]="state()?.usage" />
 
+<!-- What is not with any conversation, beside the other fact about the whole
+     account rather than about one session.
+
+     ⚠ **The pile is on no card, because it belongs to no session.** Everything
+     below is drawn per conversation, so unassigned work — the one queue nobody
+     is working — was invisible here by construction.
+
+     ⚠ **Above the cards, not below them.** It was under the list first, where it
+     read as a footnote to it; on the real page that put it past fourteen cards
+     and hard against the build stamp, which is not somewhere anybody scrolls to
+     find out what is waiting. The glyph is the cards' own, so the numbers are
+     read the same way — same shape, same sweep, see `console/src/tasks.rs`. -->
+@if (elsewhere().length) {
+  <p class="elsewhere">
+    <mat-icon>checklist</mat-icon>
+    @for (holder of elsewhere(); track holder.name; let last = $last) {
+      <span class="held" [class.left]="holder.open > 0"
+        >{{ holder.name }} {{ holder.open }}/{{ holder.total }}</span
+      >{{ last ? '' : ' · ' }}
+    }
+  </p>
+}
+
 @if (trouble() || unreachable(); as what) {
   <!-- An action's failure wins the line: it is the more specific of the two and
        the one the reader just caused. -->
@@ -127,18 +150,25 @@
              process is running: the work is in the tasks service, so a session
              that ended yesterday can still say three things were left with it.
 
-             ⚠ **Absent rather than `0`.** Most conversations have never been
-             handed anything, and a zero on their rows would read as work
-             somebody had finished. Same number as the ⋮ menu inside, from the
-             same sweep — see `console/src/tasks.rs`. -->
+             ⚠ **Absent rather than `0/0`.** Most conversations have never been
+             handed anything, and a tally on every card would say nothing on
+             most of them. A conversation that *finished* its list keeps its row
+             — `0/9` is a good day, and a different fact from never having been
+             given one.
+
+             ⚠ **The denominator is what is assigned now, not what ever was**, so
+             finishing work moves the fraction the right way. It could not say
+             this until tasks#636; before that it said `open` alone. Same numbers
+             as the ⋮ menu inside, from the same sweep — see
+             `console/src/tasks.rs`. -->
         @if (row.tasks; as tasks) {
           <span
             class="list"
             [class.left]="tasks.open > 0"
-            [title]="tasks.open + ' tasks still open'"
-            [attr.aria-label]="tasks.open + ' tasks still open'"
+            [title]="tasks.open + ' of ' + tasks.total + ' still open'"
+            [attr.aria-label]="tasks.open + ' of ' + tasks.total + ' tasks still open'"
           >
-            <mat-icon>checklist</mat-icon>{{ tasks.open }}
+            <mat-icon>checklist</mat-icon>{{ tasks.open }}/{{ tasks.total }}
           </span>
         }
       </div>

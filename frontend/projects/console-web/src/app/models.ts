@@ -110,15 +110,36 @@ export interface Overview {
    */
   gists?: Record<string, { text: string; at: number }>;
   /**
-   * How much is left of each conversation's task list, by id. Mirrors
-   * `tasks::Count`.
+   * Who is holding what. Mirrors `tasks::Sweep`.
    *
    * ⚠ **Keyed like the sentences, and for the same reason.** The list draws the
    * transcripts on disk beside the running sessions, and a conversation that is
    * not running still has the list it kept — so this covers rows that have no
    * summary to hang a field on.
    */
-  tasks?: Record<string, TaskCount>;
+  tasks?: Sweep;
+}
+
+/** Who is holding what, in one answer. Mirrors `tasks::Sweep`. */
+export interface Sweep {
+  /** By session id, for the cards. */
+  readonly sessions: Record<string, TaskCount>;
+  /** The holders who are not conversations, in the service's own order. */
+  readonly elsewhere: readonly Held[];
+}
+
+/**
+ * Somebody holding tasks who is not one of the console's conversations.
+ * Mirrors `tasks::Held`.
+ *
+ * The unassigned pile is one of these, and it is the row nothing else on the
+ * page can show: it belongs to no session, so it appears on no card.
+ */
+export interface Held {
+  /** The service's own word — `Pippijn`, `nobody`. */
+  readonly name: string;
+  readonly open: number;
+  readonly total: number;
 }
 
 /** One rate-limit window. Mirrors `usage::Window`. */
@@ -367,16 +388,20 @@ export interface Task {
 /**
  * How much of a session's list is left. Mirrors `tasks::Count`.
  *
- * ⚠ **Absent means holding nothing, not an empty list.** A row reading `0`
- * claims a conversation that finished its work; most conversations have simply
- * never been handed any. The runner leaves those out of the map entirely.
+ * ⚠ **Absent means never handed anything, not an empty list.** Most
+ * conversations have never been given a task, and a row reading `0/0` would put
+ * a tally on every card on the page. The runner leaves those out of the map
+ * entirely — but keeps a conversation that finished its list, because `0/9` is
+ * a different fact and the better one to see.
  *
- * ⚠ **One number, where this was `open` over `total`.** A task is assigned here
- * rather than owned, so a total would be everything ever handed to this
- * conversation including all of it finished — a denominator that only grows.
+ * ⚠ **`total` is what is assigned now, not what ever was.** A task handed to
+ * another conversation leaves both halves, so finishing work moves the fraction
+ * the right way. A denominator counting everything ever assigned would only
+ * grow, which is why this was one number for a while.
  */
 export interface TaskCount {
   readonly open: number;
+  readonly total: number;
 }
 
 /**

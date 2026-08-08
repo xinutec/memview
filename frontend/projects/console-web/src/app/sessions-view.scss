@@ -219,6 +219,37 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
+// Who is holding tasks who is not a conversation. Quiet, and below the cards:
+// it is context for them, not a row of its own.
+.elsewhere {
+  margin: 0.5rem 0 0.75rem;
+  color: var(--mat-sys-on-surface-variant);
+  font: var(--mat-sys-label-small);
+
+  // The cards' own glyph, at the digits' size rather than the row's — the same
+  // sizing `.list mat-icon` needs, and for the same reason.
+  mat-icon {
+    font-size: 0.9rem;
+    width: 0.9rem;
+    height: 0.9rem;
+    vertical-align: -0.15em;
+    margin-inline-end: 0.15rem;
+  }
+
+  // ⚠ **Its own class rather than the cards' `.list`.** That one carries
+  // `flex: 0 0 auto` for the row it sits in, and this line is not a flex
+  // container — dead declarations that happen to look right today.
+  .held {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+
+    // The one holding something reads as the fact; the empty one stays quiet.
+    &.left {
+      color: var(--mat-sys-on-surface);
+    }
+  }
+}
+
 // Why an `in use` row cannot be picked up. On screen only while one of them is.
 .caution {
   margin: 8px 0;

@@ -103,14 +103,14 @@ pub struct Overview {
     /// the ones a sentence helps most: a name you have not opened in a week is a
     /// word, and this says what the week's work was.
     pub gists: std::collections::BTreeMap<String, crate::gist::Gist>,
-    /// How much is left of each conversation's task list, by session id — see
-    /// [`crate::tasks`].
+    /// Who is holding what — see [`crate::tasks`]. The conversations are keyed
+    /// by session id; the rest is Pippijn and the unassigned pile.
     ///
     /// Keyed for the same reason [`Self::gists`] is, and it is the same reason
     /// twice: the front page draws the transcripts on disk beside the running
     /// sessions, and a conversation that is not running still has the list it
     /// kept. A copy folded onto each summary would cover only half the page.
-    pub tasks: std::collections::BTreeMap<String, crate::tasks::Count>,
+    pub tasks: crate::tasks::Sweep,
 }
 
 /// The bundle's identity, from the bytes of the page that loads it.

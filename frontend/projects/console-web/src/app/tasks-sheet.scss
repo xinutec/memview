@@ -108,12 +108,6 @@
   color: var(--mat-sys-primary);
 }
 
-.blocked {
-  margin: 0 0 0.5rem 2.2rem;
-  font: var(--mat-sys-body-small);
-  color: var(--mat-sys-on-surface-variant);
-}
-
 // The write-up. Only the box is set here: what is inside it is markdown put in
 // by `[innerHTML]`, which no rule in this file can reach — see the `rendered`
 // mixin in styles.scss.
