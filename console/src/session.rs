@@ -561,16 +561,8 @@ fn in_flight(state: &mut State, event: &Event) {
         Event::Started { .. } | Event::Joined { .. } => state.idle_since = Some(now()),
         _ => {}
     }
-    // Whether a turn is running. Set by the session speaking, cleared when the
-    // turn ends — and false until it has ever spoken, which is what a session
-    // that is still starting up actually is.
+    state.working = working_after(state.working, event);
     match event {
-        Event::Text { .. }
-        | Event::Tool { .. }
-        | Event::ToolResult { .. }
-        | Event::Context { .. }
-        | Event::Prompt { .. } => state.working = true,
-        Event::Turn { .. } | Event::Exited { .. } => state.working = false,
         Event::Command { text } if text.starts_with("/compact") => state.compacting = true,
         // A decision written down the pipe of a session that ASKED for it and is
         // blocked until it arrives.
@@ -606,6 +598,43 @@ fn in_flight(state: &mut State, event: &Event) {
         if !matches!(event, Event::Turn { .. }) {
             state.idle_since = None;
         }
+    }
+}
+
+/// Whether a turn is running, after `event`.
+///
+/// Set by the session speaking, cleared when the turn ends — and false until it
+/// has ever spoken, which is what a session that is still starting up actually
+/// is.
+///
+/// ⚠ **`Started` and `Joined` clear it**, for exactly the reason they set
+/// `idle_since` in [`in_flight`]: `Joined` is pushed after the seeded
+/// transcript, so it is what stops a conversation whose file ends mid-turn —
+/// killed, crashed, compacted — from reading as a turn still running in a
+/// process that has only just started. That half was written for `idle_since`
+/// and not for this, so a resumed session could be marked idle and working at
+/// once. Measured: `hardware` resumed 2026-08-08 22:53 and its card read
+/// `working` for 84 minutes over a process with no API socket, a flat 0.5% of a
+/// core and nothing appended to its transcript since that morning; a message
+/// sent at 00:17 was picked up at once. See memview #640.
+///
+/// Public for the reason [`deaf_after`] is: this is the part worth testing, and
+/// reaching the case that was wrong otherwise needs a transcript ending mid-turn
+/// and a resume to read it.
+pub fn working_after(was: bool, event: &Event) -> bool {
+    match event {
+        Event::Text { .. }
+        | Event::Tool { .. }
+        | Event::ToolResult { .. }
+        | Event::Context { .. }
+        | Event::Prompt { .. } => true,
+        Event::Turn { .. }
+        | Event::Exited { .. }
+        | Event::Started { .. }
+        | Event::Joined { .. } => false,
+        // Everything else says nothing either way — a status, a decision, a
+        // command — and must leave the answer where it was.
+        _ => was,
     }
 }
 

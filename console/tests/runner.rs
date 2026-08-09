@@ -1435,4 +1435,68 @@ mod whether_it_is_working {
         .await;
         assert!(!session.summary().working, "the turn ended");
     }
+
+    /// ⚠ **84 minutes of `working` over a process doing nothing.** `hardware`
+    /// was resumed 2026-08-08 22:53; its transcript ended mid-turn that morning,
+    /// so the seeded events said "speaking" and no `Turn` ever followed to take
+    /// it back. The card claimed a turn was running while the process held no
+    /// API socket, a flat 0.5% of a core and a static 709 MB — and a message
+    /// sent at 00:17 was picked up at once, because nothing was ever wrong with
+    /// it. `Joined` set `idle_since` and left `working` alone, so the session
+    /// was marked idle and mid-turn at the same time (memview #640).
+    ///
+    /// Against the rule rather than a spawned session: reaching this needs a
+    /// transcript that ends mid-turn and a resume to read it, which is the
+    /// machinery that kept it untested.
+    mod what_a_resume_carries {
+        use console::protocol::Event;
+        use console::session::working_after;
+
+        fn spoke() -> Event {
+            Event::Text {
+                text: "half a sentence".into(),
+            }
+        }
+
+        #[test]
+        fn joining_a_transcript_that_ends_mid_turn_does_not_inherit_its_turn() {
+            let mid_turn = working_after(false, &spoke());
+            assert!(mid_turn, "the seeded transcript's last word");
+            assert!(
+                !working_after(
+                    mid_turn,
+                    &Event::Joined {
+                        earlier: 12,
+                        from: 0
+                    }
+                ),
+                "a process that has only just started is not in that turn"
+            );
+        }
+
+        #[test]
+        fn a_fresh_spawn_is_not_working_either() {
+            assert!(!working_after(
+                true,
+                &Event::Started {
+                    model: "claude-opus-5".into(),
+                    cwd: "/home/example".into(),
+                    tools: 3,
+                }
+            ));
+        }
+
+        #[test]
+        fn anything_that_says_nothing_either_way_leaves_the_answer_alone() {
+            // A status, notably: it is announced only when it CHANGES, so its
+            // presence can be minutes old and its absence says nothing at all.
+            let quiet = Event::Answered {
+                id: "1".into(),
+                allowed: true,
+                reply: None,
+            };
+            assert!(working_after(true, &quiet));
+            assert!(!working_after(false, &quiet));
+        }
+    }
 }
