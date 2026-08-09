@@ -195,6 +195,19 @@ const STATE = {
       started: 1785600000,
       alive: true,
       model: 'claude-opus-5[1m]',
+      // ⚠ **Without this the header's mode icon does not exist in the harness.**
+      // Both the card and the session header draw it only for a session whose
+      // mode the runner has read (`@if (modeIcon(); as icon)`), so a fixture
+      // with none put every control check — thumb targets, icon centring,
+      // overlap, overflow — on a row missing an element. It cost a real
+      // regression: making that glyph a button inherited the app-wide 3rem
+      // floor, the header went 19px → 40px, and the full gate passed. It was
+      // caught by looking at the render.
+      //
+      // `acceptEdits` rather than the loudest mode: `NAMED` below already
+      // carries `bypassPermissions`, so between them the quiet and the shouting
+      // variants are both on screen somewhere.
+      mode: 'acceptEdits',
       busy: 'requesting',
       turns: 12,
       cost_usd: 4.2137,
@@ -2583,6 +2596,61 @@ test('a name too long for the bar gives way rather than pushing @ phone width', 
   expect(bar.menuRight, 'the overflow button was pushed off the edge').toBeLessThanOrEqual(
     bar.page,
   );
+});
+
+test('what the session may do without asking is on the header @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **The check this suite could not make, because the fixture had no mode.**
+  // Both the card and the session header draw the glyph only for a session whose
+  // mode the runner has read, so with `STATE.sessions[0]` carrying none it was
+  // absent from every render the harness measured — and `expectThumbTargets`,
+  // `expectIconsCentred`, the overlap and overflow passes were all measuring a
+  // row missing an element.
+  //
+  // What that cost: making the glyph a button inherited the app-wide 3rem floor
+  // from `styles.scss`, the header went 19px → 40px, and the FULL GATE PASSED.
+  // It was caught by looking at the render (memview #633).
+  //
+  // Asserted by presence and by box rather than by text: the neighbouring
+  // `.facts` checks all use `toContain`, so an extra ligature slips past them
+  // and so does its disappearance.
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  const mode = page.locator('.head .mode');
+  await expect(mode).toHaveCount(1);
+  // The name is what the icon means, and it is the only thing that says so on
+  // this row — the label is one tap away in the menu that also teaches it.
+  await expect(mode).toHaveAttribute('aria-label', /edits/i);
+
+  // ⚠ **In the row, not overhanging it.** The regression was exactly this: a
+  // glyph whose box grew past the line it sits on, pushing the header's height
+  // and shoving the model name right.
+  // ⚠ **Against the text beside it, NOT against its own row.** The first
+  // version of this compared the glyph to `.facts` and passed while the defect
+  // was reintroduced on purpose — the row grows to fit whatever is in it, so
+  // that comparison can never fail. Measured both ways at 412px:
+  //
+  //           head    facts   icon    model text
+  //   clean   19.19   19.19   17.59   16
+  //   broken  48      48      48      16
+  //
+  // The row and the icon move together and say nothing; the ratio to the text
+  // is 1.1 against 3.0. That is the rule `sessions-view.scss` already states for
+  // the card's tally — the glyph "has to be the number's height, not the row's".
+  const box = await page.evaluate(() => {
+    const h = (sel: string) => document.querySelector(sel)!.getBoundingClientRect().height;
+    return { icon: h('.head .mode'), text: h('.head .model') };
+  });
+  expect(
+    box.icon / box.text,
+    `the glyph is ${box.icon}px beside ${box.text}px of text, so it is sized to the row`,
+  ).toBeLessThan(1.5);
+
+  await expectOneLine(page, '.session .head');
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+  await expectThumbTargets(page);
 });
 
 test('the session is still named after scrolling to the end @ phone width', async ({ page }) => {
