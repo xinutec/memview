@@ -35,11 +35,32 @@
 # ⚠ **Restart with SIGUSR2, NEVER `launchctl kickstart -k`.** kickstart sends
 # SIGTERM, which is the console's *stop* path and deliberately takes every session
 # with it. Use `console-upgrade.sh`.
+#
+# **4. It is run from its INSTALLED copy, not from the checkout.**
+# `console-upgrade.sh` puts this file and `console-tunnel.sh` in
+# `~/.local/libexec` beside the binary, and the launchd job names that copy. The
+# reason is a macOS rule measured 2026-08-09, when ~/Code became symlinks to an
+# external volume: under launchd, **Apple's own binaries are refused the
+# volume** — `/bin/sh` exec'ing a script there, and `/bin/bash` merely reading
+# one, both die with `Operation not permitted` and exit 126 — while nix-store
+# builds and anything in `~/.local/libexec` read and run the same paths fine.
+# So the old `/bin/bash <checkout>/scripts/console-service.sh` would not have
+# survived a restart, and would have failed with an empty log, because the place
+# launchd writes the error is on the volume too.
+#
+# Nothing here should reintroduce a dependency on where the checkout is. The one
+# path that still points into it — `$STATIC_DIR`, the built frontend — is opened
+# by the console binary, which is not an Apple binary and is therefore allowed.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+
+# Where this script's siblings are, which is the install directory under launchd
+# and `scripts/` when run by hand. Never `..` from here: the installed copy has
+# no repo above it.
+HERE="$(cd "$(dirname "$0")" && pwd)"
 
 CONSOLE_BIN="${CONSOLE_BIN:-$HOME/.local/libexec/agent-console}"
 DIR="${CONSOLE_HOME:-$HOME/.config/agent-console}"
+REPO="${CONSOLE_REPO:-$HOME/Code/memview}"
 
 if [ ! -x "$CONSOLE_BIN" ]; then
   echo "no console binary at $CONSOLE_BIN — run scripts/console-upgrade.sh once" >&2
@@ -55,7 +76,7 @@ if [ -s "$DIR/server.key" ] && [ -s "$DIR/clients" ]; then
   export BIND_ADDR="${BIND_ADDR:-127.0.0.1:8097}"
   # Backgrounded and NOT waited on: see the process-group note above. It has its
   # own redial loop, so a dropped tunnel does not need this script's help.
-  ./scripts/console-tunnel.sh &
+  "$HERE/console-tunnel.sh" &
 else
   echo "gate: not configured — loopback only (scripts/console-identity.sh sets it up)"
 fi
@@ -64,6 +85,6 @@ export CONSOLE_DIRS="${CONSOLE_DIRS:-$HOME/Code}"
 # Served from console-live rather than the build output: `ng build` deletes its
 # whole output path, so a page loading during a build would ask for a font and get
 # HTML. See console.sh.
-export STATIC_DIR="${STATIC_DIR:-$PWD/frontend/dist/console-live}"
+export STATIC_DIR="${STATIC_DIR:-$REPO/frontend/dist/console-live}"
 
 exec "$CONSOLE_BIN"

@@ -6,7 +6,9 @@ are doing, send new instructions, approve what they want to run.
 **Phase 1 and the approvals half of phase 2 are built** — `console/` (the runner)
 and `frontend/projects/console-web` (the UI). It runs as the launchd service
 `org.xinutec.agent-console` (`scripts/console-service.sh`, declared in
-xinutec-infra's `mac-mini/hm-agents.nix`); `scripts/console.sh` is the by-hand
+xinutec-infra's `mac-mini/hm-agents.nix` — which names the *installed* copy at
+`~/.local/libexec/agent-console-service`, for the reason that script gives);
+`scripts/console.sh` is the by-hand
 launcher, and `scripts/console-upgrade.sh` is how a running one is replaced
 without dropping its sessions. What
 is not built is the part the security argument rests on: the client-certificate

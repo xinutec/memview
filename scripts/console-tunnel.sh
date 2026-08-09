@@ -18,8 +18,12 @@
 # port-forwarding,permitlisten="10.100.0.2:8097"` in nixos-config's isis
 # configuration. An unattended tunnel on the ordinary admin key would give
 # anything holding this Mac's disk a root session there.
+#
+# Every path here is absolute or under $HOME, so this does not `cd` and does not
+# care where it lives. `console-upgrade.sh` installs it into ~/.local/libexec
+# beside the binary, off the external volume, for the reason console-service.sh
+# gives.
 set -euo pipefail
-cd "$(dirname "$0")/.."
 
 HOST="${CONSOLE_TUNNEL_HOST:-pippijn@isis.xinutec.org}"
 KEY="${CONSOLE_TUNNEL_KEY:-$HOME/.ssh/console-tunnel}"

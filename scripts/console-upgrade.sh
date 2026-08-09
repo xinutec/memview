@@ -39,13 +39,30 @@ built="$(nix develop -c cargo metadata --format-version 1 --no-deps \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')/release/console"
 [ -x "$built" ] || { echo "no binary at $built" >&2; exit 1; }
 
-mkdir -p "$(dirname "$CONSOLE_BIN")"
-# Same directory, so the rename cannot cross a filesystem and stays atomic.
-staged="$CONSOLE_BIN.incoming.$$"
-cp "$built" "$staged"
-chmod +x "$staged"
-mv -f "$staged" "$CONSOLE_BIN"
-echo "installed -> $CONSOLE_BIN"
+LIBEXEC="$(dirname "$CONSOLE_BIN")"
+mkdir -p "$LIBEXEC"
+
+# Staged in the DESTINATION directory, so the rename cannot cross a filesystem
+# and stays atomic — see the note above on why writing in place would fail.
+install_as() {
+  local staged="$2.incoming.$$"
+  cp "$1" "$staged"
+  chmod +x "$staged"
+  mv -f "$staged" "$2"
+  echo "installed -> $2"
+}
+
+install_as "$built" "$CONSOLE_BIN"
+
+# The service's two scripts are installed as well, and the launchd job names
+# THESE copies rather than the ones in the checkout. Measured 2026-08-09, once
+# ~/Code became symlinks to an external volume: under launchd an Apple binary is
+# refused that volume, so `/bin/bash <checkout>/scripts/console-service.sh` exits
+# 126 — and with an empty log, because the log path was on the volume too. A
+# program under ~/.local/libexec spawns normally. console-service.sh carries the
+# full measurement; xinutec-infra's hm-agents.nix is where the plist names them.
+install_as scripts/console-service.sh "$LIBEXEC/agent-console-service"
+install_as scripts/console-tunnel.sh "$LIBEXEC/console-tunnel.sh"
 
 # An `if`, not `[ … ] && exit 0`: under `set -e` an AND-list whose test fails is
 # itself a failed statement, so the common path — no argument at all — would have
