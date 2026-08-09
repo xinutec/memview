@@ -26,8 +26,12 @@ export function placeOf(dir: string): string {
  * machine is started in `~/Code`, the parent of every repository, because that
  * is how they are worked with — so the folder is `Code` for all of them and two
  * new sessions were indistinguishable on the list. The short id disambiguates,
- * and it is also the thing needed to claim a task list
- * (`claude_tasks.py --session <id>`), so it is worth having on screen.
+ * and it is also how a session is addressed in the tasks service — `task move
+ * <id> <session>` hands work to a named conversation — so it is worth having on
+ * screen. It used to be what you passed to `claude_tasks.py --session <id>` to
+ * claim a task list; that hook now takes no arguments at all and reads the id
+ * out of its stdin payload, because the repositories a session claimed were
+ * retired with the service's `0004`.
  *
  * The id is the CLI's own last resort for the same question — its session
  * labeller ends `… || sessionId.slice(0, 8)`, read off the 2.1.221 binary; see
