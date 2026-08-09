@@ -39,29 +39,44 @@ RUN pnpm exec ng build --configuration production
 FROM rust:1-bookworm AS backend
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
-# The console's MANIFEST, and never its code. Cargo cannot load a workspace
-# unless every member's Cargo.toml exists, so leaving this out fails the build in
-# under a second — the trap recorded in reference_cargo_workspace_docker_priming
-# when coach grew a second crate. A stub source is enough to prime the cache, and
-# `--bin memview` means the console is never compiled, let alone shipped.
+# ⚠ **EVERY workspace member's MANIFEST, or nothing loads.** Cargo reads all of
+# them before it compiles anything, so a missing one fails the build in 0.1s with
+# an error naming the workspace rather than the file — the trap recorded in
+# reference_cargo_workspace_docker_priming when coach grew a second crate. This
+# list is not decoration: it has to gain a line every time `members` in
+# Cargo.toml does. It did not when `reader` arrived on 2026-08-07, and the image
+# job was red for 21 runs while `verify` stayed green, because the gate does not
+# build the image and nothing else looks.
 COPY console/Cargo.toml console/
+COPY reader/Cargo.toml reader/
 # The console's stub needs a main.rs as well as a lib.rs: its manifest names a
 # `default-run`, and a manifest whose default target does not exist fails to
 # parse — before any of this compiles, and with an error that names the manifest
-# rather than the missing file.
-RUN mkdir -p src console/src \
+# rather than the missing file. `reader` declares no targets at all, so an empty
+# lib.rs is the whole of it and its five src/bin/* are simply not discovered.
+RUN mkdir -p src console/src reader/src \
     && echo 'fn main() {}' > src/main.rs && echo '' > src/lib.rs \
     && echo '' > console/src/lib.rs && echo 'fn main() {}' > console/src/main.rs \
+    && echo '' > reader/src/lib.rs \
     && cargo build --release --bin memview && rm -rf src
 COPY src/ src/
+# ⚠ **reader's REAL source, unlike the console's.** The viewer links it
+# (`reader = { path = "reader" }`), so the stub above would compile an empty
+# crate and every use of it would fail to resolve. The console is the opposite
+# case and stays a stub on purpose — see below. Only `src/`: the tests, examples
+# and their tree-sitter dev-dependency are measurement kept beside the grammars,
+# and an image must not carry a C toolchain to hold them.
+COPY reader/src/ reader/src/
 # --bin memview, never a bare build: the workspace also holds the console, which
 # runs Claude Code subprocesses on the Mac and must never be inside an image
 # that runs on an internet-facing host. See docs/agent-console.md.
 # The console keeps its stub source from the layer above rather than getting the
 # real one: a manifest with no target at all fails to parse, and copying the code
 # in would put a way to run Claude Code inside the image. `touch` so the viewer's
-# real sources are newer than the primed artefacts and actually rebuild.
-RUN touch src/main.rs src/lib.rs && cargo build --release --bin memview
+# real sources are newer than the primed artefacts and actually rebuild — and
+# reader's with them, or the primed empty crate is what gets linked.
+RUN touch src/main.rs src/lib.rs reader/src/lib.rs \
+    && cargo build --release --bin memview
 
 # --- runtime ---
 FROM debian:bookworm-slim
