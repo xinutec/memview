@@ -292,6 +292,24 @@ export interface Entry {
    *  against. Absent for a transcript line that carried none. */
   call?: string;
   /**
+   * Tool entries only: the call had no result when the console picked this
+   * conversation up, so its answer may never have been written.
+   *
+   * ⚠ **This is not a verdict and must never be shown as one.** The one case
+   * observed had SUCCEEDED — a detached `home-manager switch` that ran fine and
+   * then booted out the console, and the `claude` process that would have
+   * recorded the result, before it could be written. So the work is neither ok
+   * nor failed; what is missing is the record of it. Rendering it as either
+   * would be an invention, in a place a person uses to decide whether to
+   * interrupt a session.
+   *
+   * Set at the `joined` boundary and cleared the moment a result does arrive —
+   * because a call genuinely in flight when the console re-seeds looks exactly
+   * like a dead one from here, and the difference only shows up when its answer
+   * lands a minute later.
+   */
+  unrecorded?: boolean;
+  /**
    * `asked` entries only: the runner has the message but the session has not
    * read it yet.
    *

@@ -281,6 +281,23 @@ const LONG_RESULT = Array.from(
  *  result, and an answer carrying a fenced code block of unbreakable lines. */
 const TRANSCRIPT = [
   { kind: 'started', model: 'claude-opus-5[1m]', cwd: STATE.sessions[0].dir, tools: 30, at: LATE },
+  // A call whose result was never written, and the boundary that reveals it. The
+  // process that would have recorded the answer died first, so the row carries
+  // no verdict and no clock — a third state beside the tick and the cross, and
+  // one a 412px row has to hold without pushing the tool's own argument out.
+  {
+    kind: 'tool',
+    id: 'toolu_00',
+    name: 'Bash',
+    input: { command: 'nix develop -c home-manager switch --flake .#pippijn' },
+    at: LATE,
+  },
+  // No `at`: a replayed transcript line often carries no timestamp, and a note
+  // row's clock sits 7.4px above the line it dates independently of this —
+  // memview#725, which this fixture found. Left off so the fixture tests the row
+  // it is here for rather than doubling as a failing case for another defect;
+  // put an `at` back to reproduce that one.
+  { kind: 'joined', earlier: 1, from: 0 },
   {
     kind: 'prompt',
     text: 'Port the remaining matcher gate to Lean and prove it bit-exact against the TypeScript quant twin.',

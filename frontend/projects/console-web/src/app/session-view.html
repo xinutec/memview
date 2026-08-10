@@ -166,6 +166,13 @@
                  it: everything else in there went as asked. -->
             <span class="bad">{{ counted(block).failed }} failed</span>
           }
+          @if (counted(block).unrecorded) {
+            <!-- Said without a duration, unlike `running` above: these have no
+                 end to measure to. Worth surfacing on the folded row all the
+                 same, because a run that reports nothing running and nothing
+                 failed otherwise reads as one that finished cleanly. -->
+            <span class="unrecorded">{{ counted(block).unrecorded }} unrecorded</span>
+          }
         </button>
       </li>
       @if (opensTools(block)) {
@@ -316,7 +323,14 @@
         } @else {
           <span class="tool-arg">{{ entry.text }}</span>
         }
-        @if (entry.ok === undefined) {
+        @if (entry.unrecorded) {
+          <!-- Neither a tick nor a cross: the call may well have worked, and the
+               one case we have seen did. What is missing is the record of it,
+               because whatever would have written the result died first. No
+               elapsed time either — it would be counted from a start that can be
+               weeks old, against an end nobody knows. -->
+          <span class="unrecorded">no result recorded</span>
+        } @else if (entry.ok === undefined) {
           <!-- With how long, because "running" alone is the same word at four
                seconds and at forty minutes, and only one of those is worth
                interrupting. -->

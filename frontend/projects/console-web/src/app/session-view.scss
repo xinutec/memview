@@ -392,6 +392,16 @@ button.parse {
   color: var(--mat-sys-error);
 }
 
+// Deliberately neither the primary of a tick nor the error of a cross: this row
+// is the absence of a verdict, and borrowing either colour would state one. The
+// same muted treatment `running` gets, without its number — there is nothing to
+// count to.
+.unrecorded {
+  font: var(--mat-sys-label-small);
+  color: var(--mat-sys-outline);
+  white-space: nowrap;
+}
+
 // In flow at the end of a column that fills the screen, which puts it under your
 // thumb wherever you are in the transcript — the same result `position: fixed`
 // was reaching for, without covering the last message to get it.
@@ -804,5 +814,9 @@ button.parse {
 
   .bad {
     color: var(--mat-sys-error);
+  }
+
+  .unrecorded {
+    color: var(--mat-sys-outline);
   }
 }

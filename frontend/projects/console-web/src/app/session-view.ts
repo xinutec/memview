@@ -153,13 +153,14 @@ export class SessionView implements OnDestroy {
   /** How long a call has been running. Takes the entry, so it cannot be a
    *  `computed` — and it is arithmetic on two numbers already to hand. */
   protected ranFor(entry: Entry): number | undefined {
+    if (entry.unrecorded) return undefined;
     return entry.at === undefined ? undefined : this.now() - entry.at;
   }
   /** The oldest call still running in a folded run, which is the one the summary
    *  row reports: a run is as slow as the thing holding it up. */
   protected runningFor(block: Block & { kind: 'tools' }): number | undefined {
     const oldest = block.entries
-      .filter((entry) => entry.ok === undefined && entry.at !== undefined)
+      .filter((entry) => entry.ok === undefined && !entry.unrecorded && entry.at !== undefined)
       .map((entry) => entry.at ?? 0)
       .sort((a, b) => a - b)[0];
     return oldest === undefined ? undefined : this.now() - oldest;
@@ -319,7 +320,9 @@ export class SessionView implements OnDestroy {
     effect((onCleanup) => {
       const ticking =
         this.held()?.since() !== undefined ||
-        this.entries().some((entry) => entry.kind === 'tool' && entry.ok === undefined);
+        this.entries().some(
+          (entry) => entry.kind === 'tool' && entry.ok === undefined && !entry.unrecorded,
+        );
       if (!ticking) return;
       const tick = setInterval(() => this.now.set(Date.now()), 1000);
       onCleanup(() => clearInterval(tick));

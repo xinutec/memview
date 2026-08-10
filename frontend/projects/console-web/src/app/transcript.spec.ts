@@ -367,7 +367,7 @@ describe('folding runs of tool calls', () => {
 
   it('counts what a folded run should say about itself', () => {
     const found = ran([tool('a', true), tool('b', false), tool('c')]);
-    expect(found).toEqual({ calls: 3, failed: 1, running: 1 });
+    expect(found).toEqual({ calls: 3, failed: 1, running: 1, unrecorded: 0 });
   });
 });
 
@@ -535,5 +535,66 @@ describe('transcript · where a message that waited belongs', () => {
     );
     expect(seen.map((e) => e.kind)).toEqual(['day', 'asked', 'tool']);
     expect(seen[1].queued).toBe(true);
+  });
+});
+
+describe('a call whose result was never written', () => {
+  it('stops claiming a call from before the console joined is running', () => {
+    // ⚠ The failure this exists for. A detached `home-manager switch` did its
+    // job and then booted out the console — and the `claude` process that would
+    // have recorded the result — before the result could be written. The call
+    // sat unterminated in the transcript for ever, a resumed session re-seeded
+    // from that transcript and believed it, and the row counted up from a
+    // timestamp that can be weeks old.
+    const seen = transcript(
+      { kind: 'tool', id: 'dead', name: 'Bash', input: { command: 'home-manager switch' } },
+      { kind: 'joined', earlier: 2 },
+    );
+    const call = seen.find((e) => e.kind === 'tool');
+    expect(call?.unrecorded).toBe(true);
+    // Not a verdict in either direction: that switch actually succeeded.
+    expect(call?.ok).toBeUndefined();
+  });
+
+  it('lets a call that was genuinely in flight correct itself', () => {
+    // At the `joined` boundary a live call and a dead one are the same shape —
+    // both unterminated, both above the line — so both are marked. The
+    // difference only shows when the answer lands a minute later, and it must
+    // clear the mark or the row would read as lost work for ever after every
+    // upgrade.
+    const seen = transcript(
+      { kind: 'tool', id: 'live', name: 'Bash', input: { command: 'sleep 60' } },
+      { kind: 'joined', earlier: 1 },
+      { kind: 'tool_result', id: 'live', ok: true, detail: 'done' },
+    );
+    const call = seen.find((e) => e.kind === 'tool');
+    expect(call?.unrecorded).toBeUndefined();
+    expect(call?.ok).toBe(true);
+  });
+
+  it('leaves calls made after the boundary alone', () => {
+    // Only the replay is suspect. A call this console watched begin is running
+    // in the ordinary way, and marking it would hide exactly the work the page
+    // exists to show.
+    const seen = transcript(
+      { kind: 'joined', earlier: 0 },
+      { kind: 'tool', id: 'now', name: 'Bash', input: { command: 'ls' } },
+    );
+    const call = seen.find((e) => e.kind === 'tool');
+    expect(call?.unrecorded).toBeUndefined();
+    expect(call?.ok).toBeUndefined();
+  });
+
+  it('counts an unrecorded call as neither running nor failed', () => {
+    // A folded run reporting `1 running` is what put an ever-growing clock on
+    // the summary row; reporting `1 failed` would invent a verdict instead.
+    const seen = transcript(
+      { kind: 'tool', id: 'dead', name: 'Bash', input: { command: 'x' } },
+      { kind: 'tool', id: 'ok', name: 'Read', input: { file_path: '/tmp/a' } },
+      { kind: 'joined', earlier: 2 },
+      { kind: 'tool_result', id: 'ok', ok: true },
+    );
+    const tools = seen.filter((e) => e.kind === 'tool');
+    expect(ran(tools)).toEqual({ calls: 2, failed: 0, running: 0, unrecorded: 1 });
   });
 });

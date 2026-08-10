@@ -122,6 +122,11 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
         named ?? [...entries].reverse().find((e) => e.kind === 'tool' && e.ok === undefined);
       if (!call) break;
       call.ok = event.ok;
+      // It answered, so it was alive after all. A call in flight when the
+      // console re-seeded is marked at the `joined` boundary along with the dead
+      // ones — there is nothing to tell them apart at that instant — and this is
+      // the moment the difference shows.
+      call.unrecorded = undefined;
       // What it said, not merely that it spoke. A tick with no answer under it
       // is the state this page was in: you could see that a search had run and
       // succeeded, and never what it found.
@@ -199,6 +204,20 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
     // they are not the same warranty — and without a line between them, a
     // resumed conversation reads as though the console had been there all along.
     case 'joined':
+      // ⚠ **Everything above this line is a claim about the past, including
+      // "still running".** A call with no result in the replay was written by a
+      // process that may be long gone: the result is missing precisely because
+      // whatever would have written it died. Left alone, the row reads as
+      // running and its clock counts up from a timestamp that can be weeks old
+      // — and the number a person uses to decide whether to interrupt a session
+      // is then wrong in the direction that makes them wait.
+      //
+      // Marked rather than resolved, because from here a dead call and one
+      // genuinely in flight are the same shape. `tool_result` clears the mark,
+      // so the live one corrects itself the moment its answer lands.
+      for (const entry of entries) {
+        if (entry.kind === 'tool' && entry.ok === undefined) entry.unrecorded = true;
+      }
       add(entries, {
         kind: 'note',
         text: event.earlier
@@ -383,11 +402,21 @@ export function blocks(entries: readonly Entry[]): Block[] {
   return blocks;
 }
 
-/** What a folded run says about itself: how many, and how many went wrong. */
-export function ran(entries: readonly Entry[]): { calls: number; failed: number; running: number } {
+/** What a folded run says about itself: how many, and how many went wrong.
+ *
+ *  A call whose result was never written counts as neither running nor failed —
+ *  see [[Entry.unrecorded]]. Counting it as running is what made a folded run
+ *  claim work was in flight hours after the process that owned it had gone. */
+export function ran(entries: readonly Entry[]): {
+  calls: number;
+  failed: number;
+  running: number;
+  unrecorded: number;
+} {
   return {
     calls: entries.length,
     failed: entries.filter((entry) => entry.ok === false).length,
-    running: entries.filter((entry) => entry.ok === undefined).length,
+    running: entries.filter((entry) => entry.ok === undefined && !entry.unrecorded).length,
+    unrecorded: entries.filter((entry) => entry.unrecorded).length,
   };
 }
