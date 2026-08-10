@@ -199,6 +199,15 @@ const GRACE: Duration = Duration::from_secs(30);
 /// How much of the child's stderr to keep for diagnosis.
 const STDERR_KEPT: usize = 4000;
 
+/// How often to re-read the transcript while the child says nothing.
+///
+/// The read is incremental — a seek to where the last one stopped, then whatever
+/// has been appended, which for an idle session is nothing at all. So this is a
+/// handful of syscalls per session, and the interval is set by how long a wrong
+/// number may stay on screen rather than by what the read costs: about as long
+/// as it takes to look at the card and read it.
+const RECOUNT_EVERY: Duration = Duration::from_secs(5);
+
 /// The CLI's own name for the mode a session runs in when nothing is passed.
 ///
 /// Displayed as *Manual*: it asks before every tool call that needs permission,
@@ -1097,7 +1106,28 @@ impl Session {
             let session = self.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
+                let mut beat = tokio::time::interval(RECOUNT_EVERY);
+                // Delay, not Burst: a session that was busy for a minute owes us
+                // one catch-up read, not a minute's worth back to back.
+                beat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                loop {
+                    let line = tokio::select! {
+                        line = lines.next_line() => line,
+                        // ⚠ **The transcript changes when the process says
+                        // nothing.** A compaction is written to the file and
+                        // announced on no stream, so tying the read to `Turn`
+                        // meant a session that compacted and then sat waiting
+                        // for its next instruction never read its own boundary:
+                        // `home` showed 258,318 tokens for ninety minutes, which
+                        // was the fullness of a conversation that had stopped
+                        // existing, and 13 exchanges the boundary had reset to 0.
+                        // A stale figure and a live one are drawn identically.
+                        _ = beat.tick() => {
+                            session.recount();
+                            continue;
+                        }
+                    };
+                    let Ok(Some(line)) = line else { break };
                     // ⚠ **Every line, whatever it turns out to be.** This is the
                     // record of when the *process* last spoke, which is how the
                     // roster decides who to ask for the account's usage — and an
@@ -1119,7 +1149,9 @@ impl Session {
                         // whole exchange to its transcript. Recounted rather than
                         // incremented — see [`crate::past::counted`] — and
                         // done here rather than in `push_at`, which holds the
-                        // state lock and must not be reading files.
+                        // state lock and must not be reading files. The heartbeat
+                        // above does not replace this: at the end of a turn the
+                        // count is wanted NOW, not within [`RECOUNT_EVERY`].
                         let counted = matches!(event, Event::Turn { .. });
                         session.push(event);
                         if counted {
