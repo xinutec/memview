@@ -1,9 +1,18 @@
 /target
 /share-state.json
-/frontend/node_modules
 /frontend/dist
 /frontend/.angular
 /logs
+
+# Unanchored, unlike everything above it. The rule here used to be
+# `/frontend/node_modules`, which matches that one path and nothing else, and a
+# leading slash is what makes it so. Vitest writes a cache into a node_modules
+# it creates beside the code under test, at
+# frontend/projects/console-web/src/app/, and nothing ignored that -- so a
+# results.json went into a public repo in commit 1398c58 and sat there for days.
+# A dependency tree is never source wherever it appears, so the rule should not
+# name a place.
+node_modules/
 
 # Written by frontend/scripts/stamp-version.mjs at build time — the running
 # build stamp, which is a fact about a build and not about the source.
