@@ -8,6 +8,7 @@
 //! what is shared here is the *knowledge* they both need and not a function that
 //! would have to serve both badly.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 /// Whether this path is a conversation, as opposed to the directory beside it.
@@ -105,3 +106,499 @@ pub const AS_ACTOR: [&NameLine; 2] = [&AGENT_NAME, &CUSTOM_TITLE];
 // precedence still has to be right for the day a single mechanism writes one of
 // them. In one file `agent-name` had taken a value `custom-title` never did: that
 // file's `ai-title`.
+
+// ---------------------------------------------------------------------------
+// Structure: whether a transcript is intact, as opposed to merely readable.
+// ---------------------------------------------------------------------------
+
+/// Whether this path is a *conversation*, and not merely something `.jsonl`.
+///
+/// ⚠ **Stricter than [`is_transcript`], and both are correct.** That one tests
+/// the extension alone, which is what a viewer wants: it walks the whole tree,
+/// takes what it understands and shrugs at the rest. A checker cannot shrug. A
+/// session's sidecar directory holds `subagents/workflows/wf_*/journal.jsonl`,
+/// a different format with its own `started` / `result` line types and no uuid
+/// anywhere, and feeding those to the rules below reported 1,052 violations
+/// that were not defects — a different file being read as the wrong thing.
+///
+/// A transcript is named for the session it records, so the name is the test.
+pub fn is_conversation(path: &Path) -> bool {
+    is_transcript(path)
+        && path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .is_some_and(is_uuid)
+}
+
+/// The canonical 8-4-4-4-12 form, lowercase.
+///
+/// Hand-written rather than a regex so this crate stays a leaf; see the crate
+/// doc for why its dependency list is a decision and not a convenience.
+pub fn is_uuid(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() != 36 {
+        return false;
+    }
+    bytes.iter().enumerate().all(|(i, &b)| {
+        if matches!(i, 8 | 13 | 18 | 23) {
+            b == b'-'
+        } else {
+            b.is_ascii_digit() || (b'a'..=b'f').contains(&b)
+        }
+    })
+}
+
+/// A line that belongs to the conversation and therefore carries identity.
+///
+/// Measured over 1.29M lines: every one of these ALWAYS has a `uuid` and
+/// ALWAYS has a `parentUuid` field, with no exception in either direction.
+pub const CONVERSATION_TYPES: [&str; 4] = ["assistant", "user", "attachment", "system"];
+
+/// A line that describes the conversation from outside it, and never carries
+/// identity — no `uuid`, no `parentUuid`, in 1.29M lines.
+///
+/// ⚠ Sixteen types exist, not fifteen. A survey that found fifteen missed
+/// `pr-link` entirely, and an unknown type is indistinguishable from a corrupt
+/// one, so the omission would have been reported as damage.
+pub const METADATA_TYPES: [&str; 12] = [
+    "last-prompt",
+    "permission-mode",
+    "bridge-session",
+    "mode",
+    "queue-operation",
+    "ai-title",
+    "agent-name",
+    "custom-title",
+    "file-history-snapshot",
+    "file-history-delta",
+    "pr-link",
+    "frame-link",
+];
+
+/// Present on EVERY conversation line, whatever its type — 942,556 of 942,556.
+///
+/// A line missing one of these is not merely sparse: the writer that produced it
+/// was not the writer that produced the rest of the corpus.
+pub const REQUIRED_ON_CONVERSATION: [&str; 7] = [
+    "sessionId",
+    "timestamp",
+    "cwd",
+    "version",
+    "isSidechain",
+    "userType",
+    "gitBranch",
+];
+
+/// The types that carry a `message`, exactly.
+///
+/// `user` and `assistant` always have one; `system` and `attachment` never do.
+/// Both halves are absolute, so either a missing message or a surprising one is
+/// a fault.
+pub const MESSAGE_TYPES: [&str; 2] = ["user", "assistant"];
+
+/// The only type that ever carries a `promptId`.
+///
+/// ⚠ It is NOT required even there — a handful of `user` lines lack it, so only
+/// the converse is a rule. `couse` inherits this field down the parent chain
+/// precisely because it is sparse, which is what makes link integrity load
+/// bearing for a published number rather than merely tidy.
+pub const PROMPT_ID_TYPE: &str = "user";
+
+/// The only two types ever observed starting a chain.
+///
+/// An `assistant` with no parent does not occur once in 536,429 assistant
+/// lines, so one appearing means something severed the chain above it rather
+/// than that a conversation began there.
+pub const ROOTABLE_TYPES: [&str; 2] = ["user", "system"];
+
+/// What was wrong with a line, or with the file as a whole.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rule {
+    /// Not valid JSON. See [`Tail`] for the one case where this is tolerated.
+    Unparseable,
+    /// Valid JSON, but not an object.
+    NotAnObject,
+    /// A `type` this vocabulary does not contain.
+    UnknownType,
+    /// A conversation line with no `uuid`, which cannot be placed in the tree.
+    MissingUuid,
+    /// A `uuid` that is not a uuid.
+    MalformedUuid,
+    /// A conversation line with no `parentUuid` key at all.
+    ///
+    /// ⚠ Distinct from a `parentUuid` of `null`, and conflating the two is not
+    /// hypothetical: doing so once reported 81,062 roots where there are 3,260,
+    /// and 349,636 broken links where there were three.
+    MissingParentField,
+    /// A type that is never a root, appearing as one.
+    UnrootableTypeAtRoot,
+    /// A metadata line carrying identity it should not have.
+    MetadataWithUuid,
+    /// A metadata line carrying a parent it should not have.
+    MetadataWithParent,
+    /// A `parentUuid` that is neither a string nor `null`.
+    NonStringParent,
+    /// One uuid used for two different kinds of thing.
+    ///
+    /// A uuid is re-emitted constantly and may move to a new parent (432 do,
+    /// which is how an edited turn is recorded), but never changes its `type`:
+    /// 0 of 309,290 repeat events.
+    UuidTypeChange,
+    /// A `parentUuid` naming a `uuid` that is not in the file. **The message it
+    /// pointed at is gone.**
+    DanglingParent,
+    /// A parent chain that returns to itself.
+    Cycle,
+    /// A conversation line missing a field every one of them carries.
+    MissingField,
+    /// A line carrying a field its type never carries.
+    UnexpectedField,
+    /// A line claiming to belong to a different conversation than the file does.
+    ///
+    /// 0 of 942,556 lines disagree with their filename, which makes this the
+    /// check that a *rewritten* transcript has to pass: a copy taken under a new
+    /// session id and not restamped says, in every line, where it came from.
+    SessionMismatch,
+    /// `message.role` disagreeing with the line's own `type`.
+    RoleMismatch,
+    /// The final line was incomplete, on a file that is still being written.
+    ///
+    /// Reported rather than swallowed — see [`Tail::MayBeIncomplete`].
+    IncompleteTail,
+}
+
+impl Rule {
+    /// The stable name, for output a person or a script reads.
+    pub fn name(self) -> &'static str {
+        match self {
+            Rule::Unparseable => "unparseable",
+            Rule::NotAnObject => "not-an-object",
+            Rule::UnknownType => "unknown-type",
+            Rule::MissingUuid => "missing-uuid",
+            Rule::MalformedUuid => "malformed-uuid",
+            Rule::MissingParentField => "missing-parent-field",
+            Rule::UnrootableTypeAtRoot => "unrootable-type-at-root",
+            Rule::MetadataWithUuid => "metadata-with-uuid",
+            Rule::MetadataWithParent => "metadata-with-parent",
+            Rule::NonStringParent => "non-string-parent",
+            Rule::UuidTypeChange => "uuid-type-change",
+            Rule::DanglingParent => "dangling-parent",
+            Rule::Cycle => "cycle",
+            Rule::MissingField => "missing-field",
+            Rule::UnexpectedField => "unexpected-field",
+            Rule::SessionMismatch => "session-mismatch",
+            Rule::RoleMismatch => "role-mismatch",
+            Rule::IncompleteTail => "incomplete-tail",
+        }
+    }
+
+    /// Whether this means the file is damaged.
+    ///
+    /// Only [`Rule::IncompleteTail`] is not: it means the file is *alive*, and
+    /// the same bytes read a moment later will be whole.
+    pub fn is_damage(self) -> bool {
+        self != Rule::IncompleteTail
+    }
+}
+
+/// One thing wrong, located.
+#[derive(Debug, Clone)]
+pub struct Violation {
+    /// 1-indexed, counting every newline-terminated record including blanks.
+    pub line: usize,
+    pub rule: Rule,
+    pub detail: String,
+}
+
+/// Whether the last line may be half-written.
+///
+/// ⚠ **This is the ONLY concession to leniency, and it exists because of a
+/// race, not because a viewer should be forgiving.** Claude Code appends to a
+/// transcript while we read it — open, append, close, per line, holding no
+/// descriptor between — so a read can catch a record with its newline not yet
+/// written. Being strict about that would fail a file that is perfectly well
+/// formed a millisecond later.
+///
+/// It is deliberately narrow. It applies to the FINAL line only, only when the
+/// file does not end in a newline, and it still produces a
+/// [`Rule::IncompleteTail`] so nothing is silently dropped. A bad line anywhere
+/// else is damage no matter how live the file is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tail {
+    /// Nothing is writing to this file. Every line must be whole.
+    MustBeComplete,
+    /// A session may be appending right now.
+    MayBeIncomplete,
+}
+
+/// Read a whole transcript and report everything wrong with it.
+///
+/// Takes bytes rather than a path: this crate touches no filesystem, and the
+/// two callers read at such different scales that neither should inherit the
+/// other's idea of how much to load.
+///
+/// Resolution is checked only once the whole file has been read, because a
+/// parent may be written after its child and file order is not something to
+/// assume.
+/// The conversation a file claims to be, when the caller knows it.
+///
+/// Passed in rather than read, because this crate touches no filesystem — the
+/// binary that opened the file is the one that knows what it is called. `None`
+/// skips [`Rule::SessionMismatch`] and checks everything else.
+pub type Session<'a> = Option<&'a str>;
+
+pub fn check(bytes: &[u8], tail: Tail, session: Session<'_>) -> Vec<Violation> {
+    let mut found = Vec::new();
+    let mut uuids: HashMap<String, &'static str> = HashMap::new();
+    let mut parent_of: HashMap<String, String> = HashMap::new();
+    let mut edges: Vec<(usize, String, String)> = Vec::new();
+
+    let ends_clean = bytes.last() == Some(&b'\n');
+    let records: Vec<&[u8]> = bytes.split(|&c| c == b'\n').collect();
+    // A trailing newline yields one empty final element that is not a record.
+    let count = if ends_clean && !records.is_empty() {
+        records.len() - 1
+    } else {
+        records.len()
+    };
+
+    for (index, raw) in records.iter().take(count).enumerate() {
+        let line = index + 1;
+        if raw.is_empty() {
+            continue;
+        }
+        let last = index + 1 == count;
+
+        let value: serde_json::Value = match serde_json::from_slice(raw) {
+            Ok(value) => value,
+            Err(err) => {
+                let torn = last && !ends_clean && tail == Tail::MayBeIncomplete;
+                found.push(Violation {
+                    line,
+                    rule: if torn {
+                        Rule::IncompleteTail
+                    } else {
+                        Rule::Unparseable
+                    },
+                    detail: err.to_string(),
+                });
+                continue;
+            }
+        };
+        let Some(object) = value.as_object() else {
+            found.push(Violation {
+                line,
+                rule: Rule::NotAnObject,
+                detail: String::new(),
+            });
+            continue;
+        };
+
+        let kind = object.get("type").and_then(|t| t.as_str()).unwrap_or("");
+        let conversation = CONVERSATION_TYPES.iter().find(|t| **t == kind);
+        let metadata = METADATA_TYPES.contains(&kind);
+        if conversation.is_none() && !metadata {
+            found.push(Violation {
+                line,
+                rule: Rule::UnknownType,
+                detail: format!("{kind:?}"),
+            });
+            continue;
+        }
+
+        let uuid = object.get("uuid").and_then(|u| u.as_str());
+        let parent_field = object.get("parentUuid");
+
+        if let Some(kind) = conversation {
+            for field in REQUIRED_ON_CONVERSATION {
+                if !object.contains_key(field) {
+                    found.push(Violation {
+                        line,
+                        rule: Rule::MissingField,
+                        detail: format!("{kind} has no {field}"),
+                    });
+                }
+            }
+            if let (Some(expected), Some(claimed)) =
+                (session, object.get("sessionId").and_then(|s| s.as_str()))
+                && claimed != expected
+            {
+                found.push(Violation {
+                    line,
+                    rule: Rule::SessionMismatch,
+                    detail: format!("line says {claimed}, file is {expected}"),
+                });
+            }
+
+            let carries_message = MESSAGE_TYPES.contains(kind);
+            match (carries_message, object.get("message")) {
+                (true, None) => found.push(Violation {
+                    line,
+                    rule: Rule::MissingField,
+                    detail: format!("{kind} has no message"),
+                }),
+                (false, Some(_)) => found.push(Violation {
+                    line,
+                    rule: Rule::UnexpectedField,
+                    detail: format!("{kind} carries a message"),
+                }),
+                _ => {}
+            }
+            // The role is stated twice, in the line's `type` and inside its
+            // message, and the two have never disagreed. Two spellings of one
+            // fact are worth checking against each other precisely because
+            // nothing forces them to agree.
+            if let Some(role) = object
+                .get("message")
+                .and_then(|m| m.get("role"))
+                .and_then(|r| r.as_str())
+                && role != *kind
+            {
+                found.push(Violation {
+                    line,
+                    rule: Rule::RoleMismatch,
+                    detail: format!("type={kind}, role={role}"),
+                });
+            }
+            if *kind != PROMPT_ID_TYPE && object.contains_key("promptId") {
+                found.push(Violation {
+                    line,
+                    rule: Rule::UnexpectedField,
+                    detail: format!("{kind} carries a promptId"),
+                });
+            }
+
+            match uuid {
+                None => found.push(Violation {
+                    line,
+                    rule: Rule::MissingUuid,
+                    detail: format!("type={kind}"),
+                }),
+                Some(uuid) if !is_uuid(uuid) => found.push(Violation {
+                    line,
+                    rule: Rule::MalformedUuid,
+                    detail: format!("{uuid:?}"),
+                }),
+                Some(_) => {}
+            }
+            match parent_field {
+                None => found.push(Violation {
+                    line,
+                    rule: Rule::MissingParentField,
+                    detail: format!("type={kind}"),
+                }),
+                Some(serde_json::Value::Null) if !ROOTABLE_TYPES.contains(kind) => {
+                    found.push(Violation {
+                        line,
+                        rule: Rule::UnrootableTypeAtRoot,
+                        detail: format!("{kind} has no parent"),
+                    });
+                }
+                Some(serde_json::Value::Null) => {}
+                Some(serde_json::Value::String(_)) => {}
+                Some(other) => found.push(Violation {
+                    line,
+                    rule: Rule::NonStringParent,
+                    detail: other.to_string(),
+                }),
+            }
+
+            if let Some(uuid) = uuid {
+                match uuids.get(uuid) {
+                    Some(seen) if seen != kind => found.push(Violation {
+                        line,
+                        rule: Rule::UuidTypeChange,
+                        detail: format!("{uuid} was {seen:?}, now {kind:?}"),
+                    }),
+                    Some(_) => {}
+                    None => {
+                        uuids.insert(uuid.to_string(), kind);
+                    }
+                }
+                if let Some(parent) = parent_field.and_then(|p| p.as_str()) {
+                    edges.push((line, uuid.to_string(), parent.to_string()));
+                    parent_of
+                        .entry(uuid.to_string())
+                        .or_insert_with(|| parent.to_string());
+                }
+            }
+        } else {
+            if uuid.is_some() {
+                found.push(Violation {
+                    line,
+                    rule: Rule::MetadataWithUuid,
+                    detail: format!("type={kind}"),
+                });
+            }
+            if parent_field.is_some() {
+                found.push(Violation {
+                    line,
+                    rule: Rule::MetadataWithParent,
+                    detail: format!("type={kind}"),
+                });
+            }
+        }
+    }
+
+    for (line, uuid, parent) in &edges {
+        if !uuids.contains_key(parent) {
+            found.push(Violation {
+                line: *line,
+                rule: Rule::DanglingParent,
+                detail: format!("{uuid} -> {parent} (no such uuid)"),
+            });
+        }
+    }
+
+    found.extend(cycles(&parent_of));
+    found.sort_by_key(|violation| violation.line);
+    found
+}
+
+/// Every parent chain that returns to itself.
+///
+/// Iterative rather than recursive: these chains run to hundreds of thousands
+/// of nodes and recursion would exhaust the stack long before it found
+/// anything. Measured on the whole corpus, there are none — which was worth
+/// establishing rather than assuming, since it had never been checked.
+fn cycles(parent_of: &HashMap<String, String>) -> Vec<Violation> {
+    #[derive(Clone, Copy, PartialEq)]
+    enum Mark {
+        OnThisWalk,
+        Settled,
+    }
+
+    let mut marks: HashMap<&str, Mark> = HashMap::new();
+    let mut found = Vec::new();
+
+    for start in parent_of.keys() {
+        if marks.contains_key(start.as_str()) {
+            continue;
+        }
+        let mut walked: Vec<&str> = Vec::new();
+        let mut at = Some(start.as_str());
+        while let Some(node) = at {
+            match marks.get(node) {
+                Some(Mark::OnThisWalk) => {
+                    let loop_len = walked.iter().rev().take_while(|n| **n != node).count() + 1;
+                    found.push(Violation {
+                        line: 0,
+                        rule: Rule::Cycle,
+                        detail: format!("{loop_len} nodes, through {node}"),
+                    });
+                    break;
+                }
+                Some(Mark::Settled) => break,
+                None => {
+                    marks.insert(node, Mark::OnThisWalk);
+                    walked.push(node);
+                    at = parent_of.get(node).map(String::as_str);
+                }
+            }
+        }
+        for node in walked {
+            marks.insert(node, Mark::Settled);
+        }
+    }
+    found
+}

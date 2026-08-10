@@ -186,6 +186,44 @@ in  { name = "memview"
               [ "cargo", "run", "--quiet", "--bin", "memory-lint" ]
         , timeout_s = 900
         }
+      , {-  The conversations the corpus is mined from. Same argument as
+            memory-lint one row up, one layer down: the documents can be
+            well-formed and the evidence under them broken.
+
+            It earns a row rather than living in the tests because the tests
+            check the rules against fixtures, and this checks the rules against
+            what is actually on the disk — which is where the three severed
+            links were, unnoticed for three weeks, while every reader in the
+            workspace rendered them as though nothing were missing.
+
+            Unguarded, like memory-lint: CI writes its own steps in YAML and
+            never takes this gate, so the only machine that runs it is the one
+            where the transcripts always are. A file being appended to right now
+            reports `incomplete-tail`, which is not damage and does not fail.
+        -}
+        G.Check::{
+        , name = "transcript-lint (the conversations)"
+        , argv =
+            G.inDevShell
+              [ "cargo"
+              , "run"
+              , "--quiet"
+              , {-  `-p` is required and memory-lint's row does without it. That
+                    one is a bin of the ROOT package, and `default-run =
+                    "memview"` makes a bare `--bin` search only there — so
+                    naming a bin that lives in `reader` fails with "no bin
+                    target named transcript-lint in default-run packages"
+                    while listing that exact name as available.
+                -}
+                "-p"
+              , "reader"
+              , "--bin"
+              , "transcript-lint"
+              , "--"
+              , "--quiet"
+              ]
+        , timeout_s = 900
+        }
       , G.checkTable "../dev-lint"
       , G.devLint "../"
       ]

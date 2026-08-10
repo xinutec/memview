@@ -186,6 +186,27 @@
     {
       "argv": [
         "nix",
+        "develop",
+        "--no-warn-dirty",
+        "--command",
+        "cargo",
+        "run",
+        "--quiet",
+        "-p",
+        "reader",
+        "--bin",
+        "transcript-lint",
+        "--",
+        "--quiet"
+      ],
+      "cwd": ".",
+      "env": {},
+      "name": "transcript-lint (the conversations)",
+      "timeout_s": 900
+    },
+    {
+      "argv": [
+        "nix",
         "run",
         "../dev-lint#gate",
         "--",

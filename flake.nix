@@ -20,6 +20,12 @@
             pkgs.clippy
             pkgs.nodejs_24 # Angular 22 frontend (frontend/)
             pkgs.pnpm # the frontend's installer; node ships npm too, ignore it
+            # Re-renders gate.dhall into the committed gate.json. The gate can
+            # only tell you the table is stale, and names this command when it
+            # does — so the command has to be here, or editing the gate means
+            # fetching 46 MB from the channel to run the one thing the error
+            # message just told you to run.
+            pkgs.dhall-json
           ];
         };
       });
