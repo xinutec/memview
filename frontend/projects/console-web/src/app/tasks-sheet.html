@@ -14,7 +14,7 @@
        decoration. Hidden entirely when nothing is finished — there is then
        nothing for it to reveal, and an inert switch is a question with one
        answer. -->
-  @if (done(); as done) {
+  @if (closed(); as closed) {
     <mat-button-toggle-group
       class="scope"
       [value]="everything() ? 'all' : 'open'"
@@ -22,7 +22,7 @@
       aria-label="which tasks to show"
     >
       <mat-button-toggle value="open">Open</mat-button-toggle>
-      <mat-button-toggle value="all">All ({{ done }} done)</mat-button-toggle>
+      <mat-button-toggle value="all">All ({{ closed }})</mat-button-toggle>
     </mat-button-toggle-group>
   }
 
@@ -32,7 +32,11 @@
 
   <ol class="tasks">
     @for (task of shown(); track task.id) {
-      <li class="task" [class.done]="task.status === 'done'">
+      <li
+        class="task"
+        [class.done]="task.status === 'done'"
+        [class.dropped]="task.status === 'dropped'"
+      >
         <!-- The whole row is the control when there is something to open, and
              plain text when there is not: a button that does nothing is worse
              than no button, and this list is mostly rows with nothing behind
@@ -45,8 +49,8 @@
           [attr.aria-expanded]="task.detailed ? opened() === task.id : null"
           (click)="open(task)"
         >
-          <mat-icon class="mark" [attr.aria-label]="statusOf(task).title">{{
-            statusOf(task).icon
+          <mat-icon class="mark" [attr.aria-label]="standingOf(task).title">{{
+            standingOf(task).icon
           }}</mat-icon>
           <!-- The number, because it is what a session calls a task in its own
                prose — "#418 done" — and what `waiting on` below names. Without

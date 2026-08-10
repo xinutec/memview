@@ -16,23 +16,78 @@ export interface Which {
   readonly name?: string;
 }
 
+/** Where one status stands: how it reads, where it sorts, whether it is work. */
+export interface Standing {
+  readonly rank: number;
+  readonly title: string;
+  readonly icon: string;
+  /** Still work in hand. Mirrors the service's `Status::is_open`. */
+  readonly open: boolean;
+}
+
 /**
  * How the statuses sort, and how they read.
  *
- * ⚠ **Underway above merely open.** The service keeps three states and the middle
- * one is the answer to "what is this session actually on", which is the question
- * this sheet is opened with. Completed sorts last and is hidden by default:
- * three hundred done things above eight open ones is a list nobody scrolls.
+ * ⚠ **Underway above merely open.** The middle state is the answer to "what is
+ * this session actually on", which is the question this sheet is opened with.
+ * The closed ones sort last and are hidden by default: three hundred finished
+ * things above eight open ones is a list nobody scrolls.
+ *
+ * ⚠ **`open` is a field rather than `status !== 'done'`.** The service grew a
+ * fourth state, `dropped` — closed without being done — and the filter here said
+ * "not done", which is the same thing right up until it isn't. Five dropped
+ * tasks then showed among the open ones on the tasks session, with a question
+ * mark for an icon, and the toggle offered to reveal work it was already
+ * showing. The service made exactly this mistake first and fixed it the same
+ * way: `Status::is_open` is a method there precisely so a fifth state cannot
+ * quietly leave one call site behind.
  */
-const STATUS: Record<string, { rank: number; title: string; icon: string }> = {
-  doing: { rank: 0, title: 'underway', icon: 'pending' },
-  open: { rank: 1, title: 'open', icon: 'radio_button_unchecked' },
-  done: { rank: 2, title: 'done', icon: 'check_circle' },
+const STATUS: Record<string, Standing> = {
+  doing: { rank: 0, title: 'underway', icon: 'pending', open: true },
+  open: { rank: 1, title: 'open', icon: 'radio_button_unchecked', open: true },
+  done: { rank: 2, title: 'done', icon: 'check_circle', open: false },
+  // Not the primary colour the done mark gets, and not a tick: dropped is
+  // "decided against", and a list that credited it as finished work would be
+  // the reason the service keeps the two apart at all. The OUTLINE cross rather
+  // than the filled `cancel` — that one renders as a solid disc, which made the
+  // least important row on the screen the loudest mark on it.
+  dropped: { rank: 3, title: 'dropped', icon: 'highlight_off', open: false },
 };
 
 /** Anything the CLI grows later sorts with the open ones rather than vanishing:
  *  a state this console has not heard of is news, not a reason to hide a row. */
-const UNKNOWN = { rank: 1, title: 'open', icon: 'help' };
+const UNKNOWN: Standing = { rank: 1, title: 'open', icon: 'help', open: true };
+
+/** Where a status stands, including one this console has never heard of. */
+export function standingOf(status: string): Standing {
+  return STATUS[status] ?? UNKNOWN;
+}
+
+/** The rows to draw: open work first, and the closed ones only when asked. */
+export function shownTasks(all: readonly Task[], everything: boolean): Task[] {
+  const wanted = everything ? [...all] : all.filter((task) => standingOf(task.status).open);
+  // Stable within a status: the list is already in the order the session made
+  // them, and the sort only lifts what is underway to the top.
+  return wanted.sort((left, right) => standingOf(left.status).rank - standingOf(right.status).rank);
+}
+
+/**
+ * What the "All" toggle would reveal, in the service's own words — empty when it
+ * would reveal nothing and the toggle should not be drawn at all.
+ *
+ * The two closed states are named separately while only one of them is present,
+ * because "13 done" and "5 dropped" are different facts and both fit. Together
+ * they collapse to a count: "13 done, 5 dropped" is a long label on a phone, and
+ * the icons in the list already tell them apart once the toggle is on.
+ */
+export function closedLabel(all: readonly Task[]): string {
+  const closed = all.filter((task) => !standingOf(task.status).open);
+  const dropped = closed.filter((task) => task.status === 'dropped').length;
+  const done = closed.length - dropped;
+  if (done > 0 && dropped > 0) return `${closed.length} closed`;
+  if (dropped > 0) return `${dropped} dropped`;
+  return done > 0 ? `${done} done` : '';
+}
 
 /**
  * A session's own task list, read-only.
@@ -81,19 +136,12 @@ export class TasksSheet {
    */
   protected readonly failed = signal<Record<string, string>>({});
 
-  protected readonly shown = computed(() => {
-    const all = this.all() ?? [];
-    const wanted = this.everything() ? all : all.filter((task) => task.status !== 'done');
-    // Stable within a status: the list is already in the order the session made
-    // them, and the sort only lifts what is underway to the top.
-    return [...wanted].sort((left, right) => rankOf(left) - rankOf(right));
-  });
+  protected readonly shown = computed(() => shownTasks(this.all() ?? [], this.everything()));
   /** Said plainly rather than as a count of nothing: an empty list and a list
    *  with nothing left open are different facts about a session. */
   protected readonly empty = computed(() => (this.all() ?? []).length === 0);
-  protected readonly done = computed(
-    () => (this.all() ?? []).filter((task) => task.status === 'done').length,
-  );
+  /** What the toggle offers to reveal, and whether there is anything to. */
+  protected readonly closed = computed(() => closedLabel(this.all() ?? []));
 
   constructor() {
     this.api.tasks(this.which.session).subscribe({
@@ -105,8 +153,8 @@ export class TasksSheet {
     });
   }
 
-  protected statusOf(task: Task): { title: string; icon: string } {
-    return STATUS[task.status] ?? UNKNOWN;
+  protected standingOf(task: Task): Standing {
+    return standingOf(task.status);
   }
 
   /** Open a task's write-up, or fold it away again. Fetched once and kept. */
@@ -128,8 +176,4 @@ export class TasksSheet {
         this.failed.update((held) => ({ ...held, [task.id]: reason(failure) })),
     });
   }
-}
-
-function rankOf(task: Task): number {
-  return (STATUS[task.status] ?? UNKNOWN).rank;
 }

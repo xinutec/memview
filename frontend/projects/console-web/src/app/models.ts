@@ -379,7 +379,9 @@ export interface Conversation {
 export interface Task {
   readonly id: string;
   readonly subject: string;
-  /** `open`, `doing` or `done`, in the service's own words. */
+  /** `open`, `doing`, `done` or `dropped`, in the service's own words. A string
+   *  rather than a union because a state this console has not heard of yet is
+   *  news to show, not a parse failure — see `standingOf` in the tasks sheet. */
   readonly status: string;
   /** Whether there is prose behind it worth opening. */
   readonly detailed: boolean;

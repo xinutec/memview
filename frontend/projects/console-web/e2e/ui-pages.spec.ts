@@ -2292,6 +2292,17 @@ const TASKS = [
     status: 'doing',
     detailed: true,
   },
+  // ⚠ **The fourth state, and the one the sheet used to get wrong.** `dropped`
+  // is closed without ever being done, and this sheet filtered on
+  // `status !== 'done'` — so a dropped task stood among the open ones wearing
+  // the icon for a status the console has never heard of. Five of them were live
+  // on the tasks session when it was found.
+  {
+    id: '54',
+    subject: 'move the per-session repo claim into the service',
+    status: 'dropped',
+    detailed: false,
+  },
 ];
 
 /** A session the runner has finished reading: it has a name, a model id and a
@@ -2799,9 +2810,21 @@ test('the task sheet opens on what is left rather than what is done @ phone widt
   await expect(sheet.locator('.said pre')).toContainText('cargo test --workspace');
   await expect(sheet.locator('.said li.task').first()).toContainText('☑');
 
-  // And the toggle brings back what was finished, saying how much it is.
-  await sheet.getByRole('radio', { name: /All \(1 done\)/ }).click();
-  await expect(sheet.locator('.subject')).toHaveCount(3);
+  // And the toggle brings back what is closed, saying how much it is. Both kinds
+  // of closed: "1 done" would have offered to reveal one row and revealed two.
+  await sheet.getByRole('radio', { name: /All \(2 closed\)/ }).click();
+  await expect(sheet.locator('.subject')).toHaveCount(4);
+  // Finished before abandoned, and the dropped row says which it is rather than
+  // borrowing the tick. Read off the mark's label, because that is also what a
+  // screen reader gets.
+  await expect(sheet.locator('.mark').first()).toHaveAttribute('aria-label', 'underway');
+  // By class, not by position: `.task` also matches the checkbox items inside
+  // the write-up opened above, and this list has one of those on screen.
+  await expect(sheet.locator('.task.dropped .mark')).toHaveAttribute('aria-label', 'dropped');
+  await expect(sheet.locator('.tasks > .task').nth(3)).toHaveClass(/dropped/);
+  await expect(sheet.locator('.task.dropped .subject')).toHaveText(
+    'move the per-session repo claim into the service',
+  );
 
   await expectNoTextOverlaps(page, testInfo, '.session-sheet');
   await expectNoHorizontalOverflow(page, testInfo, '.session-sheet');

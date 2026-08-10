@@ -98,12 +98,16 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-// Finished work stays legible rather than being greyed into decoration: it is
+// Closed work stays legible rather than being greyed into decoration: it is
 // shown because somebody asked to see it.
-.task.done .subject {
+.task.done .subject,
+.task.dropped .subject {
   color: var(--mat-sys-on-surface-variant);
 }
 
+// Only what was actually FINISHED takes the accent. A dropped task keeps the
+// quiet default mark: it is closed, not achieved, and colouring the two alike
+// would undo the distinction the service keeps them apart for.
 .task.done .mark {
   color: var(--mat-sys-primary);
 }
