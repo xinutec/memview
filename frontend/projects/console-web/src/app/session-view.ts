@@ -449,16 +449,23 @@ export class SessionView implements OnDestroy {
     // a hold ends by itself and a reader who has scrolled away does not, so a
     // page that never catches up is a different fault from one that follows
     // something nobody is watching.
+    // ⚠ **`top` and `height` as well as the gap they make**, because a gap that
+    // grew says nothing on its own: a reader dragging away and a session writing
+    // raise it identically. Diagnosing the hold defect (#116) stalled exactly
+    // here — the seconds after an unpin could not be attributed without asking
+    // Pippijn what his hand had been doing.
     this.telemetry.measured(
       this.following.held ? 'holding' : 'stayed',
-      `gap=${Math.round(box.scrollHeight - box.scrollTop - box.clientHeight)} entries=${this.entries().length}`,
+      `gap=${Math.round(box.scrollHeight - box.scrollTop - box.clientHeight)} top=${Math.round(box.scrollTop)} height=${box.scrollHeight} entries=${this.entries().length}`,
     );
   }
 
   /** A finger went down on the transcript, which suspends following until it
    *  comes off again — see [[Following.took]]. */
   protected took(): void {
-    this.following.took();
+    const box = this.scroller()?.nativeElement;
+    if (!box) return;
+    this.following.took(measure(box));
   }
 
   /** And came off. Catching up here rather than waiting for the next event: a

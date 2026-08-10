@@ -61,6 +61,24 @@ export function measure(box: HTMLElement): Box {
  */
 const SLACK = 16;
 
+/**
+ * How far a finger must travel before it is scrolling rather than resting.
+ *
+ * ⚠ **Two lines of body text (20px each), and unlike [`SLACK`] the exact value
+ * is not load-bearing** — which is the only reason a second number is allowed
+ * into this file. Nothing writes a scroll position while a finger is down, so
+ * everything the view does during a hold is the hand doing it, and the two hands
+ * are an order of magnitude apart: a thumb resting on glass drifted **18px**
+ * over a twenty-second hold (measured on the phone, 2026-08-10), while reading
+ * back a paragraph travels several hundred. Any threshold from about 30 to about
+ * 200 sorts both correctly.
+ *
+ * It is deliberately nearer the bottom of that range. Set too high, a small
+ * deliberate drag is ignored and the reader drags again; set too low, the page
+ * silently stops following and reads as dead. Those costs are not comparable.
+ */
+const SLOP = 40;
+
 /** Whether a box is showing its own end. */
 function atEnd(box: Box): boolean {
   return box.height - box.top - box.view < SLACK;
@@ -100,15 +118,29 @@ export class Following {
   private holding = false;
 
   /**
-   * Whether the view moved under the finger that is on it.
+   * How tall the transcript was when the finger went down, or -1 for no hold.
    *
    * ⚠ **A hold and a drag are not the same gesture, and treating them alike put
    * the view back at the end the moment somebody let go of a scroll.** Catching
    * up on release is right for a hold — they stopped the page to read a line and
    * then let it go — and wrong for a drag, where letting go is simply the end of
    * the scroll they just performed.
+   *
+   * ⚠ **Which of the two it was is asked of the transcript they were holding,
+   * not the one they let go of**, and that is this field's whole reason to
+   * exist. A hold lasts seconds and a session writes throughout it, so by the
+   * time the finger lifts, the end has run hundreds of pixels away from a reader
+   * who never moved. Judged against the live height, every hold longer than a
+   * moment reads as a drag — [`moved`]'s contamination, arriving on the one path
+   * that had not been fixed for it.
+   *
+   * The position is kept for the same reason the height is: what the gesture
+   * came to is the distance between where the finger went down and where it came
+   * up, and that is the quantity [`SLOP`] is asked about. Neither is knowable
+   * from the events in between — a drag arrives as thirty small ones, and the
+   * first of them is indistinguishable from a thumb.
    */
-  private dragged = false;
+  private heldAt: Box | undefined = undefined;
 
   /**
    * The last position this engine asked for, or -1 for none outstanding.
@@ -179,10 +211,10 @@ export class Following {
     this.started = true;
   }
 
-  /** A finger went down on the transcript. */
-  took(): void {
+  /** A finger went down on the transcript, here. */
+  took(box: Box): void {
     this.holding = true;
-    this.dragged = false;
+    this.heldAt = box;
   }
 
   /**
@@ -190,11 +222,21 @@ export class Following {
    *
    * A hold that moved nothing leaves everything as it was, so a reader who was
    * following still is and the view catches up. A hold that *scrolled* is a
-   * decision about where to be, and is answered from where they let go.
+   * decision about where to be, and is answered from where they let go —
+   * measured against the end as it stood when they took hold. See [`heldAt`].
    */
   released(box: Box): void {
     this.holding = false;
-    if (this.dragged) this.at = atEnd(box);
+    const from = this.heldAt;
+    this.heldAt = undefined;
+    if (!from) return;
+    // A hold. Nothing about where the reader wants to be has changed, and that
+    // includes a thumb that dragged the page a few pixels while it rested.
+    if (Math.abs(box.top - from.top) <= SLOP) return;
+    // A drag, answered against the end as it stood when they took hold: a
+    // session writing throughout a long hold moves the end, and that is not the
+    // reader travelling away from it. See [`heldAt`].
+    this.at = atEnd({ ...box, height: from.height });
   }
 
   /**
@@ -209,9 +251,16 @@ export class Following {
     // the view but them, so a scroll that happens to land on the last position
     // this engine used is them coming back, and ignoring it would leave a reader
     // standing at the newest message with the page refusing to follow.
+    // ⚠ **A finger on the glass suspends the question, it does not answer it.**
+    // Measured on a phone, 2026-08-10: a reader asked to hold still and not
+    // scroll moved the view SIX pixels, which put it 18px from the last write
+    // against a 16px SLACK, and following stopped for good — the gap ran to
+    // 1,879px through releases as well as holds. The movement was a thumb on
+    // glass, not a decision, and no threshold tells those apart from one event.
+    // What does tell them apart is what the gesture adds up to, which is not
+    // known until the finger lifts. See [`heldAt`] and [`released`].
+    if (this.holding) return;
     if (this.at && box.top === this.wrote) return;
-    // A drag: a finger is down and the position changed. See [`dragged`].
-    if (this.holding) this.dragged = true;
     this.at = atEnd(box);
   }
 }

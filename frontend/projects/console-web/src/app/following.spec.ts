@@ -36,7 +36,7 @@ describe('opening', () => {
     // positioning because somebody happened to be touching the glass would open
     // the conversation at its oldest message instead.
     const following = new Following();
-    following.took();
+    following.took(box(0, 5000));
 
     expect(following.wants(box(0, 5000))).toBe(5000);
   });
@@ -117,7 +117,7 @@ describe('while the reader holds the screen', () => {
     // being at the end is exactly what moved the view.
     const following = opened(5000);
 
-    following.took();
+    following.took(box(end(5000), 5000));
 
     expect(following.wants(box(end(5000), 5400)), 'the answer grew; the view stays').toBeUndefined();
     expect(following.wants(box(end(5000), 6000)), 'and keeps staying').toBeUndefined();
@@ -129,7 +129,7 @@ describe('while the reader holds the screen', () => {
     // the conversation on the strength of somebody opening a result.
     const following = opened(5000);
 
-    following.took();
+    following.took(box(end(5000), 5000));
     following.wants(box(end(5000), 6000));
     following.released(box(end(5000), 6000));
 
@@ -143,7 +143,7 @@ describe('while the reader holds the screen', () => {
     // hold, which put the view straight back at the end.
     const following = opened(10000);
 
-    following.took();
+    following.took(box(end(10000), 10000));
     following.moved(box(end(10000) - 200, 10000));
     following.released(box(end(10000) - 200, 10000));
 
@@ -159,7 +159,7 @@ describe('while the reader holds the screen', () => {
     following.moved(box(5000, 10000));
     expect(following.pinned, 'gone').toBe(false);
 
-    following.took();
+    following.took(box(5000, 10000));
     following.moved(box(end(10000), 10000));
     following.released(box(end(10000), 10000));
 
@@ -171,7 +171,7 @@ describe('while the reader holds the screen', () => {
     const following = opened(10000);
     following.moved(box(2000, 10000));
 
-    following.took();
+    following.took(box(2000, 10000));
     following.released(box(2000, 10000));
 
     expect(following.wants(box(2000, 10600))).toBeUndefined();
@@ -220,6 +220,91 @@ describe('following · a gap the reader did not make', () => {
     following.moved({ ...AT_END, top: AT_END.top - 400 });
     expect(following.pinned).toBe(false);
     following.moved(AT_END);
+    expect(following.pinned).toBe(true);
+  });
+});
+
+describe('following · a thumb on the glass, measured 2026-08-10', () => {
+  // ⚠ **Replays the phone measurement that settled #116**, made by holding the
+  // transcript still — deliberately not scrolling — while a session wrote into
+  // it. The trace: `gap=19 top=110310 was=110316 wrote=110328 held=true
+  // height=110938 view=609`. Six pixels of movement, eighteen from the last
+  // write, against `SLACK = 16`. Following stopped and never resumed; the gap
+  // ran to 1,879px through releases as well as holds, which is what a live
+  // session reading as a dead page actually is.
+  //
+  // Three theories were written to this ticket before the measurement and all
+  // three were wrong, so these numbers are the fixtures rather than round ones.
+  const VIEW = 609;
+  /** Where the engine put the view, and how tall the transcript was then. */
+  const WROTE = { top: 110328, height: 110938, view: VIEW };
+  /** Where the thumb had dragged it, and what the session had written by then. */
+  const DRIFTED = 110310;
+  const GREW = 112817;
+
+  function held(): Following {
+    const following = new Following();
+    following.landed(WROTE.top);
+    following.took(WROTE);
+    return following;
+  }
+
+  it('does not unpin while the finger is still down', () => {
+    // The question a hold asks is answered when the finger lifts. Answering it
+    // per event is what no threshold can survive: a drag arrives as thirty small
+    // movements and its first one is a thumb.
+    const following = held();
+
+    following.moved({ ...WROTE, top: 110316 });
+    following.moved({ ...WROTE, top: DRIFTED });
+
+    expect(following.pinned, 'suspended, not decided').toBe(true);
+  });
+
+  it('catches up when a thumb that drifted eighteen pixels lets go', () => {
+    const following = held();
+    following.moved({ ...WROTE, top: DRIFTED });
+
+    following.released({ top: DRIFTED, height: WROTE.height, view: VIEW });
+
+    expect(following.pinned).toBe(true);
+  });
+
+  it('catches up though the session wrote all through the hold', () => {
+    // ⚠ The end ran 1,879px away from a reader who never moved. Judged against
+    // the transcript they let go of, every hold longer than a moment is a drag —
+    // the contamination this file's header describes, on the one path that had
+    // not been fixed for it.
+    const following = held();
+    following.moved({ ...WROTE, top: DRIFTED });
+
+    following.released({ top: DRIFTED, height: GREW, view: VIEW });
+
+    expect(following.pinned).toBe(true);
+    expect(following.wants({ top: DRIFTED, height: GREW, view: VIEW })).toBe(GREW);
+  });
+
+  it('still stops following when the hold was a real scroll back', () => {
+    // What #82 exists to protect, and what SLOP must not cost: reading back is
+    // hundreds of pixels, an order of magnitude clear of a resting thumb.
+    const following = held();
+
+    following.released({ top: WROTE.top - 800, height: GREW, view: VIEW });
+
+    expect(following.pinned).toBe(false);
+  });
+
+  it('picks them up again when the drag ends where the end was', () => {
+    // Dragging back down during a long hold: the end they are returning to is
+    // the one they left, not the one the session has written since.
+    const following = new Following();
+    following.landed(WROTE.top);
+    following.moved({ ...WROTE, top: WROTE.top - 800 });
+    expect(following.pinned, 'gone').toBe(false);
+
+    following.took({ top: WROTE.top - 800, height: WROTE.height, view: VIEW });
+    following.released({ top: WROTE.top + 1, height: GREW, view: VIEW });
+
     expect(following.pinned).toBe(true);
   });
 });
