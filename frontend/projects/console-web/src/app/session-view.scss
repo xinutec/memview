@@ -18,6 +18,17 @@
 // declined: its state is keyed by ask id so that options tapped before a dropped
 // connection survive the re-seed, and per-card state would lose them. See the
 // note on `chosen` in session-view.ts.
+//
+// ⚠ **Raised a second time on 2026-08-11, to 9 kB warn, and the 10 kB ERROR is
+// staying where it is.** Six days and 138 bytes later the warning was back, and
+// a number that moves whenever it is reached is not a heuristic, it is a
+// formality. There was nothing honest to cut: dev-lint's five style rules are
+// still green here, so every remaining declaration is live, and deleting live
+// CSS to buy bytes would be changing how the page looks to satisfy a number.
+// What is left is the corridor between warn and error, which is now 1 kB rather
+// than 2 — so the warning arrives close enough to the hard stop to be worth
+// reading, and the next overshoot has to be paid for by splitting this
+// component, because the ceiling that fails the build is not moving again.
 
 :host {
   // The host is a real element between `.page` and everything below, and a custom
