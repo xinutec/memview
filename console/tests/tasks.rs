@@ -65,18 +65,27 @@ fn reading(address: SocketAddr) -> Tasks {
     Tasks::at(format!("http://{address}")).counting(scratch("empty"))
 }
 
-/// A directory under the temp dir, emptied. Named by the caller so two tests
-/// cannot share one: they run in parallel in this process.
+/// A directory under the temp dir that belongs to this call and to nothing else.
 ///
-/// ⚠ **And by the process, because two suites can run at once.** Several Claude
-/// sessions share this worktree, and a second `cargo test` — a neighbour's gate,
-/// or the same one re-run — raced this exact directory: one process removed it
-/// between the other's remove and create, which fails as `AlreadyExists` and
-/// reads as a defect in whatever changed last. Seen 2026-08-11 on two tests at
-/// once.
+/// ⚠ **Unique per CALL, not per name and not per process, and both of those were
+/// tried.** The failure is always the same one: `remove_dir_all` then
+/// `create_dir_all` is not atomic, so one caller removing the directory between
+/// another's remove and create fails as `AlreadyExists` — which reads as a
+/// defect in whatever was changed last rather than as a race in the harness.
+///
+/// Naming it after the caller fixed nothing, because [`reading`] passes the same
+/// name from every test in this file and they run in parallel threads: thirteen
+/// of them thrashing one path. Adding the process id fixed the *other* race —
+/// two suites at once, a neighbour's gate against this one — and left that. A
+/// counter is what actually settles it: nothing is ever shared, so nothing has
+/// to be emptied, and there is no window to lose.
 fn scratch(what: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("console-strays-{what}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let mine = NEXT.fetch_add(1, Ordering::SeqCst);
+    let dir = std::env::temp_dir().join(format!(
+        "console-strays-{what}-{}-{mine}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).expect("scratch");
     dir
 }
