@@ -135,6 +135,12 @@ async fn main() -> Result<()> {
     if carried > 0 {
         tracing::info!("{carried} session(s) carried across an upgrade — none was restarted");
     }
+    // And the ones the old image was in the middle of stopping, whose kill it
+    // could not deliver because `execve` took the timer with it. See #750.
+    let finishing = roster.finish_stopping();
+    if finishing > 0 {
+        tracing::info!("{finishing} stopped session(s) still to be finished off");
+    }
     let mut app = api::router(roster.clone());
     if let Some(dir) = &static_dir {
         // The SPA owns its routes, so anything the API did not answer is the

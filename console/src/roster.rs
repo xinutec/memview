@@ -41,6 +41,14 @@ pub struct Roster {
 /// The environment variable an upgrade hands its sessions over in.
 const HANDOVER: &str = "CONSOLE_HANDOVER";
 
+/// And the one it hands over the sessions it was in the middle of stopping.
+///
+/// A second variable rather than a second field on [`Carried`]: the two lists
+/// mean opposite things, and this way an upgrade *from* a build that predates it
+/// is simply an absent variable — nothing to finish — rather than a shape the
+/// new image cannot parse and a handover that loses every session.
+const STOPPING: &str = "CONSOLE_HANDOVER_STOPPING";
+
 /// One session, as it travels across an upgrade.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct Carried {
@@ -53,6 +61,25 @@ struct Carried {
     /// older image is still readable rather than dropping every session.
     #[serde(default)]
     tally: crate::session::Tally,
+}
+
+/// A session that was stopped, and whose kill is still owed to it.
+///
+/// ⚠ **Carried apart from the live ones because it is the opposite kind of
+/// thing.** A [`Carried`] session survives the upgrade — its descriptors are
+/// handed over and the conversation goes on. This one is on its way out: its
+/// stdin is already closed, which is what makes it unkeepable and therefore
+/// invisible to the handover, and all the new image can still do for it is
+/// finish it off at the time the old one promised.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct Stopping {
+    id: String,
+    pid: u32,
+    /// When the kill falls due, in epoch milliseconds. Kept as the original
+    /// deadline rather than a fresh grace period: the session was given thirty
+    /// seconds to flush its transcript, and an upgrade is not a reason to give
+    /// it thirty more or to take what is left away.
+    due: i64,
 }
 
 impl Roster {
@@ -145,6 +172,9 @@ impl Roster {
     /// somebody's next instruction into a descriptor that turned out to be a
     /// different session's would be worse. The number carried alongside each
     /// descriptor is the id, so a mismatch is at least visible in the log.
+    ///
+    /// Also finishes off whatever the old image was in the middle of stopping —
+    /// see [`Self::finish_stopping`], which is the other half of memview #750.
     pub fn inherit(&self) -> usize {
         let Ok(handed) = std::env::var(HANDOVER) else {
             return 0;
@@ -200,6 +230,52 @@ impl Roster {
             }
         }
         taken
+    }
+
+    /// Send the kills the image before this one promised and could not deliver.
+    ///
+    /// ⚠ **The deadline is the old image's, not a fresh grace period.** A
+    /// session stopped twenty-nine seconds before an upgrade has one second
+    /// left, and it gets one second: restarting the clock would hand every
+    /// upgrade a reason to keep a stopped process alive for another half minute,
+    /// and enough upgrades in a row would be the leak this fixes wearing a
+    /// different face.
+    ///
+    /// Each waits on its own task, because they fall due at different times and
+    /// the console has a page to serve in the meantime. Nothing is returned: by
+    /// the time any of it happens, whoever pressed stop is long since looking at
+    /// something else, and the log is where this reports.
+    pub fn finish_stopping(&self) -> usize {
+        let Ok(handed) = std::env::var(STOPPING) else {
+            return 0;
+        };
+        // Removed for the same reason the sessions' one is: a variable left in
+        // the environment would be read again by the next upgrade, which would
+        // aim a kill at a pid that has been dealt with once already.
+        unsafe { std::env::remove_var(STOPPING) };
+        let stopping: Vec<Stopping> = match serde_json::from_str(&handed) {
+            Ok(stopping) => stopping,
+            Err(error) => {
+                tracing::error!("the stopping handover could not be read: {error}");
+                return 0;
+            }
+        };
+        let waiting = stopping.len();
+        for one in stopping {
+            let left = u64::try_from(one.due - crate::session::now()).unwrap_or(0);
+            tracing::info!(
+                "{} was being stopped — finishing it in {left}ms (pid {})",
+                one.id,
+                one.pid
+            );
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(left)).await;
+                // Which checks the pid is still that conversation before
+                // sending anything — see the warning there.
+                crate::session::finish(one.pid, &one.id);
+            });
+        }
+        waiting
     }
 
     pub fn config(&self) -> &Config {
@@ -430,6 +506,14 @@ impl Roster {
     /// purpose: the alternative — exiting on a failed exec — would leave live
     /// `claude` processes with nobody holding their stdin, reachable only by
     /// being killed.
+    ///
+    /// ⚠ **A session being stopped travels too, in [`STOPPING`], and it is not
+    /// one of the carried.** It fails the descriptor test by construction —
+    /// [`crate::session::Session::stop`] closes stdin, and that is what makes it
+    /// unkeepable — so before this it was simply dropped, while its kill sat in
+    /// a `tokio::spawn` that `execve` was about to discard. The process then
+    /// outlived both, with no row in the new image and nothing left that would
+    /// ever end it: memview #750, found two and a quarter hours later.
     pub fn handover(&self) -> anyhow::Result<std::convert::Infallible> {
         use std::os::unix::process::CommandExt;
 
@@ -455,15 +539,31 @@ impl Roster {
             })
             .collect();
 
+        // Everything that was stopped and has not gone yet. Not filtered on the
+        // descriptors: closing stdin is what put it here.
+        let stopping: Vec<Stopping> = sessions
+            .values()
+            .filter(|session| session.alive())
+            .filter_map(|session| {
+                session.stopping().map(|due| Stopping {
+                    id: session.id.clone(),
+                    pid: session.pid(),
+                    due,
+                })
+            })
+            .collect();
+
         let binary = std::env::current_exe().context("finding this console's own binary")?;
         tracing::info!(
-            "upgrading to {}, carrying {} session(s)",
+            "upgrading to {}, carrying {} session(s) and {} being stopped",
             binary.display(),
-            carried.len()
+            carried.len(),
+            stopping.len()
         );
         let error = std::process::Command::new(&binary)
             .args(std::env::args().skip(1))
             .env(HANDOVER, serde_json::to_string(&carried)?)
+            .env(STOPPING, serde_json::to_string(&stopping)?)
             .exec();
         // exec only returns on failure.
         Err(anyhow::Error::new(error).context(format!("replacing this console with {binary:?}")))

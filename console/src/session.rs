@@ -184,6 +184,49 @@ pub fn keepable(fd: std::os::fd::RawFd) -> bool {
     }
 }
 
+/// Whether a `ps` listing shows this conversation still being run.
+///
+/// The words are read through [`crate::past::words_of_claude_processes`], so a
+/// line that merely *mentions* the id — a grep, an editor, this console — is not
+/// a `claude`, for the reason written down there.
+pub fn names_session(ps_output: &str, id: &str) -> bool {
+    crate::past::words_of_claude_processes(ps_output)
+        .iter()
+        .any(|word| word == id)
+}
+
+/// Kill a stopped session's process, after checking it is still that process.
+///
+/// ⚠ **A pid is not a handle, and this one is up to thirty seconds old.** The
+/// warning is already written down at [`crate::roster::Roster::revive`]: a late
+/// SIGKILL aimed at a pid the console no longer owns lands on whatever the
+/// system started in its place, and that is the kind of fault nothing can trace
+/// afterwards. So the pid is confirmed to still be running this conversation
+/// before anything is sent to it.
+///
+/// Anything unreadable — no `ps`, no permission, no such process — is *not* a
+/// kill. Leaving a process alive is the recoverable half of this decision; the
+/// other half is unbounded.
+pub fn finish(pid: u32, id: &str) {
+    let Ok(output) = std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "args="])
+        .output()
+    else {
+        tracing::warn!("could not ask ps about {pid}, so {id} was left alone");
+        return;
+    };
+    if !names_session(&String::from_utf8_lossy(&output.stdout), id) {
+        // The ordinary case, and the one worth logging at info: the session took
+        // its stdin closing as the exit it is and went on its own.
+        tracing::info!("{id} had already gone, so pid {pid} was left alone");
+        return;
+    }
+    tracing::info!("{id} outlived its grace period — killing pid {pid}");
+    // SAFETY: a kill to a pid this console started and has just confirmed is
+    // still running that session; ESRCH for one that went in between is ignored.
+    unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+}
+
 /// How much transcript one session keeps in memory.
 ///
 /// The console holds no database in phase 1 and the transcripts on disk are the
@@ -466,6 +509,11 @@ struct State {
     /// Questions the session is blocked on, by control-request id.
     pending: BTreeMap<String, Pending>,
     alive: bool,
+    /// When the kill armed by [`Session::stop`] falls due, in epoch
+    /// milliseconds, and `None` for a session nobody has stopped. Read by
+    /// [`crate::roster::Roster::handover`], which is the only reason it is
+    /// written down rather than left to the timer — see [`Session::stop`].
+    stopping: Option<i64>,
     model: Option<String>,
     busy: Option<String>,
     /// See [`Summary::interactions`], and [`crate::past::counted`] for why the
@@ -1538,13 +1586,33 @@ impl Session {
     /// Closing stdin is the exit the CLI is built for. The timer behind it is
     /// there because a session that will not end must not be able to keep the
     /// console holding a handle to it for ever.
+    ///
+    /// ⚠ **The deadline is recorded as well as slept on, because the sleep does
+    /// not survive an upgrade.** `handover` re-execs this process, and a
+    /// `tokio::spawn` is part of the image that goes; the session is not carried
+    /// either, since closing stdin makes its descriptors unkeepable. Both at
+    /// once left a stopped session running for two and a quarter hours
+    /// (memview #750) — a child of the console with no row anywhere in it, which
+    /// is precisely the state [`crate::roster::Roster::kill_all`] exists to
+    /// avoid. So the *when* is written down where the handover can read it, and
+    /// the new image finishes what this one started.
     pub async fn stop(self: &Arc<Self>) {
         self.stdin.lock().await.take();
+        self.state.lock().expect("session state poisoned").stopping =
+            Some(now() + GRACE.as_millis() as i64);
         let session = self.clone();
         tokio::spawn(async move {
             tokio::time::sleep(GRACE).await;
             session.force();
         });
+    }
+
+    /// When this session's kill falls due, for one that has been stopped.
+    ///
+    /// `None` for a session nobody has stopped, which is every session that is
+    /// simply running.
+    pub fn stopping(&self) -> Option<i64> {
+        self.state.lock().expect("session state poisoned").stopping
     }
 
     /// Kill the session now.
