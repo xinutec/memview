@@ -61,6 +61,17 @@ export interface Summary {
    *  `session::Session::deaf`. A number here means a restart is the only known
    *  cure, and that `revive` is what performs it. */
   deaf?: number;
+  /**
+   * Slash commands written while a turn was running, oldest first, waiting for
+   * it to end.
+   *
+   * ⚠ **A command sent mid-turn does not run** — the CLI parks it and hands it
+   * to the model as words, so `/rename` got a polite "nothing for me to do" and
+   * no name was ever written. The runner holds it instead and sends it when the
+   * turn ends; this is what says so on screen, and cancelling goes by the exact
+   * text. Absent when nothing is waiting. See `session::State::held`.
+   */
+  held?: string[];
   /** The first instruction, kept as the session's name. */
   asked?: string;
   /** What the conversation calls itself — `memview`, `health`. */

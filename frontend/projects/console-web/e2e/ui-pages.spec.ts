@@ -1008,6 +1008,46 @@ test('a picture waits to be sent with what is said about it @ phone width', asyn
   await expect(page.locator('.chosen')).toHaveCount(0);
 });
 
+test('a command waiting for the turn says so, and can be taken back @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **Measured 2026-08-08 against CLI 2.1.221/226.** A slash command written
+  // to a working session is not run: the CLI parks it as a `queued_command` with
+  // `commandMode: "prompt"` and hands it to the MODEL as words. `/rename` sent
+  // from the phone got "Noted the rename (CLI-side, nothing for me to do)" and
+  // no name was ever written. The runner holds it now; this is the screen saying
+  // so, which is the half that makes it not a second silent thing.
+  await mockRunner(page);
+  const id = STATE.sessions[0].id;
+  const working = { ...STATE.sessions[0], working: true, held: ['/compact'] };
+  await page.route('**/api/state', (r) =>
+    r.fulfill({ json: { ...STATE, sessions: [working, STATE.sessions[1]] } }),
+  );
+  let cancelled: Record<string, unknown> | undefined;
+  await page.route(`**/api/sessions/${id}/unhold`, (r) => {
+    cancelled = r.request().postDataJSON() as Record<string, unknown>;
+    return r.fulfill({ json: { ...working, held: [] } });
+  });
+  await page.goto(`/s/${id}`);
+
+  const chip = page.locator('.waiting');
+  await chip.waitFor();
+  await expect(chip).toContainText('/compact');
+  await expect(chip, 'the chip does not say when it will run').toContainText(
+    'runs when this turn ends',
+  );
+  // The fullest this strip gets is a long command beside its own button, on a
+  // phone 412px wide.
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectThumbTargets(page);
+
+  await chip.getByRole('button', { name: /do not run/ }).click();
+  await expect.poll(() => cancelled?.['text']).toBe('/compact');
+  // Gone because the runner said it is gone, not because the button was pressed.
+  await expect(page.locator('.waiting')).toHaveCount(0);
+});
+
 test('what is being written survives leaving the conversation @ phone width', async ({ page }) => {
   // Reported 2026-08-06: typed words and a chosen picture were lost on going up
   // to the list and coming back. The picture is the expensive half — it cost a

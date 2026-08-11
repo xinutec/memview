@@ -694,6 +694,31 @@ export class SessionView implements OnDestroy {
       });
   }
 
+  /** Which held command is being taken back, so its × cannot be tapped twice. */
+  readonly unholding = signal<string | undefined>(undefined);
+
+  /**
+   * Take back a command that is waiting for the turn to end.
+   *
+   * The answer is the session as it now is, so the chip goes when the runner
+   * says it has gone rather than when the tap happens — the same rule as
+   * everywhere else here: the screen reports what the runner did, not what this
+   * page asked for.
+   */
+  unhold(command: string): void {
+    this.unholding.set(command);
+    this.api.unhold(this.id(), command).subscribe({
+      next: (summary) => {
+        this.unholding.set(undefined);
+        this.session.set(summary);
+      },
+      error: (err: unknown) => {
+        this.unholding.set(undefined);
+        this.trouble.set(reason(err));
+      },
+    });
+  }
+
   /** Put the held picture down, releasing what the preview holds open. */
   drop(): void {
     const held = this.picture();

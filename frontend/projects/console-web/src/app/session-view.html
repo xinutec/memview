@@ -487,6 +487,29 @@
 @if (pictureTrouble(); as why) {
   <p class="trouble">{{ why }}</p>
 }
+<!-- ⚠ **A command sent to a working session does not run.** The CLI parks it and
+     hands it to the model as words — `/rename` got "nothing for me to do" and no
+     name was ever written, with nothing on screen saying so. The runner holds it
+     until the turn ends; this is the saying so, and the × is the way out of it.
+     Above the composer with the picture, because it is the same kind of thing:
+     something written and waiting to go. -->
+@for (command of session()?.held ?? []; track command) {
+  <div class="waiting">
+    <mat-icon>hourglass_top</mat-icon>
+    <span class="what"
+      ><code>{{ command }}</code> runs when this turn ends</span
+    >
+    <button
+      matIconButton
+      type="button"
+      [attr.aria-label]="'do not run ' + command"
+      [disabled]="unholding() === command"
+      (click)="unhold(command)"
+    >
+      <mat-icon>close</mat-icon>
+    </button>
+  </div>
+}
 
 <form class="composer" (submit)="$event.preventDefault(); send()">
   <!-- ⚠ `subscriptSizing="dynamic"` is load-bearing, not tidying. By default a

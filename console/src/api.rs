@@ -46,6 +46,7 @@ pub fn router(roster: Arc<Roster>) -> Router {
             post(show).layer(axum::extract::DefaultBodyLimit::max(BODY_LIMIT)),
         )
         .route("/api/sessions/{id}/images/{name}", get(picture))
+        .route("/api/sessions/{id}/unhold", post(unhold))
         .route("/api/sessions/{id}/decide", post(decide))
         .route("/api/sessions/{id}/mode", post(mode))
         .route("/api/sessions/{id}/rename", post(rename))
@@ -446,6 +447,33 @@ async fn rename(
         .rename(title)
         .await
         .map_err(|err| (StatusCode::CONFLICT, format!("{err:#}")))?;
+    Ok(Json(session.summary()))
+}
+
+/// Take back a command that is waiting for the turn to end.
+///
+/// ⚠ **A command that is no longer held is not an error.** Two screens can be
+/// looking at one session, and the turn can end between the chip being drawn and
+/// the tap on it — in both cases the honest answer is the session as it now is,
+/// which is what the summary says. Failing would report a mistake to somebody
+/// who did not make one.
+async fn unhold(
+    State(roster): State<Arc<Roster>>,
+    Path(id): Path<String>,
+    Json(body): Json<Message>,
+) -> Result<Json<Summary>, (StatusCode, String)> {
+    let session = roster
+        .get(&id)
+        .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
+    let dropped = session.forget_held(&body.text);
+    tracing::info!(
+        "{id}: {} a held command",
+        if dropped {
+            "took back"
+        } else {
+            "was not holding"
+        }
+    );
     Ok(Json(session.summary()))
 }
 

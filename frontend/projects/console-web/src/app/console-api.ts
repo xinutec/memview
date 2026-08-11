@@ -159,6 +159,16 @@ export class ConsoleApi {
     return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/rename`, { title });
   }
 
+  /** Take back a command that is waiting for the turn to end — by its exact
+   *  text, which is what the chip on screen is showing.
+   *
+   *  A command that is no longer held answers with the session as it is rather
+   *  than an error: the turn can end between the chip being drawn and the tap on
+   *  it, and that is not a mistake anybody made. */
+  unhold(id: string, text: string): Observable<Summary> {
+    return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/unhold`, { text });
+  }
+
   stop(id: string): Observable<Summary> {
     return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/stop`, {});
   }

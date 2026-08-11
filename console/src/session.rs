@@ -351,6 +351,14 @@ pub struct Summary {
     /// not a fact anybody wants at that moment.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deaf: Option<u64>,
+    /// Slash commands waiting for the turn to end, oldest first. See
+    /// [`State::held`] for why they are not simply written.
+    ///
+    /// The words themselves, because the client draws them and cancels by them:
+    /// what is on screen has to say WHICH command is waiting, or it is one more
+    /// thing happening that nobody was told about.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub held: Vec<String>,
 }
 
 /// An event and its place in the session's order.
@@ -503,6 +511,21 @@ struct State {
     /// When the oldest decision the session has not acted on was written, in
     /// epoch milliseconds. See [`Session::deaf`].
     decided: Option<i64>,
+    /// Slash commands written while a turn was running, oldest first, waiting
+    /// for it to end.
+    ///
+    /// ⚠ **A command sent mid-turn does not run — it is handed to the MODEL as
+    /// words.** The CLI parks it as a `queued_command` with
+    /// `commandMode: "prompt"` (1,756 of them on this machine) and releases it
+    /// into the conversation when the turn ends, so `/rename` reached an agent
+    /// which replied "nothing for me to do" while no name was ever written.
+    /// Nothing on any screen said the command had been demoted.
+    ///
+    /// Held here rather than in the client, because a client that is holding it
+    /// stops holding it the moment the phone is put away — and this console's
+    /// sessions are usually working, so the demoted case is the common one, not
+    /// the edge. See [`Session::send`] and [`Session::release_held`].
+    held: VecDeque<String>,
     /// A `/compact` has been sent and the conversation has not moved since.
     ///
     /// The one long silence that is not a fault: a compaction summarises the
@@ -1156,6 +1179,16 @@ impl Session {
                         session.push(event);
                         if counted {
                             session.recount();
+                            // The moment the commands parked mid-turn have been
+                            // waiting for. Here rather than in `push_at` for the
+                            // same reason as the recount: that one holds the
+                            // state lock, and this writes to a pipe. A failure
+                            // is logged and not propagated — this loop is the
+                            // session's only reader, and ending it over a
+                            // refused write would take the transcript with it.
+                            if let Err(err) = session.release_held().await {
+                                tracing::warn!("{}: holding a command back: {err:#}", session.id);
+                            }
                         }
                     }
                 }
@@ -1208,7 +1241,25 @@ impl Session {
     }
 
     /// Send a message to the session.
+    ///
+    /// ⚠ **A slash command sent mid-turn is HELD, not written.** See
+    /// [`State::held`] for what the CLI does with one instead. The test and the
+    /// parking happen under a single lock on the state, which is the same lock
+    /// [`in_flight`] takes to clear `working` — so a turn ending beside this
+    /// either has not happened yet, and the flush that follows it drains what
+    /// was just parked, or has happened, and this writes straight through.
     pub async fn send(&self, text: &str) -> Result<()> {
+        let parked = {
+            let mut state = self.state.lock().expect("session state poisoned");
+            let parking = state.working && protocol::is_command(text);
+            if parking {
+                state.held.push_back(text.to_string());
+            }
+            parking
+        };
+        if parked {
+            return Ok(());
+        }
         let mut held = self.stdin.lock().await;
         let stdin = held
             .as_mut()
@@ -1254,6 +1305,43 @@ impl Session {
             state.asked = Some(text.to_string());
         }
         Ok(())
+    }
+
+    /// Write the commands that were waiting for this turn to end.
+    ///
+    /// Through [`Self::send`], which finds `working` already false and writes
+    /// straight through — so a released command takes the ordinary path and is
+    /// recorded by the ordinary [`Event::Command`], at the moment it actually
+    /// goes. One at a time, and re-locked between each, so a cancel arriving
+    /// mid-drain is honoured rather than raced.
+    ///
+    /// A write that fails stops the drain and leaves the rest held: the usual
+    /// reason is a session that has stopped taking input, and writing the second
+    /// command after the first was refused would be pretending.
+    pub async fn release_held(&self) -> Result<()> {
+        loop {
+            let next = {
+                let mut state = self.state.lock().expect("session state poisoned");
+                state.held.pop_front()
+            };
+            let Some(command) = next else { return Ok(()) };
+            self.send(&command).await?;
+        }
+    }
+
+    /// Take back a command that is waiting — by its exact text, which is what
+    /// the client has.
+    ///
+    /// Returns whether anything was holding it. A false is not an error: two
+    /// screens can be looking at the same session, and the second tap on a
+    /// command already released has nothing to undo.
+    pub fn forget_held(&self, text: &str) -> bool {
+        let mut state = self.state.lock().expect("session state poisoned");
+        let Some(at) = state.held.iter().position(|held| held == text) else {
+            return false;
+        };
+        state.held.remove(at);
+        true
     }
 
     /// Show the session a picture, with whatever was said about it.
@@ -1668,6 +1756,11 @@ impl Session {
                     // question left standing would keep saying the session is
                     // waiting for someone.
                     state.pending.clear();
+                    // Nor can a command be written to it. Held ones were waiting
+                    // for a turn to end that now never will, and a chip promising
+                    // one is about to run is the same lie this whole mechanism
+                    // exists to stop.
+                    state.held.clear();
                 }
                 _ => {}
             }
@@ -1814,6 +1907,7 @@ impl Session {
             waiting: state.pending.len(),
             unread: state.unread.len(),
             deaf: deaf_for(&state).map(|ms| (ms / 1000) as u64),
+            held: state.held.iter().cloned().collect(),
         }
     }
 }

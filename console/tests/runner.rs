@@ -1130,6 +1130,169 @@ async fn a_session_carried_by_an_older_image_is_not_left_blank_about_permissions
     assert_eq!(console::session::DEFAULT_MODE, "default");
 }
 
+/// A session driven through real pipes, so what reaches the CLI can be read.
+///
+/// `adopt` is the only way in that hands the test both ends: the write end of
+/// stdout to speak as the CLI, and the read end of stdin to see what it is told.
+fn wired() -> (
+    Arc<console::session::Session>,
+    std::fs::File,
+    std::fs::File,
+    std::fs::File,
+) {
+    use std::os::fd::FromRawFd;
+    let (stdin_read, stdin) = carried_pipe();
+    let (stdout, stdout_write) = carried_pipe();
+    let (stderr, stderr_write) = carried_pipe();
+    let session = console::session::Session::adopt(
+        "not-a-session-on-disk".into(),
+        std::env::temp_dir(),
+        std::process::id(),
+        console::session::Fds {
+            stdin,
+            stdout,
+            stderr,
+        },
+        Default::default(),
+    )
+    .expect("adopt");
+    // SAFETY: each descriptor came from `pipe(2)` above and is given away once.
+    unsafe {
+        (
+            session,
+            std::fs::File::from_raw_fd(stdin_read),
+            std::fs::File::from_raw_fd(stdout_write),
+            std::fs::File::from_raw_fd(stderr_write),
+        )
+    }
+}
+
+/// What the session has been told, as far as it has been told anything.
+///
+/// Non-blocking: the point of most of these reads is that NOTHING was written,
+/// and a blocking read would hang rather than fail.
+fn told(stdin: &std::fs::File) -> String {
+    use std::io::Read;
+    use std::os::fd::AsRawFd;
+    // SAFETY: an fcntl on a descriptor this test owns.
+    unsafe { libc::fcntl(stdin.as_raw_fd(), libc::F_SETFL, libc::O_NONBLOCK) };
+    let mut said = String::new();
+    let mut buffer = [0u8; 4096];
+    let mut handle = stdin;
+    while let Ok(read) = handle.read(&mut buffer) {
+        if read == 0 {
+            break;
+        }
+        said.push_str(&String::from_utf8_lossy(&buffer[..read]));
+    }
+    said
+}
+
+const SAID: &str = r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"working on it"}}}"#;
+const ENDED: &str =
+    r#"{"type":"result","subtype":"success","total_cost_usd":1.0,"num_turns":1,"duration_ms":5}"#;
+
+#[tokio::test]
+async fn a_command_sent_mid_turn_waits_for_the_turn_rather_than_becoming_prose() {
+    // ⚠ **The defect, measured 2026-08-08 against CLI 2.1.221/226.** A slash
+    // command written to a working session is not run: the CLI parks it as a
+    // `queued_command` with `commandMode: "prompt"` and hands it to the MODEL as
+    // words. `/rename` sent from the phone got "Noted the rename (CLI-side,
+    // nothing for me to do)" and no name was ever written, with nothing on
+    // screen saying the command had been demoted.
+    use std::io::Write;
+    let (session, stdin, mut stdout, _stderr) = wired();
+
+    // Working, as this console's sessions usually are.
+    writeln!(stdout, "{SAID}").expect("speak");
+    until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Text { .. }))
+    })
+    .await;
+    assert!(session.summary().working, "the session is not working");
+    let _ = told(&stdin);
+
+    session.send("/compact").await.expect("send");
+    assert_eq!(
+        told(&stdin),
+        "",
+        "the command went to the CLI mid-turn, which hands it to the model as words"
+    );
+    assert_eq!(
+        session.summary().held,
+        vec!["/compact".to_string()],
+        "nothing on screen would say the command is waiting"
+    );
+
+    // An ordinary message is NOT held: it is what the queue is for, and the CLI
+    // does the right thing with it.
+    session.send("and some words").await.expect("send");
+    assert!(
+        told(&stdin).contains("and some words"),
+        "a message was held back with the commands"
+    );
+
+    // The turn ends, and only then does the command go.
+    writeln!(stdout, "{ENDED}").expect("end the turn");
+    until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Command { .. }))
+    })
+    .await;
+    assert!(
+        told(&stdin).contains("/compact"),
+        "the command never went at all, which is worse than sending it early"
+    );
+    assert!(
+        session.summary().held.is_empty(),
+        "the chip would still be on screen over a command that has run"
+    );
+}
+
+#[tokio::test]
+async fn a_held_command_can_be_taken_back() {
+    use std::io::Write;
+    let (session, stdin, mut stdout, _stderr) = wired();
+    writeln!(stdout, "{SAID}").expect("speak");
+    until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Text { .. }))
+    })
+    .await;
+    session.send("/compact").await.expect("send");
+    let _ = told(&stdin);
+
+    assert!(session.forget_held("/compact"), "it was not holding it");
+    assert!(session.summary().held.is_empty());
+    // Not an error the second time: two screens can be looking at one session,
+    // and the turn can end between the chip being drawn and the tap on it.
+    assert!(!session.forget_held("/compact"));
+
+    writeln!(stdout, "{ENDED}").expect("end the turn");
+    until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Turn { .. }))
+    })
+    .await;
+    assert_eq!(
+        told(&stdin),
+        "",
+        "a command that was taken back was sent anyway"
+    );
+}
+
+#[tokio::test]
+async fn a_command_is_not_held_by_a_session_that_is_not_working() {
+    // The uncommon case for this console, and the one where the CLI behaves:
+    // between turns a command runs as a command, so holding it would add a delay
+    // and a chip for nothing.
+    let (session, stdin, _stdout, _stderr) = wired();
+    assert!(!session.summary().working);
+    session.send("/compact").await.expect("send");
+    assert!(
+        told(&stdin).contains("/compact"),
+        "an idle session's command was held instead of run"
+    );
+    assert!(session.summary().held.is_empty());
+}
+
 /// When the console is prepared to say a session has stopped listening.
 ///
 /// ⚠ **This is the alarm that was missing, and its absence cost two manual
