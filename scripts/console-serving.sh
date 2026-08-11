@@ -45,24 +45,40 @@ entry="$(printf '%s' "$index" | grep -o 'main-[A-Za-z0-9]*\.js' | head -1)"
 stamp="$(fetch "$entry" | grep -o 'sha:"[^"]*",builtAt:"[^"]*"' | head -1)"
 served_sha="$(printf '%s' "$stamp" | sed -n 's/.*sha:"\([^"]*\)".*/\1/p')"
 built_at="$(printf '%s' "$stamp" | sed -n 's/.*builtAt:"\([^"]*\)".*/\1/p')"
-head_sha="$(git rev-parse --short HEAD)"
+# NOT HEAD. Most commits here are backend or docs and cannot change the bundle,
+# so comparing to HEAD would report a stale console after every one of them — a
+# check that is wrong most days is a check nobody reads. What matters is whether
+# the served build already contains the last change to the frontend.
+# Specs and the Playwright harness are excluded: they are the fastest-churning
+# files here and none of them is in the bundle, so counting them would say
+# "publish" after work that could not have changed what the phone loads.
+frontend_sha="$(git log -1 --format=%h -- frontend/ \
+  ':(exclude,glob)frontend/**/e2e/**' \
+  ':(exclude,glob)frontend/**/playwright.config.*' \
+  ':(exclude,glob)frontend/**/*.spec.ts')"
 
 echo "serving   $entry"
 echo "built     ${served_sha:-unknown} at ${built_at:-unknown}"
-echo "HEAD      $head_sha"
+echo "frontend  $frontend_sha (last commit touching frontend/)"
 
 ok=0
+clean_sha="${served_sha%+}"
 
 if [ -z "$served_sha" ]; then
   echo "MISMATCH  the bundle carries no build stamp — built before stamping existed" >&2
   ok=1
-elif [ "$served_sha" = "$head_sha" ]; then
-  echo "ok        the served bundle was built from HEAD"
-elif [ "$served_sha" = "$head_sha+" ]; then
-  echo "DIRTY     built from HEAD with uncommitted changes — it is not any commit" >&2
+elif [ "$clean_sha" != "$served_sha" ]; then
+  # The + is stamp-version.mjs marking a dirty tree: the bundle is not any commit,
+  # so no comparison against one can be trusted.
+  echo "DIRTY     built from $clean_sha with uncommitted changes — it is no commit" >&2
   ok=1
+elif ! git cat-file -e "$clean_sha^{commit}" 2>/dev/null; then
+  echo "UNKNOWN   $clean_sha is not a commit in this repo — rebased away, or another tree" >&2
+  ok=1
+elif git merge-base --is-ancestor "$frontend_sha" "$clean_sha"; then
+  echo "ok        the served bundle has every frontend change up to $frontend_sha"
 else
-  echo "BEHIND    the served bundle is ${served_sha}, not $head_sha — publish:console" >&2
+  echo "BEHIND    built at $clean_sha, before $frontend_sha — pnpm run publish:console" >&2
   ok=1
 fi
 
