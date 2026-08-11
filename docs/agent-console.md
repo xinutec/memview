@@ -1605,6 +1605,18 @@ must not be able to reach the phone by being routine. Asking what is in fact
 being served is `scripts/console-serving.sh`, which reads the git sha the bundle
 carries rather than trusting the directory.
 
+⚠ **Never deleting is also why the directory only grew** — 273 files and 140 MB
+by 2026-08-11, one `main-*.js` of them current. It cannot simply keep the newest
+set: a phone with the app open goes on asking the superseded bundle for its lazy
+chunks until it reloads, so deleting on publish is how a session in somebody's
+hand breaks halfway through a tap. `frontend/scripts/prune-live.mjs` therefore
+records a generation rather than inferring one — each publish writes the file
+list it published, and the keep set is the union of the last ten. A chunk whose
+content did not change keeps its hash, appears in every list, and is never a
+candidate. The first run records everything already there as one legacy
+generation, so nothing is cut out from under a page that might be open now; that
+140 MB frees itself ten publishes later.
+
 The rule was learnt twice. First as "put the served copy outside the output
 path", which is why `console-live` exists. Then again, because **a running
 console keeps the environment it started with**: the console still serving
@@ -1619,8 +1631,11 @@ Two lasting consequences:
 
 - **Moving the output path fixes it for processes nobody can reconfigure.** A
   console with a stale `STATIC_DIR` now points at a directory no build deletes,
-  so it serves a complete bundle whatever it was told at startup.
-  `publish:console` copies to both until no such console is left running.
+  so it serves a complete bundle whatever it was told at startup. The publish
+  copied to `dist/console-web/browser` as well, until no console was left
+  serving it — read from `ps -Eww` on 2026-08-11 (pid 95758,
+  `STATIC_DIR=…/dist/console-live`), and the second copy went, with the 137 MB
+  it had accumulated.
 - **`STATIC_DIR` is not fixed by an upgrade.** `SIGUSR2` re-execs the same
   environment; only a full restart re-reads the script. Anything read from the
   environment at startup has this property — see the upgrade section.

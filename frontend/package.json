@@ -18,7 +18,7 @@
     "ui-check": "playwright test && playwright test -c projects/console-web/playwright.config.ts",
     "watch": "ng build --watch --configuration development",
     "build:console": "ng build console-web",
-    "publish:console": "pnpm run build:console && rsync -a dist/console-build/browser/ dist/console-live/ && rsync -a dist/console-build/browser/ dist/console-web/browser/",
+    "publish:console": "pnpm run build:console && rsync -a dist/console-build/browser/ dist/console-live/ && node scripts/prune-live.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc -p tsconfig.e2e.json"

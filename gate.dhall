@@ -135,11 +135,25 @@ in  { name = "memview"
         , env = G.oneAngularWorker
         , timeout_s = 1800
         }
+      , {-  A row of its own because it cannot be one of the above. The Angular
+            unit-test builder runs specs against a browser build of an
+            application; this is a node script that deletes files out of the
+            directory the phone is served from, so it is tested with node's own
+            runner against a real temporary tree.
+        -}
+        G.Check::{
+        , name = "the live-bundle pruner"
+        , cwd = "frontend"
+        , argv = G.inDevShell [ "node", "--test", "scripts/prune-live.test.mjs" ]
+        , timeout_s = 300
+        }
       , {-  Both applications, and both output directories asserted on. The
-            `--expect` paths are ng's own output paths — `dist/console-web` and
-            `dist/console-live` are rsynced copies that exist so no build ever
-            deletes a directory somebody is being served from, and are a build
-            behind whenever `ng build` runs on its own.
+            `--expect` paths are ng's own output paths — `dist/console-live` is
+            an rsynced copy that exists so no build ever deletes a directory
+            somebody is being served from, and it is a build behind whenever
+            `ng build` runs on its own. Since 2026-08-11 it is a publish behind
+            as well: only `pnpm run publish:console` writes it, so a build for a
+            test cannot reach the phone.
 
             `../../dev-lint`, not `../dev-lint`: cwd is `memview/frontend`.
         -}
