@@ -18,6 +18,9 @@ import { Injectable, signal } from '@angular/core';
  * - **Hidden**: reload at once. Nobody is looking.
  * - **Visible, mid-session**: hold it, and reload when the app is next put away.
  *   A console left open for a day is fresh the next time you pick it up.
+ * - **Restored by going back**: a boot, because that is what it is — see the
+ *   `pageshow` listener. Startup then decides, so a page that is not behind is
+ *   left alone.
  *
  * There is no reload loop: after reloading, the fingerprint the page booted from
  * is the one being served, so nothing more happens.
@@ -34,6 +37,17 @@ export class Updates {
   constructor() {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden' && this.pending()) this.reload();
+    });
+    // ⚠ **A restored page is a boot, not a session being sat on.** A reload
+    // replaces the CURRENT history entry's document; every entry made before it
+    // still belongs to the old one, which the browser keeps alive — so going back
+    // resurrects a live old bundle, and this console pushes an entry per sheet,
+    // so there is usually one to land on. The mid-session rule would then hold
+    // the reload, which is right for a page with a half-typed instruction in it
+    // and wrong for one just navigated into. Resetting the clock reuses the
+    // decision already here: stale reloads at once, current does nothing at all.
+    window.addEventListener('pageshow', (event: PageTransitionEvent) => {
+      if (event.persisted) this.booted = Date.now();
     });
   }
 
