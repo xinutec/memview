@@ -1545,7 +1545,12 @@ would be a stop that sometimes did not stop.
 **What is installed is `nix build .#console`**, copied to
 `~/.local/libexec/agent-console` by atomic rename — a copy, and not a symlink
 into the store, because signing cannot reach the store and a path launchd names
-must not be something a GC may collect. The flake's `packages.console` builds
+must not be something a GC may collect. ⚠ **The copy is not free of the store
+even so** — `otool -L` says it loads `libiconv` from an absolute `/nix/store`
+path, so the upgrade keeps an out-link at `~/.local/libexec/.agent-console-build`
+as an indirect GC root. Without it a collection could leave a binary dyld cannot
+start, and not at collection time: a running process keeps its mapping, so the
+failure would wait for the next restart. The flake's `packages.console` builds
 only the Rust half; the Angular half is `publish:console`, above. It costs about
 80 seconds against `cargo build --release`'s 15, since a source change
 recompiles the vendored tree — the wrong trade for iterating and the right one

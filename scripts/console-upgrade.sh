@@ -54,13 +54,20 @@ fi
 # tree. That is the wrong trade for iterating and the right one for installing,
 # and this script is the installing one; `cargo run -p console` is still there
 # for the other.
-echo "building..."
-out="$(nix build .#console --no-link --print-out-paths)"
-built="$out/bin/console"
-[ -x "$built" ] || { echo "no binary at $built" >&2; exit 1; }
-
 LIBEXEC="$(dirname "$CONSOLE_BIN")"
 mkdir -p "$LIBEXEC"
+
+# ⚠ **The installed copy is not free of the store.** It is a plain file this user
+# owns, but `otool -L` says it loads libiconv from an absolute
+# `/nix/store/…` path, so a garbage collection that took that path would leave a
+# binary dyld cannot start — at the next restart, not at collection, since a
+# running process keeps its mapping. The out-link is an indirect GC root, which
+# is the whole reason it exists here rather than `--no-link`; it doubles as
+# provenance, naming the store path this copy was made from.
+echo "building..."
+out="$(nix build .#console --out-link "$LIBEXEC/.agent-console-build" --print-out-paths)"
+built="$out/bin/console"
+[ -x "$built" ] || { echo "no binary at $built" >&2; exit 1; }
 
 # Staged in the DESTINATION directory, so the rename cannot cross a filesystem
 # and stays atomic — see the note above on why writing in place would fail.
