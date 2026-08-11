@@ -1224,6 +1224,74 @@ test('a picture can be put down again without being sent @ phone width', async (
   await expect(page.locator('.composer .send')).toBeDisabled();
 });
 
+/**
+ * A run of calls with a permission question standing on the newest one.
+ *
+ * ⚠ **The shape the defect lived in** (memview#86): the CLI announces the call
+ * and then asks about it, carrying the same `tool_use` id on both. Two calls
+ * before it, so the fold has something to fold — the card used to sit between
+ * them and break every run.
+ */
+const DECIDING = [
+  { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code/memview', tools: 14 },
+  { kind: 'tool', id: 'toolu_a1', name: 'Bash', input: { command: 'git status' }, at: NEXT },
+  { kind: 'tool_result', id: 'toolu_a1', ok: true, detail: 'nothing to commit' },
+  { kind: 'tool', id: 'toolu_a2', name: 'Bash', input: { command: 'git diff --stat' }, at: NEXT },
+  { kind: 'tool_result', id: 'toolu_a2', ok: true, detail: '2 files changed' },
+  {
+    kind: 'tool',
+    id: 'toolu_a3',
+    name: 'Write',
+    input: { file_path: '/home/example/Code/memview/notes.md', content: 'hi\n' },
+    at: NEXT,
+  },
+  {
+    kind: 'ask',
+    id: 'c8471a53-2b00-4a5e-a8d3-610f6d8c6b07',
+    call: 'toolu_a3',
+    tool: 'Write',
+    title: 'Claude wants to write /home/example/Code/memview/notes.md',
+    input: { file_path: '/home/example/Code/memview/notes.md', content: 'hi\n' },
+    at: NEXT,
+  },
+];
+
+test('a call waiting to be allowed is one widget, not two @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **Reported 2026-08-06, diagnosed 2026-08-11 by driving a real session.**
+  // The CLI emits `tool toolu_…` and then `ask …` about the same call, and the
+  // console drew both: a tool row AND a permission card for one Write. The card
+  // also sat between the calls either side of it, so a sequence of decided calls
+  // could never fold into one list.
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: DECIDING.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''),
+    }),
+  );
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.question').waitFor();
+
+  // ONE widget for the call being asked about: the question, and no row of its
+  // own underneath it.
+  await expect(page.locator('.question')).toHaveCount(1);
+  await expect(page.getByText('notes.md')).toHaveCount(1);
+
+  // And the two calls before it are a folded run, which they could not be while
+  // a card stood between them and the newest call.
+  const run = page.locator('.entry.tools .run');
+  await expect(run).toHaveCount(1);
+  await expect(run).toContainText('2 tool calls');
+
+  // The widest thing this page holds: a whole path, a question, and two buttons
+  // on one 412px line.
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+  await expectThumbTargets(page);
+});
+
 /** Serve the question transcript, and record what any decision sends. */
 async function mockQuestion(page: Page): Promise<() => Record<string, unknown> | undefined> {
   let sent: Record<string, unknown> | undefined;

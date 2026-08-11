@@ -442,6 +442,12 @@ pub fn resumable(after: u64, held_from: u64, issued: u64) -> bool {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Pending {
     pub tool: String,
+    /// The call being asked about — the `tool_use` id. Carried across an upgrade
+    /// with the rest, or a re-seeded question would come back unable to say
+    /// which tool row it belongs to and would draw a second widget beside it.
+    /// See [`crate::protocol::Event::Ask`].
+    #[serde(default)]
+    pub call: Option<String>,
     pub input: serde_json::Value,
     #[serde(default)]
     pub title: Option<String>,
@@ -1072,6 +1078,7 @@ impl Session {
         for (id, question) in pending {
             session.push(Event::Ask {
                 id,
+                call: question.call,
                 tool: question.tool,
                 title: question.title,
                 detail: question.detail,
@@ -1732,6 +1739,7 @@ impl Session {
                 }
                 Event::Ask {
                     id,
+                    call,
                     tool,
                     input,
                     title,
@@ -1741,6 +1749,7 @@ impl Session {
                         id.clone(),
                         Pending {
                             tool: tool.clone(),
+                            call: call.clone(),
                             input: input.clone(),
                             title: title.clone(),
                             detail: detail.clone(),

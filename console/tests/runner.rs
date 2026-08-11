@@ -938,6 +938,10 @@ async fn an_upgrade_keeps_the_question_a_session_is_blocked_on() {
     // conversation sat on "running" for an hour that way.
     let asked = console::session::Pending {
         tool: "AskUserQuestion".into(),
+        // The call it is asking about, which must survive the upgrade with it —
+        // without it the re-seeded question cannot say which tool row it belongs
+        // to, and draws a second widget beside it.
+        call: Some("toolu_upgraded".into()),
         input: serde_json::json!({"questions": [{"question": "which way"}]}),
         title: None,
         detail: Some("a question standing when the console was replaced".into()),

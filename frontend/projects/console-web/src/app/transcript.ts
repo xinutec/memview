@@ -140,7 +140,30 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
       call.head = (event.detail ?? '').split('\n', 1)[0];
       break;
     }
-    case 'ask':
+    case 'ask': {
+      // ⚠ **One action, one widget** (memview#86). The CLI announces the call
+      // and then asks about it — measured on a live session 2026-08-11 as
+      // `tool toolu_01E9…` followed by `ask c8471a53…` with identical input — so
+      // drawing both put a tool row and a permission card on screen for one
+      // Write. Joined by the id the request carries, the row IS the question
+      // while it is pending, and an ordinary tool row once it is answered, which
+      // is what lets a sequence of them fold into one list.
+      //
+      // By the id and nothing looser: a session that runs the same command twice
+      // would otherwise have its second question land on the first row.
+      const called = event.call
+        ? entries.find((entry) => entry.kind === 'tool' && entry.call === event.call)
+        : undefined;
+      if (called) {
+        called.ask = event.id;
+        called.questions = event.tool === QUESTION_TOOL ? questionsOf(event.input) : undefined;
+        // The CLI's own sentence when it offers one, for the same reason the
+        // separate card preferred it: it reads better than anything rebuilt from
+        // the arguments, and it stays on the row afterwards because it describes
+        // the call rather than the asking.
+        if (event.title) called.text = event.title;
+        break;
+      }
       add(entries, {
         kind: 'ask',
         ask: event.id,
@@ -154,8 +177,11 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
         questions: event.tool === QUESTION_TOOL ? questionsOf(event.input) : undefined,
       });
       break;
+    }
     case 'answered': {
-      const question = entries.find((e) => e.kind === 'ask' && e.ask === event.id);
+      // Any entry holding this question, which since #86 is usually the tool row
+      // itself rather than a card of its own.
+      const question = entries.find((e) => e.ask === event.id);
       if (question) {
         question.allowed = event.allowed;
         // Written to the pipe, not yet acted on — see [[Entry.settling]]. The
@@ -394,7 +420,12 @@ export function blocks(entries: readonly Entry[]): Block[] {
     run = [];
   };
   for (const entry of entries) {
-    if (entry.kind === 'tool') {
+    // ⚠ **A call still waiting for a person is never folded away.** Since #86 the
+    // question IS the tool row, and a question inside a closed run is a session
+    // blocked behind a widget nobody can see. Answered — allowed or refused — it
+    // is an ordinary call again and folds with its neighbours, which is what
+    // makes a sequence of decided calls one list rather than a widget each.
+    if (entry.kind === 'tool' && !(entry.ask !== undefined && entry.allowed === undefined)) {
       run.push(entry);
       continue;
     }

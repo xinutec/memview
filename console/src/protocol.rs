@@ -240,6 +240,21 @@ pub enum Event {
     Ask {
         /// The control request's id, which the answer must carry back.
         id: String,
+        /// The call this is asking about — the `tool_use` id, which is also on
+        /// the [`Event::Tool`] the CLI emitted a moment earlier.
+        ///
+        /// ⚠ **Without it one action draws two widgets.** The CLI announces the
+        /// call and then asks about it, so a client that cannot tell they are
+        /// the same thing shows a tool row AND a permission card for one Write —
+        /// and, worse, the card between two calls breaks the run they would
+        /// otherwise fold into. Measured 2026-08-11: `tool toolu_01E9WgUY…`
+        /// followed by `ask c8471a53-…` carrying identical input.
+        ///
+        /// Optional because not every call site sends it — the CLI has three
+        /// that build this request and one omits it — so a client must still
+        /// cope with an ask it cannot attach to anything.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        call: Option<String>,
         tool: String,
         /// The CLI's own one-line rendering of the question, when it offers one
         /// — better than anything reconstructed from the arguments.
@@ -352,6 +367,9 @@ enum Line {
 enum Control {
     CanUseTool {
         tool_name: String,
+        /// The call being asked about. See [`Event::Ask::call`].
+        #[serde(default)]
+        tool_use_id: Option<String>,
         #[serde(default)]
         input: serde_json::Value,
         #[serde(default)]
@@ -860,12 +878,14 @@ pub fn read(line: &str) -> Vec<Event> {
             request:
                 Control::CanUseTool {
                     tool_name,
+                    tool_use_id,
                     input,
                     title,
                     description,
                 },
         } => vec![Event::Ask {
             id: request_id,
+            call: tool_use_id,
             tool: tool_name,
             title,
             detail: description,

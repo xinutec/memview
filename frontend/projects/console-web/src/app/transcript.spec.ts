@@ -140,6 +140,59 @@ describe('questions', () => {
     expect(ask.text).toBe('/tmp/x');
   });
 
+  it('asks on the call it is about rather than beside it', () => {
+    // ⚠ **Measured on a live session 2026-08-11 (memview#86).** The CLI announces
+    // the call and then asks about it — two events, one action — and drawing both
+    // put a tool row and a permission card on screen for one Write. The request
+    // carries the `tool_use` id, so the two can be joined exactly.
+    const seen = transcript(
+      { kind: 'tool', id: 'toolu_1', name: 'Write', input: { file_path: '/tmp/x' } },
+      { kind: 'ask', id: 'q1', call: 'toolu_1', tool: 'Write', input: { file_path: '/tmp/x' } },
+    );
+    expect(seen.length).toBe(1);
+    expect(seen[0].kind).toBe('tool');
+    expect(seen[0].ask).toBe('q1');
+    expect(seen[0].allowed).toBeUndefined();
+  });
+
+  it('leaves the answered call as an ordinary tool row', () => {
+    // The point of joining them: once it is answered the row is a tool call like
+    // any other, so a sequence of them folds into one list instead of a widget
+    // each. See `blocks`.
+    const seen = transcript(
+      { kind: 'tool', id: 'toolu_1', name: 'Write', input: { file_path: '/tmp/x' } },
+      { kind: 'ask', id: 'q1', call: 'toolu_1', tool: 'Write', input: { file_path: '/tmp/x' } },
+      { kind: 'answered', id: 'q1', allowed: true },
+      { kind: 'tool_result', id: 'toolu_1', ok: true, detail: 'written' },
+    );
+    expect(seen.length).toBe(1);
+    expect(seen[0].allowed).toBe(true);
+    expect(seen[0].ok).toBe(true);
+    expect(seen[0].head).toBe('written');
+  });
+
+  it('still draws a question that names no call', () => {
+    // One of the CLI's three `can_use_tool` call sites omits `tool_use_id` — read
+    // out of 2.1.226. An ask nothing can be attached to must still be answerable,
+    // or a session blocks for ever on a question nothing draws.
+    const seen = transcript(
+      { kind: 'ask', id: 'q1', tool: 'WebFetch', input: { host: 'example.com' } },
+    );
+    expect(seen.map((e) => e.kind)).toEqual(['ask']);
+    expect(seen[0].ask).toBe('q1');
+  });
+
+  it('does not attach a question to a call it does not name', () => {
+    // Matching on anything looser than the id — the tool name, the input — would
+    // put a question on the wrong row the moment a session runs the same command
+    // twice, which is most sessions.
+    const seen = transcript(
+      { kind: 'tool', id: 'toolu_1', name: 'Write', input: { file_path: '/tmp/x' } },
+      { kind: 'ask', id: 'q1', call: 'toolu_other', tool: 'Write', input: { file_path: '/tmp/x' } },
+    );
+    expect(seen.map((e) => e.kind)).toEqual(['tool', 'ask']);
+  });
+
   it('records the verdict against the question it answers', () => {
     // Two questions can be open at once, and the answer names which one — the
     // reason `answered` carries an id rather than being positional.
@@ -363,6 +416,30 @@ describe('folding runs of tool calls', () => {
       tool('d'),
     ]);
     expect(found.map((b) => b.kind)).toEqual(['tools', 'one', 'tools']);
+  });
+
+  it('never folds away a call that is waiting to be allowed', () => {
+    // ⚠ **A question inside a closed run is a session blocked behind a widget
+    // nobody can see.** Since #86 the pending question IS the tool row, so the
+    // fold has to know the difference between a call that is waiting for a
+    // person and one that has been dealt with.
+    const asking: Entry = { ...tool('c'), ask: 'q1' };
+    const found = blocks([tool('a'), tool('b'), asking, tool('d'), tool('e')]);
+    expect(found.map((b) => b.kind)).toEqual(['tools', 'one', 'tools']);
+  });
+
+  it('folds it back in the moment it is answered', () => {
+    // Which is what Pippijn asked for in as many words: answering puts the call
+    // into the "N tool calls" it belongs to. Whether that list is open or closed
+    // is the reader's own state, kept because the block is keyed by its first
+    // call — so an answer lands in a closed list as a count, and in an open one
+    // as a row.
+    const answered: Entry = { ...tool('c'), ask: 'q1', allowed: true };
+    const found = blocks([tool('a'), tool('b'), answered, tool('d')]);
+    expect(found.map((b) => b.kind)).toEqual(['tools']);
+    const run = found[0];
+    expect(run.kind === 'tools' && run.entries.length).toBe(4);
+    expect(run.kind === 'tools' && run.key).toBe('a');
   });
 
   it('counts what a folded run should say about itself', () => {

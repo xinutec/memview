@@ -694,6 +694,20 @@ export class SessionView implements OnDestroy {
       });
   }
 
+  /**
+   * What this entry should be drawn as, which is not always what it is.
+   *
+   * ⚠ **One action, one widget** (memview#86). The CLI announces a call and then
+   * asks whether it may run it — two events for one action — so the transcript
+   * now hangs the question on the call's own entry rather than adding a card
+   * beside it. A tool row with a question still on it draws as the question; the
+   * moment it is answered it is an ordinary row again, and folds into the run it
+   * belongs to.
+   */
+  drawn(entry: Entry): string {
+    return entry.ask !== undefined && entry.allowed === undefined ? 'ask' : entry.kind;
+  }
+
   /** Which held command is being taken back, so its × cannot be tapped twice. */
   readonly unholding = signal<string | undefined>(undefined);
 

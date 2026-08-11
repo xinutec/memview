@@ -1611,6 +1611,16 @@ to nobody; `pnpm run publish:console` rsyncs from it — without deleting, so th
 previous build's hashed files stay behind and a page mid-load still finds its
 own. `STATIC_DIR` points at `frontend/dist/console-live`.
 
+**The bundle budgets, and why they have moved.** `initial` warns at 900 kB and
+fails at 1.5 MB; `anyComponentStyle` warns at 9 kB and fails at 10 kB. Both
+warning lines were raised deliberately rather than left ringing, on the rule that
+a build which warns on every run teaches everyone to read past warnings — the
+same rule that let a code block sit 618px off the right edge unnoticed. The
+`initial` line moved on 2026-08-11, when the day's work (drafts, held commands,
+one widget per action) took it 2.57 kB past 800 kB. ⚠ **Neither ERROR moves.**
+`initial` is the whole app — nothing here is lazily loaded — and 800 kB raw is
+about 177 kB over the wire, which is what a phone on a train actually pays.
+
 ⚠ **Building and publishing are separate commands, and that is the whole
 point.** `build:console` builds; `publish:console` builds and then copies into
 `console-live`. They were one command until 2026-08-11, when ablating a fix —

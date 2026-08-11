@@ -67,8 +67,15 @@ fn reading(address: SocketAddr) -> Tasks {
 
 /// A directory under the temp dir, emptied. Named by the caller so two tests
 /// cannot share one: they run in parallel in this process.
+///
+/// ⚠ **And by the process, because two suites can run at once.** Several Claude
+/// sessions share this worktree, and a second `cargo test` — a neighbour's gate,
+/// or the same one re-run — raced this exact directory: one process removed it
+/// between the other's remove and create, which fails as `AlreadyExists` and
+/// reads as a defect in whatever changed last. Seen 2026-08-11 on two tests at
+/// once.
 fn scratch(what: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("console-strays-{what}"));
+    let dir = std::env::temp_dir().join(format!("console-strays-{what}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("scratch");
     dir

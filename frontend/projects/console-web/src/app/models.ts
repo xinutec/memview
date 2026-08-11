@@ -257,6 +257,16 @@ export interface SessionEvent {
   /** `ask`: the tool it wants to run. `background`: the tool call that started
    *  the task now reported finished. */
   tool?: string;
+  /**
+   * `ask` only: the call being asked about — the `tool_use` id, which is the
+   * `id` of the `tool` event the CLI sent a moment earlier.
+   *
+   * ⚠ **Without it one action draws two widgets.** The CLI announces the call
+   * and then asks about it, so a client that cannot join them shows a tool row
+   * AND a permission card for one Write — and the card between two calls breaks
+   * the run they would otherwise fold into. Absent from one of the CLI's three
+   * `can_use_tool` call sites, so an unattachable question must still draw. */
+  call?: string;
   title?: string;
   allowed?: boolean;
   /** `answered` only: what was chosen. See `protocol::Event::Answered` for why

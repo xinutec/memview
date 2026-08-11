@@ -413,6 +413,15 @@ input.note:disabled {
   color: var(--mat-sys-error);
 }
 
+// A call somebody refused, in the second between the tap and the result the CLI
+// sends for it. The error colour, because a refusal IS this call's outcome —
+// unlike `unrecorded` below, which is the absence of one.
+.refused {
+  font: var(--mat-sys-label-small);
+  color: var(--mat-sys-error);
+  white-space: nowrap;
+}
+
 // Deliberately neither the primary of a tick nor the error of a cross: this row
 // is the absence of a verdict, and borrowing either colour would state one. The
 // same muted treatment `running` gets, without its number — there is nothing to

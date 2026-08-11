@@ -760,3 +760,43 @@ fn renaming_goes_over_the_control_channel() {
     assert_eq!(sent["request"]["title"], "tasks");
     assert!(sent["request"]["title"].is_string());
 }
+
+#[test]
+fn a_permission_request_says_which_call_it_is_about() {
+    // ⚠ **Without this one action draws two widgets** (memview#86). The CLI
+    // announces the call and then asks about it, so a client that cannot tell the
+    // two events apart from two actions shows a tool row AND a permission card
+    // for one Write — and the card, sitting between two calls, breaks the run
+    // they would otherwise fold into.
+    //
+    // Measured on a live session 2026-08-11, in this order:
+    //   tool  toolu_01E9WgUY8w6dso4ZA43ybzng  Write  {content, file_path}
+    //   ask   c8471a53-2b00-4a5e-a8d3-610f6d8c6b07  Write  {the same input}
+    let line = r#"{"type":"control_request","request_id":"c8471a53","request":{"subtype":"can_use_tool","tool_name":"Write","tool_use_id":"toolu_01E9WgUY","input":{"file_path":"/tmp/x"},"description":"/tmp/x"}}"#;
+    assert!(
+        matches!(
+            console::protocol::read(line).as_slice(),
+            [console::protocol::Event::Ask { id, call, tool, .. }]
+                if id == "c8471a53" && call.as_deref() == Some("toolu_01E9WgUY") && tool == "Write"
+        ),
+        "got {:?}",
+        console::protocol::read(line)
+    );
+}
+
+#[test]
+fn a_permission_request_without_a_call_is_still_a_question() {
+    // The CLI has three call sites that build this request and one of them omits
+    // `tool_use_id` — read out of 2.1.226 rather than assumed. An ask that cannot
+    // be attached to a row must still be answerable, or a session blocks for ever
+    // on a question nothing draws.
+    let line = r#"{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"WebFetch","input":{"host":"example.com"}}}"#;
+    assert!(
+        matches!(
+            console::protocol::read(line).as_slice(),
+            [console::protocol::Event::Ask { call, tool, .. }] if call.is_none() && tool == "WebFetch"
+        ),
+        "got {:?}",
+        console::protocol::read(line)
+    );
+}

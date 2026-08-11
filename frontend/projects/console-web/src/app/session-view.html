@@ -190,12 +190,14 @@
      opened. A template rather than two copies of it — this is forty lines of
      markup with six cases in it, and two copies would drift. -->
 <ng-template #row let-entry>
-  <li class="entry" [class]="entry.kind">
+  <!-- `drawn`, not `entry.kind`: since #86 a tool row that is still waiting for a
+       person IS the question, and draws as one until it is answered. -->
+  <li class="entry" [class]="drawn(entry)">
     @if (entry.kind !== 'day' && entry.at) {
       <!-- The time, not the date. Which day it was is the marker above. -->
       <time class="at">{{ entry.at | clock }}</time>
     }
-    @switch (entry.kind) {
+    @switch (drawn(entry)) {
       @case ('day') {
         <!-- The rules either side of it are the `.day` row's own pseudo-
                elements, so this span is only what sits between them. -->
@@ -323,7 +325,14 @@
         } @else {
           <span class="tool-arg">{{ entry.text }}</span>
         }
-        @if (entry.unrecorded) {
+        @if (entry.allowed === false && entry.ok === undefined) {
+          <!-- ⚠ **Refused reads as running for the second before the result
+               arrives**, and running is the one thing it is not. The CLI does
+               send a result for a denied call — measured, `ok:false` carrying the
+               reason — so this is the gap between the tap and that, and nothing
+               longer. -->
+          <span class="refused">refused</span>
+        } @else if (entry.unrecorded) {
           <!-- Neither a tick nor a cross: the call may well have worked, and the
                one case we have seen did. What is missing is the record of it,
                because whatever would have written the result died first. No
