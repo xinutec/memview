@@ -100,7 +100,10 @@ impl ShareStore {
         match state {
             Some(s) => {
                 let json = serde_json::to_vec_pretty(s)?;
-                std::fs::write(&self.path, json)
+                // Atomic: `touch` runs on every read of a shared page, and a
+                // reader arriving inside a truncate-then-write window gets a
+                // parse error rather than either version. See `crate::atomic`.
+                crate::atomic::write(&self.path, &json)
                     .with_context(|| format!("writing share state {}", self.path.display()))?;
             }
             None => match std::fs::remove_file(&self.path) {

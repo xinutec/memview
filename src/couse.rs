@@ -154,7 +154,8 @@ impl CoUse {
 
     pub fn save(&self, path: &Path) -> Result<()> {
         let text = serde_json::to_string_pretty(self)?;
-        std::fs::write(path, text).with_context(|| format!("writing {}", path.display()))
+        crate::atomic::write(path, text.as_bytes())
+            .with_context(|| format!("writing {}", path.display()))
     }
 
     /// Pairs that are used together but that neither memory links, strongest

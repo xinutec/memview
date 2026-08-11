@@ -333,7 +333,7 @@ impl Agents {
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
-        std::fs::write(path, serde_json::to_string_pretty(self)?)
+        crate::atomic::write(path, serde_json::to_string_pretty(self)?.as_bytes())
             .with_context(|| format!("writing {}", path.display()))?;
         Ok(())
     }
