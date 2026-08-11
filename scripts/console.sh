@@ -56,7 +56,10 @@ CONSOLE_DIRS="${CONSOLE_DIRS:-$HOME/Code}" \
   # whole output path, so a bundle being served from there vanishes for a second
   # on every build — and a page reloading in that second gets HTML where it
   # asked for a font, which shows as broken icons and is reported by nothing.
-  # `build:console` rsyncs into console-live without deleting, so the previous
+  # `publish:console` rsyncs into console-live without deleting, so the previous
   # build`s hashed files stay behind and a page mid-load still finds its own.
+  # `build:console` does NOT copy here: a build for a test — an ablation, most of
+  # all — must not be able to reach the phone. scripts/console-serving.sh asks
+  # what is in fact being served.
   STATIC_DIR="${STATIC_DIR:-frontend/dist/console-live}" \
   nix develop -c cargo run -p console

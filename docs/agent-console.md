@@ -1073,7 +1073,9 @@ not how important it is.
   after an edit measures the _previous_ build. Three ablations in a row came back
   green against a bundle that did not contain them. `pnpm run build:console`
   between the edit and the run, or the result means nothing — the same hazard the
-  harness spec already warns about for the rsynced copies.
+  harness spec already warns about for the rsynced copies. That command builds
+  and stops; publishing is `publish:console`, and the split is what keeps an
+  ablation a local experiment.
 - ⚠ **A `title=` tooltip is unreadable on a phone.** The model id and the
   permission mode's name were only ever available by hovering — on the device
   this console exists for, that is text that was written and cannot be reached.
@@ -1588,9 +1590,20 @@ last path segment contains a dot.
 
 ⚠ **`ng build` deletes its whole output path**, so **nothing served may sit
 inside one**. The output path is `frontend/dist/console-build`, which is served
-to nobody; `pnpm run build:console` rsyncs from it — without deleting, so the
+to nobody; `pnpm run publish:console` rsyncs from it — without deleting, so the
 previous build's hashed files stay behind and a page mid-load still finds its
 own. `STATIC_DIR` points at `frontend/dist/console-live`.
+
+⚠ **Building and publishing are separate commands, and that is the whole
+point.** `build:console` builds; `publish:console` builds and then copies into
+`console-live`. They were one command until 2026-08-11, when ablating a fix —
+edit, rebuild, run the harness, restore — put a build with the fix _deleted_ in
+front of the phone for eight minutes. It was silent and it looked like nothing
+had happened, because restoring the source does not rebuild, so the last thing
+copied into the live directory was the broken one. Ablation is routine here; it
+must not be able to reach the phone by being routine. Asking what is in fact
+being served is `scripts/console-serving.sh`, which reads the git sha the bundle
+carries rather than trusting the directory.
 
 The rule was learnt twice. First as "put the served copy outside the output
 path", which is why `console-live` exists. Then again, because **a running
@@ -1606,8 +1619,8 @@ Two lasting consequences:
 
 - **Moving the output path fixes it for processes nobody can reconfigure.** A
   console with a stale `STATIC_DIR` now points at a directory no build deletes,
-  so it serves a complete bundle whatever it was told at startup. `build:console`
-  copies to both until no such console is left running.
+  so it serves a complete bundle whatever it was told at startup.
+  `publish:console` copies to both until no such console is left running.
 - **`STATIC_DIR` is not fixed by an upgrade.** `SIGUSR2` re-execs the same
   environment; only a full restart re-reads the script. Anything read from the
   environment at startup has this property — see the upgrade section.

@@ -84,7 +84,8 @@ fi
 export CONSOLE_DIRS="${CONSOLE_DIRS:-$HOME/Code}"
 # Served from console-live rather than the build output: `ng build` deletes its
 # whole output path, so a page loading during a build would ask for a font and get
-# HTML. See console.sh.
+# HTML. See console.sh. Only `pnpm run publish:console` writes here — a plain
+# build stops at the output path, so an ablation cannot reach this directory.
 export STATIC_DIR="${STATIC_DIR:-$REPO/frontend/dist/console-live}"
 
 exec "$CONSOLE_BIN"
