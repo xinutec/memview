@@ -1542,6 +1542,18 @@ buttons were.
 alive. **Not `SIGTERM`** — `kill` means stop, and an upgrade answering to it
 would be a stop that sometimes did not stop.
 
+**What is installed is `nix build .#console`**, copied to
+`~/.local/libexec/agent-console` by atomic rename — a copy, and not a symlink
+into the store, because signing cannot reach the store and a path launchd names
+must not be something a GC may collect. The flake's `packages.console` builds
+only the Rust half; the Angular half is `publish:console`, above. It costs about
+80 seconds against `cargo build --release`'s 15, since a source change
+recompiles the vendored tree — the wrong trade for iterating and the right one
+for installing, which is the only thing this script does. ⚠ **A flake build
+cannot see an untracked file**, so the script refuses to run while there is one
+under `console/`, `reader/` or `src/`: a missing module usually fails loudly, and
+this is for the time it would not.
+
 It works because `execve` replaces the _image_, not the process: same pid, so the
 `claude` children are still children, and open descriptors survive unless they
 are close-on-exec. Each session's id, directory, pid and three descriptor numbers

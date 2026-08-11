@@ -33,10 +33,30 @@ cd "$(dirname "$0")/.."
 CONSOLE_BIN="${CONSOLE_BIN:-$HOME/.local/libexec/agent-console}"
 DESK="${CONSOLE_DESK_ADDR:-127.0.0.1:8096}"
 
+# ⚠ **A flake build cannot see an untracked file.** `nix build` takes the git
+# working tree, modifications and all, but a file nobody has `git add`ed is not
+# in it — so a new module would go missing from the build with nothing said. The
+# common case is loud (a missing module fails to compile), which is exactly why
+# the quiet one is worth a guard: a new file that nothing references yet, added
+# to in the same session it is referenced from.
+untracked="$(git ls-files --others --exclude-standard -- console reader src)"
+if [ -n "$untracked" ]; then
+  echo "untracked source — nix will not see these, git add them first:" >&2
+  printf '  %s\n' $untracked >&2
+  exit 1
+fi
+
+# Built by nix rather than by `cargo build --release` in the dev shell: the
+# toolchain, the dependency tree and the flags are then the flake's rather than
+# whatever the shell happens to hold, which is what makes the installed copy
+# reproducible from the commit. It costs about 80 seconds against cargo's 15 —
+# measured 2026-08-11 — because a source change recompiles the whole vendored
+# tree. That is the wrong trade for iterating and the right one for installing,
+# and this script is the installing one; `cargo run -p console` is still there
+# for the other.
 echo "building..."
-nix develop -c cargo build -p console --release
-built="$(nix develop -c cargo metadata --format-version 1 --no-deps \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')/release/console"
+out="$(nix build .#console --no-link --print-out-paths)"
+built="$out/bin/console"
 [ -x "$built" ] || { echo "no binary at $built" >&2; exit 1; }
 
 LIBEXEC="$(dirname "$CONSOLE_BIN")"
