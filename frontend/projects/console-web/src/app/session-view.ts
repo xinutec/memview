@@ -10,6 +10,7 @@ import {
   inject,
   input,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -33,6 +34,7 @@ import { Entry, Summary } from './models';
 import { modelName } from './model';
 import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { Dismiss } from './dismiss';
+import { Drafts } from './drafts';
 import { Following, measure } from './following';
 import { Here } from './here';
 import { Updates } from './updates';
@@ -76,6 +78,8 @@ export class SessionView implements OnDestroy {
   /** A newer build is downloaded and held. See `Updates` for why it waits. */
   readonly updateWaiting = this.updates.waiting;
   private store = inject(SessionStore);
+  /** What is written and not sent, which outlives this view — see [[Drafts]]. */
+  private drafts = inject(Drafts);
   private telemetry = inject(Telemetry);
   private foreground = inject(Foreground);
   private until = inject(DestroyRef);
@@ -284,6 +288,26 @@ export class SessionView implements OnDestroy {
       onCleanup(() => this.store.leave(id));
       this.refresh();
       this.poll ??= setInterval(() => this.refresh(), 5000);
+    });
+    // A message being written belongs to the conversation, not to this view of
+    // it — see [[Drafts]]. Two effects rather than one because they run in
+    // opposite directions: this one puts a held draft into the composer when the
+    // session opens, and it must not be reading the signals it writes.
+    effect(() => {
+      const id = this.id();
+      untracked(() => {
+        this.text.set(this.drafts.text(id));
+        this.picture.set(this.drafts.picture(id));
+      });
+    });
+    // And this one records every change back, keystroke by keystroke. It is also
+    // how a draft is FORGOTTEN: a successful send empties the composer, which
+    // arrives here as a draft with nothing in it.
+    effect(() => {
+      const id = this.id();
+      const text = this.text();
+      const picture = this.picture();
+      untracked(() => this.drafts.put(id, text, picture));
     });
     // The poll does not run while the phone is away, so the header facts on
     // screen when it comes back are as old as the pocket it was in. The

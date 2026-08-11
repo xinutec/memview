@@ -1008,6 +1008,48 @@ test('a picture waits to be sent with what is said about it @ phone width', asyn
   await expect(page.locator('.chosen')).toHaveCount(0);
 });
 
+test('what is being written survives leaving the conversation @ phone width', async ({ page }) => {
+  // Reported 2026-08-06: typed words and a chosen picture were lost on going up
+  // to the list and coming back. The picture is the expensive half — it cost a
+  // scale of a phone photograph — and the words are the half nobody wants to
+  // type twice on a phone.
+  await mockRunner(page);
+  const first = STATE.sessions[0].id;
+  const second = STATE.sessions[1].id;
+  await page.goto(`/s/${first}`);
+  await page.locator('.composer').waitFor();
+  await page.locator('.picker').setInputFiles(tinyPng());
+  await page.locator('.chosen').waitFor();
+  await page.locator('.composer textarea').fill('half a thought about this');
+
+  // Up to the list, which destroys the view — the actual reported action, and
+  // not `goto`, which would reload the page and prove something else.
+  await page.locator('.leave').click();
+  await expect(page.locator('.composer')).toHaveCount(0);
+
+  // ⚠ Through the OTHER conversation on the way back, because a draft that was
+  // global rather than per session would pass the simple there-and-back and
+  // still put one conversation's words into another.
+  await page.goto(`/s/${second}`);
+  await page.locator('.composer').waitFor();
+  await expect(page.locator('.composer textarea')).toHaveValue('');
+  await expect(page.locator('.chosen')).toHaveCount(0);
+
+  await page.goto(`/s/${first}`);
+  await expect(page.locator('.composer textarea')).toHaveValue('half a thought about this');
+  await expect(page.locator('.chosen .thumb')).toBeVisible();
+  await expect(page.locator('.chosen .about')).toContainText('2×4');
+  // ⚠ **Visible is not drawn.** A held picture's preview is an object URL, which
+  // belongs to the document that made it and is dead in the next one — a revived
+  // draft carrying one would show a broken image that still passes every
+  // assertion above. `naturalWidth` is the browser saying it decoded the bytes.
+  await expect
+    .poll(() =>
+      page.locator('.chosen .thumb').evaluate((img) => (img as HTMLImageElement).naturalWidth),
+    )
+    .toBe(2);
+});
+
 test('a picture that was sent is on the screen, not a path to it @ phone width', async ({
   page,
 }, testInfo) => {
