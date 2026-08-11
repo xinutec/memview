@@ -1667,3 +1667,220 @@ mod whether_it_is_working {
         }
     }
 }
+
+#[tokio::test]
+async fn a_stop_writes_down_when_the_kill_is_due() {
+    // ⚠ **Because the timer that carries it does not survive an upgrade.** The
+    // kill lives in a `tokio::spawn`, and `handover` re-execs this process; the
+    // session is not carried either, since closing stdin makes its descriptors
+    // unkeepable. A stopped session ran on for two and a quarter hours,
+    // owned by nobody. The deadline is written down so the next image can
+    // finish what this one started — see #750.
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Started { .. }))
+    })
+    .await;
+    assert_eq!(
+        session.stopping(),
+        None,
+        "a session nobody has stopped has no kill owed to it"
+    );
+
+    let at = console::session::now();
+    session.stop().await;
+
+    let due = session.stopping().expect("a stop arms a kill");
+    // The grace itself, give or take the time this test took: generous on
+    // purpose, because the process may be mid-tool-call and the clean exit is
+    // the one that flushes the transcript.
+    assert!(
+        due >= at + 25_000 && due <= at + 35_000,
+        "the deadline is the grace period away, not {}ms",
+        due - at
+    );
+}
+
+#[test]
+fn a_listing_that_merely_mentions_a_conversation_is_not_that_conversation() {
+    // ⚠ The trap `words_of_claude_processes` exists for, reached from the other
+    // side: this decides whether a SIGKILL is sent, so a line matching by
+    // accident is a kill aimed at whatever that pid happens to be now.
+    let id = "b1b1b1b1-0000-4000-8000-000000000003";
+    assert!(console::session::names_session(
+        &format!("/usr/local/bin/claude -p --resume {id} --permission-mode auto"),
+        id
+    ));
+    assert!(
+        !console::session::names_session(&format!("/bin/grep -n {id} console.log"), id),
+        "a grep for the id is not the session"
+    );
+    // What ps prints for a pid that has gone: nothing at all.
+    assert!(!console::session::names_session("", id));
+    assert!(
+        !console::session::names_session(
+            "/usr/local/bin/claude -p --resume 11111111-1111-4111-8111-111111111111",
+            id
+        ),
+        "another conversation's process is not this one"
+    );
+}
+
+#[test]
+fn a_pid_that_is_not_that_conversation_any_more_is_left_alone() {
+    // ⚠ **The whole risk in finishing a stop late.** The deadline is up to
+    // thirty seconds old and a pid is not a handle: by the time it comes round,
+    // the system may have started something else in that pid's place. The
+    // warning is already written down at `Roster::revive`; this is the guard.
+    //
+    // Stood up as a real process rather than a made-up pid, because the failure
+    // being guarded against is a kill that lands, and only a live process can
+    // show that it did not.
+    let mut other = std::process::Command::new("sleep")
+        .arg("30")
+        .spawn()
+        .expect("a process to not kill");
+    let pid = other.id();
+
+    console::session::finish(pid, "b1b1b1b1-0000-4000-8000-000000000003");
+
+    assert!(
+        other.try_wait().expect("wait").is_none(),
+        "it killed a process that was never that session"
+    );
+    let _ = other.kill();
+    let _ = other.wait();
+}
+
+/// A process whose command line looks like a `claude` running `id`, so that the
+/// guard in `finish` lets a kill through to it.
+///
+/// ⚠ **A symlink named `claude`, because that is exactly what the guard reads.**
+/// `words_of_claude_processes` decides on the first word's last path element —
+/// the account of why is beside it — so a test that used a differently-named
+/// process would only ever exercise the refusing half.
+fn wearing_the_name(dir: &std::path::Path, id: &str) -> Disguised {
+    std::fs::create_dir_all(dir).expect("dir");
+    let looks_like = dir.join("claude");
+    let _ = std::fs::remove_file(&looks_like);
+    std::os::unix::fs::symlink("/bin/sh", &looks_like).expect("symlink");
+    // ⚠ **A shell rather than `sleep` itself, and the loop is not decoration.**
+    // `sleep 30 <id>` looks right and exits immediately — "invalid time
+    // interval" — so both of these tests passed while proving nothing, which an
+    // ablation of the kill caught by staying green. And a shell given one plain
+    // command execs it, replacing its own argv and taking the id off the command
+    // line the guard reads; a loop is a command it has to stay alive to run.
+    let child = std::process::Command::new(&looks_like)
+        .args(["-c", "while :; do sleep 1; done", id])
+        .spawn()
+        .expect("a process wearing the name");
+    Disguised {
+        child,
+        dir: dir.to_path_buf(),
+    }
+}
+
+/// The disguised process, cleaned up however the test ends.
+///
+/// ⚠ **`Drop`, and not a line at the end of the test.** A failed assertion
+/// unwinds straight past that line, and what it leaves behind is a shell in a
+/// spin loop still holding the test binary's stdout — which is a run that never
+/// finishes rather than one that fails. Measured while ablating the kill on
+/// purpose to check these tests were worth anything: ten minutes, no result.
+struct Disguised {
+    child: std::process::Child,
+    dir: std::path::PathBuf,
+}
+
+impl Disguised {
+    fn pid(&self) -> u32 {
+        self.child.id()
+    }
+
+    /// Whether it has gone, asked once.
+    fn gone(&mut self) -> bool {
+        self.child.try_wait().expect("wait").is_some()
+    }
+
+    /// Whether it has gone, waiting up to five seconds for it to.
+    ///
+    /// SIGKILL is delivered by the time `kill` returns, but the process table
+    /// takes a moment to catch up, so this waits rather than asking once.
+    ///
+    /// ⚠ **Blocking, so it is for the synchronous test only.** A `tokio::test`
+    /// is a current-thread runtime: sleeping the thread inside one starves the
+    /// task the code under test just spawned, and the kill that never arrives
+    /// looks exactly like the bug. Seen here — the async test below failed
+    /// against a working fix until it awaited instead.
+    fn died(&mut self) -> bool {
+        let since = std::time::Instant::now();
+        while since.elapsed().as_secs() < 5 {
+            if self.gone() {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        false
+    }
+}
+
+impl Drop for Disguised {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+#[test]
+fn the_kill_does_land_on_the_process_that_is_still_that_conversation() {
+    // The other half of the guard, and the half that matters: refusing every
+    // kill would also pass the test above while leaving #750 exactly as it was.
+    let id = "b1b1b1b1-0000-4000-8000-000000000001";
+    let dir = std::env::temp_dir().join(format!("console-finish-{}", std::process::id()));
+    let mut wearing = wearing_the_name(&dir, id);
+
+    console::session::finish(wearing.pid(), id);
+
+    assert!(wearing.died(), "the process outlived the kill it was owed");
+}
+
+#[tokio::test]
+async fn a_kill_the_last_image_could_not_deliver_is_delivered_by_this_one() {
+    // ⚠ **The whole of #750, from the receiving end.** The old image wrote down
+    // what it was in the middle of stopping; this reads it and finishes the job
+    // it could not, because `execve` took its timer with it.
+    //
+    // The environment is process-wide, so this is the only test that touches
+    // that variable — and it is removed on read, which is itself the thing being
+    // relied on: a variable left behind would have the NEXT upgrade aim a kill
+    // at a pid that has already been dealt with.
+    let id = "b1b1b1b1-0000-4000-8000-000000000002";
+    let dir = std::env::temp_dir().join(format!("console-owed-{}", std::process::id()));
+    let mut wearing = wearing_the_name(&dir, id);
+    // Due now: the deadline travels as an absolute moment, so one that has
+    // already passed means "there is nothing left of the grace", not "wait".
+    let owed =
+        serde_json::json!([{ "id": id, "pid": wearing.pid(), "due": console::session::now() }]);
+    unsafe { std::env::set_var("CONSOLE_HANDOVER_STOPPING", owed.to_string()) };
+
+    let roster = roster(&std::env::temp_dir());
+    assert_eq!(roster.finish_stopping(), 1, "it read what it was handed");
+    assert!(
+        std::env::var("CONSOLE_HANDOVER_STOPPING").is_err(),
+        "the variable outlived the read, so the next upgrade would fire it again"
+    );
+
+    // Awaited rather than slept through: the kill runs on a task this very
+    // runtime has to be free to poll. See [`Disguised::died`].
+    let since = std::time::Instant::now();
+    while !wearing.gone() && since.elapsed().as_secs() < 5 {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(
+        wearing.gone(),
+        "the stop was owed a kill and this image did not deliver it either"
+    );
+}
