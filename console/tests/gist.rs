@@ -4,7 +4,8 @@
 //! The call itself is not exercised here — it costs a model and a process, and
 //! what can go wrong with it is a spawn failing, which the caller already treats
 //! as "no sentence this time". What these cover is the two ends: what is handed
-//! to the model, and what is taken from what it says.
+//! to the model, what is taken from what it says, and what the call must not
+//! leave behind on disk afterwards.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -268,4 +269,42 @@ fn a_walk_that_matches_what_is_held_rewrites_nothing() {
         before,
         "untouched, rather than rewritten with identical contents"
     );
+}
+
+#[test]
+fn the_call_takes_its_own_transcript_away_with_it() {
+    // ⚠ **Hidden is not gone, and that is what this is for.** Each of these
+    // calls is a one-shot conversation, so each leaves a transcript under
+    // `projects/` — filed by its working directory, which is the temp dir, which
+    // `past::conversations` hides. Three days of that was 2,299 files and 57 MB
+    // nobody could see from the console at all.
+    let root = scratch("discard");
+    let project = root.join("-private-var-folders-T");
+    std::fs::create_dir_all(&project).expect("project dir");
+    let ours = project.join("11111111-1111-4111-8111-111111111111.jsonl");
+    let theirs = project.join("22222222-2222-4222-8222-222222222222.jsonl");
+    std::fs::write(&ours, "{}").expect("ours");
+    std::fs::write(&theirs, "{}").expect("theirs");
+
+    console::gist::discard(&root, "11111111-1111-4111-8111-111111111111");
+
+    assert!(
+        !ours.exists(),
+        "the call's own transcript outlived the call"
+    );
+    // By id, and only the one id: the console names the session it is about to
+    // start precisely so that this can never reach a conversation somebody is in.
+    assert!(
+        theirs.exists(),
+        "it took somebody else's conversation with it"
+    );
+}
+
+#[test]
+fn nothing_to_discard_is_not_a_failure() {
+    // A CLI that never got as far as writing a file — a spawn that failed, a
+    // build that files them somewhere else — is not a fault of the sweep, and
+    // this runs on a timer where a complaint would repeat for ever.
+    let root = scratch("discard-none");
+    console::gist::discard(&root, "33333333-3333-4333-8333-333333333333");
 }

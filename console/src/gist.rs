@@ -268,20 +268,38 @@ fn prompt(material: &crate::past::Material) -> String {
     text
 }
 
-/// Put the question to a one-shot session and take its answer.
+/// Put the question to a one-shot session, take its answer, and leave nothing
+/// behind.
+///
+/// ⚠ **Every call is a conversation, and a conversation is a file that outlives
+/// it.** Run from the temporary directory, this call's own transcript is filed
+/// under `~/.claude/projects/` in a folder named for that directory — and
+/// [`crate::past::conversations`] hides those from the list, which is why it
+/// went unnoticed that they were still there: 2,299 of them, 57 MB, in the three
+/// days after this was written, growing at a sweep's worth every quarter of an
+/// hour, for ever. Hidden is not gone. So the id is named here rather than left
+/// to the CLI, and the file is removed the moment the answer is in hand — see
+/// [`discard`], which is the whole reason for naming it.
+async fn ask(binary: &str, prompt: &str) -> Option<String> {
+    let named = uuid::Uuid::new_v4().to_string();
+    let said = call(binary, prompt, &named).await;
+    // Before the answer is examined, and on the failing paths as well: a call
+    // that timed out or came back empty has left exactly the same file as one
+    // that worked.
+    discard(&crate::past::projects_root(), &named);
+    sentence(&said?)
+}
+
+/// The call itself, up to the words that came back.
 ///
 /// ⚠ **On stdin, not in the argument list.** The prompt carries a few thousand
 /// characters of somebody's transcript, and an argument that size is at the mercy
 /// of a shell's limits and of anything that logs a command line.
-///
-/// Run from the temporary directory, which is where the transcript of this call
-/// itself will be filed — and [`crate::past::conversations`] already leaves those
-/// out of the list, so summarising thirteen conversations does not add thirteen
-/// more.
-async fn ask(binary: &str, prompt: &str) -> Option<String> {
+async fn call(binary: &str, prompt: &str, named: &str) -> Option<String> {
     let mut child = tokio::process::Command::new(binary)
         .current_dir(std::env::temp_dir())
         .arg("-p")
+        .args(["--session-id", named])
         .args(["--model", MODEL])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -299,8 +317,30 @@ async fn ask(binary: &str, prompt: &str) -> Option<String> {
         .await
         .ok()?
         .ok()?;
-    let said = String::from_utf8_lossy(&output.stdout);
-    sentence(&said)
+    Some(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Remove the transcript one of these calls left behind.
+///
+/// ⚠ **Found by id rather than by working out the path.** The folder under
+/// `projects/` is named by an undocumented encoding of the working directory,
+/// and [`crate::past`] opens with the account of guessing it wrong; the id is
+/// enough, because [`crate::past::transcript_of`] answers exactly this question
+/// and is the same lookup the viewer uses.
+///
+/// Silent when there is nothing to remove. A CLI that never got as far as
+/// writing a file, or one that files them somewhere else entirely, is not a
+/// failure of the sweep it was summarising for.
+pub fn discard(root: &Path, id: &str) {
+    let Some(path) = crate::past::transcript_of(root, id) else {
+        return;
+    };
+    if let Err(why) = std::fs::remove_file(&path) {
+        // Debug, not warn: the sentence was written either way, and a console
+        // that cannot delete its own leftovers would otherwise say so every
+        // quarter of an hour for ever.
+        tracing::debug!("gists: {} would not go ({why})", path.display());
+    }
 }
 
 /// The one line of what came back that is the answer.
