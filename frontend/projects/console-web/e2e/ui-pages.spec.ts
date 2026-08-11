@@ -773,6 +773,70 @@ async function distanceFromTheEnd(page: Page): Promise<number> {
   });
 }
 
+/**
+ * A finger on the transcript: down, dragged `by` CSS pixels, then whatever
+ * `during` does, then up.
+ *
+ * ⚠ **Trusted touch events through CDP, not `dispatchEvent`.** A synthetic
+ * `TouchEvent` built in the page reaches our listeners and moves nothing —
+ * untrusted events never reach the compositor — so the engine would be asked
+ * about a hold during which the view never actually moved, which is the one
+ * thing this is here to reproduce. Same argument as the wheel below.
+ *
+ * Positive `by` drags the finger DOWN the screen, which walks the transcript
+ * BACK: `scrollTop` falls. Chromium eats its own gesture slop first, so the
+ * finger always travels further than the view does — how much further is the
+ * platform's business, which is why the tests assert on the view's movement
+ * rather than on this number.
+ */
+async function thumb(
+  page: Page,
+  by: number,
+  during?: () => Promise<void>,
+): Promise<void> {
+  const box = (await page.locator('.transcript').boundingBox())!;
+  const x = Math.round(box.x + box.width / 2);
+  const y = Math.round(box.y + box.height / 2);
+  const cdp = await page.context().newCDPSession(page);
+  const finger = { id: 1, radiusX: 8, radiusY: 8, force: 1 };
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ ...finger, x, y }],
+  });
+  // ⚠ **Paced like a hand, not dispatched in a burst.** Sent back to back, the
+  // moves read as a flick: the compositor takes the gesture, the page stops
+  // receiving the touch stream after about five moves, and `touchend` never
+  // arrives at all — leaving the transcript held for ever, which looks exactly
+  // like the defect under test. `synthesizeScrollGesture` is not the way out
+  // either; it does not drive an inner scroller.
+  for (let step = 1; step <= 12; step++) {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ ...finger, x, y: y + Math.round((by * step) / 12) }],
+    });
+    await page.waitForTimeout(16);
+  }
+  // ⚠ **Still before it lifts, or this is a flick and not a thumb.** Releasing
+  // mid-motion leaves a fling that keeps scrolling after the finger has gone, and
+  // the engine then unpins for the best of reasons — the reader really is
+  // travelling away. Measured: without this the view reads as at the end the
+  // instant the touch ends, and 2,500px from it a moment later. A resting thumb
+  // stops before it lifts, so its velocity at release is zero.
+  for (let still = 0; still < 3; still++) {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ ...finger, x, y: y + by }],
+    });
+    await page.waitForTimeout(60);
+  }
+  if (during) await during();
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await page.evaluate(
+    () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+  );
+  await cdp.detach();
+}
+
 // The checker-checker: fail loudly here if the device preset is ever lost and
 // the "phone width" suite silently runs at desktop width.
 test('the suite really runs at phone geometry', async ({ page }) => {
@@ -1651,6 +1715,81 @@ test('the transcript does not yank a reader who has scrolled back @ phone width'
   // Further from the end than before, because the transcript grew underneath a
   // reader who did not move — and emphatically not back at the bottom.
   expect(after, 'yanked the reader to the end').toBeGreaterThan(away);
+});
+
+test('the transcript keeps following through a thumb resting on it @ phone width', async ({
+  page,
+}) => {
+  // ⚠ **The gap memview#116 lived in for three wrong theories.** Every following
+  // check above moves the view with a wheel or not at all, and the defect was on
+  // the path where a FINGER is on the glass: the engine decided per scroll event
+  // while held, so eighteen pixels of thumb drift — measured on the phone while
+  // deliberately not scrolling — ended following for good, and a live session
+  // read as a dead page. It was settled by asking Pippijn to hold his phone,
+  // which was the wrong instrument for a question a browser can answer.
+  await handControlOfTheStream(page);
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.transcript').waitFor();
+  await say(page, { kind: 'text', text: LONG_ANSWER }, 1);
+  expect(await distanceFromTheEnd(page), 'not at the end to begin with').toBeLessThan(4);
+
+  // ⚠ **Watch how far the view actually travels, rather than trusting the
+  // gesture.** Chromium eats an unknown amount of the finger's movement as
+  // gesture slop, so a request to drag 30px can move the view by 30 or by
+  // nothing — and "by nothing" would leave this test passing without ever having
+  // exercised a hold. The synthesized gesture is atomic, so the furthest point
+  // has to be collected as it happens.
+  const furthest = async () =>
+    page.evaluate(() => (window as unknown as { __min: number }).__min);
+  await page.evaluate(() => {
+    const el = document.querySelector('.transcript')!;
+    const w = window as unknown as { __min: number };
+    w.__min = el.scrollTop;
+    el.addEventListener('scroll', () => (w.__min = Math.min(w.__min, el.scrollTop)));
+  });
+  const before = await page.evaluate(() => document.querySelector('.transcript')!.scrollTop);
+
+  await thumb(page, 45);
+
+  const moved = before - (await furthest());
+  // ⚠ **The band is the test.** Only a movement ABOVE `SLACK` (16) and BELOW
+  // `SLOP` (40) can tell the fix from its absence: under 16 the old engine would
+  // not have unpinned either, so the check passes without exercising anything.
+  // Measured while writing this — the first version asked for 30px, Chromium ate
+  // 15 of it as gesture slop, the view moved 15, and the whole test survived the
+  // fix being removed. These bounds fail loudly if that drifts again.
+  expect(moved, 'under SLACK — the old engine would have forgiven this too').toBeGreaterThan(16);
+  expect(moved, 'over SLOP — that is a scroll back, which is the test below').toBeLessThan(40);
+
+  // ⚠ **`SLACK`, not the 4px the wheel checks use.** A real touch gesture leaves
+  // a few pixels of momentum behind it where a wheel stops dead — measured at 5.
+  // What matters is that the view is still inside what the engine itself counts
+  // as the end, so the next thing the session writes is followed; that is the
+  // line below, and it is the strict one.
+  expect(await distanceFromTheEnd(page), 'a resting thumb ended following').toBeLessThan(16);
+  await say(page, { kind: 'text', text: LONG_ANSWER }, 2);
+  expect(await distanceFromTheEnd(page), 'did not follow after the thumb lifted').toBeLessThan(4);
+});
+
+test('the transcript stops following when the finger really scrolled back @ phone width', async ({
+  page,
+}) => {
+  // The other side of the same gesture, and what memview#82 exists to protect.
+  // A hold is forgiven precisely because a drag is not, so forgiving one without
+  // the other is not a fix, it is following that cannot be stopped by hand.
+  await handControlOfTheStream(page);
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.transcript').waitFor();
+  await say(page, { kind: 'text', text: LONG_ANSWER }, 1);
+
+  await thumb(page, 400);
+  const away = await distanceFromTheEnd(page);
+  expect(away, 'the scroll back did not take').toBeGreaterThan(200);
+
+  await say(page, { kind: 'text', text: LONG_ANSWER }, 2);
+  expect(await distanceFromTheEnd(page), 'yanked the reader to the end').toBeGreaterThan(away);
 });
 
 test('the transcript follows an answer arriving in deltas @ phone width', async ({ page }) => {
