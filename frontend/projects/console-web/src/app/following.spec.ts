@@ -308,3 +308,75 @@ describe('following · a thumb on the glass, measured 2026-08-10', () => {
     expect(following.pinned).toBe(true);
   });
 });
+
+describe('following · the composer takes the window, measured 2026-08-11', () => {
+  // ⚠ **Replays the phone measurement in memview#731.** Typing a message grows
+  // the composer, which takes height from the transcript. The trace:
+  //
+  //     gap=44 top=138573 was=138617 wrote=138617 held=false view=562 height=139179
+  //
+  // `was == wrote` — the reader was exactly where the engine had put them and had
+  // not moved a pixel. `view` was 606 with an empty composer; three lines of text
+  // leaves 562. The gap that opens is 44, which is EXACTLY what the window lost.
+  //
+  // All three numbers fall together by the same amount, which is what makes the
+  // arithmetic come out at +44 rather than +88, so they are taken from the trace
+  // rather than constructed.
+  const AT_END = { top: 138617, height: 139223, view: 606 };
+  const COMPOSER_GREW = { top: 138573, height: 139179, view: 562 };
+
+  it('keeps following when the composer takes height from the transcript', () => {
+    const following = new Following();
+    following.landed(AT_END.top);
+    following.moved(AT_END);
+    expect(following.pinned, 'not following to begin with').toBe(true);
+
+    following.moved(COMPOSER_GREW);
+
+    expect(following.pinned).toBe(true);
+    expect(following.wants(COMPOSER_GREW), 'following, but declining to follow').toBe(
+      COMPOSER_GREW.height,
+    );
+  });
+
+  it('does not unpin on the settling event after the reshape either', () => {
+    // The reshape can arrive as more than one event. The second carries the same
+    // window and the same position, so re-anchoring `wrote` is what makes it the
+    // engine's own — otherwise the gap the composer opened is read as a reader
+    // walking away one event later, and the fix would only move the defect.
+    const following = new Following();
+    following.landed(AT_END.top);
+    following.moved(AT_END);
+    following.moved(COMPOSER_GREW);
+
+    following.moved(COMPOSER_GREW);
+
+    expect(following.pinned).toBe(true);
+  });
+
+  it('still stops following if they scroll back after the composer grew', () => {
+    // Forgiving the reshape must not forgive the next move. A reader who scrolls
+    // with a taller composer on screen is scrolling.
+    const following = new Following();
+    following.landed(AT_END.top);
+    following.moved(AT_END);
+    following.moved(COMPOSER_GREW);
+
+    following.moved({ ...COMPOSER_GREW, top: COMPOSER_GREW.top - 400 });
+
+    expect(following.pinned).toBe(false);
+  });
+
+  it('is not a way back for a reader who had already scrolled away', () => {
+    // The keyboard opening under somebody reading the morning is not a request to
+    // be taken to the newest message.
+    const following = new Following();
+    following.landed(AT_END.top);
+    following.moved({ ...AT_END, top: AT_END.top - 4000 });
+    expect(following.pinned, 'gone').toBe(false);
+
+    following.moved({ ...COMPOSER_GREW, top: AT_END.top - 4000 });
+
+    expect(following.pinned).toBe(false);
+  });
+});

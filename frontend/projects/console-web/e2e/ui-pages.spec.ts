@@ -1772,6 +1772,37 @@ test('the transcript keeps following through a thumb resting on it @ phone width
   expect(await distanceFromTheEnd(page), 'did not follow after the thumb lifted').toBeLessThan(4);
 });
 
+test('the transcript picks a reader up again when they scroll back to the end @ phone width', async ({
+  page,
+}) => {
+  // ⚠ **Reported from the phone, 2026-08-11**: reaching the very end by hand and
+  // sitting there, with the session still writing, left the page not following —
+  // `gap=1 top=136287` and still declining to write, then 58 and 82 as the
+  // conversation grew under a reader who had not moved. Once away, every move is
+  // theirs, INCLUDING the one that comes back; the unit tests say so and nothing
+  // said it through a real gesture.
+  await handControlOfTheStream(page);
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('.transcript').waitFor();
+  await say(page, { kind: 'text', text: LONG_ANSWER }, 1);
+
+  await thumb(page, 300);
+  const away = await distanceFromTheEnd(page);
+  expect(away, 'the scroll back did not take').toBeGreaterThan(200);
+
+  // Back down, overshooting so the box clamps at its own end rather than needing
+  // the gesture to land on a pixel.
+  await thumb(page, -600);
+  expect(await distanceFromTheEnd(page), 'did not reach the end').toBeLessThan(16);
+
+  await say(page, { kind: 'text', text: LONG_ANSWER }, 2);
+  expect(
+    await distanceFromTheEnd(page),
+    'came back to the end and was not picked up again',
+  ).toBeLessThan(4);
+});
+
 test('the transcript stops following when the finger really scrolled back @ phone width', async ({
   page,
 }) => {

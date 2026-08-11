@@ -161,6 +161,24 @@ export class Following {
   /** Whether the first render has happened; before it there is nothing to keep. */
   private started = false;
 
+  /**
+   * How tall the window was at the last event, or -1 before there has been one.
+   *
+   * ⚠ **A box that changes shape is not a reader who moves, and [`wrote`] cannot
+   * see the difference.** Measured on the phone 2026-08-11 (#731): typing a
+   * message grows the composer, which takes height from the transcript — `view`
+   * goes 606 to 586 to 562 as it reaches three lines — and the gap that opens is
+   * 20px and 44px, EXACTLY what the window lost. The reader had not moved;
+   * `was == wrote` on every trace. But the reshape shifts `top` too, so the
+   * `wrote` guard cannot recognise it and `atEnd` gets asked about a window that
+   * is no longer the one the answer was true of.
+   *
+   * The soft keyboard is the same thing several hundred pixels larger, which is
+   * why this must not be answered by widening [`SLACK`]: the quantity is known
+   * exactly, so it is discounted exactly.
+   */
+  private view = -1;
+
   /** Whether the reader is meant to be at the newest message. */
   get pinned(): boolean {
     return this.at;
@@ -259,8 +277,24 @@ export class Following {
     // glass, not a decision, and no threshold tells those apart from one event.
     // What does tell them apart is what the gesture adds up to, which is not
     // known until the finger lifts. See [`heldAt`] and [`released`].
+    // ⚠ **Before every guard, because it is bookkeeping and not a decision.**
+    // Written after the guards first, where the `wrote` short-circuit meant the
+    // window was never learned on the events that took it — so the reshape that
+    // followed looked like the first event this engine had ever seen and was not
+    // recognised at all.
+    const reshaped = this.view >= 0 && box.view !== this.view;
+    this.view = box.view;
     if (this.holding) return;
     if (this.at && box.top === this.wrote) return;
+    // The window changed shape between this event and the last. Whatever gap
+    // that accounts for belongs to the composer or the keyboard, not to the
+    // reader — so a follower stays one, and the new position becomes what the
+    // engine considers its own, which is what stops the settling event after it
+    // reading as somebody walking away. See [`view`].
+    if (this.at && reshaped) {
+      this.wrote = box.top;
+      return;
+    }
     this.at = atEnd(box);
   }
 }
