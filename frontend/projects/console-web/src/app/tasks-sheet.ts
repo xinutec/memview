@@ -72,6 +72,22 @@ export function shownTasks(all: readonly Task[], everything: boolean): Task[] {
 }
 
 /**
+ * Whether a rank lifts a task above the work nobody has ranked.
+ *
+ * ⚠ **`P0` and `P1`, and nothing else.** `P2` is exactly where an unranked task
+ * already sits, so drawing it as urgent would say something about the row that
+ * is not true of it — and `P3`/`P4` mean *when there is room* and *not
+ * scheduled*, which sort BELOW the untriaged. The letter itself carries which of
+ * the five it is; this only decides whether the chip is loud.
+ *
+ * A level this console has never heard of is drawn quietly rather than hidden:
+ * shown as its own letters, and not promoted on a guess.
+ */
+export function above(priority: string | undefined): boolean {
+  return priority === 'P0' || priority === 'P1';
+}
+
+/**
  * What the "All" toggle would reveal, in the service's own words — empty when it
  * would reveal nothing and the toggle should not be drawn at all.
  *
@@ -155,6 +171,10 @@ export class TasksSheet {
 
   protected standingOf(task: Task): Standing {
     return standingOf(task.status);
+  }
+
+  protected above(task: Task): boolean {
+    return above(task.priority);
   }
 
   /** Open a task's write-up, or fold it away again. Fetched once and kept. */

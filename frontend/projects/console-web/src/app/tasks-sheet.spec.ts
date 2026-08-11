@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { Task } from './models';
-import { closedLabel, shownTasks, standingOf } from './tasks-sheet';
+import { above, closedLabel, shownTasks, standingOf } from './tasks-sheet';
 
 /**
  * The four states the service keeps, and the fifth it has not invented yet.
@@ -61,6 +61,60 @@ describe('shownTasks', () => {
     const held = [...list];
     shownTasks(held, true);
     expect(ids(held)).toEqual(ids(list));
+  });
+});
+
+describe('above', () => {
+  it('lifts only the two ranks that outrank the untriaged', () => {
+    expect(above('P0')).toBe(true);
+    expect(above('P1')).toBe(true);
+  });
+
+  it('leaves P2 quiet, because P2 is where an unranked task already sits', () => {
+    // Drawing it as urgent would say something about the row that is not true
+    // of it: it is exactly as urgent as the four hundred nobody has read.
+    expect(above('P2')).toBe(false);
+  });
+
+  it('leaves the two that sink below the untriaged quiet', () => {
+    // "When there is room" and "not scheduled". A loud chip on these would make
+    // the least pressing rows in the list the brightest ones in it.
+    expect(above('P3')).toBe(false);
+    expect(above('P4')).toBe(false);
+  });
+
+  it('draws no rank at all when there is none, and does not invent one', () => {
+    // Absence is not a sixth level — it is P2's place, without the chip.
+    expect(above(undefined)).toBe(false);
+  });
+
+  it('does not promote a level it has never heard of', () => {
+    expect(above('P9')).toBe(false);
+  });
+});
+
+describe('shownTasks and rank', () => {
+  it('leaves the service’s order alone', () => {
+    // ⚠ The service sorts, in `repo::list`, and P3 sinks BELOW everything
+    // unranked — so the rows arrive with the low ranks last and that is
+    // correct. A sort here would be a second rule to keep true, and it would
+    // disagree with the first one the day either changed.
+    const ranked = (id: string, priority?: string): Task => ({ ...task(id, 'open'), priority });
+    const list = [ranked('748'), ranked('96', 'P3'), ranked('740', 'P3')];
+    expect(ids(shownTasks(list, false))).toEqual(['748', '96', '740']);
+  });
+
+  it('still lifts what is underway, above even a P0 that has not been started', () => {
+    // The one sort this sheet does keep, and it outranks the rank: the question
+    // it is opened with is "what is this conversation actually on". So the
+    // service's order survives WITHIN a status rather than across the list, and
+    // a P0 floats above every other open task but not above work in hand.
+    const ranked = (id: string, status: string, priority?: string): Task => ({
+      ...task(id, status),
+      priority,
+    });
+    const list = [ranked('1', 'open', 'P0'), ranked('2', 'doing')];
+    expect(ids(shownTasks(list, false))).toEqual(['2', '1']);
   });
 });
 

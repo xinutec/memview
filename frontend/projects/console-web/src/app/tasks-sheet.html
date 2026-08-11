@@ -57,6 +57,14 @@
                it the sheet and the conversation are talking about the same
                things in two vocabularies. -->
           <span class="num">{{ task.id }}</span>
+          <!-- The rank, when there is one, and nothing at all when there is not:
+               almost every task is unranked and always will be, so a placeholder
+               would be the mark most of this list wore. The letter alone — the
+               five glosses are written out in `task --help` and in the tasks
+               app, and a third copy here is prose nothing checks. -->
+          @if (task.priority; as rank) {
+            <span class="rank" [class.above]="above(task)">{{ rank }}</span>
+          }
           <span class="subject">{{ task.subject }}</span>
           @if (task.detailed) {
             <mat-icon class="chevron">{{

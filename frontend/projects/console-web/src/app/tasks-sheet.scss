@@ -85,6 +85,29 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
+// The rank. Drawn only when there is one — see the template — so this costs
+// nothing on the untriaged rows, which are nearly all of them. Sits after the
+// number so the numbers stay in their tabular column: a chip in front of them
+// would step the whole list in and out by its width.
+.rank {
+  flex: 0 0 auto;
+  margin-top: 0.1rem;
+  padding: 0 0.3rem;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 0.25rem;
+  font: var(--mat-sys-label-small);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+// Loud for P0 and P1 only, which are the two that outrank the untriaged. P2 IS
+// where an unranked task sits, and P3/P4 are below it — colouring those would
+// make "not this week" the brightest thing on the screen.
+.rank.above {
+  border-color: transparent;
+  background: var(--mat-sys-error-container);
+  color: var(--mat-sys-on-error-container);
+}
+
 .subject {
   flex: 1;
   font: var(--mat-sys-body-medium);
@@ -110,6 +133,16 @@
 // would undo the distinction the service keeps them apart for.
 .task.done .mark {
   color: var(--mat-sys-primary);
+}
+
+// A closed task keeps its rank — it is what it was ranked, and that is worth
+// seeing with "All" on — but not the urgency: a finished P0 shouting in red is
+// the loudest thing on a screen for work that is already over.
+.task.done .rank.above,
+.task.dropped .rank.above {
+  border-color: var(--mat-sys-outline-variant);
+  background: none;
+  color: var(--mat-sys-on-surface-variant);
 }
 
 // The write-up. Only the box is set here: what is inside it is markdown put in

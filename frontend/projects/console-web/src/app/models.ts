@@ -424,6 +424,23 @@ export interface Task {
   readonly status: string;
   /** Whether there is prose behind it worth opening. */
   readonly detailed: boolean;
+  /**
+   * How urgent, in the service's own words — `P0` to `P4`, and **absent** on
+   * almost every task there is.
+   *
+   * ⚠ **Absence is not a sixth level.** An unranked task sorts exactly where
+   * `P2` does, so `P0` and `P1` rise above the untriaged while `P3` and `P4`
+   * sink below it. Nothing drawn for an absent rank, therefore: no chip, no
+   * reserved column, nothing that would put a mark on 98% of the list to say
+   * that nobody has thought about it.
+   *
+   * ⚠ **Do not sort on it here.** The rows arrive in the service's order, which
+   * is the only place the ordering is decided.
+   *
+   * A string rather than a union, like `status`: a level the service invents
+   * later is news to draw, not a parse failure.
+   */
+  readonly priority?: string;
 }
 
 /**

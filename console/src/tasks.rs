@@ -91,6 +91,24 @@ pub struct Listed {
     /// than not offering.
     #[serde(default)]
     pub detailed: bool,
+    /// How urgent, in the service's own words — `P0` to `P4`.
+    ///
+    /// ⚠ **Absent rather than null on almost everything, and absence is not a
+    /// sixth level.** An unranked task sorts exactly where `P2` does, so `P0`
+    /// and `P1` rise above the untriaged while `P3` and `P4` sink below it.
+    /// Which is why it is kept absent on the way out too — a `null` on 125 rows
+    /// of 127 invites a client to draw a placeholder for it, and the whole point
+    /// of an empty rank is that it costs nothing.
+    ///
+    /// ⚠ **Nothing here sorts on it.** `repo::list` is the service's only sort
+    /// and the rows arrive in the answer's order; a second ordering on this side
+    /// would be a second rule to keep true, and it would disagree the first time
+    /// either changed.
+    ///
+    /// A string, like [`Self::status`]: a sixth level the service invents later
+    /// is news to draw, not a parse failure that loses the whole list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<String>,
 }
 
 /// The id arrives as a number and is used as a string everywhere above this.

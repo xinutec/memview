@@ -247,6 +247,28 @@ async fn a_list_carries_what_a_row_needs_and_not_the_prose() {
 }
 
 #[tokio::test]
+async fn a_rank_is_carried_through_and_no_rank_stays_absent() {
+    // The order is the service's — `repo::list` sorts, and P3 is BELOW the
+    // untriaged, which is why the ranked row here is the last one. Nothing on
+    // this side may reorder them, so the ranked task is deliberately not first.
+    let body = r#"[{"id":748,"repo":"memview","subject":"No rank at all","status":"open","assignee":{"kind":"nobody"},"detailed":true,"created_at":"2026-08-11T10:00:00Z","updated_at":"2026-08-11T10:00:00Z"},
+                   {"id":96,"repo":"memview","subject":"When there is room","status":"open","assignee":{"kind":"nobody"},"detailed":true,"priority":"P3","created_at":"2026-08-11T10:00:00Z","updated_at":"2026-08-11T10:00:00Z"}]"#;
+    let (address, _) = serving(vec![("/api/tasks", body)]).await;
+    let listed = reading(address).listed("whoever").await;
+    assert_eq!(listed[0].id, "748", "the answer's order, unsorted");
+    assert_eq!(listed[0].priority, None);
+    assert_eq!(listed[1].priority.as_deref(), Some("P3"));
+
+    // ⚠ Absent on the way out as well as in. A `null` here would be a rank a
+    // client could draw a placeholder for, on the 98% of rows that have none.
+    let out = serde_json::to_string(&listed[0]).expect("serialisable");
+    assert!(
+        !out.contains("priority"),
+        "no empty rank on the wire: {out}"
+    );
+}
+
+#[tokio::test]
 async fn a_task_with_no_prose_offers_none() {
     // Offering to open an empty sheet is worse than not offering.
     let empty = r#"{"id":97,"subject":"x","status":"open","assignee":{"kind":"nobody"},"detailed":false,"created_at":"2026-08-08T10:00:00Z","updated_at":"2026-08-08T10:00:00Z","body":"   ","body_html":"","events":[]}"#;

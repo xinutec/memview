@@ -2611,6 +2611,18 @@ test('a window that has already reset shows no figure @ phone width', async ({ p
  * field, so nothing here may invent one. See `console/src/tasks.rs`.
  */
 const TASKS = [
+  // ⚠ **In the service's order, ranks and all** — `repo::list` is the only sort
+  // there is, and the rows arrive already in it. So the ranked ones are placed
+  // here where the service would put them: P0 above everything unranked, P3
+  // BELOW it, because an unranked task sorts exactly where P2 does and "when
+  // there is room" is not more pressing than four hundred nobody has read.
+  {
+    id: '7',
+    subject: 'refresh the recovery bundle before the next machine',
+    status: 'open',
+    detailed: false,
+    priority: 'P0',
+  },
   {
     id: '2',
     subject: 'bless the golden set after the oracle moved',
@@ -2622,6 +2634,16 @@ const TASKS = [
     subject: 'write the rule up',
     status: 'open',
     detailed: false,
+  },
+  // Unranked and ranked-below it, adjacent on purpose: the row with no chip is
+  // the more urgent of the two, and drawing an absent rank as anything at all
+  // would say the opposite.
+  {
+    id: '99',
+    subject: 'tidy the fixture names',
+    status: 'open',
+    detailed: false,
+    priority: 'P3',
   },
   {
     id: '101',
@@ -3128,11 +3150,27 @@ test('the task sheet opens on what is left rather than what is done @ phone widt
   // Underway first, then open. What is done is not on screen at all.
   await expect(sheet.locator('.subject')).toHaveText([
     'port the matcher gate',
+    'refresh the recovery bundle before the next machine',
     'write the rule up',
+    'tidy the fixture names',
   ]);
   // With the numbers the session itself uses, in the same order — a session
   // writes `#101 done` in its own prose, so the row has to be findable by it.
-  await expect(sheet.locator('.num')).toHaveText(['101', '100']);
+  //
+  // ⚠ **And in the service's order within a status, not one of ours.** #7 is
+  // ranked above the unranked #100 and #99 is ranked below it, and that is how
+  // they arrive — nothing here re-sorts on the rank, or there would be two
+  // orderings to keep true and they would disagree the first time either moved.
+  await expect(sheet.locator('.num')).toHaveText(['101', '7', '100', '99']);
+
+  // ⚠ **The rank is drawn, and only where there is one.** Two chips on four
+  // rows: the other two are unranked, which is what almost every task is, and a
+  // placeholder on those would be the mark most of this list wore.
+  await expect(sheet.locator('.rank')).toHaveText(['P0', 'P3']);
+  // Loud only for the rank that outranks the untriaged. P3 is below it, so its
+  // chip is the quiet one: making "when there is room" the brightest thing on
+  // the screen is the defect, not the feature.
+  await expect(sheet.locator('.rank.above')).toHaveText(['P0']);
 
   // The write-up is behind a tap, because sending it with the list would be a
   // megabyte and a half to draw two subjects.
@@ -3150,7 +3188,7 @@ test('the task sheet opens on what is left rather than what is done @ phone widt
   // And the toggle brings back what is closed, saying how much it is. Both kinds
   // of closed: "1 done" would have offered to reveal one row and revealed two.
   await sheet.getByRole('radio', { name: /All \(2 closed\)/ }).click();
-  await expect(sheet.locator('.subject')).toHaveCount(4);
+  await expect(sheet.locator('.subject')).toHaveCount(6);
   // Finished before abandoned, and the dropped row says which it is rather than
   // borrowing the tick. Read off the mark's label, because that is also what a
   // screen reader gets.
@@ -3158,7 +3196,7 @@ test('the task sheet opens on what is left rather than what is done @ phone widt
   // By class, not by position: `.task` also matches the checkbox items inside
   // the write-up opened above, and this list has one of those on screen.
   await expect(sheet.locator('.task.dropped .mark')).toHaveAttribute('aria-label', 'dropped');
-  await expect(sheet.locator('.tasks > .task').nth(3)).toHaveClass(/dropped/);
+  await expect(sheet.locator('.tasks > .task').last()).toHaveClass(/dropped/);
   await expect(sheet.locator('.task.dropped .subject')).toHaveText(
     'move the per-session repo claim into the service',
   );
@@ -3494,7 +3532,11 @@ test('scrolling up by a line stops it following @ phone width', async ({ page })
   await list.waitFor();
   let seq = 0;
   for (let n = 0; n < 20; n++) {
-    await say(page, { kind: 'text', text: `Message ${n}: ` + 'said at some length. '.repeat(6) }, ++seq);
+    await say(
+      page,
+      { kind: 'text', text: `Message ${n}: ` + 'said at some length. '.repeat(6) },
+      ++seq,
+    );
   }
 
   // Up by less than a line and a half — the movement that used to be treated as
@@ -3578,9 +3620,7 @@ const PARSED = {
       reached: 'on-success',
       cwd: '/home/example/Code/health/packages/health-sync-backend/src/decode',
       kind: 'write',
-      uses: [
-        { path: '/tmp/lean-gate.log', write: true, reached: 'on-success', certain: false },
-      ],
+      uses: [{ path: '/tmp/lean-gate.log', write: true, reached: 'on-success', certain: false }],
     },
   ],
 };
@@ -3684,9 +3724,7 @@ test('both halves of a parsed command fit one screen @ phone width', async ({ pa
     return raw && step ? { top: raw.top, bottom: step.bottom, screen: window.innerHeight } : null;
   });
   expect(together).not.toBeNull();
-  expect(together!.top, 'the raw command starts above the fold').toBeLessThan(
-    together!.screen,
-  );
+  expect(together!.top, 'the raw command starts above the fold').toBeLessThan(together!.screen);
   expect(
     together!.bottom,
     'the first step of the parse is off the bottom of the screen',
