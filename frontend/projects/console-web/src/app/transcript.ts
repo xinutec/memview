@@ -220,8 +220,11 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
       }
       add(entries, {
         kind: 'note',
+        // A resumed session that had said one thing before reads "1 earlier
+        // event", not "1 earlier events" — the count is written by the runner
+        // and is a 1 often enough to be worth the ternary.
         text: event.earlier
-          ? `${event.earlier} earlier events, read from the transcript`
+          ? `${event.earlier} earlier event${event.earlier === 1 ? '' : 's'}, read from the transcript`
           : 'nothing earlier could be read from the transcript',
         at: event.at,
       });

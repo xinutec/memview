@@ -597,4 +597,15 @@ describe('a call whose result was never written', () => {
     const tools = seen.filter((e) => e.kind === 'tool');
     expect(ran(tools)).toEqual({ calls: 2, failed: 0, running: 0, unrecorded: 1 });
   });
+
+  it('counts one earlier event in the singular', () => {
+    // A resumed session that had said one thing before read "1 earlier events".
+    // Nothing asserted this line's words, so the count and the noun had never
+    // been made to agree.
+    const one = transcript({ kind: 'joined', earlier: 1 });
+    expect(one[0]).toEqual({ kind: 'note', text: '1 earlier event, read from the transcript' });
+
+    const two = transcript({ kind: 'joined', earlier: 2 });
+    expect(two[0]).toEqual({ kind: 'note', text: '2 earlier events, read from the transcript' });
+  });
 });

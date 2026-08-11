@@ -305,7 +305,17 @@ button.parse {
 }
 
 // A note against one question, beside whatever was picked for it.
-.note {
+//
+// ⚠ **Scoped to the element, because `.note` is two different things in this
+// component** and the unscoped rule was styling both. A transcript row is
+// `<li class="entry note">` — the marker where a resumed session joins its
+// replayed transcript — and it was being drawn as an input: dashed border,
+// surface background, 3rem of min-height, and 0.4rem of top padding the clock in
+// the margin does not see, since an absolutely positioned `top: 0` resolves
+// against the PADDING box. That last one is all memview#725 could see from the
+// outside, as a clock sitting 7.4px above the line it dates. The border was the
+// defect; the offset was its shadow.
+input.note {
   width: 100%;
   box-sizing: border-box;
   min-height: 3rem;
@@ -331,7 +341,7 @@ button.parse {
 }
 
 .addnote:disabled,
-.note:disabled {
+input.note:disabled {
   opacity: 0.45;
   cursor: default;
 }

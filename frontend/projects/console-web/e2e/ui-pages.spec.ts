@@ -292,12 +292,12 @@ const TRANSCRIPT = [
     input: { command: 'nix develop -c home-manager switch --flake .#pippijn' },
     at: LATE,
   },
-  // No `at`: a replayed transcript line often carries no timestamp, and a note
-  // row's clock sits 7.4px above the line it dates independently of this —
-  // memview#725, which this fixture found. Left off so the fixture tests the row
-  // it is here for rather than doubling as a failing case for another defect;
-  // put an `at` back to reproduce that one.
-  { kind: 'joined', earlier: 1, from: 0 },
+  // ⚠ **Carries an `at`, and that is the regression case for memview#725.** A
+  // real `Joined` always does — the runner pushes it through `push()`, which
+  // stamps `now()` — so a note row without one tests a shape production never
+  // sends. With one, this row is drawn with a clock in the margin, which is what
+  // caught an input's styling leaking onto it through an unscoped `.note`.
+  { kind: 'joined', earlier: 1, from: 0, at: LATE },
   {
     kind: 'prompt',
     text: 'Port the remaining matcher gate to Lean and prove it bit-exact against the TypeScript quant twin.',
