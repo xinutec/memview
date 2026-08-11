@@ -380,3 +380,53 @@ describe('following · the composer takes the window, measured 2026-08-11', () =
     expect(following.pinned).toBe(false);
   });
 });
+
+describe('following · saying something', () => {
+  // ⚠ **Measured on the phone, 2026-08-11 (#731).** Sending re-lays the page out
+  // as the composer collapses, and the browser moves the position while it does:
+  //
+  //     unpinned gap=92 top=145066 was=145157 wrote=145157 held=false view=534
+  //
+  // 110ms after the tap, no finger down, and the previous position exactly where
+  // this engine had put it — 91px nobody asked for. No threshold separates that
+  // from a reader's first scroll, because from outside they are the same event.
+  // What separates them is that this one was expected.
+  it('survives the relayout that sending causes', () => {
+    const following = new Following();
+    following.landed(145157);
+    following.moved({ top: 145157, height: 145692, view: 534 });
+
+    following.spoke();
+    following.moved({ top: 145066, height: 145692, view: 534 });
+
+    expect(following.pinned, 'detached by its own relayout').toBe(true);
+  });
+
+  it('does not take a reader who had scrolled away back to the end', () => {
+    // ⚠ **Sending PROTECTS following, it does not restore it** — Pippijn's rule.
+    // A message sent from halfway up the morning arrives at the end whether or
+    // not it is watched, and being yanked there is what #82 exists to prevent.
+    const following = new Following();
+    following.landed(end(10000));
+    following.moved(box(2000, 10000));
+    expect(following.pinned, 'gone').toBe(false);
+
+    following.spoke();
+    following.moved(box(1980, 10000));
+
+    expect(following.pinned).toBe(false);
+    expect(following.wants(box(1980, 10600))).toBeUndefined();
+  });
+
+  it('is spent on the move it was expecting, not on the next real scroll', () => {
+    const following = new Following();
+    following.landed(end(10000));
+    following.spoke();
+    following.moved({ top: end(10000) - 20, height: 10000, view: 600 });
+    expect(following.pinned, 'the relayout was forgiven').toBe(true);
+
+    following.moved({ top: end(10000) - 400, height: 10000, view: 600 });
+
+    expect(following.pinned, 'forgave a scroll it was not owed').toBe(false);
+  });
+});

@@ -179,6 +179,16 @@ export class Following {
    */
   private view = -1;
 
+  /**
+   * Whether a move the reader did not make is expected next. See [`spoke`].
+   *
+   * One event, then spent: the shift arrives as a single scroll after the send,
+   * and re-anchoring [`wrote`] to where it lands is what stops the settling event
+   * behind it re-opening the question. A flag that outlived its relayout would
+   * forgive the reader's next real scroll instead.
+   */
+  private settling = false;
+
   /** Whether the reader is meant to be at the newest message. */
   get pinned(): boolean {
     return this.at;
@@ -227,6 +237,27 @@ export class Following {
   landed(top: number): void {
     this.wrote = top;
     this.started = true;
+  }
+
+  /**
+   * The reader said something, and the page is about to move under them.
+   *
+   * ⚠ **This PROTECTS following; it does not restore it** — Pippijn's rule, and
+   * the right one. Sending from halfway up the morning is not a request to be
+   * taken to the bottom: the message goes to the end whether or not it is
+   * watched, and yanking the view is the very thing #82 exists to prevent. So a
+   * reader who had scrolled away stays exactly where they are.
+   *
+   * What it does settle is a race that cannot be won by measuring. Sending
+   * re-lays the page out — the composer collapses from four lines to one — and
+   * the browser moves the position while it does: measured on the phone (#731),
+   * `top` went 145157 to 145066 with no finger down and `was == wrote`, i.e. 91px
+   * nobody asked for, and the transcript detached 110ms after the tap. From
+   * outside, that is the same event as a reader's first scroll. What tells them
+   * apart is not the numbers but that one of them was expected.
+   */
+  spoke(): void {
+    this.settling = this.at;
   }
 
   /** A finger went down on the transcript, here. */
@@ -291,7 +322,10 @@ export class Following {
     // reader — so a follower stays one, and the new position becomes what the
     // engine considers its own, which is what stops the settling event after it
     // reading as somebody walking away. See [`view`].
-    if (this.at && reshaped) {
+    // A move the reader did not make: the window changed shape, or they have
+    // just sent something and the page is re-laying out around it.
+    if (this.at && (reshaped || this.settling)) {
+      this.settling = false;
       this.wrote = box.top;
       return;
     }

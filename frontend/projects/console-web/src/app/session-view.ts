@@ -575,6 +575,10 @@ export class SessionView implements OnDestroy {
     // A picture is a whole message on its own — a screenshot with nothing said
     // is the commonest thing this carries — so either half is enough to send.
     if ((!text && !picture) || this.sending()) return;
+    // Saying something is asking to see the answer. See [[Following.spoke]] —
+    // this also settles the relayout that detached the transcript 110ms after a
+    // tap on send, which no measurement could have told from a reader scrolling.
+    this.following.spoke();
     this.sending.set(true);
     const sent = picture
       ? this.api.show(this.id(), picture.data, picture.mediaType, text)
