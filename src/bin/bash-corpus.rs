@@ -56,6 +56,30 @@ fn main() -> anyhow::Result<()> {
         // relative path under a directory the command never entered. The words
         // are the only evidence and they are in the transcript, not in the row.
         let refused = agents::refusals(text.as_bytes());
+        // ⚠ **One row per CALL, not per line — a transcript holds the same line
+        // more than once.** The CLI re-appends stretches of a conversation it
+        // has already written, and this corpus emitted a row for each copy. The
+        // whole corpus went **194,831 rows → 120,279** when this was added:
+        // **38.3% of it was one call counted more than once** (memview #448).
+        //
+        // ⚠ **That skewed the corpus, not just inflated it.** The repeats are
+        // concentrated in whichever sessions were rewritten most, so the shares
+        // moved with them: `ssh` 3.49% → 5.33%, `nix-shell` 2.08% → 3.37%,
+        // `sed` 5.85% → 4.30%. Every figure taken from this file before now —
+        // counts, coverage, "the corpus does X N times" — is a figure about a
+        // corpus that counted some sessions twice.
+        //
+        // Keyed on the call id, which is unique per call and shared by every
+        // copy of the line carrying it. Per file, because copies only ever occur
+        // within one transcript.
+        //
+        // ⚠ The FIRST copy is the one kept, deliberately. The copies are not
+        // identical: measured, the later one carries a **shallower `cwd`** —
+        // 114,464 of 114,464 differing pairs in one transcript, every one of
+        // them re-stamped nearer the session root. Keeping the newest would
+        // trade the directory a relative path needs for one that cannot resolve
+        // it. See [[reference_transcript_cwd_is_both_before_and_after]].
+        let mut emitted: std::collections::HashSet<String> = std::collections::HashSet::new();
         for line in text.lines() {
             // The same reader the miner uses, so the corpus a coverage figure is
             // measured against cannot drift from the text the miner parses.
@@ -66,6 +90,9 @@ fn main() -> anyhow::Result<()> {
             };
             let cwd = cwd.unwrap_or_default();
             for agents::BashCall { id, command } in found {
+                if !emitted.insert(id.clone()) {
+                    continue;
+                }
                 // No result at all is its own answer: the call was interrupted,
                 // is still running, or the transcript ends mid-turn. An
                 // interruption is not a result line but a separate message, so
