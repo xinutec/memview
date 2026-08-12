@@ -262,36 +262,105 @@ impl Doing {
 /// `cd: harden inspircd …`, which are commit subjects in a `git log`, not a
 /// shell. What identifies a refusal is the shell's own suffix after the target.
 ///
-/// bash's wording, which is what these sessions run (`SHELL` is
-/// `bashInteractive` — see `hm-agents.nix`). zsh reverses it to
-/// `cd: no such file or directory: <target>` and is deliberately not read here:
-/// no measured call in the corpus uses it, and a guess at a second grammar is a
-/// second thing to be wrong about.
+/// **Two shells, because the corpus has two.** bash puts the target before the
+/// message and zsh puts it after:
+///
+/// ```text
+/// bash: line 1: cd: memcheck: No such file or directory
+/// (eval):cd:1: no such file or directory: src
+/// ```
+///
+/// ⚠ This read bash's form only, on the stated grounds that *"no measured call
+/// in the corpus uses"* zsh's. That was wrong, and it was wrong by a lot:
+/// measured 2026-08-12, **74 calls carry a zsh-worded refusal and 99 a
+/// bash-worded one**, so 43% of the refusals in the corpus were invisible — and
+/// every one of them is a `cd` the parser applied and the shell did not, which
+/// is precisely the failure this function exists to prevent. The claim had no
+/// measurement behind it; `SHELL` being `bashInteractive` says what the session's
+/// own shell is, not what the thousands of `nix develop -c`, `nix-shell --run`
+/// and `ssh` invocations inside these commands run.
+///
+/// The zsh grammar is anchored on the message *in position* — `cd`, an optional
+/// line number, then the message, then the target — so the same prose that
+/// `cd: ` alone would match cannot reach it.
 pub fn refused_dirs(text: &str) -> Vec<String> {
-    const ENDINGS: [&str; 2] = ["No such file or directory", "Not a directory"];
     let mut out: Vec<String> = Vec::new();
+    let mut keep = |target: &str| {
+        let target = target.trim().trim_end_matches('/');
+        if !target.is_empty() && !out.iter().any(|seen| seen == target) {
+            out.push(target.to_string());
+        }
+    };
     for line in text.lines() {
-        // The LAST `cd: ` on the line: bash prefixes its own name and the line
-        // number — `bash: line 1: cd: memcheck: …` — and a path in the target
-        // could itself contain the needle.
-        let Some(at) = line.rfind("cd: ") else {
-            continue;
-        };
-        let rest = line[at + "cd: ".len()..].trim_end();
-        for ending in ENDINGS {
-            let Some(target) = rest
-                .strip_suffix(ending)
-                .and_then(|head| head.strip_suffix(": "))
-            else {
-                continue;
-            };
-            let target = target.trim().trim_end_matches('/');
-            if !target.is_empty() && !out.iter().any(|seen| seen == target) {
-                out.push(target.to_string());
-            }
+        let line = line.trim_end();
+        if let Some(target) = refused_by_bash(line) {
+            keep(target);
+        } else if let Some(target) = refused_by_zsh(line) {
+            keep(target);
         }
     }
     out
+}
+
+/// Every wording the two readers below accept, as bytes to scan for.
+///
+/// ⚠ **A caller that prescans MUST use this, and nothing narrower.** `agents::
+/// refusals` had its own `const ENDING: &[u8] = b"No such file or directory"` as
+/// a cheap gate before parsing a line, and that single needle silently decided
+/// what [`refused_dirs`] would ever be asked about: zsh's lower-cased wording
+/// never reached it, and neither did bash's own `Not a directory`, which this
+/// function has always handled. Widening the parser alone changed **nothing**
+/// measurably — 91 refusals to 102 — because the gate in front of it was the
+/// real limit. Two places holding one list is how that happened; this is the
+/// list.
+pub const REFUSAL_PHRASES: [&str; 4] = [
+    "No such file or directory",
+    "no such file or directory",
+    "Not a directory",
+    "not a directory",
+];
+
+/// Whether a line could carry a refusal at all — the cheap test worth running
+/// before paying to parse one.
+///
+/// Bytes rather than `str`, because the caller is scanning a transcript line it
+/// has not decoded yet, and deciding to decode it is the whole point.
+#[must_use]
+pub fn may_hold_refusal(line: &[u8]) -> bool {
+    REFUSAL_PHRASES
+        .iter()
+        .any(|phrase| line.windows(phrase.len()).any(|at| at == phrase.as_bytes()))
+}
+
+/// bash: the target sits between `cd: ` and the message at the end of the line.
+///
+/// The LAST `cd: ` on the line: bash prefixes its own name and the line number —
+/// `bash: line 1: cd: memcheck: …` — and a path in the target could itself
+/// contain the needle.
+fn refused_by_bash(line: &str) -> Option<&str> {
+    const ENDINGS: [&str; 2] = ["No such file or directory", "Not a directory"];
+    let at = line.rfind("cd: ")?;
+    let rest = &line[at + "cd: ".len()..];
+    ENDINGS.iter().find_map(|ending| {
+        rest.strip_suffix(ending)
+            .and_then(|head| head.strip_suffix(": "))
+    })
+}
+
+/// zsh: the message comes first and the target is the rest of the line.
+///
+/// `cd:1: no such file or directory: src`, and `(eval):cd:1: …` when the command
+/// reached the shell through `eval` — which is how a `nix develop -c` or an
+/// `ssh` one-liner usually arrives. The line number is optional.
+fn refused_by_zsh(line: &str) -> Option<&str> {
+    const ENDINGS: [&str; 2] = ["no such file or directory: ", "not a directory: "];
+    let at = line.rfind("cd:")?;
+    let rest = line[at + "cd:".len()..].trim_start_matches(|c: char| c.is_ascii_digit());
+    let rest = rest.strip_prefix(':').unwrap_or(rest).strip_prefix(' ')?;
+    ENDINGS
+        .iter()
+        .find_map(|ending| rest.strip_prefix(ending))
+        .filter(|target| !target.is_empty())
 }
 
 /// Minutes since the epoch, from an ISO-8601 stamp.

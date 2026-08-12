@@ -1003,10 +1003,16 @@ fn outcomes(text: &[u8]) -> std::collections::HashMap<String, reader::doing::Ver
 /// carrying the wording is free. The needle is the shell's own ending rather than
 /// `cd: `, which matches prose — commit subjects in a `git log` begin that way.
 pub fn refusals(text: &[u8]) -> std::collections::HashMap<String, Vec<String>> {
-    const ENDING: &[u8] = b"No such file or directory";
     let mut out = std::collections::HashMap::new();
     for line in text.split(|c| *c == b'\n') {
-        if find_at(line, ENDING, 0).is_none()
+        // ⚠ **The gate comes from the parser, not from here.** This held its own
+        // `b"No such file or directory"`, which decided what `refused_dirs` was
+        // ever shown — and being one needle where the parser reads four, it hid
+        // zsh's lower-cased wording (77 Bash calls in the 40 largest transcripts)
+        // and bash's own `Not a directory` as well. A cheap prescan is right; a
+        // cheap prescan with its own private idea of the thing it is screening
+        // for is a second implementation that cannot be seen disagreeing.
+        if !reader::doing::may_hold_refusal(line)
             || find_at(line, b"\"type\":\"tool_result\"", 0).is_none()
         {
             continue;

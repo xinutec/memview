@@ -83,3 +83,54 @@ fn silence_is_the_ordinary_case() {
     assert!(refused_dirs("").is_empty());
     assert!(refused_dirs("total 0\ndrwxr-xr-x  2 example  staff  64 Aug  8 17:00 .").is_empty());
 }
+
+#[test]
+fn zsh_names_the_target_after_the_message_and_is_read_too() {
+    // ⚠ **43% of the corpus's refusals were invisible** while only bash's
+    // wording was read: measured 2026-08-12, **74 calls say it zsh's way and 99
+    // bash's**. Every missed one is a `cd` the parser applied and the shell did
+    // not — the exact defect this function exists to prevent.
+    assert_eq!(
+        refused_dirs("cd:1: no such file or directory: src"),
+        vec!["src".to_string()],
+    );
+}
+
+#[test]
+fn a_zsh_refusal_from_inside_eval_is_read_too() {
+    // How it usually arrives: `nix develop -c`, `nix-shell --run` and `ssh`
+    // one-liners reach the shell through `eval`, which prefixes its own name.
+    // This is the commonest form in the corpus.
+    assert_eq!(
+        refused_dirs("(eval):cd:1: no such file or directory: frontend/src/app/services"),
+        vec!["frontend/src/app/services".to_string()],
+    );
+}
+
+#[test]
+fn zsh_says_not_a_directory_the_same_way() {
+    assert_eq!(
+        refused_dirs("(eval):cd:1: not a directory: Cargo.toml"),
+        vec!["Cargo.toml".to_string()],
+    );
+}
+
+#[test]
+fn one_output_may_carry_both_shells() {
+    // A script that runs a nested shell reports in whichever one refused, and a
+    // call can contain more than one.
+    let said = "bash: line 1: cd: memcheck: No such file or directory\n\
+                (eval):cd:1: no such file or directory: src";
+    assert_eq!(
+        refused_dirs(said),
+        vec!["memcheck".to_string(), "src".to_string()],
+    );
+}
+
+#[test]
+fn zsh_prose_in_the_same_position_is_still_not_a_refusal() {
+    // The message has to sit where zsh puts it. A commit subject that merely
+    // contains the words does not.
+    let said = "8047bc0 cd: fix no such file or directory: handling in the reader";
+    assert!(refused_dirs(said).is_empty());
+}
