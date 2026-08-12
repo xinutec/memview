@@ -36,6 +36,22 @@ pub struct Roster {
     /// What each conversation was last allowed to do without asking. See
     /// [`crate::modes`] — the only record of it anywhere.
     modes: Arc<crate::modes::Modes>,
+    /// The truest reading of each rate-limit window this console has seen, kept
+    /// **across the sessions that heard it**.
+    ///
+    /// ⚠ **Because a session taking its reading away with it made the figure go
+    /// backwards.** [`Self::spent`] built this fresh from the live sessions on
+    /// every poll, so when the one holding 93% ended, the highest remaining was
+    /// 92% and the front page — which polls every five seconds — showed 92 → 93
+    /// → 92 (memview #87). Nothing about the account changed; the console just
+    /// forgot who had told it.
+    ///
+    /// Held rather than derived, so a reading survives its source. Utilisation
+    /// only rises inside a window, so remembering the highest is not a cache
+    /// that can go stale within one instance — and across instances
+    /// [`crate::usage::fresher`] discards the old window outright, so the figure
+    /// still drops when it *should*, which is when the window turns over.
+    spent: std::sync::Mutex<BTreeMap<String, crate::session::Seen>>,
 }
 
 /// The environment variable an upgrade hands its sessions over in.
@@ -94,6 +110,7 @@ impl Roster {
             gists,
             tasks: Arc::default(),
             modes,
+            spent: std::sync::Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -620,22 +637,18 @@ impl Roster {
     /// for an idle one is hours ago.
     pub fn spent(&self) -> std::collections::BTreeMap<String, crate::session::Seen> {
         let sessions = self.sessions.read().expect("roster poisoned");
-        let mut newest: std::collections::BTreeMap<String, crate::session::Seen> =
-            std::collections::BTreeMap::new();
+        // ⚠ **Merged into what is remembered, not gathered afresh.** Building
+        // this from the live sessions alone meant a reading lasted exactly as
+        // long as the session that heard it — see [`Self::spent`]'s field.
+        //
+        // ⚠ Not "whichever arrived last" either — see [`crate::usage::fresher`].
+        // An idle session answers from its own process's cache, so the freshest
+        // arrival is routinely the oldest figure.
+        let mut newest = self.spent.lock().expect("spent poisoned");
         for session in sessions.values() {
-            for (window, seen) in session.tally().spent {
-                // ⚠ Not "whichever arrived last" — see [`crate::usage::fresher`].
-                // An idle session answers from its own process's cache, so the
-                // freshest arrival is routinely the oldest figure.
-                match newest.get(&window) {
-                    Some(held) if !crate::usage::fresher(held, &seen) => {}
-                    _ => {
-                        newest.insert(window, seen);
-                    }
-                }
-            }
+            crate::usage::remember(&mut newest, session.tally().spent);
         }
-        newest
+        newest.clone()
     }
 
     /// Notice sessions that have stopped reading their stdin, and write down

@@ -309,3 +309,46 @@ fn a_live_reading_still_wins_when_it_is_the_higher_one() {
     assert_eq!(read.five_hour.as_ref().unwrap().pct, 44.0);
     assert_eq!(read.host, here());
 }
+
+#[test]
+fn a_reading_outlives_the_session_that_heard_it() {
+    // ⚠ **The backwards jump, #87.** Two sessions, one holding 93% and one 92%.
+    // The roster used to rebuild this from its live sessions on every poll, so
+    // when the 93% session ended the highest remaining was 92% — and the front
+    // page, polling every five seconds, showed 92 → 93 → 92 with nothing about
+    // the account having changed.
+    let mut known = BTreeMap::new();
+    console::usage::remember(
+        &mut known,
+        [("seven_day".to_string(), held(0.93, TURNS, 1_000))],
+    );
+    // The next poll: that session is gone, and only the lower reading is left.
+    console::usage::remember(
+        &mut known,
+        [("seven_day".to_string(), held(0.92, TURNS, 2_000))],
+    );
+    assert_eq!(
+        known["seven_day"].utilization, 0.93,
+        "a window's figure may not fall while the window is the same one"
+    );
+}
+
+#[test]
+fn but_a_window_that_has_turned_over_does_drop_the_old_high_water_mark() {
+    // Remembering must not become refusing to let go: the whole point of a reset
+    // is that the figure falls, and a later instance displaces the old one
+    // however high it was.
+    let mut known = BTreeMap::new();
+    console::usage::remember(
+        &mut known,
+        [("five_hour".to_string(), held(0.93, TURNS, 1_000))],
+    );
+    console::usage::remember(
+        &mut known,
+        [("five_hour".to_string(), held(0.03, TURNS + 18_000, 2_000))],
+    );
+    assert_eq!(
+        known["five_hour"].utilization, 0.03,
+        "a fresh window's honest 3% beats the old window's high-water mark"
+    );
+}

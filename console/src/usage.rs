@@ -217,6 +217,34 @@ pub fn fresher(held: &Seen, candidate: &Seen) -> bool {
     }
 }
 
+/// Fold what the sessions have just said into what is already known.
+///
+/// ⚠ **A reading has to outlive the session that heard it.** The roster used to
+/// gather this fresh from its live sessions on every poll, so a reading lasted
+/// exactly as long as its source: when the session holding 93% ended, the
+/// highest remaining was 92%, and the front page — polling every five seconds —
+/// showed 92 → 93 → 92 while nothing about the account had changed (memview
+/// #87). A figure that only ever moves one way is worth more than one that is
+/// instantaneously right.
+///
+/// Safe to keep because [`fresher`] decides each window: utilisation only rises
+/// inside an instance, so remembering the highest cannot go stale within one,
+/// and a turned-over window is a later instance that displaces it outright. The
+/// figure still falls exactly when it should.
+pub fn remember(
+    known: &mut BTreeMap<String, Seen>,
+    heard: impl IntoIterator<Item = (String, Seen)>,
+) {
+    for (window, seen) in heard {
+        match known.get(&window) {
+            Some(held) if !fresher(held, &seen) => {}
+            _ => {
+                known.insert(window, seen);
+            }
+        }
+    }
+}
+
 /// The dashboard's word about one window, in the same terms as a live reading.
 ///
 /// So that [`fresher`] can judge the two against each other. It is the same
