@@ -15,12 +15,16 @@
 //! home dashboard that was routinely five hours stale — because a status line
 //! belongs to a terminal and these sessions are headless.
 //!
-//! The dashboard is still read, and still useful, but only as the **fallback for
-//! a window nothing has reported yet**: a console just started, or one whose
-//! sessions have all been idle since a window last turned over. A reading from
-//! it can be hours old, so the age travels with the number either way, and a
-//! window that has already reset reports no figure at all rather than the one it
-//! held before it turned over.
+//! The dashboard is still read, and it is **judged against** the live reading
+//! rather than kept behind it. It was a fallback for a window nothing had
+//! reported yet — a console just started, or one whose sessions have all been
+//! idle since a window turned over — and that made *absent* the only condition
+//! under which it was consulted, so an hour-old live figure outranked a
+//! six-minute-old published one (#113). Both are now put to [`fresher`], which
+//! is the same question either way: of two readings of one window, which is the
+//! later. A reading from either side can be hours old, so the age and the host
+//! travel with whichever won, and a window that has already reset reports no
+//! countdown rather than one that has run out.
 
 use std::collections::BTreeMap;
 use std::ffi::CStr;
@@ -162,9 +166,11 @@ impl Usage {
 /// ⚠ **The live half is the one that matters, and it was there all along.** Each
 /// `rate_limit_event` on a session's stdout carries a `utilization` straight off
 /// the API's own response headers, so the console measures this at first hand
-/// for every request its sessions make. The dashboard is kept only for a window
-/// nothing has reported yet — a console just started, or one whose sessions have
-/// all been idle since the weekly window last turned over.
+/// for every request its sessions make — but *first hand* is not the same as
+/// *current*, which is the mistake this used to make. A session answers from its
+/// own process's cached headers, so a console with nothing but idle sessions
+/// measures the account as it stood whenever one of them last spoke to the API.
+/// The dashboard is therefore compared with, not fallen back on.
 ///
 /// Per window rather than whole: an event names one window (the *representative*
 /// one), so the five-hour figure can be seconds old while the weekly one is
