@@ -1073,3 +1073,51 @@ fn a_refusal_from_one_command_does_not_silence_another() {
         )],
     );
 }
+
+#[test]
+fn a_cd_into_the_directory_the_line_is_already_in_moves_nothing() {
+    // ⚠ **The transcript's `cwd` means two different things** — measured
+    // 2026-08-12 across 191,273 `Bash` calls: 168 single-call lines record the
+    // directory their command STARTED in and 84 record the one it ENDED in, in
+    // the same transcript at the same CLI version (memview #449). On a line of
+    // the second kind, applying the command's own `cd` again doubles the
+    // segment: all 84 landed in a directory that has never existed.
+    //
+    // Under the first reading the same shape is a `cd` the shell refused, which
+    // also moves nothing. So the rule needs no verdict on which reading is right.
+    assert_eq!(
+        uses("cd health && cat Cargo.toml"),
+        [("/home/example/Code/health/Cargo.toml".to_string(), false)]
+    );
+}
+
+#[test]
+fn a_multi_segment_cd_the_line_already_ends_with_moves_nothing_either() {
+    // `cd frontend/src/app` recorded at `…/frontend/src/app` — the commonest
+    // shape of the 84, and the one that produced
+    // `…/frontend/src/app/frontend/src/app`.
+    let cmds = parse("cd frontend/src/app && cat main.ts").unwrap();
+    let files: Vec<String> = extract(
+        &cmds,
+        Some("/home/example/Code/health/frontend/src/app"),
+        HOME,
+    )
+    .files
+    .into_iter()
+    .map(|f| f.path)
+    .collect();
+    assert_eq!(
+        files,
+        ["/home/example/Code/health/frontend/src/app/main.ts"]
+    );
+}
+
+#[test]
+fn a_cd_into_a_directory_of_the_same_name_deeper_down_still_moves() {
+    // The rule is a TAIL match, not a name match: `cd src` from `…/health` is an
+    // ordinary move and must apply, even though a `src` exists further down.
+    assert_eq!(
+        uses("cd src && cat main.rs"),
+        [("/home/example/Code/health/src/main.rs".to_string(), false)]
+    );
+}

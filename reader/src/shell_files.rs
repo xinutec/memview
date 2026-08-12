@@ -402,6 +402,52 @@ fn turned_down(argv: &[String], refused: &[String]) -> bool {
         .any(|word| refused.iter().any(|target| target == word))
 }
 
+/// Whether this `cd` would enter a directory the line says it is already in.
+///
+/// ⚠ **The rule that makes the transcript's `cwd` usable without settling what
+/// it means.** Measured 2026-08-12 over 191,273 `Bash` calls in 40 transcripts:
+/// on single-call lines beginning with a relative `cd X`, **168** have the
+/// directory the command *started* in and **84** have the one it *ended* in —
+/// both readings, in the same transcript, at the same CLI version, on lines that
+/// are not rewritten copies. So the field carries both meanings and no property
+/// of the line tells them apart (memview #449).
+///
+/// It does not have to be settled, because one rule is right under both:
+///
+/// * If `cwd` is where the command ended, its own `cd` is already in the path,
+///   and applying it again doubles the segment. All **84** such calls would
+///   attribute their files under a directory that has never existed —
+///   `…/health/src/src`, `…/health/lean/lean` — checked against the disk.
+/// * If `cwd` is where the command started, then `cd X` from inside `X` needs
+///   `X/X` to exist, and the shell refused it. A refused `cd` moves nothing.
+///
+/// Either way the move does not happen. The one shape this gets wrong is a real
+/// `cd X` from a directory that genuinely contains `X/X`; no call in the corpus
+/// does that — **0** of 135 candidates ever landed in `X/X`, and none of the 84
+/// doubled directories exists.
+///
+/// Relative operands only, and matched as written for the same reason
+/// [`turned_down`] matches as written.
+fn already_there(argv: &[String], here: Option<&str>) -> bool {
+    let Some(here) = here.map(|dir| dir.trim_end_matches('/')) else {
+        return false;
+    };
+    unwrap_command(argv)
+        .iter()
+        .skip(1)
+        .map(|word| word.trim_end_matches('/'))
+        .filter(|word| {
+            !word.is_empty()
+                && !word.starts_with(['/', '~', '$', '-'])
+                && !word.split('/').any(|part| part == ".." || part == ".")
+        })
+        .any(|word| {
+            here.len() > word.len()
+                && here.ends_with(word)
+                && here.as_bytes()[here.len() - word.len() - 1] == b'/'
+        })
+}
+
 /// As [`extract`], and keeping [`Extract::steps`]: the same walk, saying what it
 /// did as it did it.
 ///
@@ -559,7 +605,13 @@ fn extract_nested(
                 // that does not exist — `~/Code/memcheck/Cargo.toml` for a
                 // `Cargo.toml` read in `~/Code`. Only ever known from the call's
                 // own output; see [`crate::doing::refused_dirs`].
-                if !turned_down(&cmd.argv, refused) {
+                //
+                // ⚠ **And a move into where the line already is is not a move
+                // either** — see [`already_there`]. That one is not read from
+                // the output: it holds whether the shell refused the `cd` or the
+                // transcript stamped the directory after it, which is the same
+                // rule under both readings of a field that carries both.
+                if !turned_down(&cmd.argv, refused) && !already_there(&cmd.argv, here.as_deref()) {
                     dirs.insert(cmd.scope.clone(), to.clone());
                 }
                 out.handled += 1;
