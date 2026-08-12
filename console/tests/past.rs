@@ -712,6 +712,102 @@ fn the_count_starts_again_after_a_compaction() {
     assert_eq!(counted(&path, Counted::default()).counted.interactions, 3);
 }
 
+/// Add `bytes` of lines that carry no events, as a long conversation's own bulk
+/// does — a `file-history-snapshot` is tens of kilobytes and says nothing the
+/// count is about.
+fn padded_out(path: &Path, bytes: usize) {
+    use std::io::Write;
+
+    let filler = format!(
+        r#"{{"type":"file-history-snapshot","snapshot":"{}"}}"#,
+        "x".repeat(4000)
+    );
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(path)
+        .expect("transcript");
+    let mut written = 0;
+    while written < bytes {
+        writeln!(file, "{filler}").expect("filler");
+        written += filler.len() + 1;
+    }
+}
+
+#[test]
+fn a_seed_starts_at_the_last_compaction_and_reaches_the_same_count() {
+    // ⚠ **The equivalence this optimisation rests on.** Reading from zero and
+    // reading from the boundary must be the same answer, because everything
+    // before the boundary is thrown away by the reset when the read passes over
+    // it. Two compactions, so the *last* one is the one found.
+    let root = scratch("seeded");
+    spoken(&root, "cut-twice", &[1, 1, 1, 1, 1], Some(1));
+    let path = transcript_of(&root, "cut-twice").expect("transcript");
+
+    let from = console::past::seed_from(&path);
+    assert!(
+        from > 0,
+        "a transcript with a compaction in it has somewhere later to start"
+    );
+
+    let whole = counted(&path, Counted::default());
+    let seeded = counted(
+        &path,
+        Counted {
+            interactions: 0,
+            through: from,
+        },
+    );
+    assert_eq!(whole.counted.interactions, seeded.counted.interactions);
+    assert_eq!(whole.counted.through, seeded.counted.through);
+    assert_eq!(whole.compacted, seeded.compacted);
+    assert_eq!(whole.context, seeded.context);
+}
+
+#[test]
+fn a_conversation_that_never_compacted_is_seeded_from_the_start() {
+    // Nothing has been forgotten, so every exchange in the file still counts and
+    // there is no shortcut to take. Zero is the honest answer rather than a
+    // guess at a boundary that is not there.
+    let root = scratch("uncut");
+    spoken(&root, "whole", &[1, 1, 1], None);
+    let path = transcript_of(&root, "whole").expect("transcript");
+
+    assert_eq!(console::past::seed_from(&path), 0);
+    assert_eq!(counted(&path, Counted::default()).counted.interactions, 3);
+}
+
+#[test]
+fn the_search_for_the_boundary_widens_past_its_first_window() {
+    // ⚠ **The window is a guess, and this is the case where the guess is
+    // wrong.** With more bulk after the compaction than the first read covers,
+    // a search that gave up there would seed from zero — right, but slowly —
+    // and one that read the window as if it were the whole file would drop the
+    // fragment at its start and find nothing. Ten megabytes against an eight
+    // megabyte first window forces exactly one widening.
+    let root = scratch("widened");
+    spoken(&root, "buried", &[1, 1, 1, 1], Some(0));
+    let path = transcript_of(&root, "buried").expect("transcript");
+    padded_out(&path, 10 * 1024 * 1024);
+
+    let from = console::past::seed_from(&path);
+    assert!(
+        from > 0,
+        "the boundary is in the file, just a long way back"
+    );
+
+    let whole = counted(&path, Counted::default());
+    let seeded = counted(
+        &path,
+        Counted {
+            interactions: 0,
+            through: from,
+        },
+    );
+    assert_eq!(whole.counted.interactions, 3);
+    assert_eq!(seeded.counted.interactions, whole.counted.interactions);
+    assert_eq!(seeded.counted.through, whole.counted.through);
+}
+
 #[test]
 fn a_transcript_that_is_not_there_counts_no_exchanges() {
     // The session has just started and has written nothing yet. Zero is the

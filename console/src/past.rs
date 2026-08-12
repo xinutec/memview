@@ -522,9 +522,99 @@ pub struct Appended {
     pub context: Option<u64>,
 }
 
+/// How far back to look for the compaction boundary before giving up, and how
+/// much to read on the first try.
+///
+/// Two numbers for one search because the shape of the answer is known: measured
+/// across the eight largest transcripts on this machine, the last compaction sat
+/// between 99.2% and 100.0% of the way in, with **at most 2.0 MB after it**. So
+/// the first window is generously past that, and the cap is the point where
+/// widening has stopped being cheaper than the whole read it is avoiding.
+const COMPACTION_WINDOW: u64 = 8 * 1024 * 1024;
+const COMPACTION_LIMIT: u64 = 64 * 1024 * 1024;
+
+/// Where a seed can start counting without changing what it counts.
+///
+/// ⚠ **This is an optimisation that has to be exact, not close.** It is sound
+/// only because of what [`counted`] does with a compaction: it sets
+/// `interactions` to 0 and drops the context figure. Everything before the last
+/// boundary is therefore discarded by the read that passes over it, and starting
+/// **at** that line — not after it — reaches the same state having read a
+/// thousandth of the bytes. `finished` is the one field that differs, and only
+/// there: a seed's session has no background work to close yet, so the tools
+/// dropped are ones nothing was waiting for.
+///
+/// Measured 2026-08-12 (#80): seeding the largest transcript here read 1.08 GB
+/// in **3.3 s** — on the executor, from the handler that answers "resume this" —
+/// to arrive at a count of 3, which the last 1.5 MB of the file determined on its
+/// own.
+///
+/// Searched backwards in widening windows, and searched **with the parser**: the
+/// boundary is whatever [`crate::protocol::read_recorded`] calls a compaction,
+/// never a string this function looks for itself. A private needle here would
+/// quietly decide what the count ever sees.
+///
+/// Returns 0 when there is no boundary within [`COMPACTION_LIMIT`], which is the
+/// honest answer — a conversation that has never compacted has to be counted
+/// whole, because every prompt in it still stands.
+pub fn seed_from(path: &Path) -> u64 {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let Ok(meta) = std::fs::metadata(path) else {
+        return 0;
+    };
+    let end = meta.len();
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return 0;
+    };
+
+    let mut span = COMPACTION_WINDOW;
+    loop {
+        let start = end.saturating_sub(span);
+        if file.seek(SeekFrom::Start(start)).is_err() {
+            return 0;
+        }
+        let mut buf = Vec::new();
+        // `by_ref`, because the span may have to widen and read again — the same
+        // reason [`page`] does it.
+        if file
+            .by_ref()
+            .take(end - start)
+            .read_to_end(&mut buf)
+            .is_err()
+        {
+            return 0;
+        }
+
+        let mut at = start;
+        let mut found = None;
+        for (index, line) in buf.split_inclusive(|byte| *byte == b'\n').enumerate() {
+            // The first line of a mid-file chunk is a fragment, and a fragment
+            // that happens to parse is worse than one that does not.
+            let whole = start == 0 || index > 0;
+            if whole
+                && crate::protocol::read_recorded(&String::from_utf8_lossy(line))
+                    .iter()
+                    .any(|event| matches!(event, crate::protocol::Event::Compacted))
+            {
+                found = Some(at);
+            }
+            at += line.len() as u64;
+        }
+        if let Some(offset) = found {
+            return offset;
+        }
+        if start == 0 || span >= COMPACTION_LIMIT {
+            return 0;
+        }
+        span = span.saturating_mul(2);
+    }
+}
+
 /// Count what has been appended since `so_far` was true.
 ///
-/// `so_far.through` of 0 is the whole file, which is what a seed does once.
+/// `so_far.through` of 0 is the whole file. A seed wants that answer but not that
+/// read, and [`seed_from`] gives it the offset that reaches the same state.
 ///
 /// ⚠ **Stops before a partial last line.** A transcript is appended to while
 /// this runs, so the tail can be half a line; counting it would read a truncated

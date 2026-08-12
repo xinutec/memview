@@ -1001,7 +1001,15 @@ impl Session {
         let Some(path) = crate::past::transcript_of(&root, &self.id) else {
             return;
         };
-        let so_far = self.state.lock().expect("session state poisoned").counted;
+        let mut so_far = self.state.lock().expect("session state poisoned").counted;
+        // A seed arrives here at zero, and zero is the whole file — 1.08 GB and
+        // 3.3 seconds for the largest conversation on this machine, on the
+        // executor, inside the handler that answers "resume this one". The count
+        // it arrives at was decided by the last megabyte, so start where that
+        // begins. See [`crate::past::seed_from`] for why the two agree exactly.
+        if so_far.through == 0 {
+            so_far.through = crate::past::seed_from(&path);
+        }
         let found = crate::past::counted(&path, so_far);
         let mut state = self.state.lock().expect("session state poisoned");
         state.counted = found.counted;
