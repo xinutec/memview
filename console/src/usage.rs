@@ -193,12 +193,38 @@ impl Usage {
 /// The two instants wear different types ([`crate::session::ResetsAt`] and
 /// [`crate::session::Heard`]) so that the arms below cannot be written the wrong
 /// way round: the mistake this function exists to correct no longer compiles.
+/// ⚠ **A reading that merely CONFIRMS the one held still wins, on its arrival
+/// time.** `candidate.utilization > held.utilization` alone discarded an equal
+/// figure — and with it the fact that somebody had just heard it — so `at`
+/// stopped being "when this was last true" and became "when it last went up".
+/// Everything downstream reads that as the age of the reading, so a figure
+/// reconfirmed a minute ago was drawn as an hour old, teaching you to distrust a
+/// number that was fine. The two questions are separate and are answered
+/// separately: *which reading is truest* is the higher utilisation, *how long ago
+/// was it confirmed* is the most recent arrival that said so.
 pub fn fresher(held: &Seen, candidate: &Seen) -> bool {
     match (held.resets_at, candidate.resets_at) {
         (Some(theirs), Some(ours)) if ours != theirs => ours > theirs,
-        (Some(_), Some(_)) => candidate.utilization > held.utilization,
+        (Some(_), Some(_)) if candidate.utilization > held.utilization => true,
+        (Some(_), Some(_)) if candidate.utilization < held.utilization => false,
         _ => candidate.at > held.at,
     }
+}
+
+/// The dashboard's word about one window, in the same terms as a live reading.
+///
+/// So that [`fresher`] can judge the two against each other. It is the same
+/// question — which of two readings of this window is the current one — and
+/// asking it in two places with two rules is how the console came to prefer an
+/// hour-old figure it had measured over a six-minute-old one it had been told.
+fn published_as_seen(pct: f64, resets_at: &str, ts: &str) -> Option<Seen> {
+    Some(Seen {
+        // A percentage there, a fraction here: `live` multiplies back up, and a
+        // comparison between the two only means anything in one of them.
+        utilization: pct / 100.0,
+        resets_at: Some(crate::session::ResetsAt(at(resets_at)? / 1000)),
+        at: crate::session::Heard(at(ts)?),
+    })
 }
 
 pub fn merged(
@@ -207,23 +233,61 @@ pub fn merged(
     now_ms: i64,
 ) -> Option<Reading> {
     let published = dashboard.map(|it| reading(it, now_ms));
-    let five_hour = live(seen.get(FIVE_HOUR), now_ms)
-        .or_else(|| published.as_ref().and_then(|it| it.five_hour.clone()));
-    let seven_day = live(seen.get(SEVEN_DAY), now_ms)
-        .or_else(|| published.as_ref().and_then(|it| it.seven_day.clone()));
+    // ⚠ **The dashboard is judged, not merely fallen back on.** This read
+    // `live(…).or_else(|| published…)`, which reaches for the published figure
+    // only when the live one is ABSENT — and absent is not the same as older.
+    // Measured 2026-08-07 19:57Z: the console drew 5h 13% / 7d 12% at an age of
+    // 55 minutes while the dashboard, six minutes old and describing the same
+    // window instance, said 22% and 14%. Nine points low, and preferring the
+    // worse number because it happened to be its own.
+    //
+    // `fresher` already knows how to answer this — the higher figure inside one
+    // window instance, the later instance across two — so it is asked here
+    // rather than a second rule being written beside it.
+    //
+    // Each reading carries the machine that took it, because the winner decides
+    // what the age line and the host line are about — a dashboard figure shown
+    // under this console's name and this console's age would be the same lie
+    // pointing the other way.
+    let pick = |mine: Option<&Seen>, theirs: Option<Seen>| -> Option<(Seen, String)> {
+        let theirs = theirs.map(|it| {
+            (
+                it,
+                dashboard.map_or_else(|| HERE.clone(), |d| d.host.clone()),
+            )
+        });
+        match (mine, theirs) {
+            (Some(mine), Some(theirs)) if fresher(mine, &theirs.0) => Some(theirs),
+            (Some(mine), _) => Some((mine.clone(), HERE.clone())),
+            (None, theirs) => theirs,
+        }
+    };
+    let of = |pct: fn(&Published) -> f64, resets: fn(&Published) -> &str| {
+        dashboard.and_then(|it| published_as_seen(pct(it), resets(it), &it.ts))
+    };
+    let chosen_five = pick(
+        seen.get(FIVE_HOUR),
+        of(|d| d.five_hour_pct, |d| &d.five_hour_resets_at),
+    );
+    let chosen_seven = pick(
+        seen.get(SEVEN_DAY),
+        of(|d| d.seven_day_pct, |d| &d.seven_day_resets_at),
+    );
+    let five_hour = live(chosen_five.as_ref().map(|it| &it.0), now_ms);
+    let seven_day = live(chosen_seven.as_ref().map(|it| &it.0), now_ms);
     // Nothing known about either window is nothing to show. One is worth showing.
     five_hour.as_ref().or(seven_day.as_ref())?;
-    // The freshest thing on screen is what the age line is about, and when the
-    // console has heard anything at all that is the console.
-    let heard = [seen.get(FIVE_HOUR), seen.get(SEVEN_DAY)]
+    // ⚠ **The age and the host of what is ON SCREEN**, which is no longer always
+    // this console's own. Taken from the newer of the two chosen readings, which
+    // is the one a reader's eye goes to.
+    let newest = [chosen_five.as_ref(), chosen_seven.as_ref()]
         .into_iter()
         .flatten()
-        .map(|it| it.at)
-        .max();
-    Some(match heard {
-        Some(at) => Reading {
-            host: HERE.clone(),
-            age_ms: (now_ms - at.0).max(0),
+        .max_by_key(|it| it.0.at);
+    Some(match newest {
+        Some((seen, host)) => Reading {
+            host: host.clone(),
+            age_ms: (now_ms - seen.at.0).max(0),
             five_hour,
             seven_day,
         },

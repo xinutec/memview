@@ -242,3 +242,70 @@ fn a_reading_with_no_reset_time_falls_back_to_when_it_arrived() {
     assert!(fresher(&first, &later));
     assert!(!fresher(&later, &first));
 }
+
+#[test]
+fn a_confirmation_of_the_same_figure_still_refreshes_its_age() {
+    // ⚠ **The half of #113 that made a good number look untrustworthy.** With
+    // `candidate.utilization > held.utilization` alone, a session reconfirming
+    // the figure already held was discarded — and its arrival time with it — so
+    // `at` recorded when the number last WENT UP rather than when it was last
+    // heard. A figure confirmed a minute ago was then drawn as an hour old.
+    let held_now = held(0.13, TURNS, 1_000);
+    let again = held(0.13, TURNS, 61_000);
+    assert!(
+        fresher(&held_now, &again),
+        "the same figure heard again is the same figure, heard again"
+    );
+    // And the direction still holds: an OLDER arrival saying the same thing
+    // teaches nothing and must not displace what is held.
+    assert!(!fresher(&again, &held_now));
+}
+
+#[test]
+fn a_fresher_dashboard_beats_a_stale_live_reading_of_the_same_window() {
+    // ⚠ **Measured live 2026-08-07 19:57Z.** The console drew 5h 13% at an age
+    // of 55 minutes while the dashboard — six minutes old, same window instance
+    // — said 22%. `live(…).or_else(|| published…)` reached for the dashboard
+    // only when the live figure was ABSENT, and absent is not the same as older,
+    // so the console preferred the worse number because it was its own.
+    let now = at_ms("2026-08-04T17:10:00.000Z");
+    // Same window instance as `published()`, heard an hour before it.
+    let live = seen(&[(
+        "five_hour",
+        heard(0.13, "2026-08-04T18:10:00.000Z", "2026-08-04T16:10:00.000Z"),
+    )]);
+    let read = merged(&live, Some(&published()), now).expect("a reading");
+    // Within a whisker rather than exactly: judging the two sources against each
+    // other means putting the dashboard's percentage into the fraction the live
+    // side speaks, and 28 → 0.28 → 28.000000000000004 does not survive the trip.
+    // The live path has always done this (the running console serves
+    // `14.000000000000002`) and the strip rounds — `Math.round(window.pct)` in
+    // `usage-strip.ts` — so nothing on screen moves.
+    let five = read.five_hour.as_ref().unwrap().pct;
+    assert!(
+        (five - 28.0).abs() < 1e-9,
+        "the dashboard's higher figure of the same window is the later one, got {five}"
+    );
+    // And the age is the dashboard's, not this console's — a borrowed figure
+    // shown with a local age is the same lie pointing the other way.
+    assert_eq!(
+        read.age_ms,
+        at_ms("2026-08-04T17:10:00.000Z") - at_ms("2026-08-04T15:20:39.000Z")
+    );
+    assert_eq!(read.host, "mac-mini");
+}
+
+#[test]
+fn a_live_reading_still_wins_when_it_is_the_higher_one() {
+    // The fix must not swing the other way: within one window instance the
+    // console's own figure wins whenever it is the greater, however old the
+    // dashboard's stamp.
+    let now = at_ms("2026-08-04T17:10:00.000Z");
+    let live = seen(&[(
+        "five_hour",
+        heard(0.44, "2026-08-04T18:10:00.000Z", "2026-08-04T16:10:00.000Z"),
+    )]);
+    let read = merged(&live, Some(&published()), now).expect("a reading");
+    assert_eq!(read.five_hour.as_ref().unwrap().pct, 44.0);
+    assert_eq!(read.host, here());
+}
