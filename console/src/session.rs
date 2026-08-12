@@ -164,6 +164,52 @@ pub struct Seen {
     pub at: Heard,
 }
 
+/// Wait on an adopted child, so the kernel can let go of it when it ends.
+///
+/// ⚠ **An adopted session has no [`Child`] to wait on.** The handle belonged to
+/// the image that `execve`d away; only the pid and three descriptors crossed. So
+/// nothing ever called `wait` on it, and every adopted session that ended left a
+/// `<defunct>` entry behind a parent that would never ask. Measured 2026-08-12:
+/// **22 of them** under a console up three days, against 16 the day before — one
+/// per session that has ended since the first upgrade. They cost a process-table
+/// slot each and nothing else; the reason to fix it is that the number only ever
+/// goes up, because this process is deliberately never restarted (memview #753).
+///
+/// A **blocking** `waitpid` rather than a poll on a timer: the pid is this
+/// process's own child, so the kernel already knows when to wake us and there is
+/// nothing to choose an interval for. The thread it holds is released the moment
+/// the child exits, and there is one per adopted session — a handful, against a
+/// blocking pool of hundreds.
+///
+/// ⚠ **NOT `SIGCHLD` set to `SIG_IGN`**, which is the obvious cure and the wrong
+/// one: it reaps every child automatically and takes the exit status with it.
+/// [`Session::reap`] reads that status and [`Session::ended`] reports it, so a
+/// spawned session's clean exit would start arriving as `code: None`, which
+/// reads as *killed*. This file has made that mistake once and has a test
+/// against it.
+///
+/// The status is deliberately dropped here rather than reported. For an adopted
+/// session end-of-file is what declares the session over
+/// ([`Session::read_from`]), and it has already fired by the time this returns;
+/// making this the authority instead would be the same race that test guards.
+fn reap_adopted(pid: u32) {
+    tokio::task::spawn_blocking(move || {
+        let mut status = 0;
+        // SAFETY: `pid` is a child of this process — it was one of the previous
+        // image's, and `execve` does not change parentage. `waitpid` only reads
+        // that child's exit status.
+        if unsafe { libc::waitpid(pid as libc::pid_t, &mut status, 0) } < 0 {
+            // ECHILD is the ordinary case for a session already gone and reaped
+            // by an earlier image of this console; nothing is wrong and there is
+            // nothing to do.
+            tracing::debug!(
+                "adopted {pid} could not be waited on: {}",
+                std::io::Error::last_os_error()
+            );
+        }
+    });
+}
+
 /// Take a descriptor out of close-on-exec, and make it non-blocking.
 ///
 /// ⚠ **Rust sets `O_CLOEXEC` on every pipe it creates**, so without the first
@@ -1160,6 +1206,7 @@ impl Session {
             });
         }
         session.clone().read_from(Some(stdout), Some(stderr), true);
+        reap_adopted(pid);
         Ok(session)
     }
 
@@ -1292,6 +1339,9 @@ impl Session {
     }
 
     /// Wait for a spawned child, and kill it when asked.
+    ///
+    /// The adopted half of this is [`reap_adopted`], which has only a pid to
+    /// work with.
     fn reap(self: Arc<Self>, mut child: Child, kill: oneshot::Receiver<()>) {
         tokio::spawn(async move {
             let code = tokio::select! {
