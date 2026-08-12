@@ -233,6 +233,15 @@ pub fn finish(pid: u32, id: &str) {
 /// durable record, so this is a scrollback, not an archive.
 const SCROLLBACK: usize = 5000;
 
+/// How many recent tool calls are remembered so a detached one can be named.
+///
+/// ⚠ **Small on purpose.** The `Tool` event naming a call is immediately
+/// followed by the `ToolResult` that reveals it detached, so anything beyond a
+/// handful is never consulted — and this is per session, held for the life of a
+/// process that runs for days. 32 covers a turn that fans out several calls
+/// before any of them answers.
+const CALLED_RING: usize = 32;
+
 /// How long a session gets to finish after its stdin closes, before it is killed.
 ///
 /// Generous on purpose: the process may be mid-tool-call, and the clean exit is
@@ -348,6 +357,15 @@ pub struct Summary {
     /// it at all.
     #[serde(skip_serializing_if = "none")]
     pub background: usize,
+    /// WHICH background calls are still running, not just how many.
+    ///
+    /// ⚠ **`background` is kept beside this deliberately.** The list ranks a row
+    /// on whether anything is running and never draws the names, so it wants a
+    /// number; the session strip wants the name, because *1* is only a reason to
+    /// ask (memview #740). Same fact, two readers, and deriving the count from
+    /// this vector in the client would put the ranking at the mercy of a label.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub running: Vec<crate::protocol::Called>,
     /// The account's own verdict on its rate limit, when it has given one:
     /// `allowed`, `allowed_warning` or `rejected`.
     ///
@@ -538,7 +556,15 @@ struct State {
     ///
     /// Keyed by the call because that is what a notification names; carrying the
     /// task because that is what a kill names, and a kill is silent afterwards.
-    background: std::collections::BTreeMap<String, Option<String>>,
+    background: std::collections::BTreeMap<String, crate::protocol::Called>,
+    /// The last few tool calls seen, by call id, so a background one can be
+    /// NAMED when its result arrives.
+    ///
+    /// ⚠ **A ring, not a map that grows.** The `Tool` event naming a call
+    /// immediately precedes the `ToolResult` that detaches it, so only the
+    /// recent ones can ever be needed — and an unbounded map here would hold
+    /// every call of a session that runs for days.
+    called: std::collections::VecDeque<(String, crate::protocol::Called)>,
     /// When the process last wrote a line, in epoch milliseconds. See
     /// [`Session::heard`]; zero for one that has never said anything.
     heard: i64,
@@ -1841,13 +1867,37 @@ impl Session {
                 }
                 _ => {}
             }
+            // Remember what each call IS, so that if it turns out to have
+            // detached, the strip can name it. See `State::called`.
+            if let Event::Tool { id, name, input } = &event {
+                if state.called.len() >= CALLED_RING {
+                    state.called.pop_front();
+                }
+                state
+                    .called
+                    .push_back((id.clone(), crate::protocol::called(name, input)));
+            }
             // Work left running, which is a different question about the same
             // event and is decided where the events are read rather than here.
             // See [`protocol::running`] for the two cases that mean "forget what
             // you were counting".
             match protocol::running(&event) {
                 protocol::Running::Began { tool, task } => {
-                    state.background.insert(tool, task);
+                    // Unnamed rather than absent when the ring has already
+                    // rolled past it: that it is running is the fact worth
+                    // keeping, and a call with no name still beats a bare count.
+                    let mut named = state
+                        .called
+                        .iter()
+                        .find(|(id, _)| *id == tool)
+                        .map(|(_, called)| called.clone())
+                        .unwrap_or_else(|| crate::protocol::Called {
+                            tool: String::from("tool"),
+                            label: None,
+                            task: None,
+                        });
+                    named.task = task;
+                    state.background.insert(tool, named);
                 }
                 protocol::Running::Ended(id) => {
                     state.background.remove(&id);
@@ -1856,7 +1906,7 @@ impl Session {
                 // the call it belonged to is never heard from again.
                 protocol::Running::Killed(task) => state
                     .background
-                    .retain(|_, started| started.as_deref() != Some(task.as_str())),
+                    .retain(|_, started| started.task.as_deref() != Some(task.as_str())),
                 protocol::Running::Gone => state.background.clear(),
                 protocol::Running::Quiet => {}
             }
@@ -1978,6 +2028,7 @@ impl Session {
             context: state.context,
             window: state.window,
             background: state.background.len(),
+            running: state.background.values().cloned().collect(),
             asked: state.asked.clone(),
             // Filled in by the roster, which knows where the transcripts are.
             name: None,

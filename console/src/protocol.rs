@@ -1505,3 +1505,71 @@ fn is_plumbing(text: &str) -> bool {
     let head = text.trim_start();
     TAGS.iter().any(|tag| head.starts_with(tag))
 }
+
+/// A background call, named the way somebody looking at the strip would name it.
+///
+/// ⚠ **The count was never the question.** `Summary::background` reported
+/// `state.background.len()`, so a phone showing *1 background task running*
+/// could not say which — and answering it took a `ps` on the Mac (memview #740).
+/// Both halves were already in memory: the call that started the work and the
+/// task id the harness gave it.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Called {
+    /// The tool, as the CLI names it: `Bash`, `Monitor`, `Agent`.
+    pub tool: String,
+    /// A short human label for what this particular call is doing, when the
+    /// input carries one. `None` when it does not — better an unlabelled tool
+    /// name than a guess.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// The harness's task id, which is what a kill names.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task: Option<String>,
+}
+
+/// How long a label may be before it is cut.
+///
+/// ⚠ **Measured, not chosen for looks.** A `Bash` background task's label on
+/// this machine ran to several hundred characters of shell one-liner, because
+/// the tool's own `description` is optional and the fallback is the command. The
+/// strip has one line on a 412 px phone; the untruncated text belongs in the
+/// sheet, which can scroll.
+const LABEL_MAX: usize = 60;
+
+/// Read a tool call for the name and label a person would use for it.
+///
+/// The label is the tool's OWN description where it has one — `Bash` and
+/// `Monitor` both take one and it is written for a human — falling back to the
+/// field that carries the work. Nothing is invented: a call whose input says
+/// nothing readable gets no label rather than a rendering of its JSON.
+pub fn called(tool: &str, input: &serde_json::Value) -> Called {
+    let pick = |key: &str| {
+        input
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+    };
+    // `description` first for every tool that has one: it is the sentence the
+    // caller wrote about this call. `command`/`prompt` are the work itself.
+    let label = pick("description")
+        .or_else(|| pick("command"))
+        .or_else(|| pick("prompt"))
+        .map(|text| {
+            // Collapse newlines: a heredoc would otherwise take the strip down
+            // the page, and only the first line is legible there anyway.
+            let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+            if flat.chars().count() > LABEL_MAX {
+                let cut: String = flat.chars().take(LABEL_MAX).collect();
+                format!("{}…", cut.trim_end())
+            } else {
+                flat
+            }
+        });
+    Called {
+        tool: tool.to_owned(),
+        label,
+        task: None,
+    }
+}

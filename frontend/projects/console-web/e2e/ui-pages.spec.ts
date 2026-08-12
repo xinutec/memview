@@ -3931,3 +3931,58 @@ test('the permission modes are one row that opens a sheet @ phone width', async 
   await expectNoClippedText(page, testInfo, 'mat-bottom-sheet-container');
   await expectThumbTargets(page);
 });
+
+test('session strip — a background call is named, not counted @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **The count was the whole report, and it sent Pippijn to `ps`.** A phone
+  // saying *1 background task running* cannot say WHICH, and one task with a
+  // name is actionable where a number is only a reason to ask (memview #740).
+  //
+  // Both labels here are real shapes: `Monitor` carries a written description,
+  // and a `Bash` one-liner arrives long enough to overflow a 412px line — which
+  // is why the runner cuts to 60 and the strip ellipsises on top of that.
+  await mockRunner(page);
+  const id = STATE.sessions[0].id;
+  await page.route('**/api/state', (r) =>
+    r.fulfill({
+      json: {
+        ...STATE,
+        sessions: [
+          {
+            ...STATE.sessions[0],
+            id,
+            background: 2,
+            running: [
+              { tool: 'Monitor', label: 'HDD→SSD migration progress', task: 'bko3hqzmv' },
+              {
+                tool: 'Bash',
+                label: 'rsync -aHAX --numeric-ids --delete --exclude=.Spotli…',
+                task: 'b1nhifqhm',
+              },
+            ],
+          },
+          ...STATE.sessions.slice(1),
+        ],
+      },
+    }),
+  );
+  await page.goto(`/s/${id}`);
+
+  // The tool and its label, rather than a tally.
+  const strip = page.locator('.update.running');
+  await expect(strip).toHaveCount(2);
+  await expect(strip.first()).toContainText('Monitor');
+  await expect(strip.first()).toContainText('HDD→SSD migration');
+  await expect(strip.nth(1)).toContainText('Bash');
+  // ⚠ And the old wording is GONE when names are available — both would be the
+  // same fact said twice, and the number is the half that could not be acted on.
+  // Asserted as the ABSENCE OF THE FALLBACK ROW rather than as text `.update`
+  // does not contain: `.update` resolves to two elements here, and a text
+  // assertion against a multi-element locator is a strict-mode violation that
+  // times out instead of failing on what it was actually asked.
+  await expect(page.locator('.update:not(.running)')).toHaveCount(0);
+
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+});

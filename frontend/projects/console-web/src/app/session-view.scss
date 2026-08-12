@@ -832,6 +832,35 @@ input.note:disabled {
   text-align: center;
 }
 
+// A named background call. The tool carries the weight because it is the part
+// that is always there and always short; the label is what the call is doing.
+//
+// ⚠ **One line, and the label is what gives.** The runner already cuts a label
+// to 60 characters, but 60 characters of shell still overflows 412px — so the
+// label ellipsises here as well. Two cuts is not redundancy: the runner's keeps
+// the payload small, this one keeps the strip one line tall whatever arrives.
+.update.running {
+  display: flex;
+  gap: 0.4rem;
+  align-items: baseline;
+  justify-content: center;
+  min-width: 0;
+
+  .tool {
+    flex: 0 0 auto;
+    font-weight: 600;
+  }
+
+  .label {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0.85;
+  }
+}
+
 // The mode as an icon: small, aligned with the words beside it, and the same
 // size in both places it appears.
 .mode.mat-icon {

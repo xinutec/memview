@@ -3,6 +3,20 @@
 
 import { Question, Reply } from './questions';
 
+/**
+ * One background call, named. Mirrors `protocol::Called`.
+ *
+ * `label` is the call's own `description` where it has one, else the command or
+ * prompt, flattened and cut to 60 characters by the runner — a Bash one-liner
+ * here ran to several hundred. Absent when the input carries nothing readable:
+ * an unlabelled tool name beats an invented one.
+ */
+export interface Called {
+  tool: string;
+  label?: string;
+  task?: string;
+}
+
 export interface Summary {
   id: string;
   dir: string;
@@ -90,6 +104,14 @@ export interface Summary {
    * are none, so "is anything running" is answered by the field being there.
    */
   background?: number;
+  /**
+   * WHICH background calls are running. Mirrors `session::Summary::running`.
+   *
+   * ⚠ **Beside `background`, not instead of it.** The list ranks a row on
+   * whether anything is running and never draws these; the session strip draws
+   * these because a bare *1* is only a reason to ask (#740).
+   */
+  running?: Called[];
   /**
    * How much the transcript weighs, in bytes.
    *

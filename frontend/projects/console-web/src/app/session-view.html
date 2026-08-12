@@ -469,10 +469,23 @@
   </div>
 }
 
-@if (background(); as running) {
+@if (background(); as count) {
   <!-- Worded to claim only what it knows: a command backgrounded inside a shell
-       announces nothing, so this is a count of tracked tasks, not of work. -->
-  <p class="update">{{ running }} background task{{ running === 1 ? '' : 's' }} running</p>
+       announces nothing, so this is what the harness can see, not what is
+       running. Named where the runner could name it — a bare count sent Pippijn
+       to `ps` on the Mac to find out what "1 background task" was (#740). -->
+  @if (running().length) {
+    @for (call of running(); track call.task ?? call.tool) {
+      <p class="update running">
+        <span class="tool">{{ call.tool }}</span>
+        @if (call.label) {
+          <span class="label">{{ call.label }}</span>
+        }
+      </p>
+    }
+  } @else {
+    <p class="update">{{ count }} background task{{ count === 1 ? '' : 's' }} running</p>
+  }
 }
 
 <!-- What is about to be sent with the next message, above the box rather than

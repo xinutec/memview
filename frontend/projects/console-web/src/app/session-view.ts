@@ -190,6 +190,15 @@ export class SessionView implements OnDestroy {
    * stream — which for work that runs for minutes is not a cost.
    */
   readonly background = computed(() => this.session()?.background ?? 0);
+
+  /**
+   * The background calls by name, for the strip.
+   *
+   * Falls back to the bare count when the runner has sent none — an older
+   * runner, or a session whose calls detached before it learned to name them.
+   * The strip then says what it used to say rather than nothing.
+   */
+  readonly running = computed(() => this.session()?.running ?? []);
   readonly session = signal<Summary | undefined>(undefined);
 
   /** What the session may do without asking, in the CLI's own words. */

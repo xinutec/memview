@@ -800,3 +800,63 @@ fn a_permission_request_without_a_call_is_still_a_question() {
         console::protocol::read(line)
     );
 }
+
+/// A background call is named by what the caller wrote about it, not by its id.
+///
+/// The count was the whole report until #740: a phone saying *1 background task
+/// running* could not say which, and answering it took a `ps` on the Mac.
+#[test]
+fn a_call_is_named_by_its_description() {
+    let called = console::protocol::called(
+        "Bash",
+        &serde_json::json!({ "command": "sleep 600", "description": "Wait for the build" }),
+    );
+    assert_eq!(called.tool, "Bash");
+    // The description, not the command: it is the sentence written for a human.
+    assert_eq!(called.label.as_deref(), Some("Wait for the build"));
+}
+
+#[test]
+fn a_call_without_a_description_falls_back_to_the_work() {
+    let called =
+        console::protocol::called("Bash", &serde_json::json!({ "command": "cargo build" }));
+    assert_eq!(called.label.as_deref(), Some("cargo build"));
+
+    let agent = console::protocol::called("Agent", &serde_json::json!({ "prompt": "find bugs" }));
+    assert_eq!(agent.label.as_deref(), Some("find bugs"));
+}
+
+/// ⚠ Nothing is invented. A call whose input carries no readable field gets the
+/// tool name alone — better unlabelled than a rendering of its JSON.
+#[test]
+fn a_call_with_nothing_readable_is_left_unlabelled() {
+    let called = console::protocol::called("Monitor", &serde_json::json!({ "timeout_ms": 1000 }));
+    assert_eq!(called.tool, "Monitor");
+    assert_eq!(called.label, None);
+
+    // Whitespace is not a label either.
+    let blank = console::protocol::called("Bash", &serde_json::json!({ "description": "   " }));
+    assert_eq!(blank.label, None);
+}
+
+/// ⚠ **The label is cut, because a real one was several hundred characters of
+/// shell.** The strip has one line on a 412px phone.
+#[test]
+fn a_long_label_is_cut_and_flattened() {
+    let long = "x".repeat(500);
+    let called = console::protocol::called("Bash", &serde_json::json!({ "command": long }));
+    let label = called.label.expect("a label");
+    assert!(
+        label.chars().count() <= 61,
+        "cut to 60 plus the ellipsis: {}",
+        label.chars().count()
+    );
+    assert!(label.ends_with('…'), "the cut is visible: {label}");
+
+    // A heredoc would otherwise take the strip down the page.
+    let multi = console::protocol::called(
+        "Bash",
+        &serde_json::json!({ "command": "one\n  two\n\tthree" }),
+    );
+    assert_eq!(multi.label.as_deref(), Some("one two three"));
+}
