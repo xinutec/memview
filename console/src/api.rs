@@ -55,6 +55,7 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/sessions/{id}", delete(forget))
         .route("/api/sessions/{id}/events", get(events))
         .route("/api/sessions/{id}/earlier", get(earlier))
+        .route("/api/sessions/{id}/landmarks", get(landmarks))
         .route("/api/sessions/{id}/parse", post(parse))
         .route("/api/sessions/{id}/tasks", get(tasks))
         .route("/api/sessions/{id}/tasks/{task}", get(task))
@@ -543,6 +544,42 @@ struct Page {
     /// The cursor for the page before this one. Zero means the start of the
     /// transcript: there is nothing older.
     from: u64,
+}
+
+/// Everywhere in this conversation worth jumping to.
+///
+/// ⚠ **`spawn_blocking`, and this is the one route that has earned it.** The
+/// walk parses the whole transcript — 0.7 s for an ordinary large one and 3.4 s
+/// for the biggest here, measured — and no gate ahead of the parser survives
+/// contact with the format; see [`crate::past::landmarks`]. Left on the executor
+/// it would be seconds of a worker that every other session's stream shares, for
+/// one person tapping "go to".
+async fn landmarks(
+    State(roster): State<Arc<Roster>>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<crate::past::Landmark>>, (StatusCode, String)> {
+    // Through the roster, so this can only read a transcript belonging to a
+    // session this console owns — the same boundary every other route has.
+    roster
+        .get(&id)
+        .ok_or((StatusCode::NOT_FOUND, format!("no session {id}")))?;
+    let root = crate::past::projects_root();
+    let path = crate::past::transcript_of(&root, &id).ok_or((
+        StatusCode::NOT_FOUND,
+        format!("no transcript on disk for {id}"),
+    ))?;
+
+    let began = std::time::Instant::now();
+    let found = tokio::task::spawn_blocking(move || crate::past::landmarks(&path))
+        .await
+        .map_err(|err| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("could not read the transcript: {err}"),
+            )
+        })?;
+    tracing::info!("{id}: {} landmark(s) in {:?}", found.len(), began.elapsed());
+    Ok(Json(found))
 }
 
 async fn earlier(

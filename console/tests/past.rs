@@ -712,6 +712,127 @@ fn the_count_starts_again_after_a_compaction() {
     assert_eq!(counted(&path, Counted::default()).counted.interactions, 3);
 }
 
+/// A conversation holding one of everything a landmark is, and a good deal of
+/// what one is not.
+///
+/// Shaped like the real files: the bulk is assistant replies and tool results,
+/// and the things worth returning to are a rounding error among them.
+fn signposted(dir: &Path, id: &str) -> std::path::PathBuf {
+    let folder = dir.join("project");
+    std::fs::create_dir_all(&folder).expect("project dir");
+    let stamp = |n: u32| format!(r#""timestamp":"2026-08-1{}T09:0{n}:00.000Z""#, n % 2 + 1);
+    let said = |n: u32, text: &str| {
+        format!(
+            r#"{{"type":"user",{},"message":{{"role":"user","content":[{{"type":"text","text":"{text}"}}]}}}}"#,
+            stamp(n)
+        )
+    };
+    let lines = vec![
+        r#"{"type":"system","cwd":"/home/example/Code"}"#.to_string(),
+        said(1, "the first thing asked"),
+        // Bulk, and none of it a landmark: nobody has ever wanted to return to
+        // an assistant paragraph or a tool result.
+        r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"a reply"}]}}"#.to_string(),
+        r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}"#.to_string(),
+        r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Bash","input":{}}]}}"#.to_string(),
+        // A slash command, which the CLI files as a user message wrapping it.
+        said(2, "<command-name>compact</command-name><command-args></command-args>"),
+        r#"{"type":"system","subtype":"compact_boundary"}"#.to_string(),
+        // A picture: the image block is what makes it one, and the sentence
+        // beside it is where the name of the kept copy lives.
+        format!(
+            r#"{{"type":"user",{},"message":{{"role":"user","content":[{{"type":"image","source":{{"type":"base64"}}}},{{"type":"text","text":"look at this (the image is also at /tmp/pics/shot-9.png)"}}]}}}}"#,
+            stamp(3)
+        ),
+        // Plumbing nobody typed, which must not read as something they said.
+        said(4, "<system-reminder>do not mention this</system-reminder>"),
+        said(5, "the last thing asked"),
+    ];
+    let path = folder.join(format!("{id}.jsonl"));
+    std::fs::write(&path, format!("{}\n", lines.join("\n"))).expect("transcript");
+    path
+}
+
+#[test]
+fn only_the_places_worth_returning_to_are_landmarks() {
+    // ⚠ **The filter is the feature.** Assistant text and tool calls are most of
+    // every transcript and nobody remembers one, so a strip listing them is a
+    // strip nobody can find anything in. What a person remembers is what they
+    // said, what they sent, and where the conversation was cut.
+    let root = scratch("signposts");
+    let path = signposted(&root, "marked");
+
+    let found = console::past::landmarks(&path);
+    let kinds: Vec<_> = found.iter().map(|mark| mark.kind).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            console::past::Mark::Prompt,
+            console::past::Mark::Command,
+            console::past::Mark::Compacted,
+            console::past::Mark::Shown,
+            console::past::Mark::Prompt,
+            console::past::Mark::Prompt,
+        ],
+        "a reply, a tool call and a tool result are not places anybody goes back to"
+    );
+    assert_eq!(found[0].text, "the first thing asked");
+    assert_eq!(found[1].text, "compact");
+    assert_eq!(
+        found[3].text, "shot-9.png",
+        "the picture by the name kept for it"
+    );
+    assert_eq!(found[4].text, "look at this", "and what was said with it");
+    assert_eq!(found[5].text, "the last thing asked");
+    assert!(
+        found
+            .iter()
+            .all(|mark| !mark.text.contains("system-reminder")),
+        "a reminder nobody typed must not read as something they said"
+    );
+    assert!(
+        found[0].when.is_some(),
+        "a landmark without a time cannot be grouped by day"
+    );
+}
+
+#[test]
+fn a_landmark_lands_on_the_page_that_holds_it() {
+    // ⚠ **The whole point of the cursor, and it is off by one line if it is
+    // wrong.** `page` reads BACKWARDS from the offset it is given, so a cursor
+    // at the start of a landmark's line returns the page that stops just before
+    // it — tapping your own message and not being shown your own message. The
+    // offset is therefore the end of the line, which puts the landmark last on
+    // the page it comes back on.
+    let root = scratch("landing");
+    let path = signposted(&root, "jumped");
+
+    for mark in console::past::landmarks(&path) {
+        let page = console::past::page(&path, Some(mark.at));
+        let last = page.events.last().expect("a page with something on it");
+        let arrived = match (&mark.kind, &last.event) {
+            (console::past::Mark::Prompt, console::protocol::Event::Prompt { text }) => {
+                text == &mark.text
+            }
+            (console::past::Mark::Command, console::protocol::Event::Command { text }) => {
+                text == &mark.text
+            }
+            (console::past::Mark::Shown, console::protocol::Event::Prompt { .. }) => {
+                // A picture and the words sent with it are one message and two
+                // events, in that order — so the words are what the page ends on.
+                true
+            }
+            (console::past::Mark::Compacted, console::protocol::Event::Compacted) => true,
+            _ => false,
+        };
+        assert!(
+            arrived,
+            "jumping to {:?} {:?} landed on {:?} instead",
+            mark.kind, mark.text, last.event
+        );
+    }
+}
+
 /// Add `bytes` of lines that carry no events, as a long conversation's own bulk
 /// does — a `file-history-snapshot` is tens of kilobytes and says nothing the
 /// count is about.

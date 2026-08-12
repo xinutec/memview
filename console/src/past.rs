@@ -522,6 +522,134 @@ pub struct Appended {
     pub context: Option<u64>,
 }
 
+/// A place in a transcript somebody might want to come back to.
+///
+/// The set is deliberately small and it is the set a person remembers: things
+/// they said, pictures they sent, and where the conversation was cut. Assistant
+/// text and tool calls are the bulk of every file and nobody has ever wanted to
+/// return to one, so they are not here.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Landmark {
+    /// Where to ask for it, as a byte offset.
+    ///
+    /// ⚠ **The END of the line carrying it, not the start**, and the difference
+    /// is whether "go to" works. `page` reads *backwards* from a cursor, so a
+    /// cursor at the start of the line returns the page that stops just short of
+    /// the landmark — a jump to somebody's message that does not show their
+    /// message. Ending the cursor past the line puts the landmark last on the
+    /// page it comes back on, which is what tapping it means.
+    ///
+    /// ⚠ **A cursor, not a measure.** It is exactly what
+    /// `/api/sessions/{id}/earlier` already takes, so a jump is the existing
+    /// paging with a different starting point rather than a second mechanism.
+    /// What it is *not* is a position anybody can be shown: one picture is 50 kB
+    /// of base64 on one line and a sentence is 90 bytes, so a scrollbar drawn
+    /// over these offsets would be a lie.
+    pub at: u64,
+    /// When the file says it happened, for grouping by day.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub when: Option<i64>,
+    pub kind: Mark,
+    /// Enough of it to recognise, cut to [`SIGN`].
+    pub text: String,
+}
+
+/// Which kind of landmark, in the client's vocabulary.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Mark {
+    /// Something the reader said.
+    Prompt,
+    /// A slash command they ran.
+    Command,
+    /// A picture they sent, by the name of the copy kept for it.
+    Shown,
+    /// Where the conversation was cut and started again.
+    Compacted,
+}
+
+/// How much of a landmark to carry.
+///
+/// Shorter than [`LINE`] on purpose: this is a strip of things to tap, not a
+/// transcript. A first line is what anybody recognises their own message by.
+const SIGN: usize = 120;
+
+/// Every landmark in a transcript, oldest first.
+///
+/// ⚠ **This reads and parses the WHOLE file, and there is no cheaper way.**
+/// Measured 2026-08-12 over 3.7 GB (#83): **270–500 MB/s**, so 0.7 s for an
+/// ordinary large transcript and 3.4 s for the 1 GB outlier here. Call it off
+/// the executor.
+///
+/// ⚠ **Two byte-level gates were tried and both were wrong**, which is why this
+/// does the obvious slow thing:
+///
+/// 1. Skipping lines by their `type`. The first `"type":"` in a line is a
+///    NESTED one — a conversation line opens `{"parentUuid":…` and the `message`
+///    object precedes the top-level tag — so reading it classifies 37% of the
+///    corpus as `message` and finds no `assistant` lines at all. The gate then
+///    rejected nothing and saved nothing, while looking like it worked.
+/// 2. Requiring the content blocks a landmark needs — `"type":"text"`,
+///    `"type":"image"`, `compact_boundary`. Derived from this parser's own
+///    dispatch and still wrong: a user message's `content` is often a bare
+///    string with no typed block anywhere, so plain prompts carry none of them.
+///    It found **129 of 1,665** landmarks in one file.
+///
+/// Both were caught only by running a parse-everything arm beside them over
+/// 1,345,496 lines and comparing the results. A prescan here is not cheap to get
+/// right, and it is very cheap to get silently wrong.
+pub fn landmarks(path: &Path) -> Vec<Landmark> {
+    use std::io::BufRead;
+
+    let Ok(file) = std::fs::File::open(path) else {
+        return Vec::new();
+    };
+    let mut reader = std::io::BufReader::with_capacity(1 << 20, file);
+    let mut line = Vec::new();
+    let mut at = 0u64;
+    let mut found = Vec::new();
+    loop {
+        line.clear();
+        let Ok(read) = reader.read_until(b'\n', &mut line) else {
+            break;
+        };
+        if read == 0 {
+            break;
+        }
+        let past_it = at + read as u64;
+        for stamped in timed(&line) {
+            let (kind, text) = match stamped.event {
+                crate::protocol::Event::Prompt { text } => (Mark::Prompt, text),
+                crate::protocol::Event::Command { text } => (Mark::Command, text),
+                crate::protocol::Event::Shown { name } => (Mark::Shown, name),
+                crate::protocol::Event::Compacted => (Mark::Compacted, String::new()),
+                _ => continue,
+            };
+            found.push(Landmark {
+                at: past_it,
+                when: stamped.at,
+                kind,
+                text: sign(&text),
+            });
+        }
+        at = past_it;
+    }
+    found
+}
+
+/// One line of a landmark, cut to [`SIGN`].
+///
+/// The newlines go first: a pasted message is one landmark however many
+/// paragraphs it arrived in, and a strip showing three of its lines shows one
+/// fewer place to jump to.
+fn sign(text: &str) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    match flat.char_indices().nth(SIGN) {
+        Some((end, _)) => format!("{}…", &flat[..end]),
+        None => flat,
+    }
+}
+
 /// How far back to look for the compaction boundary before giving up, and how
 /// much to read on the first try.
 ///

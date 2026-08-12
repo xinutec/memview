@@ -387,25 +387,35 @@ const NOT_A_REPO: &[&str] = &[
 /// call from the index parser. There a link inside a fence was noise; here a
 /// command in a fence is the most actionable kind of claim a memory can make —
 /// `run ~/Code/x/deploy.sh` is an instruction whether or not it is fenced.
-fn claimable_text(doc: &crate::store::MemoryDoc) -> String {
+/// Returned one entry per TOP-LEVEL block, because the archive exemption is
+/// scoped to the block a claim is written in — see [`check_world`]. Flattening
+/// the document to a single string is what let one retirement banner clear every
+/// stale path below it.
+fn claimable_blocks(doc: &crate::store::MemoryDoc) -> Vec<String> {
     let options = crate::store::markdown_options();
     let arena = comrak::Arena::new();
     let root = comrak::parse_document(&arena, &doc.body, &options);
-    let mut out = String::new();
-    for node in root.descendants() {
-        match &node.data.borrow().value {
-            comrak::nodes::NodeValue::Text(t) => out.push_str(t),
-            comrak::nodes::NodeValue::Code(c) => out.push_str(&c.literal),
-            comrak::nodes::NodeValue::CodeBlock(c) => out.push_str(&c.literal),
-            _ => {}
+    let mut blocks: Vec<String> = Vec::new();
+    for block in root.children() {
+        let mut out = String::new();
+        for node in block.descendants() {
+            match &node.data.borrow().value {
+                comrak::nodes::NodeValue::Text(t) => out.push_str(t),
+                comrak::nodes::NodeValue::Code(c) => out.push_str(&c.literal),
+                comrak::nodes::NodeValue::CodeBlock(c) => out.push_str(&c.literal),
+                _ => {}
+            }
+            out.push('\n');
         }
-        out.push('\n');
+        blocks.push(out);
     }
     // The description is frontmatter, so no markdown node covers it — and it is
     // load-bearing: `project_lares_recon` named the dead path there as well as in
-    // its body, and the description is the half a reader sees first.
-    out.push_str(&doc.meta.description);
-    out
+    // its body, and the description is the half a reader sees first. It is its own
+    // block: a retirement recorded in the body does not reach the line a reader
+    // sees first, and vice versa.
+    blocks.push(doc.meta.description.clone());
+    blocks
 }
 
 /// Every `~/Code/<segment>` a memory names.
@@ -453,9 +463,19 @@ fn code_repos_named(text: &str, code_root: &std::path::Path) -> BTreeSet<String>
 /// them ask whether it is true. A corpus can be perfectly consistent with itself
 /// and still be describing a machine that no longer exists.
 ///
-/// The escape hatch is naming the new location: a memory that says `~/Archive/<repo>`
+/// The escape hatch is naming the new location: a claim that says `~/Archive/<repo>`
 /// has recorded the retirement and is exempt. That makes the fix for a true positive
 /// either update the path or state where it went — never just silence the check.
+///
+/// **The exemption is scoped to the BLOCK, not the document, and that distinction
+/// is the whole rule.** Scoped per document it under-fires exactly where it matters:
+/// a long project memory opens with "retired to `~/Archive/lares`" and forty lines
+/// later still instructs "captures live at `~/Code/lares/captures`". Same repo, so
+/// the per-repo check cannot separate them — the banner cleared the file. Measured
+/// on the real corpus 2026-08-12: `project_lares_recon` carried the banner in its
+/// first paragraph and four live paths below it, and this rule was silent on all
+/// four while the audit that found them read the file by hand. A retirement note
+/// records the retirement where it is written; it is not a document-wide waiver.
 pub fn check_world(corpus: &Corpus, code_root: &std::path::Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 
@@ -473,23 +493,30 @@ pub fn check_world(corpus: &Corpus, code_root: &std::path::Path) -> Vec<Finding>
     }
 
     for (name, doc) in &corpus.docs {
-        let claimed = claimable_text(doc);
-        for repo in code_repos_named(&claimed, code_root) {
-            if code_root.join(&repo).exists() {
-                continue;
+        // Reported once per (memory, repo) however many blocks name it: the
+        // finding is "this memory sends a reader to a repo that is gone", and one
+        // line per stale mention would bury that under repetition.
+        let mut reported: BTreeSet<String> = BTreeSet::new();
+        for block in claimable_blocks(doc) {
+            for repo in code_repos_named(&block, code_root) {
+                if code_root.join(&repo).exists() || reported.contains(&repo) {
+                    continue;
+                }
+                // Naming the archive location IS the retirement record. Checked
+                // per repo so a memory that retires one repo cannot excuse a
+                // stale reference to another, and per BLOCK so a banner at the
+                // top cannot excuse an instruction further down.
+                if block.contains(&format!("~/Archive/{repo}")) {
+                    continue;
+                }
+                reported.insert(repo.clone());
+                findings.push(Finding {
+                    severity: severity_of("dead-repo-path"),
+                    rule: "dead-repo-path",
+                    memory: name.clone(),
+                    detail: format!("~/Code/{repo} does not exist"),
+                });
             }
-            // Naming the archive location IS the retirement record. Checked per
-            // repo rather than per document so a memory that retires one repo
-            // cannot accidentally excuse a stale reference to another.
-            if claimed.contains(&format!("~/Archive/{repo}")) {
-                continue;
-            }
-            findings.push(Finding {
-                severity: severity_of("dead-repo-path"),
-                rule: "dead-repo-path",
-                memory: name.clone(),
-                detail: format!("~/Code/{repo} does not exist"),
-            });
         }
     }
 

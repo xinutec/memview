@@ -84,6 +84,33 @@ fn retiring_one_repo_does_not_excuse_a_stale_reference_to_another() {
 }
 
 #[test]
+fn a_retirement_note_does_not_reach_a_live_path_further_down_the_document() {
+    // The shape the per-document exemption missed, and it is the common one: a
+    // long project memory opens with "retired to ~/Archive/lares" and then, forty
+    // lines later, still tells a reader "captures live at ~/Code/lares/captures"
+    // as a live instruction. Both are the SAME repo, so the per-repo check does
+    // not separate them — the banner cleared the whole file.
+    //
+    // Measured on the real corpus 2026-08-12: `project_lares_recon` carried the
+    // retirement banner in its first paragraph and four live paths below it, and
+    // `dead-repo-path` was silent on all four.
+    let corpus_dir = tempfile::tempdir().expect("tempdir");
+    let code = tempfile::tempdir().expect("tempdir");
+
+    let corpus = corpus_saying(
+        corpus_dir.path(),
+        "lares was retired to `~/Archive/lares`.\n\n\
+         Some unrelated paragraph about the port.\n\n\
+         Existing captures live at `~/Code/lares/captures` (gitignored, NOT /tmp).\n",
+    );
+    let findings = check_world(&corpus, code.path());
+
+    assert_eq!(findings.len(), 1, "{findings:?}");
+    assert_eq!(findings[0].rule, "dead-repo-path");
+    assert!(findings[0].detail.contains("lares"), "{findings:?}");
+}
+
+#[test]
 fn the_absolute_spelling_of_the_same_path_is_read_too() {
     // Both forms occur in the corpus and mean the same place; reading only the
     // tilde form would let the other rot unchecked. The absolute prefix comes
