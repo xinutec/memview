@@ -260,6 +260,46 @@ fn a_window_that_has_turned_over_beats_the_old_one_outright() {
 }
 
 #[test]
+fn a_window_end_that_wobbles_by_a_second_is_still_the_same_window() {
+    // ⚠ **The defect this exists for (#814), measured 2026-08-12.** The console
+    // drew 5h 27% at an age of 31 minutes while the CLI answered 28% for the same
+    // window, and no reading had been accepted for half an hour: five samples 45 s
+    // apart across three sixty-second `ask_usage` ticks showed the age climbing
+    // 1:1 with the clock — 1570 s, 1615 s, 1660 s, 1705 s, 1750 s.
+    //
+    // The reset instant is not a constant. Two `get_usage` probes 30 s apart both
+    // answered `23:19:59.838278`; one ten minutes earlier answered
+    // `23:19:59.955616`, and the figure the console was holding said `23:20:01`.
+    // It drifts, and not in one direction. Judging *any* difference to be a
+    // different window instance meant the highest instant ever heard latched the
+    // window shut: every later reading looked like an older instance and was
+    // dropped whole — the figure and its arrival time together — until the window
+    // really did turn over, hours later.
+    //
+    // A turnover moves the instant by the length of the window. A second is not a
+    // turnover of anything.
+    let held_late = held(0.27, TURNS + 2, 1_000);
+    let current = held(0.28, TURNS, 61_000);
+    assert!(
+        fresher(&held_late, &current),
+        "a second's disagreement about when the window ends is not a new window"
+    );
+
+    // And with nothing to choose between the figures, the same window heard again
+    // still refreshes its age — which is the half that was making a good number
+    // look half an hour old.
+    let same = held(0.93, TURNS + 2, 1_000);
+    let again = held(0.93, TURNS - 1, 61_000);
+    assert!(fresher(&same, &again));
+
+    // The tolerance must not swallow a real turnover, and the shortest window
+    // there is runs five hours.
+    let spent = held(0.94, TURNS, 1_000);
+    let turned = held(0.03, TURNS + 5 * 60 * 60, 2_000);
+    assert!(fresher(&spent, &turned), "five hours on is a new window");
+}
+
+#[test]
 fn a_reading_with_no_reset_time_falls_back_to_when_it_arrived() {
     // What a `rate_limit_event` carries when the CLI declines to say. There is
     // nothing to compare but arrival, which is the old rule — kept for exactly

@@ -228,13 +228,40 @@ impl Usage {
 /// number that was fine. The two questions are separate and are answered
 /// separately: *which reading is truest* is the higher utilisation, *how long ago
 /// was it confirmed* is the most recent arrival that said so.
+///
+/// ⚠ **Two readings of one window do not agree to the second about when it
+/// ends**, and equality was the test for "same instance" until #814. Measured
+/// 2026-08-12: the console's sessions were being told `23:20:01` while two fresh
+/// `get_usage` probes taken the same minute were told `23:19:59.838278` — and a
+/// third, ten minutes earlier, `23:19:59.955616`. The instant drifts, and not in
+/// one direction. Held to equality, whichever cohort reported the latest instant
+/// latched the window shut: every reading from the other looked like an *older*
+/// instance and was dropped whole, figure and arrival time together, until the
+/// window really turned over hours later. See [`SAME_WINDOW`].
 pub fn fresher(held: &Seen, candidate: &Seen) -> bool {
     match (held.resets_at, candidate.resets_at) {
-        (Some(theirs), Some(ours)) if ours != theirs => ours > theirs,
+        (Some(theirs), Some(ours)) if !same_window(theirs, ours) => ours > theirs,
         (Some(_), Some(_)) if candidate.utilization > held.utilization => true,
         (Some(_), Some(_)) if candidate.utilization < held.utilization => false,
         _ => candidate.at > held.at,
     }
+}
+
+/// How far two readings may disagree about when one window ends and still be
+/// talking about the same window.
+///
+/// Generous on purpose, because the two errors are nothing like each other in
+/// size. Being too tight is what #814 was: readings a second apart judged
+/// different instances, and the reading held could not be displaced for an hour.
+/// Being too loose would take a genuine turnover for a wobble — and the shortest
+/// window there is runs five hours, so a turnover moves this instant by 18,000
+/// seconds. A minute is thirty times the drift that has been seen and a three
+/// hundredth of the smallest real step.
+const SAME_WINDOW: i64 = 60;
+
+/// Whether two reset instants describe one window instance. See [`SAME_WINDOW`].
+fn same_window(held: crate::session::ResetsAt, candidate: crate::session::ResetsAt) -> bool {
+    (held.0 - candidate.0).abs() <= SAME_WINDOW
 }
 
 /// Fold what the sessions have just said into what is already known.
