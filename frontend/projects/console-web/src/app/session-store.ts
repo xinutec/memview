@@ -76,6 +76,17 @@ export interface Held {
    * "idle"; only the first may let an event set it.
    */
   readonly live: WritableSignal<boolean>;
+  /**
+   * Whether the reader has jumped away from the live end of the transcript.
+   *
+   * ⚠ **Not "the stream is closed", though a jump does close it.** Leaving a
+   * session closes it too — see [[SessionStore.leave]] — and coming back from
+   * that goes to the newest message, where coming back from a jump means
+   * abandoning a page from the middle of the file. Only [[SessionStore.goTo]]
+   * sets this and only [[SessionStore.rejoin]] clears it, because it is about
+   * where the reader is, not about the connection.
+   */
+  readonly adrift: WritableSignal<boolean>;
   // ⚠ **No background count here, and there was one.** It was derived from this
   // stream, which was the only way to know until the runner started counting
   // for the list — and then the same question had two answers: this one reset
@@ -180,6 +191,57 @@ export class SessionStore {
     );
   }
 
+  /**
+   * Show the page that ends at a landmark, leaving the live stream behind.
+   *
+   * ⚠ **The stream is closed first, and that is the point rather than a
+   * tidy-up.** A jump puts an hour-old page on screen; with the stream still
+   * running, the next thing the session said would be appended under it, with
+   * nothing between them and no way for a reader to tell the join from a
+   * continuation. Detached, the page is what it claims to be — a look at the
+   * past — and [[Held.adrift]] is what offers the way back.
+   *
+   * Replaces rather than prepends, unlike [[earlier]]: this is not the page
+   * before the one on screen, it is somewhere else entirely, and gluing the two
+   * together would invent a conversation that never happened.
+   */
+  goTo(id: string, at: number): Observable<void> {
+    const held = this.held.get(id) ?? this.fresh(id);
+    held.close?.();
+    held.close = undefined;
+    return this.api.earlier(id, at).pipe(
+      map((there) => {
+        let page: Entry[] = [];
+        for (const event of there.events) page = [...fold(page, event)];
+        held.entries.set(page);
+        held.cursor.set(there.from);
+        held.adrift.set(true);
+        // Nothing is known about the present any more — the stream that would
+        // have said is closed. Claiming otherwise would leave the working
+        // spinner from an hour ago running over a page from an hour ago.
+        held.live.set(false);
+        held.spoken.set(false);
+        held.doing.set(undefined);
+        held.since.set(undefined);
+      }),
+    );
+  }
+
+  /**
+   * Come back to the present from a jump.
+   *
+   * Everything held goes, because what is held is a page from the middle of the
+   * file and the stream about to arrive replays the end of it — keeping both
+   * would show the same conversation twice with a hole in the middle. The
+   * re-open then seeds from scratch, which is the same path a first visit takes.
+   */
+  rejoin(id: string): Held {
+    const held = this.held.get(id) ?? this.fresh(id);
+    this.forget(held);
+    held.adrift.set(false);
+    return this.open(id);
+  }
+
   private fresh(id: string): Held {
     const held: Held = {
       entries: signal<Entry[]>([]),
@@ -188,6 +250,7 @@ export class SessionStore {
       since: signal<number | undefined>(undefined),
       spoken: signal(false),
       live: signal(false),
+      adrift: signal(false),
       seen: 0,
       used: ++this.clock,
     };

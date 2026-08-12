@@ -614,7 +614,7 @@ input.note:disabled {
   // `:not(.ended)` rather than overriding it back below: the ended row is a
   // neutral surface where nothing has gone wrong, and it should simply never be
   // given the error colours in the first place.
-  &:not(.ended) button {
+  &:not(.ended):not(.adrift) button {
     --mat-button-filled-container-color: var(--mat-sys-error);
     --mat-button-filled-label-text-color: var(--mat-sys-on-error);
   }
@@ -625,6 +625,24 @@ input.note:disabled {
 .deaf.ended {
   background: var(--mat-sys-surface-container-high);
   color: var(--mat-sys-on-surface);
+}
+
+// And for a reader looking back at an older part of the conversation. Quiet for
+// the same reason — nothing has gone wrong, they asked to be here — but it may
+// not be silent: detached, the page does not grow and the header's "working" is
+// from before the jump, so a reader who missed it would watch a busy session say
+// nothing.
+//
+// ⚠ **The neutral surface, after looking at the render.** `tertiary-container`
+// was the first attempt and this theme paints it a vivid green: the row read as
+// an alarm over a page where nothing is wrong, and it swallowed its own button,
+// which is the app's primary green on a green field. The outline is what keeps
+// it from disappearing into the transcript instead.
+.deaf.adrift {
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface);
+  outline: 1px solid var(--mat-sys-outline-variant);
+  outline-offset: -1px;
 }
 
 // A message says whose it is, and reads as it was written.

@@ -21,8 +21,10 @@ import { Choosing, ModesSheet } from './modes-sheet';
 import { RenameSheet } from './rename-sheet';
 import { Restyle } from './restyle';
 import { SessionSheet } from './session-sheet';
+import { JumpSheet, Where } from './jump-sheet';
 import { TasksSheet } from './tasks-sheet';
 import { Telemetry } from './telemetry';
+import { SessionStore } from './session-store';
 
 @Component({
   selector: 'app-root',
@@ -42,6 +44,7 @@ import { Telemetry } from './telemetry';
 })
 export class App {
   private telemetry = inject(Telemetry);
+  private store = inject(SessionStore);
   private restyle = inject(Restyle);
   private api = inject(ConsoleApi);
   private sheet = inject(MatBottomSheet);
@@ -155,6 +158,27 @@ export class App {
    * list can show them too. See `console/src/tasks.rs`.
    */
   protected readonly taskCount = this.here.tasks;
+
+  /**
+   * Offer everywhere in this conversation worth going back to, and go there.
+   *
+   * The store rather than the view does the jumping, because the transcript is
+   * the store's — the view follows it. What the view adds is landing at the
+   * bottom of the page that arrives, which it does off [[Held.adrift]].
+   */
+  protected goTo(session: Summary): void {
+    const sheet = this.sheet.open<JumpSheet, Where, number>(JumpSheet, {
+      data: { session: session.id },
+      panelClass: 'session-sheet',
+    });
+    this.dismiss.onBack(sheet);
+    sheet.afterDismissed().subscribe((at) => {
+      if (at === undefined) return;
+      this.store.goTo(session.id, at).subscribe({
+        error: (failure: unknown) => this.telemetry.note('go-to-refused', reason(failure)),
+      });
+    });
+  }
 
   protected tasks(session: Summary): void {
     this.dismiss.onBack(

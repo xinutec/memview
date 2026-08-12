@@ -1,0 +1,105 @@
+:host {
+  display: block;
+  // ⚠ **No height cap and no scroller here** — `mat-bottom-sheet-container`
+  // already caps and scrolls, and a second scrolling region inside the first is
+  // how a swipe stops working (DL-ANGULAR-NESTED-SCROLLER). This list runs to
+  // thousands of rows on a long conversation, so the temptation is real.
+}
+
+.who {
+  font: var(--mat-sys-title-medium);
+  margin: 0 0 0.75rem;
+}
+
+// Icons alone rather than words: four labels do not fit across a phone, and
+// each toggle repeats the icon the rows below it already carry, which is what
+// makes the pairing readable without them.
+.kinds {
+  margin-bottom: 0.75rem;
+}
+
+.none,
+.trouble {
+  margin: 0;
+  font: var(--mat-sys-body-medium);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.trouble {
+  color: var(--mat-sys-error);
+}
+
+// The day. Sticky, because the whole point of grouping is knowing which day you
+// are looking at while you scroll through it — and this sheet is mostly
+// scrolling.
+.day {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0.75rem 0 0.25rem;
+  padding: 0.25rem 0;
+  font: var(--mat-sys-label-large);
+  color: var(--mat-sys-on-surface-variant);
+  background: var(--mat-sys-surface-container-low);
+}
+
+.marks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mark {
+  border-top: 1px solid var(--mat-sys-outline-variant);
+
+  &:first-child {
+    border-top: none;
+  }
+}
+
+// The row is the control, as it is in the task sheet: a keyboard reaches it and
+// a screen reader says what it does.
+.line {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  width: 100%;
+  // Room for a thumb. Every row here is pressable, unlike the task sheet where
+  // most are not, so this is the whole target and it may not be shaved.
+  min-height: 3rem;
+  padding: 0.6rem 0.2rem;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.sign {
+  flex: 0 0 auto;
+  // Optical alignment with the first line of the text rather than the top of the
+  // box, which sits a couple of pixels high against text this size.
+  margin-top: 0.1rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+// One line, cut with an ellipsis. ⚠ **Not `overflow-wrap: anywhere`** — that
+// collapses a grid column to its longest word here (DL-CSS-ANYWHERE), and a
+// pasted path or a URL is exactly what a first line often is.
+.said {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: var(--mat-sys-body-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+// A cut is a place rather than something said, so it reads as a divider: quieter
+// text, and the icon carries the meaning.
+.cut .said {
+  font-style: italic;
+  color: var(--mat-sys-on-surface-variant);
+}

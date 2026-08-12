@@ -1,0 +1,56 @@
+<h2 class="who">Go to</h2>
+
+@if (all() === undefined) {
+  <!-- ⚠ **The bar is not decoration here.** The runner parses the whole
+       transcript to answer — measured at 0.7 s for an ordinary large one and
+       3.4 s for the biggest — so a sheet that opened blank would read as an
+       empty conversation for most of a second. -->
+  <mat-progress-bar mode="indeterminate" />
+  <p class="none">Reading the conversation…</p>
+} @else if (trouble(); as what) {
+  <p class="trouble">{{ what }}</p>
+} @else if (empty()) {
+  <!-- Not "0 places". A conversation nobody has said anything in yet is a real
+       state, and a zero would read as a list that failed to load. -->
+  <p class="none">Nothing to go back to yet — nothing has been said here.</p>
+} @else {
+  <!-- ⚠ **`hideMultipleSelectionIndicator`, and the render is why.** Material
+       puts a tick in front of every selected toggle; with all four on by
+       default that is eight marks across a 412px row, and the tick says exactly
+       what the filled background already says. Seen on the phone-width render,
+       not reasoned about. -->
+  <mat-button-toggle-group
+    class="kinds"
+    multiple
+    hideMultipleSelectionIndicator
+    [value]="kinds()"
+    (change)="kinds.set($event.value)"
+    aria-label="which places to show"
+  >
+    @for (kind of filters; track kind) {
+      <mat-button-toggle [value]="kind" [attr.aria-label]="kind">
+        <mat-icon>{{ icons[kind] }}</mat-icon>
+      </mat-button-toggle>
+    }
+  </mat-button-toggle-group>
+
+  @if (days().length === 0) {
+    <p class="none">Nothing of that kind in this conversation.</p>
+  }
+
+  @for (day of days(); track day.title) {
+    <h3 class="day">{{ day.title }}</h3>
+    <ol class="marks">
+      @for (mark of day.marks; track mark.at) {
+        <li class="mark" [class.cut]="mark.kind === 'compacted'">
+          <button type="button" class="line" (click)="go(mark)">
+            <mat-icon class="sign">{{ signpostOf(mark).icon }}</mat-icon>
+            <!-- The reader's own words, one line of them. Never the assistant's:
+                 those are the bulk of the file and nobody goes back to one. -->
+            <span class="said">{{ mark.text || signpostOf(mark).instead }}</span>
+          </button>
+        </li>
+      }
+    </ol>
+  }
+}

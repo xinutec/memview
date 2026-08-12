@@ -265,6 +265,16 @@ export class SessionView implements OnDestroy {
    *  The cursor is a byte offset into the transcript, so zero is the start of the
    *  file and this is simply "not at the beginning". */
   readonly more = computed(() => (this.held()?.cursor() ?? 0) > 0);
+  /**
+   * Whether this view is showing somewhere the reader jumped to, rather than the
+   * live end of the conversation.
+   *
+   * ⚠ **Worth saying on screen, loudly.** Detached, the page does not grow and
+   * the session's own state is unknown — so a reader who did not notice would
+   * watch a working session say nothing and conclude it had stopped. See
+   * [[SessionStore.goTo]].
+   */
+  readonly adrift = computed(() => this.held()?.adrift() ?? false);
   readonly loading = signal(false);
   private scroller = viewChild<ElementRef<HTMLElement>>('scroller');
   /** The top of what has been read, and the thing that asks for more. */
@@ -338,6 +348,24 @@ export class SessionView implements OnDestroy {
       viewport.addEventListener('resize', settle);
       this.until.onDestroy(() => viewport.removeEventListener('resize', settle));
     }
+    // ⚠ **A jump lands at the BOTTOM of the page it fetched, unconditionally** —
+    // where [follow] below moves only for a reader already at the end. The
+    // landmark is the last thing on that page (the cursor is the end of its
+    // line, see `past::Landmark::at`), so the bottom is the thing that was
+    // tapped. Following's politeness is exactly wrong here: somebody who asks to
+    // be taken somewhere has said where they want to be.
+    effect(() => {
+      if (!this.held()?.adrift()) return;
+      this.entries();
+      requestAnimationFrame(() => {
+        const box = this.scroller()?.nativeElement;
+        if (!box) return;
+        box.scrollTop = box.scrollHeight;
+        // Told to following as a landing of ours, or the scroll event this
+        // causes reads as the reader moving away and holds every later follow.
+        this.following.landed(box.scrollTop);
+      });
+    });
     // A frame after the entries change, not with them: `follow` reads a height
     // that does not exist until the browser has laid the new nodes out.
     // `afterRenderEffect` was the first thing tried here and never ran — proven
@@ -567,6 +595,17 @@ export class SessionView implements OnDestroy {
    * nothing retries until the reader moves, which is what keeps an unreachable
    * console from becoming a request every frame.
    */
+  /**
+   * Come back to the live end of the conversation from a jump.
+   *
+   * Through the store, which throws the jumped-to page away before re-opening —
+   * see [[SessionStore.rejoin]] for why keeping both would draw the same
+   * conversation twice with a hole in it.
+   */
+  protected rejoin(): void {
+    this.held.set(this.store.rejoin(this.id()));
+  }
+
   private loadEarlier(): void {
     if (this.loading()) return;
     const box = this.scroller()?.nativeElement;

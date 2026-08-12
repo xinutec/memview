@@ -104,6 +104,23 @@
      `touchcancel` as well as `touchend`, or a hold interrupted by the system — a
      notification, a gesture claimed by the shell — leaves the transcript frozen
      for the life of the page. -->
+@if (adrift()) {
+  <!-- ⚠ **Said plainly, because everything else on this page now lies.** After a
+       jump the transcript does not grow, the stream is closed and the header's
+       "working" is from before — a reader who did not notice the jump would
+       watch a busy session say nothing for ten minutes. `role="status"` for the
+       same reason the ended banner has one: nothing was pressed here, so a
+       screen reader has no other way to learn the page changed underneath. -->
+  <div class="deaf adrift" role="status">
+    <mat-icon>my_location</mat-icon>
+    <div class="what">
+      <strong>Looking back.</strong>
+      <span>This is an older part of the conversation, and it will not update.</span>
+    </div>
+    <button mat-flat-button (click)="rejoin()">Back to now</button>
+  </div>
+}
+
 <ol
   class="transcript"
   #scroller

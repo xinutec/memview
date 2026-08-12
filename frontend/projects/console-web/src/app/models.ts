@@ -409,6 +409,35 @@ export interface Entry {
   reply?: Reply;
 }
 
+/** Which kind of landmark — mirrors the runner's `past::Mark`. */
+export type Mark = 'prompt' | 'command' | 'shown' | 'compacted';
+
+/**
+ * A place in this conversation worth going back to.
+ *
+ * Only what a person remembers: something they said, a picture they sent, or
+ * where the conversation was cut. Assistant text and tool calls are most of the
+ * transcript and nobody has ever gone looking for one.
+ */
+export interface Landmark {
+  /**
+   * Where to ask for it, as a byte offset — the cursor
+   * `/api/sessions/{id}/earlier` takes.
+   *
+   * ⚠ **Opaque, like every cursor in this client.** It is not a position and
+   * cannot be drawn as one: a picture is 50 kB on one line and a sentence is 90
+   * bytes, so nothing here may compute with it, only pass it back.
+   */
+  readonly at: number;
+  /** When the transcript says it happened, for grouping by day. Absent when the
+   *  line carried no stamp — never guessed at. */
+  readonly when?: number;
+  readonly kind: Mark;
+  /** A line of it, enough to recognise. Empty for a compaction, which is a place
+   *  rather than a thing said. */
+  readonly text: string;
+}
+
 /**
  * A conversation on disk that could be picked up again.
  *

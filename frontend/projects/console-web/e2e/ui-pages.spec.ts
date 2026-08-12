@@ -995,6 +995,86 @@ test('transcript — tool arguments and a fixed composer @ phone width', async (
 });
 
 /**
+ * Landmarks as the runner sends them, and shaped like the hard cases.
+ *
+ * ⚠ **The long one is not padding.** A first line is often a pasted path or a
+ * command with no spaces in it, which is exactly what breaks a single-line row:
+ * `overflow-wrap: anywhere` collapses the column to its longest word
+ * (DL-CSS-ANYWHERE) and a missing `min-width: 0` pushes the icon off the screen.
+ * Two days, so the grouping is drawn rather than assumed.
+ */
+const LANDMARKS = [
+  {
+    at: 1024,
+    when: Date.UTC(2026, 7, 11, 9, 14),
+    kind: 'prompt',
+    text: 'run the decoder against /home/example/Code/health/packages/health-sync-backend/src/decode/fixtures/2026-07-31-overnight.json and say what it makes of the gaps',
+  },
+  { at: 4096, when: Date.UTC(2026, 7, 11, 11, 2), kind: 'command', text: 'compact' },
+  { at: 8192, when: Date.UTC(2026, 7, 11, 11, 2), kind: 'compacted', text: '' },
+  { at: 16384, when: Date.UTC(2026, 7, 12, 8, 30), kind: 'shown', text: 'screenshot-3.png' },
+  { at: 32768, when: Date.UTC(2026, 7, 12, 9, 5), kind: 'prompt', text: 'that is the one, thanks' },
+];
+
+test('go to — a long conversation is reachable by landmark @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **The screen this exists for.** A transcript here runs to hundreds of
+  // megabytes and pages back 400 events at a time, so anything an hour old is a
+  // hundred taps away. This sheet is the way back, which makes its rows the one
+  // place in the app where a pasted path has to fit on a phone.
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/landmarks', (r) => r.fulfill({ json: LANDMARKS }));
+  // The page a jump lands on. `mockRunner` answers every other GET with `[]`,
+  // which is not the shape this one returns — an empty array would leave the
+  // view with no entries and nothing to say why.
+  await page.route('**/api/sessions/*/earlier*', (r) =>
+    r.fulfill({
+      // A cursor of 0 — the start of the file — so the infinite-scroll observer
+      // stops asking. A non-zero cursor with a constant answer pages the same
+      // event in forever, which is a fixture artefact and not what the app does.
+      json: { events: [{ kind: 'text', text: 'what was said back then' }], from: 0 },
+    }),
+  );
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.getByRole('button', { name: /what to do with/ }).click();
+  await page.getByRole('menuitem', { name: 'Go to…' }).click();
+
+  const sheet = page.locator('mat-bottom-sheet-container');
+  await expect(sheet).toBeVisible();
+  await sheet.getByText('that is the one, thanks').waitFor();
+  // Grouped by day, newest day first — the thing somebody wants back is far
+  // more often this afternoon's than last week's.
+  await expect(sheet.locator('.day')).toHaveText(['Today', 'Yesterday']);
+  // A compaction is a place rather than something said, so it carries the words
+  // the runner does not send.
+  await expect(sheet.getByText('the conversation was cut here')).toBeVisible();
+
+  await expectIconFontLoaded(page);
+  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
+  await expectNoClippedText(page, testInfo, "mat-bottom-sheet-container");
+  // Scoped to the sheet: it sits OVER the transcript by design, so an unscoped
+  // check reports the conversation behind it overlapping every row.
+  await expectNoTextOverlaps(page, testInfo, 'mat-bottom-sheet-container');
+  // Every row here is pressable, unlike the task sheet where most are not — so
+  // the whole row is the target and it may not be shaved.
+  await expectThumbTargets(page);
+
+  // ⚠ **And the state a jump leaves behind, which is the part that can mislead.**
+  // Detached, the transcript does not grow and the header's "working" is a
+  // reading from before — so the banner is the only thing on screen telling the
+  // truth about what is being looked at.
+  await sheet.getByText('that is the one, thanks').click();
+  const adrift = page.locator('.deaf.adrift');
+  await expect(adrift, 'nothing says this is not the live conversation').toBeVisible();
+  await expect(adrift.getByText('Looking back.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Back to now' })).toBeVisible();
+  await expectNoHorizontalOverflow(page, testInfo);
+  await expectNoTextOverlaps(page, testInfo);
+  await expectThumbTargets(page);
+});
+
+/**
  * A real 2×4 PNG, on disk beside this spec.
  *
  * ⚠ **A file rather than bytes in the source, and not for tidiness.** PNG bytes

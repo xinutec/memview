@@ -2,7 +2,16 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
-import { Conversation, KINDS, Overview, Parsed, SessionEvent, Summary, Task } from './models';
+import {
+  Conversation,
+  KINDS,
+  Landmark,
+  Overview,
+  Parsed,
+  SessionEvent,
+  Summary,
+  Task,
+} from './models';
 import { Answers, Notes } from './questions';
 
 /** Thin client over the console runner. Same origin in production (the runner
@@ -32,6 +41,19 @@ export class ConsoleApi {
       `/api/sessions/${encodeURIComponent(id)}/earlier`,
       { params: { before } },
     );
+  }
+
+  /**
+   * Everywhere in this conversation worth jumping to.
+   *
+   * ⚠ **Not cheap, and asked for only when the sheet opens.** The runner parses
+   * the whole transcript to answer — 0.7 s for an ordinary large one, measured —
+   * because no scan short of the parser identifies a landmark in this format.
+   * Fetching it alongside anything else would put that on a path nobody asked
+   * for.
+   */
+  landmarks(id: string): Observable<Landmark[]> {
+    return this.http.get<Landmark[]>(`/api/sessions/${encodeURIComponent(id)}/landmarks`);
   }
 
   past(): Observable<Conversation[]> {
