@@ -212,6 +212,19 @@ export interface Usage {
    */
   five_hour?: Window;
   seven_day?: Window;
+  /**
+   * The windows belonging to one model rather than to the plan, named by the
+   * model. Absent when the runner has heard of none — the CLI files these in a
+   * `model_scoped` array whose contents are whatever Anthropic scopes today, so
+   * nothing here knows the names in advance. Mirrors `usage::Scoped`.
+   */
+  models?: Scoped[];
+}
+
+/** One model's own allowance. */
+export interface Scoped extends Window {
+  /** The model's display name, verbatim from the CLI — 'Fable'. */
+  model: string;
 }
 
 /** The event kinds the runner emits, as a value so the wire can be checked

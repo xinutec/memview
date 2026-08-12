@@ -1123,10 +1123,21 @@ pub fn get_usage(request_id: &str) -> String {
 ///
 /// ⚠ **Read defensively, field by field, and deliberately so.** The CLI calls
 /// `get_usage` experimental and warns that the response shape may change, so
-/// this reads the two windows it wants and ignores everything else — the cost,
-/// the per-model buckets, the overage blocks. A shape that has moved yields no
+/// this reads the windows it wants and ignores everything else — the cost, the
+/// overage blocks, the behaviour tallies. A shape that has moved yields no
 /// reading rather than a wrong one, and the front page goes back to the
 /// dashboard.
+///
+/// ⚠ **A model's own allowance is NOT a key beside the others**, and reading it
+/// as one is why it went unseen. `rate_limits` is an object of windows, but
+/// `model_scoped` is an *array* of `{display_name, utilization, resets_at}` —
+/// its value has no `utilization` of its own, so the loop below stepped over it
+/// in silence. Measured against CLI 2.1.226 on 2026-08-12: the fixed keys a
+/// model scope used to live under (`seven_day_opus`, `seven_day_sonnet`) are all
+/// `null`, and the only live scope — Fable at 6% — is in that array. Keying on
+/// the model's *name* is therefore the shape the CLI now has, and it is also the
+/// one that survives: a new model needs no key here, and a retired one leaves no
+/// dead branch behind.
 ///
 /// Not matched against a request id: the console asks for nothing else, so any
 /// response carrying rate limits is an answer to this.
@@ -1142,6 +1153,10 @@ pub fn usage_reply(line: &str) -> Option<Vec<(String, f64, Option<i64>)>> {
         .as_object()?;
     let mut found = Vec::new();
     for (window, seen) in limits {
+        if window == MODEL_SCOPED {
+            found.extend(scoped(seen));
+            continue;
+        }
         // `utilization` is a percentage here, where the stream event's is a
         // fraction. Both are read into a fraction, so one thing downstream
         // multiplies by a hundred rather than two things disagreeing about
@@ -1149,14 +1164,40 @@ pub fn usage_reply(line: &str) -> Option<Vec<(String, f64, Option<i64>)>> {
         let Some(pct) = seen.get("utilization").and_then(|it| it.as_f64()) else {
             continue;
         };
-        let resets_at = seen
-            .get("resets_at")
-            .and_then(|it| it.as_str())
-            .and_then(|it| OffsetDateTime::parse(it, &Rfc3339).ok())
-            .map(|when| when.unix_timestamp());
-        found.push((window.clone(), pct / 100.0, resets_at));
+        found.push((window.clone(), pct / 100.0, resets_at(seen)));
     }
     (!found.is_empty()).then_some(found)
+}
+
+/// Where the CLI files a window belonging to one model rather than to the plan.
+const MODEL_SCOPED: &str = "model_scoped";
+
+/// The per-model windows out of that array, named by the model.
+///
+/// An entry with no name is dropped rather than given one: the name is the whole
+/// of what distinguishes these windows from each other, and a bar labelled after
+/// a guess is worse than a bar that is not drawn.
+fn scoped(value: &serde_json::Value) -> Vec<(String, f64, Option<i64>)> {
+    let Some(entries) = value.as_array() else {
+        return Vec::new();
+    };
+    entries
+        .iter()
+        .filter_map(|entry| {
+            let name = entry.get("display_name")?.as_str()?;
+            let pct = entry.get("utilization")?.as_f64()?;
+            Some((crate::usage::model_key(name), pct / 100.0, resets_at(entry)))
+        })
+        .collect()
+}
+
+/// When a window turns over, in epoch seconds, if it says.
+fn resets_at(window: &serde_json::Value) -> Option<i64> {
+    window
+        .get("resets_at")
+        .and_then(|it| it.as_str())
+        .and_then(|it| OffsetDateTime::parse(it, &Rfc3339).ok())
+        .map(|when| when.unix_timestamp())
 }
 
 /// One user message, in the shape the CLI reads on stdin.

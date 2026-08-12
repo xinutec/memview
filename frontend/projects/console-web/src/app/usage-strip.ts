@@ -50,6 +50,10 @@ export class UsageStrip {
       ...(usage.five_hour ? [bar('5 hours', usage.five_hour)] : []),
       // "Week", not "7 days": it is what the reading is called everywhere else.
       ...(usage.seven_day ? [bar('Week', usage.seven_day)] : []),
+      // A model's own weekly allowance, labelled with the model and nothing
+      // else: the runner sends only the scopes the account actually has, and
+      // the label is its name rather than a word this file chose for it.
+      ...(usage.models ?? []).map((scope) => bar(scope.model, scope)),
     ];
   });
 

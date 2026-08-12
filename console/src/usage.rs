@@ -80,6 +80,21 @@ pub struct Window {
     pub resets_in_ms: Option<i64>,
 }
 
+/// One window that belongs to a single model rather than to the plan.
+///
+/// ⚠ **Named by the model, not by a key.** The CLI used to file these under
+/// fixed window names (`seven_day_opus`, `seven_day_sonnet`); as of 2.1.226 those
+/// are null and the live scope arrives in a `model_scoped` array carrying its own
+/// `display_name`. So the name is data — it is shown verbatim, and nothing here
+/// or downstream knows which models exist. See [`crate::protocol::usage_reply`].
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Scoped {
+    /// The model's own display name, as the CLI gives it — "Fable".
+    pub model: String,
+    #[serde(flatten)]
+    pub window: Window,
+}
+
 /// What the client is told.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Reading {
@@ -97,6 +112,11 @@ pub struct Reading {
     pub five_hour: Option<Window>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seven_day: Option<Window>,
+    /// The windows belonging to one model, in name order so the strip does not
+    /// reshuffle between polls. Empty for a reading that came from the dashboard,
+    /// which carries none — see [`merged`].
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub models: Vec<Scoped>,
 }
 
 /// The dashboard's latest reading, kept here so a client never waits on it.
@@ -309,7 +329,27 @@ pub fn merged(
     );
     let five_hour = live(chosen_five.as_ref().map(|it| &it.0), now_ms);
     let seven_day = live(chosen_seven.as_ref().map(|it| &it.0), now_ms);
+    // ⚠ **The console's own hearing only, with nothing to judge it against.** A
+    // model's window arrives in the same `get_usage` reply as the two above, so
+    // it is exactly as fresh as they are — but the dashboard has no copy of it to
+    // compare with, because the dashboard's copy comes FROM here. Putting it
+    // through `pick` would be asking which of one reading is the later.
+    let models: Vec<Scoped> = seen
+        .iter()
+        .filter_map(|(window, heard)| Some((window.strip_prefix(MODEL_PREFIX)?, heard)))
+        .filter_map(|(model, heard)| {
+            Some(Scoped {
+                model: model.to_string(),
+                window: live(Some(heard), now_ms)?,
+            })
+        })
+        .collect();
     // Nothing known about either window is nothing to show. One is worth showing.
+    //
+    // Judged on the two plan-wide windows alone, and a model's window cannot
+    // rescue it: the three come back in one reply, so a console that has heard a
+    // model scope has heard those too, and a lone scoped bar over no context is
+    // not a reading anybody could act on.
     five_hour.as_ref().or(seven_day.as_ref())?;
     // ⚠ **The age and the host of what is ON SCREEN**, which is no longer always
     // this console's own. Taken from the newer of the two chosen readings, which
@@ -324,10 +364,12 @@ pub fn merged(
             age_ms: (now_ms - seen.at.0).max(0),
             five_hour,
             seven_day,
+            models,
         },
         None => Reading {
             five_hour,
             seven_day,
+            models,
             ..published?
         },
     })
@@ -336,6 +378,19 @@ pub fn merged(
 /// The CLI's own names for the two windows worth showing.
 const FIVE_HOUR: &str = "five_hour";
 const SEVEN_DAY: &str = "seven_day";
+
+/// What marks a window as one model's rather than the plan's.
+///
+/// The windows share one map keyed by the CLI's own names, and a model's
+/// `display_name` is not one of those — so it is prefixed rather than dropped in
+/// beside them, where a model called `five_hour` would displace the plan's own
+/// window. A colon because no CLI window name contains one.
+const MODEL_PREFIX: &str = "model:";
+
+/// How a model's window is filed among the rest.
+pub fn model_key(display_name: &str) -> String {
+    format!("{MODEL_PREFIX}{display_name}")
+}
 
 /// The machine this console runs on, for a reading it took itself.
 ///
@@ -452,6 +507,12 @@ pub fn reading(published: &Published, now_ms: i64) -> Reading {
             &published.seven_day_resets_at,
             now_ms,
         )),
+        // ⚠ **Never read back from the dashboard, however many it publishes.**
+        // home's per-model figures are this console's own, pushed there by
+        // `xinutec-infra/mac-mini/claude_usage_push.py` — reading them again would
+        // be this console quoting itself through a round trip and calling the
+        // answer corroboration.
+        models: Vec::new(),
     }
 }
 

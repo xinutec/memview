@@ -172,6 +172,42 @@ fn a_reset_time_is_seconds_and_is_not_read_as_milliseconds() {
 }
 
 #[test]
+fn a_models_own_window_is_reported_beside_the_plans() {
+    // The Fable scope arrives in the same `get_usage` reply as the two plan
+    // windows, so it is exactly as fresh as they are — and it is named by the
+    // model rather than by a key, because that is what the CLI now sends.
+    let now = at_ms("2026-08-12T16:00:00.000Z");
+    let live = seen(&[
+        (
+            "five_hour",
+            heard(0.62, "2026-08-12T18:20:00.000Z", "2026-08-12T15:59:00.000Z"),
+        ),
+        (
+            "model:Fable",
+            heard(0.06, "2026-08-14T02:00:00.000Z", "2026-08-12T15:59:00.000Z"),
+        ),
+    ]);
+    let read = merged(&live, None, now).expect("a reading");
+    assert_eq!(read.models.len(), 1);
+    assert_eq!(read.models[0].model, "Fable");
+    assert_eq!(read.models[0].window.pct, 6.0);
+    // 34 hours, counted from `now` rather than from when it was heard.
+    assert_eq!(read.models[0].window.resets_in_ms, Some(122_400_000));
+    // And it does not leak into the plan-wide windows, which is what a bare
+    // model name in the same map would have done.
+    assert!(read.seven_day.is_none());
+}
+
+#[test]
+fn the_dashboards_own_reading_carries_no_model_windows() {
+    // home's per-model figures come FROM this console, so reading them back
+    // would be the console quoting itself and calling it corroboration.
+    let now = at_ms("2026-08-04T20:05:00.000Z");
+    let read = merged(&BTreeMap::new(), Some(&published()), now).expect("a reading");
+    assert!(read.models.is_empty());
+}
+
+#[test]
 fn nothing_heard_and_no_dashboard_is_no_reading_at_all() {
     // Rather than a strip of zeroes, which would be a claim about the account.
     assert!(merged(&BTreeMap::new(), None, at_ms("2026-08-04T20:05:00.000Z")).is_none());

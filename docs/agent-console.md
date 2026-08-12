@@ -1135,9 +1135,28 @@ the same question twice.
   unasked, and exactly when things are tight — with `get_usage` as the one that
   answers routinely.
 - ⚠ **`get_usage` is experimental** and the CLI says so: "the response shape may
-  change". `protocol::usage_reply` therefore reads the two windows it wants field
+  change". `protocol::usage_reply` therefore reads the windows it wants field
   by field and ignores the rest, and a shape that has moved yields no reading
   rather than a wrong one — at which point the dashboard is still there.
+- **A model's own allowance is a third bar, named after the model** (2026-08-12).
+  It is not a key beside the others: `rate_limits` is an object of windows, but
+  `model_scoped` is an **array** of `{display_name, utilization, resets_at}`, so
+  the loop that reads a `utilization` off each value stepped straight over it —
+  which is why this sat unread in every reply. Measured against CLI 2.1.226: the
+  fixed keys a scope used to live under (`seven_day_opus`, `seven_day_sonnet`)
+  are `null`, and the one live scope is *Fable* at 6%, resetting with the week.
+  So the **name is data** — `usage::Scoped` carries it, the strip labels the bar
+  with it, and nothing in this repository knows which models exist. A new scope
+  needs no code and a retired one leaves no dead branch. An entry with no name is
+  dropped rather than given one, since the name is all that tells these apart.
+  The figure is keyed `model:<name>` among the windows, because a model called
+  `five_hour` would otherwise displace the plan's own.
+- **A scoped window is never read back from the dashboard**, though home now
+  publishes one: home's copy is pushed there from this console
+  (`xinutec-infra/mac-mini/claude_usage_push.py`), so consulting it would be the
+  console quoting itself through a round trip and calling it corroboration. The
+  two plan-wide windows are still judged against home, which has a second and
+  independent source for them in the statusLine hook.
 - **The dashboard is now the fallback**, for a window nothing has reported yet: a
   console just started, or one whose sessions have all been idle. Absent is a
   third state, distinct from a window that has reset, and is drawn as no row

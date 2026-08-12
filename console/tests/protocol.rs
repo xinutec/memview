@@ -491,6 +491,49 @@ fn the_usage_reply_gives_up_both_windows() {
     assert_eq!(found.len(), 2);
 }
 
+/// The same reply as CLI 2.1.226 gives it, trimmed to the rate limits.
+///
+/// ⚠ **Copied from a live answer on 2026-08-12, not composed here.** Every fixed
+/// model key is `null` and the one live scope is in the `model_scoped` array —
+/// which is the whole reason this shape had to be read rather than assumed.
+const SCOPED_REPLY: &str = r#"{"type":"control_response","response":{"request_id":"usage-x","subtype":"success","response":{"rate_limits":{"five_hour":{"utilization":62,"resets_at":"2026-08-12T18:19:59.060276+00:00"},"seven_day":{"utilization":87,"resets_at":"2026-08-14T01:59:59.060301+00:00"},"seven_day_opus":null,"seven_day_sonnet":null,"model_scoped":[{"display_name":"Fable","utilization":6,"resets_at":"2026-08-14T01:59:59.060589+00:00"}]}}}}"#;
+
+#[test]
+fn a_models_own_allowance_is_read_out_of_the_array_it_lives_in() {
+    // ⚠ `model_scoped` is an ARRAY beside an object of windows, so the loop that
+    // reads a `utilization` off each value steps over it in silence — which is
+    // how the Fable window went unnoticed while sitting in every reply.
+    let mut found = console::protocol::usage_reply(SCOPED_REPLY).expect("rate limits");
+    found.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(found.len(), 3, "{found:?}");
+    // Named by the model, prefixed so it cannot collide with a CLI window name.
+    assert_eq!(found[0].0, "five_hour");
+    // 1786672799 is 2026-08-14T01:59:59Z — the week's own reset, which is what a
+    // weekly-scoped window turns over with.
+    assert_eq!(
+        found[1],
+        ("model:Fable".to_string(), 0.06, Some(1786672799))
+    );
+    assert_eq!(found[2].0, "seven_day");
+}
+
+#[test]
+fn a_model_scope_with_no_name_is_dropped_rather_than_guessed_at() {
+    // The name is the whole of what tells these windows apart, so a bar labelled
+    // after a guess is worse than one that is not drawn. The plan's own windows
+    // in the same reply are unaffected.
+    let nameless = r#"{"type":"control_response","response":{"response":{"rate_limits":{"five_hour":{"utilization":62,"resets_at":"2026-08-12T18:19:59Z"},"model_scoped":[{"utilization":6},{"display_name":"Fable","utilization":6}]}}}}"#;
+    let mut found = console::protocol::usage_reply(nameless).expect("rate limits");
+    found.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(found.len(), 2, "{found:?}");
+    assert_eq!(found[0].0, "five_hour");
+    assert_eq!(found[1].0, "model:Fable");
+    // And a scope list that is not a list at all yields no windows rather than a
+    // misread one — the CLI calls this shape experimental.
+    let moved = r#"{"type":"control_response","response":{"response":{"rate_limits":{"model_scoped":{"Fable":{"utilization":6}}}}}}"#;
+    assert!(console::protocol::usage_reply(moved).is_none());
+}
+
 #[test]
 fn an_ordinary_line_is_not_a_usage_reply() {
     // Every line of a conversation passes this on its way to being read, so it

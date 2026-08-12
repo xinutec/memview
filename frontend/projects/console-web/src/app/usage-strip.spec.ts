@@ -83,6 +83,25 @@ describe('the usage strip', () => {
     expect(host.querySelector('.pct.high')?.textContent).toContain('92%');
   });
 
+  it("draws a model's own allowance under the model's name", async () => {
+    const said =
+      (await render(reading({ models: [{ model: 'Fable', pct: 6, resets_in_ms: 34 * HOUR }] })))
+        .textContent ?? '';
+    expect(said).toContain('Fable');
+    expect(said).toContain('6%');
+    // Beside the plan's own windows, not instead of them.
+    expect(said).toContain('66%');
+  });
+
+  it('has no model row when the account has no model-scoped window', async () => {
+    // The scopes come and go with Anthropic's plans — `seven_day_opus` and
+    // `seven_day_sonnet` are both null now — so an empty list is ordinary and
+    // must render as nothing rather than as a bar with no name.
+    const said = (await render(reading({ models: [] }))).textContent ?? '';
+    expect(said).toContain('66%');
+    expect(said).not.toContain('undefined');
+  });
+
   it('leaves out a window it has heard nothing about', async () => {
     // ⚠ Not the same as one that has reset. An event names one window at a
     // time, so the runner can know the week and have heard nothing yet about
