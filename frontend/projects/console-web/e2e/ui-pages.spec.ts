@@ -32,6 +32,40 @@ const BUSY_BAR = ['mat-progress-bar'];
 const THUMB = 48;
 
 /**
+ * Let every transform that is still moving finish, before anything measures a
+ * box.
+ *
+ * ⚠ **A box measured mid-animation is not the box the layout claims.** Material
+ * opens its overlays by scaling them: `_mat-menu-enter` runs a panel from
+ * `scale(0.8)` to `scale(1)` over 120ms, and `getBoundingClientRect` maps
+ * through that, so every 48px menu item inside is genuinely 38px early in the
+ * window and 47.99px in the last frame of it. Both read as a control too small
+ * to hit, and neither is: measured 2026-08-12, `expectThumbTargets` failed 6/6
+ * on an open menu with the CPU throttled 8× and passes 6/6 with this wait
+ * (memview #735).
+ *
+ * ⚠ **Finite animations only, and this is not a detail.** A busy session keeps
+ * `mat-progress-bar` cycling forever, so waiting for `getAnimations()` to drain
+ * would never return on the page these checks are mostly pointed at. Bounded as
+ * well, because an animation that is never going to finish should fail the
+ * assertion that follows rather than the 90s test timeout.
+ */
+async function settleTransforms(page: Page, bound = 2_000): Promise<void> {
+  await page.evaluate(async (ms) => {
+    const moving = document.getAnimations().filter((a) => {
+      if (a.effect?.getTiming().iterations === Infinity) return false;
+      const frames = a.effect instanceof KeyframeEffect ? a.effect.getKeyframes() : [];
+      return frames.some((frame) => 'transform' in frame || 'scale' in frame);
+    });
+    if (moving.length === 0) return;
+    // `finished` rejects on a cancelled animation — an overlay torn down while
+    // it was still arriving is settled by any reading that matters here.
+    const done = Promise.all(moving.map((a) => a.finished.catch(() => undefined)));
+    await Promise.race([done, new Promise((r) => setTimeout(r, ms))]);
+  }, bound);
+}
+
+/**
  * Every control a thumb has to hit, and whether it can be hit.
  *
  * This page is driven one-handed on a moving train, so the size of a control is
@@ -46,17 +80,33 @@ const THUMB = 48;
  * the wrong result.
  */
 async function expectThumbTargets(page: Page, min = THUMB): Promise<void> {
+  await settleTransforms(page);
   const small = await page.evaluate((least) => {
-    const missed: { label: string; width: number; height: number }[] = [];
+    const missed: { label: string; width: number; height: number; scaledBy?: string }[] = [];
     for (const control of document.querySelectorAll('button, a[href]')) {
       const box = control.getBoundingClientRect();
       // Not rendered at all — a disabled control in a collapsed branch.
       if (box.width === 0 && box.height === 0) continue;
       if (box.height >= least && box.width >= least) continue;
+      // ⚠ **Reported to the hundredth, deliberately.** Rounding these to whole
+      // pixels cost two days of #735: a row that missed by 0.004px was reported
+      // as `height: 48`, so the number in the failure said the row was the size
+      // the assertion had just refused. Whatever is left of that flake, its
+      // evidence now arrives with the digits the argument is about.
+      const round = (n: number) => Math.round(n * 100) / 100;
+      // And by what, if anything, it was being scaled while it was measured —
+      // the one cause this check cannot tell apart from a control that is
+      // simply too small.
+      let scaled: string | undefined;
+      for (let el: Element | null = control; el && !scaled; el = el.parentElement) {
+        const t = getComputedStyle(el).transform;
+        if (t && t !== 'none') scaled = `${el.tagName.toLowerCase()} ${t}`;
+      }
       missed.push({
         label: (control.textContent ?? '').trim().slice(0, 40) || control.className,
-        width: Math.round(box.width),
-        height: Math.round(box.height),
+        width: round(box.width),
+        height: round(box.height),
+        ...(scaled === undefined ? {} : { scaledBy: scaled }),
       });
     }
     return missed;
@@ -89,6 +139,9 @@ async function expectThumbTargets(page: Page, min = THUMB): Promise<void> {
  * not the observation that it could have one.
  */
 async function expectIconsCentred(page: Page, slack = 1): Promise<void> {
+  // The same reason as `expectThumbTargets`: two boxes compared while an
+  // overlay is still scaling are two boxes nobody has looked at yet.
+  await settleTransforms(page);
   const skewed = await page.evaluate((tolerance) => {
     const off: { label: string; dx: number; dy: number }[] = [];
     for (const control of document.querySelectorAll('button, a[href]')) {
