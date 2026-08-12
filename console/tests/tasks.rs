@@ -256,6 +256,59 @@ async fn a_list_carries_what_a_row_needs_and_not_the_prose() {
 }
 
 #[tokio::test]
+async fn a_deadline_and_a_blocker_are_carried_through_as_the_service_decided_them() {
+    // ⚠ **Both `overdue` and `blocked` come from the service and neither may be
+    // worked out here.** `overdue` is answered from the database's clock so the
+    // CLI, the app and the digest cannot disagree about what day it is; and
+    // `blocked` is NOT `blocked_on` being non-empty — the link is kept after a
+    // blocker closes, as a record of how the work went, and stops counting.
+    //
+    // The third row is exactly that case, and it is the one a client would get
+    // wrong on its own: a deadline long past that the service has not called
+    // overdue, and a blocker it has not called blocking.
+    let body = r#"[{"id":412,"repo":"memview","subject":"Both","status":"open","assignee":{"kind":"nobody"},"detailed":true,"due":"2026-08-01","overdue":true,"blocked":true,"blocked_on":[92,93],"created_at":"2026-08-11T10:00:00Z","updated_at":"2026-08-11T10:00:00Z"},
+                   {"id":413,"repo":"memview","subject":"Neither","status":"open","assignee":{"kind":"nobody"},"detailed":true,"created_at":"2026-08-11T10:00:00Z","updated_at":"2026-08-11T10:00:00Z"},
+                   {"id":414,"repo":"memview","subject":"Kept links and an old date the service does not call late","status":"open","assignee":{"kind":"nobody"},"detailed":true,"due":"2020-01-01","blocked_on":[92],"created_at":"2026-08-11T10:00:00Z","updated_at":"2026-08-11T10:00:00Z"}]"#;
+    let (address, _) = serving(vec![("/api/tasks", body)]).await;
+    let listed = reading(address).listed("whoever").await;
+
+    assert_eq!(listed[0].due.as_deref(), Some("2026-08-01"));
+    assert!(listed[0].overdue);
+    assert!(listed[0].blocked);
+    // ⚠ The ids arrive as NUMBERS and are strings everywhere above this, so a
+    // blocker reads as `#92` beside the `id` it names rather than as `92` beside
+    // `"412"`.
+    assert_eq!(
+        listed[0].blocked_on,
+        vec!["92".to_string(), "93".to_string()]
+    );
+
+    assert_eq!(listed[1].due, None);
+    assert!(!listed[1].overdue);
+    assert!(!listed[1].blocked);
+    assert!(listed[1].blocked_on.is_empty());
+
+    // The row that would be got wrong by deciding either here.
+    assert_eq!(listed[2].due.as_deref(), Some("2020-01-01"));
+    assert!(!listed[2].overdue, "the service did not call it late");
+    assert!(!listed[2].blocked, "the link is a record, not a wait");
+    assert_eq!(listed[2].blocked_on, vec!["92".to_string()]);
+
+    // ⚠ Absent on the way out as well as in, for the same reason the rank is:
+    // almost every task has neither, and a `false` or a `[]` on all of them is a
+    // field a client draws a placeholder for.
+    let out = serde_json::to_string(&listed[1]).expect("serialisable");
+    assert!(
+        !out.contains("due") && !out.contains("overdue"),
+        "no empty deadline on the wire: {out}"
+    );
+    assert!(
+        !out.contains("blocked"),
+        "no empty blocker on the wire: {out}"
+    );
+}
+
+#[tokio::test]
 async fn a_rank_is_carried_through_and_no_rank_stays_absent() {
     // The order is the service's — `repo::list` sorts, and P3 is BELOW the
     // untriaged, which is why the ranked row here is the last one. Nothing on

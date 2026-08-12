@@ -65,6 +65,22 @@
           @if (task.priority; as rank) {
             <span class="rank" [class.above]="above(task)">{{ rank }}</span>
           }
+          <!-- ⚠ **Icons, not the words, and nothing at all when neither field
+               is set** — which is almost every task and always will be. The
+               tasks app settled this by looking at its own render: spelling the
+               date out pushed a long-subject fixture from 9 wrapped lines to 12,
+               on a screen whose whole job is the subject. The words are on the
+               label, where a screen reader and a long-press find them. -->
+          @if (dueLabel(task); as when) {
+            <mat-icon class="when" [class.late]="task.overdue" [attr.aria-label]="when" [title]="when"
+              >event</mat-icon
+            >
+          }
+          @if (waitingOn(task); as blockers) {
+            <mat-icon class="held" [attr.aria-label]="blockers" [title]="blockers"
+              >block</mat-icon
+            >
+          }
           <span class="subject">{{ task.subject }}</span>
           @if (task.detailed) {
             <mat-icon class="chevron">{{

@@ -88,6 +88,40 @@ export function above(priority: string | undefined): boolean {
 }
 
 /**
+ * What a deadline says, spelled out for the label rather than the row.
+ *
+ * ⚠ **The row gets an icon, not the date.** Settled by looking at the render at
+ * phone width in the tasks app: spelling the date out pushed a long-subject
+ * fixture from 9 wrapped lines to 12, on a screen where the subject is the thing
+ * anybody came to read. The words live here, where a screen reader and a
+ * long-press find them.
+ *
+ * Empty when there is no deadline, which is almost every task and always will
+ * be: a row with neither field must cost nothing extra to draw.
+ */
+export function dueLabel(task: Task): string {
+  if (!task.due) return '';
+  // ⚠ `overdue` from the service, never `due < today` worked out here — see
+  // [[Task.overdue]]. The phone's idea of the date is a fourth answer.
+  return task.overdue ? `overdue — was due ${task.due}` : `due ${task.due}`;
+}
+
+/**
+ * What a task is waiting for, named by number.
+ *
+ * The numbers rather than the subjects, because the number is what a session
+ * calls a task in its own prose — `#418 done` — and the subjects are not on this
+ * client to print. Empty unless the service says it is still blocked: the link
+ * survives its blocker closing as a record of how the work went, and a row that
+ * went on saying "waiting on" afterwards would be wrong about the one thing it
+ * is there to say.
+ */
+export function waitingOn(task: Task): string {
+  if (!task.blocked || !task.blocked_on?.length) return '';
+  return `waiting on ${task.blocked_on.map((id) => `#${id}`).join(', ')}`;
+}
+
+/**
  * What the "All" toggle would reveal, in the service's own words — empty when it
  * would reveal nothing and the toggle should not be drawn at all.
  *
@@ -175,6 +209,14 @@ export class TasksSheet {
 
   protected above(task: Task): boolean {
     return above(task.priority);
+  }
+
+  protected dueLabel(task: Task): string {
+    return dueLabel(task);
+  }
+
+  protected waitingOn(task: Task): string {
+    return waitingOn(task);
   }
 
   /** Open a task's write-up, or fold it away again. Fetched once and kept. */

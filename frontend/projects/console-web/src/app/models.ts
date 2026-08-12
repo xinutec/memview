@@ -505,6 +505,35 @@ export interface Task {
    * later is news to draw, not a parse failure.
    */
   readonly priority?: string;
+  /**
+   * The day it has to be done by, `YYYY-MM-DD`, and absent on almost everything.
+   *
+   * ⚠ **Not a rank, and nothing here may sort on it.** A deadline is evidence
+   * for a priority rather than a second answer to what-next — the service has a
+   * test that fails if anyone makes it sort, and a second ordering on the phone
+   * would disagree the first time either changed.
+   */
+  readonly due?: string;
+  /**
+   * Whether that day has passed.
+   *
+   * ⚠ **Server-decided; never recompute it from `due`.** The service answers
+   * from the database's clock, so the CLI, the tasks app and the digest cannot
+   * disagree about what day it is. A phone in another timezone working it out
+   * would be a fourth answer to a question that has one.
+   */
+  readonly overdue?: boolean;
+  /** Which tasks this one is waiting for, by number. Absent when empty. */
+  readonly blocked_on?: readonly string[];
+  /**
+   * Whether it is actually still waiting.
+   *
+   * ⚠ **Also server-decided, and NOT `blocked_on.length > 0`.** The link is kept
+   * after a blocker closes, as a record of how the work went, and stops
+   * counting — so the two disagree on every task whose blocker is done. Deciding
+   * it here would need the status of rows this client never sees.
+   */
+  readonly blocked?: boolean;
 }
 
 /**

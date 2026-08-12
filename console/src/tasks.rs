@@ -109,6 +109,49 @@ pub struct Listed {
     /// is news to draw, not a parse failure that loses the whole list.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority: Option<String>,
+    /// The day it has to be done by, `YYYY-MM-DD`. Absent on almost everything.
+    ///
+    /// ⚠ **Never sorted on, and it is not a rank.** A deadline is evidence for a
+    /// priority rather than a competing answer to what-next; the service has a
+    /// test that fails if anyone makes it sort, and `repo::list` stays the only
+    /// ordering. Drawing it is the whole job here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due: Option<String>,
+    /// Whether that day has passed.
+    ///
+    /// ⚠ **Server-decided, and NOT to be recomputed from [`Self::due`].** The
+    /// service answers from the database's clock so the CLI, the app and the
+    /// digest cannot disagree about what day it is — a phone in another timezone
+    /// working it out would be a fourth answer to a question with one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub overdue: bool,
+    /// Which tasks this one is waiting for, by number. Absent when empty.
+    #[serde(
+        default,
+        deserialize_with = "as_texts",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub blocked_on: Vec<String>,
+    /// Whether it is actually still waiting.
+    ///
+    /// ⚠ **Also server-decided, and NOT `blocked_on` being non-empty.** The link
+    /// survives its blocker closing, as a record of how the work went, and stops
+    /// counting — so the two disagree on every task whose blocker is done.
+    /// Deciding it here would need the status of rows this console never sees.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub blocked: bool,
+}
+
+/// The ids arrive as numbers and are used as strings everywhere above this —
+/// [`as_text`] for a list, so a blocker reads as `#92` beside the `id` it names.
+fn as_texts<'de, D: serde::Deserializer<'de>>(from: D) -> Result<Vec<String>, D::Error> {
+    Ok(Vec::<serde_json::Value>::deserialize(from)?
+        .into_iter()
+        .map(|held| match held {
+            serde_json::Value::String(text) => text,
+            other => other.to_string(),
+        })
+        .collect())
 }
 
 /// The id arrives as a number and is used as a string everywhere above this.

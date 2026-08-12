@@ -2783,6 +2783,34 @@ const TASKS = [
     subject: 'port the matcher gate',
     status: 'doing',
     detailed: true,
+    // ⚠ **A deadline that is NOT overdue, beside one that is.** The pair is the
+    // point: a date that has not been missed is a fact about the task, not a
+    // problem with it, and the render has to keep the two apart. `overdue` is
+    // absent here rather than false, which is how the service sends it.
+    due: '2026-09-01',
+  },
+  {
+    // Both marks at once, on a subject long enough to wrap — which is where
+    // spelling either of them out costs the lines this sheet cannot spare.
+    id: '412',
+    subject:
+      'reconcile the overnight decoder against the joint model and say which of the two owns journey reconstruction',
+    status: 'open',
+    detailed: false,
+    due: '2026-08-01',
+    overdue: true,
+    blocked: true,
+    blocked_on: ['92', '93'],
+  },
+  {
+    // Blocked with the link still on it AFTER the blocker closed: the service
+    // says `blocked: false` and keeps `blocked_on` as a record of how the work
+    // went. Nothing may be drawn for it — see [[waitingOn]].
+    id: '413',
+    subject: 'was waiting on the effect language',
+    status: 'open',
+    detailed: false,
+    blocked_on: ['92'],
   },
   // ⚠ **The fourth state, and the one the sheet used to get wrong.** `dropped`
   // is closed without ever being done, and this sheet filtered on
@@ -3286,6 +3314,8 @@ test('the task sheet opens on what is left rather than what is done @ phone widt
     'refresh the recovery bundle before the next machine',
     'write the rule up',
     'tidy the fixture names',
+    'reconcile the overnight decoder against the joint model and say which of the two owns journey reconstruction',
+    'was waiting on the effect language',
   ]);
   // With the numbers the session itself uses, in the same order — a session
   // writes `#101 done` in its own prose, so the row has to be findable by it.
@@ -3294,7 +3324,28 @@ test('the task sheet opens on what is left rather than what is done @ phone widt
   // ranked above the unranked #100 and #99 is ranked below it, and that is how
   // they arrive — nothing here re-sorts on the rank, or there would be two
   // orderings to keep true and they would disagree the first time either moved.
-  await expect(sheet.locator('.num')).toHaveText(['101', '7', '100', '99']);
+  await expect(sheet.locator('.num')).toHaveText(['101', '7', '100', '99', '412', '413']);
+
+  // ⚠ **A deadline is drawn, and it does NOT reorder anything.** #412 is overdue
+  // and sits where the service put it — last — because a deadline is evidence
+  // for a rank rather than a competing answer to what-next. The service has a
+  // test that fails if anyone makes it sort; this is the same rule on the phone.
+  await expect(sheet.locator('.when')).toHaveCount(2);
+  await expect(sheet.locator('.when.late')).toHaveCount(1);
+  await expect(sheet.locator('.when.late')).toHaveAttribute(
+    'aria-label',
+    'overdue — was due 2026-08-01',
+  );
+  // Not red merely for having one: a date that has not been missed is a fact
+  // about the task, not a problem with it.
+  await expect(sheet.locator('.when:not(.late)')).toHaveAttribute('aria-label', 'due 2026-09-01');
+
+  // ⚠ **One block mark, not two.** #413 still carries `blocked_on` and the
+  // service says it is no longer blocked — the link is kept after a blocker
+  // closes, as a record of how the work went. A row deciding for itself from the
+  // ids would say the opposite, and this client has no way to know better.
+  await expect(sheet.locator('.held')).toHaveCount(1);
+  await expect(sheet.locator('.held')).toHaveAttribute('aria-label', 'waiting on #92, #93');
 
   // ⚠ **The rank is drawn, and only where there is one.** Two chips on four
   // rows: the other two are unranked, which is what almost every task is, and a

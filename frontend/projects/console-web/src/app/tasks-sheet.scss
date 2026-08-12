@@ -108,6 +108,28 @@
   color: var(--mat-sys-on-error-container);
 }
 
+// A deadline and a blocker, as marks rather than words — see the template for
+// why. Sized down from the row's icons: these annotate the subject, where the
+// status mark on the left is what the row IS, and three full-size icons in front
+// of the words would read as three controls.
+.when,
+.held {
+  flex: 0 0 auto;
+  margin-top: 0.15rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  font-size: 1.1rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+// Red once the day has passed, and only then. The same argument the rank's
+// `above` makes: a deadline that has not been missed is a fact about the task,
+// not a problem with it, and colouring both would leave nothing to say which is
+// which.
+.when.late {
+  color: var(--mat-sys-error);
+}
+
 .subject {
   flex: 1;
   font: var(--mat-sys-body-medium);

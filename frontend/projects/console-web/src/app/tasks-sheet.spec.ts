@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { Task } from './models';
-import { above, closedLabel, shownTasks, standingOf } from './tasks-sheet';
+import { above, closedLabel, dueLabel, shownTasks, standingOf, waitingOn } from './tasks-sheet';
 
 /**
  * The four states the service keeps, and the fifth it has not invented yet.
@@ -136,5 +136,52 @@ describe('closedLabel', () => {
     // or its list looks empty and its rows are unreachable.
     expect(closedLabel([task('1', 'open'), task('2', 'doing')])).toBe('');
     expect(closedLabel([task('1', 'dropped')])).toBe('1 dropped');
+  });
+});
+
+describe('dueLabel', () => {
+  it('says nothing at all for the tasks that have no deadline', () => {
+    // Almost every task, and always will be. A row with neither field must cost
+    // nothing extra to draw — no placeholder, no reserved column.
+    expect(dueLabel(task('1', 'open'))).toBe('');
+  });
+
+  it('spells the date out for the label, where the row shows an icon', () => {
+    expect(dueLabel({ ...task('2', 'open'), due: '2026-09-01' })).toBe('due 2026-09-01');
+  });
+
+  it('takes overdue from the service rather than working it out', () => {
+    // ⚠ **The whole reason `overdue` is on the wire.** The service answers from
+    // the database's clock so the CLI, the tasks app and the digest cannot
+    // disagree about what day it is — a phone in another timezone deciding for
+    // itself would be a fourth answer. Here: a date long past that the service
+    // has NOT called overdue stays not overdue.
+    const stale = { ...task('3', 'open'), due: '2020-01-01' };
+    expect(dueLabel(stale)).toBe('due 2020-01-01');
+    expect(dueLabel({ ...stale, overdue: true })).toBe('overdue — was due 2020-01-01');
+  });
+});
+
+describe('waitingOn', () => {
+  it('names the blockers by number, as a session does in its own prose', () => {
+    expect(waitingOn({ ...task('4', 'open'), blocked: true, blocked_on: ['92'] })).toBe(
+      'waiting on #92',
+    );
+    expect(waitingOn({ ...task('5', 'open'), blocked: true, blocked_on: ['92', '93'] })).toBe(
+      'waiting on #92, #93',
+    );
+  });
+
+  it('goes quiet once the blocker closes, though the link is still there', () => {
+    // ⚠ **`blocked` is not `blocked_on.length > 0`.** The service keeps the link
+    // after a blocker closes, as a record of how the work went, and stops
+    // counting it — so a row that went on saying "waiting on" would be wrong
+    // about the one thing it exists to say. This client cannot tell: it does not
+    // have the blocker's status.
+    expect(waitingOn({ ...task('6', 'open'), blocked: false, blocked_on: ['92'] })).toBe('');
+  });
+
+  it('says nothing when nothing blocks it', () => {
+    expect(waitingOn(task('7', 'open'))).toBe('');
   });
 });
