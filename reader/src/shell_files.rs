@@ -20,7 +20,8 @@ use std::collections::BTreeMap;
 
 use crate::shell::Simple;
 use crate::shell_ops::{
-    GitOp, Op, assignment, basename, classify, expand, looks_like_path, resolve, unwrap_command,
+    GitOp, Op, assignment, basename, classify_naming, expand, looks_like_path, resolve,
+    unwrap_command,
 };
 
 /// A file another machine's command used.
@@ -101,6 +102,16 @@ pub struct Extract {
     /// inside a loop body is parsed once per iteration, so the commands *it*
     /// contains are duplicated without any level counting them here.
     pub unrolled: usize,
+    /// Subjects the text does not determine, by the word that stood for them.
+    ///
+    /// ⚠ **An unknown and an absence are different facts, and this is what keeps
+    /// them apart.** A refused word left no trace, so `wc -l "$f"` inside a loop
+    /// over a glob recorded what `wc -l` with no operand records — nothing — and
+    /// the corpus read as more completely understood than it is. These are the
+    /// commands that used a file, said so, and named it with something the
+    /// transcript does not contain. See [`crate::shell_ops::undetermined`] for
+    /// which refusals qualify and, just as importantly, which do not.
+    pub unnamed: BTreeMap<String, usize>,
     /// Nested scripts the grammar could not read. Reported rather than dropped:
     /// a devshell wrapper whose inner shell fails to parse is a silent hole in
     /// exactly the third of the corpus that runs through one.
@@ -258,6 +269,9 @@ impl Extract {
         self.python.merge(inner.python);
         for (name, n) in inner.unhandled {
             *self.unhandled.entry(name).or_insert(0) += n;
+        }
+        for (word, n) in inner.unnamed {
+            *self.unnamed.entry(word).or_insert(0) += n;
         }
         for (name, (r, w)) in inner.by_command {
             let entry = self.by_command.entry(name).or_default();
@@ -582,7 +596,21 @@ fn extract_nested(
             continue;
         }
 
-        let op = classify(&cmd.argv, &cmd.heredocs, here.as_deref(), home);
+        // ⚠ **The confession comes out of the same walk as the operation**, not
+        // from a second pass over the words: which of a command's words were even
+        // *subjects* is the flag table's answer, and asking it twice is how two
+        // answers come to disagree. See [`crate::shell_ops::classify_naming`].
+        let mut unnamed = Vec::new();
+        let op = classify_naming(
+            &mut unnamed,
+            &cmd.argv,
+            &cmd.heredocs,
+            here.as_deref(),
+            home,
+        );
+        for word in unnamed {
+            *out.unnamed.entry(word).or_insert(0) += 1;
+        }
         // ⚠ **Pushed before the operation is carried out**, so that a wrapper
         // stands in front of the commands it opens instead of behind them. Its
         // files are attached afterwards, once it is known which of them are this

@@ -169,15 +169,22 @@ them exist because a determinate loop was run out. A percentage against it is
 not comparable with one from before loops were unrolled, which is why the tool
 prints the two apart.
 
-**The distance left to the aim.** One way the reader still stops short of what
-the text determines, and it is now a narrow one:
+**The distance left to the aim, and the reader now states it itself.** An
+undetermined subject used to vanish: a word refused by the path guard left no
+trace, so a command that used a file nobody can name was recorded exactly like a
+command that used none. It is now counted and shown — `subjects not named` in
+`shell-files`, with the words that stood for them.
 
-1. **An undetermined subject vanishes instead of counting.** A word refused by
-   the path guard leaves no trace, so a command that used a file we could not
-   name looks like a command that used none. 592 distinct such subjects remain
-   (down from 1,025 before unrolling); what is left is led by `$f`, `$p` and
-   `$d` inside loops whose list is a glob or a `$(…)` — the two things that
-   genuinely are not in the text.
+Measured 2026-08-13 over 120,427 Bash calls: **3,006 uses, 713 distinct, 1.7% of
+all file uses**. Led by `$f` (837), `$d` (166) and `$p` (129) — loop variables
+whose list is a glob or a `$(…)`, which are the two things that genuinely are not
+in the text and so cannot be read out of it by any amount of further work.
+
+That is the honest remaining distance rather than a gap to close: the file uses
+above are 98.3% of what the corpus names, and the other 1.7% is now on the record
+instead of being silently absent. Only refusals the text *could* have determined
+are counted — a bare `src`, a pattern, a git refspec are refused for good reasons
+and stay uncounted, or the figure would be noise nobody can act on.
 
 Below that, the remaining unread commands are not a structural gap: the list is
 headed by `dhall-to-json`, `k3s`, `screen`, `journalctl` — all missing rows in

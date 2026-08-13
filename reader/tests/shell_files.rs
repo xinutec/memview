@@ -20,6 +20,16 @@ fn uses(script: &str) -> Vec<(String, bool)> {
         .collect()
 }
 
+/// The subjects the text did not determine, in the order they were met.
+fn unnamed(script: &str) -> Vec<String> {
+    let cmds = parse(script).unwrap();
+    extract(&cmds, Some(CWD), HOME)
+        .unnamed
+        .into_iter()
+        .flat_map(|(word, count)| std::iter::repeat_n(word, count))
+        .collect()
+}
+
 /// The commands the table could not read, by name.
 fn unread(script: &str) -> Vec<String> {
     let cmds = parse(script).unwrap();
@@ -144,6 +154,38 @@ fn an_unresolvable_cd_makes_the_directory_unknown_not_stale() {
 fn an_unexpanded_variable_is_refused() {
     // There is no value to expand it to, and guessing one invents a file.
     assert!(uses("cat \"$OUT/report.txt\"").is_empty());
+}
+
+#[test]
+fn a_subject_the_text_does_not_determine_is_counted_rather_than_dropped() {
+    // ⚠ **The gap this closes (#92).** A refused word left no trace at all, so a
+    // command that used a file nobody can name was recorded exactly like a
+    // command that used none — and the second is a claim, not an absence. 592
+    // distinct such subjects stood in the corpus, led by `$f`, `$p` and `$d`
+    // inside loops whose list is a glob or a `$(…)`: the two things that genuinely
+    // are not in the text, and so the two the reader must own up to rather than
+    // quietly skip.
+    //
+    // Both refusals count, and they are refused in different places: a bare `$f`
+    // never looks like a path at all, while `$d/report.txt` looks like one and
+    // then resolves to nothing.
+    assert_eq!(unnamed("for f in *.log; do wc -l \"$f\"; done"), ["$f"]);
+    assert_eq!(unnamed("cat \"$OUT/report.txt\""), ["$OUT/report.txt"]);
+
+    // Still no file, and that has not changed: naming what was refused must not
+    // become a way of inventing it.
+    assert!(uses("for f in *.log; do wc -l \"$f\"; done").is_empty());
+
+    // A loop the text DOES determine is run out, so nothing is undetermined about
+    // it — the words are values by the time the guard sees them.
+    assert!(unnamed("for f in a.log b.log; do wc -l \"$f\"; done").is_empty());
+
+    // And a word refused for any other reason is not a subject we failed to name.
+    // `-` is stdin, a pattern is not a file, and `src` is a bare word the guard
+    // throws away on purpose — counting those would turn an honest count into
+    // noise nobody can act on.
+    assert!(unnamed("rg pattern src").is_empty());
+    assert!(unnamed("wc -l -").is_empty());
 }
 
 #[test]

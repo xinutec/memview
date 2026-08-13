@@ -83,6 +83,11 @@ fn main() -> anyhow::Result<()> {
     let mut handled = 0usize;
     let mut unhandled = 0usize;
     let mut by_name: BTreeMap<String, usize> = BTreeMap::new();
+    // Subjects the text does not determine. Counted beside the commands that were
+    // not read at all, because they are the same kind of admission: the size of
+    // what this does not know, stated by the thing that does not know it.
+    let mut unnamed = 0usize;
+    let mut by_word: BTreeMap<String, usize> = BTreeMap::new();
     let mut reads = 0usize;
     let mut writes = 0usize;
     // Distinct paths, so the size of what this produces is visible rather than
@@ -180,6 +185,10 @@ fn main() -> anyhow::Result<()> {
             unhandled += n;
             *by_name.entry(name).or_insert(0) += n;
         }
+        for (word, n) in found.unnamed {
+            unnamed += n;
+            *by_word.entry(word).or_insert(0) += n;
+        }
         for file in found.files {
             if let Some(why) = &why
                 && file.path.contains(why.as_str())
@@ -232,6 +241,15 @@ fn main() -> anyhow::Result<()> {
         always + on_success + sometimes - certain
     );
     println!("distinct paths      {}", distinct.len());
+    // ⚠ **Stated as a rate against the uses, not left as a bare count.** These are
+    // subjects a command named and this reader could not: without them the line
+    // above reads as "every file that was used", which is the overstatement the
+    // count exists to end.
+    println!(
+        "subjects not named  {unnamed}  ({} distinct, {:.1}% of all uses)",
+        by_word.len(),
+        100.0 * unnamed as f64 / (reads + writes + unnamed).max(1) as f64
+    );
 
     println!("\nwhat the shell was doing:");
     let mut shapes: Vec<_> = by_op.into_iter().collect();
@@ -271,6 +289,13 @@ fn main() -> anyhow::Result<()> {
     });
     for ((host, path), (r, w)) in busiest.into_iter().take(show) {
         println!("      {r:>5}r {w:>4}w  {host}:{path}");
+    }
+
+    println!("\nsubjects the text does not determine, biggest first:");
+    let mut words: Vec<_> = by_word.into_iter().collect();
+    words.sort_by_key(|(word, n)| (std::cmp::Reverse(*n), word.clone()));
+    for (word, n) in words.iter().take(show.max(10)) {
+        println!("  {n:>7}  {}", truncate(word, 68));
     }
 
     println!("\nunread commands, biggest first:");

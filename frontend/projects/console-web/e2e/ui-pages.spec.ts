@@ -1003,17 +1003,35 @@ test('transcript — tool arguments and a fixed composer @ phone width', async (
  * (DL-CSS-ANYWHERE) and a missing `min-width: 0` pushes the icon off the screen.
  * Two days, so the grouping is drawn rather than assumed.
  */
+/**
+ * A landmark's moment, as a wall-clock time on a day counted back from today.
+ *
+ * ⚠ **Anchored to the run's own clock, and it has to be.** `byDay` names a day
+ * `Today` or `Yesterday` by comparing `toDateString()` against `Date.now()`, so a
+ * fixture pinned to absolute dates passes on the day it is written and fails
+ * every day after — which is what happened: `Date.UTC(2026, 7, 11)` and
+ * `(2026, 7, 12)` read as Yesterday and Today on 2026-08-12 and as neither on the
+ * 13th. Local rather than UTC for the same reason `byDay` is local: the two must
+ * agree about which calendar day a moment falls on, or the test asserts against a
+ * grouping the app would never produce.
+ */
+function daysBack(days: number, hour: number, minute: number): number {
+  const when = new Date(Date.now() - days * 86_400_000);
+  when.setHours(hour, minute, 0, 0);
+  return when.getTime();
+}
+
 const LANDMARKS = [
   {
     at: 1024,
-    when: Date.UTC(2026, 7, 11, 9, 14),
+    when: daysBack(1, 9, 14),
     kind: 'prompt',
     text: 'run the decoder against /home/example/Code/health/packages/health-sync-backend/src/decode/fixtures/2026-07-31-overnight.json and say what it makes of the gaps',
   },
-  { at: 4096, when: Date.UTC(2026, 7, 11, 11, 2), kind: 'command', text: 'compact' },
-  { at: 8192, when: Date.UTC(2026, 7, 11, 11, 2), kind: 'compacted', text: '' },
-  { at: 16384, when: Date.UTC(2026, 7, 12, 8, 30), kind: 'shown', text: 'screenshot-3.png' },
-  { at: 32768, when: Date.UTC(2026, 7, 12, 9, 5), kind: 'prompt', text: 'that is the one, thanks' },
+  { at: 4096, when: daysBack(1, 11, 2), kind: 'command', text: 'compact' },
+  { at: 8192, when: daysBack(1, 11, 2), kind: 'compacted', text: '' },
+  { at: 16384, when: daysBack(0, 8, 30), kind: 'shown', text: 'screenshot-3.png' },
+  { at: 32768, when: daysBack(0, 9, 5), kind: 'prompt', text: 'that is the one, thanks' },
 ];
 
 test('go to — a long conversation is reachable by landmark @ phone width', async ({

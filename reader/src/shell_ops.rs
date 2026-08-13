@@ -26,16 +26,20 @@
 //! ever guessed**, because an invented path is the one failure that makes every
 //! count downstream a lie.
 //!
-//! *The limitation:* a subject that cannot be determined **vanishes instead of
-//! counting**. `resolve` answering `None` leaves nothing behind, so a command
-//! that named a file no one can read looks exactly like a command that named
-//! none, and the record reads as complete when it is not. 592 distinct subjects
-//! are lost this way, led by loop variables whose list is a glob or a `$(…)` —
-//! the two things that genuinely are not in the text.
+//! *What was the limitation, and is now a measurement:* a subject that cannot be
+//! determined used to **vanish instead of counting**. `resolve` answering `None`
+//! left nothing behind, so a command that named a file no one can read looked
+//! exactly like a command that named none, and the record read as complete when
+//! it was not. Those subjects are now collected — see [`paths`] and
+//! [`undetermined`] — and stand at 3,006 uses over 713 distinct words, 1.7% of
+//! all file uses, led by loop variables whose list is a glob or a `$(…)`.
 //!
-//! What used to stand here alongside it — nothing is bound, nothing is
-//! evaluated — is done: `shell_files.rs` carries an environment and runs
-//! determinate loops out into the commands they ran.
+//! ⚠ **Counting them is the whole of what can be done about them.** A glob is
+//! answered by the filesystem of the day and a `$(…)` by running something, and
+//! neither is available here or ever will be; the remedy for an unknown of that
+//! kind is to say so, not to guess. What used to stand beside this — nothing is
+//! bound, nothing is evaluated — is done: `shell_files.rs` carries an environment
+//! and runs determinate loops out into the commands they ran.
 
 use std::collections::BTreeMap;
 
@@ -322,13 +326,52 @@ fn normalise(path: &str) -> String {
     format!("/{}", parts.join("/"))
 }
 
-/// The paths among these words, resolved and in order.
-fn paths(words: &[&str], cwd: Option<&str>, home: &str) -> Vec<String> {
-    words
-        .iter()
-        .filter(|w| looks_like_path(w))
-        .filter_map(|w| resolve(w, cwd, home))
-        .collect()
+/// The paths among these words, resolved and in order — and, into `unnamed`, the
+/// subjects that were refused because the text does not determine them.
+///
+/// ⚠ **A refusal used to leave no trace, which made an unknown look like an
+/// absence.** `wc -l "$f"` inside a loop over a glob recorded exactly what `wc -l`
+/// with no operand records: nothing. The first is a file this reader cannot name,
+/// the second is a command that named none, and reporting them identically
+/// overstates how much of the corpus is understood — 592 distinct subjects' worth
+/// at the last count. See [`undetermined`].
+fn paths(unnamed: &mut Vec<String>, words: &[&str], cwd: Option<&str>, home: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for word in words {
+        match looks_like_path(word)
+            .then(|| resolve(word, cwd, home))
+            .flatten()
+        {
+            Some(path) => out.push(path),
+            None if undetermined(word) => unnamed.push((*word).to_string()),
+            None => {}
+        }
+    }
+    out
+}
+
+/// Whether a refused word is a subject the text does not determine, as opposed to
+/// one that is simply not a file.
+///
+/// ⚠ **The distinction is the whole value of the count.** Most refusals are
+/// correct and uninteresting: `rg pattern src` loses `src` because a bare word
+/// cannot be told from a bare directory, `-` is stdin, a git refspec is not a
+/// path. Counting those would bury the ones that matter under noise nobody can
+/// act on, and would read as a confession about commands the reader understands
+/// perfectly well.
+///
+/// A surviving `$` is the marker, because by this point every expansion the text
+/// determines has already been made: a literal binding, a loop run out, `$HOME`.
+/// What is left is a value that was never in the text — a loop over a glob or a
+/// `$(…)`, an environment variable set outside the transcript.
+///
+/// ⚠ **A relative path under an unknown directory is NOT counted here**, though it
+/// is equally unnameable. That refusal has a different cause and a different
+/// remedy — the transcript's `cwd`, or a `cd` this reader could not follow — and
+/// folding the two together would make a count that cannot be acted on either
+/// way. It stays what the README calls it: a separate limit.
+fn undetermined(word: &str) -> bool {
+    word.contains('$')
 }
 
 /// The operands of a command: its words with the program and its flags removed.
@@ -791,6 +834,22 @@ fn verb(name: &str) -> Option<Verb> {
 /// command they are data and go unread; for `python3 -` the body *is* the
 /// program, and that is the only reason they are carried this far.
 pub fn classify(argv: &[String], heredocs: &[String], cwd: Option<&str>, home: &str) -> Op {
+    classify_naming(&mut Vec::new(), argv, heredocs, cwd, home)
+}
+
+/// As [`classify`], collecting the subjects the text did not determine.
+///
+/// Two functions rather than one so that the operation and the confession come
+/// from the same walk: a caller that wanted both and computed the second itself
+/// would need its own copy of the flag tables below, and a second copy is how two
+/// answers come to disagree without either being wrong out loud. See [`paths`].
+pub fn classify_naming(
+    unnamed: &mut Vec<String>,
+    argv: &[String],
+    heredocs: &[String],
+    cwd: Option<&str>,
+    home: &str,
+) -> Op {
     let argv = unwrap_command(argv);
     let Some(head) = argv.first() else {
         return Op::Nothing;
@@ -813,14 +872,24 @@ pub fn classify(argv: &[String], heredocs: &[String], cwd: Option<&str>, home: &
             },
         };
     };
-    match (act(verb, argv, heredocs, cwd, home), invoked_by_path) {
+    match (
+        act(unnamed, verb, argv, heredocs, cwd, home),
+        invoked_by_path,
+    ) {
         (Op::Nothing, Some(script)) => Op::Run { script },
         (op, _) => op,
     }
 }
 
 /// The operation a verb performs on these arguments.
-fn act(verb: Verb, argv: &[String], heredocs: &[String], cwd: Option<&str>, home: &str) -> Op {
+fn act(
+    unnamed: &mut Vec<String>,
+    verb: Verb,
+    argv: &[String],
+    heredocs: &[String],
+    cwd: Option<&str>,
+    home: &str,
+) -> Op {
     // A program given by a flag leaves every operand a file, and the file it was
     // given from is itself read.
     let flags = match verb {
@@ -833,7 +902,7 @@ fn act(verb: Verb, argv: &[String], heredocs: &[String], cwd: Option<&str>, home
         _ => Flags::NONE,
     };
     let from_flag = has_flag(argv, flags.script);
-    let script_files = paths(&flag_values(argv, flags.script_file), cwd, home);
+    let script_files = paths(unnamed, &flag_values(argv, flags.script_file), cwd, home);
     let words = operands(argv, flags.valued);
     // With the program supplied by a flag there is no leading operand to skip.
     let (leading, rest) = match (from_flag, words.split_first()) {
@@ -843,13 +912,13 @@ fn act(verb: Verb, argv: &[String], heredocs: &[String], cwd: Option<&str>, home
 
     match verb {
         Verb::Read => Op::Read {
-            paths: paths(&words, cwd, home),
+            paths: paths(unnamed, &words, cwd, home),
         },
         Verb::Search(_) => {
             // The file a pattern came from is an argument like any other, so it
             // keeps its place in front of the operands.
             let mut found = script_files;
-            found.extend(paths(rest, cwd, home));
+            found.extend(paths(unnamed, rest, cwd, home));
             Op::Search {
                 pattern: leading,
                 paths: found,
@@ -858,27 +927,27 @@ fn act(verb: Verb, argv: &[String], heredocs: &[String], cwd: Option<&str>, home
         Verb::Stream { honours_i, .. } => Op::Transform {
             program: leading,
             program_file: script_files.into_iter().next(),
-            paths: paths(rest, cwd, home),
+            paths: paths(unnamed, rest, cwd, home),
             in_place: honours_i
                 && argv
                     .iter()
                     .any(|a| a.starts_with("-i") && !a.starts_with("--")),
         },
         Verb::Remove => Op::Remove {
-            paths: paths(&words, cwd, home),
+            paths: paths(unnamed, &words, cwd, home),
             recursive: argv
                 .iter()
                 .any(|a| a.starts_with('-') && !a.starts_with("--") && a.contains('r'))
                 || has_flag(argv, &["--recursive"]),
         },
         Verb::Overwrite => Op::Write {
-            paths: paths(&words, cwd, home),
+            paths: paths(unnamed, &words, cwd, home),
         },
         Verb::Copy(_) | Verb::Move(_) => {
             let Some((last, sources)) = words.split_last() else {
                 return Op::Nothing;
             };
-            let from = paths(sources, cwd, home);
+            let from = paths(unnamed, sources, cwd, home);
             // A destination that is not a usable path — `host:dir` on a remote
             // copy — leaves the sources, which were still read here.
             match looks_like_path(last)
@@ -901,7 +970,7 @@ fn act(verb: Verb, argv: &[String], heredocs: &[String], cwd: Option<&str>, home
             // rather than re-parsed: it is already words. The heredoc travels
             // with it — `nix develop -c python3 - <<'PY'` opens the body for
             // the python, not for the wrapper.
-            Some(rest) if !rest.is_empty() => classify(rest, heredocs, cwd, home),
+            Some(rest) if !rest.is_empty() => classify_naming(unnamed, rest, heredocs, cwd, home),
             _ => Op::Nothing,
         },
         Verb::Python => {
@@ -963,7 +1032,7 @@ fn act(verb: Verb, argv: &[String], heredocs: &[String], cwd: Option<&str>, home
             },
         },
         Verb::Check { writes, .. } => {
-            let paths = paths(&words, cwd, home);
+            let paths = paths(unnamed, &words, cwd, home);
             // `black`/`isort` rewrite unless told to check, which is why an
             // empty `writes` means "writes by default" for them alone — the
             // list says which flag turns writing ON, and they have none.
@@ -981,9 +1050,9 @@ fn act(verb: Verb, argv: &[String], heredocs: &[String], cwd: Option<&str>, home
         // Only the saved-into file. The URL is not a path, and the far end is
         // not this machine's — see [`Verb::Fetch`].
         Verb::Fetch { writes } => Op::Write {
-            paths: paths(&flag_values(argv, writes), cwd, home),
+            paths: paths(unnamed, &flag_values(argv, writes), cwd, home),
         },
-        Verb::Git => git(argv, cwd, home),
+        Verb::Git => git(unnamed, argv, cwd, home),
         Verb::Remote(kind) => remote(kind, argv),
         Verb::NoFiles => Op::Nothing,
     }
@@ -1014,7 +1083,7 @@ fn repeats(word: &str, cwd: Option<&str>) -> bool {
 /// shape cannot express: `-C <dir>` moves the directory its operands resolve
 /// against, and most subcommands take *revisions* where a path would go —
 /// `git diff origin/main` would otherwise record a file of that name.
-fn git(argv: &[String], cwd: Option<&str>, home: &str) -> Op {
+fn git(unnamed: &mut Vec<String>, argv: &[String], cwd: Option<&str>, home: &str) -> Op {
     let mut base = cwd.map(str::to_string);
     let mut rest = argv.iter().skip(1);
     let mut sub = None;
@@ -1046,19 +1115,19 @@ fn git(argv: &[String], cwd: Option<&str>, home: &str) -> Op {
     let base = base.as_deref();
     match (sub.as_str(), after_sep) {
         ("add" | "stage", _) => Op::Git(GitOp::Stage {
-            paths: paths(&words, base, home),
+            paths: paths(unnamed, &words, base, home),
         }),
         // `rm` deletes, `mv` renames, `restore` overwrites — all real changes.
         // `checkout` is deliberately absent: it takes a branch as often as a
         // path, and `git checkout origin/main` would file a write against a file
         // of that name. It is readable only in its `--` form.
         ("rm" | "restore" | "mv", _) => Op::Git(GitOp::Alter {
-            paths: paths(&words, base, home),
+            paths: paths(unnamed, &words, base, home),
         }),
         // The separator is the author saying these are paths, which is exactly
         // the guarantee needed.
         (_, Some(at)) => Op::Git(GitOp::Inspect {
-            paths: paths(&words[at + 1..], base, home),
+            paths: paths(unnamed, &words[at + 1..], base, home),
         }),
         _ => Op::Git(GitOp::Other { subcommand: sub }),
     }
