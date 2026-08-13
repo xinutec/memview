@@ -176,7 +176,12 @@ fn a_subject_the_text_does_not_determine_is_counted_rather_than_dropped() {
     // Both refusals count, and they are refused in different places: a bare `$f`
     // never looks like a path at all, while `$d/report.txt` looks like one and
     // then resolves to nothing.
-    assert_eq!(unnamed("for f in *.log; do wc -l \"$f\"; done"), ["$f"]);
+    //
+    // ⚠ The glob case moved on 2026-08-13: a variable a glob loop bound is now
+    // BOUNDED rather than merely unnamed, and lives in `Extract::bounded` — see
+    // `a_glob_bounds_what_its_loop_variable_can_be`. It is still not a named
+    // file, and `subjects_not_named` still counts it.
+    assert_eq!(unnamed("for f in $(ls); do wc -l \"$f\"; done"), ["$f"]);
     assert_eq!(unnamed("cat \"$OUT/report.txt\""), ["$OUT/report.txt"]);
     // ⚠ **A backtick is an unmade expansion as much as a `$` is**, and testing
     // for `$` alone missed it — measured on the day the counter shipped, `cat
@@ -198,6 +203,73 @@ fn a_subject_the_text_does_not_determine_is_counted_rather_than_dropped() {
     // noise nobody can act on.
     assert!(unnamed("rg pattern src").is_empty());
     assert!(unnamed("wc -l -").is_empty());
+}
+
+/// The patterns a script's subjects were bounded by, with their counts.
+fn bounded(script: &str) -> Vec<String> {
+    extracted(script)
+        .bounded
+        .into_iter()
+        .flat_map(|(pattern, count)| std::iter::repeat_n(pattern, count))
+        .collect()
+}
+
+#[test]
+fn a_glob_bounds_what_its_loop_variable_can_be() {
+    // ⚠ **A glob is not a shrug.** The directory it was answered against is gone,
+    // so no file can be produced — but `some subset of src/*.ts` and `some file`
+    // are different facts, and recording both as "not named" threw the first one
+    // away. What the text says is `⟦*.log⟧ = some S ⊆ L(*.log) ∩ Files(dir, t)`:
+    // an unknown finite subset of a KNOWN language.
+    assert_eq!(
+        bounded("for f in *.log; do wc -l \"$f\"; done"),
+        ["/home/example/Code/health/*.log"]
+    );
+    // And it is off the unnamed list, because it is no longer that admission.
+    assert!(unnamed("for f in *.log; do wc -l \"$f\"; done").is_empty());
+
+    // Concatenation keeps the bound: a pattern followed by a literal is still a
+    // pattern, which is the whole reason a regular language is the right ceiling.
+    assert_eq!(
+        bounded("for d in src/*; do cat \"$d/Cargo.toml\"; done"),
+        ["/home/example/Code/health/src/*/Cargo.toml"]
+    );
+
+    // ⚠ **A transduction does not.** `${f%%:*}` is a rational function of the
+    // variable, and honouring it needs the automaton this deliberately does not
+    // build — so it stays opaque rather than being claimed as bounded.
+    assert_eq!(
+        unnamed("for f in *.log; do wc -l \"${f%%:*}\"; done"),
+        ["${f%%:*}"]
+    );
+    assert!(bounded("for f in *.log; do wc -l \"${f%%:*}\"; done").is_empty());
+
+    // A list whose own words are a question bounds nothing: which word the
+    // variable took is then unknowable, and a bound that only sometimes holds is
+    // worse than none.
+    assert!(bounded("for f in $(ls); do wc -l \"$f\"; done").is_empty());
+    assert_eq!(unnamed("for f in $(ls); do wc -l \"$f\"; done"), ["$f"]);
+
+    // ⚠ A use inside a substitution sits one scope deeper than the loop that
+    // bound the name, so the pattern has to be looked up through every enclosing
+    // scope and not just this one. Worth 124 of the corpus's 269 bounded
+    // subjects — it read as working on the simple case while missing a third of
+    // them.
+    assert_eq!(
+        bounded("for f in *.log; do echo $(wc -l \"$f\"); done"),
+        ["/home/example/Code/health/*.log"]
+    );
+
+    // Still no file. Bounding what was refused must not become a way of
+    // inventing it.
+    assert!(uses("for f in *.log; do wc -l \"$f\"; done").is_empty());
+
+    // And a bounded subject is still NOT NAMED — a subset of a pattern is not a
+    // file, and the headline must not quietly improve.
+    assert_eq!(
+        extracted("for f in *.log; do wc -l \"$f\"; done").subjects_not_named(),
+        1
+    );
 }
 
 #[test]

@@ -365,6 +365,63 @@ fn a_loop_over_a_glob_is_undercounted_and_never_invented() {
             uncertain: 0
         }
     );
+
+    // ⚠ **`S ⊆ L`, checked against the shell rather than argued for.** The reader
+    // says the loop's subject is *some subset of* `<root>/*.log`; bash says which
+    // three files it actually was. Every one of them must match the pattern, or
+    // the bound is a claim about an execution that did not happen — the one kind
+    // of error a constrained unknown could introduce that a plain refusal could
+    // not. Needs no old filesystem: the language is in the text.
+    let cmds = reader::shell::parse(script).unwrap();
+    let root = scratch.0.to_string_lossy().to_string();
+    let found = reader::shell_files::extract(&cmds, Some(&root), HOME);
+    let patterns: Vec<&String> = found.bounded.keys().collect();
+    assert_eq!(patterns, [&format!("{root}/*.log")]);
+    // A matcher that admitted everything would pass the loop below without
+    // checking anything, which is the way a soundness test quietly dies.
+    assert!(!matches(patterns[0], &format!("{root}/a.txt")));
+    assert!(!matches(patterns[0], &format!("{root}/deep/a.log")));
+    for (where_, argv) in &ran {
+        // The shell was handed `a.log`, and the reader's bound is absolute
+        // because a path only means anything against a directory. Same
+        // resolution the reader does, from the cwd the shim recorded.
+        let touched = argv.last().expect("wc was given a file");
+        let touched = format!("{where_}/{touched}");
+        assert!(
+            matches(patterns[0], &touched),
+            "the shell touched {touched}, which the reader's bound {} does not admit",
+            patterns[0]
+        );
+    }
+}
+
+/// Does `path` match a shell pattern of `*` and `?`?
+///
+/// Written out rather than taken as a dependency: the whole point of the bound
+/// is that membership is decidable, and three lines of it are worth less than a
+/// crate on the argument that it might grow. Neither `*` nor `?` crosses `/`,
+/// as in the shell.
+fn matches(pattern: &str, path: &str) -> bool {
+    fn go(p: &[u8], s: &[u8]) -> bool {
+        match p.first() {
+            None => s.is_empty(),
+            Some(b'*') => {
+                let mut at = 0;
+                loop {
+                    if go(&p[1..], &s[at..]) {
+                        return true;
+                    }
+                    match s.get(at) {
+                        Some(b'/') | None => return false,
+                        Some(_) => at += 1,
+                    }
+                }
+            }
+            Some(b'?') => matches!(s.first(), Some(c) if *c != b'/') && go(&p[1..], &s[1..]),
+            Some(c) => s.first() == Some(c) && go(&p[1..], &s[1..]),
+        }
+    }
+    go(pattern.as_bytes(), path.as_bytes())
 }
 
 #[test]

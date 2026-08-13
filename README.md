@@ -186,9 +186,28 @@ only the first two are unknowable:
 
 | | | |
 | --- | --- | --- |
-| shell, by word | 3,007 | 714 distinct, led by `$f` (837), `$d` (166), `$p` (129) |
+| shell, by word | 2,738 | 682 distinct, led by `$f`, `$d`, `$p` |
+| shell, **bounded by a pattern** | 269 | 142 patterns — `some subset of src/*.ts`, not `some file` |
 | python, computed | 4,189 | an f-string, a join, a loop variable — 20 distinct calls |
 | refused by this layer | 298 | not a path 137, no directory 157, `os.chdir` 4 |
+
+⚠ **A glob is not a shrug, and the bounded row is that difference.** `for f in
+*.log` names no file — the directory it was answered against is gone — but
+
+```text
+⟦*.log⟧  =  some S  ⊆  L(*.log) ∩ Files(dir, t)
+```
+
+is an unknown finite subset of a *known* language, which `$(git rev-parse HEAD)`
+is not. It stays counted as not named, because a subset of a pattern is not a
+file. What it buys is that the claim can be **falsified**: the oracle runs the
+loop for real and asserts every path bash touched matches the pattern (`S ⊆ L`),
+which needs no old filesystem to check.
+
+Bounded stops where the shell stops being concatenation: `${f%%:*}` is a rational
+transduction of the variable and would need an automaton, so it stays opaque
+rather than being claimed. The automata are deliberately not built — the
+population that needs composition is ~60 uses (memview#819).
 
 Only refusals the text *could* have determined are counted — a bare `src`, a
 pattern, a git refspec are refused for good reasons and stay uncounted, or the
@@ -207,7 +226,7 @@ and there is a test for it.
 | was not run out | | what became of it |
 | --- | --- | --- |
 | `$(seq N M)`, constant bounds | 1,029 | **run out** — exact values, arithmetic the reader now does |
-| a glob | 735 | a bounded subset of a known pattern, at best — not yet built |
+| a glob | 735 | **bounded** — a subset of the pattern, 269 subjects recovered |
 | some other `$(…)` | 365 | genuinely opaque, now and always |
 | a variable | 104 | depends what bound it |
 

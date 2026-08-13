@@ -112,6 +112,30 @@ pub struct Extract {
     /// transcript does not contain. See [`crate::shell_ops::undetermined`] for
     /// which refusals qualify and, just as importantly, which do not.
     pub unnamed: BTreeMap<String, usize>,
+    /// Subjects the text does not determine but does **bound**, by the pattern
+    /// they are a subset of.
+    ///
+    /// ⚠ **A glob is not a shrug.** `for f in *.log; do wc -l "$f"; done` names no
+    /// file this reader can produce — the directory it was answered against is
+    /// gone — but it is not the same fact as `$(git rev-parse HEAD)`, which could
+    /// be anything at all. What the text says is
+    ///
+    /// ```text
+    /// ⟦*.log⟧  =  some S  ⊆  L(*.log) ∩ Files(dir, t)
+    /// ```
+    ///
+    /// an unknown finite subset of a **known** language: cardinality unknown,
+    /// possibly empty (`nullglob`), possibly the pattern itself where nothing
+    /// matched. Recorded as the resolved pattern, so a report can say "some
+    /// subset of `/home/example/Code/health/*.log`" rather than "some file".
+    ///
+    /// Falsifiable, which is the point: run the loop for real and every path it
+    /// touches must match the pattern (`S ⊆ L`) — memview#818 does exactly that,
+    /// and needs no old filesystem to do it.
+    ///
+    /// ⚠ These are still **not named**, and [`Extract::subjects_not_named`]
+    /// counts them. Bounded is a better answer than opaque; it is not an answer.
+    pub bounded: BTreeMap<String, usize>,
     /// Nested scripts the grammar could not read. Reported rather than dropped:
     /// a devshell wrapper whose inner shell fails to parse is a silent hole in
     /// exactly the third of the corpus that runs through one.
@@ -282,6 +306,9 @@ impl Extract {
         for (word, n) in inner.unnamed {
             *self.unnamed.entry(word).or_insert(0) += n;
         }
+        for (pattern, n) in inner.bounded {
+            *self.bounded.entry(pattern).or_insert(0) += n;
+        }
         for (name, (r, w)) in inner.by_command {
             let entry = self.by_command.entry(name).or_default();
             entry.0 += r;
@@ -304,6 +331,7 @@ impl Extract {
     /// together. A fourth account copied from the other three would drift.
     pub fn subjects_not_named(&self) -> usize {
         self.unnamed.values().sum::<usize>()
+            + self.bounded.values().sum::<usize>()
             + self.python.unresolved.values().sum::<usize>()
             + self.python.refused.total()
     }
@@ -563,6 +591,10 @@ fn extract_nested(
     // ran in is gone. `None` is a name that can no longer be trusted: bound
     // twice, or bound to something only running it would answer — see [`bind`].
     let mut binds: BTreeMap<Vec<usize>, BTreeMap<String, Option<String>>> = BTreeMap::new();
+    // What each scope's glob loops bound, by name — the pattern the variable
+    // ranges over, kept apart from `binds` because it is not a value and must
+    // never be substituted as one. See [`Extract::bounded`].
+    let mut patterns: BTreeMap<Vec<usize>, BTreeMap<String, String>> = BTreeMap::new();
 
     // A loop the text already determines is run out into the commands it ran,
     // before anything looks at any of them — see [`unrolled`].
@@ -598,6 +630,18 @@ fn extract_nested(
         // command and bind the scope; in front of a command they bind for that
         // command only and are gone after it — which is why they are applied to
         // a copy of the environment rather than to the scope.
+        // A loop the text cannot run out, but whose values it still bounds. Noted
+        // before the body is walked, and never removed at `done`: after the loop
+        // the name holds its last value, which is still one of the pattern's
+        // matches.
+        if let Some((name, values)) = glob_loop(&argv)
+            && let [only] = &values[..]
+        {
+            patterns
+                .entry(cmd.scope.clone())
+                .or_default()
+                .insert(name.to_string(), only.clone());
+        }
         let assignments = argv
             .iter()
             .take_while(|word| assignment(word).is_some())
@@ -687,8 +731,20 @@ fn extract_nested(
             here.as_deref(),
             home,
         );
+        // ⚠ **A glob loop bounds what its variable ranges over**, so a body that
+        // refuses `$f` is not the same admission as one refusing `$(git …)`.
+        // Recorded here rather than in the path guard because only the walk knows
+        // which loop is standing over this command — the guard sees one command's
+        // words and nothing else.
+        // ⚠ Every enclosing scope, not just this one — a body that opens a
+        // subshell, `for f in *.log; do (wc -l "$f"); done`, sits one level
+        // deeper than the loop that bound the name.
+        let over = ranging(&patterns, &cmd.scope);
         for word in unnamed {
-            *out.unnamed.entry(word).or_insert(0) += 1;
+            match bounded_by(&word, &over, here.as_deref(), home) {
+                Some(pattern) => *out.bounded.entry(pattern).or_insert(0) += 1,
+                None => *out.unnamed.entry(word).or_insert(0) += 1,
+            }
         }
         // ⚠ **Pushed before the operation is carried out**, so that a wrapper
         // stands in front of the commands it opens instead of behind them. Its
@@ -930,6 +986,104 @@ fn literal_loop(argv: &[String]) -> Option<(&str, Vec<String>)> {
         .map(|value| determinate(value).then(|| value.to_string()))
         .collect::<Option<Vec<_>>>()
         .map(|values| (name.as_str(), values))
+}
+
+/// `for NAME in <pattern>`, where the list is a glob the filesystem answered.
+///
+/// The complement of [`literal_loop`]: that one runs a loop out because the text
+/// determines it, this one recognises the loop it *cannot* run out but can still
+/// say something true about. 606 of the corpus's loops are this shape, and the
+/// commonest pattern is `*/` — every subdirectory.
+///
+/// A list mixing a glob with a `$(…)` is refused whole. The glob part is still a
+/// bound, but which word the variable took on any iteration is then unknowable,
+/// and a bound that only sometimes holds is worse than no bound.
+fn glob_loop(argv: &[String]) -> Option<(&str, Vec<String>)> {
+    let [head, name, over, values @ ..] = unwrap_command(argv) else {
+        return None;
+    };
+    if head != "for" || over != "in" || values.is_empty() {
+        return None;
+    }
+    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return None;
+    }
+    // ⚠ Not [`determinate`], which refuses `*` — that is precisely what makes
+    // these loops unrunnable, and testing for it rejects the whole population.
+    // What must be absent is an *expansion*: a `$` or a backtick leaves the
+    // pattern itself unknown, and a brace expands one word into several, so the
+    // variable ranges over a list this does not hold.
+    if values
+        .iter()
+        .any(|value| value.contains(['$', '`', '{']) || value.is_empty())
+    {
+        return None;
+    }
+    values
+        .iter()
+        .any(|value| value.contains(['*', '?', '[']))
+        .then(|| (name.as_str(), values.to_vec()))
+}
+
+/// Every pattern a glob loop bound that this scope can see, innermost winning.
+///
+/// The counterpart of [`visible`] for values, and separate from it for the
+/// reason [`Extract::bounded`] gives: a pattern is not a value and must never be
+/// substituted as one.
+fn ranging(
+    patterns: &BTreeMap<Vec<usize>, BTreeMap<String, String>>,
+    scope: &[usize],
+) -> BTreeMap<String, String> {
+    let mut over = BTreeMap::new();
+    for n in 0..=scope.len() {
+        let Some(here) = patterns.get(&scope[..n].to_vec()) else {
+            continue;
+        };
+        for (name, pattern) in here {
+            over.insert(name.clone(), pattern.clone());
+        }
+    }
+    over
+}
+
+/// The pattern a refused word is a subset of, if a glob loop bound its name.
+///
+/// ⚠ **Only a plain substitution keeps the bound.** `$f` and `$f/package.json`
+/// are the pattern and the pattern concatenated with a literal — both regular,
+/// both honestly stateable. `${f%%:*}` is a *rational transduction* of it, which
+/// needs the automaton this deliberately does not build, so it stays opaque. The
+/// test for that is what follows the name: `}` keeps the bound, an operator does
+/// not.
+fn bounded_by(
+    word: &str,
+    patterns: &BTreeMap<String, String>,
+    cwd: Option<&str>,
+    home: &str,
+) -> Option<String> {
+    for (name, pattern) in patterns {
+        let plain = format!("${name}");
+        let braced = format!("${{{name}}}");
+        let put = if word.contains(&braced) {
+            word.replace(&braced, pattern)
+        } else if let Some(at) = word.find(&plain) {
+            // `$f` must not match the start of `$file`, and `${f%%:*}` is caught
+            // by the braced test above failing.
+            let after = word[at + plain.len()..].chars().next();
+            if after.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_') {
+                continue;
+            }
+            word.replace(&plain, pattern)
+        } else {
+            continue;
+        };
+        if put.contains('$') {
+            // A second name this did not resolve. Bounded by one thing and
+            // unknown in another is not bounded.
+            continue;
+        }
+        return resolve(&put, cwd, home);
+    }
+    None
 }
 
 /// `$(seq …)` with every bound written out, run out into the numbers it prints.

@@ -88,6 +88,9 @@ fn main() -> anyhow::Result<()> {
     // what this does not know, stated by the thing that does not know it.
     let mut unnamed = 0usize;
     let mut by_word: BTreeMap<String, usize> = BTreeMap::new();
+    // Subjects a glob loop BOUNDED — still unnamed, but a subset of a pattern
+    // rather than of anything at all.
+    let mut by_pattern: BTreeMap<String, usize> = BTreeMap::new();
     // The same admission from the Python reader: the call that wanted a path,
     // where the path itself was computed and no text of it survives.
     let mut computed: BTreeMap<String, usize> = BTreeMap::new();
@@ -197,6 +200,9 @@ fn main() -> anyhow::Result<()> {
         for (word, n) in &found.unnamed {
             *by_word.entry(word.clone()).or_insert(0) += n;
         }
+        for (pattern, n) in &found.bounded {
+            *by_pattern.entry(pattern.clone()).or_insert(0) += n;
+        }
         for (call, n) in &found.python.unresolved {
             *computed.entry(call.clone()).or_insert(0) += n;
         }
@@ -270,6 +276,14 @@ fn main() -> anyhow::Result<()> {
         "  shell, by word    {}  ({} distinct)",
         by_word.values().sum::<usize>(),
         by_word.len()
+    );
+    // ⚠ Bounded, not named: a subset of a pattern is not a file. Shown apart
+    // because the difference between "some subset of `src/*.ts`" and "some file"
+    // is the whole of what a constrained unknown buys.
+    println!(
+        "  shell, bounded    {}  ({} distinct patterns)",
+        by_pattern.values().sum::<usize>(),
+        by_pattern.len()
     );
     println!(
         "  python, computed  {}  ({} distinct calls)",
