@@ -212,6 +212,8 @@ impl Extract {
 
     /// Begin a step for one command, before anything is decided about it, and
     /// say where it landed so its uses can be attached once they exist.
+    ///
+    /// `None` where there was no command to begin one for — see [`ran`].
     fn step(
         &mut self,
         op: Option<Op>,
@@ -219,11 +221,18 @@ impl Extract {
         cwd: Option<&str>,
         host: Option<&str>,
         depth: usize,
-    ) -> usize {
+    ) -> Option<usize> {
+        let argv = ran(&cmd.argv);
+        // A construct's closing word is not a command and gets no step — unless
+        // it carries a redirection, `done < in.txt`, which really does use a
+        // file and would otherwise be a use belonging to no step at all.
+        if argv.is_empty() && cmd.redirects.is_empty() && cmd.heredocs.is_empty() {
+            return None;
+        }
         self.steps.push(Step {
             depth,
             host: host.map(str::to_string),
-            argv: cmd.argv.clone(),
+            argv,
             reached: cmd.reached,
             scope: cmd.scope.clone(),
             cwd: cwd.map(str::to_string),
@@ -231,7 +240,7 @@ impl Extract {
             files: Vec::new(),
             away: Vec::new(),
         });
-        self.steps.len() - 1
+        Some(self.steps.len() - 1)
     }
 
     /// Hand a step the uses that turned out to be its own.
@@ -298,6 +307,47 @@ impl Extract {
             + self.python.unresolved.values().sum::<usize>()
             + self.python.refused.total()
     }
+}
+
+/// The words the shell would have run, without the keyword that introduced them.
+///
+/// ⚠ **`do` never ran.** `for f in a.log; do wc -l "$f"; done` is three commands
+/// to this parser, and the body's words arrive as `["do", "wc", "-l", "a.log"]`
+/// because `shell.pest` has no rule for a keyword — deliberately, since a rule
+/// would have to decide whether `echo done` ends a loop. Classification is
+/// unaffected, since everything downstream goes through [`unwrap_command`], but a
+/// [`Step`] is the one thing that gets **shown**, and `do wc -l a.log` beside a
+/// read of `a.log` reads as a bug in the tool rather than a fact about the work.
+///
+/// Two kinds of word go, and one deliberately stays:
+///
+/// * **Introducers** — `if`, `then`, `do`, `!` and the rest. What follows them is
+///   a command that ran; they are not.
+/// * **Closers** — `done`, `fi`, `esac`. Not commands at all, and nothing
+///   follows them, so the step goes with the word.
+/// * **A loop or `case` head stays whole.** `for f in *.log` is not a command
+///   either, but unlike `done` it carries the one thing worth keeping: the list
+///   the loop ran over, which for a folded glob is the only place the pattern
+///   appears. Stripping `for` would leave `f in *.log`, which is not anything.
+///
+/// A wrapper is NOT stripped, and that is the opposite answer to the same
+/// question: `sudo rm -rf x` ran as `sudo`, and showing `rm -rf x` would hide
+/// how it was run. Leading assignments stay for the same reason — `FOO=bar cmd`
+/// changes what the command saw.
+fn ran(argv: &[String]) -> Vec<String> {
+    const INTRODUCES: [&str; 8] = ["if", "while", "until", "then", "elif", "else", "do", "!"];
+    const CLOSES: [&str; 3] = ["done", "fi", "esac"];
+    let mut words = argv;
+    while let Some(head) = words.first() {
+        if CLOSES.contains(&head.as_str()) {
+            return Vec::new();
+        }
+        if !INTRODUCES.contains(&head.as_str()) {
+            break;
+        }
+        words = &words[1..];
+    }
+    words.to_vec()
 }
 
 /// How deep a `bash -c 'bash -c "…"'` chain is followed.
@@ -619,8 +669,7 @@ fn extract_nested(
             // 8,386 times. It writes a file, so it is worth a step; it
             // classifies to nothing, so it gets no `Op` rather than a borrowed
             // one saying it does nothing with files.
-            if trace {
-                let at = out.step(None, cmd, here.as_deref(), host, depth);
+            if trace && let Some(at) = out.step(None, cmd, here.as_deref(), host, depth) {
                 out.attribute(at, files_from..redirected.0, away_from..redirected.1);
             }
             continue;
@@ -645,7 +694,9 @@ fn extract_nested(
         // stands in front of the commands it opens instead of behind them. Its
         // files are attached afterwards, once it is known which of them are this
         // command's own.
-        let at = trace.then(|| out.step(Some(op.clone()), cmd, here.as_deref(), host, depth));
+        let at = trace
+            .then(|| out.step(Some(op.clone()), cmd, here.as_deref(), host, depth))
+            .flatten();
         // The name to file this under is the real command's, not the wrapper's.
         let name = unwrap_command(&cmd.argv)
             .first()

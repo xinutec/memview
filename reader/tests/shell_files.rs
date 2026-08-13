@@ -1042,23 +1042,61 @@ fn a_step_carries_the_words_the_shell_would_have_run() {
     // gone by the time a path is resolved, and a reader looking at `$f` cannot
     // see why the file came out as it did.
     //
-    // ⚠ **`do` leads the body's words**, because `do`/`done`/`then` are ordinary
-    // words here by design — a keyword rule would have to decide whether
-    // `echo done` ends a loop. The view inherits that: the first word of a step
-    // is not always the command, and labelling steps by it would file two reads
-    // under `do`.
+    // ⚠ **The keyword that introduced a command is not part of it.** `do`/`then`
+    // are ordinary words to the grammar by design — a keyword rule would have to
+    // decide whether `echo done` ends a loop — so they arrive on the front of
+    // the body's words and are taken off here, where a step is the one thing
+    // that gets shown. `done` is not a command at all and gets no step.
+    //
+    // The `for` head stays whole, and that is the deliberate exception: it is
+    // not a command either, but it carries the list the loop ran over, which for
+    // a folded glob is the only place the pattern appears. `f in a.ts b.ts` with
+    // the `for` removed would not be anything.
     assert_eq!(
         walked("for f in a.ts b.ts; do cat $f; done")
             .into_iter()
             .map(|(_, word, _)| word)
             .collect::<Vec<_>>(),
-        ["for", "do", "do", "done"]
+        ["for", "cat", "cat"]
     );
     let cmds = parse("for f in a.ts b.ts; do cat $f; done").unwrap();
     let traced = trace(&cmds, Some(CWD), HOME);
     // The body once per value, with `$f` gone — which is the actual claim.
-    assert_eq!(traced.steps[1].argv, ["do", "cat", "a.ts"]);
-    assert_eq!(traced.steps[2].argv, ["do", "cat", "b.ts"]);
+    assert_eq!(traced.steps[1].argv, ["cat", "a.ts"]);
+    assert_eq!(traced.steps[2].argv, ["cat", "b.ts"]);
+
+    // A branch keyword goes the same way, and the condition keeps its command.
+    let cmds = parse("if grep -q x a.txt; then cat b.txt; fi").unwrap();
+    let traced = trace(&cmds, Some(CWD), HOME);
+    assert_eq!(traced.steps[0].argv, ["grep", "-q", "x", "a.txt"]);
+    assert_eq!(traced.steps[1].argv, ["cat", "b.txt"]);
+    assert_eq!(traced.steps.len(), 2, "`fi` is not a command");
+
+    // ⚠ A wrapper is the opposite answer to the same question: `sudo` ran, and
+    // hiding it would misdescribe how the file was changed.
+    let cmds = parse("sudo rm -rf /tmp/x").unwrap();
+    let traced = trace(&cmds, Some(CWD), HOME);
+    assert_eq!(traced.steps[0].argv, ["sudo", "rm", "-rf", "/tmp/x"]);
+}
+
+#[test]
+fn a_closing_word_that_redirects_still_gets_its_step() {
+    // `done < in.txt` feeds the whole loop from a file. The word is not a
+    // command and would take no step, but the read is real — and a use that
+    // belongs to no step is the one thing `every_use_belongs_to_exactly_one_step`
+    // forbids.
+    let cmds = parse("while read l; do echo $l; done < in.txt").unwrap();
+    let traced = trace(&cmds, Some(CWD), HOME);
+    let redirect = traced.steps.last().unwrap();
+    assert!(redirect.argv.is_empty());
+    assert_eq!(
+        redirect
+            .files
+            .iter()
+            .map(|f| f.path.as_str())
+            .collect::<Vec<_>>(),
+        ["/home/example/Code/health/in.txt"]
+    );
 }
 
 #[test]
