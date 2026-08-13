@@ -70,6 +70,24 @@ impl Drop for Scratch {
 /// One command as it really ran: where it ran, and what it was given.
 type Ran = (String, Vec<String>);
 
+/// One command as the reader claims it, with the confidence it claims it at.
+///
+/// ⚠ **Soundness is a property of the *certain* claims, not of all of them.** A
+/// command the reader records as [`Reached::Sometimes`] is a statement about the
+/// script — "this is in the text, under a condition" — and the shell not running
+/// it refutes nothing. Comparing without the confidence would make both arms of
+/// an `if` unfalsifiable, since one of them never runs by construction.
+type Claim = (reader::shell::Reached, Ran);
+
+/// What a prediction that could not be checked was set aside for.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Aside {
+    /// Recorded with a word the text does not determine — a folded loop body.
+    admitted: usize,
+    /// Recorded under a condition, so the shell was free not to run it.
+    uncertain: usize,
+}
+
 /// Run `script` for real and return what the shimmed commands received.
 ///
 /// `given` is the tree the fixture starts from — `(relative path, contents)` —
@@ -160,7 +178,7 @@ fn actually(script: &str, given: &[(&str, &str)]) -> (Scratch, Vec<Ran>) {
 ///
 /// Only the shimmed verbs, because only those can be compared — a wrapper's own
 /// step has no counterpart in the log by design.
-fn predicted(script: &str, root: &Path) -> Vec<Ran> {
+fn predicted(script: &str, root: &Path) -> Vec<Claim> {
     let cmds = reader::shell::parse(script)
         .unwrap_or_else(|at| panic!("the fixture does not parse, stopped at {at:?}"));
     let root = root.to_string_lossy().to_string();
@@ -183,7 +201,7 @@ fn predicted(script: &str, root: &Path) -> Vec<Ran> {
             let head = argv.first()?;
             SHIMMED
                 .contains(&reader::shell_ops::basename(head))
-                .then(|| (step.cwd.unwrap_or_default(), argv))
+                .then(|| (step.reached, (step.cwd.unwrap_or_default(), argv)))
         })
         .collect()
 }
@@ -211,36 +229,44 @@ fn admitted_unknown(argv: &[String]) -> bool {
 /// same loop run by bash agree on what ran, and this test is not the place to
 /// argue about the order two independent walks emit them in.
 ///
-/// Returns how many predictions were set aside as admitted unknowns, so a test
-/// can say what it expected to be unresolved rather than letting a growing pile
-/// of them pass unnoticed.
-fn assert_sound(predicted: &[Ran], actually: &[Ran]) -> usize {
+/// Returns what was set aside and why, so a test can say what it expected to be
+/// unresolved rather than letting a growing pile of them pass unnoticed.
+fn assert_sound(predicted: &[Claim], actually: &[Ran]) -> Aside {
     let mut left = actually.to_vec();
-    let mut admitted = 0;
-    for claim in predicted {
-        if admitted_unknown(&claim.1) {
-            admitted += 1;
+    let mut aside = Aside::default();
+    for (reached, ran) in predicted {
+        if admitted_unknown(&ran.1) {
+            aside.admitted += 1;
             continue;
         }
-        match left.iter().position(|ran| ran == claim) {
+        // ⚠ The same join the report uses, not a rule of this test's own: the
+        // fixture is asserted to exit 0, and exit 0 at the end of an `&&` chain
+        // means every link in it ran. Only `Sometimes` survives that, which is
+        // exactly the bucket the report never counts as certain either.
+        if !reader::doing::Verdict::Ok.admits(*reached) {
+            aside.uncertain += 1;
+            continue;
+        }
+        match left.iter().position(|was| was == ran) {
             Some(at) => {
                 left.remove(at);
             }
             None => panic!(
-                "the reader claims a command the shell never ran:\n  claimed {claim:?}\n  \
+                "the reader claims a command the shell never ran:\n  claimed {ran:?}\n  \
                  the shell ran {actually:#?}"
             ),
         }
     }
-    admitted
+    aside
 }
 
 /// And where the text determines everything, it claims all of them — with
 /// nothing set aside, because there is nothing left undetermined to set aside.
-fn assert_exact(predicted: &[Ran], actually: &[Ran]) {
-    let admitted = assert_sound(predicted, actually);
+fn assert_exact(predicted: &[Claim], actually: &[Ran]) {
+    let aside = assert_sound(predicted, actually);
     assert_eq!(
-        admitted, 0,
+        aside,
+        Aside::default(),
         "the text determines this script, so nothing should have been left unresolved"
     );
     assert_eq!(
@@ -326,13 +352,57 @@ fn a_loop_over_a_glob_is_undercounted_and_never_invented() {
         &[("a.log", "1\n"), ("b.log", "2\n"), ("c.log", "3\n")],
     );
     let predicted = predicted(script, &scratch.0);
-    let admitted = assert_sound(&predicted, &ran);
+    let aside = assert_sound(&predicted, &ran);
     assert_eq!(ran.len(), 3, "bash ran the body once per matching file");
     // One folded body, admitted as unresolved rather than claimed as an
     // execution. That is today's honest answer, and the number this test watches:
     // if the reader ever starts claiming three, they had better be the right
     // three, and this is where that would be caught.
-    assert_eq!(admitted, 1);
+    assert_eq!(
+        aside,
+        Aside {
+            admitted: 1,
+            uncertain: 0
+        }
+    );
+}
+
+#[test]
+fn only_one_arm_of_an_if_ran_and_the_reader_claims_neither_as_certain() {
+    // ⚠ **The fabrication this harness was built to catch, and it caught it.**
+    // Before memview#832 both arms came back [`Reached::Always`] — the label that
+    // means "this definitely happened" — for two commands of which bash runs
+    // exactly one. `assert_sound` fails on that: it would find `cat absent.txt`
+    // claimed and no such line in the log.
+    //
+    // The condition is not a branch and stays certain: `grep` really does run.
+    let script = "if grep -q one notes.md; then cat present.txt; else cat absent.txt; fi";
+    let (scratch, ran) = actually(
+        script,
+        &[
+            ("notes.md", "one\n"),
+            ("present.txt", "taken\n"),
+            ("absent.txt", "not taken\n"),
+        ],
+    );
+    let predicted = predicted(script, &scratch.0);
+    let aside = assert_sound(&predicted, &ran);
+    assert_eq!(
+        ran.len(),
+        2,
+        "bash ran the test and exactly one arm: {ran:#?}"
+    );
+    // The `grep` is confirmed against the log; both `cat`s are set aside. The
+    // arm that *did* run is an undercount — the honest direction — and no
+    // domain this size can do better, because the text alone cannot say which
+    // way the test went.
+    assert_eq!(
+        aside,
+        Aside {
+            admitted: 0,
+            uncertain: 2
+        }
+    );
 }
 
 #[test]

@@ -394,10 +394,15 @@ fn walk(
             }
         }
         _ => {
+            // Only the rules that hold a *sequence* carry branch keywords; a
+            // pipeline's own children would otherwise re-read the same `then`
+            // and a group's would read one that belongs to its caller.
+            let sequence = matches!(pair.as_rule(), Rule::script | Rule::body);
             // The separators are read as they are passed, so each command is
             // walked under the condition standing at its own position: in
             // `a && b; c`, `b` needs `a` to have worked and `c` needs nothing.
             let mut here = Reached::Always;
+            let mut open = Vec::new();
             for inner in pair.into_inner() {
                 match inner.as_rule() {
                     Rule::and_if => here = here.and(Reached::OnSuccess),
@@ -405,11 +410,90 @@ fn walk(
                     // `;`, a newline or `&` end the chain: what follows runs
                     // however the last one went.
                     Rule::seq => here = Reached::Always,
-                    _ => walk(inner, scope, next, out, reached.and(here)),
+                    _ => {
+                        let arm = if sequence {
+                            branch(&mut open, &inner)
+                        } else {
+                            Reached::Always
+                        };
+                        walk(inner, scope, next, out, reached.and(here).and(arm));
+                    }
                 }
             }
         }
     }
+}
+
+/// Take one step through a sequence's `if`s, and say whether what stands here
+/// runs unconditionally.
+///
+/// ⚠ **The two arms of an `if` cannot both have run**, so recording both as
+/// [`Reached::Always`] claims a file use that never happened — the one direction
+/// of error this reader is built to avoid, since every other gap in it records
+/// *less* than happened rather than more.
+///
+/// `if`, `then`, `else` and `fi` are not structure to this grammar: they survive
+/// as ordinary words at the front of a command and are stripped later by
+/// `unwrap_command`. So the sequence is walked with a stack — one entry per open
+/// `if`, holding whether its condition has been passed — and everything inside a
+/// branch is [`Reached::Sometimes`], the existing "runs sometimes and the text
+/// cannot say when".
+///
+/// The condition itself stays `Always`: `if grep -q x a.txt` really does run it.
+/// An `elif` does not — it is reached only when the test before it failed, which
+/// is a condition, so it goes with the branches.
+///
+/// An `if` left open by the end of the sequence keeps everything after it
+/// uncertain. That is the safe direction, and a script that is a fragment of
+/// another one has nothing better to say.
+fn branch(open: &mut Vec<bool>, pair: &pest::iterators::Pair<Rule>) -> Reached {
+    // ⚠ **One command can carry two keywords.** `then if b` opens a nested `if`
+    // *and* stands inside the outer one; reading only the first word leaves the
+    // inner level unopened, and its `fi` then closes the outer — so everything
+    // after the whole statement reads as certain again.
+    for keyword in leading_keywords(pair) {
+        match keyword {
+            "if" => open.push(false),
+            "then" | "elif" | "else" => {
+                if let Some(innermost) = open.last_mut() {
+                    *innermost = true;
+                }
+            }
+            "fi" => {
+                open.pop();
+            }
+            _ => {}
+        }
+    }
+    if open.contains(&true) {
+        Reached::Sometimes
+    } else {
+        Reached::Always
+    }
+}
+
+/// The run of branch keywords a pipeline opens with, in order.
+///
+/// Stops at the first word that is not one, which is the command being guarded.
+/// A group is not descended into: `( if x; then y; fi )` balances inside itself,
+/// and reading its `if` from out here would leave a level open forever.
+fn leading_keywords(pair: &pest::iterators::Pair<Rule>) -> Vec<&'static str> {
+    const BRANCH: [&str; 5] = ["if", "then", "elif", "else", "fi"];
+    let mut out = Vec::new();
+    let mut stack = vec![pair.clone()];
+    while let Some(part) = stack.pop() {
+        match part.as_rule() {
+            Rule::word => match BRANCH.iter().find(|kw| **kw == part.as_str()) {
+                Some(keyword) => out.push(*keyword),
+                None => return out,
+            },
+            Rule::pipeline | Rule::command => {
+                stack.extend(part.into_inner().collect::<Vec<_>>().into_iter().rev());
+            }
+            _ => return out,
+        }
+    }
+    out
 }
 
 /// Whether a group is `( … )` rather than `{ … }` — the grammar matches both

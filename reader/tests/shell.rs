@@ -288,6 +288,62 @@ fn a_status_a_semicolon_threw_away_can_never_be_confirmed() {
 }
 
 #[test]
+fn at_most_one_arm_of_an_if_ran_so_neither_is_certain() {
+    // ⚠ **The one place this reader could invent a file use.** Every other gap
+    // in it records less than happened; recording both arms as certain records
+    // MORE, and does it under the label that means "this definitely happened".
+    // The condition is not a branch — `grep` really runs.
+    assert_eq!(
+        conditions("if grep -q foo a.txt; then cat b.txt; else cat c.txt; fi"),
+        [
+            Reached::Always,
+            Reached::Sometimes,
+            Reached::Sometimes,
+            Reached::Always,
+        ]
+    );
+    // An `elif` test is itself reached only when the one before it failed.
+    assert_eq!(
+        conditions("if a; then b; elif c; then d; fi"),
+        [
+            Reached::Always,
+            Reached::Sometimes,
+            Reached::Sometimes,
+            Reached::Sometimes,
+            Reached::Always,
+        ]
+    );
+    // `fi` closes exactly one level, so what follows is certain again. ⚠ One
+    // command can carry TWO keywords: `then if b` both stands in the outer
+    // branch and opens an inner one, and reading only its first word would let
+    // the inner `fi` close the outer statement — putting `d` back on the
+    // certain side of a branch it is not in.
+    assert_eq!(
+        conditions("if a; then if b; then c; fi; fi; d"),
+        [
+            Reached::Always,    // if a
+            Reached::Sometimes, // then if b
+            Reached::Sometimes, // then c
+            Reached::Sometimes, // fi — the inner statement, inside the outer arm
+            Reached::Always,    // fi — closes the outer statement, not in an arm
+            Reached::Always,    // d
+        ]
+    );
+    // A substitution inside a branch did not run either — it is walked under the
+    // command that holds it, which is why this lives in the walk and not in a
+    // pass over the flat list afterwards.
+    assert_eq!(
+        conditions("if a; then cat $(ls d); fi"),
+        [
+            Reached::Always,
+            Reached::Sometimes, // ls d
+            Reached::Sometimes, // cat
+            Reached::Always,
+        ]
+    );
+}
+
+#[test]
 fn a_condition_reaches_inside_what_it_guards() {
     // A subshell that may not run holds commands that may not run, whatever
     // separates them from each other.
