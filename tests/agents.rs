@@ -392,6 +392,7 @@ fn an_agent_records_the_session_ids_filed_under_it_but_not_its_subagents() {
 fn roster_of(agents: Vec<Agent>) -> Agents {
     Agents {
         doing: Default::default(),
+        effects: Default::default(),
         renames: Default::default(),
         memory_days: Default::default(),
         generated: "2026-08-01T00:00:00Z".into(),
@@ -537,6 +538,7 @@ fn a_session_resolves_to_its_agent_and_a_forgotten_one_to_nobody() {
     let lines = vec![call(Tool::Write, "/code/thing/x", "2026-07-01T10:00:00Z")];
     let roster = Agents {
         doing: Default::default(),
+        effects: Default::default(),
         renames: Default::default(),
         memory_days: Default::default(),
         generated: "2026-07-31T00:00:00Z".into(),
@@ -961,6 +963,7 @@ fn a_file_changed_from_the_shell_is_counted_as_its_own_dimension() {
     // evidence can be checked rather than believed.
     let roster = Agents {
         doing: Default::default(),
+        effects: Default::default(),
         renames: Default::default(),
         memory_days: Default::default(),
         generated: String::new(),
@@ -1373,6 +1376,141 @@ fn the_timeline_records_what_was_done_and_how_it_turned_out() {
     assert_eq!(doing.agents, ["geo"]);
     // Oldest first, so a reader walks it forwards.
     assert!(doing.rows[0].t < doing.rows[1].t);
+}
+
+#[test]
+fn the_effects_say_which_file_and_which_command_did_it() {
+    // ⚠ **The question a reader asks standing on a timeline row.** `doing.json`
+    // says "this turn was editing, in health, and it worked"; this says which
+    // files, and shows the command, so the claim can be checked rather than
+    // taken. Keyed by `(agent, minute)` — the key a timeline row already has —
+    // so opening a turn is a filter and no published format changes.
+    let dir = std::env::temp_dir().join(format!("effects-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let projects = dir.join("projects/-code");
+    let sessions = dir.join("sessions");
+    std::fs::create_dir_all(&projects).unwrap();
+    std::fs::create_dir_all(&sessions).unwrap();
+    let call = |id: &str, cmd: &str, stamp: &str| {
+        let input = serde_json::json!({ "command": cmd });
+        format!(
+            "{{\"type\":\"assistant\",\"cwd\":\"/code/health\",\"timestamp\":\"{stamp}\",\"message\":{{\"content\":[{{\"type\":\"tool_use\",\"id\":\"{id}\",\"name\":\"Bash\",\"input\":{input}}}]}}}}"
+        )
+    };
+    let result = |id: &str| {
+        format!(
+            "{{\"type\":\"user\",\"message\":{{\"content\":[{{\"type\":\"tool_result\",\"tool_use_id\":\"{id}\",\"is_error\":false,\"content\":\"…\"}}]}}}}"
+        )
+    };
+    std::fs::write(
+        projects.join("s1.jsonl"),
+        [
+            call(
+                "t1",
+                "sed -i '' 's/a/b/' src/osm.ts",
+                "2026-07-01T10:00:00Z",
+            ),
+            result("t1"),
+            call(
+                "t2",
+                "grep -rn hsmm src/velocity.ts",
+                "2026-07-01T10:01:00Z",
+            ),
+            result("t2"),
+            // ⚠ Two admissions, which have to travel or the artefact reads as a
+            // complete account of the work: one subject a glob BOUNDS, and one
+            // nothing bounds at all.
+            call("t3", "wc -l \"$OUT/report.txt\"", "2026-07-01T10:02:00Z"),
+            result("t3"),
+            call(
+                "t4",
+                "for f in logs/*.log; do wc -l \"$f\"; done",
+                "2026-07-01T10:03:00Z",
+            ),
+            result("t4"),
+        ]
+        .join("\n"),
+    )
+    .unwrap();
+    std::fs::write(
+        sessions.join("1.json"),
+        r#"{"sessionId":"s1","name":"geo"}"#,
+    )
+    .unwrap();
+
+    let found = scan(
+        &dir.join("projects"),
+        &sessions,
+        "/code",
+        "/mem",
+        "/home/example",
+        "2026-07-31T00:00:00Z",
+    )
+    .unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+
+    let effects = &found.effects;
+    let rows: Vec<(reader::effects::Did, Option<&str>, Option<&str>, &str)> = effects
+        .rows
+        .iter()
+        .map(|row| {
+            (
+                row.k,
+                row.p.map(|at| effects.paths[at as usize].as_str()),
+                row.q.map(|at| effects.patterns[at as usize].as_str()),
+                effects.commands[row.c as usize].as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            (
+                reader::effects::Did::Wrote,
+                Some("/code/health/src/osm.ts"),
+                None,
+                "sed -i  s/a/b/ src/osm.ts",
+            ),
+            (
+                reader::effects::Did::Searched,
+                Some("/code/health/src/velocity.ts"),
+                Some("hsmm"),
+                "grep -rn hsmm src/velocity.ts",
+            ),
+            // Nothing determines `$OUT`, and nothing bounds it either — so the
+            // row carries no path at all, and still exists.
+            (
+                reader::effects::Did::Unnamed,
+                None,
+                None,
+                "wc -l $OUT/report.txt",
+            ),
+            // A glob DOES bound it: the row carries the pattern the subject is a
+            // subset of, which is a different fact from the one above.
+            (
+                reader::effects::Did::Unnamed,
+                Some("/code/health/logs/*.log"),
+                None,
+                "wc -l $f",
+            ),
+        ]
+    );
+    // The verdict arrives on a later line and is filled in afterwards, as in the
+    // timeline — a row written before its result is not a row without one.
+    assert!(
+        effects
+            .rows
+            .iter()
+            .all(|row| row.v == reader::doing::Verdict::Ok)
+    );
+    assert_eq!(effects.agents, ["geo"]);
+    // Oldest first, so a reader walks it forwards.
+    assert!(effects.rows.windows(2).all(|w| w[0].t <= w[1].t));
+    // ⚠ **The command is a dictionary index, not a string per row.** That is
+    // where the artefact's size went — measured over the real corpus, the
+    // commands that bear an effect are 9.7 MB against 41.5 MB for every distinct
+    // whole call.
+    assert!(effects.commands.len() <= effects.rows.len());
 }
 
 #[test]

@@ -196,6 +196,15 @@ pub struct Step {
     /// The same for a command that ran on another machine — never mixed into
     /// `files`, for the reason [`RemoteUse`] gives.
     pub away: Vec<RemoteUse>,
+    /// Subjects this command named that could not be resolved, as written.
+    ///
+    /// The totals live on [`Extract::unnamed`]; these are the same admissions
+    /// attached to the command that made them, because anything *showing* a use
+    /// has to show what produced it. A count with no command behind it cannot be
+    /// checked by the person reading it.
+    pub unnamed: Vec<String>,
+    /// And those a glob loop bounded, as the pattern they are a subset of.
+    pub bounded: Vec<String>,
 }
 
 impl Extract {
@@ -263,6 +272,8 @@ impl Extract {
             op,
             files: Vec::new(),
             away: Vec::new(),
+            unnamed: Vec::new(),
+            bounded: Vec::new(),
         });
         Some(self.steps.len() - 1)
     }
@@ -490,6 +501,21 @@ pub fn extract_knowing(
     refused: &[String],
 ) -> Extract {
     extract_nested(cmds, cwd, home, None, 0, false, refused)
+}
+
+/// As [`extract_knowing`], but recording the walk.
+///
+/// The combination the effects artefact needs and neither of the others gives:
+/// a row shows the *command* that produced a file use, which only a [`Step`]
+/// carries, and it must resolve against the directory the shell actually reached,
+/// which only the refusals say.
+pub fn trace_knowing(
+    cmds: &[Simple],
+    cwd: Option<&str>,
+    home: &str,
+    refused: &[String],
+) -> Extract {
+    extract_nested(cmds, cwd, home, None, 0, true, refused)
 }
 
 /// Whether this `cd` is one the shell reported it could not carry out.
@@ -740,10 +766,19 @@ fn extract_nested(
         // subshell, `for f in *.log; do (wc -l "$f"); done`, sits one level
         // deeper than the loop that bound the name.
         let over = ranging(&patterns, &cmd.scope);
+        // Kept beside the totals so the step can carry its own, which is what
+        // lets a view show the command an admission came from.
+        let (mut refused_here, mut bounded_here) = (Vec::new(), Vec::new());
         for word in unnamed {
             match bounded_by(&word, &over, here.as_deref(), home) {
-                Some(pattern) => *out.bounded.entry(pattern).or_insert(0) += 1,
-                None => *out.unnamed.entry(word).or_insert(0) += 1,
+                Some(pattern) => {
+                    *out.bounded.entry(pattern.clone()).or_insert(0) += 1;
+                    bounded_here.push(pattern);
+                }
+                None => {
+                    *out.unnamed.entry(word.clone()).or_insert(0) += 1;
+                    refused_here.push(word);
+                }
             }
         }
         // ⚠ **Pushed before the operation is carried out**, so that a wrapper
@@ -753,6 +788,12 @@ fn extract_nested(
         let at = trace
             .then(|| out.step(Some(op.clone()), cmd, here.as_deref(), host, depth))
             .flatten();
+        if let Some(at) = at
+            && let Some(step) = out.steps.get_mut(at)
+        {
+            step.unnamed = refused_here;
+            step.bounded = bounded_here;
+        }
         // The name to file this under is the real command's, not the wrapper's.
         let name = unwrap_command(&cmd.argv)
             .first()

@@ -303,6 +303,14 @@ pub struct Agents {
     /// miner takes it out and saves it separately.
     #[serde(skip)]
     pub doing: reader::doing::Doing,
+    /// What each turn did to which file, with the command that did it.
+    ///
+    /// **Never serialised with the roster**, like [`Self::doing`] and for the
+    /// same reasons: it is larger still, and it answers the question a reader
+    /// asks while standing on a timeline row rather than the one the roster
+    /// answers.
+    #[serde(skip)]
+    pub effects: reader::effects::Effects,
     /// Where each renamed file ended up, old name to current.
     ///
     /// Kept in the artefact rather than applied and forgotten, for two reasons:
@@ -1197,6 +1205,7 @@ fn scan_transcript(
     agent: &mut Agent,
     seen: &mut DaysSeen,
     log: &mut reader::doing::Log,
+    effects: &mut reader::effects::Log,
 ) {
     // Borrowed field by field: one tool call updates either a project counter
     // or a memory counter, and the compiler cannot see they are disjoint
@@ -1262,13 +1271,18 @@ fn scan_transcript(
         // row learns whether the work succeeded.
         if let Some((call, verdict)) = tool_result(line) {
             log.resolve(&call, verdict);
+            effects.resolve(&call, verdict);
         }
         if let Some(BashLine { cwd, calls }) = bash_calls_with_ids(line) {
             for BashCall { id: call, command } in calls {
                 let Ok(parsed) = reader::shell::parse(&command) else {
                     continue;
                 };
-                let found = reader::shell_files::extract_knowing(
+                // ⚠ **Traced, because the effects artefact shows the command a
+                // claim rests on** and only a `Step` carries it. Everything the
+                // roster does with `found.files` is unchanged — a step's files
+                // are the same uses, attributed to the command that made them.
+                let found = reader::shell_files::trace_knowing(
                     &parsed,
                     cwd.as_deref(),
                     home,
@@ -1308,6 +1322,69 @@ fn scan_transcript(
                             n,
                             minute,
                         });
+                    }
+                }
+                // What each command in the call did to which file — the evidence
+                // under the timeline row above, keyed by the same
+                // `(agent, minute)` so opening a turn is a filter, not a join.
+                if let Some(minute) = stamp.and_then(reader::doing::minute) {
+                    for step in &found.steps {
+                        let command = step.argv.join(" ");
+                        if command.is_empty() {
+                            continue;
+                        }
+                        let searched = match &step.op {
+                            Some(reader::shell_ops::Op::Search { pattern, .. })
+                                if !pattern.is_empty() =>
+                            {
+                                Some(pattern.as_str())
+                            }
+                            _ => None,
+                        };
+                        let mut effect = |did, path, pattern, host| {
+                            effects.push(reader::effects::Effect {
+                                call: &call,
+                                agent: agent_name,
+                                minute,
+                                did,
+                                path,
+                                pattern,
+                                host,
+                                command: &command,
+                                reached: step.reached,
+                            });
+                        };
+                        for used in &step.files {
+                            let did = match (used.write, searched) {
+                                (true, _) => reader::effects::Did::Wrote,
+                                (false, Some(_)) => reader::effects::Did::Searched,
+                                (false, None) => reader::effects::Did::Read,
+                            };
+                            effect(did, Some(used.path.as_str()), searched, None);
+                        }
+                        for used in &step.away {
+                            let did = if used.write {
+                                reader::effects::Did::Wrote
+                            } else {
+                                reader::effects::Did::Read
+                            };
+                            effect(did, Some(used.path.as_str()), searched, Some(&used.host));
+                        }
+                        // ⚠ **The admissions travel too.** A turn that used a
+                        // file nobody can name is not a turn that used none, and
+                        // an artefact showing only what resolved would read as a
+                        // complete account of the work.
+                        for pattern in &step.bounded {
+                            effect(
+                                reader::effects::Did::Unnamed,
+                                Some(pattern.as_str()),
+                                None,
+                                None,
+                            );
+                        }
+                        for _ in &step.unnamed {
+                            effect(reader::effects::Did::Unnamed, None, None, None);
+                        }
                     }
                 }
                 // A refusal drops the whole call; everything else is recorded
@@ -1483,6 +1560,9 @@ pub fn scan(
     let mut by_name: BTreeMap<String, Agent> = BTreeMap::new();
     // The timeline, built across every transcript and frozen at the end.
     let mut log = reader::doing::Log::default();
+    // The evidence under the timeline, built in the same pass and written to its
+    // own file for the same reasons.
+    let mut effects = reader::effects::Log::default();
     let mut days: BTreeMap<String, DaysSeen> = BTreeMap::new();
     // Read before the transcripts, because recognising a hash in one needs the
     // set of hashes to look for. Empty when the code root has no repositories,
@@ -1571,6 +1651,7 @@ pub fn scan(
             agent,
             days.entry(agent.name.clone()).or_default(),
             &mut log,
+            &mut effects,
         );
     }
 
@@ -1679,6 +1760,7 @@ pub fn scan(
 
     Ok(Agents {
         doing: log.finish(generated),
+        effects: effects.finish(generated),
         generated: generated.to_string(),
         commits: history.len(),
         unattributed,

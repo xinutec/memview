@@ -48,6 +48,7 @@
 
 pub mod activity;
 pub mod doing;
+pub mod effects;
 pub mod python;
 pub mod shell;
 pub mod shell_files;

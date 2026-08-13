@@ -105,6 +105,28 @@ fn main() -> Result<()> {
     let beside = std::path::Path::new(&out).with_file_name("doing.json");
     timeline.save(&beside)?;
 
+    // The evidence under the timeline, to its own file again: it is larger than
+    // both and answers the question a reader asks standing on a timeline row.
+    let effects = std::mem::take(&mut found.effects);
+    let effects_file = std::path::Path::new(&out).with_file_name("effects.json");
+    effects.save(&effects_file)?;
+    let size = std::fs::metadata(&effects_file)
+        .map(|m| m.len())
+        .unwrap_or(0);
+    // ⚠ **The measured size, printed rather than estimated.** memview#93 was
+    // planned against 55 MB, then against 20 MB once the unit was measured; both
+    // were arithmetic on dictionaries, not a file on disk. Whoever adds this to
+    // `sync.sh` should be reading a number nobody had to compute.
+    println!(
+        "{} effects over {} paths, {} commands, {} patterns → {} ({:.1} MB)",
+        effects.rows.len(),
+        effects.paths.len(),
+        effects.commands.len(),
+        effects.patterns.len(),
+        effects_file.display(),
+        size as f64 / 1e6,
+    );
+
     // The memory days go the same way and for the same reason — a different
     // question, and one no view draws. `memory-rank` reads this file.
     let days = std::mem::take(&mut found.memory_days);

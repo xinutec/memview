@@ -36,17 +36,22 @@ struct ShellParser;
 ///
 /// [`Reached::and`] is the meet: a command inside a group that may not run is
 /// itself uncertain, whatever separator precedes it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Serialised one character apiece: this travels on every row of the effects
+/// artefact, where the field's name already costs more than its value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Reached {
     /// First in its list, or after `;`, a newline, or `&`. Runs whatever
     /// happened before it — which is why `a; b; c` runs all three even when the
     /// call as a whole reports failure.
+    #[serde(rename = "a")]
     Always,
     /// After `&&`. Runs only if what precedes it succeeded.
+    #[serde(rename = "s")]
     OnSuccess,
     /// After `||`, or under some condition this does not model. Runs sometimes,
     /// and the text cannot say when — the bucket that must never be counted as
     /// certain, whatever the call's exit status turned out to be.
+    #[serde(rename = "?")]
     Sometimes,
 }
 

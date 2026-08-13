@@ -100,6 +100,7 @@ fn corpus_with_an_origin(dir: &std::path::Path) -> String {
     .expect("memory");
     let agents = memview::agents::Agents {
         doing: Default::default(),
+        effects: Default::default(),
         renames: Default::default(),
         memory_days: Default::default(),
         generated: "2026-08-01T00:00:00Z".into(),
