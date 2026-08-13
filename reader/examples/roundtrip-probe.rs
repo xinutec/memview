@@ -13,21 +13,28 @@
 //! ⚠ **The suspicion going in was that it is vacuous, and it was wrong.** The
 //! reasoning: `argv` holds words with quotes already stripped, so a correct
 //! renderer single-quotes every word, and a single-quoted word parses back to
-//! itself by definition. Plausible, and false — measured 2026-08-13 over 105,594
-//! commands, **88.50% identical and 12,074 not**, all of them one bug:
+//! itself by definition. Plausible, and false — the first run, over 105,594
+//! commands, read **88.50% identical and 12,074 not**, all of them one bug:
 //!
 //!     word as parsed:  === does 'life' appear at all? ===
 //!     rendered back:   '=== does '\''life'\'' appear at all? ==='
 //!     read again:      === does \life\ appear at all? ===
 //!
-//! `'\''` is how POSIX puts a quote inside a quoted string. The parser keeps the
-//! backslash and drops the quote — memview#833, and 274 corpus commands hit it
-//! without any help from this probe.
+//! `'\''` is how POSIX puts a quote inside a quoted string. The parser kept the
+//! backslash and dropped the quote — memview#833, fixed 2026-08-13, and 274
+//! corpus commands hit it without any help from this probe.
 //!
-//! **One cause, not twelve thousand**: checked directly, 12,070 of the differing
-//! commands contain a single quote and 0 do not. Which is how a property behaves
-//! — one rule, met everywhere. Once #833 is fixed this should read near 100%, and
-//! that figure is the ratchet worth keeping.
+//! **Where it stands now: 99.93%** — 105,524 identical, 1 different, 69 that will
+//! not re-parse. That figure is the ratchet.
+//!
+//! ⚠ **The 69 are NOT the same bug, which #833 assumed they were.** Fixing the
+//! escape left every one of them, and their cause is elsewhere: the word being
+//! rendered *contains a heredoc*, as in
+//! `nix-shell --run 'git commit -m "$(cat <<'"'"'EOF'"'"' … EOF)"'`. `hide_heredocs`
+//! runs over the raw text before parsing and does not know what is inside quotes,
+//! so re-quoting the payload moves the delimiter out from under it. The original
+//! parses; the re-rendered one does not. Filed separately — it is a real
+//! fragility rather than a rendering artefact, and the probe is how it surfaced.
 //!
 //! **What is compared, and what cannot be.** `Reached` and `scope` have no
 //! surface syntax to render back to: `&&` is gone into a three-point domain and a

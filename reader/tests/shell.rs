@@ -186,20 +186,26 @@ fn arithmetic_is_not_a_command_substitution() {
 fn escaped_parens_belong_to_the_word() {
     // REGRESSION. `find . \( … \)` — the word ended at the backslash and the bare
     // `(` opened a group that never closed.
+    //
+    // ⚠ The backslash is gone from the value, because the shell removes it:
+    // `printf '%s|' find . \( … \)` prints `find|.|(|…`, so `(` is the word
+    // `find` was handed. argv is what the command received, not what was typed.
     assert_eq!(
         argvs(r"find . \( -name '*.kt' -o -name '*.rs' \)"),
         [vec![
-            "find", ".", r"\(", "-name", "*.kt", "-o", "-name", "*.rs", r"\)"
+            "find", ".", "(", "-name", "*.kt", "-o", "-name", "*.rs", ")"
         ]]
     );
 }
 
 #[test]
 fn a_find_placeholder_is_an_argument() {
+    // `\;` too: `find` is handed a bare `;`, which is why it needed escaping
+    // from the shell in the first place.
     assert_eq!(
         argvs(r"find . -name '*.tmp' -exec rm {} \;"),
         [vec![
-            "find", ".", "-name", "*.tmp", "-exec", "rm", "{}", r"\;"
+            "find", ".", "-name", "*.tmp", "-exec", "rm", "{}", ";"
         ]]
     );
 }
@@ -237,6 +243,22 @@ fn an_unclosed_quote_is_an_error_not_a_silent_half_parse() {
 }
 
 /// What had to hold for each command in a script to run, in order.
+#[test]
+fn a_backslash_outside_quotes_escapes_the_character_after_it() {
+    // ⚠ **`'\''` is how a single quote gets inside a single-quoted string** —
+    // close, escaped quote, reopen — and reading the `\'` as two literal
+    // characters gave back a word with a backslash where the quote belongs.
+    // Found by the round-trip probe (memview#833) rather than by a failing case:
+    // 274 corpus calls contain a `\'`, mostly `ssh host '…'` payloads whose
+    // inner script quotes something.
+    assert_eq!(argvs(r"echo 'it'\''s here'"), [vec!["echo", "it's here"]]);
+    // Inside single quotes nothing is special, backslash included.
+    assert_eq!(argvs(r"echo 'a\b'"), [vec!["echo", r"a\b"]]);
+    // A backslash escaping an operator keeps the word whole, and the operator
+    // arrives as the plain character the command was handed.
+    assert_eq!(argvs(r"echo a\;b"), [vec!["echo", "a;b"]]);
+}
+
 fn conditions(script: &str) -> Vec<Reached> {
     parse(script)
         .unwrap_or_else(|at| panic!("failed to parse, stopped at {at:?}"))

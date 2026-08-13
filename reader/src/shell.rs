@@ -620,6 +620,22 @@ fn unquote(word: &str) -> String {
                 }
                 i += 1;
             }
+            // ⚠ **Outside quotes a backslash escapes, and dropping it is the
+            // point.** `'\''` is how POSIX puts a quote inside a quoted string —
+            // close, escaped quote, reopen — and reading the `\'` as two literal
+            // characters gave back a word with a backslash where the quote
+            // belongs. Every later stage then saw a word nobody wrote. Found by
+            // the round-trip probe (memview#833); 274 corpus calls contain a
+            // `\'`, most of them `ssh host '…'` payloads whose inner script
+            // quotes something, which are exactly the ones naming files
+            // elsewhere.
+            //
+            // A trailing backslash with nothing after it stays as itself: there
+            // is no character for it to escape.
+            '\\' if i + 1 < chars.len() => {
+                out.push(chars[i + 1]);
+                i += 2;
+            }
             c => {
                 out.push(c);
                 i += 1;
