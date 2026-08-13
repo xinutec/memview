@@ -925,6 +925,22 @@ fn unrolled(cmds: &[Simple]) -> Vec<Simple> {
                 at = next;
             }
             None => {
+                if let Some((end, ran_at_least_once)) = folded(cmds, at) {
+                    out.push(cmds[at].clone());
+                    // Inner loops first, as in `run_out` — an outer `while`
+                    // makes an inner body uncertain too, and the meet is
+                    // idempotent so applying both is safe.
+                    let body = unrolled(&cmds[at + 1..end]);
+                    out.extend(body.into_iter().map(|mut cmd| {
+                        if !ran_at_least_once {
+                            cmd.reached = cmd.reached.and(crate::shell::Reached::Sometimes);
+                        }
+                        cmd
+                    }));
+                    out.push(cmds[end].clone());
+                    at = end + 1;
+                    continue;
+                }
                 out.push(cmds[at].clone());
                 at += 1;
             }
@@ -986,6 +1002,61 @@ fn literal_loop(argv: &[String]) -> Option<(&str, Vec<String>)> {
         .map(|value| determinate(value).then(|| value.to_string()))
         .collect::<Option<Vec<_>>>()
         .map(|values| (name.as_str(), values))
+}
+
+/// A loop that could not be run out: where its `done` is, and whether its body
+/// certainly ran at all.
+///
+/// ⚠ **A body that may have run zero times must not be recorded as certainly
+/// run** — the same over-claim as both arms of an `if` (memview#832), and a much
+/// larger one: 4,544 calls carry a `while` or `until`.
+///
+/// ⚠ **But most folded loops DID run their body, and demoting them all would
+/// trade one over-claim for a bigger under-claim.** The rule is bash's, not a
+/// guess:
+///
+/// * `while` and `until` test before the first iteration, so an empty input runs
+///   the body no times. Uncertain.
+/// * `for` over words that are all written out runs once per word — and that
+///   includes a **glob**, because with `nullglob` off a pattern matching nothing
+///   expands to *itself* and the body runs once with the pattern as the value.
+///   Certain.
+/// * `for` over a `$(…)` or a variable can have an empty list and run no times.
+///   Uncertain.
+///
+/// A determinate list that [`run_out`] declined only because it would exceed
+/// `MAX_UNROLL` still ran, and lands on the certain side by the same rule.
+fn folded(cmds: &[Simple], at: usize) -> Option<(usize, bool)> {
+    let argv = &cmds[at].argv;
+    let head = opens(argv)?;
+    if !matches!(head, "for" | "while" | "until" | "select") {
+        return None;
+    }
+    let end = closing_done(cmds, at)?;
+    let certain = head == "for"
+        && argv
+            .iter()
+            .position(|word| word == "in")
+            .is_some_and(|over| {
+                let values = &argv[over + 1..];
+                !values.is_empty() && values.iter().all(|value| !value.contains(['$', '`']))
+            });
+    Some((end, certain))
+}
+
+/// The word a command opens with, past the keyword that introduced it.
+///
+/// ⚠ **Not [`unwrap_command`], which strips `while` and `until` as wrappers** —
+/// correctly, since what they wrap is the command whose status they test, but it
+/// means a loop keyword vanishes before anything can see it. `closing_done` used
+/// it and so never counted a `while` at all: every `while` loop's `done` closed
+/// nothing, and the body of one could not be found. Only the keywords that
+/// introduce a command are skipped here; the loop words are what is being looked
+/// for.
+fn opens(argv: &[String]) -> Option<&str> {
+    argv.iter()
+        .map(String::as_str)
+        .find(|word| !matches!(*word, "do" | "then" | "else" | "elif" | "if" | "!"))
 }
 
 /// `for NAME in <pattern>`, where the list is a glob the filesystem answered.
@@ -1146,7 +1217,10 @@ fn determinate(word: &str) -> bool {
 fn closing_done(cmds: &[Simple], at: usize) -> Option<usize> {
     let mut depth = 0usize;
     for (n, cmd) in cmds.iter().enumerate().skip(at) {
-        match unwrap_command(&cmd.argv).first().map(String::as_str) {
+        // ⚠ [`opens`], not `unwrap_command` — see its note. This counted no
+        // `while` at all, so a `while` loop's `done` matched nothing and the
+        // whole construct was invisible to every rule that works on loop spans.
+        match opens(&cmd.argv) {
             Some("for" | "while" | "until" | "select") => depth += 1,
             // `echo done` is not a `done` — this reads the command's own name,
             // which is why the grammar was right to leave the keyword ordinary.

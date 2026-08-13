@@ -1003,6 +1003,72 @@ fn only_the_last_turn_of_a_loop_ends_in_the_reported_status() {
 
 use reader::shell_files::trace;
 
+/// Each step's words and what had to hold for it to run.
+fn reached(script: &str) -> Vec<(String, reader::shell::Reached)> {
+    let cmds = parse(script).unwrap_or_else(|at| panic!("failed to parse, stopped at {at:?}"));
+    trace(&cmds, Some(CWD), HOME)
+        .steps
+        .into_iter()
+        .map(|s| (s.argv.join(" "), s.reached))
+        .collect()
+}
+
+#[test]
+fn a_loop_body_that_may_never_have_run_is_not_certain() {
+    use reader::shell::Reached::{Always, Sometimes};
+
+    // ⚠ **`while` tests before the first iteration**, so an empty input runs the
+    // body no times — and recording it as certainly run is the same over-claim
+    // as claiming both arms of an `if`. 4,544 of the corpus's calls carry a
+    // `while` or an `until`.
+    assert_eq!(
+        reached("while read l; do cat x.ts; done < in.txt"),
+        [
+            ("read l".to_string(), Always),
+            ("cat x.ts".to_string(), Sometimes),
+            (String::new(), Always), // `done < in.txt`, the redirect's own step
+        ]
+    );
+
+    // ⚠ **But a glob loop DID run its body**, and demoting every folded loop
+    // would trade one over-claim for a bigger under-claim. With `nullglob` off —
+    // the default, and what these calls ran under — a pattern matching nothing
+    // expands to *itself*, so the body runs once with the pattern as the value.
+    assert_eq!(
+        reached("for f in *.log; do wc -l \"$f\"; done"),
+        [
+            ("for f in *.log".to_string(), Always),
+            ("wc -l $f".to_string(), Always),
+        ]
+    );
+
+    // A list that is a question can be empty, and then the body never ran.
+    assert_eq!(
+        reached("for f in $(ls); do wc -l \"$f\"; done"),
+        [
+            ("ls".to_string(), Always),
+            ("for f in $(ls)".to_string(), Always),
+            ("wc -l $f".to_string(), Sometimes),
+        ]
+    );
+
+    // ⚠ A determinate loop INSIDE an uncertain one is still run out — the values
+    // are in the text — but every iteration inherits the doubt. Getting this
+    // wrong is why `closing_done` had to stop using `unwrap_command`, which
+    // strips `while` and so never counted one: a `while` loop's `done` closed
+    // nothing at all, and no rule that works on loop spans could see the body.
+    assert_eq!(
+        reached("while read l; do for f in a.ts b.ts; do cat $f; done; done < in.txt"),
+        [
+            ("read l".to_string(), Always),
+            ("for f in a.ts b.ts".to_string(), Sometimes),
+            ("cat a.ts".to_string(), Sometimes),
+            ("cat b.ts".to_string(), Sometimes),
+            (String::new(), Always),
+        ]
+    );
+}
+
 /// The steps of one script, as `(depth, first word, how many uses)`.
 fn walked(script: &str) -> Vec<(usize, String, usize)> {
     let cmds = parse(script).unwrap_or_else(|at| panic!("failed to parse, stopped at {at:?}"));

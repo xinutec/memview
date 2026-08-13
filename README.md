@@ -220,6 +220,14 @@ one derived function adds them up, rather than a fourth account that could drift
 `python.uses == kept + refused.total()` is the identity that holds it together,
 and there is a test for it.
 
+**A loop body is only certain if the loop certainly ran it.** `while` and `until`
+test before the first iteration, so an empty input runs the body no times, and
+recording it as certainly run is the over-claim `if` used to make. A `for` over
+words written out is the other way: with `nullglob` off a pattern matching
+nothing expands to *itself*, so even a glob loop runs its body once. The rule is
+bash's, and it is worth 248 file uses — where demoting every folded loop would
+have cost 22,713 and been wrong about most of them.
+
 **Where the rest of it is.** Of 6,563 `for` loops, 4,324 were already run out and
 2,239 were not:
 
