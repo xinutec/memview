@@ -205,6 +205,50 @@ fn home_is_the_one_expansion_with_a_knowable_value() {
 }
 
 #[test]
+fn a_seq_the_text_counts_out_is_run_like_any_other_list() {
+    // ⚠ **The largest class the reader still folded (#821)** — 1,029 loops,
+    // against 735 over a glob. `$(seq …)` carries a `$` and so failed the
+    // determinacy test with every other substitution, but nothing about it is
+    // unknown: it is arithmetic on numbers already in the text.
+    //
+    // The oracle checks these against bash itself; what is here is the arithmetic
+    // and the refusals, which are cheaper to state than to run.
+    assert_eq!(
+        uses("for i in $(seq 1 3); do touch part-$i.txt; done"),
+        [
+            ("/home/example/Code/health/part-1.txt".to_string(), true),
+            ("/home/example/Code/health/part-2.txt".to_string(), true),
+            ("/home/example/Code/health/part-3.txt".to_string(), true),
+        ]
+    );
+    // `seq N` counts from one; `seq FIRST STEP LAST` steps.
+    assert_eq!(uses("for i in $(seq 2); do touch p$i.txt; done").len(), 2);
+    assert_eq!(
+        uses("for i in $(seq 1 3 9); do touch p$i.txt; done").len(),
+        3
+    );
+    // ⚠ Counting down works and counting nowhere is an answer, not a failure:
+    // `seq 3 1` prints nothing, so the body ran zero times — which is a fact, and
+    // the reader should record no files rather than declining to read the loop.
+    assert_eq!(
+        uses("for i in $(seq 3 -1 1); do touch p$i.txt; done").len(),
+        3
+    );
+    assert!(uses("for i in $(seq 3 1); do touch p$i.txt; done").is_empty());
+
+    // A bound that is not in the text refuses the whole loop, which then folds
+    // exactly as before — 6 such loops in the corpus, and what they printed is
+    // genuinely gone.
+    assert!(uses("for i in $(seq 1 $rounds); do touch p$i.txt; done").is_empty());
+    assert_eq!(
+        unnamed("for i in $(seq 1 $rounds); do touch p$i.txt; done"),
+        ["p$i.txt"]
+    );
+    // And nothing else is run in the reader's head, however arithmetic it looks.
+    assert!(uses("for i in $(ls); do touch p$i.txt; done").is_empty());
+}
+
+#[test]
 fn another_machines_paths_stay_on_that_machine() {
     // `ssh` names no local file however its arguments look, and a `host:path`
     // operand is not a path here even though it parses as one.

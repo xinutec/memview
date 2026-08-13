@@ -291,6 +291,27 @@ fn a_subshells_cd_does_not_escape_it() {
 }
 
 #[test]
+fn a_loop_counted_out_by_seq_runs_the_numbers_the_shell_ran() {
+    // ⚠ **The largest class the reader still folded** — 1,029 loops in the
+    // corpus, against 735 over a glob. `$(seq 1 4)` looks undetermined because it
+    // carries a `$`, but every value is in the text: it is arithmetic, not a
+    // question for the filesystem. bash and the reader should agree exactly, and
+    // this is the one place that can say whether they do.
+    let script = "for i in $(seq 1 4); do touch \"part-$i.txt\"; done";
+    let (scratch, ran) = actually(script, &[]);
+    assert_exact(&predicted(script, &scratch.0), &ran);
+}
+
+#[test]
+fn seq_with_one_bound_starts_at_one_and_a_step_is_honoured() {
+    // `seq N` is 1..=N and `seq FIRST STEP LAST` steps — getting either wrong
+    // would put the reader's iterations out of step with the shell's silently.
+    let script = "for i in $(seq 3); do touch a$i; done\n                  for j in $(seq 2 2 6); do touch b$j; done";
+    let (scratch, ran) = actually(script, &[]);
+    assert_exact(&predicted(script, &scratch.0), &ran);
+}
+
+#[test]
 fn a_loop_over_a_glob_is_undercounted_and_never_invented() {
     // ⚠ **The property that lets the domain get richer.** The text does not
     // determine this list — the filesystem of the day did, and it is gone — so

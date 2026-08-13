@@ -498,7 +498,18 @@ fn extract_nested(
     // A loop the text already determines is run out into the commands it ran,
     // before anything looks at any of them — see [`unrolled`].
     let mut ran = unrolled(cmds);
-    out.unrolled += ran.len() - cmds.len();
+    // ⚠ **Saturating, because a loop the text determines can run ZERO times.**
+    // Every list that could be run out used to have at least one value, so this
+    // could only grow and a plain subtraction was safe. `$(seq 3 1)` prints
+    // nothing (#821), so its body is dropped and the walk comes back *shorter* —
+    // which underflowed here, and in release would have wrapped to a colossal
+    // number and taken the whole "from unrolling" figure with it.
+    //
+    // Nought is the right answer rather than a negative one: this counts commands
+    // that exist *because* a loop was run out, and a loop that ran no times
+    // brought none into existence. The disappearance is not lost — it is in the
+    // total below, which counts what ran.
+    out.unrolled += ran.len().saturating_sub(cmds.len());
     // ⚠ **Again, now that the iterations exist separately.** The parser demoted
     // the `&&`s the exit status cannot reach, but it saw a loop body *once*. A
     // loop reports only its last iteration's status, so every earlier
@@ -801,19 +812,19 @@ fn run_out(cmds: &[Simple], at: usize) -> Option<(Vec<Simple>, usize)> {
     }
     let mut out = vec![cmds[at].clone()];
     for value in values {
-        let env = BTreeMap::from([(name.to_string(), value.to_string())]);
+        let env = BTreeMap::from([(name.to_string(), value)]);
         out.extend(body.iter().map(|cmd| substituted(cmd, &env)));
     }
     out.push(cmds[end].clone());
     Some((out, end + 1))
 }
 
-/// `for NAME in W1 W2 …`, when every value is written out.
+/// `for NAME in W1 W2 …`, when every value is written out — or counted out.
 ///
 /// Read through [`unwrap_command`] because a nested loop arrives with the
 /// keyword in front of it: `for d in x y; do for f in a b; do …` splits on `;`
 /// into a command whose first word is `do`, with the inner `for` behind it.
-fn literal_loop(argv: &[String]) -> Option<(&str, Vec<&str>)> {
+fn literal_loop(argv: &[String]) -> Option<(&str, Vec<String>)> {
     let [head, name, over, values @ ..] = unwrap_command(argv) else {
         return None;
     };
@@ -823,11 +834,72 @@ fn literal_loop(argv: &[String]) -> Option<(&str, Vec<&str>)> {
     if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
         return None;
     }
+    // ⚠ **A `$` is not always a question.** `$(seq 1 18)` fails [`determinate`]
+    // like any other substitution, and for eighteen months every one of these was
+    // left folded on that basis — 1,029 loops, the largest unrun class in the
+    // corpus and larger than every glob put together. But nothing about it is
+    // unknown: it is arithmetic on numbers already written down, not a question
+    // for a filesystem that no longer exists. See [`counted`].
+    if let [only] = values
+        && let Some(numbers) = counted(only)
+    {
+        return Some((name.as_str(), numbers));
+    }
     values
         .iter()
-        .map(|value| determinate(value).then_some(value.as_str()))
+        .map(|value| determinate(value).then(|| value.to_string()))
         .collect::<Option<Vec<_>>>()
         .map(|values| (name.as_str(), values))
+}
+
+/// `$(seq …)` with every bound written out, run out into the numbers it prints.
+///
+/// ⚠ **This is the reader running a program in its head**, which is a different
+/// act from substituting a value it was told, and the list of programs it will do
+/// that for is deliberately closed. `seq` is on it because it is 46% of every
+/// loop the reader could not run out and because its answer depends on nothing
+/// outside the text. Nothing else goes on this list without a measurement saying
+/// what it buys.
+///
+/// A bound that is not a literal integer refuses the whole thing — `$(seq 1
+/// $rounds)` is 6 loops in the corpus and belongs with the opaque ones, where
+/// what it printed is genuinely gone.
+///
+/// An empty range is a real answer, not a failure: `seq 3 1` prints nothing, so
+/// the body ran zero times, and running it out to nothing is exactly right.
+fn counted(word: &str) -> Option<Vec<String>> {
+    let inner = word.strip_prefix("$(")?.strip_suffix(')')?.trim();
+    let mut words = inner.split_whitespace();
+    if words.next()? != "seq" {
+        return None;
+    }
+    let bounds = words
+        .map(|bound| bound.parse::<i64>().ok())
+        .collect::<Option<Vec<_>>>()?;
+    // `seq LAST`, `seq FIRST LAST`, `seq FIRST STEP LAST` — the three forms, in
+    // the order the tool documents them.
+    let (first, step, last) = match bounds[..] {
+        [last] => (1, 1, last),
+        [first, last] => (first, 1, last),
+        [first, step, last] => (first, step, last),
+        _ => return None,
+    };
+    if step == 0 {
+        return None;
+    }
+    let mut out = Vec::new();
+    let mut at = first;
+    while (step > 0 && at <= last) || (step < 0 && at >= last) {
+        // Bounded here as well as in [`run_out`], because that cap is on the
+        // commands produced and this one is on the list itself: `seq 1 100000000`
+        // must not be built before anybody multiplies it by a body.
+        if out.len() >= MAX_UNROLL {
+            return None;
+        }
+        out.push(at.to_string());
+        at = at.checked_add(step)?;
+    }
+    Some(out)
 }
 
 /// Whether a word is a value in its own right, needing nothing run and nothing
