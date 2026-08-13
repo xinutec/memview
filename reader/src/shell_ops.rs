@@ -370,8 +370,14 @@ fn paths(unnamed: &mut Vec<String>, words: &[&str], cwd: Option<&str>, home: &st
 /// remedy — the transcript's `cwd`, or a `cd` this reader could not follow — and
 /// folding the two together would make a count that cannot be acted on either
 /// way. It stays what the README calls it: a separate limit.
+/// ⚠ **A backtick counts too, and missing it undercounted the very thing this
+/// was built to count.** The first version tested `$` alone, on the reasoning
+/// that an unmade expansion is what a surviving `$` means — but `` `which
+/// claude` `` carries no `$`, and `cat `which claude`` therefore recorded no read
+/// *and* no admission that a subject had been refused. Measured 2026-08-13, the
+/// day the counter shipped.
 fn undetermined(word: &str) -> bool {
-    word.contains('$')
+    word.contains(['$', '`'])
 }
 
 /// The operands of a command: its words with the program and its flags removed.

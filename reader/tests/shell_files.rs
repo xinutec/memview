@@ -171,6 +171,11 @@ fn a_subject_the_text_does_not_determine_is_counted_rather_than_dropped() {
     // then resolves to nothing.
     assert_eq!(unnamed("for f in *.log; do wc -l \"$f\"; done"), ["$f"]);
     assert_eq!(unnamed("cat \"$OUT/report.txt\""), ["$OUT/report.txt"]);
+    // ⚠ **A backtick is an unmade expansion as much as a `$` is**, and testing
+    // for `$` alone missed it — measured on the day the counter shipped, `cat
+    // `which claude`` recorded no read and no admission of one. The older syntax
+    // is rarer but it is not gone.
+    assert_eq!(unnamed("cat `which claude`"), ["`which claude`"]);
 
     // Still no file, and that has not changed: naming what was refused must not
     // become a way of inventing it.

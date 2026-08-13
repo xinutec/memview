@@ -175,16 +175,46 @@ trace, so a command that used a file nobody can name was recorded exactly like a
 command that used none. It is now counted and shown — `subjects not named` in
 `shell-files`, with the words that stood for them.
 
-Measured 2026-08-13 over 120,427 Bash calls: **3,006 uses, 713 distinct, 1.7% of
-all file uses**. Led by `$f` (837), `$d` (166) and `$p` (129) — loop variables
-whose list is a glob or a `$(…)`, which are the two things that genuinely are not
-in the text and so cannot be read out of it by any amount of further work.
+Measured 2026-08-13 over 120,427 Bash calls: **3,007 uses, 714 distinct**, led by
+`$f` (837), `$d` (166) and `$p` (129). Only refusals the text *could* have
+determined are counted — a bare `src`, a pattern, a git refspec are refused for
+good reasons and stay uncounted, or the figure would be noise nobody can act on.
 
-That is the honest remaining distance rather than a gap to close: the file uses
-above are 98.3% of what the corpus names, and the other 1.7% is now on the record
-instead of being silently absent. Only refusals the text *could* have determined
-are counted — a bare `src`, a pattern, a git refspec are refused for good reasons
-and stay uncounted, or the figure would be noise nobody can act on.
+⚠ **That is the shell's figure alone, and the Python side is worse.** Stated as
+"1.7% of all file uses" here until 2026-08-13, which read as though it covered
+everything the reader does. It does not: `shell_ops::paths` is where the counter
+sits, and a Python program's subjects never pass through it.
+
+| | named | not named |
+| --- | --- | --- |
+| shell | 173,055 uses | 3,007 |
+| python | 11,876 of 16,065 operations (73.9%) | 4,189 computed, f-string or loop variable |
+| python, refused at the shell boundary | 11,578 of 11,876 kept (97.5%) | 298 |
+| **together** | **173,055** | **7,494 — 95.9% named** |
+
+The Python reader does own up to its own — `Tally::unresolved` has recorded them
+all along, and `python-report` prints them. What is missing is that they never
+reach `Extract::unnamed`, so the shell-side report and this file both counted a
+smaller denominator than the work they describe.
+
+⚠ **Not all of that 1.7% is out of reach, and this section said otherwise until
+2026-08-13.** It claimed the residue was loop variables over globs and `$(…)`,
+"the two things that genuinely are not in the text". Measured rather than
+asserted, the 6,563 `for` loops break down as 4,324 already run out and 2,239 not,
+and the largest unrun class is neither:
+
+| not run out | | what it can become |
+| --- | --- | --- |
+| `$(seq N M)`, constant bounds | 1,029 | **exact values** — the reader can evaluate it |
+| a glob | 735 | a bounded subset of a known pattern, at best |
+| some other `$(…)` | 365 | genuinely opaque, now and always |
+| a variable | 104 | depends what bound it |
+
+So the honest statement is that roughly half of what remains is *arithmetic the
+reader declines to do*, not information the text lacks. `determinate` rejects any
+word containing `$`, which folds `$(seq 1 18)` exactly as it was folded before
+unrolling existed — the `seq` half of that limitation was never built, though
+this file and memview#92 both read as though it had been.
 
 Below that, the remaining unread commands are not a structural gap: the list is
 headed by `dhall-to-json`, `k3s`, `screen`, `journalctl` — all missing rows in
