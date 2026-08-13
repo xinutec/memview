@@ -159,8 +159,9 @@ nobody look inside, and who handed it over.
 ### Roadmap
 
 **Where it reaches today** (2026-08-13, 120,427 Bash calls): 99.7% of distinct
-commands parse; **98.3% of 756,282 simple commands are understood**; 11,241
-Python programs are read inside the shell that ran them. Nested shells (`nix -c`,
+commands parse; **98.3% of 756,282 simple commands are understood**; **96.0% of
+186,457 file uses name a file**; 11,241 Python programs are read inside the shell
+that ran them. Nested shells (`nix -c`,
 `bash -c`, `nix-shell --run`) are followed; `ssh`/`kubectl`/`docker` are followed
 and filed against the machine, never here.
 
@@ -179,25 +180,26 @@ file nobody can name was recorded exactly like a command that used none. It is
 counted and shown — `subjects not named` in `shell-files`, with the words that
 stood for them.
 
-**3,007 uses, 714 distinct** on the shell side, led by `$f` (837), `$d` (166) and
-`$p` (129). Only refusals the text *could* have determined are counted — a bare
-`src`, a pattern, a git refspec are refused for good reasons and stay uncounted,
-or the figure would be noise nobody can act on.
+**7,494 of 186,457 uses, or 4.0%**, from one denominator covering both readers —
+`Extract::subjects_not_named`. Three different admissions, kept apart because
+only the first two are unknowable:
 
-⚠ **The Python side is worse, and is counted separately.** `shell_ops::paths` is
-where the counter sits and a Python program's subjects never pass through it, so
-a shell-only figure covers less than the reader does. Both, together:
-
-| | named | not named |
+| | | |
 | --- | --- | --- |
-| shell | 178,963 uses | 3,007 |
-| python | 11,876 of 16,065 operations (73.9%) | 4,189 computed, f-string or loop variable |
-| python, refused at the shell boundary | 11,578 of 11,876 kept (97.5%) | 298 |
-| **together** | **178,963** | **7,494 — 96.0% named** |
+| shell, by word | 3,007 | 714 distinct, led by `$f` (837), `$d` (166), `$p` (129) |
+| python, computed | 4,189 | an f-string, a join, a loop variable — 20 distinct calls |
+| refused by this layer | 298 | not a path 137, no directory 157, `os.chdir` 4 |
 
-The Python reader owns up to its own — `Tally::unresolved` has recorded them all
-along and `python-report` prints them. They simply never reach `Extract::unnamed`,
-so one number does not yet cover both readers (memview#824).
+Only refusals the text *could* have determined are counted — a bare `src`, a
+pattern, a git refspec are refused for good reasons and stay uncounted, or the
+figure would be noise nobody can act on.
+
+⚠ **Python's undetermined subjects outnumber the shell's**, so a shell-only rate
+covered less than it appeared to. Each account still lives where it is produced —
+`unnamed` in the shell walk, `unresolved` and `refused` on the Python tally — and
+one derived function adds them up, rather than a fourth account that could drift.
+`python.uses == kept + refused.total()` is the identity that holds it together,
+and there is a test for it.
 
 **Where the rest of it is.** Of 6,563 `for` loops, 4,324 were already run out and
 2,239 were not:

@@ -102,12 +102,50 @@ pub struct Tally {
     /// Those that survived those rules and were attributed to somebody. Filled
     /// in by the caller, because the rule is the caller's.
     pub kept: usize,
+    /// Those the caller's rules then turned away, by which rule. Filled in by
+    /// the caller for the same reason `kept` is.
+    ///
+    /// `uses == kept + refused.total()` — every use is one or the other, and
+    /// there is a test that says so.
+    pub refused: Refused,
     pub calls: BTreeMap<String, usize>,
     pub unresolved: BTreeMap<String, usize>,
     pub unknown: BTreeMap<String, usize>,
     /// Programs that moved their own working directory, whose relative paths
     /// are therefore not trusted.
     pub chdir: usize,
+}
+
+/// Why a use this reader *did* resolve still did not become a path.
+///
+/// ⚠ **Three different facts, and only the first is an unknown of the kind
+/// [`Program::unresolved`] holds.** The program named a file plainly; what
+/// stopped it is a rule of the layer above — which directory to read it
+/// against, or whether a word may be a path at all. Kept apart because a rule
+/// that turns away thousands is worth revisiting and an unknowable value is not.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Refused {
+    /// The program called `os.chdir`, so its relative paths name no file this
+    /// reader can find. The argument is usually computed, so the move cannot be
+    /// followed and the paths cannot be trusted.
+    pub moved: usize,
+    /// Relative, with no directory to resolve it against — the shell's own `cd`
+    /// went somewhere this reader could not follow either.
+    pub no_directory: usize,
+    /// Not shaped like a path, by the same rule a shell operand goes through.
+    pub not_a_path: usize,
+}
+
+impl Refused {
+    pub fn total(&self) -> usize {
+        self.moved + self.no_directory + self.not_a_path
+    }
+
+    pub fn merge(&mut self, other: &Refused) {
+        self.moved += other.moved;
+        self.no_directory += other.no_directory;
+        self.not_a_path += other.not_a_path;
+    }
 }
 
 impl Tally {
@@ -126,6 +164,7 @@ impl Tally {
         self.programs += other.programs;
         self.uses += other.uses;
         self.kept += other.kept;
+        self.refused.merge(&other.refused);
         self.chdir += other.chdir;
         merge(&mut self.calls, other.calls);
         merge(&mut self.unresolved, other.unresolved);

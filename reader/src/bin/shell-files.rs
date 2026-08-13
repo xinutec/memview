@@ -88,6 +88,11 @@ fn main() -> anyhow::Result<()> {
     // what this does not know, stated by the thing that does not know it.
     let mut unnamed = 0usize;
     let mut by_word: BTreeMap<String, usize> = BTreeMap::new();
+    // The same admission from the Python reader: the call that wanted a path,
+    // where the path itself was computed and no text of it survives.
+    let mut computed: BTreeMap<String, usize> = BTreeMap::new();
+    // And the uses Python DID name that this layer's own rules turned away.
+    let mut turned_away = reader::python::Refused::default();
     let mut reads = 0usize;
     let mut writes = 0usize;
     // Distinct paths, so the size of what this produces is visible rather than
@@ -166,8 +171,8 @@ fn main() -> anyhow::Result<()> {
                 path.0 += 1;
             }
         }
-        for (name, (r, w)) in found.by_command {
-            let entry = by_command.entry(name).or_default();
+        for (name, (r, w)) in &found.by_command {
+            let entry = by_command.entry(name.clone()).or_default();
             entry.0 += r;
             entry.1 += w;
         }
@@ -181,14 +186,21 @@ fn main() -> anyhow::Result<()> {
                 _ => {}
             }
         }
-        for (name, n) in found.unhandled {
+        for (name, n) in &found.unhandled {
             unhandled += n;
-            *by_name.entry(name).or_insert(0) += n;
+            *by_name.entry(name.clone()).or_insert(0) += n;
         }
-        for (word, n) in found.unnamed {
-            unnamed += n;
-            *by_word.entry(word).or_insert(0) += n;
+        // ⚠ The total comes from `subjects_not_named`, which folds in the Python
+        // reader's own account too — the map below is the shell's words alone,
+        // and reading a total off it is the undercount memview#824 was about.
+        unnamed += found.subjects_not_named();
+        for (word, n) in &found.unnamed {
+            *by_word.entry(word.clone()).or_insert(0) += n;
         }
+        for (call, n) in &found.python.unresolved {
+            *computed.entry(call.clone()).or_insert(0) += n;
+        }
+        turned_away.merge(&found.python.refused);
         for file in found.files {
             if let Some(why) = &why
                 && file.path.contains(why.as_str())
@@ -245,10 +257,31 @@ fn main() -> anyhow::Result<()> {
     // subjects a command named and this reader could not: without them the line
     // above reads as "every file that was used", which is the overstatement the
     // count exists to end.
+    // ⚠ **One denominator, covering both readers.** Split out because the three
+    // are different admissions: a shell word the text does not determine, a
+    // Python path the program computed, and a use this layer's own rules turned
+    // away. Only the first two are unknowable; the third is a rule that could be
+    // revisited, and a single total hid which was which.
     println!(
-        "subjects not named  {unnamed}  ({} distinct, {:.1}% of all uses)",
-        by_word.len(),
+        "subjects not named  {unnamed}  ({:.1}% of all uses)",
         100.0 * unnamed as f64 / (reads + writes + unnamed).max(1) as f64
+    );
+    println!(
+        "  shell, by word    {}  ({} distinct)",
+        by_word.values().sum::<usize>(),
+        by_word.len()
+    );
+    println!(
+        "  python, computed  {}  ({} distinct calls)",
+        computed.values().sum::<usize>(),
+        computed.len()
+    );
+    println!(
+        "  refused here      {}   moved {}   no directory {}   not a path {}",
+        turned_away.total(),
+        turned_away.moved,
+        turned_away.no_directory,
+        turned_away.not_a_path
     );
 
     println!("\nwhat the shell was doing:");

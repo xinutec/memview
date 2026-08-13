@@ -279,6 +279,25 @@ impl Extract {
             entry.1 += w;
         }
     }
+
+    /// Every subject a command named and this reader could not, from **both**
+    /// readers.
+    ///
+    /// ⚠ **The fold that was missing, and the headline it moved.** Two readers
+    /// keep two accounts — the shell's undetermined words in `unnamed`, Python's
+    /// computed paths in `python.unresolved`, and the uses this layer's own rules
+    /// turned away in `python.refused` — and for a while only the first was added
+    /// up. Python's undetermined subjects outnumber the shell's, so "of all uses"
+    /// was a rate over a denominator smaller than it appeared to cover.
+    ///
+    /// Derived rather than accumulated, deliberately: each account stays in the
+    /// one place it is produced, and this is the only thing that adds them
+    /// together. A fourth account copied from the other three would drift.
+    pub fn subjects_not_named(&self) -> usize {
+        self.unnamed.values().sum::<usize>()
+            + self.python.unresolved.values().sum::<usize>()
+            + self.python.refused.total()
+    }
 }
 
 /// How deep a `bash -c 'bash -c "…"'` chain is followed.
@@ -712,6 +731,7 @@ fn extract_nested(
                 out.handled += 1;
                 let program = crate::python::read(source);
                 let mut kept = 0;
+                let mut refused = crate::python::Refused::default();
                 for used in &program.uses {
                     // A program that moved its own directory makes every
                     // relative path in it a guess, so only the paths that need
@@ -719,15 +739,24 @@ fn extract_nested(
                     // its argument is usually computed — and a wrong directory
                     // is how a real path becomes an invented one.
                     let anchored = used.path.starts_with('/') || used.path.starts_with('~');
-                    if (anchored || !program.chdir)
-                        && looks_like_path(&used.path)
-                        && let Some(path) = resolve(&used.path, here.as_deref(), home)
-                    {
+                    // ⚠ **Each refusal is recorded, not dropped.** A use turned
+                    // away here left no trace at all until memview#824, so a
+                    // program that named a file this layer would not resolve
+                    // counted exactly as a program that named none — and the
+                    // corpus read as more completely understood than it is.
+                    if !anchored && program.chdir {
+                        refused.moved += 1;
+                    } else if !looks_like_path(&used.path) {
+                        refused.not_a_path += 1;
+                    } else if let Some(path) = resolve(&used.path, here.as_deref(), home) {
                         out.push(host, "python", path, used.write, cmd.reached);
                         kept += 1;
+                    } else {
+                        refused.no_directory += 1;
                     }
                 }
                 out.python.kept += kept;
+                out.python.refused.merge(&refused);
                 out.python.absorb(program);
             }
             _ => {

@@ -20,6 +20,13 @@ fn uses(script: &str) -> Vec<(String, bool)> {
         .collect()
 }
 
+/// Everything one script's walk decided, for the cases that ask about more than
+/// the files.
+fn extracted(script: &str) -> reader::shell_files::Extract {
+    let cmds = parse(script).unwrap_or_else(|at| panic!("failed to parse, stopped at {at:?}"));
+    extract(&cmds, Some(CWD), HOME)
+}
+
 /// The subjects the text did not determine, in the order they were met.
 fn unnamed(script: &str) -> Vec<String> {
     let cmds = parse(script).unwrap();
@@ -191,6 +198,48 @@ fn a_subject_the_text_does_not_determine_is_counted_rather_than_dropped() {
     // noise nobody can act on.
     assert!(unnamed("rg pattern src").is_empty());
     assert!(unnamed("wc -l -").is_empty());
+}
+
+#[test]
+fn a_python_program_that_named_no_file_is_counted_with_the_shells_own() {
+    // ⚠ **Two readers kept two accounts and only one was added up.** Python's
+    // undetermined subjects outnumber the shell's in the corpus — 4,189 against
+    // 3,007 — so a rate stated from `unnamed` alone read as though it covered
+    // everything the reader does. `subjects_not_named` is the only thing that
+    // adds them together, and it is derived rather than accumulated so a fourth
+    // account cannot drift from the other three.
+    let found = extracted("python3 -c 'import os; os.remove(f\"{d}/a.py\")'");
+    // Nothing determined the path, so no file is claimed — and the miss is on
+    // the record instead of vanishing.
+    assert!(found.files.is_empty());
+    assert!(
+        found.unnamed.is_empty(),
+        "this one is Python's, not the shell's"
+    );
+    assert_eq!(found.subjects_not_named(), 1);
+
+    // A use whose path IS determined, refused by a rule of this layer rather
+    // than by anything unknowable: `os.chdir` cannot be followed, so a relative
+    // path out of that program names no file this reader can find.
+    let moved = extracted("python3 -c 'import os; os.chdir(p); os.remove(\"a.py\")'");
+    assert!(moved.files.is_empty());
+    assert_eq!(moved.python.refused.moved, 1);
+    assert_eq!(moved.subjects_not_named(), 1);
+
+    // The identity the fold rests on: every use a program named is either kept
+    // or refused, and the three refusal causes are the whole of the second.
+    for script in [
+        "python3 -c 'open(\"notes/out.md\", \"w\").write(x)'",
+        "python3 -c 'import os; os.chdir(p); os.remove(\"a.py\")'",
+        "python3 -c 'open(\"plain\", \"w\")'",
+    ] {
+        let found = extracted(script);
+        assert_eq!(
+            found.python.uses,
+            found.python.kept + found.python.refused.total(),
+            "{script}"
+        );
+    }
 }
 
 #[test]
