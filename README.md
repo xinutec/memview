@@ -159,57 +159,48 @@ nobody look inside, and who handed it over.
 ### Roadmap
 
 **Where it reaches today** (2026-08-13, 120,427 Bash calls): 99.7% of distinct
-commands parse; **98.3% of 756,282 simple commands are understood**; 11,030
+commands parse; **98.3% of 756,282 simple commands are understood**; 11,241
 Python programs are read inside the shell that ran them. Nested shells (`nix -c`,
 `bash -c`, `nix-shell --run`) are followed; `ssh`/`kubectl`/`docker` are followed
 and filed against the machine, never here.
 
-⚠ **That denominator counts commands *run*, not commands written** — 152,060 of
-them exist because a determinate loop was run out. A percentage against it is
-not comparable with one from before loops were unrolled, which is why the tool
-prints the two apart.
+⚠ **Read the counts, not the rate.** The denominator is commands *run*, not
+commands written — 152,060 of them exist because a determinate loop was run out —
+so it moves whenever unrolling does, and a figure from either side of such a
+change is not comparable with the other. It moves in the surprising direction
+too: running `$(seq N M)` out added 78,534 commands and 5,908 previously invisible
+file uses, but the loops it opened hold commands the verb table does not know, so
+"not in the table" went 10,632 → 12,799 and the rate fell 98.4% → 98.3%. More is
+understood; a smaller share of a larger, truer denominator is.
 
-⚠ **And the percentage went DOWN when the reader got better**, which is the same
-warning wearing its consequences. Running `$(seq N M)` out added 78,534 commands
-and 5,908 file uses that were previously invisible, and it added them to *both*
-sides of the fraction: the loops it opened contain commands the verb table does
-not know, so "not in the table" went 10,632 → 12,799 and the rate went 98.4% →
-98.3%. More is understood; a smaller share of a larger, truer denominator is.
-Read the counts, not the rate.
+**What the reader cannot name, it now says so.** An undetermined subject used to
+vanish: a word refused by the path guard left no trace, so a command that used a
+file nobody can name was recorded exactly like a command that used none. It is
+counted and shown — `subjects not named` in `shell-files`, with the words that
+stood for them.
 
-**The distance left to the aim, and the reader now states it itself.** An
-undetermined subject used to vanish: a word refused by the path guard left no
-trace, so a command that used a file nobody can name was recorded exactly like a
-command that used none. It is now counted and shown — `subjects not named` in
-`shell-files`, with the words that stood for them.
+**3,007 uses, 714 distinct** on the shell side, led by `$f` (837), `$d` (166) and
+`$p` (129). Only refusals the text *could* have determined are counted — a bare
+`src`, a pattern, a git refspec are refused for good reasons and stay uncounted,
+or the figure would be noise nobody can act on.
 
-Measured 2026-08-13 over 120,427 Bash calls: **3,007 uses, 714 distinct**, led by
-`$f` (837), `$d` (166) and `$p` (129). Only refusals the text *could* have
-determined are counted — a bare `src`, a pattern, a git refspec are refused for
-good reasons and stay uncounted, or the figure would be noise nobody can act on.
-
-⚠ **That is the shell's figure alone, and the Python side is worse.** Stated as
-"1.7% of all file uses" here until 2026-08-13, which read as though it covered
-everything the reader does. It does not: `shell_ops::paths` is where the counter
-sits, and a Python program's subjects never pass through it.
+⚠ **The Python side is worse, and is counted separately.** `shell_ops::paths` is
+where the counter sits and a Python program's subjects never pass through it, so
+a shell-only figure covers less than the reader does. Both, together:
 
 | | named | not named |
 | --- | --- | --- |
-| shell | 173,055 uses | 3,007 |
+| shell | 178,963 uses | 3,007 |
 | python | 11,876 of 16,065 operations (73.9%) | 4,189 computed, f-string or loop variable |
 | python, refused at the shell boundary | 11,578 of 11,876 kept (97.5%) | 298 |
-| **together** | **173,055** | **7,494 — 95.9% named** |
+| **together** | **178,963** | **7,494 — 96.0% named** |
 
-The Python reader does own up to its own — `Tally::unresolved` has recorded them
-all along, and `python-report` prints them. What is missing is that they never
-reach `Extract::unnamed`, so the shell-side report and this file both counted a
-smaller denominator than the work they describe.
+The Python reader owns up to its own — `Tally::unresolved` has recorded them all
+along and `python-report` prints them. They simply never reach `Extract::unnamed`,
+so one number does not yet cover both readers (memview#824).
 
-⚠ **Not all of what remains is out of reach, and this section said otherwise
-until 2026-08-13.** It claimed the residue was loop variables over globs and
-`$(…)`, "the two things that genuinely are not in the text". Measured rather than
-asserted, the 6,563 `for` loops broke down as 4,324 already run out and 2,239
-not, and the largest unrun class was neither:
+**Where the rest of it is.** Of 6,563 `for` loops, 4,324 were already run out and
+2,239 were not:
 
 | was not run out | | what became of it |
 | --- | --- | --- |
@@ -218,17 +209,14 @@ not, and the largest unrun class was neither:
 | some other `$(…)` | 365 | genuinely opaque, now and always |
 | a variable | 104 | depends what bound it |
 
-Half of it was *arithmetic the reader declined to do*, not information the text
-lacks: `determinate` rejects any word containing `$`, which folded `$(seq 1 18)`
-exactly as before unrolling existed. That is now done and the numbers above
-include it.
+⚠ **So the residue is not all out of reach**, which this section claimed until
+2026-08-13 on the strength of a plausible reading rather than a measurement. Half
+of it was arithmetic the reader declined to do.
 
-⚠ **It bought commands and uses, not a lower unnamed count**, and the difference
-says what these loops are for. 78,534 more commands and 5,908 more file uses —
-but `subjects not named` did not move, because a `seq` variable is a *counter*.
-It ends up in `curl …/$i` and `echo $i`, not in a filename, so running it out
-resolves commands rather than subjects. The glob half is where the subject count
-lives.
+⚠ **And running it out bought commands, not a lower unnamed count.** 78,534 more
+commands and 5,908 more file uses, but `subjects not named` did not move — a
+`seq` variable is a *counter*, ending up in `curl …/$i` rather than in a filename.
+The glob half is where the subject count lives.
 
 Below that, the remaining unread commands are not a structural gap: the list is
 headed by `dhall-to-json`, `k3s`, `screen`, `journalctl` — all missing rows in
