@@ -129,9 +129,15 @@ fn main() -> Result<()> {
 
     // The memory days go the same way and for the same reason — a different
     // question, and one no view draws. `memory-rank` reads this file.
+    //
+    // ⚠ **"The same way" now includes HOW it is written.** This was the one
+    // sibling on a plain `fs::write` while `agents.json`, `doing.json` and
+    // `effects.json` all went through `atomic::write` — so a `memory-rank` run
+    // during the 00:30 mine could read a half-written file, and the mine takes
+    // ~8 minutes. Write-then-rename or the reader sees half.
     let days = std::mem::take(&mut found.memory_days);
     let days_file = std::path::Path::new(&out).with_file_name("memory-days.json");
-    std::fs::write(&days_file, serde_json::to_string(&days)?)
+    memview::atomic::write(&days_file, serde_json::to_string(&days)?.as_bytes())
         .with_context(|| format!("writing {}", days_file.display()))?;
     println!(
         "{} memories carry days → {}",
