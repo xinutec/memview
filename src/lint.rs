@@ -88,6 +88,25 @@ const RULES: &[(&str, Severity, &str)] = &[
         "the description is what recall reads to decide relevance; without one the memory is invisible",
     ),
     (
+        // Introduced 2026-08-14 directly at ERROR, which the two-tier design
+        // allows only because the corpus was taken to zero first: 190 of 542
+        // memories carried no stamp, and every one was backfilled from the
+        // file's mtime — with mtime then restored, since completing the
+        // frontmatter is not a modification of what the memory says.
+        //
+        // ⚠ **Presence is not accuracy, and this rule only checks presence.**
+        // Measured the same day: `modified` is never EARLIER than mtime but is
+        // later than it on 115 files, i.e. a third of the stamps that already
+        // existed were stale — the stamp is maintained by the memory-writing
+        // path and goes silently wrong whenever a file is edited by any other
+        // route. A freshness rule wants mtime, which is a property of the
+        // filesystem rather than the corpus, so it would misfire on any synced
+        // or restored copy. That check belongs beside this one, as a warning.
+        "missing-modified",
+        Severity::Error,
+        "no `modified` stamp — its age cannot be judged, so a stale claim reads as current",
+    ),
+    (
         "stranded",
         Severity::Error,
         "no links in either direction — can only be found by already knowing its name",
@@ -207,6 +226,13 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
         }
         if doc.meta.description.trim().is_empty() {
             push("missing-description", name, "no description".to_string());
+        }
+        if !has_frontmatter_modified(&doc.raw) {
+            push(
+                "missing-modified",
+                name,
+                "no `modified:` in frontmatter".to_string(),
+            );
         }
         // The frontmatter `name` is not trusted for lookup — the stem is — but a
         // disagreement means one of the two is wrong, and a reader quoting the
@@ -514,6 +540,27 @@ pub fn check_world(corpus: &Corpus, code_root: &std::path::Path) -> Vec<Finding>
 }
 
 /// The `name:` line of a memory's frontmatter, if it declares one.
+/// Whether the frontmatter declares a `modified:` stamp.
+///
+/// ⚠ **Deliberately reads `raw` and not `meta.modified`.** That field is
+/// populated from the file's mtime (`store.rs`), so it is `Some` for every
+/// memory ever written and a check against it can never fire — which is exactly
+/// how this rule was first written, and it passed a corpus with 190 missing
+/// stamps. The two are different facts: mtime is when the bytes last changed,
+/// the stamp is what the memory itself claims about its age, and only the
+/// second one travels with the file.
+fn has_frontmatter_modified(raw: &str) -> bool {
+    let Some(rest) = raw.strip_prefix("---\n") else {
+        return false;
+    };
+    let Some(end) = rest.find("\n---") else {
+        return false;
+    };
+    rest[..end]
+        .lines()
+        .any(|line| line.trim_start().starts_with("modified:"))
+}
+
 fn frontmatter_name(raw: &str) -> Option<String> {
     let rest = raw.strip_prefix("---\n")?;
     let end = rest.find("\n---")?;
