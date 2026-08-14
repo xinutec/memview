@@ -72,6 +72,32 @@ find "$MEMORY_DIR" -type f | sed "s|^$MEMORY_DIR/||" | remote sh -c "'
   rm -f /state/.sync-keep
 '"
 
+# Push one derived artefact: compressed on the wire, renamed into place.
+#
+# ⚠ **Compressed, and the corpus beside it has been since the day this was
+# written.** These are JSON with the same field names on every row, which is
+# exactly what a compressor eats: measured 2026-08-14, effects.json goes 35.2 MB
+# → 4.15 MB, 8.5×, in 0.65s. The alternative on the table was re-encoding its
+# rows as positional arrays — that saves 6.7 MB raw and, once both are gzipped,
+# **0.10 MB, 2.4%**, in exchange for a format where adding a field silently
+# reinterprets every row (#858). The expensive thing was never the encoding; it
+# was that all four of these skipped the compression `tar -czf` already gives
+# /corpus — 61 MB of JSON going up uncompressed beside a tarred corpus.
+#
+# ⚠ **Written to a temp and renamed**, because the app re-reads these on demand
+# and truncate-then-write leaves a window in which the file on disk is not valid
+# JSON — [[reference_write_then_rename_or_the_reader_sees_half]]. Both names are
+# on /state, so the rename is within one filesystem and therefore atomic.
+push_json() {
+  local what=$1 from=$2 to=$3
+  # ⚠ `${what}`, braced. `"$what…"` made bash read the ellipsis's bytes as part
+  # of the NAME and die on `what…: unbound variable` — the high bytes count as
+  # alphabetic in this locale. Every other message here is a literal, so this is
+  # the first line in the file where a variable met one of its own ellipses.
+  echo "pushing ${what}…"
+  gzip -c "$from" | remote sh -c "'gzip -dc > $to.new && mv $to.new $to'"
+}
+
 # The co-use artefact, if it has been mined. Pushed to /state, NOT /corpus: the
 # prune above deletes anything in /corpus that is not a memory on the Mac, and
 # this is not a memory. It carries only names and integers — no transcript text
@@ -79,8 +105,7 @@ find "$MEMORY_DIR" -type f | sed "s|^$MEMORY_DIR/||" | remote sh -c "'
 # to a VPN-only, owner-gated app and nowhere else.
 COUSE="${COUSE_FILE:-$(dirname "$MEMORY_DIR")/couse.json}"
 if [[ -f $COUSE ]]; then
-  echo "pushing co-use…"
-  remote sh -c "'cat > /state/couse.json'" < "$COUSE"
+  push_json co-use "$COUSE" /state/couse.json
 else
   echo "no co-use artefact at $COUSE — skipping (mine it with: cargo run --release --bin couse)"
 fi
@@ -89,8 +114,7 @@ fi
 # Names, project names and integers, same as the co-use artefact.
 AGENTS="${AGENTS_FILE:-$HOME/.claude/agents.json}"
 if [[ -f $AGENTS ]]; then
-  echo "pushing agents…"
-  remote sh -c "'cat > /state/agents.json'" < "$AGENTS"
+  push_json agents "$AGENTS" /state/agents.json
 else
   echo "no agent artefact at $AGENTS — skipping (mine it with: cargo run --release --bin agents)"
 fi
@@ -101,8 +125,7 @@ fi
 # no-timeline rule on 2026-08-02 and left that half of it standing.
 DOING="${DOING_FILE:-$HOME/.claude/doing.json}"
 if [[ -f $DOING ]]; then
-  echo "pushing timeline…"
-  remote sh -c "'cat > /state/doing.json'" < "$DOING"
+  push_json timeline "$DOING" /state/doing.json
 else
   echo "no timeline at $DOING — skipping (mine it with: cargo run --release --bin agents)"
 fi
@@ -111,8 +134,7 @@ fi
 # under a timeline row. The largest thing this pushes, ~35 MB.
 EFFECTS="${EFFECTS_FILE:-$HOME/.claude/effects.json}"
 if [[ -f $EFFECTS ]]; then
-  echo "pushing effects…"
-  remote sh -c "'cat > /state/effects.json'" < "$EFFECTS"
+  push_json effects "$EFFECTS" /state/effects.json
 else
   echo "no effects at $EFFECTS — skipping (mine it with: cargo run --release --bin agents)"
 fi
