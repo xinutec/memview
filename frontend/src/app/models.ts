@@ -323,3 +323,97 @@ export interface AgentsResult {
   unattributed: number;
   agents: Agent[];
 }
+
+/**
+ * What a turn's work turned out to be. Mirrors `reader::doing::Verdict`.
+ *
+ * ⚠ **`unknown` is a real state, not a synonym for `ok`.** An interruption is
+ * not a result at all but a separate message, so the call it stopped never gets
+ * an answer — collapsing it into either would invent one. The Rust doc says
+ * exactly this; the word on the wire is `unknown`, and mirroring it here as
+ * `'unrecorded'` from the prose is what dev-lint caught.
+ */
+export type Verdict = 'unknown' | 'ok' | 'failed' | 'rejected';
+
+/** One minute of one session's work. Mirrors `api::Moment`. */
+export interface Moment {
+  /** Unix minute, the key this row is opened by — with `agent`. */
+  at: number;
+  agent: string;
+  /** Absent for work that belongs to no project directory. */
+  project?: string | null;
+  /** Set when the work happened on another machine, over `ssh`/`kubectl`. */
+  host?: string | null;
+  kind: string;
+  /** How many activities this minute folded into one row. */
+  n: number;
+  verdict: Verdict;
+}
+
+/** A page of the timeline, and the shape of everything the filter matched. */
+export interface Timeline {
+  moments: Moment[];
+  /**
+   * Kinds of work across the WHOLE filtered range, biggest first — `[kind, n]`.
+   * Two hundred rows cannot show the shape of two hundred thousand, so the
+   * server counts it and the page draws it beside them.
+   */
+  summary: [string, number][];
+  total: number;
+  failed: number;
+}
+
+/**
+ * What one effect did. Mirrors `reader::effects::Did`.
+ *
+ * ⚠ **One letter, because that is what the wire carries.** The artefact holds
+ * hundreds of thousands of these and is read over a VPN, so every variant is
+ * `#[serde(rename)]`d to a character. Spelling them out here as `'read' |
+ * 'wrote' | …` type-checked, rendered, and passed its own test — because the
+ * fixture had been written from the same wrong assumption. `dev-lint`'s
+ * wire-mirror check is what caught it.
+ */
+export type Did =
+  /** Opened and read. */
+  | 'r'
+  /** Changed: a `>` redirect, a `sed -i`, the destination of a `cp`, an `rm`. */
+  | 'w'
+  /**
+   * Searched *in*. Kept apart from a plain read because "who grepped for this"
+   * and "who read this" are different questions.
+   */
+  | 's'
+  /** Named a subject the text does not determine — see `Evidence.unnamed`. */
+  | 'u';
+
+/** One thing a turn did, and the command that did it. Mirrors `api::Effect`. */
+export interface Effect {
+  at: number;
+  agent: string;
+  did: Did;
+  /** Absent when the subject could not be named — see `Evidence.unnamed`. */
+  path?: string | null;
+  /** A glob or search pattern, where the subject was a set and not a file. */
+  pattern?: string | null;
+  host?: string | null;
+  /** Verbatim. Owner-only for this reason, and never behind a share token. */
+  command: string;
+  /** Whether the command certainly ran, or only may have — `a && b`. */
+  reached: boolean;
+  verdict: Verdict;
+}
+
+/** What a turn did, keyed by the `(agent, at)` a timeline row already carries. */
+export interface Evidence {
+  effects: Effect[];
+  total: number;
+  /**
+   * Effects whose subject nobody could name.
+   *
+   * ⚠ **Drawn, never dropped.** 7,305 of these exist in the artefact, and a
+   * panel showing only what resolved would read as a complete account of the
+   * turn. Saying "and 12 more this could not name" is the difference between
+   * evidence and a summary.
+   */
+  unnamed: number;
+}

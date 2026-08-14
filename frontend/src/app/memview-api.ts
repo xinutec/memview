@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
@@ -9,8 +9,10 @@ import {
   MemoryMeta,
   MemoryPage,
   AgentsResult,
+  Evidence,
   SearchResult,
   ShareInfo,
+  Timeline,
   WorkMatch,
 } from './models';
 
@@ -64,6 +66,39 @@ export class MemviewApi {
   /** Which named session works where. Owner-only; a share token gets 403. */
   agents(): Observable<AgentsResult> {
     return this.http.get<AgentsResult>('/api/agents');
+  }
+
+  /**
+   * What the sessions did, newest first. Owner-only.
+   *
+   * Every filter is optional and they compose. A filter naming something the
+   * corpus has never seen matches NOTHING rather than everything — the server
+   * decides that, and the page must not "helpfully" drop an unmatched filter,
+   * or "no such agent" would render as the whole history.
+   */
+  doing(filter: {
+    agent?: string;
+    project?: string;
+    kind?: string;
+    before?: number;
+  }): Observable<Timeline> {
+    let params = new HttpParams();
+    for (const [key, value] of Object.entries(filter)) {
+      if (value !== undefined && value !== '') params = params.set(key, String(value));
+    }
+    return this.http.get<Timeline>('/api/doing', { params });
+  }
+
+  /**
+   * What one turn did, keyed by the `(agent, at)` its timeline row carries.
+   *
+   * A filter, not a join: the row already holds both halves of the key, so
+   * opening it costs one request and no lookup table.
+   */
+  effects(agent: string, at: number): Observable<Evidence> {
+    return this.http.get<Evidence>('/api/effects', {
+      params: new HttpParams().set('agent', agent).set('at', String(at)),
+    });
   }
 
   shareRevoke(): Observable<ShareInfo> {

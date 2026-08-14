@@ -37,6 +37,12 @@
             <mat-icon>groups</mat-icon>
             <span>Agents</span>
           </a>
+          <!-- Beside Agents and owner-only for the same reason, and more so:
+               the evidence a row opens onto carries command text verbatim. -->
+          <a mat-menu-item routerLink="/doing">
+            <mat-icon>timeline</mat-icon>
+            <span>Timeline</span>
+          </a>
         }
         @if (!user.shared && user.auth_enabled) {
           <a mat-menu-item routerLink="/sharing">

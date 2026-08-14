@@ -224,6 +224,92 @@ const GRAPH = {
   ],
 };
 
+/**
+ * A timeline page whose every row is a wrapping risk at 390px: a minute, a
+ * session name, a kind, a repository, a machine, a fold count and a verdict —
+ * seven facts on one line. The session card in the console wrapped on exactly
+ * four of those.
+ */
+const DOING = {
+  moments: [
+    {
+      at: 29_412_600,
+      agent: 'health',
+      project: 'health',
+      kind: 'test',
+      n: 14,
+      verdict: 'failed',
+    },
+    {
+      at: 29_412_580,
+      // A session that was never named shows its id, 36 characters of it.
+      agent: '6f7c2f11-0000-4000-8000-000000000002',
+      project: 'health-sync-backend',
+      kind: 'build',
+      n: 1,
+      verdict: 'ok',
+    },
+    {
+      // Work on another machine, and a verdict that is neither ok nor failed.
+      at: 29_412_540,
+      agent: 'fleet',
+      project: 'xinutec-infra',
+      host: 'isis.xinutec.org',
+      kind: 'deploy',
+      n: 3,
+      verdict: 'unknown',
+    },
+  ],
+  summary: [
+    ['test', 8021],
+    ['build', 4310],
+    ['edit', 299],
+    ['deploy', 140],
+  ],
+  total: 15_570,
+  failed: 412,
+};
+
+/** What one turn did — including the two things a summary would drop. */
+const EFFECTS = {
+  effects: [
+    {
+      at: 29_412_600,
+      agent: 'health',
+      // ⚠ The wire's letter, not the word. This fixture said `'wrote'` and the
+      // test passed, because `models.ts` had been written from the same wrong
+      // assumption — a fixture agreeing with the code is not evidence about the
+      // wire. dev-lint's wire-mirror check is what caught it.
+      did: 'w',
+      path: 'health/packages/health-sync-backend/src/decode/quantiseLegCost.ts',
+      command: "sed -i '' 's/Math.round/Math.floor/' packages/health-sync-backend/src/decode/quantiseLegCost.ts",
+      reached: true,
+      verdict: 'ok',
+    },
+    {
+      at: 29_412_600,
+      agent: 'health',
+      did: 's',
+      pattern: 'packages/**/*.spec.ts',
+      // ⚠ A command after `&&` runs only if what preceded it worked.
+      command: 'pnpm run verify && grep -rn quantiseLegCost packages/**/*.spec.ts',
+      reached: false,
+      verdict: 'unknown',
+    },
+    {
+      // The subject nobody could name. Drawn, never dropped.
+      at: 29_412_600,
+      agent: 'health',
+      did: 'u',
+      command: 'nix develop --command bash -c "$(cat /tmp/step.sh)"',
+      reached: true,
+      verdict: 'ok',
+    },
+  ],
+  total: 41,
+  unnamed: 12,
+};
+
 /** Mock every backend call. Catch-all FIRST — Playwright runs handlers
  *  last-registered-first. */
 async function mockApi(page: Page): Promise<void> {
@@ -237,6 +323,8 @@ async function mockApi(page: Page): Promise<void> {
   await page.route('**/api/graph', (r) => r.fulfill({ json: GRAPH }));
   await page.route('**/api/search**', (r) => r.fulfill({ json: SEARCH }));
   await page.route('**/api/agents', (r) => r.fulfill({ json: AGENTS }));
+  await page.route('**/api/doing**', (r) => r.fulfill({ json: DOING }));
+  await page.route('**/api/effects**', (r) => r.fulfill({ json: EFFECTS }));
 }
 
 // The checker-checker: fail loudly here if the device preset is ever lost and
@@ -302,6 +390,48 @@ test('agents — a dense totals line and its provenance @ phone width', async ({
   // the same words the figure uses.
   await page.locator('.totals .via-shell').first().waitFor();
   await page.locator('.totals .maybe').first().waitFor();
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+});
+
+/**
+ * The timeline is the densest ROW on the site — a minute, a session, a kind, a
+ * repository, a machine, a fold count and a verdict — and its evidence panel
+ * carries verbatim shell commands, which are the longest unbreakable strings
+ * this app renders anywhere.
+ */
+test('timeline — seven facts on a row, and a turn opened @ phone width', async ({
+  page,
+}, testInfo) => {
+  await mockApi(page);
+  await page.goto('/doing');
+
+  // The shape of the WHOLE filtered range, which the rows cannot show.
+  await page.getByText('15570 moments').waitFor();
+  await page.locator('.moments > li').first().waitFor();
+  // A session that was never named renders 36 characters of id.
+  await page.getByText('6f7c2f11-0000-4000-8000-000000000002').waitFor();
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+
+  // ⚠ **Wait for the ANSWER, not for the row.** What this page draws while the
+  // effects request is in flight is a progress bar, and asserting layout on it
+  // would be measuring the pending state — the whole of memview#735 was two
+  // checks that settled on their own race.
+  await page.locator('.moments > li').first().locator('.row').click();
+  await page.locator('.evidence .effects > li').first().waitFor();
+  await page.getByText('quantiseLegCost.ts', { exact: false }).first().waitFor();
+
+  // ⚠ The WORD, never the wire's letter. The artefact renames every variant to
+  // one character because it is read over a VPN; a page drawing that straight
+  // said `w` and `s` at the reader.
+  await page.getByText('wrote', { exact: true }).waitFor();
+  await page.getByText('searched', { exact: true }).waitFor();
+
+  // The two things a summary would drop, and the reason this panel exists.
+  await page.getByText('may not have run').waitFor();
+  await page.getByText('and 12 more this could not name a subject for').waitFor();
+
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 });

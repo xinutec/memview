@@ -1,0 +1,222 @@
+.lede,
+.empty {
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+  margin-top: 20px;
+}
+
+// What the whole filtered range holds — the thing the rows below cannot say.
+.range {
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+  font-variant-numeric: tabular-nums;
+  margin: 12px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  .failed {
+    color: var(--mat-sys-error);
+  }
+
+  // Not an error, and must not read as one: a page is a page.
+  .capped {
+    color: var(--mat-sys-outline);
+  }
+}
+
+.kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.chip {
+  font: var(--mat-sys-label-small);
+  color: var(--mat-sys-on-surface-variant);
+  background: var(--mat-sys-surface-container-high);
+  border: none;
+  border-radius: 1rem;
+  padding: 4px 10px;
+  // A tap target on a phone, not a mouse target. Everything here is reachable
+  // with a thumb or it is not reachable at all.
+  min-height: 32px;
+  cursor: pointer;
+
+  .n {
+    font-variant-numeric: tabular-nums;
+    opacity: 0.7;
+    margin-left: 4px;
+  }
+
+  &.on {
+    background: var(--mat-sys-secondary-container);
+    color: var(--mat-sys-on-secondary-container);
+  }
+}
+
+.moments {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+
+  > li {
+    border-top: 1px solid var(--mat-sys-outline-variant);
+  }
+
+  > li.open {
+    background: var(--mat-sys-surface-container-low);
+  }
+}
+
+// The row IS the control. A separate button would be a fifth thing competing
+// for a 412px line that already carries four facts.
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  width: 100%;
+  padding: 10px 4px;
+  background: none;
+  border: none;
+  text-align: left;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface);
+  cursor: pointer;
+  min-height: 44px;
+
+  .when {
+    color: var(--mat-sys-on-surface-variant);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .agent {
+    font-weight: 600;
+    // A session id standing in for a name is 36 characters; let it break rather
+    // than push the row sideways.
+    overflow-wrap: anywhere;
+  }
+
+  .kind {
+    color: var(--mat-sys-primary);
+  }
+
+  .project,
+  .host,
+  .n {
+    color: var(--mat-sys-outline);
+  }
+
+  .verdict {
+    margin-left: auto;
+    font: var(--mat-sys-label-small);
+    white-space: nowrap;
+
+    &.failed {
+      color: var(--mat-sys-error);
+    }
+    &.ok {
+      color: var(--mat-sys-outline);
+    }
+    // Neither good nor bad — the result never reached the transcript. Given the
+    // quietest colour rather than a colour of its own, because it is an absence
+    // of evidence and should not compete with the verdicts that are evidence.
+    &.unknown,
+    &.rejected {
+      color: var(--mat-sys-outline-variant);
+      font-style: italic;
+    }
+  }
+}
+
+.evidence {
+  padding: 4px 4px 14px;
+}
+
+.effects {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  > li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 8px;
+    padding: 6px 0;
+    font: var(--mat-sys-body-small);
+  }
+}
+
+.did {
+  font: var(--mat-sys-label-small);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mat-sys-on-surface-variant);
+  white-space: nowrap;
+
+  // The wire's letters, not the words beside them — see `DID` in the component
+  // for why the two differ.
+  &.w {
+    color: var(--mat-sys-primary);
+  }
+  // Looking, not changing. A grep is evidence of one and not the other.
+  &.r,
+  &.s {
+    color: var(--mat-sys-outline);
+  }
+}
+
+.subject {
+  // Paths are long and unbreakable, and this page is read at 412px.
+  overflow-wrap: anywhere;
+  flex: 1 1 12ch;
+  min-width: 0;
+
+  // A subject nobody could name is not a path, and must not read like one.
+  &.unnamed {
+    color: var(--mat-sys-outline);
+    font-style: italic;
+  }
+}
+
+// A different confidence, not a smaller number — italic rather than fainter,
+// the same choice the agents page made for the same reason.
+.maybe {
+  color: var(--mat-sys-outline);
+  font-style: italic;
+}
+
+.command {
+  // Its own line: a command is the longest thing here and the one most likely
+  // to be read carefully.
+  flex: 1 0 100%;
+  font: var(--mat-sys-body-small);
+  font-family: var(--mat-sys-code-font, monospace);
+  color: var(--mat-sys-on-surface-variant);
+  background: var(--mat-sys-surface-container);
+  border-radius: 4px;
+  padding: 4px 6px;
+  overflow-wrap: anywhere;
+}
+
+.unnamed-note,
+.capped-note {
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-outline);
+  font-style: italic;
+  margin: 8px 0 0;
+}
+
+// Narrowing, in the opened panel rather than in the row. See the template: a
+// click target nested in a wrapping row is a hit-target hazard, because the
+// row's centre is where a thumb and an automated click both land.
+.narrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}

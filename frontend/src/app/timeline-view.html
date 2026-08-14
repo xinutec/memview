@@ -1,0 +1,165 @@
+@if (loading()) {
+  <mat-progress-bar mode="indeterminate" />
+} @else if (denied()) {
+  <p class="empty">
+    The timeline is owner-only. A share link shows the memories, not what the sessions did to get
+    them.
+  </p>
+} @else if (!timeline()?.moments?.length) {
+  <p class="empty">
+    @if (filtered()) {
+      Nothing matched. A filter naming something the corpus has never seen matches nothing rather
+      than everything, so this may be a name that does not exist.
+      <button mat-button (click)="clear()">Clear the filters</button>
+    } @else {
+      Nothing mined yet — run <code>cargo run --release --bin agents</code>.
+    }
+  </p>
+} @else if (timeline(); as page) {
+  <p class="lede">
+    What each session did, a minute at a time, newest first. A row folds one minute of one kind of
+    work; <code>×n</code> is how many activities went into it. Open one for the evidence — which
+    files, and the command that did it.
+  </p>
+
+  <!-- ⚠ Of the WHOLE filtered range, not of the rows below. Two hundred rows
+       cannot show the shape of two hundred thousand, so the server counts every
+       kind that matched. Reading this off the visible page would quietly
+       describe a sample and call it the answer. -->
+  <p class="range">
+    {{ page.total }} moments
+    @if (page.failed) {
+      <span class="failed">{{ page.failed }} failed</span>
+    }
+    @if (shown() < page.total) {
+      <span class="capped">showing the newest {{ shown() }}</span>
+    }
+  </p>
+
+  <div class="kinds">
+    @for (kind of kinds(); track kind[0]) {
+      <button
+        class="chip"
+        [class.on]="filter().kind === kind[0]"
+        (click)="narrow('kind', kind[0])"
+      >
+        {{ kind[0] }} <span class="n">{{ kind[1] }}</span>
+      </button>
+    }
+    @if (filtered()) {
+      <button class="chip" (click)="clear()">clear</button>
+    }
+  </div>
+
+  <ul class="moments">
+    @for (m of page.moments; track m.agent + ':' + m.at) {
+      <li [class.open]="isOpen(m)">
+        <!-- The whole row opens the turn. A row carrying a repository, a kind
+             and a verdict is already four facts wide at 412px, so the affordance
+             is the row itself rather than a control competing with them. -->
+        <button class="row" (click)="open(m)" [attr.aria-expanded]="isOpen(m)">
+          <span class="when">{{ when(m.at) }}</span>
+          <!-- ⚠ **Plain text, and it used to be a filter.** A click target
+               nested in the row is a hit-target hazard, not a convenience: the
+               row wraps at 412px, so its CENTRE lands on the session name — a
+               thumb aiming at the row filtered by agent instead of opening the
+               turn, and Playwright, which clicks the centre, found it. The two
+               facet filters live in the opened panel now, out of the row's
+               hit area, and that is also where somebody wants them: after
+               reading a turn, not before. -->
+          <span class="agent">{{ m.agent }}</span>
+          <span class="kind">{{ m.kind }}</span>
+          @if (m.project) {
+            <span class="project">{{ m.project }}</span>
+          }
+          @if (m.host) {
+            <!-- Work on another machine. Named because "deploy" reads very
+                 differently when it happened somewhere else. -->
+            <span class="host">on {{ m.host }}</span>
+          }
+          @if (m.n > 1) {
+            <span class="n">×{{ m.n }}</span>
+          }
+          <!-- `unknown` is neither ok nor failed: an interruption is not a
+               result but a separate message, so the call it stopped never got an
+               answer. Inventing one either way would be a claim. -->
+          <span class="verdict {{ m.verdict }}">{{ m.verdict }}</span>
+        </button>
+
+        @if (isOpen(m)) {
+          <div class="evidence">
+            <!-- Narrowing lives here rather than in the row above.
+
+                 ⚠ **Labelled by FACET, not by value.** These read `only health`
+                 and `only health` when a session is named after the repository
+                 it works in — which is the common case, not a contrived one —
+                 so two buttons that do different things were indistinguishable.
+                 The row directly above carries both names already. -->
+            <div class="narrow">
+              <button
+                class="chip"
+                [class.on]="filter().agent === m.agent"
+                (click)="narrow('agent', m.agent)"
+              >
+                only this session
+              </button>
+              @if (m.project) {
+                <button
+                  class="chip"
+                  [class.on]="filter().project === m.project"
+                  (click)="narrow('project', m.project)"
+                >
+                  only this repo
+                </button>
+              }
+            </div>
+            @if (opened()?.failed) {
+              <p class="empty">That turn's evidence could not be loaded.</p>
+            } @else if (opened()?.evidence; as ev) {
+              @if (!ev.effects.length && !ev.unnamed) {
+                <p class="empty">Nothing was recorded against this minute.</p>
+              } @else {
+                <ul class="effects">
+                  @for (e of ev.effects; track $index) {
+                    <li>
+                      <span class="did {{ e.did }}">{{ did(e) }}</span>
+                      <span class="subject" [class.unnamed]="!e.path && !e.pattern">{{
+                        subject(e)
+                      }}</span>
+                      <!-- A command after `&&` runs only if what preceded it
+                           worked, and one exit status often cannot say. Said in
+                           words rather than folded into the verdict, because the
+                           two are different claims. -->
+                      @if (!e.reached) {
+                        <span class="maybe">may not have run</span>
+                      }
+                      <code class="command">{{ e.command }}</code>
+                    </li>
+                  }
+                </ul>
+                <!-- ⚠ Drawn, never dropped. 7,305 effects in the artefact have a
+                     subject nobody could name, and a list of only what resolved
+                     would read as a complete account of the turn. -->
+                @if (ev.unnamed) {
+                  <p class="unnamed-note">
+                    and {{ ev.unnamed }} more this could not name a subject for
+                  </p>
+                }
+                @if (ev.total > ev.effects.length) {
+                  <p class="capped-note">
+                    showing {{ ev.effects.length }} of {{ ev.total }}
+                  </p>
+                }
+              }
+            } @else {
+              <!-- ⚠ NOT an empty list. "Nothing to show" and "nothing yet" are
+                   different sentences, and drawing the first while the request is
+                   in flight is a claim the page cannot support. -->
+              <mat-progress-bar mode="indeterminate" />
+            }
+          </div>
+        }
+      </li>
+    }
+  </ul>
+}
