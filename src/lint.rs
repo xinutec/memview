@@ -21,7 +21,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::couse::CoUse;
 use crate::store::{
-    Corpus, RELATIONS, has_section, index_links, reachable_without, split_relation, wikilinks_of,
+    Corpus, MEMORY_TYPES, RELATIONS, has_section, index_links, reachable_without, split_relation,
+    wikilinks_of,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -105,6 +106,28 @@ const RULES: &[(&str, Severity, &str)] = &[
         "missing-modified",
         Severity::Error,
         "no `modified` stamp — its age cannot be judged, so a stale claim reads as current",
+    ),
+    (
+        // Introduced 2026-08-14 at ERROR; the corpus was already at zero. The
+        // stem is what everything resolves by, so a missing `name:` breaks
+        // nothing at runtime — which is the reason to check it. It is the
+        // memory's own statement of its id, and a reader quoting frontmatter
+        // that is not there cites nothing.
+        "missing-name",
+        Severity::Error,
+        "no `name:` in frontmatter — the memory does not state its own id",
+    ),
+    (
+        // Introduced 2026-08-14 at ERROR; the corpus was already at zero, and
+        // all four declared types were in vocabulary.
+        //
+        // ⚠ Covers absent AND out-of-vocabulary in one rule, because they fail
+        // identically downstream: `mtype` falls back to the filename prefix, so
+        // `type: refrence` and no type at all both parse as a valid memory and
+        // neither is visible by reading the file.
+        "unknown-type",
+        Severity::Error,
+        "metadata `type` missing or outside the vocabulary; it silently falls back to the filename prefix",
     ),
     (
         "stranded",
@@ -227,12 +250,28 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
         if doc.meta.description.trim().is_empty() {
             push("missing-description", name, "no description".to_string());
         }
-        if !has_frontmatter_modified(&doc.raw) {
+        if frontmatter_value(&doc.raw, "modified").is_none() {
             push(
                 "missing-modified",
                 name,
                 "no `modified:` in frontmatter".to_string(),
             );
+        }
+        if frontmatter_value(&doc.raw, "name").is_none() {
+            push(
+                "missing-name",
+                name,
+                "no `name:` in frontmatter".to_string(),
+            );
+        }
+        match frontmatter_value(&doc.raw, "type") {
+            None => push("unknown-type", name, "no `type:` in metadata".to_string()),
+            Some(t) if !MEMORY_TYPES.contains(&t.as_str()) => push(
+                "unknown-type",
+                name,
+                format!("`type: {t}` is not one of {}", MEMORY_TYPES.join(" | ")),
+            ),
+            Some(_) => {}
         }
         // The frontmatter `name` is not trusted for lookup — the stem is — but a
         // disagreement means one of the two is wrong, and a reader quoting the
@@ -540,25 +579,31 @@ pub fn check_world(corpus: &Corpus, code_root: &std::path::Path) -> Vec<Finding>
 }
 
 /// The `name:` line of a memory's frontmatter, if it declares one.
-/// Whether the frontmatter declares a `modified:` stamp.
+/// A frontmatter field's value, by key, at any indent.
 ///
-/// ⚠ **Deliberately reads `raw` and not `meta.modified`.** That field is
-/// populated from the file's mtime (`store.rs`), so it is `Some` for every
-/// memory ever written and a check against it can never fire — which is exactly
-/// how this rule was first written, and it passed a corpus with 190 missing
-/// stamps. The two are different facts: mtime is when the bytes last changed,
-/// the stamp is what the memory itself claims about its age, and only the
-/// second one travels with the file.
-fn has_frontmatter_modified(raw: &str) -> bool {
-    let Some(rest) = raw.strip_prefix("---\n") else {
-        return false;
-    };
-    let Some(end) = rest.find("\n---") else {
-        return false;
-    };
-    rest[..end]
-        .lines()
-        .any(|line| line.trim_start().starts_with("modified:"))
+/// Indent-insensitive so one helper serves both the top-level keys (`name:`)
+/// and the ones nested under `metadata:` (`type:`, `modified:`). Keys are
+/// matched with their colon, so `type:` does not also match `node_type:`.
+///
+/// ⚠ **Deliberately reads `raw` rather than the parsed [`crate::store::MemoryMeta`].**
+/// That struct's `modified` is populated from the file's mtime (`store.rs`), so
+/// it is `Some` for every memory that exists and a check against it can never
+/// fire — which is exactly how `missing-modified` was first written, and it
+/// passed a corpus with 190 missing stamps. `mtype` has the same hazard from
+/// the other direction: it falls back to the filename prefix, so a memory
+/// declaring no type at all parses as a valid one. What the frontmatter *says*
+/// is the only thing that travels with the file, and it is what these rules are
+/// about.
+fn frontmatter_value(raw: &str, key: &str) -> Option<String> {
+    let rest = raw.strip_prefix("---\n")?;
+    let end = rest.find("\n---")?;
+    let needle = format!("{key}:");
+    rest[..end].lines().find_map(|line| {
+        let line = line.trim_start();
+        let value = line.strip_prefix(&needle)?;
+        let value = value.trim().trim_matches(['"', '\'']);
+        (!value.is_empty()).then(|| value.to_string())
+    })
 }
 
 fn frontmatter_name(raw: &str) -> Option<String> {

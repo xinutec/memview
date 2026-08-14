@@ -572,6 +572,14 @@ pub struct SearchResult {
 /// typo in the target, finds no memory of that name, and shows up as a dangling
 /// link. A misspelt relation silently downgrading to an untyped link would hide
 /// exactly the mistake this vocabulary exists to make visible.
+/// The closed vocabulary for `metadata.type`.
+///
+/// Closed for the same reason [`RELATIONS`] is: [`MemoryMeta::mtype`] falls back
+/// to the filename prefix when the frontmatter declares nothing, so a missing or
+/// misspelt type parses as a perfectly good one and nothing downstream can tell.
+/// Lint checks the declared value against this list rather than the parsed one.
+pub const MEMORY_TYPES: [&str; 4] = ["user", "feedback", "project", "reference"];
+
 pub const RELATIONS: [&str; 6] = [
     // This memory is a component of that one.
     "part-of",
