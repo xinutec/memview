@@ -80,6 +80,14 @@
           @if (m.n > 1) {
             <span class="n">×{{ m.n }}</span>
           }
+          <!-- What opening it would show. `no evidence` rather than `0`, and
+               said rather than omitted: silence here would read as "not counted"
+               where the count is exactly 0 and known. -->
+          @if (m.effects) {
+            <span class="evidence-n">{{ m.effects }} effects</span>
+          } @else {
+            <span class="evidence-n none">no evidence</span>
+          }
           <!-- `unknown` is neither ok nor failed: an interruption is not a
                result but a separate message, so the call it stopped never got an
                answer. Inventing one either way would be a claim. -->

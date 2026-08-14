@@ -220,3 +220,18 @@
   gap: 6px;
   margin-bottom: 10px;
 }
+
+// What opening a row would show. Quiet, because it qualifies the row rather
+// than competing with it — but present on every row, including the empty ones:
+// `no evidence` is a fact about the turn, not an absence of one.
+.evidence-n {
+  font: var(--mat-sys-label-small);
+  color: var(--mat-sys-outline);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+
+  &.none {
+    font-style: italic;
+    color: var(--mat-sys-outline-variant);
+  }
+}

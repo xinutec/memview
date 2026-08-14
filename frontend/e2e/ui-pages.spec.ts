@@ -239,6 +239,7 @@ const DOING = {
       kind: 'test',
       n: 14,
       verdict: 'failed',
+      effects: 936,
     },
     {
       at: 29_412_580,
@@ -248,6 +249,9 @@ const DOING = {
       kind: 'build',
       n: 1,
       verdict: 'ok',
+      // ⚠ The empty case, which is 12.6% of the live artefact and was the first
+      // row Pippijn happened to tap. It must SAY so on the row.
+      effects: 0,
     },
     {
       // Work on another machine, and a verdict that is neither ok nor failed.
@@ -258,6 +262,7 @@ const DOING = {
       kind: 'deploy',
       n: 3,
       verdict: 'unknown',
+      effects: 7,
     },
   ],
   summary: [
@@ -411,6 +416,10 @@ test('timeline — seven facts on a row, and a turn opened @ phone width', async
   await page.locator('.moments > li').first().waitFor();
   // A session that was never named renders 36 characters of id.
   await page.getByText('6f7c2f11-0000-4000-8000-000000000002').waitFor();
+  // ⚠ What opening a row would show, BEFORE it is opened — including the 0.
+  // Both branches on screen at once, or the empty one is never rendered here.
+  await page.getByText('936 effects').waitFor();
+  await page.getByText('no evidence').waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 

@@ -33,12 +33,28 @@ struct Cached {
     doing: Arc<Doing>,
 }
 
+/// How many effects each `(agent, minute)` has, keyed by the EFFECTS artefact's
+/// own agent index — the timeline's per-row count.
+///
+/// Named because it travels with the artefact it is derived from and the pair
+/// is returned together; spelled out at both ends it was the kind of type
+/// signature nobody reads.
+pub type EffectCounts = Arc<HashMap<(u32, i64), u32>>;
+
 /// The same, for the effects — and the argument is stronger, not weaker: this
 /// artefact is 35 MB where the timeline is 10, and it is opened by exactly the
 /// gesture that is meant to feel instant, tapping a row to see what it did.
 struct CachedEffects {
     at: Option<std::time::SystemTime>,
     effects: Arc<Effects>,
+    /// How many effects each `(agent, minute)` has — the timeline's per-row
+    /// count, built once with the artefact rather than per request.
+    ///
+    /// ⚠ **Built here because the alternative is a full pass per request.**
+    /// A page is 200 moments and the artefact is 327,852 rows, so counting them
+    /// where the page is assembled means walking the whole thing to answer 200
+    /// questions, on the request that is meant to feel instant. 47,033 keys.
+    counts: EffectCounts,
 }
 
 #[derive(Clone)]
@@ -69,8 +85,17 @@ impl AppState {
     /// that has not mined one yet should serve a timeline with nothing under it,
     /// not a 500 on a page that otherwise works.
     pub fn effects(&self) -> Arc<Effects> {
+        self.effects_and_counts().0
+    }
+
+    /// The effects and the per-`(agent, minute)` count, from one cache.
+    ///
+    /// Together rather than apart: they are derived from the same file and go
+    /// stale at the same instant, and two caches keyed off the same mtime is a
+    /// second chance to serve counts that describe an artefact no longer held.
+    pub fn effects_and_counts(&self) -> (Arc<Effects>, EffectCounts) {
         let Some(path) = self.cfg.effects_file.as_deref() else {
-            return Arc::new(Effects::default());
+            return (Arc::new(Effects::default()), Arc::new(HashMap::new()));
         };
         let path = std::path::Path::new(path);
         let at = std::fs::metadata(path).and_then(|m| m.modified()).ok();
@@ -78,14 +103,20 @@ impl AppState {
         if let Some(cached) = held.as_ref()
             && cached.at == at
         {
-            return cached.effects.clone();
+            return (cached.effects.clone(), cached.counts.clone());
         }
         let effects = Arc::new(Effects::load(path).unwrap_or_default());
+        let mut counts: HashMap<(u32, i64), u32> = HashMap::new();
+        for row in &effects.rows {
+            *counts.entry((row.a, row.t)).or_insert(0) += 1;
+        }
+        let counts = Arc::new(counts);
         *held = Some(CachedEffects {
             at,
             effects: effects.clone(),
+            counts: counts.clone(),
         });
-        effects
+        (effects, counts)
     }
 
     /// The timeline, from memory unless the file has changed since.

@@ -348,6 +348,15 @@ export interface Moment {
   /** How many activities this minute folded into one row. */
   n: number;
   verdict: Verdict;
+  /**
+   * How many effects opening this row would show.
+   *
+   * ⚠ **12.6% of rows are 0**, measured over the live artefact — 58,644 of
+   * 466,951, and 27 of the newest 200. A `test` or `build` minute need not
+   * touch a file. Drawn on the row so a tap is never spent learning there was
+   * nothing to learn, and so a 936-effect turn announces itself first.
+   */
+  effects: number;
 }
 
 /** A page of the timeline, and the shape of everything the filter matched. */
