@@ -119,6 +119,15 @@
   // `1 background task` on a line of its own says nothing.
   flex: 0 0 auto;
   white-space: nowrap;
+
+  // ⚠ **History, in the colour history is in on this card.** The words went
+  // past tense for an ended session (#879) while the accent stayed, and a green
+  // line under a greyed-out row is read before it is read — the eye had already
+  // been told the session was busy by the time it got to "when it ended". Same
+  // token as the `ended` chip a few pixels above it.
+  &.past {
+    color: var(--mat-sys-on-surface-variant);
+  }
 }
 
 // The task count, quiet by default and only coloured when something is left:

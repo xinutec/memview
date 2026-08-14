@@ -4213,3 +4213,86 @@ test('session strip — a background call is named, not counted @ phone width', 
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 });
+
+test('a session that has ended dates its background work @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **The count is FROZEN once the process is gone, and it was drawn live.**
+  // `Running::Ended` comes from a task-notification, which only the `claude`
+  // process writes — so after it exits nothing can decrement the number, and
+  // the card read `ended · 2 background tasks` for ever (memview #879).
+  //
+  // Both surfaces, one test, because the wording has to agree across them: the
+  // row is where the contradiction was noticed and the strip is where somebody
+  // goes to find out what the work WAS.
+  await mockRunner(page);
+  const ended = STATE.sessions[1];
+  await page.route('**/api/state', (r) =>
+    r.fulfill({
+      json: {
+        ...STATE,
+        sessions: [
+          STATE.sessions[0],
+          {
+            ...ended,
+            background: 2,
+            running: [
+              { tool: 'Monitor', label: 'HDD→SSD migration progress', task: 'bko3hqzmv' },
+              { tool: 'Bash', label: 'nix build .#console', task: 'b1nhifqhm' },
+            ],
+          },
+        ],
+      },
+    }),
+  );
+  await page.route('**/api/past', (r) => r.fulfill({ json: [] }));
+  await page.goto('/');
+
+  const row = page.locator('.session', { hasText: 'check the corpus' }).locator('.head');
+  await expect(row).toContainText('ended');
+  await expect(row).toContainText('2 background tasks when it ended');
+
+  // ⚠ **And the live session beside it is UNCHANGED** — the past tense is keyed
+  // to `alive`, so a bug that dated everything would still satisfy the row
+  // above. The first fixture session is alive and carries no background work,
+  // which is also the assertion that `0 background tasks` is still never said.
+  await expect(page.locator('.session').first()).not.toContainText('background');
+
+  await expectOneLine(page, '.session .head');
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+
+  // The strip on the page itself: the names stay — work orphaned by a session
+  // dying is the case worth a look at `ps` — but a caption dates them.
+  await page.goto(`/s/${ended.id}`);
+  await expect(page.locator('.update.running')).toHaveCount(2);
+  await expect(page.locator('.update:not(.running)')).toContainText(
+    'running when the session ended',
+  );
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+
+  // ⚠ **The nameless fallback is a SECOND sentence and was the one that read
+  // worst** — `2 background tasks running` with no names, on a session that had
+  // stopped. Reached by a runner too old to send `running`, which is exactly
+  // the console this bug outlived.
+  await page.route('**/api/state', (r) =>
+    r.fulfill({
+      json: { ...STATE, sessions: [STATE.sessions[0], { ...ended, background: 2 }] },
+    }),
+  );
+  await page.reload();
+  // ⚠ **The positive assertion FIRST, and the `toHaveCount(0)` only after it.**
+  // A page mid-reload has no `.update.running` either, so that count passes on
+  // its first poll against a DOM that has not rendered yet and asserts nothing
+  // — the same race that made two of these tests measure themselves (#735).
+  // Waiting for the one element that must exist is what makes the absence mean
+  // something. Counted at all because `.update` is also the newer-build notice,
+  // and a text assertion against two elements is a strict-mode violation.
+  await expect(page.locator('.update')).toHaveCount(1);
+  await expect(page.locator('.update')).toContainText(
+    '2 background tasks running when the session ended',
+  );
+  await expect(page.locator('.update.running')).toHaveCount(0);
+  await expectNoHorizontalOverflow(page, testInfo);
+});

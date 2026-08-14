@@ -199,6 +199,19 @@ export class SessionView implements OnDestroy {
    * The strip then says what it used to say rather than nothing.
    */
   readonly running = computed(() => this.session()?.running ?? []);
+
+  /**
+   * Whether the process behind this conversation is gone.
+   *
+   * ⚠ **Not "there is no session" — the two are different and only one of them
+   * means the past tense.** A page that has not loaded yet also has no
+   * `alive`, and wording a strip in the past tense on that would date work
+   * that is very much in flight. Undefined therefore reads as `false`.
+   */
+  readonly ended = computed(() => {
+    const session = this.session();
+    return !!session && !session.alive;
+  });
   readonly session = signal<Summary | undefined>(undefined);
 
   /** What the session may do without asking, in the CLI's own words. */

@@ -490,8 +490,21 @@
   <!-- Worded to claim only what it knows: a command backgrounded inside a shell
        announces nothing, so this is what the harness can see, not what is
        running. Named where the runner could name it — a bare count sent Pippijn
-       to `ps` on the Mac to find out what "1 background task" was (#740). -->
+       to `ps` on the Mac to find out what "1 background task" was (#740).
+
+       ⚠ **Past tense once the process is gone, and the names stay (#879).** The
+       count comes down on a task-notification, which only the `claude` process
+       can write — so after it exits nothing can ever decrement it, and the
+       present tense here was a snapshot drawn as if it were live. Dropping the
+       strip instead would have been the other defensible answer, but a session
+       that died with a build going may have left it orphaned and chewing CPU,
+       and that is the one thing here somebody can act on. -->
   @if (running().length) {
+    @if (ended()) {
+      <p class="update">
+        running when the session ended
+      </p>
+    }
     @for (call of running(); track call.task ?? call.tool) {
       <p class="update running">
         <span class="tool">{{ call.tool }}</span>
@@ -501,7 +514,10 @@
       </p>
     }
   } @else {
-    <p class="update">{{ count }} background task{{ count === 1 ? '' : 's' }} running</p>
+    <p class="update">
+      {{ count }} background task{{ count === 1 ? '' : 's' }}
+      {{ ended() ? 'running when the session ended' : 'running' }}
+    </p>
   }
 }
 

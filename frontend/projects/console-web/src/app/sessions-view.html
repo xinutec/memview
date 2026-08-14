@@ -136,9 +136,22 @@
                — a detached command, a subagent, a monitor — and each is issued a
                task id and reports back through a task-notification. The label
                was accurate all along; what was wrong was the counting, which
-               only ever saw the first kind. See `protocol::detached`. -->
+               only ever saw the first kind. See `protocol::detached`.
+
+               ⚠ **Past tense beside `ended`, because the count is frozen there
+               (#879).** The task-notification that decrements it can only be
+               written by the `claude` process, so once that is gone the number
+               can never come down — `ended · 2 background tasks` read as a live
+               claim about a session that had stopped. Kept rather than dropped:
+               work orphaned by a session dying is the case worth a look at
+               `ps`. See the strip on the session page for the same decision. -->
           @if (session.background; as running) {
-            <span class="tasks">{{ running }} background task{{ running === 1 ? '' : 's' }}</span>
+            <span class="tasks" [class.past]="!session.alive">
+              {{ running }} background task{{ running === 1 ? '' : 's' }}
+              @if (!session.alive) {
+                when it ended
+              }
+            </span>
           }
         } @else if (row.past?.busy) {
           <span class="ended">in use</span>
