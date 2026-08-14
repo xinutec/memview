@@ -18,7 +18,7 @@ allowBuilds:
   '@parcel/watcher': true
   lmdb: true
   msgpackr-extract: true
-  '@xinutec/ui-harness@https://codeload.github.com/xinutec/ui-harness/tar.gz/581d277a5e74657b0ed5d353bfc6c900300a27e9': true
+  '@xinutec/ui-harness@https://codeload.github.com/xinutec/ui-harness/tar.gz/41c53f85a8495e681fcf508f9aee0a53d8d233ef': true
   '@xinutec/ui-harness@https://codeload.github.com/xinutec/ui-harness/tar.gz/36b57a265ef372a096d1413e90f2c0bd5cb31bd5': set this to true or false
 
 # Carried across from package.json's npm-format `overrides`, which pnpm does not

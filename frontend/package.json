@@ -33,7 +33,7 @@
     "@angular/platform-browser": "^22.0.4",
     "@angular/router": "^22.0.4",
     "@fontsource/roboto": "^5.2.10",
-    "@xinutec/ui-harness": "github:xinutec/ui-harness#581d277a5e74657b0ed5d353bfc6c900300a27e9",
+    "@xinutec/ui-harness": "github:xinutec/ui-harness#41c53f85a8495e681fcf508f9aee0a53d8d233ef",
     "marked": "^18.0.7",
     "material-icons": "^1.13.14",
     "rxjs": "~7.8.0",

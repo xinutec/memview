@@ -40,8 +40,8 @@ importers:
         specifier: ^5.2.10
         version: 5.3.0
       '@xinutec/ui-harness':
-        specifier: github:xinutec/ui-harness#581d277a5e74657b0ed5d353bfc6c900300a27e9
-        version: https://codeload.github.com/xinutec/ui-harness/tar.gz/581d277a5e74657b0ed5d353bfc6c900300a27e9(@playwright/test@1.61.1)
+        specifier: github:xinutec/ui-harness#41c53f85a8495e681fcf508f9aee0a53d8d233ef
+        version: https://codeload.github.com/xinutec/ui-harness/tar.gz/41c53f85a8495e681fcf508f9aee0a53d8d233ef(@playwright/test@1.61.1)
       marked:
         specifier: ^18.0.7
         version: 18.0.7
@@ -1478,8 +1478,8 @@ packages:
   '@vitest/utils@4.1.10':
     resolution: {integrity: sha512-fy9am/HWxbaGt/Sawrp90vt6Y6jQwf1RX77cz3uwoJwJVMli/e1IEwRPnMNJ7vKfPTwo0diXifkpPvwH9v7nGA==}
 
-  '@xinutec/ui-harness@https://codeload.github.com/xinutec/ui-harness/tar.gz/581d277a5e74657b0ed5d353bfc6c900300a27e9':
-    resolution: {gitHosted: true, integrity: sha512-pY4mNMFS2fDhbWC3lNiCCeJxUbsnuNQ/WSVySzfwPr+t+V7gWrNObwnZQcjgLTxnSZ6//RMy0SS0pjtvxxlAOA==, tarball: https://codeload.github.com/xinutec/ui-harness/tar.gz/581d277a5e74657b0ed5d353bfc6c900300a27e9}
+  '@xinutec/ui-harness@https://codeload.github.com/xinutec/ui-harness/tar.gz/41c53f85a8495e681fcf508f9aee0a53d8d233ef':
+    resolution: {gitHosted: true, integrity: sha512-xRrQlzPFdODb9CoQUkR2VFgihNDErNWPfspUf7M7VOoJ+58LQgW0f6dW7p5f/f4w4jzldwQZr21cKnDChEGzoA==, tarball: https://codeload.github.com/xinutec/ui-harness/tar.gz/41c53f85a8495e681fcf508f9aee0a53d8d233ef}
     version: 0.1.0
     peerDependencies:
       '@playwright/test': '>=1.61.0'
@@ -4297,7 +4297,7 @@ snapshots:
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.0
 
-  '@xinutec/ui-harness@https://codeload.github.com/xinutec/ui-harness/tar.gz/581d277a5e74657b0ed5d353bfc6c900300a27e9(@playwright/test@1.61.1)':
+  '@xinutec/ui-harness@https://codeload.github.com/xinutec/ui-harness/tar.gz/41c53f85a8495e681fcf508f9aee0a53d8d233ef(@playwright/test@1.61.1)':
     dependencies:
       '@types/node': 24.13.3
     optionalDependencies:
