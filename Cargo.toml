@@ -28,7 +28,10 @@ edition = "2024"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 axum = "0.8"
-tower-http = { version = "0.7", features = ["fs", "trace"] }
+tower-http = { version = "0.7", features = ["fs", "set-header", "trace"] }
+# `ServiceBuilder`, to layer a Cache-Control header onto the static service
+# alone. `SetResponseHeaderLayer` has no `.layer()` of its own.
+tower = "0.5"
 axum-extra = { version = "0.12", features = ["cookie"] }
 reqwest = { version = "0.13", default-features = false, features = [
     "json",
