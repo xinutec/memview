@@ -376,6 +376,45 @@ fn index_sections(index_md: &str) -> (BTreeMap<String, String>, Vec<String>) {
     (section_of, sections)
 }
 
+/// Everything a reader arrives at from the index, with `demoting` struck out of
+/// it — which is the question a demotion actually asks.
+///
+/// ⚠ **A SET, never one name at a time, and that is the whole point.** Asking
+/// per candidate answers "is this one housed *today*", and today includes every
+/// other candidate's index line. Two memories that link only each other are then
+/// each other's home and both look safe — until both lines go and neither is
+/// reachable from anything. That is not hypothetical: `memory-rank` offered
+/// exactly that pair on 2026-08-14, summed as `→ 1818 bytes if all 25 were
+/// demoted` (#869), and it is the 2026-08-07 stranding of 24 memories
+/// (`feedback_memory_index_is_the_working_set`) with a number attached.
+///
+/// Reachability is the corpus's one invariant, so it is checked in one place and
+/// both callers ask it the same way: `lint` with nothing struck out, `memory-rank`
+/// with the demotions it is about to recommend.
+pub fn reachable_without(
+    docs: &BTreeMap<String, MemoryDoc>,
+    index_md: &str,
+    demoting: &BTreeSet<String>,
+) -> BTreeSet<String> {
+    let mut seen = BTreeSet::new();
+    let mut queue: Vec<String> = index_links(index_md)
+        .into_iter()
+        .filter(|name| docs.contains_key(name) && !demoting.contains(name))
+        .collect();
+    while let Some(name) = queue.pop() {
+        let Some(doc) = docs.get(&name) else { continue };
+        if !seen.insert(name) {
+            continue;
+        }
+        for link in wikilinks_of(&doc.body) {
+            if docs.contains_key(&link.target) {
+                queue.push(link.target);
+            }
+        }
+    }
+    seen
+}
+
 /// Every `name.md` the index links, in order — including any written before the
 /// first heading, which `index_sections` deliberately files under no section.
 pub fn index_links(index_md: &str) -> Vec<String> {

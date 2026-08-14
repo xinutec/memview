@@ -48,7 +48,7 @@ use std::collections::BTreeSet;
 
 use anyhow::{Context, Result};
 use memview::agents::{Agents, HALF_LIFE_DAYS, day_number, weighted};
-use memview::store::{Corpus, index_links, wikilinks_of};
+use memview::store::{Corpus, index_links, reachable_without, wikilinks_of};
 
 /// How a memory stands: what it cost, what it was used for, and whether the
 /// index is what is holding it up.
@@ -112,7 +112,7 @@ fn main() -> Result<()> {
 
     // Everything the index reaches by link, which is the invariant a demotion
     // must not break. Recomputed per candidate below, without its own line.
-    let reached = reachable(&corpus, &listed, None);
+    let reached = reachable_without(&corpus.docs, &index, &BTreeSet::new());
 
     let mut standings: Vec<Standing> = corpus
         .docs
@@ -137,35 +137,6 @@ fn main() -> Result<()> {
 
     report(&corpus, &standings, &listed, half_life, today, &index);
     Ok(())
-}
-
-/// Everything a reader arrives at from `MEMORY.md`, optionally with one index
-/// line struck out — which is the question a demotion actually asks.
-fn reachable(
-    corpus: &Corpus,
-    listed: &BTreeSet<String>,
-    without: Option<&str>,
-) -> BTreeSet<String> {
-    let mut seen = BTreeSet::new();
-    let mut queue: Vec<String> = listed
-        .iter()
-        .filter(|name| Some(name.as_str()) != without)
-        .cloned()
-        .collect();
-    while let Some(name) = queue.pop() {
-        if !seen.insert(name.clone()) {
-            continue;
-        }
-        let Some(doc) = corpus.docs.get(&name) else {
-            continue;
-        };
-        for link in wikilinks_of(&doc.body) {
-            if corpus.docs.contains_key(&link.target) {
-                queue.push(link.target);
-            }
-        }
-    }
-    seen
 }
 
 /// The reachable memories that already link this one.
@@ -240,26 +211,55 @@ fn report(
         "  {:<58} {:>7} {:>7} {:>6} {:>5}  home",
         "memory", "opens", "halved", "edits", "bytes"
     );
-    let mut recovered = 0usize;
-    let mut shown = 0usize;
-    for s in standings
+    let picked: Vec<&Standing> = standings
         .iter()
-        .filter(|s| s.indexed && !behavioural(&s.name))
-    {
-        let Some(home) = s.homes.first() else {
-            continue;
-        };
-        if s.read > 1.0 || shown >= 25 {
-            continue;
+        .filter(|s| s.indexed && !behavioural(&s.name) && s.read <= 1.0 && !s.homes.is_empty())
+        .take(25)
+        .collect();
+
+    // ⚠ **The set, not the sum.** Each `home` above was found against the index
+    // as it stands, and that index still carries every other candidate's line.
+    // So a pair that links only each other is each other's home and both read as
+    // housed — until both lines go together. Asking the invariant once, of the
+    // whole set, is the only form of this question that has the right answer.
+    let names: BTreeSet<String> = picked.iter().map(|s| s.name.clone()).collect();
+    let after = reachable_without(&corpus.docs, index, &names);
+
+    let mut recovered = 0usize;
+    let mut strands: Vec<&Standing> = Vec::new();
+    for s in &picked {
+        let safe = after.contains(&s.name);
+        if safe {
+            recovered += s.entry_cost;
+        } else {
+            strands.push(s);
         }
-        recovered += s.entry_cost;
-        shown += 1;
+        let home = s.homes.first().map(String::as_str).unwrap_or("—");
         println!(
-            "  {:<58} {:>7.2} {:>7.2} {:>6.2} {:>5}  {home}",
-            s.name, s.read, s.read_halved, s.edit, s.entry_cost
+            "  {:<58} {:>7.2} {:>7.2} {:>6.2} {:>5}  {home}{}",
+            s.name,
+            s.read,
+            s.read_halved,
+            s.edit,
+            s.entry_cost,
+            if safe { "" } else { "   ⚠ STRANDS" }
         );
     }
-    println!("  → {recovered} bytes if all {shown} were demoted\n");
+    println!(
+        "  → {recovered} bytes if the {} safe ones were demoted TOGETHER",
+        picked.len() - strands.len()
+    );
+    if !strands.is_empty() {
+        println!(
+            "  ⚠ {} of these are housed only by another candidate — demote them and\n\
+             \x20    nothing reaches them. Give each a home outside this set first.",
+            strands.len()
+        );
+        for s in &strands {
+            println!("       {} — housed only by {:?}", s.name, s.homes);
+        }
+    }
+    println!();
 
     println!("NO HOME — indexed and rarely opened, but nothing live links them.");
     println!("  Demoting one of these strands it. Give it a home first, or leave it listed.");

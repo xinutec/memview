@@ -487,3 +487,48 @@ fn html_in_a_description_is_shown_and_not_run() {
     assert!(!rendered.contains("<script>"), "{rendered}");
     assert!(rendered.contains("&lt;script&gt;"), "{rendered}");
 }
+
+/// A demotion asks what the index still reaches WITHOUT the lines it drops, and
+/// the fixture already has the shape that makes the answer non-obvious:
+/// `project_alpha` and `reference_beta` link each other, and `feedback_gamma` is
+/// linked only from `project_alpha`.
+fn reaches_without(names: &[&str]) -> std::collections::BTreeSet<String> {
+    let corpus = corpus();
+    let index = corpus.index_md.clone().expect("fixture has an index");
+    let dropping = names.iter().map(|n| (*n).to_string()).collect();
+    memview::store::reachable_without(&corpus.docs, &index, &dropping)
+}
+
+#[test]
+fn dropping_one_index_line_leaves_it_reachable_through_its_neighbour() {
+    // The ordinary, safe case: beta is still linked from alpha, which is listed.
+    let reached = reaches_without(&["reference_beta"]);
+    assert!(reached.contains("reference_beta"), "{reached:?}");
+    assert!(reached.contains("feedback_gamma"), "{reached:?}");
+}
+
+#[test]
+fn two_memories_that_house_each_other_are_stranded_when_both_lines_go() {
+    // ⚠ THE defect this exists for (#869). Asked one at a time, each of these is
+    // housed by the other and looks safe to demote; asked together, nothing
+    // reaches either. `memory-rank` summed 25 candidates as if independent and
+    // offered exactly such a pair — the 2026-08-07 stranding, with a number on
+    // it. A per-candidate check cannot see this, however carefully it is read.
+    let alone = reaches_without(&["project_alpha"]);
+    assert!(alone.contains("project_alpha"), "beta houses alpha alone");
+
+    let both = reaches_without(&["project_alpha", "reference_beta"]);
+    assert!(!both.contains("project_alpha"), "{both:?}");
+    assert!(!both.contains("reference_beta"), "{both:?}");
+}
+
+#[test]
+fn a_memory_with_its_own_index_line_survives_its_only_inbound_link_being_demoted() {
+    // gamma's one inbound link is from alpha, and it is listed in its own right.
+    // So demoting alpha and beta together does not touch it — the walk starts
+    // from every line the index still carries, not from the demoted docs'
+    // descendants. Wrong the other way round, this test asserted gamma WAS
+    // stranded; the code was right and the expectation was not.
+    let reached = reaches_without(&["project_alpha", "reference_beta"]);
+    assert!(reached.contains("feedback_gamma"), "{reached:?}");
+}

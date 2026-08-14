@@ -20,7 +20,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::couse::CoUse;
-use crate::store::{Corpus, RELATIONS, has_section, index_links, split_relation, wikilinks_of};
+use crate::store::{
+    Corpus, RELATIONS, has_section, index_links, reachable_without, split_relation, wikilinks_of,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Severity {
@@ -284,25 +286,12 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
                 push("index-points-nowhere", "MEMORY.md", format!("{target}.md"));
             }
         }
-        // Walk out from the index through the wikilinks, as a reader would.
-        let mut reached: BTreeSet<&String> = BTreeSet::new();
-        let mut queue: Vec<&String> = targets
-            .iter()
-            .filter_map(|target| corpus.docs.get_key_value(target).map(|(name, _)| name))
-            .collect();
-        while let Some(name) = queue.pop() {
-            if !reached.insert(name) {
-                continue;
-            }
-            let Some(doc) = corpus.docs.get(name) else {
-                continue;
-            };
-            for link in wikilinks_of(&doc.body) {
-                if let Some((next, _)) = corpus.docs.get_key_value(&link.target) {
-                    queue.push(next);
-                }
-            }
-        }
+        // Walk out from the index through the wikilinks, as a reader would —
+        // with nothing struck out, which is the same question `memory-rank` asks
+        // with its demotions struck out. One invariant, one implementation: the
+        // second copy of this walk is what let that tool grow a one-at-a-time
+        // signature and recommend a set that stranded a pair (#869).
+        let reached = reachable_without(&corpus.docs, index, &BTreeSet::new());
         for name in corpus.docs.keys() {
             if !reached.contains(name) {
                 push(
