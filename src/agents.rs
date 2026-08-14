@@ -700,11 +700,25 @@ fn remotely_attributable(path: &str) -> bool {
 /// a `.md` file directly in the corpus is `None`, so `MEMORY.md` (the index,
 /// which every session is given and which distinguishes nobody) is excluded by
 /// name.
+///
+/// ⚠ **A GLOB NAMES NO MEMORY, and this is not a nicety.** Shell attribution
+/// arrives here with whatever the command wrote, and a flat corpus makes
+/// `memory/*.md` collapse to a stem of `*` — which, counted, invented a memory
+/// called `*` with 459 uses, more than any real one has. Named patterns are the
+/// same shape one level down: `project_*`, `reference_*`, `*health_node_toolchain*`.
+///
+/// Dropped rather than expanded to every file the pattern matches. Crediting all
+/// of them would be the honest-looking option and is worse: `grep -l x memory/*.md`
+/// reads all 531, so expanding gives every memory the same score and destroys the
+/// ranking this feeds. The reader's rule holds — withhold rather than record more
+/// than happened.
 fn memory_of(path: &str, memory_root: &str) -> Option<String> {
     let root = memory_root.trim_end_matches('/');
     let rest = path.strip_prefix(root)?.strip_prefix('/')?;
     let stem = rest.strip_suffix(".md")?;
-    (!stem.is_empty() && !stem.contains('/') && stem != "MEMORY").then(|| stem.to_string())
+    let pattern = stem.contains(['*', '?', '[', ']', '{', '}']);
+    (!stem.is_empty() && !stem.contains('/') && stem != "MEMORY" && !pattern)
+        .then(|| stem.to_string())
 }
 
 /// One transcript file and the session whose work it records.
@@ -1394,11 +1408,44 @@ fn scan_transcript(
                     .into_iter()
                     .filter(|_| verdict != reader::doing::Verdict::Rejected)
                 {
+                    let certain = verdict.admits(used.reached);
                     let Some(rel) = relative_to(&used.path, code_root).filter(|p| attributable(p))
                     else {
+                        // ⚠ **The corpus is outside the code root, so this
+                        // `continue` was the whole of it: a `grep` over
+                        // `memory/`, an `ls` of it, a `cat` of one file counted
+                        // for NOTHING.** The tool-call site below has had a
+                        // `memory_of` arm all along; this one did not, and the
+                        // asymmetry mattered more than it looked. There is no
+                        // recall channel — measured across all 16 transcripts,
+                        // every memory arrival is a `Read` or a shell command —
+                        // so searching the directory by hand is one of only two
+                        // ways a DEMOTED memory is ever reached, and it was the
+                        // half the evidence could not see (#822).
+                        if let Some(memory) = memory_of(&used.path, memory_root) {
+                            if let Some(day) = day {
+                                let days = if used.write {
+                                    &mut seen.memory_edits
+                                } else {
+                                    &mut seen.memory_reads
+                                };
+                                days.entry(memory.clone()).or_default().insert(day);
+                            }
+                            // Four-way, where the tool call two hundred lines
+                            // down is two-way: a tool call either opened the
+                            // file or did not, and a command only may have.
+                            // `MemoryUse` has carried the `maybe_` pair since it
+                            // was written — this is the first thing to fill it.
+                            let use_ = memories.entry(memory).or_default();
+                            match (certain, used.write) {
+                                (true, true) => use_.edits += 1,
+                                (true, false) => use_.reads += 1,
+                                (false, true) => use_.maybe_edits += 1,
+                                (false, false) => use_.maybe_reads += 1,
+                            }
+                        }
                         continue;
                     };
-                    let certain = verdict.admits(used.reached);
                     // **The day counts, even though the count does not.**
                     // Recency decides which project an agent is listed under,
                     // and deciding that from tool calls alone was the very

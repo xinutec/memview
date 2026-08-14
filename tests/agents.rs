@@ -1723,3 +1723,82 @@ fn a_session_that_only_titles_another_is_not_an_agent() {
         "the titler is not one of them"
     );
 }
+
+#[test]
+fn a_memory_read_from_the_shell_is_attributed_to_that_memory() {
+    // ⚠ **The shell half of the corpus was dropped entirely.** The tool-call
+    // site has had a `memory_of` arm since it was written; the shell site had
+    // only the code-root filter, and the corpus is outside the code root — so
+    // `tail`, `grep`, `sed` and `cat >>` over a memory counted for nothing.
+    //
+    // It matters because there is no recall channel: every memory arrival is a
+    // `Read` or a command, so searching the corpus by hand is one of only two
+    // ways a DEMOTED memory is ever reached, and it was the half the evidence
+    // could not see.
+    let agents = mine_corpus(
+        &[(
+            "s1",
+            vec![
+                bash(
+                    "tail -60 /mem/project_recall.md",
+                    "/code/memview",
+                    "2026-07-30T10:00:00Z",
+                ),
+                bash(
+                    "sed -i '' 's/a/b/' /mem/project_recall.md",
+                    "/code/memview",
+                    "2026-07-30T10:01:00Z",
+                ),
+            ],
+        )],
+        &[],
+        &[("100", r#"{"pid":100,"sessionId":"s1","name":"boss"}"#)],
+    );
+
+    let use_ = &agents[0].memories["project_recall"];
+    assert_eq!(use_.reads, 1, "{:?}", agents[0].memories);
+    assert_eq!(use_.edits, 1, "{:?}", agents[0].memories);
+    // And it is not also charged to a project, or `mem` would stand beside the
+    // repositories as though the corpus were one.
+    assert!(!agents[0].shell_paths.keys().any(|p| p.contains("recall")));
+}
+
+#[test]
+fn a_glob_over_the_corpus_names_no_memory() {
+    // ⚠ **A flat corpus makes `*.md` collapse to a stem of `*`.** Counted, that
+    // invented a memory called `*` with 459 uses — more than any real one has,
+    // and top of any report that iterates the map.
+    //
+    // Dropped rather than expanded to everything the pattern matches: `grep -l`
+    // over the corpus reads all of it, so expanding would give every memory the
+    // same score and destroy the ranking this feeds.
+    let agents = mine_corpus(
+        &[(
+            "s1",
+            vec![
+                bash(
+                    "grep -l roadmap /mem/*.md",
+                    "/code/memview",
+                    "2026-07-30T10:00:00Z",
+                ),
+                bash(
+                    "ls /mem/project_*.md",
+                    "/code/memview",
+                    "2026-07-30T10:01:00Z",
+                ),
+                // The real one beside them, so this cannot pass by counting
+                // nothing at all.
+                bash(
+                    "cat /mem/project_real.md",
+                    "/code/memview",
+                    "2026-07-30T10:02:00Z",
+                ),
+            ],
+        )],
+        &[],
+        &[("100", r#"{"pid":100,"sessionId":"s1","name":"boss"}"#)],
+    );
+
+    let names: Vec<&str> = agents[0].memories.keys().map(String::as_str).collect();
+    assert_eq!(names, vec!["project_real"], "{names:?}");
+}
