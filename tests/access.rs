@@ -21,6 +21,7 @@ fn app(dir: &std::path::Path) -> (AppState, String) {
     let token = share.rotate().expect("rotate").token;
     let cfg = Config {
         doing_file: None,
+        effects_file: None,
         memory_dir: dir.join("corpus").to_string_lossy().into_owned(),
         bind_addr: "127.0.0.1:0".into(),
         share_state_file: dir.join("share-state.json").to_string_lossy().into_owned(),
@@ -86,6 +87,104 @@ async fn a_share_token_reads_the_corpus_but_never_the_owner_surface() {
         status(&state, "/api/work?q=dhall", Some(&token)).await,
         StatusCode::FORBIDDEN,
     );
+    // ⚠ **And least of all the effects**, which carry the command text
+    // verbatim. A link to one memory that also served `sed -i … /Users/…` would
+    // disclose more than the roster does, not less.
+    assert_eq!(
+        status(&state, "/api/effects", Some(&token)).await,
+        StatusCode::FORBIDDEN,
+    );
+}
+
+#[tokio::test]
+async fn the_owner_opens_a_turn_and_sees_the_command_behind_each_file() {
+    // ⚠ **The question this artefact exists to answer.** A timeline row says
+    // "geo was editing, at 10:00, and it worked". Standing on it, the reader
+    // asks which files — and a claim they cannot check is worth less than no
+    // claim, so every row carries the command that produced it.
+    use reader::effects::{Did, Effect, Log};
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("corpus")).expect("corpus dir");
+    std::fs::write(dir.path().join("corpus/MEMORY.md"), "# Memory index\n").expect("index");
+
+    let mut log = Log::default();
+    let mut one = |did, path, command, at| {
+        log.push(Effect {
+            call: "t1",
+            agent: "geo",
+            minute: at,
+            did,
+            path,
+            pattern: None,
+            host: None,
+            command,
+            reached: reader::shell::Reached::Always,
+        });
+    };
+    one(
+        Did::Wrote,
+        Some("/code/health/src/osm.ts"),
+        "sed -i s/a/b/ src/osm.ts",
+        100,
+    );
+    // An admission from the same turn, which must travel with it.
+    one(Did::Unnamed, None, "wc -l $OUT/report.txt", 100);
+    // A different minute, which the filter must exclude.
+    one(
+        Did::Read,
+        Some("/code/health/README.md"),
+        "cat README.md",
+        200,
+    );
+    let effects_file = dir.path().join("effects.json");
+    log.finish("2026-08-01T00:00:00Z")
+        .save(&effects_file)
+        .expect("effects");
+
+    let (mut state, _) = app(dir.path());
+    let mut cfg = (*state.cfg).clone();
+    cfg.effects_file = Some(effects_file.to_string_lossy().into_owned());
+    let secret = cfg.auth.as_ref().expect("auth").session_secret.clone();
+    state.cfg = std::sync::Arc::new(cfg);
+
+    let body = body_of(
+        &state,
+        "/api/effects?agent=geo&at=100",
+        ("cookie", owner_cookie(&secret)),
+    )
+    .await;
+    assert!(
+        body.contains(r#""path":"/code/health/src/osm.ts""#),
+        "{body}"
+    );
+    // The command is the evidence, not decoration.
+    assert!(
+        body.contains(r#""command":"sed -i s/a/b/ src/osm.ts""#),
+        "{body}"
+    );
+    // ⚠ The turn's other minute is not this turn.
+    assert!(!body.contains("README.md"), "{body}");
+    // ⚠ **The admission is in the answer, and counted.** A page showing only
+    // what resolved would read as a complete account of the turn — which is the
+    // one way this artefact could mislead.
+    assert!(
+        body.contains(r#""command":"wc -l $OUT/report.txt""#),
+        "{body}"
+    );
+    assert!(body.contains(r#""total":2"#), "{body}");
+    assert!(body.contains(r#""unnamed":1"#), "{body}");
+
+    // An agent the artefact has never seen matches nothing, rather than
+    // matching everything — the difference between "no such agent" and "here is
+    // the whole history".
+    let none = body_of(
+        &state,
+        "/api/effects?agent=nobody",
+        ("cookie", owner_cookie(&secret)),
+    )
+    .await;
+    assert!(none.contains(r#""total":0"#), "{none}");
 }
 
 /// A corpus of one memory that declares the session which wrote it, plus a

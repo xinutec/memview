@@ -107,14 +107,34 @@ else
   echo "no timeline at $DOING — skipping (mine it with: cargo run --release --bin agents)"
 fi
 
-# No transcript TEXT is pushed, and there is no artefact carrying any.
+# What each turn did to which file, with the command that did it — the evidence
+# under a timeline row. The largest thing this pushes, ~35 MB.
+EFFECTS="${EFFECTS_FILE:-$HOME/.claude/effects.json}"
+if [[ -f $EFFECTS ]]; then
+  echo "pushing effects…"
+  remote sh -c "'cat > /state/effects.json'" < "$EFFECTS"
+else
+  echo "no effects at $EFFECTS — skipping (mine it with: cargo run --release --bin agents)"
+fi
+
+# ⚠ **COMMAND TEXT IS PUSHED NOW, and until 2026-08-13 none was.** The note that
+# stood here said "no transcript TEXT is pushed, and there is no artefact
+# carrying any". Half of that is no longer true and the half that is still holds,
+# so it is worth being exact about which.
 #
-# There was: a mined `history.json` of every prompt and reply, served behind an
-# owner-only search page. It was removed deliberately. memview is for reading
-# the memory documents well, and a viewer that also served the literal history
-# makes the corpus depend on the transcripts instead of distilling them. The
-# transcripts are still mined in full — that is where couse.json's counts come
-# from — but only names, project names and integers come out.
+# What changed: Pippijn settled the trust question — "Isis should be trusted.
+# Everything can go there." — so effects.json carries each command verbatim.
+# Prompts, replies and command OUTPUT are still not mined and still have no
+# artefact; the only text that travels is the command line itself.
+#
+# What did NOT change, and is the reason this stayed a derived artefact rather
+# than becoming the old `history.json` back: memview is for reading the memory
+# documents well, and a viewer that also served the literal history makes the
+# corpus depend on the transcripts instead of distilling them. That argument was
+# never about privacy and trust does not settle it. So a command travels
+# *because a claim needs the command it rests on* — effects.json is keyed by
+# (agent, minute) to the timeline, holds no session id, and is in no order a
+# conversation could be read from.
 
 echo "verifying…"
 remote sh -c "'ls /corpus | wc -l'" | tr -d '\r' | while read -r n; do

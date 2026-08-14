@@ -23,6 +23,7 @@ pub fn router(state: AppState) -> Router {
         .route("/search", get(api::search))
         .route("/work", get(api::work))
         .route("/doing", get(api::doing))
+        .route("/effects", get(api::effects))
         .route("/share", get(api::share_get))
         .route("/share", post(api::share_rotate))
         .route("/share", delete(api::share_revoke))

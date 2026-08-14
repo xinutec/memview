@@ -326,6 +326,124 @@ pub async fn doing(
     }))
 }
 
+/// Which turn's effects to show. `agent` and `at` together are one timeline row.
+#[derive(Debug, Deserialize)]
+pub struct EffectsQuery {
+    pub agent: Option<String>,
+    /// The minute a [`Moment`] carries. Given alone it is the whole fleet's
+    /// minute; given with `agent` it is one turn.
+    pub at: Option<i64>,
+    /// Substring of the path, for "what happened to this file" — the other
+    /// direction through the same rows.
+    pub path: Option<String>,
+    pub limit: Option<usize>,
+}
+
+/// One thing a turn did to one file, with its dictionaries resolved.
+#[derive(Debug, Serialize)]
+pub struct Effect {
+    pub at: i64,
+    pub agent: String,
+    pub did: reader::effects::Did,
+    /// Absent when the subject was not named and nothing bounded it — the row
+    /// still exists, and that is the point of it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    /// The command that did it, as the shell would have run it.
+    pub command: String,
+    pub reached: reader::shell::Reached,
+    pub verdict: reader::doing::Verdict,
+}
+
+/// What one turn did, and how much of it there was.
+#[derive(Debug, Serialize)]
+pub struct Evidence {
+    pub effects: Vec<Effect>,
+    pub total: usize,
+    /// How many of the total were subjects nobody could name.
+    ///
+    /// ⚠ **Reported beside the rows rather than left to be counted from them.**
+    /// A page of two hundred effects that happens to contain no admission would
+    /// otherwise read as a complete account of the turn.
+    pub unnamed: usize,
+}
+
+/// GET /api/effects — what a turn actually did, and to what (owner only).
+///
+/// The question a reader asks standing on a `/api/doing` row: *which files, and
+/// how do you know?* Keyed by `(agent, at)`, which that row already carries, so
+/// this is a filter and not a join.
+///
+/// Owner-only for the reason the timeline is, and more so — a row carries the
+/// command text verbatim.
+pub async fn effects(
+    State(app): State<AppState>,
+    OwnerOnly(_): OwnerOnly,
+    Query(query): Query<EffectsQuery>,
+) -> Result<Json<Evidence>, AppError> {
+    let log = app.effects();
+    // A filter naming an agent the artefact has never seen matches nothing,
+    // rather than matching everything — same rule as the timeline.
+    let agent = match &query.agent {
+        None => None,
+        Some(want) => {
+            let Some(at) = log
+                .agents
+                .iter()
+                .position(|name| name.eq_ignore_ascii_case(want))
+            else {
+                return Ok(Json(Evidence {
+                    effects: Vec::new(),
+                    total: 0,
+                    unnamed: 0,
+                }));
+            };
+            Some(at as u32)
+        }
+    };
+    let wanted = |row: &reader::effects::Row| {
+        agent.is_none_or(|a| row.a == a)
+            && query.at.is_none_or(|at| row.t == at)
+            && query.path.as_ref().is_none_or(|want| {
+                row.p
+                    .and_then(|p| log.paths.get(p as usize))
+                    .is_some_and(|path| path.contains(want.as_str()))
+            })
+    };
+    let limit = query.limit.unwrap_or(PAGE).min(PAGE);
+    let (mut total, mut unnamed, mut effects) = (0usize, 0usize, Vec::new());
+    for row in log.rows.iter().rev().filter(|row| wanted(row)) {
+        total += 1;
+        unnamed += usize::from(row.k == reader::effects::Did::Unnamed);
+        if effects.len() < limit {
+            effects.push(Effect {
+                at: row.t,
+                agent: log.agents.get(row.a as usize).cloned().unwrap_or_default(),
+                did: row.k,
+                path: row.p.and_then(|p| log.paths.get(p as usize).cloned()),
+                pattern: row.q.and_then(|q| log.patterns.get(q as usize).cloned()),
+                host: row.h.and_then(|h| log.hosts.get(h as usize).cloned()),
+                command: log
+                    .commands
+                    .get(row.c as usize)
+                    .cloned()
+                    .unwrap_or_default(),
+                reached: row.r,
+                verdict: row.v,
+            });
+        }
+    }
+    Ok(Json(Evidence {
+        effects,
+        total,
+        unnamed,
+    }))
+}
+
 fn share_json(app: &AppState) -> Value {
     match app.share.get() {
         Some(s) => {

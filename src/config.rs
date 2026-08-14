@@ -37,6 +37,9 @@ pub struct Config {
     /// The timeline artefact, beside the roster. Optional like the rest of the
     /// mining: a fresh checkout has none and every page must still work.
     pub doing_file: Option<String>,
+    /// The evidence under the timeline. Optional for the same reason, and the
+    /// largest of them — a deployment may deliberately not carry it.
+    pub effects_file: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -107,6 +110,7 @@ impl Config {
             couse_file: std::env::var("COUSE_FILE").ok(),
             agents_file: std::env::var("AGENTS_FILE").ok(),
             doing_file: std::env::var("DOING_FILE").ok(),
+            effects_file: std::env::var("EFFECTS_FILE").ok(),
         })
     }
 

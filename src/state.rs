@@ -10,6 +10,7 @@ use rand::RngCore;
 use crate::config::Config;
 use crate::share::ShareStore;
 use reader::doing::Doing;
+use reader::effects::Effects;
 
 const OAUTH_TTL: Duration = Duration::from_secs(600); // 10 minutes
 
@@ -32,6 +33,14 @@ struct Cached {
     doing: Arc<Doing>,
 }
 
+/// The same, for the effects — and the argument is stronger, not weaker: this
+/// artefact is 35 MB where the timeline is 10, and it is opened by exactly the
+/// gesture that is meant to feel instant, tapping a row to see what it did.
+struct CachedEffects {
+    at: Option<std::time::SystemTime>,
+    effects: Arc<Effects>,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub cfg: Arc<Config>,
@@ -39,6 +48,7 @@ pub struct AppState {
     pub share: Arc<ShareStore>,
     oauth: Arc<Mutex<HashMap<String, PendingOauth>>>,
     timeline: Arc<Mutex<Option<Cached>>>,
+    effects: Arc<Mutex<Option<CachedEffects>>>,
 }
 
 impl AppState {
@@ -49,7 +59,33 @@ impl AppState {
             share: Arc::new(share),
             oauth: Arc::new(Mutex::new(HashMap::new())),
             timeline: Arc::new(Mutex::new(None)),
+            effects: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// The effects, from memory unless the file has changed since.
+    ///
+    /// Absent config means an empty artefact rather than an error: a deployment
+    /// that has not mined one yet should serve a timeline with nothing under it,
+    /// not a 500 on a page that otherwise works.
+    pub fn effects(&self) -> Arc<Effects> {
+        let Some(path) = self.cfg.effects_file.as_deref() else {
+            return Arc::new(Effects::default());
+        };
+        let path = std::path::Path::new(path);
+        let at = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+        let mut held = self.effects.lock().expect("effects poisoned");
+        if let Some(cached) = held.as_ref()
+            && cached.at == at
+        {
+            return cached.effects.clone();
+        }
+        let effects = Arc::new(Effects::load(path).unwrap_or_default());
+        *held = Some(CachedEffects {
+            at,
+            effects: effects.clone(),
+        });
+        effects
     }
 
     /// The timeline, from memory unless the file has changed since.
