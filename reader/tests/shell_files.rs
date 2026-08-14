@@ -1437,3 +1437,40 @@ fn a_cd_into_a_directory_of_the_same_name_deeper_down_still_moves() {
         [("/home/example/Code/health/src/main.rs".to_string(), false)]
     );
 }
+
+#[test]
+fn an_installed_program_run_by_its_path_is_not_a_file_that_was_read() {
+    // ⚠ **The reader's one forbidden error, in miniature.** `/bin/sleep 5` used
+    // no file at all, and recording the binary put it 135th busiest in the
+    // corpus — a path nobody read, in an index whose whole purpose is the files
+    // an agent worked on. Same for the interpreter of `python -c`, and for adb,
+    // which the Android SDK reaches through a `libexec` component.
+    assert!(uses("/bin/sleep 5").is_empty());
+    assert!(uses("/home/example/.venv/bin/python -c 'print(1)'").is_empty());
+    assert!(
+        uses("/nix/store/abc-androidsdk/libexec/android-sdk/platform-tools/adb devices").is_empty()
+    );
+    assert!(uses("/home/example/Code/lares/rust/target/release/lares --once").is_empty());
+}
+
+#[test]
+fn a_script_in_the_work_is_still_recorded_when_it_is_run() {
+    // ⚠ **The half that must NOT move, and the reason the test is the path
+    // rather than the verb.** #799 proposed "the basename resolves in the verb
+    // table, so it is a program" — and `gradlew` IS in that table, beside `mvn`,
+    // `pip` and `ng`. Measured by ablation over 73,907 Bash calls: that rule
+    // deleted 2,110 reads of `./gradlew` across the fleet's Android repos to
+    // remove ~800 of the noise it was aimed at. Running a script somebody wrote
+    // is a use of that script.
+    assert_eq!(
+        uses("./gradlew assembleDebug"),
+        [("/home/example/Code/health/gradlew".to_string(), false)]
+    );
+    assert_eq!(
+        uses("/home/example/Code/xinutec-infra/picade_fleet/install"),
+        [(
+            "/home/example/Code/xinutec-infra/picade_fleet/install".to_string(),
+            false
+        )]
+    );
+}

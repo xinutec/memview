@@ -870,6 +870,11 @@ pub fn classify_naming(
         .then(|| resolve(head, cwd, home))
         .flatten();
 
+    // An INSTALLED program is not a file the agent used, however it was spelled.
+    // `/bin/sleep 5` used no file; `./gradlew assembleDebug` used the script in
+    // the repo. See [`installed_program`] — the test is the path, not the verb.
+    let invoked_by_path = invoked_by_path.filter(|path| !installed_program(path));
+
     let Some(verb) = verb(name) else {
         return match invoked_by_path {
             Some(script) => Op::Run { script },
@@ -885,6 +890,32 @@ pub fn classify_naming(
         (Op::Nothing, Some(script)) => Op::Run { script },
         (op, _) => op,
     }
+}
+
+/// Whether this path names a program that was installed rather than a file in
+/// the work — a `bin` directory, or a build's output.
+///
+/// ⚠ **The path, and NOT "is the basename a known verb"** — which is what #799
+/// proposed and what the corpus refused. `gradlew` is in the verb table, beside
+/// `mvn`, `pip` and `ng`, so that rule deleted every `./gradlew` in the fleet:
+/// **2,110 reads of a script that lives in the repo, against ~800 of the noise
+/// it was aimed at.** Measured by ablation over 73,907 Bash calls, 2026-08-14.
+///
+/// This test keeps the two apart because it asks the question that actually
+/// distinguishes them: `/nix/store/…/bin/adb` and `.venv/bin/python` are things
+/// somebody installed, `android/gradlew` and `picade_fleet/install` are things
+/// somebody wrote. A `libexec` component counts — the Android SDK reaches `adb`
+/// through one, 232 times.
+///
+/// ⚠ It is a guess about a filesystem this reader never sees, and it is allowed
+/// to be one *because it only ever withholds a claim*. Mistaking a script for a
+/// program loses a use; mistaking a program for a script invents one, and the
+/// reader's single forbidden error is recording more than happened.
+fn installed_program(path: &str) -> bool {
+    path.split('/')
+        .any(|part| matches!(part, "bin" | "sbin" | ".bin" | "libexec"))
+        || path.contains("/target/debug/")
+        || path.contains("/target/release/")
 }
 
 /// The operation a verb performs on these arguments.
