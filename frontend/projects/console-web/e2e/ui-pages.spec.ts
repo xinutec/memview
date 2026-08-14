@@ -44,6 +44,12 @@ const THUMB = 48;
  * on an open menu with the CPU throttled 8× and passes 6/6 with this wait
  * (memview #735).
  *
+ * ⚠ **This is not "wait for the overlay to be ready".** Nothing running means it
+ * returns at once, and an overlay whose contents are still on their way has
+ * nothing running yet — so a check that measures those contents must wait for
+ * them to EXIST first and use this only to stop them moving. See [[openParse]],
+ * where using it alone read `.raw` as `null` on a page about to be correct.
+ *
  * ⚠ **Finite animations only, and this is not a detail.** A busy session keeps
  * `mat-progress-bar` cycling forever, so waiting for `getAnimations()` to drain
  * would never return on the page these checks are mostly pointed at. Bounded as
@@ -3390,7 +3396,14 @@ test('the task sheet opens on what is left rather than what is done @ phone widt
   // And the toggle brings back what is closed, saying how much it is. Both kinds
   // of closed: "1 done" would have offered to reveal one row and revealed two.
   await sheet.getByRole('radio', { name: /All \(2 closed\)/ }).click();
-  await expect(sheet.locator('.subject')).toHaveCount(6);
+  // ⚠ **Eight — the six open ones and the two that were closed.** This asked for
+  // six, which is the count BEFORE the click, and passed for two months because
+  // `toHaveCount` polls: the first poll landed before change detection had
+  // appended the closed rows, matched the stale DOM and returned. Under load the
+  // first poll arrives after the render instead, sees the truth and fails — read
+  // as "the sheet opened on All" in three gate runs (#735) when the sheet had
+  // done nothing wrong and the assertion was measuring its own race.
+  await expect(sheet.locator('.subject')).toHaveCount(8);
   // Finished before abandoned, and the dropped row says which it is rather than
   // borrowing the tick. Read off the mark's label, because that is also what a
   // screen reader gets.
@@ -3856,28 +3869,37 @@ async function openParse(page: Page): Promise<void> {
   await page.getByRole('button', { name: /verified_cli/ }).click();
   const sheet = page.locator(SHEET);
   await sheet.waitFor();
-  // ⚠ **Settled by watching the box, not by asking the element for its
-  // animations.** `getAnimations()` on the container came back empty and the
-  // sheet was still 210px below its resting place — Material drives the slide
-  // somewhere this element does not report. Where it *is* is not deniable.
+  // ⚠ **Wait for the ANSWER, not for the sheet and not for `.raw`.** The sheet
+  // is attached first and holds a progress bar until `/api/sessions/*/parse`
+  // replies; `.raw` is drawn from the command it was opened with and is there
+  // the whole time. So waiting on either leaves `settleTransforms` nothing to
+  // wait for — it finds nothing running and returns at once — and the check
+  // downstream read `.step` as `null` on a page that was about to be correct.
   //
-  // Bounded at two seconds' worth of frames: a wait that cannot end is
-  // indistinguishable from a wait still going, and this one would hang the suite
-  // rather than fail it.
-  await sheet.evaluate(
-    (el) =>
-      new Promise<void>((settled) => {
-        let last = Number.NaN;
-        let frames = 0;
-        const look = (): void => {
-          const top = el.getBoundingClientRect().top;
-          if (top === last || ++frames > 120) return settled();
-          last = top;
-          requestAnimationFrame(look);
-        };
-        requestAnimationFrame(look);
-      }),
-  );
+  // Three shapes, because all three are answers: the summary, *this one does not
+  // parse* (0.4% of the corpus, and its own test here), and the fetch having
+  // failed. Waiting on `.step` instead hung that middle case for 30s — a parse
+  // with no steps is exactly what it is about.
+  await page
+    .locator(`${SHEET} .summary, ${SHEET} .unread, ${SHEET} .trouble`)
+    .first()
+    .waitFor();
+  // ⚠ **`settleTransforms`, and the two earlier waits here were both wrong.**
+  //
+  // The first asked `sheet.getAnimations()` and got nothing, and the note left
+  // behind said the slide was invisible to `getAnimations` — it is not. The
+  // animation is on the ANCESTOR `mat-bottom-sheet-container`, and an element
+  // does not report its ancestors' animations; `document.getAnimations()` lists
+  // it, `iterations: 1`, with `transform` in its keyframes, which is exactly
+  // what `settleTransforms` already selects.
+  //
+  // The second watched this element's `top` for two equal frames. That settled
+  // on the first pair, every time, because **this element's top never moves**:
+  // traced at 8× throttle it sat at 387 from frame 0 while `.step`'s bottom
+  // travelled 907 → 577 over eleven frames. So the box was measured 330px from
+  // where it comes to rest, which is the 934.3 > 839 and 898.2 > 839 this
+  // sheet's layout check failed on in two gate runs (#735).
+  await settleTransforms(page);
 }
 
 test('a shell command opens as written and as read @ phone width', async ({ page }, testInfo) => {
@@ -4126,8 +4148,11 @@ test('the permission modes are one row that opens a sheet @ phone width', async 
   const sheet = page.locator('mat-bottom-sheet-container');
   await sheet.waitFor();
   await expect(sheet.locator('.mode')).toHaveCount(6);
-  // ⚠ The slide is invisible to `getAnimations`, so waiting on the last row
-  // being IN the viewport is what says the sheet has finished arriving.
+  // ⚠ Waiting on the last row being IN the viewport is what says the sheet has
+  // finished arriving. Not because the slide is invisible to `getAnimations` —
+  // it is not, see [[openParse]] — but because this row has to be reachable, not
+  // merely still: a sheet that has come to rest with its last mode below the
+  // fold is the defect this line is here for.
   await expect(sheet.locator('.mode').last()).toBeInViewport();
   await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
   await expectNoClippedText(page, testInfo, 'mat-bottom-sheet-container');
