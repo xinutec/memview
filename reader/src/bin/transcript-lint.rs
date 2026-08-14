@@ -61,11 +61,27 @@ fn main() -> Result<()> {
     }
 
     let mut damaged = 0usize;
+    let mut vanished = 0usize;
     let mut lines = 0usize;
     let mut totals: BTreeMap<&'static str, usize> = BTreeMap::new();
 
     for path in &files {
-        let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+        let bytes = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            // Listed a moment ago and already gone. Short-lived `claude -p`
+            // sessions whose cwd is $TMPDIR write a transcript into that
+            // project directory and take it away again, so a sweep that walks
+            // the whole corpus WILL cross one mid-life. A file that no longer
+            // exists is not damage and cannot be judged, but it also must not
+            // abort a run over the other 23. Only NotFound is tolerated — a
+            // permission or IO fault still stops us, because that one means
+            // the corpus was not fully read.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                vanished += 1;
+                continue;
+            }
+            Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+        };
         lines += bytes.iter().filter(|&&b| b == b'\n').count();
 
         // Every file is assumed live. Nothing here can know whether a session is
@@ -117,10 +133,15 @@ fn main() -> Result<()> {
 
     println!(
         "\n{} transcript(s), {} lines, {} damaged",
-        files.len(),
+        files.len() - vanished,
         lines,
         damaged
     );
+    // Said out loud rather than folded into the count: the sweep covered fewer
+    // files than it listed, and a silent shortfall reads as full coverage.
+    if vanished > 0 {
+        println!("{vanished} listed transcript(s) were gone before they could be read");
+    }
     if !totals.is_empty() {
         println!("violations by rule:");
         for (rule, count) in &totals {
