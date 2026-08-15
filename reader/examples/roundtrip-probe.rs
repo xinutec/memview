@@ -24,8 +24,18 @@
 //! backslash and dropped the quote — memview#833, fixed 2026-08-13, and 274
 //! corpus commands hit it without any help from this probe.
 //!
-//! **Where it stands now: 99.93%** — 105,524 identical, 1 different, 69 that will
+//! **Where it stands now: 99.97%** — 111,097 identical, 35 different, 0 that will
 //! not re-parse. That figure is the ratchet.
+//!
+//! ⚠ **`DIFFERENT` went UP, from 1 to 35, and that is the improvement.** memview#835
+//! stopped `hide_heredocs` treating every `<<` as an operator — an arithmetic
+//! shift or a quoted mention of redirection would open a heredoc that never
+//! terminated and swallow the rest of the script. Fixing it retired the whole
+//! `re-parse failed` class: 69 → 0. Thirty-four of those now parse and render
+//! with slightly different words, which counts as `DIFFERENT` here and is plainly
+//! better than not parsing. Non-identical overall fell 70 → 35, and **58 fewer
+//! commands are unparseable** (416 → 358) — commands whose file effects the miner
+//! could not see at all. Read the two counts together; either alone lies.
 //!
 //! ⚠ **The 69 are NOT the same bug, which #833 assumed they were.** Fixing the
 //! escape left every one of them, and their cause is elsewhere: the word being

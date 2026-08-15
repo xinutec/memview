@@ -412,3 +412,61 @@ fn a_closing_keyword_is_not_a_command_and_ends_no_segment() {
         ]
     );
 }
+
+/// ⚠ **`<<` is not an operator just because it is two characters.**
+///
+/// The opener scan reads bytes, so anything merely CONTAINING `<<` looked like
+/// a heredoc: an arithmetic shift, a quoted string that mentions redirection, a
+/// grep pattern hunting for one. The scan then ate the rest of the script
+/// looking for a terminator that was never coming — silently, with no error, so
+/// every command after such a line vanished from the parse and every file they
+/// touched went unattributed.
+///
+/// The tempting fix is to ignore `<<` inside quotes, and it is wrong: the
+/// corpus's commonest heredoc is `bash -c 'python3 - <<PY … PY'`, whose `<<` is
+/// inside a quoted argument and is entirely real. Quoting does not separate
+/// these. What separates them is whether a terminator ever arrives.
+#[test]
+fn a_shift_is_not_a_heredoc() {
+    // The arithmetic survives as one word, because the grammar knows `$(( ))`
+    // even though the opener scan does not. All the scan has to do is keep its
+    // hands off it.
+    assert_eq!(
+        argvs("n=$((1 << 3))\necho done"),
+        [vec!["n=$((1 << 3))"], vec!["echo", "done"]]
+    );
+}
+
+#[test]
+fn a_quoted_mention_of_redirection_is_not_a_heredoc() {
+    assert_eq!(
+        argvs("echo 'use << to redirect'\necho done"),
+        [vec!["echo", "use << to redirect"], vec!["echo", "done"]]
+    );
+}
+
+#[test]
+fn a_pattern_that_looks_for_a_heredoc_does_not_open_one() {
+    // The shape that started this: grepping the corpus for heredoc openers.
+    assert_eq!(
+        argvs("grep \"<<'EOF'\" file.txt\necho done"),
+        [vec!["grep", "<<'EOF'", "file.txt"], vec!["echo", "done"]]
+    );
+}
+
+#[test]
+fn a_heredoc_inside_a_quoted_argument_is_still_a_heredoc() {
+    // The case the naive fix would break, and the commonest shape in the corpus.
+    //
+    // ⚠ The body is NOT on the outer command, and asserting that it was is how
+    // this test first failed against correct code. It belongs to `python3 -`,
+    // which is not a command on this pass at all — it is text inside an argument,
+    // re-parsed later from this very substring. The marker travels with the text
+    // so that the second pass can still find it.
+    let cmds = parse("bash -c 'python3 - <<PY\nimport os\nPY'\necho after").unwrap();
+    assert!(cmds.iter().any(|c| c.argv == ["echo", "after"]));
+
+    let nested = parse(&cmds[0].argv[2]).unwrap();
+    assert_eq!(nested[0].argv, ["python3", "-"]);
+    assert_eq!(nested[0].heredocs, ["import os\n"]);
+}

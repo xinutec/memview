@@ -143,9 +143,12 @@ const HEREDOC_MARK: &str = "HEREDOC\u{1}";
 /// Honours the quoted (`<<'EOF'`) and indented (`<<-`) forms, both of which the
 /// corpus uses, and leaves `<<<` alone: a here-string has no body.
 fn hide_heredocs(script: &str) -> String {
+    let lines: Vec<&str> = script.lines().collect();
     let mut out = String::with_capacity(script.len());
-    let mut lines = script.lines();
-    while let Some(line) = lines.next() {
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        i += 1;
         let openers = heredoc_openers(line);
         if openers.is_empty() {
             out.push_str(line);
@@ -156,27 +159,28 @@ fn hide_heredocs(script: &str) -> String {
         let mut residues = Vec::new();
         let mut cut = 0;
         for opener in &openers {
+            // ⚠ **No terminator, no heredoc — and `cut` is left alone, so the
+            // text stays exactly as written.** `<<` is two characters, not an
+            // operator: an arithmetic shift, a quoted mention of redirection, a
+            // grep pattern hunting for one. Consuming until the delimiter turned
+            // up meant those swallowed the whole rest of the script as body, with
+            // no error, so every command after them vanished from the parse.
+            let Some((end, residue)) = find_terminator(&lines, i, opener) else {
+                continue;
+            };
             let mut body = String::new();
-            for text in lines.by_ref() {
-                let candidate = if opener.indented {
-                    text.trim_start()
-                } else {
-                    text
-                };
-                if let Some(residue) = terminator_residue(candidate, &opener.delim) {
-                    // **Keep what FOLLOWS the delimiter, not the delimiter.**
-                    // Dropping the whole line broke the corpus's commonest
-                    // heredoc shape, `bash -c 'python3 - <<PY … PY'`, where the
-                    // closing quote sits on it — the string was left unterminated.
-                    // Keeping the whole line instead left the delimiter behind as
-                    // a command named `PY` that nobody ran. Only the punctuation
-                    // is shell; the word is the heredoc's own bookkeeping.
-                    residues.push(residue.to_string());
-                    break;
-                }
+            for text in &lines[i..end] {
                 body.push_str(text);
                 body.push('\n');
             }
+            // **Keep what FOLLOWS the delimiter, not the delimiter.** Dropping
+            // the whole line broke the corpus's commonest heredoc shape, `bash -c
+            // 'python3 - <<PY … PY'`, where the closing quote sits on it — the
+            // string was left unterminated. Keeping the whole line instead left
+            // the delimiter behind as a command named `PY` that nobody ran. Only
+            // the punctuation is shell; the word is the heredoc's own bookkeeping.
+            residues.push(residue);
+            i = end + 1;
             rewritten.push_str(&line[cut..opener.at.start]);
             rewritten.push_str("<<");
             rewritten.push_str(HEREDOC_MARK);
@@ -192,6 +196,28 @@ fn hide_heredocs(script: &str) -> String {
         }
     }
     out
+}
+
+/// Where an opener's body ends and what its terminator line leaves behind, or
+/// `None` when the terminator never arrives.
+///
+/// ⚠ **This is the whole test for whether a `<<` was an operator at all.**
+/// Quoting cannot answer it. The corpus's commonest heredoc,
+/// `bash -c 'python3 - <<PY … PY'`, has its `<<` inside a quoted argument and is
+/// entirely real; `echo 'use << to redirect'` is the same shape and is not. What
+/// separates them is that one is terminated and the other never is.
+///
+/// Looked up rather than consumed, so a `<<` that turns out to be data costs
+/// nothing: the lines are still there for the parse that follows.
+fn find_terminator(lines: &[&str], from: usize, opener: &Opener) -> Option<(usize, String)> {
+    lines.iter().enumerate().skip(from).find_map(|(at, text)| {
+        let candidate = if opener.indented {
+            text.trim_start()
+        } else {
+            text
+        };
+        terminator_residue(candidate, &opener.delim).map(|residue| (at, residue.to_string()))
+    })
 }
 
 /// The body an already-hidden heredoc carries, from the delimiter the grammar
