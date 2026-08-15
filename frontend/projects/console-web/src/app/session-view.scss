@@ -29,6 +29,31 @@
 // than 2 — so the warning arrives close enough to the hard stop to be worth
 // reading, and the next overshoot has to be paid for by splitting this
 // component, because the ceiling that fails the build is not moving again.
+//
+// ⚠ **A third raise on 2026-08-15, to 9.5 kB warn — and it is a deviation from
+// the line above, taken deliberately rather than by forgetting it.** 73 bytes
+// over, and the split that paragraph names as the price was investigated first:
+//
+// - Trimming is still out. dev-lint's five style rules are green, so every
+//   declaration is live, and the file is already factored — selector groups like
+//   `.entry.asked, .entry.turn, .entry.note, .entry.ask` are collapsed and the
+//   near-neighbours that look mergeable (`.tool > .at`, `.ask > .at`) differ.
+//   There is no honest 73 bytes here.
+// - The split IS available, and cheaper than the note above assumed. The reason
+//   the question card was declined is that its STATE is keyed by ask id; that
+//   objection does not reach a presentational child owning no state. The
+//   composer is the seam — one contiguous `<form class="composer">` and ~700
+//   bytes of contiguous rules, with `picture()` and the drafts left in the
+//   parent and passed as bindings, so nothing keyed by session id moves.
+//
+// It was not done because an hour of refactoring is not what 73 bytes is worth
+// today; Pippijn's call, asked and answered. The corridor is now 0.5 kB, which
+// is the cost of the deferral: the warning fires ~430 bytes before the build
+// does. **The 10 kB error still has not moved, and this is the third and last
+// cheap raise — at 9.5 the corridor cannot be halved again, so the composer
+// split is what happens next.** Re-proved on this tree that the ceiling is a
+// real stop, the same way 08cd89c did: set to 9 kB the build FAILS rather than
+// warns.
 
 :host {
   // The host is a real element between `.page` and everything below, and a custom
