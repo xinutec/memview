@@ -326,7 +326,14 @@ async fn call(binary: &str, prompt: &str, named: &str) -> Option<String> {
     // this and `deaf.rs` were the two that spawned anonymously. Logged at the
     // spawn rather than at the exit, because the case worth explaining is the one
     // that never reaches an exit.
-    tracing::info!("gists: asking pid {:?} about {named}", child.id());
+    // `unwrap_or(0)` as `session.rs` does, rather than `{:?}`: this line exists
+    // to be read beside a `<defunct>` in `ps`, and `Some(52925)` is not what ps
+    // prints. A child that has already been waited for has no id, and 0 is a pid
+    // no process has.
+    tracing::info!(
+        "gists: asking pid {} about {named}",
+        child.id().unwrap_or(0)
+    );
     let mut stdin = child.stdin.take()?;
     stdin.write_all(prompt.as_bytes()).await.ok()?;
     stdin.flush().await.ok()?;

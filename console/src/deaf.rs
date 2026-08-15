@@ -116,7 +116,12 @@ pub async fn capture(
             tracing::warn!("{program} would not start for {id}");
             continue;
         };
-        tracing::info!("asking pid {:?} about {id} with {program}", probe.id());
+        // Plain, not `{:?}` — see the same line in `gist.rs`: it is read beside
+        // what `ps` prints.
+        tracing::info!(
+            "asking pid {} about {id} with {program}",
+            probe.id().unwrap_or(0)
+        );
         let said = tokio::time::timeout(PATIENCE, probe.wait_with_output()).await;
         let written = match said {
             Ok(Ok(out)) => {
