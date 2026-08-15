@@ -142,9 +142,16 @@ fn another_machines_file_is_marked_and_never_certain() {
 
 #[test]
 fn a_command_that_will_not_parse_says_so() {
-    // 0.4% of the corpus's calls fail to parse. Returning an empty step list for
-    // them would show an unreadable command as a command that did nothing.
-    let answer = asked("case $x in a) echo hi;; esac", Some(true));
+    // 113 of 127,342 distinct commands fail to parse (0.09%, 2026-08-15).
+    // Returning an empty step list for them would show an unreadable command as
+    // a command that did nothing.
+    //
+    // ⚠ **This was `case $x in a) echo hi;; esac` until memview#901 taught the
+    // grammar to read one**, and the test then failed against correct code. An
+    // unclosed quote is the durable example: it is not a gap waiting to be
+    // filled but text that cannot be read by anything, so nothing will ever
+    // close it.
+    let answer = asked("grep \"unterminated file.txt", Some(true));
     assert!(answer.error.is_some());
     assert!(answer.steps.is_empty());
 }

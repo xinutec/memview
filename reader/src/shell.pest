@@ -12,16 +12,28 @@
 //!   4 `&`, groups, escapes, `name() {}`    96.7%
 //!   5 atomic quoting, process substitution 99.5%
 //!   6 `$(( ))`, brace expansion            99.7%
+//!   7 `case … esac`, a compound after `do` 99.9%
 
 script = { SOI ~ term* ~ (pipeline ~ term+)* ~ pipeline? ~ EOI }
 
 pipeline = { command ~ ("|" ~ !"|" ~ command)* }
-// Words and redirections in any order: `> out cat f` is as legal as
+// Words, redirections and compounds in any order: `> out cat f` is as legal as
 // `cat f > out`, and the corpus writes both.
-// Words are tried BEFORE grouping, so `{home,thoth,life}/android` is one word
-// and `{ echo DONE; }` is still a group: a brace-expansion word cannot contain
-// whitespace, so the group form fails the word rule and falls through.
-command = { func_def | (redirect | word)+ | group ~ redirect* }
+//
+// ⚠ **The compounds sit INSIDE the run rather than in front of it**, because a
+// loop keyword is an ordinary word to this grammar: `for f in …; do case "$f" in
+// …` and `for p in …; do (nc -z $ip $p) ; done` each put `do` and the compound
+// in ONE command. While they were reachable only at the start of a command,
+// neither was ever tried — which was both the corpus's commonest `case` and most
+// of what the failure report filed under "subshell / grouping".
+//
+// The order within the run is load-bearing twice over. `case_stmt` goes before
+// `word` so the keyword is not eaten as one. `group` goes AFTER it, so
+// `{home,thoth,life}/android` is one brace-expanded word and only
+// `{ echo DONE; }` is a group: a brace-expansion word cannot contain whitespace,
+// so the group form fails the word rule and falls through. The trailing
+// `group ~ redirect*` is reachable only when the run matched nothing at all.
+command = { func_def | (redirect | case_stmt | word | group)+ ~ redirect* | group ~ redirect* }
 
 // `name() { …; }`. Rare, but without it the empty `()` reads as a subshell
 // containing nothing and the whole command fails.
@@ -35,6 +47,58 @@ func_def = { word ~ "(" ~ ")" ~ group }
 // expansion stays whole because `bare` excludes braces only at a word's start.
 group = { "(" ~ body ~ ")" | "{" ~ body ~ "}" }
 body  = { term* ~ (pipeline ~ term+)* ~ pipeline? ~ term* }
+
+// ---- case ----
+
+// `case "$s" in completed*) break;; esac`.
+//
+// Every other compound — `for`, `while`, `if`, `until` — needs no rule at all:
+// its keywords survive as ordinary words and the commands between them parse
+// like any others, which is why this grammar can read a polling loop without
+// knowing what a loop is. `case` is the one that cannot be waved through, and
+// the reason is one character: `completed*)` closes a paren that was never
+// opened, so the whole command dies at the FIRST arm and takes the loop around
+// it with it. 126 of 366 unreadable commands, the largest bucket by three times
+// (`reader/examples/unparsed-probe.rs`, 2026-08-15).
+//
+// ⚠ **The point is not the `case`.** It is almost always the CI/deploy wait —
+// `for i in $(seq 1 40); do s=$(gh run view …); case "$s" in completed*) break;;
+// esac; sleep 15; done` — so while this would not parse, every `ssh`, `kubectl`
+// and file write in the loop around it was invisible to the miner.
+case_stmt = { kw_case ~ word ~ kw_in ~ NEWLINE* ~ (case_arm ~ NEWLINE*)* ~ kw_esac }
+
+// Keywords, and each needs its boundary checked: `case` here must not match the
+// `case` in `cases.txt`, and `esac` must not match `esacinth`. Atomic, so the
+// lookahead sits against the very next character rather than after pest's
+// implicit whitespace skip — which would defeat both.
+kw_case = @{ "case" ~ &(" " | "\t" | NEWLINE) }
+kw_in   = @{ "in" ~ &(" " | "\t" | NEWLINE) }
+kw_esac = @{ "esac" ~ !(ASCII_ALPHANUMERIC | "_" | "-" | ".") }
+
+// `a|b) …;;`, with the optional opening paren bash also allows. The terminator
+// is optional because the last arm may omit it: `case x in a) y; esac` is legal.
+case_arm = { "("? ~ case_pattern ~ ("|" ~ case_pattern)* ~ ")" ~ case_body ~ case_end? }
+// A glob, not a word: `*29778797*`, `project_irc_archive.md`, `completed*`.
+// Nothing in it is a file — a pattern names what the subject might look like —
+// so it is captured whole and never walked.
+case_pattern = @{ (squoted | dquoted | !("|" | ")" | ";" | WHITESPACE | NEWLINE) ~ ANY)+ }
+
+// The arm's commands. A copy of `body` for one reason: `body`'s `seq` would eat
+// `;;` as two empty statements and run straight on into the next arm's pattern,
+// so the separator has to refuse the terminator. `case_seq` is silent and yields
+// the ordinary `seq` pair, so the walker reads an arm's separators with the same
+// code as everywhere else.
+//
+// The `!kw_esac` guard is the other half: without it the last arm's body claims
+// `esac` as a command and there is nothing left for the statement to close on.
+case_body     = { case_term* ~ (case_pipeline ~ case_term+)* ~ case_pipeline? ~ case_term* }
+case_pipeline = _{ !kw_esac ~ pipeline }
+case_term     = _{ and_if | or_if | case_seq }
+case_seq      = _{ !case_end ~ seq }
+// `;&` and `;;&` fall through to the next arm; this grammar records what ran,
+// and both of them ran, so the distinction costs nothing to ignore. Longest
+// first, or `;;&` matches as `;;` and leaves a stray `&`.
+case_end = _{ ";;&" | ";;" | ";&" }
 
 // ---- redirection ----
 

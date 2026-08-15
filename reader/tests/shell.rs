@@ -413,6 +413,130 @@ fn a_closing_keyword_is_not_a_command_and_ends_no_segment() {
     );
 }
 
+/// `case … esac`, the one compound this grammar had to be taught.
+///
+/// Every other one — `for`, `while`, `until`, `if` — needs no rule: its keywords
+/// survive as ordinary words and the commands between them parse like any
+/// others. `case` cannot be waved through, because `completed*)` closes a paren
+/// that was never opened, so the command dies at the FIRST arm.
+///
+/// ⚠ **The reason to care is not the `case`.** It is almost always the CI or
+/// deploy wait — poll, match the status, break — so while the statement would
+/// not parse, every `ssh`, `kubectl` and file write in the loop AROUND it was
+/// invisible. 126 of 366 unreadable commands, three times the next bucket
+/// (`reader/examples/unparsed-probe.rs`, 2026-08-15).
+#[test]
+fn a_case_arm_is_not_a_stray_paren() {
+    assert_eq!(
+        argvs(r#"case "$s" in completed*) echo done;; *) echo waiting;; esac"#),
+        [vec!["echo", "done"], vec!["echo", "waiting"]]
+    );
+    // A pattern list, the optional opening paren, and an arm with no body at
+    // all — `*.sample) ;;` is how the corpus skips a case it does not want.
+    assert_eq!(
+        argvs("case $f in (a|b|c*) touch x;; *.sample) ;; esac"),
+        [vec!["touch", "x"]]
+    );
+    // The last arm may omit its terminator, which is what makes `esac` able to
+    // be swallowed as a command by the arm's own body.
+    assert_eq!(argvs("case $f in *) touch x; esac"), [vec!["touch", "x"]]);
+}
+
+#[test]
+fn at_most_one_case_arm_ran_so_none_of_them_is_certain() {
+    // The same reasoning as the two halves of an `if`, and the same answer: the
+    // arms are alternatives, so recording one as certain claims a file use that
+    // never happened.
+    //
+    // ⚠ **The subject is not an arm.** `case $(readlink -f x) in` really does
+    // run `readlink`, whichever way the match goes, so it keeps the condition
+    // standing outside the statement.
+    assert_eq!(
+        conditions("case $(readlink -f x) in a) touch p;; *) touch q;; esac"),
+        [Reached::Always, Reached::Sometimes, Reached::Sometimes]
+    );
+    // `&&` inside one arm still needs what precedes it — the arm's uncertainty
+    // and the separator's condition meet rather than one replacing the other.
+    assert_eq!(
+        conditions("case $x in a) p && q;; esac"),
+        [Reached::Sometimes, Reached::Sometimes]
+    );
+}
+
+#[test]
+fn a_case_inside_a_loop_is_reached_through_the_do_keyword() {
+    // REGRESSION, and the reason a rule that only allowed a statement at the
+    // start of a command found almost nothing: `do` is an ordinary word to this
+    // grammar, so `do case "$f" in …` puts the keyword and the statement in ONE
+    // command. This is the corpus's commonest `case` by a wide margin.
+    //
+    // The point of the test is the `ssh` — the whole loop was unreadable while
+    // the `case` in it was, so a remote command nobody could see ran every
+    // fifteen seconds.
+    assert_eq!(
+        argvs(
+            r#"for i in 1 2 3; do s=$(ssh host status); case "$s" in done*) break;; esac; sleep 15; done"#
+        ),
+        [
+            vec!["for", "i", "in", "1", "2", "3"],
+            vec!["ssh", "host", "status"],
+            vec!["do", "s=$(ssh host status)"],
+            vec!["break"],
+            vec!["sleep", "15"],
+            vec!["done"],
+        ]
+    );
+}
+
+#[test]
+fn defining_a_function_runs_none_of_it() {
+    // ⚠ **The other place this reader could invent a file use**, and it was
+    // there from the round that added `name() { … }` — surfacing only when the
+    // #901 grammar made nine more definitions parse. Binding a name writes
+    // nothing, so recording the body as certain credits a write to `/tmp/o` to a
+    // line that only said what `f` would do if anyone called it.
+    //
+    // The body is kept, not dropped: when the function IS called, its commands
+    // are the only place those effects appear — the call site names no files.
+    assert_eq!(
+        conditions("f() { curl -s http://x > /tmp/o; }\necho hi"),
+        [Reached::Sometimes, Reached::Always]
+    );
+    // The definition does not make what FOLLOWS it uncertain — only its own
+    // body, which is the difference between this and an `if` left open.
+    assert_eq!(
+        argvs("f() { touch a; }\ntouch b"),
+        [vec!["touch", "a"], vec!["touch", "b"]]
+    );
+}
+
+#[test]
+fn a_subshell_after_a_loop_keyword_is_still_a_subshell() {
+    // REGRESSION, and the same one command over: `do ( … )` puts the keyword and
+    // the group together, so a `group` reachable only at the start of a command
+    // was unreachable in a loop. This was most of what the failure report filed
+    // under "subshell / grouping", and the argument for caring is the same as
+    // for `case` — `(cd $d && git commit …)` is a real write nobody could see.
+    assert_eq!(
+        argvs("for d in a b; do (cd $d && git commit -m x) ; done"),
+        [
+            vec!["for", "d", "in", "a", "b"],
+            vec!["cd", "$d"],
+            vec!["git", "commit", "-m", "x"],
+            vec!["do"],
+            vec!["done"],
+        ]
+    );
+    // ⚠ **The subshell must keep its own directory.** That is the whole reason
+    // the group is not just flattened into the enclosing command: without a
+    // scope of its own, every later relative path resolves against `$d`.
+    let cmds = parse("for d in a b; do (cd $d && git commit -m x) ; done").unwrap();
+    let committed = cmds.iter().find(|c| c.argv[0] == "git").unwrap();
+    assert!(!committed.scope.is_empty());
+    let after = cmds.iter().find(|c| c.argv[0] == "done").unwrap();
+    assert!(after.scope.is_empty());
+}
+
 /// ⚠ **`<<` is not an operator just because it is two characters.**
 ///
 /// The opener scan reads bytes, so anything merely CONTAINING `<<` looked like

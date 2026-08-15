@@ -424,11 +424,63 @@ fn walk(
                 out.push(cmd);
             }
         }
+        // `case x in a) … ;; b) … ;; esac`. The arms are alternatives, so at most
+        // one of them ran and none of them is certain — the same reasoning, and
+        // the same [`Reached::Sometimes`], that [`branch`] gives the two halves
+        // of an `if`. Recording an arm as `Always` would claim a file use that
+        // never happened, which is the one direction of error this reader is
+        // built to avoid.
+        //
+        // ⚠ **The subject is not an arm.** `case $(readlink -f "$p") in` really
+        // does run `readlink`, whichever way the match goes, so it keeps the
+        // condition standing outside the statement.
+        Rule::case_stmt => {
+            for inner in pair.into_inner() {
+                match inner.as_rule() {
+                    Rule::word => {
+                        for part in inner.into_inner() {
+                            if matches!(part.as_rule(), Rule::subst | Rule::backtick) {
+                                nested(part, scope, next, out, reached);
+                            }
+                        }
+                    }
+                    Rule::case_arm => {
+                        walk(inner, scope, next, out, reached.and(Reached::Sometimes));
+                    }
+                    // The keywords carry nothing; the patterns are globs, not
+                    // files, and are never walked.
+                    _ => {}
+                }
+            }
+        }
+        // ⚠ **Defining a function runs none of it.** `f() { curl … > out; }`
+        // records a write to `out` at the moment the *name* is bound, and the
+        // body may never be called at all — the reader claiming a file use that
+        // did not happen, which is the one error it is built not to make. It was
+        // there from the round that added `func_def` and only surfaced when
+        // memview#901 made nine more definitions parse.
+        //
+        // The body is kept rather than dropped, because when the function IS
+        // called its commands are the only place those effects appear — and a
+        // call site is an `Unknown` op that names no files. So it lands in
+        // [`Reached::Sometimes`], which is precisely "runs sometimes and the text
+        // cannot say when".
+        Rule::func_def => {
+            // The body, and only the body: the name binds and does nothing.
+            for inner in pair.into_inner().filter(|p| p.as_rule() == Rule::group) {
+                let inside = if subshell(&inner) {
+                    descend(scope, next)
+                } else {
+                    scope.to_vec()
+                };
+                walk(inner, &inside, next, out, reached.and(Reached::Sometimes));
+            }
+        }
         _ => {
             // Only the rules that hold a *sequence* carry branch keywords; a
             // pipeline's own children would otherwise re-read the same `then`
             // and a group's would read one that belongs to its caller.
-            let sequence = matches!(pair.as_rule(), Rule::script | Rule::body);
+            let sequence = matches!(pair.as_rule(), Rule::script | Rule::body | Rule::case_body);
             // The separators are read as they are passed, so each command is
             // walked under the condition standing at its own position: in
             // `a && b; c`, `b` needs `a` to have worked and `c` needs nothing.

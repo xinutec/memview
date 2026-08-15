@@ -34,6 +34,34 @@
 //! and a taxonomy with one member is not worth the two mechanisms it costs.
 //! #820 is closed on that; the gaps it exposed are ordinary gaps.
 //!
+//! **And then the top two buckets were closed, which is what the probe was for**
+//! (memview#901, 2026-08-15). Over 127,342 distinct commands, unparsed went
+//! **366 → 113** and the corpus went from 99.7% readable to 99.9%:
+//!
+//!     case … esac        126 → 7
+//!     unbalanced )       158 → 38
+//!     simple commands    535,634 → 538,983
+//!
+//! ⚠ **It was one shared cause, and the `case` rule alone did a third of it.**
+//! Both compounds were reachable only at the START of a command, and `do` is an
+//! ordinary word to this grammar — so `do case "$f" in …` and `do (cd $d && git
+//! commit …)` both put the keyword and the compound in one command, and neither
+//! was ever tried. Letting the word run hold them took a further 137.
+//!
+//! ⚠ **The seven `case`s that remain are not `case` failures.** Six choke on
+//! something else in the same command — `done < <(…)`, quoting inside a `--jq`
+//! argument — and the seventh is a `case` inside `$( … )`, where `subst_body`
+//! scans to the first unbalanced `)` and so ends at the first arm's pattern. One
+//! command in the corpus; the fix is a substitution body that knows about arms,
+//! which costs more than it buys.
+//!
+//! ⚠ **A parse rate is not a coverage figure, and this is where that bites.**
+//! 99.9% of commands parse, and a command that parses can still hide the ones
+//! inside it: a `$( … )` in double quotes is matched whole by the atomic
+//! `dquoted` rule and never walked, which is 8,300 distinct commands — 6.5%,
+//! seventy times this whole table — reporting nothing while looking clean.
+//! memview#918.
+//!
 //! ⚠ **The count moves when the parser changes**, so it is not a ratchet and is
 //! not asserted anywhere. memview#835 took it from 416 to 358 by itself.
 
