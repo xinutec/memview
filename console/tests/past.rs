@@ -1037,12 +1037,44 @@ fn the_tail_is_where_a_finished_background_task_is_found() {
     drop(file);
 
     let after = counted(&path, before.counted);
-    assert_eq!(after.finished, vec!["toolu_probe".to_string()]);
+    assert_eq!(
+        after.finished,
+        vec![console::protocol::Named::Call("toolu_probe".to_string())]
+    );
     // And it is not an exchange: nobody said anything. The count is cumulative,
     // so the test is that it did not move.
     assert_eq!(
         after.counted.interactions, before.counted.interactions,
         "a notification is not somebody speaking"
+    );
+}
+
+#[test]
+fn a_monitor_that_timed_out_is_found_there_too_under_its_other_name() {
+    // ⚠ **This is the path that matters for a monitor, not the live stream.**
+    // The notification is written to the transcript and never put on stdout, so
+    // a running session finds every ending here — including the one kind that
+    // cannot name the call it came from. Verbatim from 2026-08-15, where
+    // memview #925 was noticed: a monitor timed out at 14:06:32 and was still
+    // drawn as running an hour later.
+    let root = scratch("timed-out");
+    spoken(&root, "watching", &[1], None);
+    let path = transcript_of(&root, "watching").expect("transcript");
+    let before = counted(&path, Counted::default());
+
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .expect("append");
+    use std::io::Write;
+    let queued = r#"{"type":"queue-operation","operation":"enqueue","content":"<task-notification>\n<task-id>b9drzo2f6</task-id>\n<summary>Monitor event: \"fleet bump progress, per repo\"</summary>\n<event>[Monitor timed out — re-arm if needed.]</event>\n</task-notification>"}"#;
+    writeln!(file, "{queued}").expect("write");
+    drop(file);
+
+    assert_eq!(
+        counted(&path, before.counted).finished,
+        vec![console::protocol::Named::Task("b9drzo2f6".to_string())],
+        "named by its task, which is the only name it has"
     );
 }
 

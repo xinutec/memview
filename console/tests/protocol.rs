@@ -371,17 +371,78 @@ fn a_task_notification_is_not_something_the_person_said() {
     let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[SYSTEM NOTIFICATION]\n<task-notification>\n<task-id>b74zci1hw</task-id>\n<tool-use-id>toolu_011Cnk</tool-use-id>\n<status>completed</status>\n</task-notification>"}]}}"#;
     assert!(matches!(
         read(line).as_slice(),
-        [Event::Background { tool, status }] if tool == "toolu_011Cnk" && status == "completed"
+        [Event::Background { tool: Some(tool), task: None, status }]
+            if tool == "toolu_011Cnk" && status == "completed"
     ));
 }
 
 #[test]
-fn a_notification_without_a_tool_call_names_nothing() {
-    // Matched on the tool-use id rather than the task id, because that is what
-    // ties it to the call that started it. One without is not usable and must
-    // not become a prompt either.
+fn a_notification_that_names_neither_the_call_nor_an_ending_names_nothing() {
+    // A task id alone is not enough. It identifies work, but says nothing about
+    // whether that work is over — and the shape below is overwhelmingly a
+    // monitor still reporting. Not usable, and it must not become a prompt
+    // either.
     let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<task-notification>\n<task-id>b1</task-id>\n</task-notification>"}]}}"#;
     assert!(read(line).is_empty(), "neither an event nor a prompt");
+}
+
+#[test]
+fn a_monitors_timeout_is_an_ending_that_can_only_name_its_task() {
+    // ⚠ **Verbatim, and the whole of memview #925.** A monitor's three ordinary
+    // endings — `stream ended`, `script failed`, `stopped`, 687 of them on this
+    // machine — all carry a `<tool-use-id>` and close through the branch above.
+    // Its timeout carries none, so the console kept counting it: monitor
+    // b9drzo2f6 was armed at 13:16:30 on 2026-08-15, timed out at 14:06:32, and
+    // was still drawn as running at 15:00, when Pippijn asked why one session
+    // had two monitors.
+    let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<task-notification>\n<task-id>b9drzo2f6</task-id>\n<summary>Monitor event: \"fleet bump progress, per repo\"</summary>\n<event>[Monitor timed out — re-arm if needed.]</event>\n</task-notification>"}]}}"#;
+    assert!(
+        matches!(
+            read(line).as_slice(),
+            [Event::Background { tool: None, task: Some(task), .. }] if task == "b9drzo2f6"
+        ),
+        "got {:?}",
+        read(line)
+    );
+}
+
+#[test]
+fn a_monitor_reporting_is_not_a_monitor_ending() {
+    // ⚠ **The reason the ending is matched on its words and not on the absence
+    // of a call.** Every line a monitor emits arrives as a notification of the
+    // same shape — 3,114 of them on this machine against 68 timeouts — so
+    // "names no call, therefore finished" would have closed the fleet-bump
+    // monitor at 13:18:12 on its first line of output rather than at 14:06:32,
+    // which is a worse lie than the one it replaced and in the same direction
+    // as showing nothing running.
+    for (what, event) in [
+        (
+            "its ordinary output",
+            "=== coach: frontend/package.json ===",
+        ),
+        // ⚠ A payload is arbitrary text, and the phrase is only the harness's by
+        // convention. This session's own grep for the timeout line printed it,
+        // and a monitor watching that output would have ended itself — the
+        // defect `detached` learned the hard way, where reading about the thing
+        // counted as doing it.
+        (
+            "output that quotes the timeout line",
+            "  68 [Monitor timed out — re-arm if needed.]",
+        ),
+    ] {
+        let line = format!(
+            r#"{{"type":"user","message":{{"role":"user","content":[{{"type":"text","text":"<task-notification>\n<task-id>b9drzo2f6</task-id>\n<summary>Monitor event: \"fleet bump progress\"</summary>\n<event>{event}</event>\n</task-notification>"}}]}}}}"#
+        );
+        assert!(read(&line).is_empty(), "{what}");
+    }
+}
+
+#[test]
+fn a_greeting_about_inherited_work_is_not_an_ending() {
+    // Four on this machine, and they arrive when a session is resumed. It says
+    // work exists, which is the opposite of saying it is over.
+    let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<task-notification>\n<task-id>bq1</task-id>\n<summary>2 background shell command task(s) from the previous session</summary>\n</task-notification>"}]}}"#;
+    assert!(read(line).is_empty(), "an inheritance, not an ending");
 }
 
 #[test]
@@ -690,10 +751,28 @@ fn the_harness_notification_is_what_closes_one() {
     // rather than by order — background work finishes out of order by nature.
     assert_eq!(
         console::protocol::running(&Event::Background {
-            tool: "toolu_bg".to_string(),
+            tool: Some("toolu_bg".to_string()),
+            task: None,
             status: "completed".to_string(),
         }),
-        console::protocol::Running::Ended("toolu_bg".to_string())
+        console::protocol::Running::Ended(console::protocol::Named::Call("toolu_bg".to_string()))
+    );
+}
+
+#[test]
+fn an_ending_that_knows_only_the_task_says_so_rather_than_guessing() {
+    // ⚠ **The two id spaces are not interchangeable and the type says which.**
+    // `state.background` is keyed by the call, so an ending naming one is a
+    // removal and an ending naming a task is a search. Written as a fallback —
+    // try it as a call, then as a task — this would pass today on the shapes of
+    // `toolu_…` and `b…`, and break in silence the day either changes.
+    assert_eq!(
+        console::protocol::running(&Event::Background {
+            tool: None,
+            task: Some("b9drzo2f6".to_string()),
+            status: "done".to_string(),
+        }),
+        console::protocol::Running::Ended(console::protocol::Named::Task("b9drzo2f6".to_string()))
     );
 }
 

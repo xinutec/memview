@@ -688,6 +688,27 @@ const DEAF_AFTER_MS: i64 = 90_000;
 /// wolf it might cry.
 const DEAF_AFTER_COMPACT_MS: i64 = 15 * 60_000;
 
+/// Drop one piece of background work from the count, by whichever name the
+/// thing that ended it knew.
+///
+/// Both ways in — the live stream and the reread of the file — end work by both
+/// names, so the branch lives here rather than twice. A removal for a call
+/// because the map is keyed by them; a search for a task because it is carried
+/// on the value, and a monitor that timed out has no other name to give.
+fn forget(
+    background: &mut std::collections::BTreeMap<String, crate::protocol::Called>,
+    named: &crate::protocol::Named,
+) {
+    match named {
+        crate::protocol::Named::Call(call) => {
+            background.remove(call);
+        }
+        crate::protocol::Named::Task(task) => {
+            background.retain(|_, started| started.task.as_deref() != Some(task.as_str()));
+        }
+    }
+}
+
 /// Keep track of what is in flight, and of whether the session is in a position
 /// to read it.
 ///
@@ -1016,8 +1037,8 @@ impl Session {
         // The other half of what that read found: work the harness has reported
         // finished. It closes the count here rather than through an event,
         // because there is no event — see [`crate::past::Appended::finished`].
-        for tool in found.finished {
-            state.background.remove(&tool);
+        for named in &found.finished {
+            forget(&mut state.background, named);
         }
         // ⚠ **A compaction is announced in the file and nowhere else**, so this
         // read is the only way a running session learns that its own fullness
@@ -1957,14 +1978,12 @@ impl Session {
                     named.task = task;
                     state.background.insert(tool, named);
                 }
-                protocol::Running::Ended(id) => {
-                    state.background.remove(&id);
-                }
+                protocol::Running::Ended(named) => forget(&mut state.background, &named),
                 // By the task, because that is the only name a kill gives — and
                 // the call it belonged to is never heard from again.
-                protocol::Running::Killed(task) => state
-                    .background
-                    .retain(|_, started| started.task.as_deref() != Some(task.as_str())),
+                protocol::Running::Killed(task) => {
+                    forget(&mut state.background, &protocol::Named::Task(task));
+                }
                 protocol::Running::Gone => state.background.clear(),
                 protocol::Running::Quiet => {}
             }

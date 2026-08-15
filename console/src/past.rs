@@ -493,9 +493,10 @@ pub struct Counted {
 #[derive(Debug, Clone, Default)]
 pub struct Appended {
     pub counted: Counted,
-    /// Background tasks the harness reported finished, by the id of the call
-    /// that started each — the same id [`crate::protocol::Running::Began`]
-    /// carries.
+    /// Background tasks the harness reported finished, by whichever name each
+    /// notification gave — usually the call that started it, the same id
+    /// [`crate::protocol::Running::Began`] carries, and for a monitor's timeout
+    /// the task id instead. See [`crate::protocol::Named`].
     ///
     /// ⚠ **This is the only way a live session ever finds out.** A backgrounded
     /// call returns at once with a task id, so its notification is the sole
@@ -504,7 +505,7 @@ pub struct Appended {
     /// replay on stdout. Measured 2026-08-06: every `Background` event this
     /// console had ever shown came from a seed replaying the file, and a task
     /// that finished in 75 seconds sat on the front page for 26 minutes.
-    pub finished: Vec<String>,
+    pub finished: Vec<crate::protocol::Named>,
     /// Whether a compaction was filed among these bytes.
     ///
     /// ⚠ **The only way a running session finds out.** The CLI writes the
@@ -811,7 +812,13 @@ pub fn counted(path: &Path, so_far: Counted) -> Appended {
                 // measured, and see [`Appended::finished`] — so the reader of the
                 // stream never sees one. It is in the file, in the same few
                 // kilobytes this is already reading for the count.
-                crate::protocol::Event::Background { tool, .. } => finished.push(tool),
+                ref background @ crate::protocol::Event::Background { .. } => {
+                    if let crate::protocol::Running::Ended(named) =
+                        crate::protocol::running(background)
+                    {
+                        finished.push(named);
+                    }
+                }
                 _ => {}
             }
         }

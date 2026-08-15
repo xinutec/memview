@@ -164,16 +164,25 @@ pub enum Event {
         name: String,
         input: serde_json::Value,
     },
-    /// A background task the harness has finished with, named by the tool call
-    /// that started it.
+    /// A background task the harness has finished with, named by whichever of
+    /// the two ids the notification gave.
     ///
     /// Its own event rather than a prompt: the notification arrives filed as a
     /// *user* message, so without this it renders as something the person
     /// typed. It is also the only end-of-work signal for a backgrounded
     /// command — the tool call that started one returns at once, so nothing
     /// else says the work is over.
+    ///
+    /// ⚠ **Exactly one of the two is present, and [`finished`] is the only
+    /// thing that builds one.** Almost every notification names the call, which
+    /// is the useful name because it is what the count is keyed by. A monitor's
+    /// timeout names only the task — see [`ends_without_naming_the_call`] — and
+    /// an ending that cannot be read is a count that never comes down.
     Background {
-        tool: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tool: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        task: Option<String>,
         status: String,
     },
     /// A tool call came back.
@@ -563,8 +572,10 @@ pub enum Running {
     /// `task` the harness gave it. `task` is `None` for a detach whose id could
     /// not be read — still running, merely not matchable to a kill.
     Began { tool: String, task: Option<String> },
-    /// The harness says one has finished, naming the call that started it.
-    Ended(String),
+    /// The harness says one has finished, by whichever name the notification
+    /// gave — usually the call that started it, and for a monitor's timeout the
+    /// task, which is the only name that one speaks.
+    Ended(Named),
     /// A task was stopped from here, named by its task id. Killing one is the
     /// other way work ends, and the only way that reports nothing afterwards.
     Killed(String),
@@ -572,6 +583,25 @@ pub enum Running {
     Gone,
     /// This event says nothing about background work.
     Quiet,
+}
+
+/// Which of a background task's two names an ending speaks.
+///
+/// ⚠ **A type rather than a convention, because the two id spaces are not
+/// interchangeable and the count is keyed by only one of them.** The call is
+/// what `state.background` is keyed by, so an ending that names it is a
+/// removal; the task is carried alongside, so an ending that names that is a
+/// search. Written as a fallback — try it as a call, then as a task — this
+/// would work by accident, on the shapes of the two id formats, and go wrong in
+/// silence the day one of them changes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Named {
+    /// The `tool_use` id of the call that started the work. What all but one
+    /// kind of notification gives.
+    Call(String),
+    /// The task id the harness gave the work. What a kill speaks, and what a
+    /// monitor's timeout speaks.
+    Task(String),
 }
 
 /// Read one event for what it says about work left running.
@@ -608,7 +638,14 @@ pub fn running(event: &Event) -> Running {
             (None, Some(task)) => Running::Killed(task),
             (None, None) => Running::Quiet,
         },
-        Event::Background { tool, .. } => Running::Ended(tool.clone()),
+        Event::Background { tool, task, .. } => match (tool, task) {
+            (Some(call), _) => Running::Ended(Named::Call(call.clone())),
+            (None, Some(task)) => Running::Ended(Named::Task(task.clone())),
+            // Unreachable through `finished`, which builds no such event. Quiet
+            // rather than a panic: the failure to avoid is a count stuck up, and
+            // an event naming nothing cannot bring one down either way.
+            (None, None) => Running::Quiet,
+        },
         Event::Joined { .. } => Running::Gone,
         _ => Running::Quiet,
     }
@@ -1457,12 +1494,59 @@ fn finished(text: &str) -> Option<Event> {
     if !is_notification(text) {
         return None;
     }
-    Some(Event::Background {
-        tool: between(text, "<tool-use-id>", "</tool-use-id>")?.to_string(),
-        status: between(text, "<status>", "</status>")
-            .unwrap_or("done")
-            .to_string(),
+    let status = between(text, "<status>", "</status>")
+        .unwrap_or("done")
+        .to_string();
+    // The ordinary case by a very wide margin, and the useful one: the count is
+    // keyed by the call, so this needs no searching.
+    if let Some(call) = between(text, "<tool-use-id>", "</tool-use-id>") {
+        return Some(Event::Background {
+            tool: Some(call.to_string()),
+            task: None,
+            status,
+        });
+    }
+    let task = between(text, "<task-id>", "</task-id>")?;
+    ends_without_naming_the_call(text).then(|| Event::Background {
+        tool: None,
+        task: Some(task.to_string()),
+        status,
     })
+}
+
+/// Whether a notification that names no call is nonetheless an ending.
+///
+/// ⚠ **Most notifications that name no call are a monitor's ordinary output,
+/// and ending on those would be far worse than the bug this exists to fix.** A
+/// monitor reports every matching line as a notification of exactly this shape,
+/// so a rule of "no call named, therefore finished" would have closed the
+/// fleet-bump monitor on its first line of output rather than 50 minutes later
+/// at its timeout. Measured across this machine's transcripts:
+///
+/// - **3,114** name no call and are a monitor event — still running, every one.
+/// - **68** are a monitor that timed out, which is an ending and the whole
+///   reason for this function.
+/// - **2** are the harness giving up on finding an agent's completion. Its
+///   sibling for shell commands — *No completion record was found for this
+///   background shell command*, 28 of them — carries a call id and already
+///   counts as an ending, so this is consistency rather than a second guess.
+/// - **4** announce shell tasks inherited from a previous session, which is a
+///   greeting and not an ending.
+///
+/// ⚠ **Anchored to its own tag, never `contains`.** The phrases are the
+/// harness's, but a monitor's *payload* is arbitrary text: one watching a log
+/// that quoted the timeout line would end itself, which is the same defect as
+/// [`detached`]'s — reading about the thing counted as doing it. The timeout is
+/// the whole of its event, and the agent line opens its summary.
+///
+/// Every ending that names a call is left to the branch above. `stream ended`,
+/// `script failed` and `stopped` — a monitor's three ordinary endings, 687 of
+/// them — all carry one and never reach here.
+fn ends_without_naming_the_call(text: &str) -> bool {
+    const TIMED_OUT: &str = "[Monitor timed out — re-arm if needed.]";
+    const NO_RECORD: &str = "No completion record was found for background agent";
+    between(text, "<event>", "</event>") == Some(TIMED_OUT)
+        || between(text, "<summary>", "</summary>").is_some_and(|said| said.starts_with(NO_RECORD))
 }
 
 /// Whether this text is the harness reporting on a background task at all.

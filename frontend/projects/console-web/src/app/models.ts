@@ -290,8 +290,14 @@ export interface SessionEvent {
   code?: number;
   detail?: string;
   /** `ask`: the tool it wants to run. `background`: the tool call that started
-   *  the task now reported finished. */
+   *  the task now reported finished — absent on the one ending that cannot name
+   *  it, where `task` carries the harness's id instead. */
   tool?: string;
+  /** `background` only: the harness's task id, present only when the
+   *  notification named no call. A monitor's timeout is the only ending like
+   *  that, and reading it is what stops a timed-out monitor being counted as
+   *  running for the rest of the session. */
+  task?: string;
   /**
    * `ask` only: the call being asked about — the `tool_use` id, which is the
    * `id` of the `tool` event the CLI sent a moment earlier.
