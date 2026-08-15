@@ -347,8 +347,11 @@ fn the_separator_says_whether_the_next_command_runs() {
     // `b` never ran — 1,220 file uses in the corpus's failed calls.
     assert_eq!(conditions("a; b"), [Reached::Always, Reached::Always]);
     assert_eq!(conditions("a && b"), [Reached::Always, Reached::OnSuccess]);
-    // `||` is not the mirror of `&&`: exit 0 on `a || b` cannot tell "a worked
-    // and b was skipped" from "a failed and b worked", so it is never certain.
+    // Exit 0 on `a || b` cannot tell "a worked and b was skipped" from "a failed
+    // and b worked", so `||` is not the mirror of `&&` on the status the corpus
+    // is mostly made of. A non-zero exit IS the mirror and is knowable; it is
+    // declined on size rather than on principle — see the case below and
+    // `Reached::Sometimes`.
     assert_eq!(conditions("a || b"), [Reached::Always, Reached::Sometimes]);
     // A newline and `&` end a list exactly as `;` does.
     assert_eq!(conditions("a\nb"), [Reached::Always, Reached::Always]);
@@ -361,6 +364,39 @@ fn a_chain_of_ands_is_still_one_condition() {
     assert_eq!(
         conditions("a && b && c"),
         [Reached::Always, Reached::OnSuccess, Reached::OnSuccess]
+    );
+}
+
+#[test]
+fn the_knowledge_in_a_failed_or_chain_is_declined_on_size_not_on_principle() {
+    // ⚠ **These three are all `Sometimes`, and one of them need not be.**
+    // memview #101 asked for a fourth domain point, `OnFailure`, to recover the
+    // right-hand side of a `||` when the call failed. Measured 2026-08-15 over
+    // 132,554 calls: 4,945 failed at all, 390 of those contain `||`, and 113
+    // file uses inside them land in this bucket — a ceiling, and 0.59% of it.
+    // Too small to pay for, so the reader keeps saying "cannot tell".
+    //
+    // ⚠ **What the measuring found that the task had not.** The recoverable
+    // knowledge is not one point in a lattice, it is one sentence: *a non-zero
+    // exit proves the last `||` alternative of the final segment ran.* Both
+    // shapes below fall out of it — a chain, because each link failing in turn
+    // is the only way to reach the end; and the mixed form, because `a && b`
+    // exiting non-zero sends control to `c` whichever way it got there. Neither
+    // needs `OnFailure`, and neither needs `Reached::and` touched. `b` is the
+    // part no domain point could ever confirm.
+    assert_eq!(
+        conditions("a || b || c"),
+        [Reached::Always, Reached::Sometimes, Reached::Sometimes]
+    );
+    assert_eq!(
+        conditions("a && b || c"),
+        [Reached::Always, Reached::OnSuccess, Reached::Sometimes]
+    );
+    // And the scope is kept, so a rule that ever does read this can tell an
+    // alternative inside a subshell from one at the top level.
+    assert_eq!(
+        conditions("( a || b )"),
+        [Reached::Always, Reached::Sometimes]
     );
 }
 

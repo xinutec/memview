@@ -51,6 +51,29 @@ pub enum Reached {
     /// After `||`, or under some condition this does not model. Runs sometimes,
     /// and the text cannot say when — the bucket that must never be counted as
     /// certain, whatever the call's exit status turned out to be.
+    ///
+    /// ⚠ **The `||` half of this is knowable and is thrown away on purpose.
+    /// Measured 2026-08-15, memview #101, and the answer was no.** A non-zero
+    /// exit on `a || b` proves `b` ran: had `a` succeeded the chain would have
+    /// exited 0. The mirror of the `&&` rule in [`crate::doing::Verdict::admits`],
+    /// and it is not implemented because the prize is too small to pay for:
+    ///
+    /// - **4,945** of 132,554 calls failed at all, and only a failure can
+    ///   confirm a `||`. Everything else is out of reach by arithmetic.
+    /// - **390** of those contain `||` anywhere in their text.
+    /// - **113** file uses inside those sit in this bucket — a *ceiling*, since
+    ///   it still counts `&&`s demoted by [`forget_discarded_status`] and
+    ///   alternatives outside the final segment. Against 19,202 here and 179,477
+    ///   confirmed, that is 0.59% of the bucket and 0.06% of the answer.
+    ///
+    /// ⚠ **And when it is worth doing, it will not need the fourth domain point
+    /// the task assumed.** Six hand-written scripts read command by command:
+    /// `a || b || c` confirms every link, because a non-zero exit means each in
+    /// turn failed; and `a && b || c` confirms `c` too, since that chain can
+    /// only exit non-zero through `c`. Both fall out of one rule — *a non-zero
+    /// exit proves the last `||` alternative of the final segment ran* — which
+    /// needs no `OnFailure` and no change to [`Reached::and`]. What it cannot
+    /// confirm is `b`, and no domain point would.
     #[serde(rename = "?")]
     Sometimes,
 }
