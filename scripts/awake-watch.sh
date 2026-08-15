@@ -72,9 +72,20 @@ FAULTS=0
 SAMPLES=0
 DEADLINE=$(( $(date +%s) + HOURS * 3600 ))
 
+# ⚠ **Silence has to be distinguishable from death.** A watcher that only speaks
+# on a fault reads exactly the same whether it is healthy, wedged, or was killed
+# an hour ago — and a run that sampled nothing looks like a run that found
+# nothing. Both mistakes were made in one night getting here. So it says how much
+# it has actually seen, periodically, and the count is the evidence rather than
+# the quiet.
+PROGRESS_EVERY=30
+
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
   if watching; then
     SAMPLES=$((SAMPLES + 1))
+    if [ $((SAMPLES % PROGRESS_EVERY)) -eq 0 ]; then
+      say "still watching — $SAMPLES sample(s) with the console in front, $FAULTS fault(s)"
+    fi
     if [ "$(held)" -eq 0 ]; then
       case "$(pressed)" in
         true)
