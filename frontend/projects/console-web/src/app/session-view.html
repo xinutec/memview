@@ -615,38 +615,38 @@
       (keydown.control.enter)="send()"
     ></textarea>
   </mat-form-field>
-  <!-- A mini FAB, which is the filled circle the reference does. Google Messages,
-       looked at on the phone 2026-08-15, puts every secondary action INSIDE the
-       field — a leading `+`, then emoji and picture trailing — and leaves exactly
-       one thing outside it: the primary action, as a filled circular button. A
-       bare glyph beside a bare glyph gave the picture and the send equal weight,
-       which is what made the row read as two loose icons around a box.
-       ⚠ Not an icon button with a background painted on: `matIconButton` takes no
-       inputs at all in this version — there is no filled or tonal variant of it —
-       and `matMiniFab` IS the component for a 40px filled circular action.
-       Hand-rolling the fill would have been inventing a control Material ships.
+  <!-- ⚠ **Beside the send, NOT inside the field as `matIconSuffix` — which was
+       built and looked at before this was.** Inside is what Google Messages does
+       (looked at on the phone, 2026-08-15: a leading `+`, then emoji and picture
+       trailing, all within the field) and it is better at one row. But Material
+       centres a suffix vertically and this field autosizes to six rows, so at
+       full height the glyph floats in the middle of the box and its column costs
+       width on EVERY line of a 412px screen. Bottom-aligning it means reaching
+       into `.mat-mdc-*`, which DL-SCSS-INTERNAL-OVERRIDE and DL-SCSS-NG-DEEP both
+       forbid — and rightly: there is no `::ng-deep` anywhere in this app. -->
+  <button matIconButton type="button" aria-label="show an image" (click)="picker.click()">
+    <mat-icon>image</mat-icon>
+  </button>
+  <!-- ⚠ **A `matMiniFab` was tried here and reverted, over a shape token.** M3's
+       answer for a high-emphasis single glyph is the FILLED ICON BUTTON, which is
+       circular — `icon-button-container-shape: corner-full`. Angular Material
+       does not implement it: the icon-button token set has no `container-color`
+       at all, only icon and state-layer colours, which is why `matIconButton`
+       takes no inputs and why angular/components#33091 is open. The nearest stock
+       filled control is the small FAB, and in M3 that is a ROUNDED SQUARE
+       (`fab-small-container-shape: corner-medium`, 12px) — M2's circular FAB is
+       gone. So it sat at 12px beside an icon button at `corner-full`: two shape
+       languages in one row, which is a standard nowhere.
+       Both plain, therefore, until Material ships the variant. A filled send
+       would carry useful emphasis, but it costs either a hand-rolled background
+       or a mismatched shape, and neither is worth it here.
        ⚠ Not a filled TEXT button holding an icon either: that variant carries
        `min-width: 64px` and label padding it will never use, so a single glyph
        sits adrift in a wide pill. DL-ANGULAR-ICON-ONLY-TEXT-BUTTON catches that;
        the rule was written from this button. -->
-  <!-- ⚠ **Beside the send, NOT inside the field as `matIconSuffix` — which was
-       built and looked at before this was.** Inside is what the reference does
-       and it is better at one row; but Material centres a suffix vertically, and
-       this field autosizes to six, so at full height the glyph floats in the
-       middle of the box and its column costs width on EVERY line of a 412px
-       screen. Bottom-aligning it means reaching into `.mat-mdc-*`, which
-       DL-SCSS-INTERNAL-OVERRIDE and DL-SCSS-NG-DEEP both forbid — and rightly:
-       there is no `::ng-deep` anywhere in this app. So the choice is Material's
-       centring or no rule at all, and neither is worth it for a button that
-       reads fine here.
-       Left of the send and plainer than it, so the row is one primary action
-       with a secondary beside it rather than the two equal glyphs it was. -->
-  <button matIconButton type="button" aria-label="show an image" (click)="picker.click()">
-    <mat-icon>image</mat-icon>
-  </button>
   <button
     class="send"
-    matMiniFab
+    matIconButton
     type="submit"
     aria-label="send"
     [disabled]="sending() || (!text() && !picture())"
