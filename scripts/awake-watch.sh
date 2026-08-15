@@ -5,12 +5,22 @@
 #   tail -f ~/Library/Logs/awake-watch.log
 #
 # WHY A WATCHER AND NOT A TEST. memview#892 was found twice by hand, hours apart,
-# and never reproduced deliberately. The obvious mechanism — Android freezing the
-# process and taking the lock back — was MEASURED NOT TO DO THAT on 2026-08-15:
-# `am freeze --sticky` for 45s while the app was in front left KEEP_SCREEN_ON
-# standing, because the flag lives on the window in WindowManager and survives a
-# frozen process. So there is no known way to induce the fault, and a green run
-# of anything proves only that the fault did not happen while it ran.
+# and never reproduced deliberately.
+#
+# ⚠ **What was measured about freezing is NARROWER than "the freeze theory is
+# dead", which is how it first got written down.** On 2026-08-15 `am freeze
+# --sticky` for 45s with the app in FRONT left KEEP_SCREEN_ON standing — so
+# freezing does not strip the window flag, because the flag lives in
+# WindowManager and outlives the process being stopped. It says nothing about the
+# real sequence: Android's cached-app freezer SIGSTOPs a process ~40s after
+# SCREEN-OFF (memory `reference_android_cached_app_freezer`), and a stopped
+# process runs no JavaScript — so the page cannot notice a lock it lost, and
+# cannot re-take one, for as long as it is frozen. That is precisely why the fix
+# is a heartbeat that measures its own LATENESS rather than a timer that trusts
+# it fired. Do not restate the narrow measurement as the broad claim.
+#
+# There is still no way to induce the fault on demand, and a green run of
+# anything proves only that the fault did not happen while it ran.
 #
 # What is left is the symptom, which is unambiguous and cheap to sample: the app
 # says it is holding the screen and no window on the device is. This records that
@@ -69,6 +79,25 @@ held() {
     END { print n + 0 }'
 }
 
+# The SECOND instrument, and the reason there are two. `dumpsys power` lists the
+# live wake locks with the package attributed directly:
+#
+#   SCREEN_BRIGHT_WAKE_LOCK 'WindowManager/displayId:0' … ws=WorkSource{10562 org.xinutec.console}
+#
+# It was the ground truth used on 2026-08-07 to prove `navigator.wakeLock` works
+# in this WebView at all (memory `reference_android_webview_cdp`), and it needs no
+# block-pairing, so it cannot be defeated by another app the way a device-wide
+# `grep -c` is. Measured agreeing with `held` in the healthy state on 2026-08-15 —
+# ⚠ which per this repo's own hard-won rule is NOT evidence that they agree in the
+# fault state. So both are read, and a disagreement is reported as its own event
+# rather than silently resolved: two instruments that part company are a finding
+# about the instruments, and believing either one alone is how the last three
+# measurement bugs here survived.
+attributed() {
+  adb -s "$DEVICE" shell dumpsys power 2>/dev/null |
+    grep -c "WAKE_LOCK.*ws=WorkSource{[0-9]* $PKG" || true
+}
+
 # The button's own answer. Only asked when the lock is missing, because it costs a
 # port forward and a websocket every time.
 pressed() {
@@ -88,6 +117,7 @@ pressed() {
 
 say "watching $DEVICE for ${HOURS}h — a fault is a lit button over an unheld screen (screen-on gate: mScreenState)"
 FAULTS=0
+SPLITS=0
 SAMPLES=0
 DEADLINE=$(( $(date +%s) + HOURS * 3600 ))
 
@@ -103,13 +133,19 @@ while [ "$(date +%s)" -lt "$DEADLINE" ]; do
   if watching; then
     SAMPLES=$((SAMPLES + 1))
     if [ $((SAMPLES % PROGRESS_EVERY)) -eq 0 ]; then
-      say "still watching — $SAMPLES sample(s) with the console in front, $FAULTS fault(s)"
+      say "still watching — $SAMPLES sample(s) with the console in front, $FAULTS fault(s), $SPLITS disagreement(s)"
     fi
     if [ "$(held)" -eq 0 ]; then
+      POWER=$(attributed)
       case "$(pressed)" in
         true)
-          FAULTS=$((FAULTS + 1))
-          say "FAULT #$FAULTS — button lit, no KEEP_SCREEN_ON on any window"
+          if [ "$POWER" -gt 0 ]; then
+            SPLITS=$((SPLITS + 1))
+            say "instruments DISAGREE #$SPLITS — no window flag, but dumpsys power still attributes a wake lock to $PKG; not counted as a fault"
+          else
+            FAULTS=$((FAULTS + 1))
+            say "FAULT #$FAULTS — button lit, and neither the window flag nor dumpsys power has a lock for $PKG"
+          fi
           ;;
         false)
           : # the button is off; nothing is claimed and nothing is wrong
@@ -123,5 +159,5 @@ while [ "$(date +%s)" -lt "$DEADLINE" ]; do
   sleep 60
 done
 
-say "done — $FAULTS fault(s) in $SAMPLES sample(s) with the console in front"
+say "done — $FAULTS fault(s), $SPLITS instrument disagreement(s), in $SAMPLES sample(s) with the console in front"
 [ "$FAULTS" -eq 0 ]
