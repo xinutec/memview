@@ -46,8 +46,19 @@ watching() {
   [ "$top" -gt 0 ] && [ "$awake" -gt 0 ]
 }
 
+# ⚠ **Only THIS app's window counts.** A plain `grep -c KEEP_SCREEN_ON` counts the
+# whole device, and the fleet is a dozen WebView wrappers with the same button:
+# `org.xinutec.heatcam` was holding one at the same moment as the console, seen
+# 2026-08-15. Any other app holding one would read as the console holding one, so
+# the watcher would go quiet on exactly the fault it exists to catch.
+#
+# `fl=` and `package=` live in the same window block, so the package last seen is
+# the one a flag line belongs to.
 held() {
-  adb -s "$DEVICE" shell dumpsys window windows 2>/dev/null | grep -c KEEP_SCREEN_ON || true
+  adb -s "$DEVICE" shell dumpsys window windows 2>/dev/null | awk -v pkg="$PKG" '
+    /package=/ { owner = $0; sub(/.*package=/, "", owner); sub(/ .*/, "", owner) }
+    /fl=.*KEEP_SCREEN_ON/ { if (owner == pkg) n++ }
+    END { print n + 0 }'
 }
 
 # The button's own answer. Only asked when the lock is missing, because it costs a
