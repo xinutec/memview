@@ -30,6 +30,7 @@
 //! thing this console is going to ask for.
 
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 
 /// How much of the transcript's tail to keep, in bytes. Enough for the last few
 /// turns, which is what says whether the session was working when it stopped.
@@ -99,11 +100,24 @@ pub async fn capture(
         return None;
     }
     for (name, program, args) in probes(pid) {
-        let said = tokio::time::timeout(
-            PATIENCE,
-            tokio::process::Command::new(program).args(&args).output(),
-        )
-        .await;
+        // `spawn` + `wait_with_output` rather than the `output()` this was, for
+        // one reason: `output()` never hands back a pid, and #797 is a zombie
+        // under the console that nothing recorded the origin of. The two steps
+        // and the dropped-on-timeout behaviour are `output()`'s own — see
+        // `tests/orphan.rs`, which forces the timeout on exactly this shape and
+        // finds it reaped.
+        let Ok(probe) = tokio::process::Command::new(program)
+            .args(&args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+        else {
+            tracing::warn!("{program} would not start for {id}");
+            continue;
+        };
+        tracing::info!("asking pid {:?} about {id} with {program}", probe.id());
+        let said = tokio::time::timeout(PATIENCE, probe.wait_with_output()).await;
         let written = match said {
             Ok(Ok(out)) => {
                 let mut body = out.stdout;
@@ -111,7 +125,7 @@ pub async fn capture(
                 tokio::fs::write(into.join(name), body).await.err()
             }
             Ok(Err(why)) => {
-                tracing::warn!("{program} would not run for {id}: {why}");
+                tracing::warn!("{program} ran for {id} and could not be waited for: {why}");
                 continue;
             }
             Err(_) => {

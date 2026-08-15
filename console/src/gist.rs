@@ -307,6 +307,13 @@ async fn call(binary: &str, prompt: &str, named: &str) -> Option<String> {
         .kill_on_drop(true)
         .spawn()
         .ok()?;
+    // **So a `<defunct>` under the console can be traced to a spawn site.** #797
+    // is a zombie whose parent is the console and whose origin nothing recorded;
+    // sessions are already attributable because the roster holds their pids, and
+    // this and `deaf.rs` were the two that spawned anonymously. Logged at the
+    // spawn rather than at the exit, because the case worth explaining is the one
+    // that never reaches an exit.
+    tracing::info!("gists: asking pid {:?} about {named}", child.id());
     let mut stdin = child.stdin.take()?;
     stdin.write_all(prompt.as_bytes()).await.ok()?;
     stdin.flush().await.ok()?;
