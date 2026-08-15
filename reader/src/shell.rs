@@ -400,11 +400,7 @@ fn walk(
                     Rule::word => {
                         // A word may contain substitutions, whose commands run
                         // first and are emitted before this one.
-                        for inner in part.clone().into_inner() {
-                            if matches!(inner.as_rule(), Rule::subst | Rule::backtick) {
-                                nested(inner, scope, next, out, reached);
-                            }
-                        }
+                        expansions(&part, scope, next, out, reached);
                         cmd.argv.push(unquote(part.as_str()));
                     }
                     Rule::redirect => collect_redirect(part, scope, next, &mut cmd, out),
@@ -437,13 +433,7 @@ fn walk(
         Rule::case_stmt => {
             for inner in pair.into_inner() {
                 match inner.as_rule() {
-                    Rule::word => {
-                        for part in inner.into_inner() {
-                            if matches!(part.as_rule(), Rule::subst | Rule::backtick) {
-                                nested(part, scope, next, out, reached);
-                            }
-                        }
-                    }
+                    Rule::word => expansions(&inner, scope, next, out, reached),
                     Rule::case_arm => {
                         walk(inner, scope, next, out, reached.and(Reached::Sometimes));
                     }
@@ -632,6 +622,36 @@ fn collect_redirect(
             // `diff <(ls a) <(ls b)` — the inner commands run exactly when the
             // command they feed does, so they inherit its condition.
             Rule::procsub => walk(part, &descend(scope, next), next, out, cmd.reached),
+            _ => {}
+        }
+    }
+}
+
+/// Every command a word runs before the word is a word: `$( … )` and backticks,
+/// at any depth inside it.
+///
+/// ⚠ **The depth is the point.** A word's expansions used to be read from its
+/// immediate children only, which was right for `$(git rev-parse HEAD)` and
+/// silently wrong for `"$(git rev-parse HEAD)"` — the quoted form was one opaque
+/// token, so the command inside it was never walked and its files were never
+/// attributed to anybody. 8,300 distinct commands, 6.5% of the corpus
+/// (memview#918). Now `dquoted` yields its expansions and this descends to them.
+///
+/// It does NOT descend into `squoted`: single quotes expand nothing, so
+/// `'$(rm -rf /)'` is text and running it would be inventing a command. That
+/// asymmetry is the whole difference between the two quoting rules.
+fn expansions(
+    word: &pest::iterators::Pair<Rule>,
+    scope: &[usize],
+    next: &mut usize,
+    out: &mut Vec<Simple>,
+    reached: Reached,
+) {
+    for part in word.clone().into_inner() {
+        match part.as_rule() {
+            Rule::subst | Rule::backtick => nested(part, scope, next, out, reached),
+            // A quoted run, or `$(( … ))` whose operands may call out.
+            Rule::dquoted | Rule::arith => expansions(&part, scope, next, out, reached),
             _ => {}
         }
     }

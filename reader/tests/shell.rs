@@ -163,6 +163,79 @@ fn command_substitution_is_parsed_as_the_commands_it_is() {
 }
 
 #[test]
+fn a_substitution_inside_double_quotes_is_still_a_command() {
+    // ⚠ **REGRESSION, and the largest one this reader has had.** `dquoted` was
+    // fully atomic, so `"$( … )"` was a single opaque token and the command
+    // inside it was never walked — 8,300 distinct commands, 6.5% of the corpus,
+    // 12,755 occurrences (memview#918). Worse in kind than an unparsed command:
+    // that at least raises a count, while this parsed clean and recorded less
+    // than happened.
+    //
+    // The real shape from the corpus, which is a read of a real file:
+    assert_eq!(
+        argvs(r#"printf "%s" "$(grep -c foo src/app/thread.scss)""#),
+        [
+            vec!["grep", "-c", "foo", "src/app/thread.scss"],
+            vec!["printf", "%s", "$(grep -c foo src/app/thread.scss)"],
+        ]
+    );
+    // Nesting works because the body is re-parsed, quoted or not. The outer
+    // word keeps the substitution as written *minus its quotes*, which is
+    // `unquote`'s long-standing reading of a word as a value.
+    assert_eq!(
+        argvs(r#"echo "$(dirname "$(readlink -f x)")""#),
+        [
+            vec!["readlink", "-f", "x"],
+            vec!["dirname", "$(readlink -f x)"],
+            vec!["echo", "$(dirname $(readlink -f x))"],
+        ]
+    );
+    // Backticks expand inside double quotes too.
+    assert_eq!(
+        argvs(r#"echo "`git rev-parse HEAD`""#),
+        [
+            vec!["git", "rev-parse", "HEAD"],
+            vec!["echo", "`git rev-parse HEAD`"],
+        ]
+    );
+    // ⚠ **And it corrects WORD BOUNDARIES, which is the half that was not just
+    // invisible but wrong.** Quoting restarts inside `$( )`, so the `"` around
+    // `x` below does not end the outer string. The old rule scanned to the first
+    // unescaped `"` and stopped there, splitting one argument into three and
+    // failing outright on 17 corpus commands. The `echo` takes TWO arguments.
+    assert_eq!(
+        argvs(r#"echo "$(grep -c "x" f.txt)" done"#),
+        [
+            vec!["grep", "-c", "x", "f.txt"],
+            vec!["echo", "$(grep -c x f.txt)", "done"],
+        ]
+    );
+}
+
+#[test]
+fn single_quotes_expand_nothing_and_that_asymmetry_is_the_point() {
+    // ⚠ **The one direction this fix must NOT go.** Inside single quotes a
+    // substitution is six characters of text, so walking it would invent a
+    // command nobody ran — the error this reader exists to avoid, and the reason
+    // `squoted` stays fully atomic while `dquoted` is compound-atomic.
+    assert_eq!(
+        argvs("echo '$(rm -rf /tmp/x)'"),
+        [vec!["echo", "$(rm -rf /tmp/x)"]]
+    );
+    // A `\$` does not open one either, and a bare `$` is ordinary text.
+    assert_eq!(
+        argvs(r#"echo "\$(not-a-command)" "$HOME/x""#),
+        [vec!["echo", "$(not-a-command)", "$HOME/x"]]
+    );
+    // An escaped quote does not end the string — the alternative that has to be
+    // tried before everything else, or `\"` closes the word early.
+    assert_eq!(
+        argvs(r#"echo "a \" b $(ls) c""#),
+        [vec!["ls"], vec!["echo", r#"a " b $(ls) c"#]]
+    );
+}
+
+#[test]
 fn arithmetic_is_not_a_command_substitution() {
     // REGRESSION. `$((` matched as `$(` and stopped at the first `)`, leaving the
     // second dangling — 216 `until [ $(( $(date +%s) - t0 )) -ge 10 ]` loops.

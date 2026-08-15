@@ -130,12 +130,32 @@ read   = { "<" }
 word = ${ part+ }
 part = _{ squoted | dquoted | arith | subst | backtick | empty_braces | brace_expand | bare }
 
-// The quoting rules are ATOMIC, and that is load-bearing. Left non-atomic, pest
-// inserts its implicit whitespace/comment skipping *inside* the string: a `#` in
-// `nix develop "…/lares#android"` or in `sed 's#a#b#g'` then started a comment
-// that swallowed the closing quote, and 2,058 commands failed for it.
+// The quoting rules take NO implicit whitespace, and that is load-bearing. Left
+// ordinary, pest inserts its whitespace/comment skipping *inside* the string: a
+// `#` in `nix develop "…/lares#android"` or in `sed 's#a#b#g'` then started a
+// comment that swallowed the closing quote, and 2,058 commands failed for it.
+//
+// Single quotes expand nothing, so the rule is fully atomic and the text is a
+// value: `'$(rm -rf /)'` is six words of prose and no command at all.
 squoted = @{ "'" ~ (!"'" ~ ANY)* ~ "'" }
-dquoted = @{ "\"" ~ ("\\" ~ ANY | !"\"" ~ ANY)* ~ "\"" }
+
+// ⚠ **Double quotes DO expand, so this one is compound-atomic (`$`) rather than
+// atomic (`@`)** — same no-whitespace guarantee, but the substitutions inside
+// come back as their own pairs instead of being swallowed into one token.
+// While it was `@`, every `"$( … )"` was opaque and the command inside it was
+// never walked: 8,300 distinct commands, 6.5% of the corpus, silently
+// contributing nothing (memview#918). Not an unparsed command — those at least
+// raise a count — but a clean parse recording less than happened.
+//
+// The escape alternative must come FIRST: `\"` does not end the string and `\$`
+// does not open a substitution.
+dquoted = ${ "\"" ~ dq_part* ~ "\"" }
+dq_part = _{ dq_escape | arith | subst | backtick | dq_text }
+dq_escape = _{ "\\" ~ ANY }
+// Everything that is not an expansion. It stops at `\`, at the closing quote,
+// and at the two characters that can open one — a bare `$` is ordinary text, so
+// `"$HOME"` stays one plain run.
+dq_text = _{ (!("\"" | "\\" | "$(" | "`") ~ ANY)+ }
 
 // `$( … )` and backticks run commands whose file use counts as much as any
 // other, so the inner text is captured whole and parsed again. Nesting is
