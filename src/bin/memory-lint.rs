@@ -11,7 +11,37 @@ use memview::lint;
 use memview::store::Corpus;
 
 /// How long to let a half-finished write finish before believing it.
-const SETTLE: std::time::Duration = std::time::Duration::from_secs(3);
+///
+/// ⚠ **Measured 2026-08-15, having been a guess since it was written on
+/// 2026-07-30 — and the guess was short by a factor of ten.** It was 3 s, which
+/// felt like long enough for two consecutive tool calls. Across **612 memory
+/// creations** in this
+/// machine's transcripts, paired with the next `MEMORY.md` edit in the same
+/// session, that covers one window in sixty-six:
+///
+///     <=   3s :  1.5%       <=  60s : 68.8%
+///     <=  10s : 41.2%       <= 120s : 72.1%
+///     <=  30s : 65.0%       <= 600s : 74.5%
+///
+/// p50 is 13.7 s. **30 s is the knee**; past it each step buys single digits.
+///
+/// ⚠ **Deliberately short of the tail, because the tail is not a race.** p90 runs
+/// to 22 hours — a memory unindexed that long is unreachable for a day, which is
+/// the thing these rules exist to report. Waiting it out would only make the
+/// gate slower at saying nothing.
+///
+/// ⚠ **The cost lands on a person, which is the argument AGAINST raising it and
+/// it loses.** This runs in the pre-commit gate, so the wait is added to somebody
+/// already waiting — but only on a run that was about to fail, on a gate that
+/// takes minutes anyway, and the alternative is refusing a commit for a write
+/// that was never the committer's. `mem_check.py` took the same 30 s for the
+/// mirror-image reason: nobody is watching a daily collector at all
+/// (xinutec-infra `dc113c0`, memview #915/#927).
+///
+/// ⚠ **Calibrated for the index pair, and applied to `governs-unreciprocated` by
+/// analogy.** That rule's window is a rule file against the work it binds, which
+/// was not measured — same two-edit shape, unmeasured size.
+const SETTLE: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Rules that a corpus caught mid-write can fail through no fault of its own.
 ///
@@ -35,7 +65,18 @@ const RACY: [&str; 3] = [
 /// needs a threshold that is wrong in both directions, whereas re-reading asks
 /// the corpus the same question again and takes the answer. A real finding
 /// survives it — the index is not going to fix itself — so nothing is hidden,
-/// and this costs a few seconds only on the runs that were about to fail.
+/// and this costs [`SETTLE`] only on the runs that were about to fail.
+///
+/// ⚠ **It narrows the window; it does not close it.** At the measured p50 of
+/// 13.7 s a single 30 s re-read clears most of what it meets, and roughly a
+/// third of write windows are longer than that. A finding that survives means
+/// "still inconsistent half a minute later", which is worth reading — not
+/// "definitely broken", and not "the settle failed".
+///
+/// ⚠ **Untested, because it lives in a bin.** `mem_check.py` has four tests for
+/// the same mechanism with the sleep injected; this has none, and an untested
+/// constant is one nobody has a reason to check. Moving it into the library
+/// would fix that and is not this change.
 fn settle(
     corpus: Corpus,
     dir: &str,
