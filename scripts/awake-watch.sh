@@ -39,11 +39,19 @@ say() { printf '%s %s\n' "$(date '+%F %T')" "$1" | tee -a "$LOG"; }
 
 # Whether the console is the resumed activity AND the display is on. A lock means
 # nothing while the screen is off, and nothing while another app is in front.
+#
+# ⚠ **`mWakefulness` is NOT the display, and reading it here made the gate lie.**
+# It is the power state machine: it says `Awake` for a device that is up with its
+# screen off, which was seen directly on 2026-08-15 — the phone had gone dark and
+# locked while this reported `Awake`. That is fatal rather than merely noisy,
+# because `KEEP_SCREEN_ON` is 0 on EVERY window whenever the screen is off, so a
+# dark phone with the button still lit is scored as a fault every single minute.
+# `dumpsys display`'s `mScreenState` answers the question actually being asked.
 watching() {
-  local top awake
+  local top on
   top=$(adb -s "$DEVICE" shell dumpsys activity activities 2>/dev/null | grep -c "topResumedActivity.*$PKG" || true)
-  awake=$(adb -s "$DEVICE" shell dumpsys power 2>/dev/null | grep -c 'mWakefulness=Awake' || true)
-  [ "$top" -gt 0 ] && [ "$awake" -gt 0 ]
+  on=$(adb -s "$DEVICE" shell dumpsys display 2>/dev/null | grep -c 'mScreenState=ON' || true)
+  [ "$top" -gt 0 ] && [ "$on" -gt 0 ]
 }
 
 # ⚠ **Only THIS app's window counts.** A plain `grep -c KEEP_SCREEN_ON` counts the
@@ -78,7 +86,7 @@ pressed() {
   echo "${answer:-unreadable}"
 }
 
-say "watching $DEVICE for ${HOURS}h — a fault is a lit button over an unheld screen"
+say "watching $DEVICE for ${HOURS}h — a fault is a lit button over an unheld screen (screen-on gate: mScreenState)"
 FAULTS=0
 SAMPLES=0
 DEADLINE=$(( $(date +%s) + HOURS * 3600 ))
