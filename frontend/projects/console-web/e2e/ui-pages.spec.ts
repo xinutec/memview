@@ -2098,9 +2098,32 @@ test('the transcript picks a reader up again when they scroll back to the end @ 
   const away = await distanceFromTheEnd(page);
   expect(away, 'the scroll back did not take').toBeGreaterThan(200);
 
-  // Back down, overshooting so the box clamps at its own end rather than needing
-  // the gesture to land on a pixel.
-  await thumb(page, -600);
+  // Back down, far enough that the box clamps at its own end rather than needing
+  // the gesture to land on a pixel — and NO FURTHER.
+  //
+  // ⚠ **This asked for a flat 600px and that is what made the test flaky.** What
+  // a drag asks for beyond the end is banked by desktop Chromium and paid out
+  // the moment something makes the box taller, as a decaying series of scroll
+  // events. The first of them is 20px against `SLACK = 16`, so if it lands
+  // before the follow, `following.ts` reads it as the reader leaving and unpins
+  // for good — and the assertion below fails with the whole answer's worth of
+  // gap. Measured, holding everything else still:
+  //
+  //     asked   overshoot   scroll events   drift
+  //      320px       35px         0            0
+  //      600px      315px        26         ~170px
+  //     1200px      915px        30         ~371px
+  //
+  // ⚠ **The console is not at fault and must not be changed for this.** Driven
+  // on the Pixel 9 through real Android touch — a 700ms drag and a 90ms fling,
+  // both asking for well past the end — the phone's WebView banks nothing:
+  // growing the transcript by 2500px afterwards produced ZERO scroll events,
+  // twice. The banking is desktop Chromium under `Input.dispatchTouchEvent`, so
+  // it is this file's problem and only this file's.
+  //
+  // Asked for from the gap rather than as a constant, because the margin is what
+  // matters: enough to clamp through the slop Chromium eats, not enough to bank.
+  await thumb(page, -(away + 40));
   expect(await distanceFromTheEnd(page), 'did not reach the end').toBeLessThan(16);
 
   await say(page, { kind: 'text', text: LONG_ANSWER }, 2);
