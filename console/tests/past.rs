@@ -797,6 +797,141 @@ fn only_the_places_worth_returning_to_are_landmarks() {
 }
 
 #[test]
+fn resuming_a_walk_gives_the_same_answer_as_walking_it_whole() {
+    // The property the cache rests on. A transcript is appended to, and every
+    // offset a landmark carries is absolute from the start of the file — so a
+    // landmark found in the first megabyte is still true after a gigabyte more.
+    // If that fails, resuming is not an optimisation, it is a different answer.
+    let root = scratch("resume");
+    let path = signposted(&root, "marked");
+    let whole = console::past::landmarks(&path);
+
+    // Every line boundary in the file is a legitimate place to have stopped, so
+    // check them all rather than one convenient one.
+    let text = std::fs::read_to_string(&path).expect("read");
+    let mut at = 0u64;
+    for line in text.split_inclusive('\n') {
+        let first = console::past::landmarks_from(&path, 0);
+        let resumed = console::past::landmarks_from(&path, at);
+        let mut joined: Vec<_> = first.found.into_iter().filter(|m| m.at <= at).collect();
+        joined.extend(resumed.found);
+        assert_eq!(joined, whole, "split at byte {at}");
+        at += line.len() as u64;
+    }
+}
+
+#[test]
+fn a_walk_stops_before_a_line_that_is_still_being_written() {
+    // ⚠ **The trap that makes a resumable walk different from a one-shot one.**
+    // The console reads a file another process is appending to, so the tail is
+    // routinely half a line of JSON. A one-shot walk can ignore that: the
+    // fragment yields nothing and the walk was ending anyway. Resuming cannot —
+    // if `through` counted the fragment, the next walk would start inside that
+    // line and the finished version of it would never be read. One landmark
+    // lost, silently, whenever the sheet is opened mid-write.
+    let root = scratch("partial");
+    let path = signposted(&root, "marked");
+    let whole = console::past::landmarks(&path);
+
+    let mut text = std::fs::read_to_string(&path).expect("read");
+    let complete = text.len() as u64;
+    text.push_str(
+        r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"half"#,
+    );
+    std::fs::write(&path, &text).expect("write");
+
+    let walk = console::past::landmarks_from(&path, 0);
+    assert_eq!(walk.found, whole, "a fragment is not a landmark");
+    assert_eq!(
+        walk.through, complete,
+        "the mark must be the last COMPLETE line, never the file's length"
+    );
+
+    // And when the line is finished, resuming from that mark still finds it.
+    text.push_str(r#" a thought"}]}}"#);
+    text.push('\n');
+    std::fs::write(&path, &text).expect("write");
+    let rest = console::past::landmarks_from(&path, walk.through);
+    assert_eq!(
+        rest.found
+            .iter()
+            .map(|m| m.text.as_str())
+            .collect::<Vec<_>>(),
+        vec!["half a thought"],
+        "the completed line is read exactly once, by the walk that resumes"
+    );
+}
+
+#[test]
+fn the_second_ask_does_not_walk_the_file_again() {
+    // ⚠ **Observed, not timed.** A cache that quietly re-walks passes every test
+    // about its ANSWER while delivering none of the saving, and a timing
+    // assertion on a 12-line fixture measures noise. So the file's contents are
+    // replaced with the same NUMBER of bytes: a walk from the start would find
+    // nothing there, and only an answer kept from before can still be right.
+    //
+    // ⚠ **It takes BOTH halves of the cache being disabled to fail this, which is
+    // worth knowing before trusting it.** Ablated three ways: dropping the
+    // unchanged-length short circuit passes, because resuming from `through`
+    // then reads zero new bytes and returns the same kept list; dropping the
+    // resume passes, because the short circuit gets there first. Only with
+    // neither does this go red. So it pins "the file is not re-read from byte
+    // zero" — the property that matters — and not which of the two prevented it.
+    let root = scratch("cached");
+    let path = signposted(&root, "marked");
+    let marks = console::marks::Marks::new();
+    let first = marks.of("marked", &path);
+    assert!(!first.is_empty(), "the fixture has landmarks to keep");
+
+    let was = std::fs::read_to_string(&path).expect("read");
+    std::fs::write(&path, "x".repeat(was.len())).expect("same length, no landmarks");
+    assert_eq!(
+        marks.of("marked", &path),
+        first,
+        "the same length is the same file as far as this is concerned"
+    );
+
+    // And a file that SHRANK is a file that was rewritten — compaction does that
+    // — so every offset held is suspect and the walk starts over.
+    std::fs::write(&path, "x").expect("shorter");
+    assert!(
+        marks.of("marked", &path).is_empty(),
+        "a shorter file is re-walked, not extended"
+    );
+}
+
+#[test]
+fn extending_a_walk_gives_the_same_list_as_walking_it_whole() {
+    // The other half: extending must give the same ANSWER as walking the whole
+    // file, or the saving is bought with a wrong list.
+    //
+    // ⚠ **It pins the answer and NOT the saving, which its first name claimed.**
+    // Ablated by forcing every walk to start at byte zero: this still passes,
+    // because a full walk of a longer file is exactly what it asserts. The test
+    // above is the one that says work was avoided.
+    let root = scratch("extended");
+    let path = signposted(&root, "marked");
+    let marks = console::marks::Marks::new();
+    let first = marks.of("marked", &path);
+
+    let mut text = std::fs::read_to_string(&path).expect("read");
+    text.push_str(
+        r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"one more"}]}}"#,
+    );
+    text.push('\n');
+    std::fs::write(&path, &text).expect("append");
+
+    let after = marks.of("marked", &path);
+    assert_eq!(
+        after,
+        console::past::landmarks(&path),
+        "extending and walking whole must agree"
+    );
+    assert_eq!(after.len(), first.len() + 1);
+    assert_eq!(after.last().expect("a landmark").text, "one more");
+}
+
+#[test]
 fn a_landmark_lands_on_the_page_that_holds_it() {
     // ⚠ **The whole point of the cursor, and it is off by one line if it is
     // wrong.** `page` reads BACKWARDS from the offset it is given, so a cursor

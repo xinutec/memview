@@ -36,6 +36,9 @@ pub struct Roster {
     /// What each conversation was last allowed to do without asking. See
     /// [`crate::modes`] — the only record of it anywhere.
     modes: Arc<crate::modes::Modes>,
+    /// Each transcript's landmarks, walked once and then only extended. See
+    /// [`crate::marks`] — the walk is the whole of the "go to" sheet's wait.
+    marks: Arc<crate::marks::Marks>,
     /// The truest reading of each rate-limit window this console has seen, kept
     /// **across the sessions that heard it**.
     ///
@@ -110,8 +113,15 @@ impl Roster {
             gists,
             tasks: Arc::default(),
             modes,
+            marks: Arc::default(),
             spent: std::sync::Mutex::new(BTreeMap::new()),
         }
+    }
+
+    /// Every landmark in a conversation, walking only what has arrived since the
+    /// last time somebody asked. See [`crate::marks`].
+    pub fn marks(&self) -> Arc<crate::marks::Marks> {
+        Arc::clone(&self.marks)
     }
 
     /// Remember what a conversation is allowed to do, so a later resume can put
@@ -739,6 +749,10 @@ impl Roster {
         };
         tracing::info!("forgetting {id} — killing it first if it is still running");
         session.force();
+        // And the landmarks walked for it, which are the largest thing this
+        // console keeps per conversation — 6,107 of them on the biggest here,
+        // the same 700 kB the wire used to carry on every open.
+        self.marks.forget(id);
         true
     }
 }

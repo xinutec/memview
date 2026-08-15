@@ -549,11 +549,18 @@ struct Page {
 /// Everywhere in this conversation worth jumping to.
 ///
 /// ⚠ **`spawn_blocking`, and this is the one route that has earned it.** The
-/// walk parses the whole transcript — 0.7 s for an ordinary large one and 3.4 s
+/// walk parses the whole transcript — 0.7 s for an ordinary large one and 6.0 s
 /// for the biggest here, measured — and no gate ahead of the parser survives
 /// contact with the format; see [`crate::past::landmarks`]. Left on the executor
 /// it would be seconds of a worker that every other session's stream shares, for
 /// one person tapping "go to".
+///
+/// ⚠ **The first ask still pays that; the ones after it do not.** Measured
+/// 2026-08-15 on the biggest conversation here, the walk was 6.019 s of a
+/// 6.023 s request — so the answer's 701 kB was four milliseconds of it, and
+/// sending less would have moved almost nothing. [`crate::marks`] keeps what the
+/// walk found and extends it with whatever has been appended since (memview
+/// #808).
 async fn landmarks(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
@@ -570,7 +577,9 @@ async fn landmarks(
     ))?;
 
     let began = std::time::Instant::now();
-    let found = tokio::task::spawn_blocking(move || crate::past::landmarks(&path))
+    let marks = roster.marks();
+    let held = id.clone();
+    let found = tokio::task::spawn_blocking(move || marks.of(&held, &path))
         .await
         .map_err(|err| {
             (

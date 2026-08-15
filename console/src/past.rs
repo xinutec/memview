@@ -600,21 +600,57 @@ const SIGN: usize = 120;
 /// 1,345,496 lines and comparing the results. A prescan here is not cheap to get
 /// right, and it is very cheap to get silently wrong.
 pub fn landmarks(path: &Path) -> Vec<Landmark> {
-    use std::io::BufRead;
+    landmarks_from(path, 0).found
+}
 
-    let Ok(file) = std::fs::File::open(path) else {
-        return Vec::new();
+/// What one walk read, and the byte the next one should start at.
+#[derive(Debug, Clone, Default)]
+pub struct Walk {
+    pub found: Vec<Landmark>,
+    /// One past the last COMPLETE line read. Never the file's length: see
+    /// [`landmarks_from`].
+    pub through: u64,
+}
+
+/// The same walk, starting at a byte already read.
+///
+/// ⚠ **`from` must be a line boundary, and the only honest source of one is a
+/// previous walk's own [`Walk::through`].** Every offset here is absolute from
+/// the start of the file, which is what lets a walk be resumed at all: a
+/// landmark found in the first megabyte stays true however much is appended
+/// after it. See [`crate::marks`], which keeps them and is why this exists.
+///
+/// ⚠ **A half-written last line is not read, and `through` stops before it.**
+/// The console walks a file another process is appending to, so the tail is
+/// routinely a fragment of JSON. A one-shot walk could ignore that — the
+/// fragment parses as nothing and the walk ends anyway — but a *resumable* one
+/// cannot: taking the file's length as the mark would restart the next walk in
+/// the middle of that line, and the completed version of it would never be read.
+/// One landmark lost, silently, whenever a sheet is opened mid-write.
+/// [`counted`] has had this guard all along, for the same reason.
+///
+/// A `from` past the end of the file yields nothing, which is the right answer
+/// for a transcript that has not grown.
+pub fn landmarks_from(path: &Path, from: u64) -> Walk {
+    use std::io::BufRead;
+    use std::io::Seek;
+
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return Walk::default();
     };
+    if from > 0 && file.seek(std::io::SeekFrom::Start(from)).is_err() {
+        return Walk::default();
+    }
     let mut reader = std::io::BufReader::with_capacity(1 << 20, file);
     let mut line = Vec::new();
-    let mut at = 0u64;
+    let mut at = from;
     let mut found = Vec::new();
     loop {
         line.clear();
         let Ok(read) = reader.read_until(b'\n', &mut line) else {
             break;
         };
-        if read == 0 {
+        if read == 0 || !line.ends_with(b"\n") {
             break;
         }
         let past_it = at + read as u64;
@@ -635,7 +671,7 @@ pub fn landmarks(path: &Path) -> Vec<Landmark> {
         }
         at = past_it;
     }
-    found
+    Walk { found, through: at }
 }
 
 /// One line of a landmark, cut to [`SIGN`].
