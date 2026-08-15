@@ -238,6 +238,22 @@ in  { name = "memview"
               ]
         , timeout_s = 900
         }
+      , {-  A green gate has to mean the package this repo PUBLISHES still builds.
+            `packages.console` is the agent console binary, and `packages.default`
+            is an alias for it, so one row covers both.
+
+            None of the rows above touch it: `formatting`, `clippy` and `tests`
+            run cargo inside the dev shell against the working tree, which shares
+            almost everything with the packaged build and not the part that
+            breaks — the source fileset, the vendored lockfile, and the
+            derivation's own inputs. gamepads shipped a repo that could not be
+            built for weeks with a fully green gate, twice, for exactly that gap.
+        -}
+        G.Check::{
+        , name = "the console package builds (what this repo publishes)"
+        , argv = [ "nix", "build", "--no-warn-dirty", "--no-link", ".#console" ]
+        , timeout_s = 1800
+        }
       , G.checkTable "../dev-lint"
       , G.devLint "../"
       ]

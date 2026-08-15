@@ -222,6 +222,19 @@
     {
       "argv": [
         "nix",
+        "build",
+        "--no-warn-dirty",
+        "--no-link",
+        ".#console"
+      ],
+      "cwd": ".",
+      "env": {},
+      "name": "the console package builds (what this repo publishes)",
+      "timeout_s": 1800
+    },
+    {
+      "argv": [
+        "nix",
         "run",
         "../dev-lint#gate",
         "--",
