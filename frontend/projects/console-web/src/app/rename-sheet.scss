@@ -22,6 +22,16 @@
   width: 100%;
 }
 
+// Left, not stretched: this is an offer and the rename below is the action, and
+// a second full-width button under the field would read as the pair of them
+// being equal. Its own width also keeps the name's length visible — a
+// suggestion that fills the sheet is one somebody would trim before using.
+.offer {
+  align-self: flex-start;
+  max-width: 100%;
+  margin-bottom: 0.5rem;
+}
+
 .go {
   align-self: stretch;
 }

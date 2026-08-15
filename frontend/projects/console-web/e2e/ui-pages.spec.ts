@@ -4142,6 +4142,86 @@ test('a working session can be renamed from the menu @ phone width', async ({ pa
   await expect(page.locator('mat-bottom-sheet-container')).toHaveCount(0);
 });
 
+test('the rename sheet offers the name a model wrote, and does not apply it @ phone width', async ({
+  page,
+}, testInfo) => {
+  // The sheet opened empty for a conversation nobody had named, which is the one
+  // it is opened for most — and the card a screen away has had a sentence about
+  // that conversation the whole time. This is the second line of the same call.
+  let sent: Record<string, unknown> | undefined;
+  await mockRunner(page);
+  await page.route('**/api/state', (r) =>
+    r.fulfill({
+      json: {
+        ...STATE,
+        gists: {
+          [STATE.sessions[0].id]: {
+            text: 'porting the last of the matcher gate to Lean and running the golden set',
+            at: 1785600000000,
+            name: 'Lean port',
+          },
+        },
+      },
+    }),
+  );
+  await page.route('**/api/sessions/*/rename', (r) => {
+    sent = r.request().postDataJSON() as Record<string, unknown>;
+    return r.fulfill({ json: STATE.sessions[0] });
+  });
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page
+    .locator('.bar')
+    .getByRole('button', { name: /what to do with/ })
+    .click();
+  await page.getByRole('menuitem', { name: 'Rename' }).click();
+
+  const name = page.getByLabel('name', { exact: true });
+  await expect(name, 'the sheet did not open').toBeVisible();
+  // ⚠ **The suggestion is beside the field, not in it.** A name is stickier than
+  // a summary, and a guess sitting in the box is one Enter away from being the
+  // conversation's name without anybody having agreed to it.
+  await expect(name, 'the suggestion was put in the box').toHaveValue('');
+  const offer = page.getByRole('button', { name: /use the suggested name/ });
+  await expect(offer, 'nothing was offered').toBeVisible();
+  // ⚠ **The action has to survive the extra row.** This sheet sits on the bottom
+  // of a phone and the offer goes above the button that does the renaming, so a
+  // row added here is a row of somewhere else — and the thing pushed off the
+  // end would be the one control the sheet exists for.
+  await expect(
+    page.getByRole('button', { name: /^rename$/ }),
+    'the offer pushed the rename button off the screen',
+  ).toBeInViewport({ ratio: 1 });
+  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
+  await expectNoClippedText(page, testInfo, 'mat-bottom-sheet-container');
+
+  await offer.click();
+  await expect(name).toHaveValue('Lean port');
+  // Gone once taken: a button that would now do nothing reads as a broken one.
+  await expect(offer, 'the offer stayed after it was taken').toHaveCount(0);
+
+  await page.getByRole('button', { name: /^rename$/ }).click();
+  await expect.poll(() => sent).toMatchObject({ title: 'Lean port' });
+});
+
+test('the rename sheet offers nothing when no model has named the conversation @ phone width', async ({
+  page,
+}, testInfo) => {
+  // The ordinary case for a while yet: every gist on disk predates the second
+  // line, and a conversation with no gist has never had one. The sheet must be
+  // exactly what it was — an empty box — rather than a gap where an offer goes.
+  await mockRunner(page);
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page
+    .locator('.bar')
+    .getByRole('button', { name: /what to do with/ })
+    .click();
+  await page.getByRole('menuitem', { name: 'Rename' }).click();
+
+  await expect(page.getByLabel('name', { exact: true }), 'the sheet did not open').toBeVisible();
+  await expect(page.getByRole('button', { name: /use the suggested name/ })).toHaveCount(0);
+  await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
+});
+
 test('the permission modes are one row that opens a sheet @ phone width', async ({
   page,
 }, testInfo) => {

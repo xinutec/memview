@@ -14,6 +14,35 @@
   <input matInput [(ngModel)]="title" (keydown.enter)="save()" />
 </mat-form-field>
 
+<!-- What a model would call it, from the second line of the same Haiku call that
+     writes the sentence on the card — so it costs no call of its own, and it is
+     there for a conversation nobody has named yet, which is the case the empty
+     box above was worst at.
+
+     ⚠ **A button and not a `mat-chip`.** The interactive chips Angular Material
+     ships are `mat-chip-option` and `mat-chip-row`, which live in a listbox or a
+     grid and carry selection semantics — this selects nothing, it fills a field
+     once. M3 does define a suggestion chip and Angular does not ship a clickable
+     one, so reaching for chips here would be custom CSS around the wrong
+     component. See `reference_angular_material_m3_gaps`.
+
+     ⚠ **Marked as a guess, like the card marks the sentence.** Same
+     `auto_awesome` icon, and the label says who wrote it — a name is stickier
+     than a summary, so this must never look like something already decided. -->
+@if (suggestion(); as name) {
+  <button
+    matButton
+    class="offer"
+    type="button"
+    (click)="accept(name)"
+    [attr.aria-label]="'use the suggested name ' + name + ', written by a model'"
+    title="written by Haiku from the transcript — tap to use it, then edit"
+  >
+    <mat-icon>auto_awesome</mat-icon>
+    {{ name }}
+  </button>
+}
+
 <!-- ⚠ **Works while the session is busy, which `/rename` does not.** A slash
      command written to a working session is parked and released as a prompt, so
      the model reads the words and the name never changes — measured. This goes

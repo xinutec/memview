@@ -10,7 +10,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use console::gist::{Gists, sentence};
+use console::gist::{Gists, answer, sentence};
 use console::past::material;
 
 /// A transcript in the shape the reader meets: opening plumbing that is not a
@@ -182,6 +182,45 @@ fn an_underscore_is_part_of_a_name_here_rather_than_an_emphasis() {
         sentence("Clustering project_health_verified_core_lean nodes").as_deref(),
         Some("Clustering project_health_verified_core_lean nodes")
     );
+}
+
+#[test]
+fn the_second_line_is_the_name_and_gets_the_same_tidying() {
+    // Both lines come back from one call — the name is the sheet's suggestion
+    // and costs no second model call, which is the whole reason it lives here.
+    assert_eq!(
+        answer("Porting the matcher gate to Lean\n`Lean` port"),
+        Some((
+            "Porting the matcher gate to Lean".into(),
+            Some("Lean port".into())
+        ))
+    );
+}
+
+#[test]
+fn one_line_is_a_sentence_with_no_name() {
+    // The old shape, and it must stay a working answer: gists written before
+    // the second line was asked for are on disk, and a model that ignores the
+    // instruction must still leave a usable sentence on the card.
+    assert_eq!(
+        answer("Porting the matcher gate to Lean"),
+        Some(("Porting the matcher gate to Lean".into(), None))
+    );
+}
+
+#[test]
+fn a_second_sentence_is_refused_rather_than_cut_down_to_a_name() {
+    // ⚠ **The failure that matters.** A model that ignores "two or three words"
+    // returns prose, and trimming it to the cap would produce a plausible
+    // half-sentence — offered as a suggestion, that reads as considered and is
+    // worse than offering nothing. Refused on either count.
+    let (text, name) = answer(
+        "Porting the matcher gate to Lean\n\
+         This conversation is about porting the matcher gate to Lean and checking it",
+    )
+    .expect("the sentence is still an answer");
+    assert_eq!(text, "Porting the matcher gate to Lean");
+    assert_eq!(name, None, "a whole sentence was taken for a name");
 }
 
 #[test]

@@ -141,7 +141,7 @@ export interface Overview {
    * wrong sentence about a conversation nobody has opened is the failure worth
    * avoiding.
    */
-  gists?: Record<string, { text: string; at: number }>;
+  gists?: Record<string, { text: string; at: number; name?: string }>;
   /**
    * Who is holding what. Mirrors `tasks::Sweep`.
    *

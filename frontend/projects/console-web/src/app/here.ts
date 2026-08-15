@@ -45,7 +45,7 @@ export class Here {
    * summary too would be the same fact travelling two ways, which is how the two
    * copies eventually disagree. See `console/src/gist.rs`.
    */
-  readonly gist = signal<{ text: string; at: number } | undefined>(undefined);
+  readonly gist = signal<{ text: string; at: number; name?: string } | undefined>(undefined);
 
   /**
    * How much is left of this conversation's list, when it keeps one.

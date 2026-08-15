@@ -61,7 +61,13 @@ interface Row {
    * file or a process; this one is a model's reading of the transcript. See
    * `console/src/gist.rs`.
    */
-  readonly gist?: { readonly text: string; readonly at: number };
+  readonly gist?: {
+    readonly text: string;
+    readonly at: number;
+    /** A few words for the same conversation, when the model gave some. Offered
+     *  by the rename sheet and applied by nobody but the person reading it. */
+    readonly name?: string;
+  };
   /**
    * How much of its own task list is left, when it keeps one.
    *

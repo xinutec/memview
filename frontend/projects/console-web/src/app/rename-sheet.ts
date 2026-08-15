@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MAT_BOTTOM_SHEET_DATA, MatBottomSheetRef } from '@angular/material/bottom-sheet';
 import { MatButtonModule } from '@angular/material/button';
@@ -13,6 +13,34 @@ import { reason } from './errors';
 export interface Renaming {
   readonly id: string;
   readonly title: string;
+  /**
+   * A few words a model wrote for this conversation, when there are any.
+   *
+   * The second line of the gist call — so it costs nothing to have here, and it
+   * is exactly as much of a guess as the sentence on the card. Absent for a
+   * conversation with no gist yet, and for one whose gist predates the second
+   * line.
+   */
+  readonly suggestion?: string;
+}
+
+/**
+ * The suggestion to show, given what a model wrote and what the box says now.
+ *
+ * ⚠ **Withheld once it is what the box already says.** Offering a suggestion
+ * that has been taken invites a second tap that does nothing, and a control that
+ * does nothing reads as a control that is broken. Compared trimmed, because the
+ * box is what the person has been typing in and a trailing space is not a
+ * different name.
+ *
+ * ⚠ **Also withheld when it matches the name the conversation already has** —
+ * that falls out of the same comparison, since the box opens holding it. A
+ * session whose name a model would have chosen anyway is the one case where a
+ * suggestion is certain to be useless.
+ */
+export function offered(suggestion: string | undefined, current: string): string | undefined {
+  const name = suggestion?.trim();
+  return name && name !== current.trim() ? name : undefined;
 }
 
 /**
@@ -47,6 +75,14 @@ export class RenameSheet {
   protected readonly title = signal(this.given.title);
   protected readonly saving = signal(false);
   protected readonly trouble = signal('');
+
+  /** The name a model would give this conversation. See [[offered]]. */
+  protected readonly suggestion = computed(() => offered(this.given.suggestion, this.title()));
+
+  /** Take the suggestion, leaving it in the box to be edited or sent. */
+  protected accept(name: string): void {
+    this.title.set(name);
+  }
 
   protected save(): void {
     const title = this.title().trim();

@@ -214,7 +214,17 @@ export class App {
         // The name it has, not what the list shows — a session that has never
         // been named shows `Code · 3f8a1c2b`, and prefilling that is prefilling
         // something to delete.
-        data: { id: session.id, title: session.name ?? '' },
+        //
+        // ⚠ **The suggestion goes beside the field, never into it.** It is the
+        // second line of the same Haiku call that writes the card's sentence, so
+        // it is a guess about the conversation and the sheet draws it as one —
+        // put in the box it would be indistinguishable from a name somebody
+        // chose, and the first Enter would make it one.
+        data: {
+          id: session.id,
+          title: session.name ?? '',
+          suggestion: this.here.gist()?.name,
+        },
         panelClass: 'start-sheet',
       }),
     );

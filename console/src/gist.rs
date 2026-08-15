@@ -44,6 +44,16 @@ use tokio::io::AsyncWriteExt;
 pub struct Gist {
     /// One sentence, as the model returned it.
     pub text: String,
+    /// A few words for the same conversation, offered when somebody renames it
+    /// and never applied on its own — see `RenameSheet`.
+    ///
+    /// ⚠ **Optional for ever, not just until the next sweep.** Every gist
+    /// written before this existed is on disk without one, a model that answers
+    /// with a single line leaves it unset, and a name that comes back looking
+    /// like a second sentence is refused by [`answer`]. A caller that treats
+    /// this as reliably present is wrong about all three.
+    #[serde(default)]
+    pub name: Option<String>,
     /// When it was written, in epoch milliseconds — so a client can say how old
     /// the sentence is rather than implying it is current.
     pub at: i64,
@@ -221,10 +231,11 @@ impl Gists {
             }
             spent += 1;
             match ask(binary, &prompt(&material)).await {
-                Some(text) => self.keep(
+                Some((text, name)) => self.keep(
                     &conversation.id,
                     Gist {
                         text,
+                        name,
                         at: crate::session::now(),
                         bytes: conversation.bytes,
                     },
@@ -261,9 +272,11 @@ fn prompt(material: &crate::past::Material) -> String {
     text.push_str(
         "In ONE sentence of at most twenty words, say what this conversation is about now — \
          what is being worked on, not what it started as. \
-         Write only that sentence: no preamble, no quotes, no trailing full stop needed, \
-         and no markdown — it is printed as plain text, so backticks and asterisks \
-         arrive as punctuation.",
+         Then, on a SECOND line, a name for it: two or three words, at most thirty \
+         characters, the way somebody would label a tab. \
+         Write only those two lines: no preamble, no labels, no quotes, no trailing full \
+         stop needed, and no markdown — they are printed as plain text, so backticks and \
+         asterisks arrive as punctuation.",
     );
     text
 }
@@ -280,14 +293,14 @@ fn prompt(material: &crate::past::Material) -> String {
 /// hour, for ever. Hidden is not gone. So the id is named here rather than left
 /// to the CLI, and the file is removed the moment the answer is in hand — see
 /// [`discard`], which is the whole reason for naming it.
-async fn ask(binary: &str, prompt: &str) -> Option<String> {
+async fn ask(binary: &str, prompt: &str) -> Option<(String, Option<String>)> {
     let named = uuid::Uuid::new_v4().to_string();
     let said = call(binary, prompt, &named).await;
     // Before the answer is examined, and on the failing paths as well: a call
     // that timed out or came back empty has left exactly the same file as one
     // that worked.
     discard(&crate::past::projects_root(), &named);
-    sentence(&said?)
+    answer(&said?)
 }
 
 /// The call itself, up to the words that came back.
@@ -356,7 +369,39 @@ pub fn discard(root: &Path, id: &str) {
 /// or a wrapper anyway. The first non-empty line is the answer in every one of
 /// those cases and in the ordinary one.
 pub fn sentence(said: &str) -> Option<String> {
-    let line = said.lines().map(str::trim).find(|line| !line.is_empty())?;
+    tidy(said.lines().map(str::trim).find(|line| !line.is_empty())?)
+}
+
+/// The longest a suggested name may be, in characters.
+///
+/// The prompt asks for thirty and this allows a little over, because a model
+/// that overshoots by a word has still answered the question — where one that
+/// returns a second sentence has not. It is the difference between the two that
+/// matters, not the exact figure.
+const NAME_AT_MOST: usize = 40;
+
+/// The most words a name may be, for the same reason.
+const NAME_WORDS_AT_MOST: usize = 6;
+
+/// Both lines of an answer: the sentence, and the name if there is one.
+///
+/// ⚠ **The name is refused rather than trimmed when it does not look like
+/// one.** A model that ignores the second instruction returns another sentence,
+/// and cutting that to [`NAME_AT_MOST`] characters would produce a plausible
+/// half-sentence — offered to somebody naming a conversation, that is worse
+/// than offering nothing, because a suggestion is read as considered.
+pub fn answer(said: &str) -> Option<(String, Option<String>)> {
+    let mut lines = said.lines().map(str::trim).filter(|line| !line.is_empty());
+    let text = tidy(lines.next()?)?;
+    let name = lines.next().and_then(tidy).filter(|name| {
+        name.chars().count() <= NAME_AT_MOST
+            && name.split_whitespace().count() <= NAME_WORDS_AT_MOST
+    });
+    Some((text, name))
+}
+
+/// One line of an answer, with what a model puts round it taken off.
+fn tidy(line: &str) -> Option<String> {
     // Quotes get returned about a third of the time despite being asked not to.
     let line = line.trim_matches(|c| c == '"' || c == '\'').trim();
     // ⚠ **And the marks come out, because the card draws this as text.** The
