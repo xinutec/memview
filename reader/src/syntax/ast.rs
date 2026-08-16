@@ -163,6 +163,12 @@ pub struct Comment {
 /// flattening is the misparse the law cannot see.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Command {
+    /// `FOO=bar` and friends, in the order written, before the command name.
+    ///
+    /// ⚠ **A prefix, so only before the first word.** `A=1 cmd B=2` binds `A`
+    /// and passes `B=2` as an argument, and bash prints exactly that back.
+    /// A command with assignments and no words is a plain binding: `FOO=bar`.
+    pub assignments: Vec<Assignment>,
     pub words: Vec<Word>,
     /// ⚠ **In their own list, because their position among the words means
     /// nothing.** `> out cat f` and `cat f > out` are the same command, and
@@ -170,6 +176,32 @@ pub struct Command {
     /// *within* this list does matter — `cat > out 2>&1` and `cat 2>&1 > out`
     /// send stderr to different places, and bash preserves both as written.
     pub redirects: Vec<Redirect>,
+    pub span: Span,
+}
+
+impl Command {
+    /// Nothing at all — no binding, no word, no redirection.
+    pub fn is_empty(&self) -> bool {
+        self.assignments.is_empty() && self.words.is_empty() && self.redirects.is_empty()
+    }
+}
+
+/// `NAME=value` or `NAME+=value` bound for the length of one command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Assignment {
+    /// The name alone, without the `=`.
+    pub name: String,
+    /// `+=`, which appends rather than replaces.
+    pub append: bool,
+    /// ⚠ **A value is not an ordinary word, and the difference is semantic.**
+    /// Measured: `FOO=*.txt` assigns the four characters `*.txt` — a scalar
+    /// assignment does no pathname expansion and no word splitting — while the
+    /// same text as an argument names files. So this word is read with globbing
+    /// off, and a `*` in it is literal text rather than a [`Glob`].
+    ///
+    /// Tilde expansion does happen, and in one more place than elsewhere:
+    /// `T=a:~/x` expands the tilde after the colon, which no argument would.
+    pub value: Word,
     pub span: Span,
 }
 

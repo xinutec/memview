@@ -132,7 +132,6 @@ fn the_printer_quotes_a_word_that_would_read_back_as_grammar() {
 
 #[test]
 fn an_assignment_prefix_is_grammar_and_an_argument_is_not() {
-    assert_eq!(refusal("FOO=bar cmd"), Reason::Assignment);
     assert_eq!(words("echo a=b")[1].as_literal().as_deref(), Some("a=b"));
     // The printer has to keep the difference when it writes one back.
     assert_eq!(print(&tree("'FOO=bar'")), "'FOO=bar'");
@@ -239,7 +238,7 @@ fn an_argument_is_not_a_command_name() {
     // where the survey claimed a construct the parser had accepted.
     assert!(survey("ssh -o BatchMode=yes host").is_empty());
     assert!(survey("git add in do done").is_empty());
-    assert_eq!(survey("FOO=bar cmd"), BTreeSet::from([Reason::Assignment]));
+    assert!(survey("FOO=bar cmd").is_empty());
     assert_eq!(survey("for f in a"), BTreeSet::from([Reason::ReservedWord]));
 }
 
@@ -379,19 +378,18 @@ fn a_pipeline_prefix_does_not_start_the_command() {
     // `time PYTHONPATH=… python -m recall doctor`. Treating `time` as the
     // command name made the assignment after it look like an argument, so the
     // survey reported nothing where the parser refused.
+    // The binding itself is modelled now, so the property is asserted with a
+    // construct that still is not: the word after `time` is the command NAME,
+    // and a reserved word there is grammar.
     assert_eq!(
-        survey("time PYTHONPATH=/x python -m recall"),
-        BTreeSet::from([Reason::Assignment])
+        survey("time PYTHONPATH=/x if"),
+        BTreeSet::from([Reason::ReservedWord])
     );
-    assert_eq!(
-        refusal("time PYTHONPATH=/x python -m recall"),
-        Reason::Assignment
-    );
+    assert_eq!(refusal("time PYTHONPATH=/x if"), Reason::ReservedWord);
     // `-p` is a prefix only after `time`; alone it is an ordinary argument.
-    assert_eq!(
-        survey("time -p FOO=bar x"),
-        BTreeSet::from([Reason::Assignment])
-    );
+    assert_eq!(survey("time -p if"), BTreeSet::from([Reason::ReservedWord]));
+    // And a binding after `time` is read, not refused.
+    assert!(survey("time PYTHONPATH=/x python -m recall").is_empty());
 }
 
 // ---- and-or lists ----
@@ -913,10 +911,7 @@ fn a_binding_is_decided_by_the_name_not_by_the_word() {
     // turned the check off. Bash asks only whether the NAME was quoted — all
     // four measured — and a wrong tree here prints and re-reads as itself, so
     // neither gate could ever object.
-    assert_eq!(refusal("FOO=bar cmd"), Reason::Assignment);
-    assert_eq!(refusal(r#"FOO="bar" cmd"#), Reason::Assignment);
-    assert_eq!(refusal("FOO='bar' cmd"), Reason::Assignment);
-    assert_eq!(refusal("FOO+=bar cmd"), Reason::Assignment);
+
     // A quote at the name makes it an ordinary, oddly-named command.
     assert_eq!(
         words("'FOO=bar' cmd")[0].as_literal().as_deref(),
@@ -932,10 +927,8 @@ fn a_binding_is_decided_by_the_name_not_by_the_word() {
         Some("FOO=bar")
     );
     for text in ["FOO=bar cmd", r#"FOO="bar" cmd"#, "FOO+=bar cmd"] {
-        assert!(
-            survey(text).contains(&Reason::Assignment),
-            "survey missed {text:?}"
-        );
+        assert!(survey(text).is_empty(), "{text:?} should need nothing");
+        assert!(check(text).holds(), "the law failed on {text:?}");
     }
     assert!(survey("'FOO=bar' cmd").is_empty());
 }
@@ -1053,8 +1046,7 @@ fn a_binding_survives_a_value_that_expands() {
     // ⚠ The regression this construct would otherwise have caused: with `$x` a
     // segment, `FOO=$x cmd` has no literal-only first word, so a check that read
     // the finished word would have skipped silently.
-    assert_eq!(refusal("FOO=$x cmd"), Reason::Assignment);
-    assert_eq!(refusal("FOO=$x"), Reason::Assignment);
+
     // And a command whose NAME expands is not a binding.
     assert!(parse("$x=y").is_ok());
 }
@@ -1110,4 +1102,121 @@ fn a_bracket_pair_split_across_segments_is_still_quoted() {
     // conditional in the corpus is untouched.
     assert_eq!(print(&tree("[ -f x ]")), "[ -f x ]");
     assert_eq!(print(&tree("echo [rc=")), "echo [rc=");
+}
+
+// ---- assignments ----
+
+fn assignments(text: &str) -> Vec<reader::syntax::ast::Assignment> {
+    match &list(text).first.commands[..] {
+        [command] => command.assignments.clone(),
+        other => panic!("{text:?} is not one command: {other:?}"),
+    }
+}
+
+#[test]
+fn a_binding_is_a_prefix_and_stops_at_the_command_name() {
+    // ⚠ `A=1 cmd B=2` binds A and passes `B=2` as an argument — bash prints
+    // exactly that back, so the prefix ends at the first word.
+    let bound = assignments("A=1 cmd B=2");
+    assert_eq!(bound.len(), 1);
+    assert_eq!(bound[0].name, "A");
+    assert_eq!(words("A=1 cmd B=2").len(), 2);
+    assert_eq!(words("A=1 cmd B=2")[1].as_literal().as_deref(), Some("B=2"));
+    // Several bind in order, and a command is optional.
+    assert_eq!(
+        assignments("A=1 B=2 cmd")
+            .iter()
+            .map(|a| a.name.clone())
+            .collect::<Vec<_>>(),
+        ["A", "B"]
+    );
+    assert!(words("A=1 B=2").is_empty());
+    // `export FOO=bar` binds nothing: the word after the command name is an
+    // argument that happens to look like one.
+    assert!(assignments("export FOO=bar").is_empty());
+}
+
+#[test]
+fn a_value_does_not_glob_and_an_argument_does() {
+    // ⚠ Measured: `FOO=*.txt` binds those five characters, while `cmd *.txt`
+    // names files. Recording a `Glob` in a value would claim an expansion the
+    // shell does not do, and no gate could see it — bash prints both verbatim.
+    assert_eq!(
+        assignments("FOO=*.txt")[0].value.as_literal().as_deref(),
+        Some("*.txt")
+    );
+    assert_eq!(words("cmd *.txt")[1].as_literal(), None);
+    assert!(check("FOO=*.txt").holds());
+}
+
+#[test]
+fn a_value_expands_a_tilde_after_a_colon() {
+    // ⚠ The other half of why a value cannot share the argument reader: bash
+    // binds `T=a:~/x` to `a:/home/…/x`, and no argument would.
+    let value = &assignments("PATH=a:~/bin")[0].value;
+    assert!(
+        value
+            .segments
+            .iter()
+            .any(|s| matches!(s.kind, SegmentKind::Tilde(_))),
+        "no tilde in {value:?}"
+    );
+    // At the head it expands in both kinds.
+    assert!(matches!(
+        assignments("HOME=~/x")[0].value.segments[0].kind,
+        SegmentKind::Tilde(_)
+    ));
+    // ...and in an argument, a tilde after a colon is ordinary text.
+    assert_eq!(
+        words("cmd a:~/bin")[1].as_literal().as_deref(),
+        Some("a:~/bin")
+    );
+}
+
+#[test]
+fn an_empty_value_is_one_tree_however_it_is_spelled() {
+    // Both bind the empty string, so they are one node — and they have to be, or
+    // the printer's single spelling would fail the law on the other.
+    assert_eq!(assignments("FOO="), assignments("FOO=''"));
+    assert!(assignments("FOO=")[0].value.segments.is_empty());
+    assert_eq!(print(&tree("FOO=''")), "FOO=");
+}
+
+#[test]
+fn appending_is_not_binding() {
+    assert!(assignments("FOO+=bar")[0].append);
+    assert!(!assignments("FOO=bar")[0].append);
+    assert_ne!(assignments("FOO+=bar"), assignments("FOO=bar"));
+    assert_eq!(print(&tree("FOO+=bar")), "FOO+=bar");
+}
+
+#[test]
+fn the_law_holds_across_the_assignment_shapes() {
+    for text in [
+        "FOO=bar cmd",
+        "FOO=bar",
+        "FOO=",
+        "FOO+=bar cmd",
+        "A=1 B=2 cmd arg",
+        r#"FOO="a b" cmd"#,
+        "FOO=$x cmd",
+        "PATH=$HOME/bin:$PATH",
+        "PATH=~/bin:$PATH",
+        "FOO=*.txt",
+        "A=1 cmd B=2",
+        "FOO=bar cmd > out",
+        "FOO=bar cmd | wc -l",
+        "A=1 cmd && B=2 other",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+        assert!(
+            survey(text).is_empty(),
+            "{text:?} should need nothing: {:?}",
+            survey(text)
+        );
+    }
 }

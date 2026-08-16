@@ -74,6 +74,8 @@ impl Survey<'_> {
         let mut word = String::new();
         let mut word_quoted = false;
         let mut in_word = false;
+        // Is the word being read a `NAME=value` prefix rather than a word?
+        let mut word_is_binding = false;
 
         // ⚠ **Finishing a word clears `at_command_start`, and only finishing a
         // word does.** Preserving it here instead made every word on a line look
@@ -91,13 +93,14 @@ impl Survey<'_> {
                     finish_word(
                         &mut self.found,
                         &word,
-                        at_command_start,
+                        at_command_start && !word_is_binding,
                         at_pipeline_head,
                         word_quoted,
                     );
                     in_word = false;
                     word.clear();
                     word_quoted = false;
+                    word_is_binding = false;
                 }
             };
         }
@@ -117,12 +120,16 @@ impl Survey<'_> {
                     if at_pipeline_head && word == "time" {
                         seen_time = true;
                     }
+                    // ⚠ A binding keeps the command START open and closes the
+                    // pipeline HEAD: `A=1 time x` runs /usr/bin/time, because
+                    // `time` is grammar only before a whole pipeline.
+                    let was_binding = word_is_binding;
                     finish!();
                     // ⚠ A prefix word does not start the command either: after
                     // `time`, the NEXT word is the command name, and treating it
                     // as an argument hid the assignment in
                     // `time PYTHONPATH=… python -m x`.
-                    at_command_start = keeps_head;
+                    at_command_start = keeps_head || was_binding;
                     at_pipeline_head = keeps_head;
                 }
             };
@@ -149,10 +156,15 @@ impl Survey<'_> {
 
         while let Some(byte) = self.peek() {
             // ⚠ At the word's start and from the raw bytes, exactly as the
-            // parser does it: whether the NAME is quoted is the question, and a
-            // finished word cannot answer it.
+            // parser does it: whether the NAME is quoted is what decides it, and
+            // a finished word cannot answer that.
+            //
+            // A binding is modelled now, so it is no longer a finding — but the
+            // word it opens is not the command NAME either, and the scan has to
+            // keep looking for one. Without that, `time PYTHONPATH=/x if` read
+            // the value as the name and the `if` after it as an argument.
             if at_command_start && !in_word && opens_assignment(self.bytes, self.at) {
-                self.found.insert(Reason::Assignment);
+                word_is_binding = true;
             }
             match byte {
                 b' ' | b'\t' | b'\r' => {

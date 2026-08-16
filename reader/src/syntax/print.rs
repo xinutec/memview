@@ -12,8 +12,8 @@
 //! usable as an equivalence test.
 
 use super::ast::{
-    AndOr, Command, Connector, Glob, Heredoc, Item, Parameter, Pipeline, Redirect, RedirectOp,
-    RedirectTarget, Script, Segment, SegmentKind, Tilde, Timed, Word,
+    AndOr, Assignment, Command, Connector, Glob, Heredoc, Item, Parameter, Pipeline, Redirect,
+    RedirectOp, RedirectTarget, Script, Segment, SegmentKind, Tilde, Timed, Word,
 };
 use super::parse::{is_assignment, is_reserved};
 
@@ -88,12 +88,17 @@ fn print_command(command: &Command, head: bool, bodies: &mut Vec<String>) -> Str
     // ⚠ Words first, then redirections — bash's own order. `> out cat f` comes
     // back from `declare -f` as `cat f > out`, so putting them anywhere else
     // would be a spelling bash does not use and the tree does not record.
-    let mut parts: Vec<String> = command
-        .words
-        .iter()
-        .enumerate()
-        .map(|(index, word)| print_word(word, index == 0 && head))
-        .collect();
+    // ⚠ Assignments, then words, then redirections — bash's own order, and it
+    // says so structurally: `FOO=bar > out cmd` comes back from `declare -f` as
+    // `FOO=bar cmd > out`.
+    let mut parts: Vec<String> = command.assignments.iter().map(print_assignment).collect();
+    parts.extend(
+        command
+            .words
+            .iter()
+            .enumerate()
+            .map(|(index, word)| print_word(word, index == 0 && head)),
+    );
     parts.extend(
         command
             .redirects
@@ -101,6 +106,21 @@ fn print_command(command: &Command, head: bool, bodies: &mut Vec<String>) -> Str
             .map(|redirect| print_redirect(redirect, bodies)),
     );
     parts.join(" ")
+}
+
+/// `FOO=bar`, `FOO+=bar`, `FOO=` — the value spelled as a value.
+///
+/// An empty value is written as nothing at all rather than as `''`, which is
+/// what the parser reads back: the two spellings bind the same thing and are one
+/// tree.
+fn print_assignment(assignment: &Assignment) -> String {
+    let equals = if assignment.append { "+=" } else { "=" };
+    let value = if assignment.value.segments.is_empty() {
+        String::new()
+    } else {
+        print_word(&assignment.value, false)
+    };
+    format!("{}{equals}{value}", assignment.name)
 }
 
 fn print_redirect(redirect: &Redirect, bodies: &mut Vec<String>) -> String {

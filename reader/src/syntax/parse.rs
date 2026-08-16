@@ -17,9 +17,24 @@
 //! at a special character always lands on a character boundary.
 
 use super::ast::{
-    AndOr, Command, Comment, Connector, Glob, Heredoc, Item, Link, Parameter, Pipeline, Redirect,
-    RedirectOp, RedirectTarget, Script, Segment, SegmentKind, Span, Tilde, Timed, Word,
+    AndOr, Assignment, Command, Comment, Connector, Glob, Heredoc, Item, Link, Parameter, Pipeline,
+    Redirect, RedirectOp, RedirectTarget, Script, Segment, SegmentKind, Span, Tilde, Timed, Word,
 };
+
+/// Where a word is being read, which decides what expands inside it.
+///
+/// ⚠ **Not a style choice — measured.** `FOO=*.txt` binds the literal `*.txt`
+/// while `cmd *.txt` names files, and `T=a:~/x` expands a tilde that `cmd a:~/x`
+/// leaves alone. A single word reader would have to be wrong in one of the two
+/// places.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WordKind {
+    /// An argument or a redirection target: globs, and a tilde at the head only.
+    Argument,
+    /// An assignment's value: no pathname expansion, and a tilde after any
+    /// unquoted `:` as well as at the head.
+    Value,
+}
 
 /// Why a piece of text was not read.
 ///
@@ -442,7 +457,10 @@ impl<'t> Parser<'t> {
         let mut commands = Vec::new();
         loop {
             let command = self.command()?;
-            if !command.words.is_empty() {
+            // ⚠ Words are not what makes a command. `FOO=bar` binds and `> out`
+            // truncates, each with no word in it, and dropping them would lose a
+            // whole statement rather than a detail.
+            if !command.is_empty() {
                 commands.push(command);
             }
             self.skip_blanks();
@@ -493,10 +511,19 @@ impl<'t> Parser<'t> {
 
     fn command(&mut self) -> Result<Command, Refusal> {
         let start = self.at;
+        let mut assignments: Vec<Assignment> = Vec::new();
         let mut words: Vec<Word> = Vec::new();
         let mut redirects: Vec<Redirect> = Vec::new();
         loop {
             self.skip_blanks();
+            // ⚠ **A prefix, so it is read only while no word has been.** `A=1 cmd
+            // B=2` binds `A` and passes `B=2` as an argument — bash prints that
+            // back unchanged — and the test is on the raw bytes because whether
+            // the NAME is quoted is what decides it. See [`opens_assignment`].
+            if words.is_empty() && opens_assignment(self.bytes, self.at) {
+                assignments.push(self.assignment()?);
+                continue;
+            }
             match self.peek() {
                 None | Some(b';') | Some(b'\n') => break,
                 // `&>` is a redirection, not the list's `&`. Checked first, or
@@ -515,12 +542,37 @@ impl<'t> Parser<'t> {
                 redirects.push(redirect);
                 continue;
             }
-            let word = self.word(words.is_empty())?;
+            let word = self.word(words.is_empty(), WordKind::Argument)?;
             words.push(word);
         }
         Ok(Command {
+            assignments,
             words,
             redirects,
+            span: Span::new(start, self.at),
+        })
+    }
+
+    /// `NAME=value` or `NAME+=value`, with the value read as a value.
+    fn assignment(&mut self) -> Result<Assignment, Refusal> {
+        let start = self.at;
+        while self
+            .peek()
+            .is_some_and(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        {
+            self.at += 1;
+        }
+        let name = self.text[start..self.at].to_string();
+        let append = self.peek() == Some(b'+');
+        if append {
+            self.at += 1;
+        }
+        self.at += 1; // the `=`
+        let value = self.word(false, WordKind::Value)?;
+        Ok(Assignment {
+            name,
+            append,
+            value,
             span: Span::new(start, self.at),
         })
     }
@@ -761,20 +813,13 @@ impl<'t> Parser<'t> {
         if self.at_end_of_command() {
             return self.refuse(Reason::EmptyOperand, 1);
         }
-        Ok(RedirectTarget::File(self.word(false)?))
+        Ok(RedirectTarget::File(self.word(false, WordKind::Argument)?))
     }
 
     /// One word. `first` is whether it opens the command, which is the only
     /// position where a reserved word or an assignment is grammar.
-    fn word(&mut self, first: bool) -> Result<Word, Refusal> {
+    fn word(&mut self, first: bool, kind: WordKind) -> Result<Word, Refusal> {
         let start = self.at;
-        // ⚠ Decided here, from the bytes, and not from the finished word — see
-        // [`opens_assignment`]. A word that binds a name is grammar, and no
-        // amount of looking at its resolved text can tell you whether the name
-        // was quoted.
-        if first && opens_assignment(self.bytes, self.at) {
-            return self.refuse(Reason::Assignment, 1);
-        }
         let mut segments: Vec<Segment> = Vec::new();
         let mut quoted_anywhere = false;
 
@@ -784,6 +829,10 @@ impl<'t> Parser<'t> {
         if self.peek() == Some(b'~') {
             segments.push(self.tilde()?);
         }
+        // ⚠ In a value only, a tilde after an unquoted `:` expands too — bash
+        // binds `T=a:~/x` to `a:/home/…/x`. Measured, and the reason a value
+        // cannot share the argument reader.
+        let tilde_follows_colon = kind == WordKind::Value;
 
         while let Some(byte) = self.peek() {
             let at = self.at;
@@ -840,7 +889,11 @@ impl<'t> Parser<'t> {
                 b'[' if self.closes_bracket() => {
                     return self.refuse(Reason::BracketExpression, 1);
                 }
-                b'*' | b'?' => {
+                // ⚠ A `*` is a glob only where pathname expansion happens. In
+                // an assignment's value it is an ordinary character — measured,
+                // `FOO=*.txt` binds those five characters — so it falls through
+                // to `bare`, which reads it as literal text.
+                b'*' | b'?' if kind == WordKind::Argument => {
                     self.at += 1;
                     let glob = if byte == b'*' { Glob::Any } else { Glob::One };
                     segments.push(Segment {
@@ -856,12 +909,27 @@ impl<'t> Parser<'t> {
                     quoted_anywhere = true;
                     segments.extend(self.double_quoted()?);
                 }
-                _ => segments.push(self.bare()?),
+                b'~' if tilde_follows_colon
+                    && matches!(segments.last().map(|s| &s.kind),
+                        Some(SegmentKind::Literal(text)) if text.ends_with(':')) =>
+                {
+                    segments.push(self.tilde()?);
+                }
+                _ => segments.push(self.bare(kind)?),
             }
         }
 
+        let mut segments = merge_literals(segments);
+        // ⚠ `FOO=` and `FOO=''` bind the same empty value, so they are one tree
+        // — and they have to be, or the printer's one spelling of an empty value
+        // would fail the round-trip law on whichever it did not choose.
+        if kind == WordKind::Value
+            && matches!(&segments[..], [Segment { kind: SegmentKind::Literal(text), .. }] if text.is_empty())
+        {
+            segments.clear();
+        }
         let word = Word {
-            segments: merge_literals(segments),
+            segments,
             span: Span::new(start, self.at),
         };
 
@@ -1103,7 +1171,7 @@ impl<'t> Parser<'t> {
     }
 
     /// An unquoted run, up to the next character that means something.
-    fn bare(&mut self) -> Result<Segment, Refusal> {
+    fn bare(&mut self, kind: WordKind) -> Result<Segment, Refusal> {
         let start = self.at;
         let mut text = String::new();
         while let Some(byte) = self.peek() {
@@ -1116,16 +1184,33 @@ impl<'t> Parser<'t> {
                         self.at += 2;
                     }
                 },
+                b'*' | b'?' if kind == WordKind::Argument => break,
+                // ⚠ End the literal so the word reader sees this `~`: in a value
+                // a tilde right after a `:` expands, and it is the only place
+                // this reader has to hand a character back.
+                b'~' if kind == WordKind::Value && text.ends_with(':') => break,
                 b' ' | b'\t' | b'\r' | b'\n' | b';' | b'\'' | b'"' | b'|' | b'&' | b'<' | b'>'
-                | b'(' | b')' | b'{' | b'}' | b'$' | b'`' | b'*' | b'?' => break,
+                | b'(' | b')' | b'{' | b'}' | b'$' | b'`' => break,
                 b'[' if self.closes_bracket() => break,
                 _ => {
                     let from = self.at;
                     while let Some(next) = self.peek() {
-                        if is_bare_stop(next) || (next == b'[' && self.closes_bracket()) {
+                        // In a value `*` and `?` are ordinary characters, so the
+                        // run may swallow them.
+                        let globs_here = kind == WordKind::Argument || !matches!(next, b'*' | b'?');
+                        if (is_bare_stop(next) && globs_here)
+                            || (next == b'[' && self.closes_bracket())
+                        {
                             break;
                         }
                         self.at += 1;
+                        // ⚠ In a value the run ends after every `:`, because a
+                        // tilde there expands — `PATH=a:~/bin` — and `~` is not
+                        // otherwise a character this reader stops at. The pieces
+                        // merge back together where it is not one.
+                        if kind == WordKind::Value && next == b':' {
+                            break;
+                        }
                     }
                     text.push_str(&self.text[from..self.at]);
                 }
