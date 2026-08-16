@@ -27,12 +27,14 @@
 #      scanning ahead for the next `\n`.
 #   5. NOTHING PAIRS AN OPENER WITH A BODY BUT ORDER. `cat <<A <<A` is legal and
 #      its two bodies differ.
-#   6. AN UNTERMINATED HEREDOC IS ACCEPTED, with `warning: here-document at line
-#      N delimited by end-of-file` on stderr. So `bash -n`'s exit code cannot
-#      adjudicate it — and `declare -f` cannot either, because the runaway body
-#      swallows the wrapper's closing brace and the render is refused. It is the
-#      one shape neither gate can judge, which is why the parser refuses it and
-#      `bash_warns_of_a_runaway_heredoc` checks the warning instead.
+#   6. AN UNTERMINATED HEREDOC IS ACCEPTED, and the rest of the input becomes
+#      the body, with `warning: here-document at line N delimited by
+#      end-of-file` on stderr. So `bash -n`'s exit code cannot adjudicate it,
+#      and `declare -f` cannot render it at all — the runaway body swallows the
+#      wrapper's closing brace. The parser reads it the way bash does; the
+#      round-trip law covers it, gate 2 excludes it as it excludes comments, and
+#      `bash_warns_of_a_runaway_heredoc` is what tells that exclusion apart from
+#      a command bash refused for a real reason.
 set -euo pipefail
 
 render() {

@@ -328,14 +328,19 @@ has no opinion about. Checking them is what keeps "we cannot read it" apart from
 "it does not parse" — the distinction above, which otherwise rots silently. A new
 reason of that kind has to join the list, or it is an unchecked claim.
 
-⚠ **A shape neither gate can judge is refused, not modelled.** An unterminated
-heredoc is the only one so far. Bash *accepts* it, so the exit code says nothing;
-`declare -f` cannot render it, because the runaway body swallows the wrapper's
-closing brace. What is left is bash's warning — `here-document at line N
-delimited by end-of-file` — and `bash_warns_of_a_runaway_heredoc` reads it, so
-even this refusal rests on bash rather than on us. Where no such channel existed,
-the answer would be to refuse and say so, never to guess at a construct with
-nothing able to contradict the guess.
+⚠ **"No gate can check it" is a reason to find a third check, not to refuse.**
+A heredoc whose delimiter never appears looked un-judgeable: bash *accepts* it,
+so the exit code says nothing, and `declare -f` cannot render it because the
+runaway body swallows the wrapper's closing brace. It was refused on that
+argument, and the argument was wrong twice over. **Gate 1 judges it perfectly
+well** — the printer writes the terminator back, and `t₂ ≠ t₁` is permitted — and
+**gate 2 already excludes a construct it cannot see**, namely comments. What was
+missing was only a way to tell that exclusion from a defect, and bash's warning
+(`here-document at line N delimited by end-of-file`) supplies it.
+
+The corpus is shell history: those commands ran. Refusing them dropped real work
+for a shape bash has a definite answer about. **Check which gate is actually
+blind before concluding both are.**
 
 ⚠ **The oracle is its own crate.** `reader` states that it runs nothing and opens
 nothing, and that claim is what lets the privileged console link it. Spawning

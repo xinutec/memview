@@ -718,23 +718,16 @@ fn a_dash_strips_leading_tabs_and_only_tabs() {
     // Spaces are not tabs: they stay in the body, and a terminator behind one
     // does not terminate.
     assert_eq!(here("cat <<-EOF\n\t  spaced\n\tEOF").body, "  spaced\n");
-    assert_eq!(
-        refusal("cat <<-EOF\nbody\n\t EOF"),
-        Reason::UnterminatedHeredoc
-    );
+    // A terminator behind a space is not one, so the body runs to the end.
+    assert_eq!(here("cat <<-EOF\nbody\n\t EOF").body, "body\n EOF\n");
 }
 
 #[test]
 fn a_terminator_is_matched_exactly() {
-    // Bash does not trim: `EOF ` is body text, and what follows runs off the end.
-    assert_eq!(
-        refusal("cat <<EOF\nbody\nEOF "),
-        Reason::UnterminatedHeredoc
-    );
-    assert_eq!(
-        refusal("cat <<EOF\nbody\n EOF"),
-        Reason::UnterminatedHeredoc
-    );
+    // Bash does not trim, so `EOF ` is body text and the body runs to the end
+    // of the input — which is where bash ends it too.
+    assert_eq!(here("cat <<EOF\nbody\nEOF ").body, "body\nEOF \n");
+    assert_eq!(here("cat <<EOF\nbody\n EOF").body, "body\n EOF\n");
     // Nor is a substring one.
     assert_eq!(here("cat <<EOF\nEOFEOF\nEOF").body, "EOFEOF\n");
 }
@@ -792,10 +785,7 @@ fn a_backslash_newline_joins_an_unquoted_body_and_not_a_quoted_one() {
 fn a_join_that_would_forge_a_terminator_is_refused() {
     // `EO\` + `F` becomes the line `EOF`, which the printer has no way to write
     // back without ending the heredoc early.
-    assert_eq!(
-        refusal("cat <<EOF\nEO\\\nF\nEOF"),
-        Reason::UnterminatedHeredoc
-    );
+    assert_eq!(refusal("cat <<EOF\nEO\\\nF\nEOF"), Reason::EmptyOperand);
 }
 
 #[test]
@@ -806,15 +796,28 @@ fn a_heredoc_defaults_to_stdin_and_takes_a_descriptor() {
 }
 
 #[test]
-fn an_unterminated_heredoc_is_refused_rather_than_guessed_at() {
-    // ⚠ Neither gate can judge this shape — bash accepts it with a warning and
-    // `declare -f` cannot render it at all — so the parser declines it.
-    assert_eq!(refusal("cat <<EOF"), Reason::UnterminatedHeredoc);
-    assert_eq!(refusal("cat <<EOF\nbody"), Reason::UnterminatedHeredoc);
+fn a_body_with_no_terminator_runs_to_the_end_of_the_input() {
+    // ⚠ **Read, not refused.** Bash takes the rest of the input as the body and
+    // warns; the corpus is shell history, so these are commands that really ran
+    // and refusing them would drop real work. `declare -f` cannot render one —
+    // the runaway body eats the wrapper's brace — so gate 2 excludes them the
+    // way it excludes comments, and gate 1 covers them alone.
+    assert_eq!(here("cat <<EOF").body, "");
+    assert_eq!(here("cat <<EOF\nbody").body, "body\n");
+    // The shape the corpus actually holds: two openers and one body, so the
+    // second heredoc gets what is left, which is nothing.
+    let bodies: Vec<String> = redirects("python3 - <<'EOF' || python3 - <<'EOF'\nprint(1)\nEOF")
+        .iter()
+        .map(|redirect| match &redirect.target {
+            RedirectTarget::Here(here) => here.body.clone(),
+            other => panic!("not a heredoc: {other:?}"),
+        })
+        .collect();
+    assert_eq!(bodies, ["print(1)\n"]);
+    // An empty delimiter, whose terminator is an empty line, is the same rule
+    // seen from the other side.
+    assert_eq!(here("cat <<''\nbody\n\n").body, "body\n");
     assert_eq!(refusal("cat <<"), Reason::EmptyOperand);
-    // Legal bash, terminated by an empty line — and refused because the printer
-    // has no way to write that terminator at the end of its output.
-    assert_eq!(refusal("cat <<''\nbody\n\n"), Reason::EmptyOperand);
     assert_eq!(refusal("cat <<$x\nbody\n$x"), Reason::Expansion);
 }
 

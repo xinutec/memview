@@ -33,17 +33,6 @@ pub enum Reason {
     /// `>`, `>>`, `<`, `2>&1`, `&>`, `>|`, `<>`, `{fd}>` — a file or a
     /// descriptor, and nothing that carries a body.
     Redirection,
-    /// A heredoc whose delimiter never appears on a line of its own.
-    ///
-    /// ⚠ **Neither gate can judge this one, so it is refused rather than
-    /// modelled.** Bash accepts it — with `warning: here-document at line N
-    /// delimited by end-of-file` on stderr — and takes the rest of the input as
-    /// the body, so `bash -n` cannot adjudicate it the way it adjudicates an
-    /// unterminated quote. The second gate cannot either: the runaway body
-    /// swallows the closing brace of the function wrapper, so `declare -f`
-    /// refuses to render it at all. A construct no gate can check is one this
-    /// layer declines to guess at.
-    UnterminatedHeredoc,
     /// `<<<` — a value, not a file, and no body.
     HereString,
     /// `<(cmd)` or `>(cmd)`: a whole command, so it needs grouping first.
@@ -75,7 +64,6 @@ impl Reason {
         match self {
             Reason::Expansion => "expansion ($ or backtick)",
             Reason::Redirection => "redirection (> >> < 2>&1 &>)",
-            Reason::UnterminatedHeredoc => "unterminated heredoc (delimiter never appears)",
             Reason::HereString => "here-string (<<<)",
             Reason::ProcessSubstitution => "process substitution (<( >()",
             Reason::Grouping => "grouping (( ) { })",
@@ -199,14 +187,9 @@ impl<'t> Parser<'t> {
                 }
             }
         }
-        // The text ran out with a heredoc still open, so its delimiter never
-        // appeared on a line of its own.
-        if let Some(pending) = self.pending.first() {
-            return Err(Refusal {
-                reason: Reason::UnterminatedHeredoc,
-                span: pending.span,
-            });
-        }
+        // A heredoc opened on a line the text ended without terminating: its
+        // body is whatever is left, which at this point is nothing.
+        self.read_pending_bodies()?;
         Ok(Script {
             items,
             span: Span::new(0, self.bytes.len()),
@@ -247,6 +230,10 @@ impl<'t> Parser<'t> {
     /// makes "the body follows the line" true rather than approximately true.
     fn take_newline(&mut self) -> Result<(), Refusal> {
         self.at += 1;
+        self.read_pending_bodies()
+    }
+
+    fn read_pending_bodies(&mut self) -> Result<(), Refusal> {
         for pending in std::mem::take(&mut self.pending) {
             let body = self.heredoc_body(&pending)?;
             self.bodies.push(body);
@@ -255,14 +242,21 @@ impl<'t> Parser<'t> {
     }
 
     /// The lines from the cursor up to the one holding the delimiter alone.
+    /// ⚠ **The end of the input terminates a body, because that is what bash
+    /// makes of it** — with `warning: here-document at line N delimited by
+    /// end-of-file` on stderr, and the rest of the text as the body. The corpus
+    /// is shell history and holds 13 such commands; reading them the way they
+    /// ran is the whole point, and refusing them would drop real work for a
+    /// shape bash has a definite answer about.
+    ///
+    /// The printer writes the delimiter back, so `t₂` is terminated where `t₁`
+    /// was not. That is a normalisation the law permits, and it is the same
+    /// tree.
     fn heredoc_body(&mut self, pending: &Pending) -> Result<Heredoc, Refusal> {
         let mut body = String::new();
         loop {
             if self.at >= self.bytes.len() {
-                return Err(Refusal {
-                    reason: Reason::UnterminatedHeredoc,
-                    span: pending.span,
-                });
+                return self.finish_body(pending, body);
             }
             let from = self.at;
             while self.peek().is_some_and(|byte| byte != b'\n') {
@@ -283,30 +277,35 @@ impl<'t> Parser<'t> {
                 line
             };
             if line == pending.delimiter {
-                let body = if pending.quoted {
-                    body
-                } else {
-                    join_continuations(&body)
-                };
-                // ⚠ Joining can *create* a terminator: a body holding `EO\⏎F`
-                // becomes a line reading `EOF`, and printing that back would end
-                // the heredoc early. Refused rather than printed, because the
-                // printer has no other spelling available to it.
-                if body.lines().any(|line| line == pending.delimiter) {
-                    return Err(Refusal {
-                        reason: Reason::UnterminatedHeredoc,
-                        span: pending.span,
-                    });
-                }
-                return Ok(Heredoc {
-                    delimiter: pending.delimiter.clone(),
-                    quoted: pending.quoted,
-                    body,
-                });
+                return self.finish_body(pending, body);
             }
             body.push_str(line);
             body.push('\n');
         }
+    }
+
+    /// Resolve a body once its extent is known, however it ended.
+    fn finish_body(&self, pending: &Pending, body: String) -> Result<Heredoc, Refusal> {
+        let body = if pending.quoted {
+            body
+        } else {
+            join_continuations(&body)
+        };
+        // ⚠ Joining can *create* a terminator: a body holding `EO\⏎F` becomes a
+        // line reading `EOF`, and printing that back would end the heredoc
+        // early. Refused rather than printed, because the printer has no other
+        // spelling available to it.
+        if body.lines().any(|line| line == pending.delimiter) {
+            return Err(Refusal {
+                reason: Reason::EmptyOperand,
+                span: pending.span,
+            });
+        }
+        Ok(Heredoc {
+            delimiter: pending.delimiter.clone(),
+            quoted: pending.quoted,
+            body,
+        })
     }
 
     /// Is there no command here — only a terminator or the end of the text?
@@ -680,13 +679,7 @@ impl<'t> Parser<'t> {
                 }
             }
         }
-        // ⚠ `<<''` is legal bash — its terminator is an empty line — and it is
-        // refused all the same, because the printer cannot write one back. A
-        // body's last line and the terminator would both be empty, so the two
-        // are indistinguishable at the end of the output and `t₂` reads as an
-        // unterminated heredoc. Refusing is the honest answer where the tree can
-        // be built but not spelled.
-        if !read_anything || text.is_empty() {
+        if !read_anything {
             return self.refuse(Reason::EmptyOperand, 1);
         }
         Ok((text, quoted))

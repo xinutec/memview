@@ -160,9 +160,10 @@ impl Survey<'_> {
                     separator!();
                     self.at += 1;
                     for (delimiter, strip_tabs) in std::mem::take(&mut heredocs) {
-                        if !self.skip_heredoc_body(&delimiter, strip_tabs) {
-                            self.found.insert(Reason::UnterminatedHeredoc);
-                        }
+                        // A body that runs to the end of the text is what bash
+                        // makes of a missing delimiter, and the parser reads it
+                        // the same way — so there is nothing to report.
+                        self.skip_heredoc_body(&delimiter, strip_tabs);
                     }
                 }
                 b';' => {
@@ -343,10 +344,6 @@ impl Survey<'_> {
                 word_quoted,
             );
         }
-        // The text ended with a heredoc still open, so its delimiter never came.
-        if !heredocs.is_empty() {
-            self.found.insert(Reason::UnterminatedHeredoc);
-        }
         self.found
     }
 
@@ -440,14 +437,13 @@ impl Survey<'_> {
         None
     }
 
-    /// Step over a heredoc body, which is data rather than shell. `false` if the
-    /// delimiter never appeared, which is the one heredoc the parser refuses.
+    /// Step over a heredoc body, which is data rather than shell.
     ///
     /// ⚠ **The terminator is matched exactly, with no trimming of trailing
     /// whitespace.** Bash does not trim either — `EOF ` does not end a heredoc —
     /// and a survey that were lenient here would step over a line the parser
     /// keeps reading, which is the direction that breaks the invariant.
-    fn skip_heredoc_body(&mut self, delimiter: &str, strip_tabs: bool) -> bool {
+    fn skip_heredoc_body(&mut self, delimiter: &str, strip_tabs: bool) {
         while self.at < self.bytes.len() {
             let line_start = self.at;
             while self.peek().is_some_and(|b| b != b'\n') {
@@ -463,10 +459,9 @@ impl Survey<'_> {
                 line
             };
             if line == delimiter {
-                return true;
+                return;
             }
         }
-        false
     }
 
     /// `$name`, `${…}`, `$(…)`, `$((…))` or a backtick run.

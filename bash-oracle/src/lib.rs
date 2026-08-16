@@ -43,7 +43,13 @@ const BATCH: usize = 500;
 pub enum Verdict {
     /// Bash read our printed form the same way we do.
     Agrees,
-    /// Bash refused to parse what the printer wrote. Always a defect here.
+    /// Bash would not render this command at all.
+    ///
+    /// ⚠ **A defect in every case but one**, and the caller has to tell them
+    /// apart with [`bash_warns_of_a_runaway_heredoc`]: a heredoc whose delimiter
+    /// never appears takes the rest of the input as its body, and that body eats
+    /// the closing brace of the wrapper [`compare`] needs. Such a command is
+    /// outside this gate, as a comment is — not evidence of a bad tree.
     BashRefused,
     /// Bash's print does not read back — the parser cannot read bash's spelling
     /// of a tree it produced itself.
@@ -203,11 +209,13 @@ pub fn bash_also_refuses(command: &str) -> Result<bool> {
 
 /// Does bash warn that a heredoc ran off the end of the input?
 ///
-/// ⚠ **The one malformed shape bash accepts.** An unterminated heredoc exits
-/// zero — bash takes the rest of the input as the body and says so on stderr —
-/// so [`bash_also_refuses`] cannot adjudicate it and the warning has to. Without
-/// this, `UnterminatedHeredoc` would be the only refusal resting on nothing but
-/// this parser's own say-so.
+/// ⚠ **This is what makes `BashRefused` legible.** A heredoc whose delimiter
+/// never appears takes the rest of the input as its body — bash accepts it,
+/// exits zero, and says so only on stderr — and that runaway body swallows the
+/// closing brace of the wrapper [`render`] needs, so bash cannot print the
+/// command at all. Such a command is outside the second gate, exactly as a
+/// comment is. Every *other* refusal of our printed form is a defect, so the
+/// warning is what separates the two rather than a blanket exemption.
 pub fn bash_warns_of_a_runaway_heredoc(command: &str) -> Result<bool> {
     Ok(bash_parse(command)?.1.contains("delimited by end-of-file"))
 }

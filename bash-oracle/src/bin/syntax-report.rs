@@ -19,6 +19,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bash_oracle as oracle;
+use bash_oracle::Verdict;
 use reader::syntax::{self, Outcome, Reason};
 
 #[derive(Default)]
@@ -64,7 +65,6 @@ fn main() -> anyhow::Result<()> {
     let mut accepted: Vec<(String, syntax::Script)> = Vec::new();
     // Refusals that assert the TEXT is invalid, which bash can adjudicate.
     let mut claimed_invalid: Vec<String> = Vec::new();
-    let mut claimed_runaway: Vec<String> = Vec::new();
     // The FULL set of constructs each refused command needs, from the survey.
     // The ranking above cannot answer "what would building X unlock", because a
     // command is counted under whichever construct the scan met first.
@@ -97,13 +97,6 @@ fn main() -> anyhow::Result<()> {
                     Reason::UnterminatedQuote | Reason::DanglingEscape | Reason::EmptyOperand
                 ) {
                     claimed_invalid.push(command.to_string());
-                }
-                // ⚠ Adjudicated by bash's WARNING, not by its exit code: bash
-                // accepts a runaway heredoc and takes the rest of the input as
-                // the body. Without this the one refusal no gate can judge would
-                // also be the one nothing checks.
-                if refusal.reason == Reason::UnterminatedHeredoc {
-                    claimed_runaway.push(command.to_string());
                 }
                 if let Some(wanted) = &why
                     && refusal.reason.label().contains(wanted.as_str())
@@ -314,26 +307,6 @@ fn main() -> anyhow::Result<()> {
         }
         println!("  {:>7}  checked, {wrong} wrong", claimed_invalid.len());
 
-        println!("\nheredocs we call unterminated, put to bash's own warning:");
-        let mut unwarned = 0usize;
-        for command in &claimed_runaway {
-            if !oracle::bash_warns_of_a_runaway_heredoc(command)? {
-                unwarned += 1;
-                if unwarned <= 3 {
-                    println!("  ⚠ bash reads this heredoc fine — our refusal is a bug:");
-                    println!(
-                        "      {}",
-                        command
-                            .chars()
-                            .take(120)
-                            .collect::<String>()
-                            .replace('\n', "⏎")
-                    );
-                }
-            }
-        }
-        println!("  {:>7}  checked, {unwarned} wrong", claimed_runaway.len());
-
         println!("\ngate 2 — bash's own printer, over what the law held for:");
         // ⚠ The ORIGINAL command text, not our print of it. Feeding bash our
         // own output can only confirm it agrees with our canonical form; the
@@ -348,8 +321,33 @@ fn main() -> anyhow::Result<()> {
                 entry.1.push(command.to_string());
             }
         }
+        // ⚠ **`bash refused our print` is not always a defect, and the
+        // difference has to be measured rather than assumed.** A heredoc whose
+        // delimiter never appears takes the rest of the input as its body — bash
+        // says so with a warning — and that body swallows the closing brace of
+        // the wrapper `declare -f` needs, so bash cannot render the command at
+        // all. Those are outside this gate's reach, exactly as comments are.
+        // Anything else bash declines to print IS a defect, so the two are
+        // separated by asking bash which it is.
+        let mut unrenderable = 0usize;
+        let mut refused_for_other_reasons: Vec<String> = Vec::new();
+        for ((command, _), verdict) in accepted.iter().zip(&verdicts) {
+            if matches!(verdict, oracle::Verdict::BashRefused) {
+                if oracle::bash_warns_of_a_runaway_heredoc(command)? {
+                    unrenderable += 1;
+                } else {
+                    refused_for_other_reasons.push(command.clone());
+                }
+            }
+        }
         for (label, (count, examples)) in &grouped {
             println!("  {count:>7}  {label}");
+            // ⚠ A group entirely accounted for by the known exclusion prints no
+            // examples. Showing them as findings is how a real defect in the
+            // same group learns to look like noise.
+            if *label == Verdict::BashRefused.label() && unrenderable == *count {
+                continue;
+            }
             for example in examples {
                 // ⚠ **Whole, not truncated.** A gate-2 disagreement is rare and
                 // is the one finding worth acting on immediately; a 90-column
@@ -357,6 +355,16 @@ fn main() -> anyhow::Result<()> {
                 // twice cost a wrong one being investigated instead.
                 println!("           ---\n{example}\n           ---");
             }
+        }
+        if unrenderable > 0 {
+            println!(
+                "  ({unrenderable} of those are runaway heredocs bash cannot render at all,\n   \
+                 confirmed by its own warning — outside this gate, as comments are)"
+            );
+        }
+        for command in refused_for_other_reasons.iter().take(3) {
+            println!("  ⚠ bash refused our print for some OTHER reason — a defect:");
+            println!("           ---\n{command}\n           ---");
         }
     }
     Ok(())
