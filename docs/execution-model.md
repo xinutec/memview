@@ -152,8 +152,17 @@ history.
    against a moving corpus is not a ratchet.
 2. Loss is continuous, so the snapshot precedes the parser work.
 
-**Pending action: choose where the snapshot lives.** It is shell history, so not
-this repository — memview is public.
+**It lives in `~/.claude/corpus/`** — dated snapshots beside a cumulative
+`union.jsonl`, written nightly by `xinutec-infra/scripts/claude-corpus-snapshot.sh`
+from `claude-sync.sh`'s mining step, before the archive runs. It sits there to
+inherit an existing durability path rather than grow a new one: `~/.claude` is
+already rsynced to odin nightly and held in restic. Not in this repository —
+memview is public and that is shell history.
+
+**Union for the ratchet, snapshot for frequency.** A corpus row is
+`{cmd, cwd, ran}` with no call id, so `sort -u` collapses exact repeats the
+moment it merges. Distinctness survives and multiplicity does not, which is why
+the dated snapshots are kept beside the union rather than replaced by it.
 
 **The first copy of a duplicated call wins.** Transcripts re-append stretches
 already written, and the later copy carries a shallower `cwd`.
@@ -173,7 +182,20 @@ repositories are deferred, not declined.
 
 ## Placement
 
-The tree goes underneath the reader, and `shell::Simple` becomes a projection
-from it. `shell_ops`, `shell_files`, `python`, `activity` and `doing` are not
-re-derived; their tests keep passing throughout and become the new tree's
-regression suite. Rewriting in place risks every one of those layers at once.
+The tree goes underneath the reader. **The existing reader is prototype
+quality and is not a constraint on this design** — it may be evolved freely or
+dropped. What is worth keeping from it is the *knowledge*: the semantics tables,
+the refusals, and the tests, which make a regression corpus no rewrite has to
+re-derive from scratch.
+
+The ordering constraint is correctness, not preservation. Nothing is built in the
+flat model to tide things over, because a half-representation invented now is one
+to throw away later.
+
+### Known misparse, left for the tree
+
+`time ./x.sh` parses today as a simple command with `argv[0] = "time"`, because
+the reader has `time` in its wrapper list beside `nohup` and `exec`. That is a
+category error: `time` is grammar. It reaches the right command anyway, so no
+count reports it, and it is 236 distinct corpus commands. **Not fixed in the flat
+model** — a correct fix needs the pipeline node to hang the flag on.
