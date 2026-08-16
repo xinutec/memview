@@ -157,7 +157,10 @@ fn an_assignment_prefix_is_grammar_and_an_argument_is_not() {
 
 #[test]
 fn every_construct_the_tree_does_not_model_is_named() {
-    assert_eq!(refusal("(cd x)"), Reason::Grouping);
+    // Grouping is built; what keeps this reason is a paren that opens nothing —
+    // `echo (` is refused by bash too.
+    assert_eq!(refusal("echo ("), Reason::Grouping);
+    assert!(parse("(cd x)").is_ok());
     assert_eq!(refusal("echo `ls`"), Reason::Backtick);
     // Bash agrees this one is unterminated: an apostrophe opens a quote.
     assert_eq!(refusal("echo it's"), Reason::UnterminatedQuote);
@@ -545,6 +548,21 @@ fn what_is_still_refused_is_named() {
     assert_eq!(refusal("cat <<< word"), Reason::HereString);
     assert_eq!(refusal("diff <(a) <(b)"), Reason::ProcessSubstitution);
     assert_eq!(refusal("cat >"), Reason::EmptyOperand);
+}
+
+#[test]
+fn closing_a_descriptor_has_no_direction() {
+    // ⚠ Measured: bash prints `3<&-` back as `3>&-`, and `<&-` as `0>&-`. So
+    // closing fd 3 is ONE operation however it was written, and a tree keeping
+    // the direction made it two. Found by the second gate on one command in
+    // 129,329 — neither the round-trip law nor construction could see it,
+    // because our print of the wrong tree read back as the same wrong tree.
+    assert_eq!(redirects("exec 3<&-"), redirects("exec 3>&-"));
+    assert_eq!(print(&tree("exec 3<&-")), "exec 3>&-");
+    // The direction still decides the DESCRIPTOR, which is why it cannot simply
+    // be dropped at the door: `<&-` closes 0 and `>&-` closes 1.
+    assert_eq!(print(&tree("cat <&-")), "cat 0>&-");
+    assert_eq!(print(&tree("cat >&-")), "cat >&-");
 }
 
 #[test]
@@ -1247,7 +1265,12 @@ fn each_reserved_word_belongs_to_the_construct_it_opens() {
     assert!(parse("if a; then b; fi").is_ok());
     assert_eq!(refusal("case $x in a) b;; esac"), Reason::Case);
     assert_eq!(refusal("[[ -f x ]]"), Reason::TestExpression);
-    assert_eq!(refusal("function f { a; }"), Reason::FunctionDefinition);
+    // ⚠ `function NAME` is bash's own spelling — `declare -f` prints every
+    // definition that way — so the parser must READ it, or it cannot read back
+    // its own print. What is still refused is the keyword with no body.
+    assert!(parse("function f { a; }").is_ok());
+    assert!(parse("f() { a; }").is_ok());
+    assert_eq!(refusal("function"), Reason::FunctionDefinition);
     assert_eq!(refusal("coproc a"), Reason::Coproc);
     // `!` is grammar at a pipeline's head and a syntax error elsewhere, so it
     // is refused in both places but for different reasons.

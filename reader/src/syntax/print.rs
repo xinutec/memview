@@ -94,6 +94,22 @@ fn print_command(command: &Command, head: bool, bodies: &mut Vec<String>) -> Str
         CommandKind::For(loop_) => vec![print_for(loop_, bodies)],
         CommandKind::While(loop_) => vec![print_while(loop_, bodies)],
         CommandKind::If(conditional) => vec![print_if(conditional, bodies)],
+        // ⚠ A subshell needs no terminator before its `)`, and a brace group
+        // REQUIRES one before its `}` — `{ a }` is a syntax error where `( a )`
+        // is not. Measured; `follow` supplies the right separator, including
+        // none at all after a `&`.
+        CommandKind::Subshell(items) => vec![format!("( {} )", print_body(items, bodies))],
+        CommandKind::Group(items) => {
+            vec![format!("{{ {} }}", terminated(&print_body(items, bodies)))]
+        }
+        // ⚠ **`function f ()` is bash's spelling, not ours.** `declare -f`
+        // prints every definition that way whichever was written, so matching it
+        // is what makes `f() { a; }` and `function f { a; }` one tree.
+        CommandKind::Function(function) => vec![format!(
+            "function {} () {{ {} }}",
+            function.name,
+            terminated(&print_body(&function.body, bodies))
+        )],
     };
     parts.extend(
         command
@@ -178,6 +194,20 @@ fn print_if(conditional: &Conditional, bodies: &mut Vec<String>) -> String {
 /// accepts `if a; then b & fi` and refuses `if a; then b & ; fi` — measured —
 /// and the same is true of every `do … done`. Shared rather than repeated,
 /// because it was written out three times and got the loops wrong.
+/// A command list with the terminator a closing `}` needs after it.
+///
+/// ⚠ **`{ a }` is a syntax error and `( a )` is not** — measured. A brace group
+/// is a reserved word, so its last command has to be ended before the `}` can be
+/// read as one. The exception is the same as everywhere else: a `&` has already
+/// ended the list, and `{ a & ; }` is refused in turn.
+fn terminated(list: &str) -> String {
+    if list.ends_with('&') {
+        list.to_string()
+    } else {
+        format!("{list};")
+    }
+}
+
 fn follow(list: &str, keyword: &str) -> String {
     let separator = if list.ends_with('&') { " " } else { "; " };
     format!("{list}{separator}{keyword}")
@@ -548,7 +578,17 @@ fn print_segment(segment: &Segment) -> String {
             // nothing can reach this vector — and if that ever changed, the body
             // would have to go somewhere this inline form has no room for.
             let mut inner = Vec::new();
-            let text = format!("$({})", print_body(&substitution.items, &mut inner));
+            let body = print_body(&substitution.items, &mut inner);
+            // ⚠ **`$((` is arithmetic, so a substitution holding a subshell
+            // needs the space bash needs.** `$( (cd x) && y )` written without
+            // it opens an arithmetic expansion instead — for bash as well as for
+            // this parser, which is how the round-trip law caught it on 9
+            // commands the moment grouping made the shape reachable.
+            let text = if body.starts_with('(') {
+                format!("$( {body})")
+            } else {
+                format!("$({body})")
+            };
             if substitution.quoted {
                 format!("\"{text}\"")
             } else {

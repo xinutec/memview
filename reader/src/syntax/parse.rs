@@ -24,7 +24,7 @@
 
 use super::ast::{
     Anchor, AndOr, Assignment, Command, CommandKind, Comment, Conditional, Connector, ForLoop,
-    Glob, Heredoc, Item, Link, Parameter, ParameterOp, Pipeline, Redirect, RedirectOp,
+    Function, Glob, Heredoc, Item, Link, Parameter, ParameterOp, Pipeline, Redirect, RedirectOp,
     RedirectTarget, Replace, Script, Segment, SegmentKind, Simple, Span, Subscript, Substitution,
     Tilde, Timed, WhileLoop, Word,
 };
@@ -87,8 +87,18 @@ pub enum Reason {
     HereString,
     /// `<(cmd)` or `>(cmd)`: a whole command, so it needs grouping first.
     ProcessSubstitution,
-    /// `(`, `)`, `{` or `}`.
+    /// A `(`, `)`, `{` or `}` where no group can be read — an unmatched one, or
+    /// a `}` closing nothing.
     Grouping,
+    /// `{a,b}`, `{1..9}` — brace EXPANSION, which is not grouping at all.
+    ///
+    /// ⚠ **Split off because a refusal must name the construct.** These share a
+    /// character with a brace group and nothing else: this one is word-level,
+    /// like a glob — `echo {a,b}.txt` is one word that expands to two — while
+    /// `{ a; }` is a command list. Counting them together said "how many
+    /// commands hold a brace", which is not a number anything can be built
+    /// against, and it hid a word construct inside a compound-statement build.
+    BraceExpansion,
     /// `[…]` inside a word — a bracket expression, not the `[` builtin.
     BracketExpression,
     /// A `~` opening a word, which expands to a home directory.
@@ -138,7 +148,8 @@ impl Reason {
             Reason::Redirection => "redirection (> >> < 2>&1 &>)",
             Reason::HereString => "here-string (<<<)",
             Reason::ProcessSubstitution => "process substitution (<( >()",
-            Reason::Grouping => "grouping (( ) { })",
+            Reason::Grouping => "grouping (unmatched ( ) { })",
+            Reason::BraceExpansion => "brace expansion ({a,b}, {1..9})",
             Reason::BracketExpression => "bracket expression ([…])",
             Reason::Tilde => "tilde (~)",
             Reason::Conditional => "conditional (if then elif else fi)",
@@ -684,6 +695,21 @@ impl<'t> Parser<'t> {
     /// uses.** A loop's body is a command list and nothing more, so a second
     /// reader for it would be a second place for the grammar to be wrong.
     fn compound(&mut self) -> Result<Option<CommandKind>, Refusal> {
+        if self.peek() == Some(b'(') {
+            return Ok(Some(CommandKind::Subshell(self.subshell()?)));
+        }
+        // ⚠ `{` is the keyword only where a word could not start: `{ a; }` is a
+        // group and `{a,b}` is one word. Bash decides on the blank, and so does
+        // this — `{a,b}` falls through to the word reader, which names it a
+        // brace expansion rather than a group.
+        if self.peek() == Some(b'{')
+            && matches!(self.peek_at(1), Some(b' ' | b'\t' | b'\n' | b'\r'))
+        {
+            return Ok(Some(CommandKind::Group(self.brace_group()?)));
+        }
+        if let Some(function) = self.function()? {
+            return Ok(Some(CommandKind::Function(function)));
+        }
         if self.at_keyword("if") {
             self.at += 2;
             return Ok(Some(CommandKind::If(self.conditional()?)));
@@ -809,6 +835,151 @@ impl<'t> Parser<'t> {
             return self.refuse(Reason::CommentInList, 1);
         }
         Ok(body)
+    }
+
+    /// `( list )` — a command list that runs in a subshell.
+    ///
+    /// ⚠ **The closing paren is found the same way a `$( )`'s is**, by the
+    /// depth counter every list reader already consults. Sharing it is what
+    /// makes `( echo ")" )` work: the quote reader has stepped over the paren
+    /// inside the word before the list reader ever sees it.
+    fn subshell(&mut self) -> Result<Vec<Item>, Refusal> {
+        self.at += 1; // the `(`
+        self.parens += 1;
+        let items = self.items(&[]);
+        self.parens -= 1;
+        let items = items?;
+        if self.peek() != Some(b')') {
+            return self.refuse(Reason::Grouping, 1);
+        }
+        self.at += 1;
+        if items.is_empty() {
+            return self.refuse(Reason::EmptyOperand, 1);
+        }
+        self.body_without_comments(items)
+    }
+
+    /// `{ list; }` — a command list in this shell.
+    fn brace_group(&mut self) -> Result<Vec<Item>, Refusal> {
+        self.at += 1; // the `{`
+        let items = self.items(&["}"])?;
+        if !self.take_keyword("}") {
+            return self.refuse(Reason::Grouping, 1);
+        }
+        if items.is_empty() {
+            return self.refuse(Reason::EmptyOperand, 1);
+        }
+        self.body_without_comments(items)
+    }
+
+    /// `name() { … }` or `name() ( … )`, if one starts here.
+    ///
+    /// ⚠ **Both spellings give the same tree**, because bash gives them the
+    /// same print: a `( … )` body comes back wrapped in a brace group. See
+    /// [`Function`].
+    fn function(&mut self) -> Result<Option<Function>, Refusal> {
+        // ⚠ **`function NAME` has to be read, because bash WRITES it.**
+        // `declare -f` prints every definition that way whichever spelling was
+        // used, so a parser that refused the keyword could not read back its own
+        // print — 141 commands failed the round-trip law on exactly that, and
+        // gate 2 would have failed on the same text for the same reason.
+        if self.at_keyword("function") {
+            let start = self.at;
+            self.at += 8;
+            self.skip_blanks();
+            let from = self.at;
+            while self.peek().is_some_and(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.' | b':')
+            }) {
+                self.at += 1;
+            }
+            if self.at == from {
+                self.at = start;
+                return self.refuse(Reason::FunctionDefinition, 1);
+            }
+            let name = self.text[from..self.at].to_string();
+            self.skip_blanks();
+            // The parens are optional after `function`, and carry nothing.
+            if self.peek() == Some(b'(') {
+                self.at += 1;
+                self.skip_blanks();
+                if self.peek() != Some(b')') {
+                    return self.refuse(Reason::FunctionDefinition, 1);
+                }
+                self.at += 1;
+            }
+            self.skip_blanks_and_newlines()?;
+            let body = self.function_body()?;
+            return Ok(Some(Function { name, body }));
+        }
+        let start = self.at;
+        let mut at = self.at;
+        while self.bytes.get(at).is_some_and(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.' | b':')
+        }) {
+            at += 1;
+        }
+        if at == start {
+            return Ok(None);
+        }
+        // `name ()` is legal too, so the blanks between are stepped over — but
+        // only to look; nothing is consumed unless this really is a definition.
+        let mut after = at;
+        while self
+            .bytes
+            .get(after)
+            .is_some_and(|b| matches!(b, b' ' | b'\t'))
+        {
+            after += 1;
+        }
+        if self.bytes.get(after) != Some(&b'(') {
+            return Ok(None);
+        }
+        let mut close = after + 1;
+        while self
+            .bytes
+            .get(close)
+            .is_some_and(|b| matches!(b, b' ' | b'\t'))
+        {
+            close += 1;
+        }
+        if self.bytes.get(close) != Some(&b')') {
+            return Ok(None);
+        }
+        let name = self.text[start..at].to_string();
+        self.at = close + 1;
+        self.skip_blanks_and_newlines()?;
+        let body = self.function_body()?;
+        Ok(Some(Function { name, body }))
+    }
+
+    /// The `{ … }` or `( … )` after a definition's name.
+    ///
+    /// ⚠ A `( … )` body comes back from `declare -f` wrapped in a brace group,
+    /// so that is the tree both spellings give — bash's own canonical form, and
+    /// the same collapse an `elif` gets.
+    fn function_body(&mut self) -> Result<Vec<Item>, Refusal> {
+        match self.peek() {
+            Some(b'(') => {
+                let span = Span::new(self.at, self.at);
+                let inner = self.subshell()?;
+                Ok(vec![one_command(CommandKind::Subshell(inner), span)])
+            }
+            Some(b'{') => self.brace_group(),
+            _ => self.refuse(Reason::FunctionDefinition, 1),
+        }
+    }
+
+    /// A compound's body, refused if it carries a comment.
+    ///
+    /// ⚠ The printer writes every compound on one line, where a comment would
+    /// swallow the rest of it — the same answer a loop body and a conditional
+    /// arm get, and for the same reason.
+    fn body_without_comments(&self, items: Vec<Item>) -> Result<Vec<Item>, Refusal> {
+        if items.iter().any(|item| matches!(item, Item::Comment(_))) {
+            return self.refuse(Reason::CommentInList, 1);
+        }
+        Ok(items)
     }
 
     /// `if cond; then body [elif …] [else body] fi`, with the opening keyword
@@ -997,18 +1168,28 @@ impl<'t> Parser<'t> {
         self.at = at;
 
         let target = self.redirect_target(op)?;
+        // ⚠ Always the effective descriptor, never the written one — see
+        // `Redirect::fd`. `1> f` and `> f` are one redirection, and bash says so
+        // by printing the first as the second. Taken from the WRITTEN operator,
+        // before the normalisations below change it: `cat <&-` closes fd 0 and
+        // bash prints it `cat 0>&-`, so the direction decides the descriptor
+        // even where it does not survive into the operator.
+        let effective_fd = fd.or(op.default_fd());
         // ⚠ `>&2` duplicates a descriptor; `>&file` sends BOTH streams to a
         // file. Same two characters, different construct, and the target is
         // what tells them apart — so the operator is settled after reading it.
         let op = match (op, &target) {
             (RedirectOp::DupOut, RedirectTarget::File(_)) => RedirectOp::BothWord,
+            // ⚠ **Closing has no direction.** Bash prints `3<&-` back as
+            // `3>&-`, and `<&-` as `0>&-` — measured — so a tree that kept the
+            // written direction made one operation two trees. Found by the
+            // second gate on one command in 129,329, which is the shape of
+            // defect only a reader that is not ours can see.
+            (RedirectOp::DupIn, RedirectTarget::Close) => RedirectOp::DupOut,
             _ => op,
         };
         Ok(Some(Redirect {
-            // ⚠ Always the effective descriptor, never the written one — see
-            // `Redirect::fd`. `1> f` and `> f` are one redirection, and bash
-            // says so by printing the first as the second.
-            fd: fd.or(op.default_fd()),
+            fd: effective_fd,
             op,
             target,
             span: Span::new(start, self.at),
@@ -1194,7 +1375,13 @@ impl<'t> Parser<'t> {
                 // Inside a substitution a `)` closes it rather than opening a
                 // group, so it ends the word instead of being refused.
                 b')' if self.parens > 0 => break,
-                b'(' | b')' | b'{' | b'}' => return self.refuse(Reason::Grouping, 1),
+                // ⚠ **A brace INSIDE a word is expansion, not grouping.**
+                // `echo {a,b}.txt` is one word that expands to two, which is a
+                // glob-level construct and a different build from `{ a; }`.
+                // Naming it `Grouping` counted a word construct inside a
+                // compound-statement build and hid it there.
+                b'{' | b'}' => return self.refuse(Reason::BraceExpansion, 1),
+                b'(' | b')' => return self.refuse(Reason::Grouping, 1),
                 // ⚠ A `$` that opens nothing is an ordinary character, and
                 // bash agrees: `echo $`, `echo a$` and `echo $.` all parse and
                 // print back unchanged.
@@ -2052,6 +2239,10 @@ fn fill_pipeline(pipeline: &mut Pipeline, bodies: &mut impl Iterator<Item = Here
                     fill_items(otherwise, bodies);
                 }
             }
+            CommandKind::Subshell(items) | CommandKind::Group(items) => {
+                fill_items(items, bodies);
+            }
+            CommandKind::Function(function) => fill_items(&mut function.body, bodies),
         }
         for redirect in &mut command.redirects {
             if let RedirectTarget::Here(here) = &mut redirect.target

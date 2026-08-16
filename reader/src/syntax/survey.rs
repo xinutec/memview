@@ -105,12 +105,20 @@ impl Survey<'_> {
         // keywords are modelled now, so an `if` is not a finding, but the shapes
         // bash refuses still are and nothing else here can see them.
         let mut if_stack: Vec<bool> = Vec::new();
+        // Open `( … )` and `{ … ; }`. An unmatched one is a refusal the parser
+        // makes and nothing else here can see.
+        let mut parens = 0usize;
+        let mut braces = 0usize;
         // How far through a `for NAME in` header the scan is: 1 after `for`,
         // 2 after the name. A word other than `in` at 2 is a header bash refuses
         // — `for p /style.css; do …` — and the parser refuses it as a loop.
         let mut for_stage = 0u8;
         // Did the word just finished open a new command list — `do`, `then`?
         let mut word_opens_list = false;
+        // ⚠ Was the word just finished a command NAME? `probe () { … }` is a
+        // definition with a blank before the parens, so by the time the `(` is
+        // read the name is behind us and `at_command_start` has been cleared.
+        let mut after_name = false;
 
         // ⚠ **Finishing a word clears `at_command_start`, and only finishing a
         // word does.** Preserving it here instead made every word on a line look
@@ -219,6 +227,7 @@ impl Survey<'_> {
                     // `time`, the NEXT word is the command name, and treating it
                     // as an argument hid the assignment in
                     // `time PYTHONPATH=… python -m x`.
+                    after_name = at_command_start && !keeps_head && !was_binding;
                     at_command_start = keeps_head || was_binding || word_opens_list;
                     at_pipeline_head = keeps_head || word_opens_list;
                 }
@@ -231,6 +240,7 @@ impl Survey<'_> {
                 at_command_start = true;
                 at_pipeline_head = true;
                 seen_time = false;
+                after_name = false;
                 // `for f; do …` is legal — the header simply ends here. Written
                 // as a test so it reads the value it clears, which is also what
                 // says the clear is deliberate rather than a leftover.
@@ -289,7 +299,12 @@ impl Survey<'_> {
                     // Anywhere inside a compound: the printer puts one on a
                     // single line, so a comment in there has nowhere to go and
                     // the parser refuses it.
-                    if loop_header || loop_depth > 0 || !if_stack.is_empty() {
+                    if loop_header
+                        || loop_depth > 0
+                        || !if_stack.is_empty()
+                        || parens > 0
+                        || braces > 0
+                    {
                         self.found.insert(Reason::CommentInList);
                     }
                     while self.peek().is_some_and(|b| b != b'\n') {
@@ -338,6 +353,13 @@ impl Survey<'_> {
                     if loop_header {
                         self.found.insert(Reason::Loop);
                     }
+                    // ⚠ **Glued into a word, it is not a redirection at all.**
+                    // `awk 'NF>10'` unquoted puts a `>` in the middle of a word,
+                    // which the parser refuses by that name; a descriptor is the
+                    // one thing that may precede the operator, and it is digits.
+                    if in_word && !word.chars().all(|c| c.is_ascii_digit()) {
+                        self.found.insert(Reason::Redirection);
+                    }
                     end_word!();
                     // ⚠ Four different constructs share these two characters,
                     // and only one of them is "a redirection to a file". Counted
@@ -375,9 +397,61 @@ impl Survey<'_> {
                         self.at += 1;
                     }
                 }
-                b'(' | b')' | b'{' | b'}' => {
+                // ⚠ **Three constructs share these four characters and only one
+                // of them is still unread.** `( … )`, `{ … ; }` and `name() { … }`
+                // are modelled; a brace inside a WORD is expansion, which is
+                // word-level work and a different build; and an unmatched one is
+                // neither. Counting them together said "how many commands hold a
+                // brace".
+                // ⚠ **A subshell opens only where a COMMAND does.** `echo (` is
+                // refused by the parser and by bash, and `at_command_start` is
+                // the flag that says which `(` this is — "not inside a word" is
+                // not the same test, and using it read every parenthesis in a
+                // prose argument as a subshell.
+                b'(' => {
+                    if self.closes_immediately() && (after_name || (at_command_start && in_word)) {
+                        // `name()` — a definition. Its body is scanned as the
+                        // list it is.
+                        separator!();
+                    } else if at_command_start && !in_word {
+                        separator!();
+                        parens += 1;
+                        self.at += 1;
+                    } else {
+                        in_word = true;
+                        self.found.insert(Reason::Grouping);
+                        self.at += 1;
+                    }
+                }
+                b')' => {
                     separator!();
-                    self.found.insert(Reason::Grouping);
+                    if parens > 0 {
+                        parens -= 1;
+                    } else {
+                        self.found.insert(Reason::Grouping);
+                    }
+                    self.at += 1;
+                }
+
+                // A `{` opens a group only where a word could not start, which
+                // is bash's own rule: `{ a; }` is a group, `{a,b}` is a word.
+                b'{' if at_command_start
+                    && !in_word
+                    && matches!(self.peek_at(1), Some(b' ' | b'\t' | b'\n' | b'\r')) =>
+                {
+                    separator!();
+                    braces += 1;
+                    self.at += 1;
+                }
+                b'}' if !in_word && braces > 0 => {
+                    separator!();
+                    braces -= 1;
+                    self.at += 1;
+                }
+                b'{' | b'}' => {
+                    in_word = true;
+                    word.push(byte as char);
+                    self.found.insert(Reason::BraceExpansion);
                     self.at += 1;
                 }
                 b'$' | b'`' => {
@@ -506,6 +580,10 @@ impl Survey<'_> {
                 word_quoted,
             );
         }
+        // A group the text never closed, which the parser refuses by name.
+        if parens > 0 || braces > 0 {
+            self.found.insert(Reason::Grouping);
+        }
         // An `if` the text never closed. The parser reaches the end looking for
         // a `fi` and refuses the conditional, so the set has to hold one.
         if !if_stack.is_empty() {
@@ -533,6 +611,20 @@ impl Survey<'_> {
             }
             _ => {}
         }
+    }
+
+    /// Is the `(` under the cursor immediately closed — the `()` of a
+    /// definition rather than the opening of a subshell?
+    fn closes_immediately(&self) -> bool {
+        let mut at = self.at + 1;
+        while self
+            .bytes
+            .get(at)
+            .is_some_and(|b| matches!(b, b' ' | b'\t'))
+        {
+            at += 1;
+        }
+        self.bytes.get(at) == Some(&b')')
     }
 
     fn closes_bracket(&self) -> bool {

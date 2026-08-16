@@ -188,6 +188,29 @@ pub enum CommandKind {
     While(WhileLoop),
     /// `if cond; then … [else …] fi`.
     If(Conditional),
+    /// `( list )` — a command list in a subshell, so what it changes it keeps.
+    Subshell(Vec<Item>),
+    /// `{ list; }` — a command list in THIS shell, grouped for a redirection or
+    /// a connector. Kept apart from a subshell because the difference is the
+    /// whole point of writing one: `( cd /x )` leaves the cwd alone and
+    /// `{ cd /x; }` does not.
+    Group(Vec<Item>),
+    /// `name() { … }`.
+    Function(Function),
+}
+
+/// `name() { body }` — a definition, which runs none of its body.
+///
+/// ⚠ **The spelling is not recorded, because bash does not keep it.**
+/// `declare -f` prints `f() { a; }` back as `function f () { a; }`, and a
+/// `( … )` body comes back wrapped in a brace group — so `f() ( a )` and
+/// `f() { ( a ); }` are one tree, which is bash's own canonical form. Recording
+/// which was written would make one command two trees, exactly as it would for
+/// an `elif`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Function {
+    pub name: String,
+    pub body: Vec<Item>,
 }
 
 /// `FOO=bar cmd arg` — a name, its arguments, and the bindings in front.

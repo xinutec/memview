@@ -244,6 +244,8 @@ fn strip_pipeline(pipeline: &mut Pipeline) {
                 conditional.then = strip(&conditional.then);
                 conditional.otherwise = conditional.otherwise.as_deref().map(strip);
             }
+            CommandKind::Subshell(items) | CommandKind::Group(items) => *items = strip(items),
+            CommandKind::Function(function) => function.body = strip(&function.body),
         }
     }
 }

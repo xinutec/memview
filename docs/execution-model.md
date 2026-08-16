@@ -5,10 +5,10 @@ the fleet executes, plus a printer that puts it back.
 
 **Status: simple commands with binding prefixes, comments, pipelines, and-or
 lists, redirection, heredocs, tilde prefixes, parameters and their operators,
-`$( )` substitutions, `for`/`while`/`until`/`select` loops and `if`; both gates
-wired.**
+`$( )` substitutions, `for`/`while`/`until`/`select` loops, `if`, subshells,
+brace groups and function definitions; three gates wired.**
 `reader/src/syntax/` holds the tree, the parser and the printer; the
-`bash-oracle` crate holds the second gate and the report.
+`bash-oracle` crate holds the second and third gates and the report.
 
 **No coverage rate is tracked here** — each is one `cargo run` away and moves on
 its own. The figures that stay are the ones that *sized a decision*, and they say
@@ -232,8 +232,15 @@ realised coverage at every step so far.
 Most refused commands need three or more constructs, so a per-construct
 percentage is the wrong unit.
 
-⚠ **A reason is a unit of work, so split it the way the work splits.** `<` and
-`>` began as one `Redirection`. Split into a file-or-descriptor target, a heredoc
+⚠ **A reason is a unit of work, so split it the way the work splits.** The
+sharpest case is `Grouping`, which named four things sharing a character: a
+subshell (778), a brace group (776), a function definition (153) — three forms of
+"a command list in a wrapper" — and a brace *expansion*, which is none of them.
+`{a,b}.txt` is one word that expands to two, so it is word-level work like a
+glob, and it was hiding inside a compound-statement build. Split out, it is 558
+commands and the largest single item left.
+
+`<` and `>` began as one `Redirection`. Split into a file-or-descriptor target, a heredoc
 whose operand is on the following lines, and a process substitution that is a
 whole command, the file forms alone were four fifths of it — and the hard half
 was never on the critical path.
@@ -405,9 +412,15 @@ purpose, because a gate that cannot fail is not a gate.
 
 ⚠ **Only a reader that is not ours can object to a consistently wrong tree.** The
 round-trip law is satisfied by *any* wrong answer that prints and re-reads as
-itself, and the survey only knows what is refused. Gate 2 has caught two such —
-a descriptor normalisation and a word split at a line continuation — each written
-up at the node it corrected. It found nothing while it was fed our own output.
+itself, and the survey only knows what is refused. Gate 2 has caught three such —
+a descriptor normalisation, a word split at a line continuation, and `3<&-`
+recorded as a different operation from `3>&-` — each written up at the node it
+corrected. It found nothing while it was fed our own output.
+
+The last of those is the clearest example of the shape: our print of the wrong
+tree (`3<&- 3>&-`) read back as the same wrong tree, so the law held; it is valid
+shell, so gate 3 held; and construction cannot see it because both spellings are
+modelled. One command in 129,329.
 
 ⚠ **`bash -n` adjudicates every refusal that is a claim about the input.**
 `UnterminatedQuote`, `DanglingEscape` and `EmptyOperand` assert the text is not
