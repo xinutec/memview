@@ -220,6 +220,14 @@ whose operand is on the following lines, and a process substitution that is a
 whole command, the file forms alone were four fifths of it — and the hard half
 was never on the critical path.
 
+The same split of `Expansion` said it twice more. Naming a parameter unlocks
+5,795 commands and is a leaf; command substitution unlocks 2,273 and needs this
+parser to recurse into itself; an operator inside the braces unlocks 508 and is a
+language of its own. **The cheap form was worth 2.5× the expensive one**, and one
+blended `Expansion` would have put the recursion first. Splitting also found that
+a `$` opening nothing is an ordinary character — 616 commands were being refused
+over a dollar sign that expands to itself.
+
 ⚠ **The survey is a second scanner, pinned rather than trusted.** It must read
 text the parser cannot, so it cannot be built from the parser, and it drifted on
 its first run. The invariant: the parser's refusal appears in the survey's set,

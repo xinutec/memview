@@ -28,8 +28,27 @@ use super::ast::{
 /// thing to build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Reason {
-    /// `$…` or a backtick — a substitution or a parameter expansion.
-    Expansion,
+    /// `$'…'` — ANSI-C quoting.
+    ///
+    /// ⚠ **Not an expansion at all.** Bash resolves the escapes at parse time
+    /// and prints `$'\x41'` back as `'A'`, so this is a *spelling of a literal*
+    /// and belongs in a `Literal` segment once it is read. Grouped here only
+    /// because a `$` opens it.
+    AnsiQuote,
+    /// `$"…"` — locale translation, which bash prints back as a plain double
+    /// quoted string. A literal too, for the same reason.
+    LocaleQuote,
+    /// `$name`, `$1`, `$@`, `${name}` — a parameter and nothing else.
+    Parameter,
+    /// `${name:-default}`, `${#name}`, `${name%%suffix}` — a parameter with an
+    /// operator on it, which is a small language of its own and a separate
+    /// build from naming one.
+    ParameterOperator,
+    /// `$(cmd)` or `` `cmd` `` — a whole script, whose value is its output.
+    /// The first construct that needs this parser to recurse into itself.
+    CommandSubstitution,
+    /// `$((…))` — arithmetic, which is its own grammar.
+    Arithmetic,
     /// `>`, `>>`, `<`, `2>&1`, `&>`, `>|`, `<>`, `{fd}>` — a file or a
     /// descriptor, and nothing that carries a body.
     Redirection,
@@ -62,7 +81,12 @@ impl Reason {
     /// A stable label, for grouping in the corpus report.
     pub fn label(self) -> &'static str {
         match self {
-            Reason::Expansion => "expansion ($ or backtick)",
+            Reason::AnsiQuote => "ANSI-C quoting ($'…')",
+            Reason::LocaleQuote => "locale quoting ($\"…\")",
+            Reason::Parameter => "parameter ($name, ${name})",
+            Reason::ParameterOperator => "parameter with an operator (${x:-y}, ${#x})",
+            Reason::CommandSubstitution => "command substitution ($(…), `…`)",
+            Reason::Arithmetic => "arithmetic ($((…)))",
             Reason::Redirection => "redirection (> >> < 2>&1 &>)",
             Reason::HereString => "here-string (<<<)",
             Reason::ProcessSubstitution => "process substitution (<( >()",
@@ -635,7 +659,14 @@ impl<'t> Parser<'t> {
         while let Some(byte) = self.peek() {
             match byte {
                 b' ' | b'\t' | b'\r' | b'\n' | b';' | b'|' | b'&' | b'<' | b'>' | b')' => break,
-                b'$' | b'`' => return self.refuse(Reason::Expansion, 1),
+                b'$' | b'`' => match classify_expansion(self.bytes, self.at, false) {
+                    Some(reason) => return self.refuse(reason, 1),
+                    None => {
+                        read_anything = true;
+                        text.push('$');
+                        self.at += 1;
+                    }
+                },
                 b'\'' => {
                     quoted = true;
                     read_anything = true;
@@ -713,6 +744,13 @@ impl<'t> Parser<'t> {
     /// position where a reserved word or an assignment is grammar.
     fn word(&mut self, first: bool) -> Result<Word, Refusal> {
         let start = self.at;
+        // ⚠ Decided here, from the bytes, and not from the finished word — see
+        // [`opens_assignment`]. A word that binds a name is grammar, and no
+        // amount of looking at its resolved text can tell you whether the name
+        // was quoted.
+        if first && opens_assignment(self.bytes, self.at) {
+            return self.refuse(Reason::Assignment, 1);
+        }
         let mut segments: Vec<Segment> = Vec::new();
         let mut quoted_anywhere = false;
 
@@ -761,7 +799,19 @@ impl<'t> Parser<'t> {
                     return self.refuse(reason, 1);
                 }
                 b'(' | b')' | b'{' | b'}' => return self.refuse(Reason::Grouping, 1),
-                b'$' | b'`' => return self.refuse(Reason::Expansion, 1),
+                // ⚠ A `$` that opens nothing is an ordinary character, and
+                // bash agrees: `echo $`, `echo a$` and `echo $.` all parse and
+                // print back unchanged.
+                b'$' | b'`' => match classify_expansion(self.bytes, self.at, false) {
+                    Some(reason) => return self.refuse(reason, 1),
+                    None => {
+                        self.at += 1;
+                        segments.push(Segment {
+                            kind: SegmentKind::Literal("$".to_string()),
+                            span: Span::new(at, self.at),
+                        });
+                    }
+                },
                 b'[' if self.closes_bracket() => {
                     return self.refuse(Reason::BracketExpression, 1);
                 }
@@ -793,19 +843,12 @@ impl<'t> Parser<'t> {
         if first
             && !quoted_anywhere
             && let Some(text) = word.as_literal()
+            && is_reserved(&text)
         {
-            if is_reserved(&text) {
-                return Err(Refusal {
-                    reason: Reason::ReservedWord,
-                    span: word.span,
-                });
-            }
-            if is_assignment(&text) {
-                return Err(Refusal {
-                    reason: Reason::Assignment,
-                    span: word.span,
-                });
-            }
+            return Err(Refusal {
+                reason: Reason::ReservedWord,
+                span: word.span,
+            });
         }
         Ok(word)
     }
@@ -913,7 +956,13 @@ impl<'t> Parser<'t> {
             };
             match byte {
                 b'"' => break,
-                b'$' | b'`' => return self.refuse(Reason::Expansion, 1),
+                b'$' | b'`' => match classify_expansion(self.bytes, self.at, true) {
+                    Some(reason) => return self.refuse(reason, 1),
+                    None => {
+                        text.push('$');
+                        self.at += 1;
+                    }
+                },
                 b'\\' => {
                     // ⚠ Inside double quotes a backslash escapes only the four
                     // characters that mean something there, and is an ordinary
@@ -989,6 +1038,72 @@ impl<'t> Parser<'t> {
             span: Span::new(start, self.at),
         })
     }
+}
+
+/// Which construct does the `$` or backtick at `at` open?
+///
+/// `None` where it opens nothing: a `$` not followed by something expandable is
+/// an ordinary dollar sign, and bash agrees — `echo $`, `echo a$` and `echo $.`
+/// all parse and print back unchanged.
+///
+/// ⚠ **Shared with the survey deliberately.** The survey is otherwise a separate
+/// scanner, but a disagreement about *which* expansion this is would show up as
+/// survey drift with no way to tell which of the two was wrong. The lexical
+/// question has one answer, so it has one implementation.
+pub fn classify_expansion(bytes: &[u8], at: usize, in_double_quotes: bool) -> Option<Reason> {
+    if bytes.get(at) == Some(&b'`') {
+        return Some(Reason::CommandSubstitution);
+    }
+    if bytes.get(at) != Some(&b'$') {
+        return None;
+    }
+    match bytes.get(at + 1).copied() {
+        Some(b'(') if bytes.get(at + 2) == Some(&b'(') => Some(Reason::Arithmetic),
+        Some(b'(') => Some(Reason::CommandSubstitution),
+        // Inside double quotes a following quote is an ordinary character —
+        // `"a$'b'"` holds a dollar, not an ANSI-C string — so the quoting forms
+        // are only reachable from unquoted text.
+        Some(b'\'') if !in_double_quotes => Some(Reason::AnsiQuote),
+        Some(b'"') if !in_double_quotes => Some(Reason::LocaleQuote),
+        Some(b'{') => Some(brace_expansion(bytes, at + 2)),
+        Some(byte) if byte.is_ascii_alphanumeric() || byte == b'_' => Some(Reason::Parameter),
+        // `$@`, `$*`, `$?`, `$$`, `$!`, `$#`, `$-`: the special parameters, each
+        // one character and each naming a value the shell already holds.
+        Some(b'@' | b'*' | b'?' | b'$' | b'!' | b'#' | b'-') => Some(Reason::Parameter),
+        _ => None,
+    }
+}
+
+/// `${…}`: naming a parameter, or operating on one?
+///
+/// The split is what the braces hold. A bare name is the same node `$name` is;
+/// anything else is an operator, and operators are a language rather than a
+/// construct — `${x:-y}` defaults, `${#x}` measures, `${x%%y}` is a rational
+/// transduction that would need an automaton.
+fn brace_expansion(bytes: &[u8], from: usize) -> Reason {
+    // A lone special parameter in braces — `${@}`, `${#}` — is still just a name
+    // for a value the shell holds. Checked first, because the loop below stops
+    // at the very characters that spell one.
+    if matches!(
+        bytes.get(from),
+        Some(b'@' | b'*' | b'?' | b'$' | b'!' | b'#' | b'-')
+    ) && bytes.get(from + 1) == Some(&b'}')
+    {
+        return Reason::Parameter;
+    }
+    let mut at = from;
+    while let Some(&byte) = bytes.get(at) {
+        match byte {
+            b'}' => break,
+            _ if byte.is_ascii_alphanumeric() || byte == b'_' => at += 1,
+            _ => return Reason::ParameterOperator,
+        }
+    }
+    // `${}` names nothing, so it is not the same node `$name` is.
+    if at == from {
+        return Reason::ParameterOperator;
+    }
+    Reason::Parameter
 }
 
 /// Resolve the backslash-newlines in an unquoted heredoc body, as bash does at
@@ -1096,6 +1211,35 @@ fn is_bare_stop(byte: u8) -> bool {
 /// the two must agree or the round-trip law fails on every `time` in the corpus.
 pub fn is_reserved(text: &str) -> bool {
     RESERVED.contains(&text)
+}
+
+/// Does an assignment prefix start at `at`?
+///
+/// ⚠ **Read from the raw bytes, before any quoting is resolved, because that is
+/// where the rule lives.** Bash asks whether the NAME is quoted, not whether the
+/// word is: `FOO="bar"` and `FOO='bar'` are bindings, while `'FOO=bar'` and
+/// `"FOO"=bar` are commands with an odd name. Measured, all four.
+///
+/// Testing the finished word instead is what made `FOO="bar" cmd` parse as a
+/// command *named* `FOO=bar` — a wrong tree that prints and re-reads as itself,
+/// and that bash's printer cannot object to either, since it emits the word
+/// verbatim. Only construction catches it.
+pub fn opens_assignment(bytes: &[u8], at: usize) -> bool {
+    let mut at = match bytes.get(at) {
+        Some(byte) if byte.is_ascii_alphabetic() || *byte == b'_' => at + 1,
+        _ => return false,
+    };
+    while bytes
+        .get(at)
+        .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+    {
+        at += 1;
+    }
+    // `FOO+=bar` appends, and is a binding just as much as `FOO=bar` is.
+    if bytes.get(at) == Some(&b'+') {
+        at += 1;
+    }
+    bytes.get(at) == Some(&b'=')
 }
 
 /// `FOO=bar`, the shape bash reads as a binding rather than a command name.

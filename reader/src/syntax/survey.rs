@@ -30,7 +30,7 @@
 
 use std::collections::BTreeSet;
 
-use super::parse::{Reason, is_assignment, is_reserved};
+use super::parse::{Reason, classify_expansion, is_reserved, opens_assignment};
 
 pub fn survey(text: &str) -> BTreeSet<Reason> {
     Survey {
@@ -148,6 +148,12 @@ impl Survey<'_> {
         }
 
         while let Some(byte) = self.peek() {
+            // ⚠ At the word's start and from the raw bytes, exactly as the
+            // parser does it: whether the NAME is quoted is the question, and a
+            // finished word cannot answer it.
+            if at_command_start && !in_word && opens_assignment(self.bytes, self.at) {
+                self.found.insert(Reason::Assignment);
+            }
             match byte {
                 b' ' | b'\t' | b'\r' => {
                     end_word!();
@@ -254,9 +260,19 @@ impl Survey<'_> {
                     self.at += 1;
                 }
                 b'$' | b'`' => {
-                    self.found.insert(Reason::Expansion);
                     in_word = true;
-                    self.skip_expansion();
+                    match classify_expansion(self.bytes, self.at, false) {
+                        Some(reason) => {
+                            self.found.insert(reason);
+                            self.skip_expansion();
+                        }
+                        // An ordinary dollar sign, which the parser reads as
+                        // literal text — so it is part of the word, not a find.
+                        None => {
+                            word.push('$');
+                            self.at += 1;
+                        }
+                    }
                 }
                 b'~' if !in_word => {
                     // Modelled at the head of a word. The forms that are not —
@@ -395,11 +411,18 @@ impl Survey<'_> {
         while let Some(byte) = self.peek() {
             match byte {
                 b' ' | b'\t' | b'\r' | b'\n' | b';' | b'|' | b'&' | b'<' | b'>' | b')' => break,
-                b'$' | b'`' => {
-                    self.found.insert(Reason::Expansion);
-                    self.skip_expansion();
-                    return None;
-                }
+                b'$' | b'`' => match classify_expansion(self.bytes, self.at, false) {
+                    Some(reason) => {
+                        self.found.insert(reason);
+                        self.skip_expansion();
+                        return None;
+                    }
+                    None => {
+                        read_anything = true;
+                        delimiter.push('$');
+                        self.at += 1;
+                    }
+                },
                 b'\'' | b'"' => {
                     read_anything = true;
                     let from = self.at + 1;
@@ -550,10 +573,13 @@ impl Survey<'_> {
                     return true;
                 }
                 b'\\' => self.at += 2,
-                b'$' | b'`' => {
-                    self.found.insert(Reason::Expansion);
-                    self.skip_expansion();
-                }
+                b'$' | b'`' => match classify_expansion(self.bytes, self.at, true) {
+                    Some(reason) => {
+                        self.found.insert(reason);
+                        self.skip_expansion();
+                    }
+                    None => self.at += 1,
+                },
                 _ => self.at += 1,
             }
         }
@@ -575,12 +601,8 @@ fn finish_word(
     if at_pipeline_head && word == "!" {
         return;
     }
-    if at_command_start && !quoted {
-        if is_reserved(word) {
-            found.insert(Reason::ReservedWord);
-        } else if is_assignment(word) {
-            found.insert(Reason::Assignment);
-        }
+    if at_command_start && !quoted && is_reserved(word) {
+        found.insert(Reason::ReservedWord);
     }
 }
 
