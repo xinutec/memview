@@ -288,6 +288,9 @@ export class SessionView implements OnDestroy {
    * [[SessionStore.goTo]].
    */
   readonly adrift = computed(() => this.held()?.adrift() ?? false);
+  /** Whether this is a copy kept on the phone rather than the conversation. See
+   *  [[Kept]] and the banner it draws. */
+  readonly stale = computed(() => this.held()?.stale() ?? false);
   readonly loading = signal(false);
   private scroller = viewChild<ElementRef<HTMLElement>>('scroller');
   /** The top of what has been read, and the thing that asks for more. */

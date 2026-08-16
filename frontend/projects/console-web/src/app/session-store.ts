@@ -2,6 +2,7 @@ import { Injectable, WritableSignal, inject, signal } from '@angular/core';
 import { Observable, map } from 'rxjs';
 
 import { ConsoleApi } from './console-api';
+import { Kept } from './kept';
 import { Entry, SessionEvent } from './models';
 import { fold } from './transcript';
 
@@ -77,6 +78,17 @@ export interface Held {
    */
   readonly live: WritableSignal<boolean>;
   /**
+   * Whether what is on screen is a copy kept on this phone rather than the
+   * conversation itself.
+   *
+   * ⚠ **Set before the stream has said anything, and cleared by the seed.** It
+   * is true only in the window between opening a session the Mac cannot be
+   * reached for and the transcript actually arriving — see [[Kept]]. The page
+   * says so out loud, because a transcript that has stopped growing looks
+   * exactly like a quiet one.
+   */
+  readonly stale: WritableSignal<boolean>;
+  /**
    * Whether the reader has jumped away from the live end of the transcript.
    *
    * ⚠ **Not "the stream is closed", though a jump does close it.** Leaving a
@@ -125,6 +137,7 @@ export interface Held {
 @Injectable({ providedIn: 'root' })
 export class SessionStore {
   private api = inject(ConsoleApi);
+  private kept = inject(Kept);
   private held = new Map<string, Held>();
   private clock = 0;
 
@@ -135,14 +148,32 @@ export class SessionStore {
    * stream, because the second open closes whatever the first left running.
    */
   open(id: string): Held {
+    // ⚠ **Whether this page has EVER held this session, not whether it is empty
+    // now.** Emptiness is also what a rejoin leaves behind — [[rejoin]] forgets
+    // the jumped-to page precisely so the stream can replay the end of the file
+    // — and hydrating there would paste a copy over a session that is live and
+    // about to redraw itself. Caught by `throws the jumped-to page away on the
+    // way back to now`.
+    const known = this.held.has(id);
     const held = this.held.get(id) ?? this.fresh(id);
+    // A Held this page has never seen resumes from sequence 0, so the stream
+    // always sends a seed, and the seed is what clears the copy again — which is
+    // the whole of why this cannot draw the conversation twice. See [[Kept]] and
+    // memview #90.
+    if (!known) {
+      const copy = this.kept.entries(id);
+      if (copy.length) {
+        held.entries.set(copy);
+        held.stale.set(true);
+      }
+    }
     held.close?.();
     held.used = ++this.clock;
     this.held.set(id, held);
     held.close = this.api.follow(
       id,
       held.seen,
-      (event, seq) => this.take(held, event, seq),
+      (event, seq) => this.take(id, held, event, seq),
       // Only when the runner says the stream starts again — see [[ConsoleApi]].
       // Everything held has to go: it would otherwise be appended to by a replay
       // of itself, and there is no way to tell the two copies apart.
@@ -250,6 +281,7 @@ export class SessionStore {
       since: signal<number | undefined>(undefined),
       spoken: signal(false),
       live: signal(false),
+      stale: signal(false),
       adrift: signal(false),
       seen: 0,
       used: ++this.clock,
@@ -258,11 +290,20 @@ export class SessionStore {
     return held;
   }
 
-  private take(held: Held, event: SessionEvent, seq: number): void {
+  private take(id: string, held: Held, event: SessionEvent, seq: number): void {
     // The seed arrives with the cursor it started from. This is the only place
     // that learns where the page on screen begins — nothing else in the stream
     // knows the conversation is longer than the page.
-    if (event.kind === 'joined') held.cursor.set(event.from ?? 0);
+    if (event.kind === 'joined') {
+      held.cursor.set(event.from ?? 0);
+      // The conversation itself has started arriving, so the copy has done its
+      // job. Emptied rather than appended to: the seed is the same entries over
+      // again, and nothing tells the two copies apart.
+      if (held.stale()) {
+        held.entries.set([]);
+        held.stale.set(false);
+      }
+    }
     // Only ever forward. The unnumbered events arrive as 0, and a transcript
     // that claimed to hold nothing after one of those would ask for the whole
     // conversation again on the next reconnect.
@@ -292,6 +333,10 @@ export class SessionStore {
       }
     }
     held.entries.update((entries) => [...fold(entries, event)]);
+    // Throttled inside, and deliberately not done on leaving instead: leaving is
+    // not how a phone stops reading — the tunnel drops, or the app is swapped
+    // out and killed, and neither runs any code here.
+    if (!held.stale()) this.kept.keep(id, held.entries());
   }
 
   /**
@@ -317,6 +362,7 @@ export class SessionStore {
     held.since.set(undefined);
     held.spoken.set(false);
     held.live.set(false);
+    held.stale.set(false);
   }
 
   /** Let go of the least recently opened transcripts past [KEPT].

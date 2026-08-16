@@ -104,6 +104,22 @@
      `touchcancel` as well as `touchend`, or a hold interrupted by the system — a
      notification, a gesture claimed by the shell — leaves the transcript frozen
      for the life of the page. -->
+@if (stale()) {
+  <!-- ⚠ **Said plainly, for the same reason the jump banner is.** A transcript
+       that has stopped growing looks exactly like a quiet one, and this one is
+       not merely stopped — it is a copy this phone wrote down, of a conversation
+       that has very likely moved on since. Nothing here can be acted on; the
+       composer still sends, and a send that cannot reach the Mac keeps its draft
+       as it always did. See `kept.ts` and memview #90. -->
+  <div class="deaf adrift" role="status">
+    <mat-icon>cloud_off</mat-icon>
+    <div class="what">
+      <strong>Kept copy.</strong>
+      <span>This is what this phone last saw. The Mac has not answered yet.</span>
+    </div>
+  </div>
+}
+
 @if (adrift()) {
   <!-- ⚠ **Said plainly, because everything else on this page now lies.** After a
        jump the transcript does not grow, the stream is closed and the header's
