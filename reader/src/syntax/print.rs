@@ -12,8 +12,9 @@
 //! usable as an equivalence test.
 
 use super::ast::{
-    AndOr, Assignment, Command, Connector, Glob, Heredoc, Item, Parameter, Pipeline, Redirect,
-    RedirectOp, RedirectTarget, Script, Segment, SegmentKind, Tilde, Timed, Word,
+    AndOr, Assignment, Command, CommandKind, Connector, ForLoop, Glob, Heredoc, Item, Parameter,
+    Pipeline, Redirect, RedirectOp, RedirectTarget, Script, Segment, SegmentKind, Simple, Tilde,
+    Timed, WhileLoop, Word,
 };
 use super::parse::{is_assignment, is_reserved};
 
@@ -88,17 +89,11 @@ fn print_command(command: &Command, head: bool, bodies: &mut Vec<String>) -> Str
     // ⚠ Words first, then redirections — bash's own order. `> out cat f` comes
     // back from `declare -f` as `cat f > out`, so putting them anywhere else
     // would be a spelling bash does not use and the tree does not record.
-    // ⚠ Assignments, then words, then redirections — bash's own order, and it
-    // says so structurally: `FOO=bar > out cmd` comes back from `declare -f` as
-    // `FOO=bar cmd > out`.
-    let mut parts: Vec<String> = command.assignments.iter().map(print_assignment).collect();
-    parts.extend(
-        command
-            .words
-            .iter()
-            .enumerate()
-            .map(|(index, word)| print_word(word, index == 0 && head)),
-    );
+    let mut parts: Vec<String> = match &command.kind {
+        CommandKind::Simple(simple) => print_simple(simple, head),
+        CommandKind::For(loop_) => vec![print_for(loop_, bodies)],
+        CommandKind::While(loop_) => vec![print_while(loop_, bodies)],
+    };
     parts.extend(
         command
             .redirects
@@ -121,6 +116,74 @@ fn print_assignment(assignment: &Assignment) -> String {
         print_word(&assignment.value, false)
     };
     format!("{}{equals}{value}", assignment.name)
+}
+
+/// `for f in a b; do x; y; done` — on ONE line, deliberately.
+///
+/// ⚠ **A compound cannot be printed across lines while heredoc bodies are
+/// collected per line.** A body has to follow the line its `<<` was written on,
+/// and `bodies` is gathered for the whole and-or; breaking the loop over several
+/// lines would put the body after `done` instead. One line keeps both true, and
+/// bash reads `for f in a; do cat <<EOF; done` followed by the body exactly as
+/// it reads the multi-line spelling.
+fn print_for(loop_: &ForLoop, bodies: &mut Vec<String>) -> String {
+    let opener = if loop_.select { "select" } else { "for" };
+    let words: Vec<String> = loop_
+        .words
+        .iter()
+        .map(|word| print_word(word, false))
+        .collect();
+    format!(
+        "{opener} {} in {}; do {}; done",
+        loop_.name,
+        words.join(" "),
+        print_body(&loop_.body, bodies)
+    )
+}
+
+fn print_while(loop_: &WhileLoop, bodies: &mut Vec<String>) -> String {
+    let opener = if loop_.until { "until" } else { "while" };
+    format!(
+        "{opener} {}; do {}; done",
+        print_body(&loop_.condition, bodies),
+        print_body(&loop_.body, bodies)
+    )
+}
+
+/// A command list on one line.
+///
+/// ⚠ **A `&` already terminates its list, so no `;` may follow it.** `b & ; c`
+/// is a syntax error where `b & c` is not, which is why the separator is chosen
+/// from what came before rather than fixed.
+fn print_body(items: &[Item], bodies: &mut Vec<String>) -> String {
+    let mut out = String::new();
+    for item in items {
+        let text = match item {
+            // Refused by the parser, so unreachable — and printed as a comment
+            // would swallow the rest of the line if it ever were not.
+            Item::Comment(comment) => format!("#{}", comment.text),
+            Item::List(list) => print_and_or(list, bodies),
+        };
+        if !out.is_empty() {
+            out.push_str(if out.ends_with('&') { " " } else { "; " });
+        }
+        out.push_str(&text);
+    }
+    out
+}
+
+/// ⚠ Assignments, then words — bash's own order, and it says so structurally:
+/// `FOO=bar > out cmd` comes back from `declare -f` as `FOO=bar cmd > out`.
+fn print_simple(simple: &Simple, head: bool) -> Vec<String> {
+    let mut parts: Vec<String> = simple.assignments.iter().map(print_assignment).collect();
+    parts.extend(
+        simple
+            .words
+            .iter()
+            .enumerate()
+            .map(|(index, word)| print_word(word, index == 0 && head)),
+    );
+    parts
 }
 
 fn print_redirect(redirect: &Redirect, bodies: &mut Vec<String>) -> String {

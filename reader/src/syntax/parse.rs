@@ -17,8 +17,9 @@
 //! at a special character always lands on a character boundary.
 
 use super::ast::{
-    AndOr, Assignment, Command, Comment, Connector, Glob, Heredoc, Item, Link, Parameter, Pipeline,
-    Redirect, RedirectOp, RedirectTarget, Script, Segment, SegmentKind, Span, Tilde, Timed, Word,
+    AndOr, Assignment, Command, CommandKind, Comment, Connector, ForLoop, Glob, Heredoc, Item,
+    Link, Parameter, Pipeline, Redirect, RedirectOp, RedirectTarget, Script, Segment, SegmentKind,
+    Simple, Span, Tilde, Timed, WhileLoop, Word,
 };
 
 /// Where a word is being read, which decides what expands inside it.
@@ -246,9 +247,34 @@ impl<'t> Parser<'t> {
     }
 
     fn script(&mut self) -> Result<Script, Refusal> {
+        let items = self.items(&[])?;
+        // A heredoc opened on a line the text ended without terminating: its
+        // body is whatever is left, which at this point is nothing.
+        self.read_pending_bodies()?;
+        // Nothing consumed the text, so a keyword is sitting where a command
+        // should be: `done` with no loop, or a stray `fi`.
+        if let Some(reason) = self.keyword_here() {
+            return self.refuse(reason, 1);
+        }
+        Ok(Script {
+            items,
+            span: Span::new(0, self.bytes.len()),
+        })
+    }
+
+    /// A run of items, stopping before any of `until` without consuming it.
+    ///
+    /// ⚠ **The one place a command list is read**, so a loop's body is the same
+    /// grammar as a whole script rather than a second, nearly-identical reader.
+    /// The terminators are the keywords that close the construct asking for the
+    /// list — `do`, `done` — and they are left in place for the caller to take.
+    fn items(&mut self, until: &[&str]) -> Result<Vec<Item>, Refusal> {
         let mut items = Vec::new();
         loop {
             self.skip_blanks();
+            if until.iter().any(|word| self.at_keyword(word)) {
+                break;
+            }
             match self.peek() {
                 None => break,
                 // A separator with no command in front of it: `;` after a
@@ -267,13 +293,16 @@ impl<'t> Parser<'t> {
                 }
             }
         }
-        // A heredoc opened on a line the text ended without terminating: its
-        // body is whatever is left, which at this point is nothing.
-        self.read_pending_bodies()?;
-        Ok(Script {
-            items,
-            span: Span::new(0, self.bytes.len()),
-        })
+        Ok(items)
+    }
+
+    /// Is an unquoted reserved word sitting under the cursor?
+    fn keyword_here(&self) -> Option<Reason> {
+        let end = self.bytes[self.at..]
+            .iter()
+            .position(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n' | b';' | b'|' | b'&'))
+            .map_or(self.bytes.len(), |offset| self.at + offset);
+        reserved_word(self.text.get(self.at..end)?)
     }
 
     /// Spaces, tabs, and a backslash-newline — which joins two lines and is
@@ -531,6 +560,15 @@ impl<'t> Parser<'t> {
     /// is a program, and without a lookahead the second would lose its first
     /// four characters. A quote makes it a value rather than grammar, and a
     /// quote character here means the word did not start where we are.
+    fn at_keyword(&self, word: &str) -> bool {
+        let end = self.at + word.len();
+        self.text.get(self.at..end) == Some(word)
+            && matches!(
+                self.bytes.get(end).copied(),
+                None | Some(b' ' | b'\t' | b'\r' | b'\n' | b';' | b'|' | b'&')
+            )
+    }
+
     fn take_keyword(&mut self, word: &str) -> bool {
         let end = self.at + word.len();
         if self.text.get(self.at..end) != Some(word) {
@@ -548,6 +586,27 @@ impl<'t> Parser<'t> {
 
     fn command(&mut self) -> Result<Command, Refusal> {
         let start = self.at;
+        self.skip_blanks();
+        if let Some(kind) = self.compound()? {
+            // ⚠ A compound takes its redirections after the closing keyword,
+            // and bash prints them there: `while a; do b; done > out`.
+            let mut redirects = Vec::new();
+            loop {
+                self.skip_blanks();
+                if self.at_end_of_command() {
+                    break;
+                }
+                match self.redirect()? {
+                    Some(redirect) => redirects.push(redirect),
+                    None => break,
+                }
+            }
+            return Ok(Command {
+                kind,
+                redirects,
+                span: Span::new(start, self.at),
+            });
+        }
         let mut assignments: Vec<Assignment> = Vec::new();
         let mut words: Vec<Word> = Vec::new();
         let mut redirects: Vec<Redirect> = Vec::new();
@@ -583,11 +642,137 @@ impl<'t> Parser<'t> {
             words.push(word);
         }
         Ok(Command {
-            assignments,
-            words,
+            kind: CommandKind::Simple(Simple { assignments, words }),
             redirects,
             span: Span::new(start, self.at),
         })
+    }
+
+    /// A loop, if one opens here.
+    ///
+    /// ⚠ **The body is read by [`Parser::items`], the same reader a whole script
+    /// uses.** A loop's body is a command list and nothing more, so a second
+    /// reader for it would be a second place for the grammar to be wrong.
+    fn compound(&mut self) -> Result<Option<CommandKind>, Refusal> {
+        let select = self.at_keyword("select");
+        if select || self.at_keyword("for") {
+            self.at += if select { 6 } else { 3 };
+            return Ok(Some(CommandKind::For(self.for_loop(select)?)));
+        }
+        let until = self.at_keyword("until");
+        if until || self.at_keyword("while") {
+            self.at += 5; // both `while` and `until` are five characters
+            let condition = self.items(&["do"])?;
+            if condition
+                .iter()
+                .any(|item| matches!(item, Item::Comment(_)))
+            {
+                return self.refuse(Reason::CommentInList, 1);
+            }
+            let body = self.loop_body()?;
+            return Ok(Some(CommandKind::While(WhileLoop {
+                until,
+                condition,
+                body,
+            })));
+        }
+        Ok(None)
+    }
+
+    /// `for NAME [in words]; do body done`.
+    fn for_loop(&mut self, select: bool) -> Result<ForLoop, Refusal> {
+        self.skip_blanks();
+        // `for ((i=0; i<3; i++))` is the arithmetic form, a different grammar.
+        if self.peek() == Some(b'(') {
+            return self.refuse(Reason::Arithmetic, 1);
+        }
+        let from = self.at;
+        while self
+            .peek()
+            .is_some_and(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        {
+            self.at += 1;
+        }
+        if self.at == from {
+            return self.refuse(Reason::EmptyOperand, 1);
+        }
+        let name = self.text[from..self.at].to_string();
+        self.skip_blanks();
+        let words = if self.take_keyword("in") {
+            let mut words = Vec::new();
+            loop {
+                self.skip_blanks();
+                if self.at_end_of_command() {
+                    break;
+                }
+                // ⚠ A redirection in a `for` header is a syntax error to bash —
+                // `for f in a 2>/dev/null; do x; done` is refused outright — so
+                // what cannot be read here is the LOOP, not a redirection.
+                // Naming it `Redirection` sent the survey looking for a
+                // construct that is modelled, and it reported nothing.
+                //
+                // Remapped rather than tested for, because the operator can sit
+                // at the head of the word or inside it — `2>/dev/null` starts
+                // with a digit — and both mean the same thing about the header.
+                words.push(self.word(false, WordKind::Argument).map_err(|refusal| {
+                    match refusal.reason {
+                        Reason::Redirection => Refusal {
+                            reason: Reason::Loop,
+                            span: refusal.span,
+                        },
+                        _ => refusal,
+                    }
+                })?);
+            }
+            words
+        } else {
+            // ⚠ **Desugared, because bash desugars it.** `for f; do …` comes
+            // back from `declare -f` as `for f in "$@"; do …`, so a tree that
+            // recorded the omission would make one command two trees and the
+            // second gate would say so.
+            vec![Word {
+                segments: vec![Segment {
+                    kind: SegmentKind::Parameter(Parameter {
+                        name: "@".to_string(),
+                        quoted: true,
+                    }),
+                    span: Span::new(self.at, self.at),
+                }],
+                span: Span::new(self.at, self.at),
+            }]
+        };
+        let body = self.loop_body()?;
+        Ok(ForLoop {
+            name,
+            words,
+            select,
+            body,
+        })
+    }
+
+    /// `do body done`, with the separator before `do` already allowed for.
+    fn loop_body(&mut self) -> Result<Vec<Item>, Refusal> {
+        // The `;` or newline between the header and `do` is a separator like any
+        // other, and `items` steps over both.
+        let skipped = self.items(&["do"])?;
+        if !skipped.is_empty() {
+            return self.refuse(Reason::Loop, 1);
+        }
+        if !self.take_keyword("do") {
+            return self.refuse(Reason::Loop, 1);
+        }
+        let body = self.items(&["done"])?;
+        if !self.take_keyword("done") {
+            return self.refuse(Reason::Loop, 1);
+        }
+        // ⚠ The printer puts a loop on one line, where a comment would swallow
+        // everything after it. Refused rather than dropped — the same answer
+        // this tree gives a comment between a list operator and its right-hand
+        // side, and for the same reason.
+        if body.iter().any(|item| matches!(item, Item::Comment(_))) {
+            return self.refuse(Reason::CommentInList, 1);
+        }
+        Ok(body)
     }
 
     /// `NAME=value` or `NAME+=value`, with the value read as a value.
@@ -1379,11 +1564,7 @@ fn join_continuations(body: &str) -> String {
 /// share no delimiter that is unique (`cat <<A <<A` is legal, and its two bodies
 /// differ), so order is the only thing that can.
 fn fill_script(script: &mut Script, bodies: &mut impl Iterator<Item = Heredoc>) {
-    for item in &mut script.items {
-        if let Item::List(list) = item {
-            fill_and_or(list, bodies);
-        }
-    }
+    fill_items(&mut script.items, bodies);
 }
 
 fn fill_and_or(list: &mut AndOr, bodies: &mut impl Iterator<Item = Heredoc>) {
@@ -1395,12 +1576,36 @@ fn fill_and_or(list: &mut AndOr, bodies: &mut impl Iterator<Item = Heredoc>) {
 
 fn fill_pipeline(pipeline: &mut Pipeline, bodies: &mut impl Iterator<Item = Heredoc>) {
     for command in &mut pipeline.commands {
+        // ⚠ A compound's interior comes BEFORE its redirections in the text —
+        // `while a; do b; done <<EOF` opens its heredoc after the body — and the
+        // pairing is positional, so the walk has to visit them in that order.
+        match &mut command.kind {
+            CommandKind::Simple(_) => {}
+            CommandKind::For(loop_) => {
+                for word in &mut loop_.words {
+                    let _ = word;
+                }
+                fill_items(&mut loop_.body, bodies);
+            }
+            CommandKind::While(loop_) => {
+                fill_items(&mut loop_.condition, bodies);
+                fill_items(&mut loop_.body, bodies);
+            }
+        }
         for redirect in &mut command.redirects {
             if let RedirectTarget::Here(here) = &mut redirect.target
                 && let Some(body) = bodies.next()
             {
                 *here = body;
             }
+        }
+    }
+}
+
+fn fill_items(items: &mut [Item], bodies: &mut impl Iterator<Item = Heredoc>) {
+    for item in items {
+        if let Item::List(list) = item {
+            fill_and_or(list, bodies);
         }
     }
 }

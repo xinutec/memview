@@ -25,9 +25,24 @@ fn refusal(text: &str) -> Reason {
 }
 
 fn words(text: &str) -> Vec<Word> {
+    simple(text).words.clone()
+}
+
+/// The nth command of a pipeline, as a simple command.
+fn nth(pipeline: &reader::syntax::Pipeline, index: usize) -> reader::syntax::ast::Simple {
+    match &pipeline.commands[index].kind {
+        reader::syntax::ast::CommandKind::Simple(simple) => simple.clone(),
+        other => panic!("command {index} is not simple: {other:?}"),
+    }
+}
+
+fn simple(text: &str) -> reader::syntax::ast::Simple {
     match &tree(text).items[..] {
         [Item::List(list)] if list.rest.is_empty() => match &list.first.commands[..] {
-            [command] => command.words.clone(),
+            [command] => match &command.kind {
+                reader::syntax::ast::CommandKind::Simple(simple) => simple.clone(),
+                other => panic!("{text:?} is not a simple command: {other:?}"),
+            },
             other => panic!("{text:?} is not one command: {other:?}"),
         },
         other => panic!("{text:?} is not one plain pipeline: {other:?}"),
@@ -109,7 +124,7 @@ fn a_glob_is_not_the_character_that_spells_it() {
 
 #[test]
 fn a_reserved_word_is_refused_and_a_quoted_one_is_a_command() {
-    assert_eq!(refusal("for f in a; do echo; done"), Reason::Loop);
+    assert_eq!(refusal("case $x in a) b;; esac"), Reason::Case);
     // `time` is no longer refused — the pipeline models it. What still matters
     // is that the QUOTED one stays a program: `'time' ./x.sh` runs
     // /usr/bin/time, so its tree holds a word, not a flag.
@@ -239,7 +254,10 @@ fn an_argument_is_not_a_command_name() {
     assert!(survey("ssh -o BatchMode=yes host").is_empty());
     assert!(survey("git add in do done").is_empty());
     assert!(survey("FOO=bar cmd").is_empty());
-    assert_eq!(survey("for f in a"), BTreeSet::from([Reason::Loop]));
+    // A keyword at the head of a command still is one. (`case` also trips the
+    // survey's grouping scan on its `)`, which is over-reporting the invariant
+    // allows — the parser refuses `case` first either way.)
+    assert!(survey("case x in a) b;; esac").contains(&Reason::Case));
 }
 
 #[test]
@@ -296,7 +314,7 @@ fn time_and_bang_are_fields_not_argv() {
     let p = pipeline("time a | b");
     assert_eq!(p.time, Some(Timed::Plain));
     assert_eq!(p.commands.len(), 2);
-    assert_eq!(p.commands[0].words[0].as_literal().as_deref(), Some("a"));
+    assert_eq!(nth(&p, 0).words[0].as_literal().as_deref(), Some("a"));
 
     assert_eq!(pipeline("time -p ls").time, Some(Timed::Posix));
     assert!(pipeline("! grep -q x f").negated);
@@ -325,7 +343,7 @@ fn a_keyword_is_only_a_keyword_at_the_head() {
     // `a | ! b` is a syntax error. So one is a word and the other is refused.
     let p = pipeline("a | time b");
     assert_eq!(p.time, None);
-    assert_eq!(p.commands[1].words[0].as_literal().as_deref(), Some("time"));
+    assert_eq!(nth(&p, 1).words[0].as_literal().as_deref(), Some("time"));
     assert_eq!(refusal("a | ! b"), Reason::MisplacedNegation);
 }
 
@@ -335,10 +353,7 @@ fn timeout_is_not_time() {
     // of the commonest wrapper in the corpus.
     let p = pipeline("timeout 5 ls");
     assert_eq!(p.time, None);
-    assert_eq!(
-        p.commands[0].words[0].as_literal().as_deref(),
-        Some("timeout")
-    );
+    assert_eq!(nth(&p, 0).words[0].as_literal().as_deref(), Some("timeout"));
 }
 
 #[test]
@@ -1107,10 +1122,7 @@ fn a_bracket_pair_split_across_segments_is_still_quoted() {
 // ---- assignments ----
 
 fn assignments(text: &str) -> Vec<reader::syntax::ast::Assignment> {
-    match &list(text).first.commands[..] {
-        [command] => command.assignments.clone(),
-        other => panic!("{text:?} is not one command: {other:?}"),
-    }
+    simple(text).assignments.clone()
 }
 
 #[test]
@@ -1227,9 +1239,6 @@ fn each_reserved_word_belongs_to_the_construct_it_opens() {
     // one: counting them together would say how many commands hold a keyword,
     // which is not a number anything can be built against.
     assert_eq!(refusal("if a; then b; fi"), Reason::Conditional);
-    assert_eq!(refusal("for f in a; do b; done"), Reason::Loop);
-    assert_eq!(refusal("while a; do b; done"), Reason::Loop);
-    assert_eq!(refusal("until a; do b; done"), Reason::Loop);
     assert_eq!(refusal("case $x in a) b;; esac"), Reason::Case);
     assert_eq!(refusal("[[ -f x ]]"), Reason::TestExpression);
     assert_eq!(refusal("function f { a; }"), Reason::FunctionDefinition);
@@ -1240,4 +1249,152 @@ fn each_reserved_word_belongs_to_the_construct_it_opens() {
     assert!(parse("! a").is_ok());
     // `[[` is a language; `[` is the test builtin and stays a command.
     assert!(parse("[ -f x ]").is_ok());
+}
+
+// ---- loops ----
+
+fn loop_of(text: &str) -> reader::syntax::ast::CommandKind {
+    match &list(text).first.commands[..] {
+        [command] => command.kind.clone(),
+        other => panic!("{text:?} is not one command: {other:?}"),
+    }
+}
+
+fn for_loop(text: &str) -> reader::syntax::ast::ForLoop {
+    match loop_of(text) {
+        reader::syntax::ast::CommandKind::For(l) => l,
+        other => panic!("{text:?} is not a for loop: {other:?}"),
+    }
+}
+
+fn while_loop(text: &str) -> reader::syntax::ast::WhileLoop {
+    match loop_of(text) {
+        reader::syntax::ast::CommandKind::While(l) => l,
+        other => panic!("{text:?} is not a while loop: {other:?}"),
+    }
+}
+
+#[test]
+fn a_body_is_a_command_list_and_layout_is_not_recorded() {
+    // The body is read by the same reader a whole script is, so the two
+    // spellings of one loop are one tree.
+    assert_eq!(
+        for_loop("for f in a b; do echo $f; done"),
+        for_loop("for f in a b\ndo\n  echo $f\ndone")
+    );
+    let loop_ = for_loop("for f in a b; do x; y; done");
+    assert_eq!(loop_.name, "f");
+    assert_eq!(loop_.words.len(), 2);
+    assert_eq!(loop_.body.len(), 2);
+}
+
+#[test]
+fn an_omitted_list_is_desugared_the_way_bash_desugars_it() {
+    // ⚠ `for f; do …` comes back from `declare -f` as `for f in "$@"; do …`, so
+    // the tree holds the explicit list. Recording the omission would make one
+    // command two trees, and the second gate would say so.
+    assert_eq!(
+        for_loop("for f; do x; done"),
+        for_loop(r#"for f in "$@"; do x; done"#)
+    );
+    assert_eq!(
+        print(&tree("for f; do x; done")),
+        r#"for f in "$@"; do x; done"#
+    );
+}
+
+#[test]
+fn until_is_while_with_the_sense_reversed_and_select_is_not_for() {
+    assert!(while_loop("until a; do b; done").until);
+    assert!(!while_loop("while a; do b; done").until);
+    assert_ne!(
+        while_loop("until a; do b; done"),
+        while_loop("while a; do b; done")
+    );
+    assert!(for_loop("select f in a; do b; done").select);
+    assert!(!for_loop("for f in a; do b; done").select);
+}
+
+#[test]
+fn a_condition_is_a_list_not_a_command() {
+    // `while read -r a && test x; do` is legal, so the condition holds a list.
+    let loop_ = while_loop("while a && b; do c; done");
+    assert_eq!(loop_.condition.len(), 1);
+    assert!(check("while a && b; do c; done").holds());
+}
+
+#[test]
+fn a_loop_takes_its_redirections_after_done() {
+    // ⚠ Bash prints them there, and it says so structurally by moving one:
+    // `for f in a; do b; done > out`.
+    assert_eq!(redirects("for f in a; do b; done > out").len(), 1);
+    assert!(check("for f in a; do b; done > out").holds());
+    assert!(check("while a; do b; done 2>&1").holds());
+}
+
+#[test]
+fn a_loop_is_a_command_in_a_pipeline() {
+    let piped = list("for f in a; do b; done | wc -l");
+    assert_eq!(piped.first.commands.len(), 2);
+    assert!(check("for f in a; do b; done | wc -l").holds());
+}
+
+#[test]
+fn a_heredoc_inside_a_body_still_finds_its_body() {
+    // The fill is positional, so a compound's interior has to be walked before
+    // its redirections — the body text comes first.
+    let loop_ = for_loop("for f in a; do cat <<EOF\nx\nEOF\ndone");
+    assert_eq!(loop_.body.len(), 1);
+    assert!(check("for f in a; do cat <<EOF\nx\nEOF\ndone").holds());
+}
+
+#[test]
+fn a_comment_in_a_body_is_refused_rather_than_dropped() {
+    // The printer puts a loop on one line, where a comment would swallow the
+    // rest of it. The same answer this tree gives a comment in an and-or list.
+    assert_eq!(
+        refusal("for f in a; do\n# note\nb\ndone"),
+        Reason::CommentInList
+    );
+}
+
+#[test]
+fn the_arithmetic_for_is_a_different_grammar() {
+    assert_eq!(
+        refusal("for ((i=0;i<3;i++)); do b; done"),
+        Reason::Arithmetic
+    );
+}
+
+#[test]
+fn the_law_holds_across_the_loop_shapes() {
+    for text in [
+        "for f in a b; do echo $f; done",
+        "for f in a b\ndo\necho $f\ndone",
+        "for f; do x; done",
+        "for f in *.txt; do x; done",
+        "while read -r l; do echo $l; done",
+        "until a; do b; done",
+        "select f in a b; do echo $f; done",
+        "for f in a; do b; c; done",
+        "for f in a; do b; done > out",
+        "for f in a; do b; done | wc -l",
+        "while a && b; do c; done",
+        "for f in a; do for g in b; do c; done; done",
+        "for f in a; do b & done",
+        "for f in a; do cat <<EOF\nx\nEOF\ndone",
+        "cd x && for f in a; do b; done",
+        "for f in a; do FOO=1 b; done",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+        assert!(
+            survey(text).is_empty(),
+            "{text:?} should need nothing: {:?}",
+            survey(text)
+        );
+    }
 }

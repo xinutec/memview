@@ -27,7 +27,7 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result};
 
-use reader::syntax::ast::{Item, Script};
+use reader::syntax::ast::{AndOr, CommandKind, Item, Pipeline, Script};
 use reader::syntax::parse::{Refusal, parse};
 
 /// NUL, which bash cannot put in a word and therefore cannot appear inside
@@ -131,13 +131,46 @@ fn judge(command: &str, bash_text: Option<&str>) -> Verdict {
 
 fn without_comments(script: &Script) -> Script {
     Script {
-        items: script
-            .items
-            .iter()
-            .filter(|item| matches!(item, Item::List(_)))
-            .cloned()
-            .collect(),
+        items: strip(&script.items),
         span: script.span,
+    }
+}
+
+/// ⚠ **Recursive, because bash deletes a comment wherever it is.** A comment
+/// inside a loop body is dropped by `declare -f` just as a top-level one is, so
+/// stripping only the outer list would report a difference on every commented
+/// body — a known limitation dressed as a finding.
+fn strip(items: &[Item]) -> Vec<Item> {
+    items
+        .iter()
+        .filter(|item| matches!(item, Item::List(_)))
+        .cloned()
+        .map(|mut item| {
+            if let Item::List(list) = &mut item {
+                strip_and_or(list);
+            }
+            item
+        })
+        .collect()
+}
+
+fn strip_and_or(list: &mut AndOr) {
+    strip_pipeline(&mut list.first);
+    for link in &mut list.rest {
+        strip_pipeline(&mut link.pipeline);
+    }
+}
+
+fn strip_pipeline(pipeline: &mut Pipeline) {
+    for command in &mut pipeline.commands {
+        match &mut command.kind {
+            CommandKind::Simple(_) => {}
+            CommandKind::For(loop_) => loop_.body = strip(&loop_.body),
+            CommandKind::While(loop_) => {
+                loop_.condition = strip(&loop_.condition);
+                loop_.body = strip(&loop_.body);
+            }
+        }
     }
 }
 

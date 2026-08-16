@@ -163,6 +163,34 @@ pub struct Comment {
 /// flattening is the misparse the law cannot see.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Command {
+    pub kind: CommandKind,
+    /// ⚠ **In their own list, because their position among the words means
+    /// nothing.** `> out cat f` and `cat f > out` are the same command, and
+    /// `declare -f` proves it: bash prints the first back as the second. Order
+    /// *within* this list does matter — `cat > out 2>&1` and `cat 2>&1 > out`
+    /// send stderr to different places, and bash preserves both as written.
+    ///
+    /// They sit on the command rather than inside the kind because a compound
+    /// takes them the same way a simple command does: `while a; do b; done >
+    /// out` redirects the whole loop, and bash prints the redirection after the
+    /// `done`.
+    pub redirects: Vec<Redirect>,
+    pub span: Span,
+}
+
+/// A simple command, or one of the compounds that carry a body.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CommandKind {
+    Simple(Simple),
+    /// `for NAME in words; do … done`, and `select` which has the same shape.
+    For(ForLoop),
+    /// `while cond; do … done`, and `until` which differs only in the sense.
+    While(WhileLoop),
+}
+
+/// `FOO=bar cmd arg` — a name, its arguments, and the bindings in front.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Simple {
     /// `FOO=bar` and friends, in the order written, before the command name.
     ///
     /// ⚠ **A prefix, so only before the first word.** `A=1 cmd B=2` binds `A`
@@ -170,19 +198,44 @@ pub struct Command {
     /// A command with assignments and no words is a plain binding: `FOO=bar`.
     pub assignments: Vec<Assignment>,
     pub words: Vec<Word>,
-    /// ⚠ **In their own list, because their position among the words means
-    /// nothing.** `> out cat f` and `cat f > out` are the same command, and
-    /// `declare -f` proves it: bash prints the first back as the second. Order
-    /// *within* this list does matter — `cat > out 2>&1` and `cat 2>&1 > out`
-    /// send stderr to different places, and bash preserves both as written.
-    pub redirects: Vec<Redirect>,
-    pub span: Span,
+}
+
+/// `for NAME in words; do body done`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForLoop {
+    pub name: String,
+    /// ⚠ **Always explicit, because bash makes it so.** `for f; do …` is printed
+    /// back by `declare -f` as `for f in "$@"; do …`, so the tree holds that
+    /// same quoted `$@` rather than an absent list. Recording the omission would
+    /// make one command two trees and the second gate would say so.
+    pub words: Vec<Word>,
+    /// `select` rather than `for`: the same shape, a different statement.
+    pub select: bool,
+    pub body: Vec<Item>,
+}
+
+/// `while cond; do body done`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WhileLoop {
+    /// `until`, which runs the body while the condition FAILS.
+    pub until: bool,
+    /// A list, not one command: `while read -r a && test x; do` is legal.
+    pub condition: Vec<Item>,
+    pub body: Vec<Item>,
 }
 
 impl Command {
     /// Nothing at all — no binding, no word, no redirection.
     pub fn is_empty(&self) -> bool {
-        self.assignments.is_empty() && self.words.is_empty() && self.redirects.is_empty()
+        match &self.kind {
+            CommandKind::Simple(simple) => {
+                simple.assignments.is_empty()
+                    && simple.words.is_empty()
+                    && self.redirects.is_empty()
+            }
+            // A loop is never nothing: it was written.
+            _ => false,
+        }
     }
 }
 

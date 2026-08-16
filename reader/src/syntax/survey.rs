@@ -76,6 +76,19 @@ impl Survey<'_> {
         let mut in_word = false;
         // Is the word being read a `NAME=value` prefix rather than a word?
         let mut word_is_binding = false;
+        // ⚠ Where a loop is, so the two shapes the parser refuses inside one can
+        // be reported: a comment (the printer puts a loop on one line, so there
+        // is nowhere to put it) and a redirection in a `for` header (a syntax
+        // error to bash as well). Neither is visible without knowing that a
+        // loop is open.
+        let mut loop_header = false;
+        let mut loop_depth = 0usize;
+        // How far through a `for NAME in` header the scan is: 1 after `for`,
+        // 2 after the name. A word other than `in` at 2 is a header bash refuses
+        // — `for p /style.css; do …` — and the parser refuses it as a loop.
+        let mut for_stage = 0u8;
+        // Did the word just finished open a new command list — `do`, `then`?
+        let mut word_opens_list = false;
 
         // ⚠ **Finishing a word clears `at_command_start`, and only finishing a
         // word does.** Preserving it here instead made every word on a line look
@@ -90,6 +103,54 @@ impl Survey<'_> {
         macro_rules! finish {
             () => {
                 if in_word {
+                    // ⚠ Here rather than on the whitespace path alone, because a
+                    // keyword can end a word at a `;` or a newline too:
+                    // `for f in a\ndo\n…` left the header open, and every `>` in
+                    // the body then read as a malformed header.
+                    // ⚠ A `for` header that never says `in` is a syntax error,
+                    // and the parser calls it an unreadable loop. Outside the
+                    // `at_command_start` guard, because only the FIRST word of a
+                    // command is at a command start — the name and the `in` that
+                    // follow it are not, and inside the guard this never ran
+                    // past the keyword itself.
+                    match for_stage {
+                        1 => for_stage = 2,
+                        2 => {
+                            if word != "in" {
+                                self.found.insert(Reason::Loop);
+                            }
+                            for_stage = 0;
+                        }
+                        _ => {}
+                    }
+                    word_opens_list = false;
+                    if at_command_start && !word_quoted {
+                        match word.as_str() {
+                            // ⚠ Only `for` and `select`. A `while` condition is
+                            // an ordinary command list and may redirect —
+                            // `while a > out; do x; done` is legal, and flagging
+                            // it claimed a construct on 1977 commands the parser
+                            // reads perfectly well.
+                            "for" | "select" => {
+                                loop_header = true;
+                                for_stage = 1;
+                            }
+                            "while" | "until" => loop_header = false,
+                            // ⚠ A new command list starts after these, so the
+                            // next word is a command NAME. Without it, `do [[ …`
+                            // read the `[[` as an argument and the survey missed
+                            // a construct the parser refuses.
+                            "do" | "then" | "else" | "elif" => {
+                                loop_header = false;
+                                word_opens_list = true;
+                                if word == "do" {
+                                    loop_depth += 1;
+                                }
+                            }
+                            "done" => loop_depth = loop_depth.saturating_sub(1),
+                            _ => {}
+                        }
+                    }
                     finish_word(
                         &mut self.found,
                         &word,
@@ -129,8 +190,8 @@ impl Survey<'_> {
                     // `time`, the NEXT word is the command name, and treating it
                     // as an argument hid the assignment in
                     // `time PYTHONPATH=… python -m x`.
-                    at_command_start = keeps_head || was_binding;
-                    at_pipeline_head = keeps_head;
+                    at_command_start = keeps_head || was_binding || word_opens_list;
+                    at_pipeline_head = keeps_head || word_opens_list;
                 }
             };
         }
@@ -141,6 +202,12 @@ impl Survey<'_> {
                 at_command_start = true;
                 at_pipeline_head = true;
                 seen_time = false;
+                // `for f; do …` is legal — the header simply ends here. Written
+                // as a test so it reads the value it clears, which is also what
+                // says the clear is deliberate rather than a leftover.
+                if for_stage != 0 {
+                    for_stage = 0;
+                }
             };
         }
         // A single `|`: a new command, but the SAME pipeline — which is what
@@ -189,6 +256,9 @@ impl Survey<'_> {
                     self.at += 1;
                 }
                 b'#' if !in_word => {
+                    if loop_header || loop_depth > 0 {
+                        self.found.insert(Reason::CommentInList);
+                    }
                     while self.peek().is_some_and(|b| b != b'\n') {
                         self.at += 1;
                     }
@@ -230,6 +300,11 @@ impl Survey<'_> {
                     }
                 }
                 b'<' | b'>' => {
+                    // A redirection in a `for` header is a syntax error to bash,
+                    // and the parser refuses the loop rather than the operator.
+                    if loop_header {
+                        self.found.insert(Reason::Loop);
+                    }
                     end_word!();
                     // ⚠ Four different constructs share these two characters,
                     // and only one of them is "a redirection to a file". Counted
@@ -625,6 +700,10 @@ fn finish_word(
     if at_command_start
         && !quoted
         && let Some(reason) = reserved_word(word)
+        // ⚠ The loop keywords are modelled now, so they are not findings — but
+        // they stay in `reserved_word`, because the printer still has to quote a
+        // word that spells one to keep it a value.
+        && !matches!(reason, Reason::Loop)
     {
         found.insert(reason);
     }
