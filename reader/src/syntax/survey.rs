@@ -248,9 +248,23 @@ impl Survey<'_> {
                     self.skip_expansion();
                 }
                 b'~' if !in_word => {
-                    self.found.insert(Reason::Tilde);
+                    // Modelled at the head of a word. The forms that are not —
+                    // a quoted prefix, or a directory-stack entry like `~+2` —
+                    // still are not.
                     in_word = true;
                     self.at += 1;
+                    let from = self.at;
+                    while self.peek().is_some_and(|b| b != b'/' && !is_stop(b)) {
+                        self.at += 1;
+                    }
+                    let name = &self.text[from..self.at];
+                    let modelled = matches!(name, "" | "+" | "-")
+                        || name
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'));
+                    if !modelled || matches!(self.peek(), Some(b'\'') | Some(b'"')) {
+                        self.found.insert(Reason::Tilde);
+                    }
                 }
                 b'\'' => {
                     in_word = true;

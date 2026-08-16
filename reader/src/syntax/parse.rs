@@ -18,7 +18,7 @@
 
 use super::ast::{
     AndOr, Command, Comment, Connector, Glob, Item, Link, Pipeline, Redirect, RedirectOp,
-    RedirectTarget, Script, Segment, SegmentKind, Span, Timed, Word,
+    RedirectTarget, Script, Segment, SegmentKind, Span, Tilde, Timed, Word,
 };
 
 /// Why a piece of text was not read.
@@ -501,19 +501,25 @@ impl<'t> Parser<'t> {
         let mut quoted_anywhere = false;
 
         // ⚠ **At the head of EVERY word, not just the first.** `cd ~/Code` has
-        // its tilde in the second, and scoping this to the command name let
-        // exactly that shape absorb an expansion into literal text — the error
-        // the whole refusal discipline exists to prevent, reintroduced by a
-        // stray condition.
+        // its tilde in the second, and scoping this to the command name once let
+        // exactly that shape absorb an expansion into literal text.
         if self.peek() == Some(b'~') {
-            return self.refuse(Reason::Tilde, 1);
+            segments.push(self.tilde()?);
         }
 
         while let Some(byte) = self.peek() {
             let at = self.at;
             match byte {
                 b' ' | b'\t' | b'\r' | b'\n' | b';' => break,
-                b'\\' if self.peek_at(1) == Some(b'\n') => break,
+                // ⚠ **A backslash-newline JOINS a word, it does not end one.**
+                // `"a"\⏎"b"` is one argument to bash, and breaking here split a
+                // 337-character perl script into three words. Found by the
+                // second gate: the round-trip law never saw it, because the
+                // pieces print as separate words and read back as separate
+                // words just as wrongly.
+                b'\\' if self.peek_at(1) == Some(b'\n') => {
+                    self.at += 2;
+                }
                 // `|`, `||` and `&` all end a word; which of them it is, is the
                 // list's business rather than this reader's.
                 b'|' | b'&' => break,
@@ -583,6 +589,50 @@ impl<'t> Parser<'t> {
             }
         }
         Ok(word)
+    }
+
+    /// A tilde prefix, at the head of a word where the shell expands one.
+    ///
+    /// The prefix runs to the first `/` or to the end of the word — that is
+    /// bash's rule, and it is why `~/Code` is a home directory followed by a
+    /// path rather than a user called `/Code`.
+    fn tilde(&mut self) -> Result<Segment, Refusal> {
+        let start = self.at;
+        self.at += 1;
+        let from = self.at;
+        while let Some(byte) = self.peek() {
+            if byte == b'/' || is_bare_stop(byte) {
+                break;
+            }
+            self.at += 1;
+        }
+        // ⚠ A quote inside the prefix turns the whole thing off — bash reads
+        // `~"foo"` as the literal `~foo`. Rare, and refused rather than guessed.
+        if matches!(self.peek(), Some(b'\'') | Some(b'"')) {
+            return self.refuse(Reason::Tilde, 1);
+        }
+        let name = &self.text[from..self.at];
+        let tilde = match name {
+            "" => Tilde::Home,
+            "+" => Tilde::Pwd,
+            "-" => Tilde::OldPwd,
+            // `~+2` is a directory-stack entry, which is a different thing and
+            // is left for whoever needs it.
+            _ if name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-')) =>
+            {
+                Tilde::User(name.to_string())
+            }
+            _ => {
+                self.at = start;
+                return self.refuse(Reason::Tilde, 1);
+            }
+        };
+        Ok(Segment {
+            kind: SegmentKind::Tilde(tilde),
+            span: Span::new(start, self.at),
+        })
     }
 
     /// Is the `[` under the cursor the opening of a bracket expression — that

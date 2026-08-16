@@ -13,7 +13,7 @@
 
 use super::ast::{
     AndOr, Command, Connector, Glob, Item, Pipeline, Redirect, RedirectOp, RedirectTarget, Script,
-    Segment, SegmentKind, Timed, Word,
+    Segment, SegmentKind, Tilde, Timed, Word,
 };
 use super::parse::{is_assignment, is_reserved};
 
@@ -137,13 +137,65 @@ pub fn print_word(word: &Word, first: bool) -> String {
     if word.segments.is_empty() {
         return "''".to_string();
     }
-    word.segments.iter().map(print_segment).collect()
+    // ⚠ **A quote may not touch a tilde prefix.** `~'/x'` is the literal `~/x`
+    // to bash, not a home directory, so quoting the segment after a tilde says
+    // something the tree does not. Found by the round-trip law on 319 commands
+    // — `cat ~/.config/…/Local\ State`, where the space forced a quote right
+    // where the prefix ends.
+    let mut out = String::new();
+    let mut after_tilde = false;
+    for segment in &word.segments {
+        match (&segment.kind, after_tilde) {
+            (SegmentKind::Literal(text), true) => out.push_str(&print_after_tilde(text)),
+            _ => out.push_str(&print_segment(segment)),
+        }
+        after_tilde = matches!(segment.kind, SegmentKind::Tilde(_));
+    }
+    out
+}
+
+/// A literal that follows a tilde prefix, spelled so the prefix still ends where
+/// it did.
+///
+/// The prefix runs to the first *unquoted* `/`, so letting that slash through
+/// bare is enough to close it — after which ordinary quoting is safe again.
+/// Without a leading slash there is nothing to close it with, and the only way
+/// such a literal can arise is a backslash escape (`~a\ b`), so backslashes are
+/// what put it back.
+fn print_after_tilde(text: &str) -> String {
+    if !needs_quoting(text) {
+        return text.to_string();
+    }
+    if let Some(rest) = text.strip_prefix('/') {
+        return format!("/{}", print_segment_text(rest));
+    }
+    text.chars()
+        .map(|c| {
+            if is_bare_safe(c) {
+                c.to_string()
+            } else {
+                format!("\\{c}")
+            }
+        })
+        .collect()
+}
+
+fn print_segment_text(text: &str) -> String {
+    if needs_quoting(text) {
+        quote(text)
+    } else {
+        text.to_string()
+    }
 }
 
 fn print_segment(segment: &Segment) -> String {
     match &segment.kind {
         SegmentKind::Glob(Glob::Any) => "*".to_string(),
         SegmentKind::Glob(Glob::One) => "?".to_string(),
+        SegmentKind::Tilde(Tilde::Home) => "~".to_string(),
+        SegmentKind::Tilde(Tilde::Pwd) => "~+".to_string(),
+        SegmentKind::Tilde(Tilde::OldPwd) => "~-".to_string(),
+        SegmentKind::Tilde(Tilde::User(name)) => format!("~{name}"),
         SegmentKind::Literal(text) => {
             if needs_quoting(text) {
                 quote(text)

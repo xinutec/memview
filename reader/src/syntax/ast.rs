@@ -272,6 +272,22 @@ pub enum SegmentKind {
     Literal(String),
     /// A pathname-expansion operator. Only reachable from unquoted text.
     Glob(Glob),
+    /// A tilde prefix. Only reachable from unquoted text at the head of a word,
+    /// which is the only place the shell expands one: `~/x` is a home directory
+    /// and `"~/x"` is a filename beginning with a tilde.
+    Tilde(Tilde),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Tilde {
+    /// `~` — the current user's home.
+    Home,
+    /// `~name`.
+    User(String),
+    /// `~+`, which is `$PWD`.
+    Pwd,
+    /// `~-`, which is `$OLDPWD`.
+    OldPwd,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -292,7 +308,9 @@ impl Word {
         for segment in &self.segments {
             match &segment.kind {
                 SegmentKind::Literal(text) => out.push_str(text),
-                SegmentKind::Glob(_) => return None,
+                // A glob names a set and a tilde names a directory nobody has
+                // told us; asking for "the" text of either is a category error.
+                SegmentKind::Glob(_) | SegmentKind::Tilde(_) => return None,
             }
         }
         Some(out)

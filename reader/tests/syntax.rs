@@ -7,7 +7,8 @@
 //! split and the reserved words are all of that kind.
 
 use reader::syntax::ast::{
-    Connector, Glob, Item, RedirectOp, RedirectTarget, Segment, SegmentKind, Span, Timed, Word,
+    Connector, Glob, Item, RedirectOp, RedirectTarget, Segment, SegmentKind, Span, Tilde, Timed,
+    Word,
 };
 use reader::syntax::{Outcome, Reason, check, parse, print, survey};
 use std::collections::BTreeSet;
@@ -146,8 +147,6 @@ fn every_construct_the_tree_does_not_model_is_named() {
     assert_eq!(refusal("echo $x"), Reason::Expansion);
     assert_eq!(refusal("echo `ls`"), Reason::Expansion);
     assert_eq!(refusal(r#"echo "$x""#), Reason::Expansion);
-    assert_eq!(refusal("cd ~/Code"), Reason::Tilde);
-    assert_eq!(refusal("~/bin/tool"), Reason::Tilde);
     // Bash agrees this one is unterminated: an apostrophe opens a quote.
     assert_eq!(refusal("echo it's"), Reason::UnterminatedQuote);
     assert_eq!(refusal("ls 'unclosed"), Reason::UnterminatedQuote);
@@ -226,10 +225,10 @@ fn the_law_reports_a_refusal_apart_from_a_failure() {
 fn the_survey_returns_every_blocking_construct_not_the_first() {
     // The whole reason it exists: `parse` stops at the pipe and never sees the
     // redirection, so the refusal ranking under-counts whatever sits rightmost.
-    assert_eq!(refusal("cd ~/x $y"), Reason::Tilde);
+    assert_eq!(refusal("cat <<E\nx\nE\n$y"), Reason::Heredoc);
     assert_eq!(
-        survey("cd ~/x $y"),
-        BTreeSet::from([Reason::Tilde, Reason::Expansion])
+        survey("cat <<E\nx\nE\n$y"),
+        BTreeSet::from([Reason::Heredoc, Reason::Expansion])
     );
 }
 
@@ -566,4 +565,90 @@ fn the_law_holds_across_the_redirection_shapes() {
             check(text).label()
         );
     }
+}
+
+// ---- tilde ----
+
+#[test]
+fn a_tilde_expands_only_where_the_shell_expands_one() {
+    // ⚠ The quoting rule that is semantic INSIDE a word: `~/x` is a home
+    // directory, `"~/x"` is a filename that starts with a tilde. Absorbing the
+    // first into a literal is the error the refusal discipline exists for, and
+    // it is exactly what the parser did until the tilde got a node.
+    assert_ne!(words("cd ~/x")[1], words("cd '~/x'")[1]);
+    assert_eq!(words("cd '~/x'")[1].as_literal().as_deref(), Some("~/x"));
+    assert_eq!(words("cd ~/x")[1].as_literal(), None);
+    // Mid-word it is an ordinary character: only the head expands.
+    assert_eq!(words("echo a~b")[1].as_literal().as_deref(), Some("a~b"));
+}
+
+#[test]
+fn each_tilde_form_reaches_its_own_node() {
+    let head = |text: &str| match &words(text)[1].segments[0].kind {
+        SegmentKind::Tilde(tilde) => tilde.clone(),
+        other => panic!("{text:?} is not a tilde: {other:?}"),
+    };
+    assert_eq!(head("cd ~"), Tilde::Home);
+    assert_eq!(head("cd ~/Code"), Tilde::Home);
+    assert_eq!(head("cd ~+"), Tilde::Pwd);
+    assert_eq!(head("cd ~-"), Tilde::OldPwd);
+    assert_eq!(head("cd ~pippijn/x"), Tilde::User("pippijn".into()));
+    // A directory-stack entry is a different construct and stays refused.
+    assert_eq!(refusal("cd ~+2"), Reason::Tilde);
+}
+
+#[test]
+fn the_printer_quotes_a_literal_that_would_expand() {
+    // A word whose text merely starts with `~` must come back as text.
+    assert_eq!(print(&tree("cd '~/x'")), "cd '~/x'");
+    assert_eq!(print(&tree("cd ~/x")), "cd ~/x");
+    assert!(check("cd '~/x'").holds());
+}
+
+#[test]
+fn the_law_holds_across_the_tilde_shapes() {
+    for text in [
+        "cd ~",
+        "cd ~/Code",
+        "cd ~+",
+        "cd ~-",
+        "cd ~user/x",
+        "ls ~/*.log",
+        "cd '~'",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+    }
+}
+
+#[test]
+fn a_quote_may_not_touch_a_tilde_prefix() {
+    // ⚠ Regression, 319 corpus commands. `~'/x'` is the literal `~/x` to bash,
+    // so quoting the segment after a tilde changes what the word means. The
+    // slash goes through bare and closes the prefix; quoting is safe after it.
+    assert_eq!(
+        print(&tree(r"cat ~/.config/Local\ State")),
+        "cat ~/'.config/Local State'"
+    );
+    assert!(check(r"cat ~/.config/Local\ State").holds());
+    // With no slash to close the prefix, backslashes are what put it back.
+    assert_eq!(print(&tree(r"cd ~user\ x")), r"cd ~user\ x");
+    assert!(check(r"cd ~user\ x").holds());
+}
+
+#[test]
+fn a_backslash_newline_joins_a_word() {
+    // ⚠ Regression found by the second gate on one corpus command. Bash removes
+    // the continuation and keeps ONE word; ending the word here split a single
+    // long argument into three, and both the law and the survey agreed with it.
+    assert_eq!(words("perl -e \"a\"\\\n\"b\"").len(), 3);
+    assert_eq!(
+        words("perl -e \"a\"\\\n\"b\"")[2].as_literal().as_deref(),
+        Some("ab")
+    );
+    assert_eq!(words("cmd one\\\ntwo").len(), 2);
+    assert!(check("perl -e \"a\"\\\n\"b\"").holds());
 }

@@ -312,14 +312,18 @@ fn main() -> anyhow::Result<()> {
         for ((command, _), verdict) in accepted.iter().zip(&verdicts) {
             let entry = grouped.entry(verdict.label()).or_default();
             entry.0 += 1;
-            if !verdict.agrees() {
-                keep_example(&mut entry.1, command);
+            if !verdict.agrees() && entry.1.len() < 3 {
+                entry.1.push(command.to_string());
             }
         }
         for (label, (count, examples)) in &grouped {
             println!("  {count:>7}  {label}");
             for example in examples {
-                println!("           {example}");
+                // ⚠ **Whole, not truncated.** A gate-2 disagreement is rare and
+                // is the one finding worth acting on immediately; a 90-column
+                // sample of it is not enough to find the command again, and
+                // twice cost a wrong one being investigated instead.
+                println!("           ---\n{example}\n           ---");
             }
         }
     }

@@ -3,8 +3,8 @@
 Design for the syntax layer under `reader/`: a faithful tree for every language
 the fleet executes, plus a printer that puts it back.
 
-**Status: simple commands, comments, pipelines, and-or lists and redirection;
-both gates wired.**
+**Status: simple commands, comments, pipelines, and-or lists, redirection and
+tilde prefixes; both gates wired.**
 `reader/src/syntax/` holds the tree, the parser and the printer; the
 `bash-oracle` crate holds the second gate and the report.
 
@@ -239,7 +239,8 @@ three or more, which is why a per-construct percentage is the wrong unit.
 **The prediction has been tested three times, by building what it named.** The
 pipe was predicted at 11.03% and coverage went 13.57% → 24.60%. And-or lists were
 predicted to reach 45,326 and reached 45,327. Redirection was predicted to reach
-81,623 and reached 81,623.
+81,623 and reached 81,623. Tilde prefixes were predicted to reach 94,694 and
+reached 94,694.
 
 ⚠ **Splitting a reason can change the plan.** `<` and `>` began as one
 `Redirection`, worth +45,030. Split by what it takes to *build* them — a file or
@@ -350,6 +351,16 @@ prints back without the `1`. Bash drops an explicit default on `>` and *supplies
 one on `>&` — so a redirection's descriptor is stored as the effective one, never
 the written one, and `1> f` and `> f` are one tree. Nothing else could have found
 that: the round-trip law is satisfied by any consistent wrong answer.
+
+Its second catch was the same shape and worse. `"a"\⏎"b"` is **one** word — bash
+removes a backslash-newline inside a word and joins what is either side. Ending
+the word there split a 337-character `perl` argument into three, and the law
+agreed, because three wrong words print as three words and read back as three.
+The survey agreed too: it only knows what is refused, and nothing was.
+
+⚠ **Both catches are the same lesson.** A wrong tree that is *internally
+consistent* satisfies every check we can build out of our own parser. Only a
+reader that is not ours can object.
 
 ⚠ **`bash -n` adjudicates the two refusals that are claims about the input.**
 `UnterminatedQuote` and `DanglingEscape` assert the text is not shell; every

@@ -37,7 +37,7 @@ pub mod survey;
 
 pub use ast::{
     AndOr, Command, Comment, Connector, Glob, Item, Link, Pipeline, Redirect, RedirectOp,
-    RedirectTarget, Script, Segment, SegmentKind, Span, Timed, Word,
+    RedirectTarget, Script, Segment, SegmentKind, Span, Tilde, Timed, Word,
 };
 pub use law::{Outcome, check};
 pub use parse::{Reason, Refusal, parse};
