@@ -22,15 +22,22 @@
 //! the spelling this printer normalises away, and comparing the two spellings
 //! would report a difference on every quoted word in the corpus.
 //!
-//! ⚠ **What is fed to bash is this printer's output, never raw corpus text.**
-//! That is a safety property, not a convenience. The function wrapper holds only
+//! ⚠ **Bash is shown the ORIGINAL text, not our print of it.** Feeding it our
+//! own output looked safer and made the gate nearly useless: it could then only
+//! confirm that bash agrees with our canonical form, and never that we read the
+//! corpus command correctly in the first place. `a |\nb` — a newline inside a
+//! pipeline — parsed as two pipelines, printed as two lines, and both gates
+//! agreed with the mistake, because the text that was misread was the one text
+//! bash never saw.
+//!
+//! The safety argument survives the change intact. The wrapper holds only
 //! because bash parses a whole definition before running any of it, and a
 //! balanced payload defeats that — `echo a; }; rm -rf x; { echo b` closes the
-//! function, runs, and reopens a group for the trailing brace to close. Corpus
-//! history is full of braces by accident. The printer cannot emit an unquoted
-//! `{` or `}` — they are absent from its bare-safe set — so nothing it writes
-//! can close the wrapper. **When the grammar grows to accept grouping, that
-//! argument lapses and this needs `sandbox-exec` around it.**
+//! function, runs, and reopens a group for the trailing brace to close. But the
+//! gate runs **only on commands the parser accepted**, and the accepted language
+//! refuses `(`, `)`, `{` and `}` outright, so an accepted command cannot contain
+//! the brace that would close the wrapper. **When the grammar grows to accept
+//! grouping, that argument lapses and this needs `sandbox-exec` around it.**
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -40,7 +47,6 @@ use anyhow::{Context, Result};
 
 use reader::syntax::ast::{Item, Script};
 use reader::syntax::parse::{Refusal, parse};
-use reader::syntax::print::print;
 
 /// NUL, which bash cannot put in a word and therefore cannot appear inside
 /// `declare -f` output. A printable marker could be produced by a quoted literal
@@ -79,13 +85,15 @@ impl Verdict {
     }
 }
 
-/// Ask bash to re-read each script's printed form, and compare what it says.
+/// Ask bash to re-read each command and compare its parse with ours.
 ///
-/// One verdict per input, in order.
-pub fn compare(scripts: &[Script]) -> Result<Vec<Verdict>> {
-    let mut verdicts = Vec::with_capacity(scripts.len());
-    for chunk in scripts.chunks(BATCH) {
-        let printed: Vec<String> = chunk.iter().map(print).collect();
+/// The input is the original text, and every one of them must be a command this
+/// parser accepted — that is what makes the wrapper safe, and what makes the
+/// comparison mean anything. One verdict per input, in order.
+pub fn compare(commands: &[String]) -> Result<Vec<Verdict>> {
+    let mut verdicts = Vec::with_capacity(commands.len());
+    for chunk in commands.chunks(BATCH) {
+        let printed: Vec<String> = chunk.to_vec();
         let rendered = match render(&printed) {
             // A batch is all-or-nothing: bash aborts a script at the first
             // syntax error, so one refusal truncates the stream and every
@@ -101,16 +109,22 @@ pub fn compare(scripts: &[Script]) -> Result<Vec<Verdict>> {
                 })
                 .collect(),
         };
-        for (script, block) in chunk.iter().zip(rendered) {
-            verdicts.push(judge(script, block.as_deref()));
+        for (command, block) in chunk.iter().zip(rendered) {
+            verdicts.push(judge(command, block.as_deref()));
         }
     }
     Ok(verdicts)
 }
 
-fn judge(ours: &Script, bash_text: Option<&str>) -> Verdict {
+fn judge(command: &str, bash_text: Option<&str>) -> Verdict {
     let Some(bash_text) = bash_text else {
         return Verdict::BashRefused;
+    };
+    let ours = match parse(command) {
+        Ok(tree) => tree,
+        // The caller promised this was accepted; if it was not, say so rather
+        // than score it as agreement.
+        Err(refusal) => return Verdict::Unreadable(refusal),
     };
     let theirs = match parse(bash_text) {
         Ok(tree) => tree,
@@ -119,7 +133,7 @@ fn judge(ours: &Script, bash_text: Option<&str>) -> Verdict {
     // ⚠ Comments are dropped from BOTH sides. Bash deletes them, so keeping ours
     // would report a difference on every commented command and drown the gate in
     // a known limitation.
-    let ours = without_comments(ours);
+    let ours = without_comments(&ours);
     let theirs = without_comments(&theirs);
     if ours == theirs {
         Verdict::Agrees

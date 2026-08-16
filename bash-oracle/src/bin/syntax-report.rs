@@ -303,8 +303,11 @@ fn main() -> anyhow::Result<()> {
         println!("  {:>7}  checked, {wrong} wrong", claimed_invalid.len());
 
         println!("\ngate 2 — bash's own printer, over what the law held for:");
-        let trees: Vec<syntax::Script> = accepted.iter().map(|(_, tree)| tree.clone()).collect();
-        let verdicts = oracle::compare(&trees)?;
+        // ⚠ The ORIGINAL command text, not our print of it. Feeding bash our
+        // own output can only confirm it agrees with our canonical form; the
+        // misparse to catch is of the text the corpus actually holds.
+        let texts: Vec<String> = accepted.iter().map(|(text, _)| text.clone()).collect();
+        let verdicts = oracle::compare(&texts)?;
         let mut grouped: BTreeMap<&'static str, (usize, Vec<String>)> = BTreeMap::new();
         for ((command, _), verdict) in accepted.iter().zip(&verdicts) {
             let entry = grouped.entry(verdict.label()).or_default();

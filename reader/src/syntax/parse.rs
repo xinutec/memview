@@ -49,6 +49,8 @@ pub enum Reason {
     UnterminatedQuote,
     /// A backslash at end of input.
     DanglingEscape,
+    /// `a |` with nothing after it. Bash calls this a syntax error too.
+    EmptyOperand,
 }
 
 impl Reason {
@@ -66,6 +68,7 @@ impl Reason {
             Reason::Assignment => "assignment prefix (FOO=bar)",
             Reason::UnterminatedQuote => "unterminated quote",
             Reason::DanglingEscape => "dangling escape",
+            Reason::EmptyOperand => "empty operand (a | with nothing after it)",
         }
     }
 }
@@ -78,11 +81,12 @@ pub struct Refusal {
 
 /// The words bash treats as grammar when they open a command and are unquoted.
 ///
-/// ⚠ **`'time' ./x.sh` runs `/usr/bin/time` and `time ./x.sh` does not run a
-/// program at all.** So a reserved word is refused only where it is reserved:
-/// first word of a command, no quoting anywhere in it. That distinction is
-/// invisible to both gates — bash prints the quotes straight back — which is why
-/// it is decided here, where the quoting is still known.
+/// A reserved word is refused only where it is reserved: first word of a
+/// command, no quoting anywhere in it. `'time' ./x.sh` runs `/usr/bin/time`
+/// while `time ./x.sh` runs no program at all, and that distinction is invisible
+/// to both gates — bash prints the quotes straight back — which is why it is
+/// decided here, where the quoting is still known.
+///
 /// ⚠ **`time` is deliberately absent.** At the head of a pipeline it is grammar
 /// and [`Parser::pipeline`] consumes it before any word is read; anywhere else
 /// bash runs the program of that name — `a | time b` is accepted and executes
@@ -166,6 +170,27 @@ impl<'t> Parser<'t> {
         }
     }
 
+    /// Blanks, and the newlines that a list or pipeline operator makes into
+    /// continuations rather than terminators.
+    fn skip_blanks_and_newlines(&mut self) {
+        loop {
+            self.skip_blanks();
+            if self.peek() == Some(b'\n') {
+                self.at += 1;
+            } else {
+                return;
+            }
+        }
+    }
+
+    /// Is there no command here — only a terminator or the end of the text?
+    fn at_end_of_command(&self) -> bool {
+        matches!(
+            self.peek(),
+            None | Some(b';') | Some(b'\n') | Some(b'|') | Some(b'#')
+        )
+    }
+
     fn comment(&mut self) -> Comment {
         let start = self.at;
         self.at += 1; // the `#`
@@ -221,6 +246,15 @@ impl<'t> Parser<'t> {
             self.skip_blanks();
             if self.peek() == Some(b'|') && self.peek_at(1) != Some(b'|') {
                 self.at += 1;
+                // ⚠ **A newline after `|` continues the pipeline.** Bash's
+                // grammar is `pipeline '|' newline_list pipeline`, and without
+                // this `a |⏎b` read as TWO pipelines — a silent misparse that
+                // both gates passed, because the printed form was two lines and
+                // read back as two pipelines just as wrongly.
+                self.skip_blanks_and_newlines();
+                if self.at_end_of_command() {
+                    return self.refuse(Reason::EmptyOperand, 1);
+                }
                 continue;
             }
             break;

@@ -181,7 +181,19 @@ impl Survey<'_> {
                         // A pipe is modelled, so it is not a finding — but the
                         // command after it is NOT a pipeline head, which is
                         // what makes `a | ! b` a refusal and `! a | b` fine.
+                        // A newline after it continues the pipeline, so it must
+                        // be stepped over here or the next line looks like a
+                        // fresh command.
                         self.at += 1;
+                        while matches!(
+                            self.peek(),
+                            Some(b' ') | Some(b'\t') | Some(b'\r') | Some(b'\n')
+                        ) {
+                            self.at += 1;
+                        }
+                        if matches!(self.peek(), None | Some(b';') | Some(b'|')) {
+                            self.found.insert(Reason::EmptyOperand);
+                        }
                     }
                 }
                 b'&' => {

@@ -14,33 +14,11 @@
 //! accepted without it.
 
 use bash_oracle::{Verdict, compare};
-use reader::syntax::ast::{Command, Pipeline, Script, Segment, SegmentKind, Span, Word};
 use reader::syntax::parse;
-
-fn nowhere() -> Span {
-    Span::new(0, 0)
-}
-
-/// A pipeline of exactly one command, with no grammar on it.
-fn one(command: Command) -> Pipeline {
-    Pipeline {
-        time: None,
-        negated: false,
-        commands: vec![command],
-        span: nowhere(),
-    }
-}
-
-fn literal(text: &str) -> Segment {
-    Segment {
-        kind: SegmentKind::Literal(text.to_string()),
-        span: nowhere(),
-    }
-}
 
 #[test]
 fn bash_reads_our_printed_form_the_way_we_do() {
-    let scripts: Vec<Script> = [
+    let commands: Vec<String> = [
         "echo a",
         "echo 'a b'",
         "ls a*b",
@@ -61,51 +39,45 @@ fn bash_reads_our_printed_form_the_way_we_do() {
         "a | time b",
     ]
     .iter()
-    .map(|text| parse(text).expect("fixture should parse"))
+    .map(|text| {
+        parse(text).expect("fixture should parse");
+        text.to_string()
+    })
     .collect();
 
-    let verdicts = compare(&scripts).expect("the oracle should run");
-    for (script, verdict) in scripts.iter().zip(&verdicts) {
+    let verdicts = compare(&commands).expect("the oracle should run");
+    for (command, verdict) in commands.iter().zip(&verdicts) {
         assert!(
             verdict.agrees(),
-            "bash disagreed about {script:?}: {verdict:?}"
+            "bash disagreed about {command:?}: {verdict:?}"
         );
     }
 }
 
 #[test]
-fn a_tree_bash_cannot_read_is_reported_not_passed() {
-    // A command with no words prints an empty line, and a function with an
-    // empty body is a syntax error. The parser never builds one — this is
-    // constructed by hand precisely because it has to come from somewhere.
-    let empty = Script {
-        items: vec![reader::syntax::Item::Pipeline(one(Command {
-            words: vec![],
-            span: nowhere(),
-        }))],
-        span: nowhere(),
-    };
-    assert_eq!(compare(&[empty]).unwrap()[0], Verdict::BashRefused);
+fn the_gate_catches_a_misparse_of_the_original_text() {
+    // ⚠ The reason bash is shown the corpus command and not our print of it.
+    //
+    // `a |⏎b` is ONE pipeline: bash's grammar is `pipeline '|' newline_list
+    // pipeline`. Read as two, it printed as two lines and read back as two just
+    // as wrongly, so the round-trip law held — and the earlier version of this
+    // gate, fed that same printed form, agreed with the mistake. Fed the
+    // original, bash prints `a | b` and the disagreement is visible.
+    let commands = vec!["a |\nb".to_string(), "a | b".to_string()];
+    let verdicts = compare(&commands).expect("the oracle should run");
+    assert!(verdicts.iter().all(|v| v.agrees()), "{verdicts:?}");
+    // Both spellings are one tree, which is what bash says too.
+    assert_eq!(parse("a |\nb").unwrap(), parse("a | b").unwrap());
 }
 
 #[test]
-fn a_tree_that_is_not_in_normal_form_is_caught() {
-    // `Word { segments: [Literal("a"), Literal("b")] }` prints as `ab`, which
-    // reads back as ONE segment. The trees differ, and the gate has to say so —
-    // this is the shape of every real disagreement it will ever report.
-    let unmerged = Script {
-        items: vec![reader::syntax::Item::Pipeline(one(Command {
-            words: vec![Word {
-                segments: vec![literal("a"), literal("b")],
-                span: nowhere(),
-            }],
-            span: nowhere(),
-        }))],
-        span: nowhere(),
-    };
+fn a_command_we_cannot_read_is_reported_not_scored_as_agreement() {
+    // The gate promises to run only on accepted commands. Handed one that is
+    // not, it has to say so rather than quietly count a pass.
+    let verdicts = compare(&["a && b".to_string()]).expect("the oracle should run");
     assert!(
-        matches!(compare(&[unmerged]).unwrap()[0], Verdict::Differs { .. }),
-        "the gate passed a tree it should have rejected"
+        matches!(verdicts[0], Verdict::Unreadable(_)),
+        "{verdicts:?}"
     );
 }
 
@@ -113,18 +85,10 @@ fn a_tree_that_is_not_in_normal_form_is_caught() {
 fn a_refusal_in_a_batch_does_not_swallow_its_neighbours() {
     // Bash aborts a script at the first syntax error, so one bad command
     // truncates the stream and every later one would be misattributed to the
-    // wrong input. The fallback re-runs the batch one at a time; without it
-    // this test reports `BashRefused` for the good commands too.
-    let broken = Script {
-        items: vec![reader::syntax::Item::Pipeline(one(Command {
-            words: vec![],
-            span: nowhere(),
-        }))],
-        span: nowhere(),
-    };
-    let good = parse("echo after").expect("fixture should parse");
-    let verdicts = compare(&[broken, good]).expect("the oracle should run");
-    assert_eq!(verdicts[0], Verdict::BashRefused);
+    // wrong input. The fallback re-runs the batch one at a time.
+    let commands = vec!["ls 'unterminated".to_string(), "echo after".to_string()];
+    let verdicts = compare(&commands).expect("the oracle should run");
+    assert!(!verdicts[0].agrees());
     assert!(
         verdicts[1].agrees(),
         "the good command was lost: {:?}",

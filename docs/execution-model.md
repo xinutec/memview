@@ -82,22 +82,34 @@ made of — re-run it against a new bash before trusting any of them:
 | faithful on heredocs | bodies reproduced verbatim, including one nested in `$( )` inside a double-quoted word |
 | blind to comments | deleted |
 
-So the comparison is **tree against tree** — parse bash's print with our parser,
-require the same tree, exclude comments. Not text against text: bash preserves
-the spelling we normalise away.
+So the comparison is **tree against tree** — parse the command, parse bash's
+print of it, require the same tree, exclude comments. Not text against text:
+bash preserves the spelling we normalise away.
 
-Its power is exactly where bash's output differs structurally from its input.
-That is not hypothetical — bash lays `for f in *.log; do echo "$f"; done` out
-with `do` on its own line, which the current flat grammar reads as one command
-more than the input had. The gate fires on the model, not on a typo.
+⚠ **Bash is shown the ORIGINAL command, not our print of it.** The first version
+fed it the printer's output, which looked safer and made the gate nearly
+vacuous: it could then only confirm bash agreed with our canonical form, never
+that we had read the corpus text correctly. `a |⏎b` is one pipeline — bash's
+grammar is `pipeline '|' newline_list pipeline` — and reading it as two printed
+two lines that read back as two just as wrongly. The law held, and the gate
+agreed, because **the text that was misread was the one text bash never saw.**
 
-⚠ **It executes.** The wrapper holds only because `eval` parses its whole
-argument before running any of it, and a balanced payload defeats that:
+The safety argument survives the change. The wrapper holds only because `eval`
+parses a whole definition before running any of it; but the gate runs only on
+commands the parser *accepted*, and the accepted language refuses `(`, `)`, `{`
+and `}` outright, so an accepted command cannot carry the brace that would close
+the wrapper. That argument lapses when grouping is accepted — see below.
+
+Its power is exactly where bash's output differs structurally from its input:
+`for f in *.log; do …; done` laid out with `do` on its own line, `|&` desugared,
+`! time` reordered, a newline inside a pipeline closed up.
+
+⚠ **It executes.** A balanced payload defeats the wrapper:
 `echo a; }; touch /tmp/X; { echo b` closes the function, runs the `touch`, and
-reopens a group the trailing `}` closes. Measured, not reasoned about. The
-corpus is shell history, so it carries such text by accident rather than design.
-The oracle runs under `sandbox-exec`, denying process execution and writes
-outside a scratch directory.
+reopens a group the trailing `}` closes. Measured, not reasoned about, by
+`reader/probes/bash-printer.sh`. Today the refusal of grouping is what keeps such
+text out; **once grouping is accepted this needs `sandbox-exec` around it**,
+denying process execution and writes outside a scratch directory.
 
 Distinct from `reader/tests/oracle.rs`, which shims `PATH` and diffs predictions
 against real execution. That covers expansion, globbing and `cd`, and cannot
@@ -322,12 +334,11 @@ Three properties are load-bearing and each has a test that fails without it:
   the literal `time` as a command name must print `'time'`, or `t₂` is a
   different program.
 
-⚠ **Gate 2 is wired and green, and not yet load-bearing.** Bash prints simple
-commands back verbatim, so over today's accepted language it can see nothing the
-round-trip law cannot. It earns its place at the compounds, where bash's printer
-normalises — which is exactly why it is in place before them rather than after.
-Its own tests provoke each verdict it can reach, because a gate that is green
-everywhere is indistinguishable from one that cannot fail.
+⚠ **Gate 2 became load-bearing when it was pointed at the original text.** While
+it read the printer's output it could only agree; the `a |⏎b` misparse is the
+demonstration, and it is now the regression test. A gate that is green everywhere
+is indistinguishable from one that cannot fail, so its tests provoke each verdict
+it can reach.
 
 ⚠ **`bash -n` adjudicates the two refusals that are claims about the input.**
 `UnterminatedQuote` and `DanglingEscape` assert the text is not shell; every
