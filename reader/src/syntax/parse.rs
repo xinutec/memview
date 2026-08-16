@@ -77,8 +77,21 @@ pub enum Reason {
     BracketExpression,
     /// A `~` opening a word, which expands to a home directory.
     Tilde,
-    /// `if`, `for`, `time`, `!` and the rest: grammar, not a command name.
-    ReservedWord,
+    /// `if … then … elif … else … fi`.
+    Conditional,
+    /// `for`, `select`, `while`, `until`, and the `do … done` they carry.
+    Loop,
+    /// `case … esac`, whose arms are a pattern grammar of their own.
+    Case,
+    /// `[[ … ]]` — a conditional expression, which is its own language and not
+    /// the `[` builtin.
+    TestExpression,
+    /// `function name`. The `name() { … }` spelling is refused as grouping.
+    FunctionDefinition,
+    /// `coproc`.
+    Coproc,
+    /// `!` anywhere but a pipeline's head, which bash calls a syntax error too.
+    MisplacedNegation,
     /// `FOO=bar cmd` — a command prefix, and a binding the tree must model.
     Assignment,
     /// A quote with no partner.
@@ -111,7 +124,13 @@ impl Reason {
             Reason::Grouping => "grouping (( ) { })",
             Reason::BracketExpression => "bracket expression ([…])",
             Reason::Tilde => "tilde (~)",
-            Reason::ReservedWord => "reserved word",
+            Reason::Conditional => "conditional (if then elif else fi)",
+            Reason::Loop => "loop (for while until select do done)",
+            Reason::Case => "case … esac",
+            Reason::TestExpression => "test expression ([[ ]])",
+            Reason::FunctionDefinition => "function definition (function name)",
+            Reason::Coproc => "coproc",
+            Reason::MisplacedNegation => "! outside a pipeline head",
             Reason::Assignment => "assignment prefix (FOO=bar)",
             Reason::UnterminatedQuote => "unterminated quote",
             Reason::UnterminatedExpansion => "unterminated expansion (${ with no })",
@@ -143,10 +162,28 @@ pub struct Refusal {
 ///
 /// `!` stays, because it is grammar at the head and a *syntax error* elsewhere:
 /// bash rejects `a | ! b`. Refusing it is the right answer in both positions.
-const RESERVED: &[&str] = &[
-    "!", "[[", "]]", "case", "coproc", "do", "done", "elif", "else", "esac", "fi", "for",
-    "function", "if", "in", "select", "then", "until", "while",
-];
+/// Which construct does this reserved word belong to, if it is one?
+///
+/// ⚠ **Grouped by construct, because a reason is a unit of work.** `if` and
+/// `case` share nothing but being keywords: one is a conditional, the other a
+/// pattern grammar. Counting them together would say how many commands hold a
+/// keyword, which is not a number anybody can build against.
+///
+/// The interior words (`then`, `do`, `esac`) sit with their openers. They are
+/// almost never the first word of a command — the opener is refused long before
+/// the scan reaches them — but where one is, it belongs to the same build.
+pub fn reserved_word(text: &str) -> Option<Reason> {
+    Some(match text {
+        "if" | "then" | "elif" | "else" | "fi" => Reason::Conditional,
+        "for" | "select" | "while" | "until" | "do" | "done" | "in" => Reason::Loop,
+        "case" | "esac" => Reason::Case,
+        "[[" | "]]" => Reason::TestExpression,
+        "function" => Reason::FunctionDefinition,
+        "coproc" => Reason::Coproc,
+        "!" => Reason::MisplacedNegation,
+        _ => return None,
+    })
+}
 
 pub fn parse(text: &str) -> Result<Script, Refusal> {
     let mut parser = Parser {
@@ -936,10 +973,10 @@ impl<'t> Parser<'t> {
         if first
             && !quoted_anywhere
             && let Some(text) = word.as_literal()
-            && is_reserved(&text)
+            && let Some(reason) = reserved_word(&text)
         {
             return Err(Refusal {
-                reason: Reason::ReservedWord,
+                reason,
                 span: word.span,
             });
         }
@@ -1398,7 +1435,7 @@ fn is_bare_stop(byte: u8) -> bool {
 /// Shared with the printer, which has to quote such a word to keep it a value —
 /// the two must agree or the round-trip law fails on every `time` in the corpus.
 pub fn is_reserved(text: &str) -> bool {
-    RESERVED.contains(&text)
+    reserved_word(text).is_some()
 }
 
 /// Does an assignment prefix start at `at`?

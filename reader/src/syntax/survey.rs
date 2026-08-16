@@ -30,7 +30,7 @@
 
 use std::collections::BTreeSet;
 
-use super::parse::{Reason, classify_expansion, is_reserved, opens_assignment};
+use super::parse::{Reason, classify_expansion, opens_assignment, reserved_word};
 
 pub fn survey(text: &str) -> BTreeSet<Reason> {
     Survey {
@@ -622,8 +622,11 @@ fn finish_word(
     if at_pipeline_head && word == "!" {
         return;
     }
-    if at_command_start && !quoted && is_reserved(word) {
-        found.insert(Reason::ReservedWord);
+    if at_command_start
+        && !quoted
+        && let Some(reason) = reserved_word(word)
+    {
+        found.insert(reason);
     }
 }
 

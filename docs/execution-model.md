@@ -220,6 +220,13 @@ whose operand is on the following lines, and a process substitution that is a
 whole command, the file forms alone were four fifths of it — and the hard half
 was never on the critical path.
 
+The split of `ReservedWord` said it loudest. One bucket of 8,681 keywords was
+**99.1% loops**: `for`/`while`/`until` block 8,606 commands and unlock 4,573 on
+their own, while `if` blocks 75 and unlocks **50**. `case`, `[[ ]]`, `function`
+and `coproc` block nothing at all in 131,246 commands — this corpus is
+interactive commands, not scripts. Building the obvious "simplest compound"
+first would have bought fifty commands.
+
 The same split of `Expansion` said it twice more. Naming a parameter unlocks
 5,795 commands and is a leaf; command substitution unlocks 2,273 and needs this
 parser to recurse into itself; an operator inside the braces unlocks 508 and is a

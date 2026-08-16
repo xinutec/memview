@@ -109,7 +109,7 @@ fn a_glob_is_not_the_character_that_spells_it() {
 
 #[test]
 fn a_reserved_word_is_refused_and_a_quoted_one_is_a_command() {
-    assert_eq!(refusal("for f in a; do echo; done"), Reason::ReservedWord);
+    assert_eq!(refusal("for f in a; do echo; done"), Reason::Loop);
     // `time` is no longer refused — the pipeline models it. What still matters
     // is that the QUOTED one stays a program: `'time' ./x.sh` runs
     // /usr/bin/time, so its tree holds a word, not a flag.
@@ -239,7 +239,7 @@ fn an_argument_is_not_a_command_name() {
     assert!(survey("ssh -o BatchMode=yes host").is_empty());
     assert!(survey("git add in do done").is_empty());
     assert!(survey("FOO=bar cmd").is_empty());
-    assert_eq!(survey("for f in a"), BTreeSet::from([Reason::ReservedWord]));
+    assert_eq!(survey("for f in a"), BTreeSet::from([Reason::Loop]));
 }
 
 #[test]
@@ -326,7 +326,7 @@ fn a_keyword_is_only_a_keyword_at_the_head() {
     let p = pipeline("a | time b");
     assert_eq!(p.time, None);
     assert_eq!(p.commands[1].words[0].as_literal().as_deref(), Some("time"));
-    assert_eq!(refusal("a | ! b"), Reason::ReservedWord);
+    assert_eq!(refusal("a | ! b"), Reason::MisplacedNegation);
 }
 
 #[test]
@@ -383,11 +383,11 @@ fn a_pipeline_prefix_does_not_start_the_command() {
     // and a reserved word there is grammar.
     assert_eq!(
         survey("time PYTHONPATH=/x if"),
-        BTreeSet::from([Reason::ReservedWord])
+        BTreeSet::from([Reason::Conditional])
     );
-    assert_eq!(refusal("time PYTHONPATH=/x if"), Reason::ReservedWord);
+    assert_eq!(refusal("time PYTHONPATH=/x if"), Reason::Conditional);
     // `-p` is a prefix only after `time`; alone it is an ordinary argument.
-    assert_eq!(survey("time -p if"), BTreeSet::from([Reason::ReservedWord]));
+    assert_eq!(survey("time -p if"), BTreeSet::from([Reason::Conditional]));
     // And a binding after `time` is read, not refused.
     assert!(survey("time PYTHONPATH=/x python -m recall").is_empty());
 }
@@ -1219,4 +1219,25 @@ fn the_law_holds_across_the_assignment_shapes() {
             survey(text)
         );
     }
+}
+
+#[test]
+fn each_reserved_word_belongs_to_the_construct_it_opens() {
+    // ⚠ A reason is a unit of work, and these keywords are five grammars, not
+    // one: counting them together would say how many commands hold a keyword,
+    // which is not a number anything can be built against.
+    assert_eq!(refusal("if a; then b; fi"), Reason::Conditional);
+    assert_eq!(refusal("for f in a; do b; done"), Reason::Loop);
+    assert_eq!(refusal("while a; do b; done"), Reason::Loop);
+    assert_eq!(refusal("until a; do b; done"), Reason::Loop);
+    assert_eq!(refusal("case $x in a) b;; esac"), Reason::Case);
+    assert_eq!(refusal("[[ -f x ]]"), Reason::TestExpression);
+    assert_eq!(refusal("function f { a; }"), Reason::FunctionDefinition);
+    assert_eq!(refusal("coproc a"), Reason::Coproc);
+    // `!` is grammar at a pipeline's head and a syntax error elsewhere, so it
+    // is refused in both places but for different reasons.
+    assert_eq!(refusal("a | ! b"), Reason::MisplacedNegation);
+    assert!(parse("! a").is_ok());
+    // `[[` is a language; `[` is the test builtin and stays a command.
+    assert!(parse("[ -f x ]").is_ok());
 }
