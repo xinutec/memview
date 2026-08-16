@@ -19,7 +19,7 @@
 use super::ast::{
     AndOr, Assignment, Command, CommandKind, Comment, Connector, ForLoop, Glob, Heredoc, Item,
     Link, Parameter, Pipeline, Redirect, RedirectOp, RedirectTarget, Script, Segment, SegmentKind,
-    Simple, Span, Tilde, Timed, WhileLoop, Word,
+    Simple, Span, Substitution, Tilde, Timed, WhileLoop, Word,
 };
 
 /// Where a word is being read, which decides what expands inside it.
@@ -60,9 +60,17 @@ pub enum Reason {
     /// operator on it, which is a small language of its own and a separate
     /// build from naming one.
     ParameterOperator,
-    /// `$(cmd)` or `` `cmd` `` — a whole script, whose value is its output.
-    /// The first construct that needs this parser to recurse into itself.
+    /// `$(cmd)` — a whole script, whose value is its output. The first
+    /// construct that needs this parser to recurse into itself.
     CommandSubstitution,
+    /// `` `cmd` `` — the same meaning, a different build.
+    ///
+    /// ⚠ **Split from `$( )` because bash treats the two differently.** It
+    /// NORMALISES the interior of `$(a|b)`, printing it back as `$(a | b)`, and
+    /// prints `` `a|b` `` verbatim — so the second gate can see inside one and
+    /// not the other. The escaping differs too: a backtick's interior needs
+    /// `\``, `\$` and `\\` resolved before it is a script at all.
+    Backtick,
     /// `$((…))` — arithmetic, which is its own grammar.
     Arithmetic,
     /// `>`, `>>`, `<`, `2>&1`, `&>`, `>|`, `<>`, `{fd}>` — a file or a
@@ -117,7 +125,8 @@ impl Reason {
             Reason::LocaleQuote => "locale quoting ($\"…\")",
             Reason::Parameter => "parameter ($name, ${name})",
             Reason::ParameterOperator => "parameter with an operator (${x:-y}, ${#x})",
-            Reason::CommandSubstitution => "command substitution ($(…), `…`)",
+            Reason::CommandSubstitution => "command substitution ($(…))",
+            Reason::Backtick => "backtick substitution (`…`)",
             Reason::Arithmetic => "arithmetic ($((…)))",
             Reason::Redirection => "redirection (> >> < 2>&1 &>)",
             Reason::HereString => "here-string (<<<)",
@@ -193,6 +202,7 @@ pub fn parse(text: &str) -> Result<Script, Refusal> {
         at: 0,
         pending: Vec::new(),
         bodies: Vec::new(),
+        parens: 0,
     };
     let mut script = parser.script()?;
     let mut bodies = parser.bodies.into_iter();
@@ -220,6 +230,8 @@ struct Parser<'t> {
     pending: Vec<Pending>,
     /// Bodies, in the order they were read, waiting to be matched to openers.
     bodies: Vec<Heredoc>,
+    /// How many `$(` are open. A `)` closes a command list only inside one.
+    parens: usize,
 }
 
 /// A heredoc's opener, held until the line it was written on ends.
@@ -273,6 +285,11 @@ impl<'t> Parser<'t> {
         loop {
             self.skip_blanks();
             if until.iter().any(|word| self.at_keyword(word)) {
+                break;
+            }
+            // Inside a substitution the closing paren ends the list, and the
+            // caller takes it.
+            if self.parens > 0 && self.peek() == Some(b')') {
                 break;
             }
             match self.peek() {
@@ -422,7 +439,7 @@ impl<'t> Parser<'t> {
         matches!(
             self.peek(),
             None | Some(b';') | Some(b'\n') | Some(b'|') | Some(b'&') | Some(b'#')
-        )
+        ) || (self.parens > 0 && self.peek() == Some(b')'))
     }
 
     fn comment(&mut self) -> Comment {
@@ -565,7 +582,8 @@ impl<'t> Parser<'t> {
         self.text.get(self.at..end) == Some(word)
             && matches!(
                 self.bytes.get(end).copied(),
-                None | Some(b' ' | b'\t' | b'\r' | b'\n' | b';' | b'|' | b'&')
+                // `)` closes a substitution, so `done)` ends the keyword too.
+                None | Some(b' ' | b'\t' | b'\r' | b'\n' | b';' | b'|' | b'&' | b')')
             )
     }
 
@@ -576,7 +594,7 @@ impl<'t> Parser<'t> {
         }
         let boundary = matches!(
             self.bytes.get(end).copied(),
-            None | Some(b' ') | Some(b'\t') | Some(b'\r') | Some(b'\n') | Some(b';') | Some(b'|')
+            None | Some(b' ' | b'\t' | b'\r' | b'\n' | b';' | b'|' | b')')
         );
         if boundary {
             self.at = end;
@@ -628,6 +646,7 @@ impl<'t> Parser<'t> {
                 // The pipeline owns a bare `|`; `||`, `&&` and `&` belong to
                 // the list above it. All of them end this command.
                 Some(b'|') | Some(b'&') => break,
+                Some(b')') if self.parens > 0 => break,
                 // `#` opens a comment only where a word would start; inside a
                 // word it is an ordinary character, which is why this is tested
                 // here and not in the word reader.
@@ -1093,12 +1112,16 @@ impl<'t> Parser<'t> {
                     };
                     return self.refuse(reason, 1);
                 }
+                // Inside a substitution a `)` closes it rather than opening a
+                // group, so it ends the word instead of being refused.
+                b')' if self.parens > 0 => break,
                 b'(' | b')' | b'{' | b'}' => return self.refuse(Reason::Grouping, 1),
                 // ⚠ A `$` that opens nothing is an ordinary character, and
                 // bash agrees: `echo $`, `echo a$` and `echo $.` all parse and
                 // print back unchanged.
                 b'$' | b'`' => match classify_expansion(self.bytes, self.at, false) {
                     Some(Reason::Parameter) => segments.push(self.parameter(false)?),
+                    Some(Reason::CommandSubstitution) => segments.push(self.substitution(false)?),
                     Some(reason) => return self.refuse(reason, 1),
                     None => {
                         self.at += 1;
@@ -1294,6 +1317,11 @@ impl<'t> Parser<'t> {
                         segments.push(self.parameter(true)?);
                         from = self.at;
                     }
+                    Some(Reason::CommandSubstitution) => {
+                        flush!();
+                        segments.push(self.substitution(true)?);
+                        from = self.at;
+                    }
                     Some(reason) => return self.refuse(reason, 1),
                     None => {
                         text.push('$');
@@ -1340,6 +1368,36 @@ impl<'t> Parser<'t> {
             });
         }
         Ok(segments)
+    }
+
+    /// `$(cmd)` — a whole script, read by the reader that reads a whole script.
+    ///
+    /// ⚠ **A heredoc inside one is refused.** Its body would have to sit on the
+    /// lines after the opener, and the printer writes a substitution inline —
+    /// there is nowhere on that line for the body to go. The construct is named
+    /// as unread rather than guessed at.
+    fn substitution(&mut self, quoted: bool) -> Result<Segment, Refusal> {
+        let start = self.at;
+        self.at += 2; // `$(`
+        let bodies_before = self.bodies.len();
+        self.parens += 1;
+        let items = self.items(&[]);
+        self.parens -= 1;
+        let items = items?;
+        if self.peek() != Some(b')') {
+            return self.refuse(Reason::UnterminatedExpansion, 1);
+        }
+        self.at += 1;
+        if self.bodies.len() != bodies_before {
+            return self.refuse(Reason::CommandSubstitution, 1);
+        }
+        if items.iter().any(|item| matches!(item, Item::Comment(_))) {
+            return self.refuse(Reason::CommentInList, 1);
+        }
+        Ok(Segment {
+            kind: SegmentKind::Substitution(Substitution { items, quoted }),
+            span: Span::new(start, self.at),
+        })
     }
 
     /// `$name`, `${name}`, `$1`, `$@` — with the braces resolved away.
@@ -1462,7 +1520,7 @@ impl<'t> Parser<'t> {
 /// question has one answer, so it has one implementation.
 pub fn classify_expansion(bytes: &[u8], at: usize, in_double_quotes: bool) -> Option<Reason> {
     if bytes.get(at) == Some(&b'`') {
-        return Some(Reason::CommandSubstitution);
+        return Some(Reason::Backtick);
     }
     if bytes.get(at) != Some(&b'$') {
         return None;

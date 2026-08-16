@@ -408,6 +408,26 @@ pub enum SegmentKind {
     Tilde(Tilde),
     /// `$name`, `${name}`, `$1`, `$@` — a parameter's value.
     Parameter(Parameter),
+    /// `$(cmd)` — the output of a whole script.
+    Substitution(Substitution),
+}
+
+/// `$(cmd)`, whose value is what the commands inside it print.
+///
+/// ⚠ **The interior is a script, and the second gate checks it.** Bash
+/// normalises what is inside — `$(a|b)` comes back as `$(a | b)` and
+/// `$(ls |& cat)` as `$(ls 2>&1 | cat)` — so unlike a word, this is a real parse
+/// on both sides of the comparison and a misparse in here would be caught.
+///
+/// Backticks are a different node and are not modelled: bash prints their
+/// interior verbatim, and their escaping rules differ. Measured at 18 commands
+/// against 6,397 for this form.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Substitution {
+    pub items: Vec<Item>,
+    /// ⚠ Semantic, exactly as it is on a [`Parameter`]: an unquoted
+    /// substitution is split into words and globbed, a quoted one is one word.
+    pub quoted: bool,
 }
 
 /// A parameter, named and nothing more.
@@ -467,7 +487,10 @@ impl Word {
                 // A glob names a set, a tilde names a directory nobody has told
                 // us, and a parameter names a value nobody has told us either;
                 // asking for "the" text of any of them is a category error.
-                SegmentKind::Glob(_) | SegmentKind::Tilde(_) | SegmentKind::Parameter(_) => {
+                SegmentKind::Glob(_)
+                | SegmentKind::Tilde(_)
+                | SegmentKind::Parameter(_)
+                | SegmentKind::Substitution(_) => {
                     return None;
                 }
             }

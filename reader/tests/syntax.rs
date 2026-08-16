@@ -158,7 +158,7 @@ fn an_assignment_prefix_is_grammar_and_an_argument_is_not() {
 #[test]
 fn every_construct_the_tree_does_not_model_is_named() {
     assert_eq!(refusal("(cd x)"), Reason::Grouping);
-    assert_eq!(refusal("echo `ls`"), Reason::CommandSubstitution);
+    assert_eq!(refusal("echo `ls`"), Reason::Backtick);
     // Bash agrees this one is unterminated: an apostrophe opens a quote.
     assert_eq!(refusal("echo it's"), Reason::UnterminatedQuote);
     assert_eq!(refusal("ls 'unclosed"), Reason::UnterminatedQuote);
@@ -241,7 +241,7 @@ fn the_survey_returns_every_blocking_construct_not_the_first() {
     assert_eq!(refusal("ls a[0-9]b | grep `y`"), Reason::BracketExpression);
     assert_eq!(
         survey("ls a[0-9]b | grep `y`"),
-        BTreeSet::from([Reason::BracketExpression, Reason::CommandSubstitution])
+        BTreeSet::from([Reason::BracketExpression, Reason::Backtick])
     );
 }
 
@@ -262,14 +262,12 @@ fn an_argument_is_not_a_command_name() {
 
 #[test]
 fn the_survey_looks_past_what_it_cannot_own() {
-    // A substitution's interior belongs to the layer that gets one, and a
-    // heredoc body is data — the first is reported as itself and not descended,
-    // and the second is not a finding at all now that it is modelled.
-    assert_eq!(
-        survey("echo $(git log | head)"),
-        BTreeSet::from([Reason::CommandSubstitution])
-    );
+    // A heredoc body is data, and a substitution's interior is a script the
+    // parser reads — neither is a finding. What the survey still reports from
+    // inside a substitution is only what the parser refuses there.
+    assert!(survey("echo $(git log | head)").is_empty());
     assert!(survey("cat <<EOF\na | b && c\nEOF").is_empty());
+    assert!(survey("echo `git log`").contains(&Reason::Backtick));
 }
 
 #[test]
@@ -890,8 +888,7 @@ fn each_dollar_form_is_named_apart() {
     assert_eq!(refusal("echo ${x:-y}"), Reason::ParameterOperator);
     assert_eq!(refusal("echo ${#x}"), Reason::ParameterOperator);
     assert_eq!(refusal("echo ${x%%.*}"), Reason::ParameterOperator);
-    assert_eq!(refusal("echo $(date)"), Reason::CommandSubstitution);
-    assert_eq!(refusal("echo `date`"), Reason::CommandSubstitution);
+    assert_eq!(refusal("echo `date`"), Reason::Backtick);
     assert_eq!(refusal("echo $((1+2))"), Reason::Arithmetic);
     assert_eq!(refusal("echo $'\\x41'"), Reason::AnsiQuote);
     assert_eq!(refusal("echo $\"hello\""), Reason::LocaleQuote);
@@ -1385,6 +1382,110 @@ fn the_law_holds_across_the_loop_shapes() {
         "for f in a; do cat <<EOF\nx\nEOF\ndone",
         "cd x && for f in a; do b; done",
         "for f in a; do FOO=1 b; done",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+        assert!(
+            survey(text).is_empty(),
+            "{text:?} should need nothing: {:?}",
+            survey(text)
+        );
+    }
+}
+
+// ---- command substitution ----
+
+fn substitution(text: &str) -> reader::syntax::ast::Substitution {
+    match &segments(text, 1)[..] {
+        [
+            Segment {
+                kind: SegmentKind::Substitution(s),
+                ..
+            },
+        ] => s.clone(),
+        other => panic!("{text:?} is not one substitution: {other:?}"),
+    }
+}
+
+#[test]
+fn a_substitution_holds_a_script_the_gates_can_see_into() {
+    // ⚠ Unlike a word, bash NORMALISES what is inside: `$(a|b)` comes back as
+    // `$(a | b)` and `$(ls |& cat)` as `$(ls 2>&1 | cat)`. So the interior is a
+    // real parse on both sides of the second gate, and a misparse in there
+    // would be caught rather than printed straight back.
+    let inner = substitution("echo $(a | b)");
+    assert_eq!(inner.items.len(), 1);
+    assert!(!inner.quoted);
+    // Layout inside collapses exactly as it does outside.
+    assert_eq!(
+        substitution("echo $(a|b)"),
+        substitution("echo $(a   |   b)")
+    );
+    assert_eq!(substitution("echo $(a; b)").items.len(), 2);
+}
+
+#[test]
+fn quoting_a_substitution_is_semantic() {
+    assert!(substitution(r#"echo "$(a)""#).quoted);
+    assert!(!substitution("echo $(a)").quoted);
+    assert_ne!(words("echo $(a)"), words(r#"echo "$(a)""#));
+}
+
+#[test]
+fn a_substitution_nests_and_sits_inside_a_word() {
+    assert!(check("echo $(a $(b))").holds());
+    assert_eq!(segments("echo x$(a)y", 1).len(), 3);
+    // ...and reaches the places a word can reach.
+    assert!(check("FOO=$(a) cmd").holds());
+    assert!(check("$(a) arg").holds());
+    assert!(check("for f in $(ls); do b; done").holds());
+}
+
+#[test]
+fn a_backtick_is_a_different_build_and_stays_refused() {
+    // ⚠ Bash prints a backtick's interior VERBATIM — `` `a|b` `` stays as
+    // written — where it normalises `$( )`. Different rendering, different
+    // escaping, and 18 corpus commands against 6397.
+    assert_eq!(refusal("echo `a|b`"), Reason::Backtick);
+    assert!(survey("echo `a|b`").contains(&Reason::Backtick));
+}
+
+#[test]
+fn what_a_substitution_cannot_carry_is_named() {
+    // A heredoc's body would have to sit on the lines after the opener, and a
+    // substitution prints inline — there is nowhere for it to go.
+    assert_eq!(
+        refusal("echo $(cat <<EOF\nx\nEOF\n)"),
+        Reason::CommandSubstitution
+    );
+    assert!(survey("echo $(cat <<EOF\nx\nEOF\n)").contains(&Reason::CommandSubstitution));
+    // A comment would swallow the rest of the inline form.
+    assert_eq!(refusal("echo $(a # note\n)"), Reason::CommentInList);
+    // An unclosed one is a syntax error to bash too.
+    assert_eq!(refusal("echo $(a"), Reason::UnterminatedExpansion);
+}
+
+#[test]
+fn the_law_holds_across_the_substitution_shapes() {
+    for text in [
+        "echo $(a)",
+        r#"echo "$(a)""#,
+        "echo $(a | b)",
+        "echo $(a; b)",
+        "echo $(a && b)",
+        "echo x$(a)y",
+        "echo $(a $(b))",
+        "FOO=$(a) cmd",
+        "$(a) arg",
+        "cd $(dirname $0)",
+        "for f in $(ls); do echo $f; done",
+        "echo $(for f in a; do b; done)",
+        r#"echo "$(a)$(b)""#,
+        "echo $(a > out)",
+        "echo $(cat f | wc -l) lines",
     ] {
         assert!(
             check(text).holds(),

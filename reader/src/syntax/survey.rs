@@ -33,11 +33,23 @@ use std::collections::BTreeSet;
 use super::parse::{Reason, classify_expansion, opens_assignment, reserved_word};
 
 pub fn survey(text: &str) -> BTreeSet<Reason> {
+    scan(text).found
+}
+
+/// The whole scanner state after a run, not just the set it found.
+///
+/// ⚠ **A substitution needs more than the set.** Its interior is a script the
+/// parser reads, so every construct in there is reported by descending — but the
+/// parser also refuses a heredoc and a comment *because* they are inside one,
+/// and neither is a finding on its own. Those two facts come back as flags.
+fn scan(text: &str) -> Survey<'_> {
     Survey {
         bytes: text.as_bytes(),
         text,
         at: 0,
         found: BTreeSet::new(),
+        saw_heredoc: false,
+        saw_comment: false,
     }
     .run()
 }
@@ -47,6 +59,12 @@ struct Survey<'t> {
     text: &'t str,
     at: usize,
     found: BTreeSet<Reason>,
+    /// Did a heredoc open in this text? The parser refuses one inside a
+    /// substitution, and nothing else can tell the caller that happened.
+    saw_heredoc: bool,
+    /// Did a comment appear? Refused inside a substitution for the same reason
+    /// a comment in a loop body is: the printer writes both inline.
+    saw_comment: bool,
 }
 
 impl Survey<'_> {
@@ -58,7 +76,7 @@ impl Survey<'_> {
         self.bytes.get(self.at + ahead).copied()
     }
 
-    fn run(mut self) -> BTreeSet<Reason> {
+    fn run(mut self) -> Self {
         // Heredocs opened on this line, skipped once the line ends: the
         // delimiter, and whether `<<-` lets a terminator be tab-indented.
         let mut heredocs: Vec<(String, bool)> = Vec::new();
@@ -256,6 +274,7 @@ impl Survey<'_> {
                     self.at += 1;
                 }
                 b'#' if !in_word => {
+                    self.saw_comment = true;
                     if loop_header || loop_depth > 0 {
                         self.found.insert(Reason::CommentInList);
                     }
@@ -321,6 +340,7 @@ impl Survey<'_> {
                         self.found.insert(Reason::HereString);
                         self.at += 3;
                     } else if byte == b'<' && self.peek_at(1) == Some(b'<') {
+                        self.saw_heredoc = true;
                         // Modelled now, so the heredoc itself is not a finding —
                         // only the delimiter has to be tracked, so the body can
                         // be stepped over rather than scanned as shell.
@@ -356,6 +376,13 @@ impl Survey<'_> {
                         Some(Reason::Parameter) => {
                             word.push('$');
                             self.skip_expansion();
+                        }
+                        // Modelled now. What is inside still has to be looked
+                        // at, because the parser reads it — the two shapes it
+                        // refuses in there are a heredoc and a comment.
+                        Some(Reason::CommandSubstitution) => {
+                            word.push('$');
+                            self.substitution();
                         }
                         Some(reason) => {
                             self.found.insert(reason);
@@ -455,7 +482,7 @@ impl Survey<'_> {
                 word_quoted,
             );
         }
-        self.found
+        self
     }
 
     /// Step over the blanks and newlines a list connector allows after it, and
@@ -583,6 +610,40 @@ impl Survey<'_> {
     }
 
     /// `$name`, `${…}`, `$(…)`, `$((…))` or a backtick run.
+    /// Step over `$( … )`, reporting the two shapes the parser refuses inside
+    /// one.
+    ///
+    /// ⚠ **Not descended into, still.** The substitution is modelled, but the
+    /// survey's job is which constructs a command NEEDS, and scanning the
+    /// interior as an independent command would double-count everything in it.
+    /// What it does look for is the pair the parser will refuse: a heredoc,
+    /// whose body has nowhere to go in an inline print, and a comment, which
+    /// would swallow the rest of the line.
+    fn substitution(&mut self) {
+        self.at += 1;
+        let open = self.at;
+        self.skip_balanced(b'(', b')');
+        // The text between the parens, which is a script in its own right.
+        let interior = self
+            .text
+            .get(open + 1..self.at.saturating_sub(1))
+            .unwrap_or_default();
+        // ⚠ **Descended into, now that it is modelled.** A construct inside a
+        // substitution is one the parser will meet and refuse — a backtick in
+        // there is still a backtick — so looking past it would miss exactly the
+        // refusals this invariant exists to catch. Guessing from the raw text
+        // instead reported a comment for every `#` in a path or a flag: 326
+        // commands the parser reads perfectly well.
+        let inner = scan(interior);
+        self.found.extend(inner.found);
+        if inner.saw_heredoc {
+            self.found.insert(Reason::CommandSubstitution);
+        }
+        if inner.saw_comment {
+            self.found.insert(Reason::CommentInList);
+        }
+    }
+
     fn skip_expansion(&mut self) {
         match (self.peek(), self.peek_at(1)) {
             (Some(b'`'), _) => {
@@ -670,6 +731,7 @@ impl Survey<'_> {
                 b'\\' => self.at += 2,
                 b'$' | b'`' => match classify_expansion(self.bytes, self.at, true) {
                     Some(Reason::Parameter) => self.skip_expansion(),
+                    Some(Reason::CommandSubstitution) => self.substitution(),
                     Some(reason) => {
                         self.found.insert(reason);
                         self.skip_expansion();

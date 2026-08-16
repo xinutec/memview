@@ -400,6 +400,18 @@ fn print_segment(segment: &Segment) -> String {
         // Reached only where there is nothing after it to run into; `print_word`
         // handles the general case.
         SegmentKind::Parameter(parameter) => print_parameter(parameter, None),
+        SegmentKind::Substitution(substitution) => {
+            // ⚠ A substitution's own heredocs are refused by the parser, so
+            // nothing can reach this vector — and if that ever changed, the body
+            // would have to go somewhere this inline form has no room for.
+            let mut inner = Vec::new();
+            let text = format!("$({})", print_body(&substitution.items, &mut inner));
+            if substitution.quoted {
+                format!("\"{text}\"")
+            } else {
+                text
+            }
+        }
     }
 }
 
