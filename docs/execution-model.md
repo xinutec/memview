@@ -3,8 +3,8 @@
 Design for the syntax layer under `reader/`: a faithful tree for every language
 the fleet executes, plus a printer that puts it back.
 
-**Status: specified, not built.** Figures are omitted throughout — every rate is
-one `cargo run` away and moves on its own.
+**Status: specified, not built.** No coverage rate is recorded here: each is one
+`cargo run` away and moves on its own. Figures that size a decision stay.
 
 ## Purpose
 
@@ -15,11 +15,12 @@ Two questions per command, neither well answered today:
 
 Diffing the two is the point.
 
-The existing reader answers a weak form of the second. Its semantics hold and
-stay. It has no tree: output is a flat command list with structure projected
-away. So nothing above it can render a command back, compare two commands for
-equivalence, or hold an embedded language as a node rather than a substring
-re-parsed from the outer text.
+The existing reader answers a weak form of the second, and what it *knows* is
+worth carrying over — see Placement for what that means about its code. It has no
+tree: output is a flat command list with structure projected away. So nothing
+above it can render a command back, compare two commands for equivalence, or hold
+an embedded language as a node rather than a substring re-parsed from the outer
+text.
 
 ## The round-trip law
 
@@ -48,8 +49,8 @@ vacuous.
 unimplemented `${x:-y}` as a literal parses, prints faithfully, and re-parses to
 the identical wrong tree; (1) and (2) both hold, and the corpus does not object
 because the command parses. Hence a second gate, required from the first
-construct: a subset parser is exactly where unimplemented constructs get absorbed
-into literals, and adding the gate later means re-auditing everything validated
+construct: a subset parser is where unimplemented constructs get absorbed into
+literals, and adding the gate later means re-auditing everything validated
 without it.
 
 ## Second gate: an independent parse oracle
@@ -79,24 +80,28 @@ A word is a sequence of typed segments; quoting is derived at print time.
 - `'$x'` is a literal, not an expansion.
 
 So `t₂` is a canonical form: two textually different commands that mean the same
-thing compare equal.
+thing compare equal. **Non-destructive means the tree retains everything except
+layout and quoting style.**
 
 ⚠ **The collapse rule stops at reserved words, where quoting is semantic.**
 `time ./x.sh` runs bash's keyword; `'time' ./x.sh` runs `/usr/bin/time`, a
 different program with different output. Same for `!`. So a reserved word is not
 a word, the tree must record which it is, and the printer must never quote one.
-`declare -f` catches this — it preserves the quotes for exactly this reason.
+`declare -f` catches this, because it preserves the quotes for the same reason.
 
-**Grammar is not elevation, and `time` is the case that shows the line.**
-`type -t time` says `keyword`: the pipeline is `[!] [time [-p]] cmd [| cmd …]`,
-so `time` and `!` are pipeline prefixes and belong in the tree — as fields on the
-pipeline node, not as wrapper nodes. Scope is why: `time a | b` times the whole
-pipeline, while `nohup a | b` applies to `a` alone, and `time` at `argv[0]`
-cannot express the difference. `timeout`, `nohup`, `env`, `nice` and `sudo` are
-ordinary commands taking a command as an operand, and stay in elevation.
+### Grammar, not elevation
 
-**Non-destructive means the tree retains everything except layout and quoting
-style.**
+Two kinds of wrapping, and they belong at different layers.
+
+| | examples | where |
+| --- | --- | --- |
+| shell grammar | `time`, `time -p`, `!`, `FOO=bar cmd` | the tree — fields on the pipeline or the simple command |
+| commands taking a command | `timeout`, `nohup`, `env`, `nice`, `sudo`, `bash -c` | elevation |
+
+`type -t time` says `keyword`, and the pipeline is `[!] [time [-p]] cmd [| cmd …]`.
+**Scope is what forces it into the tree:** `time a | b` times the whole pipeline,
+while `nohup a | b` applies to `a` alone, and `time` at `argv[0]` cannot express
+the difference.
 
 ## No escape hatches
 

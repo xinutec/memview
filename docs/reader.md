@@ -103,9 +103,12 @@ itself, so even a glob loop runs its body once. The rule is bash's.
 
 ## Method
 
-1. **Rebuild the corpus first.** A coverage claim against a stale one is
-   worthless. See the corpus discipline in
-   [execution-model.md](execution-model.md) — it now shrinks as well as grows.
+1. **Pick the right corpus, and say which.** `~/.claude/corpus/union.jsonl` is
+   the fixed denominator — comparisons across a change are only meaningful
+   against it, because the live transcripts *shrink* and a rate rises when
+   commands leave. Rebuild from transcripts when the question is about what is
+   current. See the corpus discipline in
+   [execution-model.md](execution-model.md).
 2. Change the table or the grammar.
 3. Re-run the report. The number that matters is the one that *moved*; the
    failure list is the next thing to build.
@@ -131,8 +134,11 @@ Mining is offline; `scripts/sync.sh` pushes the artefacts to the pod.
 ```sh
 cargo run --release --bin agents        # → ~/.claude/agents.json + doing.json
 cargo run --release --bin couse         # → ~/.claude/couse.json
-cargo run --release --bin bash-corpus > /tmp/bash-corpus.jsonl
+cargo run --release --bin bash-corpus > /tmp/bash-corpus.jsonl   # what is current
 ```
+
+The reports take any corpus file, so `~/.claude/corpus/union.jsonl` is the one to
+pass when a figure has to be comparable with an earlier one.
 
 ⚠ Reports need `-p reader`; a plain `--bin` from the workspace root fails with
 *no bin target in default-run packages*.

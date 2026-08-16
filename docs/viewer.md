@@ -153,10 +153,9 @@ them that way found two real bugs in the link graph.
 nix run ../dev-lint#gate -- . gate.json   # what the pre-commit hook runs
 ```
 
-`gate.dhall` is the source; named checks (cargo fmt/clippy/test, eslint, e2e
-typecheck, vitest, both builds, both layout harnesses, the graph-layout report,
-`memory-lint`, shared dev-lint rules), each reported by name rather than as one
-`&&` chain. `gate.json` is rendered from it and committed so the gate needs no
+`gate.dhall` is the source and the list of checks; read it there rather than from
+a copy here. Each is reported by name rather than as one `&&` chain, so a failure
+says which. `gate.json` is rendered from it and committed so the gate needs no
 `dhall`; one check re-renders and diffs the two.
 
 ⚠ Slow enough to need a backgrounded run, not a foreground default timeout.
