@@ -97,11 +97,26 @@ is the one text bash has to see.**
 
 ⚠ **It executes.** A balanced payload defeats the wrapper —
 `echo a; }; touch X; { echo b` closes the function, runs, and reopens a group for
-the trailing brace. What keeps such text out today is that the gate runs only on
-*accepted* commands and the accepted language refuses `(`, `)`, `{` and `}`.
-**That argument lapses the moment grouping is accepted, and then this needs
-`sandbox-exec`** denying process execution and writes outside a scratch
-directory.
+the trailing brace. The old argument for why that was harmless — the gate runs
+only on *accepted* commands, and the accepted language refuses `(`, `)`, `{` and
+`}` — was due to lapse the moment grouping was accepted, so it has been replaced
+rather than extended.
+
+**Gate 2's bash now runs under `sandbox-exec`.** Three denials, each measured
+against that payload: `process-fork` (a child of any kind — `touch X`, `$( )`, a
+pipe; `declare -f` needs none), `file-write*` (the redirection forms, which need
+no child), and `network*` (bash opens a socket with `exec 3<>/dev/tcp/…` on its
+own). Denying `process-exec*` instead stops `sandbox-exec` launching bash at all.
+
+**Where there is no sandbox — a Linux CI runner — the old guarantee is applied
+explicitly instead of assumed:** text containing a grouping character is not
+shown to bash, and is reported as skipped rather than counted as agreement. The
+containment argument is now a check rather than a property of the language that
+could quietly expire.
+
+`bash-oracle/tests/oracle.rs` asserts both arms, because a sandbox that silently
+does nothing looks exactly like one that works: the payload must still escape a
+bare `eval`, and must not escape the gate.
 
 Distinct from `reader/tests/oracle.rs`, which shims `PATH` and diffs predictions
 against real execution. That covers expansion, globbing and `cd`, and cannot

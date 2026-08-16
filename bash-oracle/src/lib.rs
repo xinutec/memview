@@ -16,10 +16,11 @@
 //!
 //! ⚠ **The wrapper is not containment.** A balanced payload closes the function,
 //! runs, and reopens a group for the trailing brace — measured, not reasoned
-//! about. What keeps such text out is that this runs **only on commands the
-//! parser accepted**, and the accepted language refuses `(`, `)`, `{` and `}`.
-//! **That lapses the moment grouping is accepted, and then this needs
-//! `sandbox-exec` around it.**
+//! about. It used to be harmless only because the accepted language refused
+//! `(`, `)`, `{` and `}`, which is an argument that expires the moment grouping
+//! is built. The bash that renders now runs under [`SANDBOX_PROFILE`], and where
+//! there is no sandbox [`renderable`] applies the old guarantee explicitly
+//! rather than assuming it still holds.
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -56,6 +57,9 @@ pub enum Verdict {
     Unreadable(Refusal),
     /// Two different trees, which is the finding this gate exists for.
     Differs { ours: String, bash: String },
+    /// Not shown to bash at all, because this machine has no sandbox and the
+    /// text could break out of the wrapper. See [`renderable`].
+    NotSandboxed,
 }
 
 impl Verdict {
@@ -69,8 +73,57 @@ impl Verdict {
             Verdict::BashRefused => "bash refused our print",
             Verdict::Unreadable(_) => "bash's print does not read back",
             Verdict::Differs { .. } => "DIFFERENT TREE",
+            Verdict::NotSandboxed => "not shown to bash (no sandbox here)",
         }
     }
+}
+
+/// The profile gate 2's bash runs under.
+///
+/// ⚠ **The wrapper does not contain the command, and never did.** `eval` parses
+/// its whole argument before running any of it, so a balanced payload —
+/// `echo a; }; touch X; { echo b` — closes the function, runs, and reopens a
+/// group for the trailing brace. `reader/probes/bash-printer.sh` demonstrates it
+/// rather than arguing it.
+///
+/// Three denials, each measured against that payload:
+///
+/// - **`process-fork`** stops anything with a child: `touch X`, `$(…)`, a pipe.
+///   `declare -f` needs none, so the gate is unaffected. Denying `process-exec*`
+///   instead would stop `sandbox-exec` launching bash at all.
+/// - **`file-write*`** stops the redirection forms, which need no child:
+///   `: > X` is refused with "Operation not permitted".
+/// - **`network*`** stops the one exfiltration route that needs no child either
+///   — bash opens a socket with `exec 3<>/dev/tcp/host/port` on its own.
+///
+/// What a payload can still do is print, which is why blocks are located by the
+/// index bash names rather than by position in the stream.
+const SANDBOX_PROFILE: &str = concat!(
+    "(version 1)(allow default)",
+    "(deny process-fork)(deny network*)(deny file-write*)",
+    r#"(allow file-write-data (literal "/dev/null") (literal "/dev/stdout") (literal "/dev/stderr"))"#
+);
+
+/// Is this machine able to run gate 2 safely?
+fn sandbox_available() -> bool {
+    cfg!(target_os = "macos") && std::path::Path::new(SANDBOX).exists()
+}
+
+const SANDBOX: &str = "/usr/bin/sandbox-exec";
+
+/// May this text be shown to bash?
+///
+/// ⚠ **The containment argument, made explicit and enforced.** It used to hold
+/// implicitly: the gate ran only on accepted commands, and the accepted language
+/// refused `(`, `)`, `{` and `}`, so nothing could close the wrapper. Building
+/// grouping dissolves that argument, so the check moved here — where a machine
+/// with no sandbox falls back to exactly the old guarantee instead of inheriting
+/// a safety property that has quietly expired.
+///
+/// The cost is that a Linux CI runner skips the grouping commands rather than
+/// running them unprotected, and says how many it skipped.
+pub fn renderable(text: &str) -> bool {
+    sandbox_available() || !text.contains(['(', ')', '{', '}'])
 }
 
 /// Ask bash to re-read each command and compare its parse with ours.
@@ -81,7 +134,19 @@ impl Verdict {
 pub fn compare(commands: &[String]) -> Result<Vec<Verdict>> {
     let mut verdicts = Vec::with_capacity(commands.len());
     for chunk in commands.chunks(BATCH) {
-        let printed: Vec<String> = chunk.to_vec();
+        // ⚠ Text that could close the wrapper is replaced by a harmless
+        // placeholder rather than dropped, so every later block keeps the index
+        // bash will name it by. Its verdict is filled in below.
+        let printed: Vec<String> = chunk
+            .iter()
+            .map(|text| {
+                if renderable(text) {
+                    text.clone()
+                } else {
+                    ":".to_string()
+                }
+            })
+            .collect();
         // Bash aborts a script at the first syntax error, so one command it
         // will not define costs every later block in the batch. Those come back
         // as `None` — addressed, not shifted — and are retried alone.
@@ -94,7 +159,11 @@ pub fn compare(commands: &[String]) -> Result<Vec<Verdict>> {
             }
         }
         for (command, block) in chunk.iter().zip(rendered) {
-            verdicts.push(judge(command, block.as_deref()));
+            verdicts.push(if renderable(command) {
+                judge(command, block.as_deref())
+            } else {
+                Verdict::NotSandboxed
+            });
         }
     }
     Ok(verdicts)
@@ -199,14 +268,15 @@ fn render(printed: &[String]) -> Result<Vec<Option<String>>> {
     // rather than failing. A file has no such coupling and costs one write.
     let script = Scratch::write(driver.as_bytes())?;
 
-    let bash = std::env::var("SYNTAX_ORACLE_BASH").unwrap_or_else(|_| "bash".to_string());
-    let output = Command::new(&bash)
-        .arg(&script.path)
+    // ⚠ **This is the one call that RUNS corpus text**, so it is the one that
+    // has to be contained. See [`SANDBOX_PROFILE`]; `bash -n` elsewhere in this
+    // file executes nothing and needs none of it.
+    let output = sandboxed(&script.path)?
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .output()
-        .with_context(|| format!("spawning {bash}"))?;
+        .context("spawning bash to render a batch")?;
 
     // ⚠ **Blocks are placed by the INDEX bash prints, never by position.**
     // The stream was read in order once, and a single command whose definition
@@ -330,6 +400,28 @@ fn bash_parse(command: &str) -> Result<(bool, String)> {
         output.status.success(),
         String::from_utf8_lossy(&output.stderr).into_owned(),
     ))
+}
+
+/// The command that runs `script` under the sandbox, where there is one.
+///
+/// ⚠ **Not a fallback to "run it anyway".** Where no sandbox exists, this still
+/// runs bash — but [`renderable`] has already replaced every text that could
+/// escape the wrapper, so what reaches an unsandboxed bash is only what the old
+/// containment argument already covered.
+fn sandboxed(script: &std::path::Path) -> Result<Command> {
+    let bash = std::env::var("SYNTAX_ORACLE_BASH").unwrap_or_else(|_| "bash".to_string());
+    if !sandbox_available() {
+        let mut command = Command::new(&bash);
+        command.arg(script);
+        return Ok(command);
+    }
+    let mut command = Command::new(SANDBOX);
+    command
+        .arg("-p")
+        .arg(SANDBOX_PROFILE)
+        .arg(&bash)
+        .arg(script);
+    Ok(command)
 }
 
 /// A driver file that removes itself.

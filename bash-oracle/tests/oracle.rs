@@ -178,3 +178,59 @@ fn one_bad_print_in_a_batch_does_not_condemn_its_neighbours() {
     assert!(matches!(verdicts[1], bash_oracle::Validity::Refused(_)));
     assert_eq!(verdicts[2], bash_oracle::Validity::Parses);
 }
+
+// ---- containment ----
+
+#[test]
+fn the_wrapper_does_not_contain_a_balanced_payload_but_the_sandbox_does() {
+    // ⚠ **Both arms, because a sandbox that silently does nothing looks exactly
+    // like one that works.** The first `eval` here is what `render` does, and it
+    // demonstrates the escape: the payload closes the function, runs, and
+    // reopens a group for the trailing brace. The second is the same text
+    // through the gate, which must NOT write the file.
+    //
+    // This is the argument `docs/execution-model.md` says lapses the moment
+    // grouping is accepted — so it is asserted rather than reasoned about.
+    let scratch = std::env::temp_dir().join(format!("oracle-escape-{}", std::process::id()));
+    let _ = std::fs::remove_file(&scratch);
+    let payload = format!("echo a; }}; : > '{}'; {{ echo b", scratch.display());
+
+    // Sanity: unsandboxed, this escapes. Run through bash directly so the test
+    // fails loudly if the payload ever stops being an escape and the arm below
+    // becomes vacuous.
+    let driver = format!("__e__() {{\n{payload}\n}}\n");
+    let file = std::env::temp_dir().join(format!("oracle-escape-driver-{}.sh", std::process::id()));
+    std::fs::write(&file, &driver).expect("write driver");
+    let bash = std::env::var("SYNTAX_ORACLE_BASH").unwrap_or_else(|_| "bash".to_string());
+    std::process::Command::new(&bash)
+        .arg(&file)
+        .output()
+        .expect("run bash");
+    let escaped_unsandboxed = scratch.exists();
+    let _ = std::fs::remove_file(&scratch);
+    let _ = std::fs::remove_file(&file);
+    assert!(
+        escaped_unsandboxed,
+        "the payload no longer escapes, so the arm below proves nothing"
+    );
+
+    // The gate itself. On a machine with no sandbox this text is not shown to
+    // bash at all, which is the other way of being safe.
+    let _ = compare(&[payload]).expect("the gate runs");
+    assert!(
+        !scratch.exists(),
+        "a balanced payload wrote through the gate — containment is broken"
+    );
+    let _ = std::fs::remove_file(&scratch);
+}
+
+#[test]
+fn a_command_that_cannot_be_contained_is_reported_rather_than_run() {
+    // Where there is no sandbox, grouping text is skipped by name instead of
+    // being run unprotected — and says so, rather than counting as agreement.
+    if bash_oracle::renderable("( echo a )") {
+        return; // sandboxed here: nothing is skipped, which the arm above covers
+    }
+    let verdicts = compare(&["( echo a )".to_string()]).expect("the gate runs");
+    assert_eq!(verdicts[0], Verdict::NotSandboxed);
+}

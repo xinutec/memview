@@ -29,7 +29,11 @@
 # ⚠ **And it executes.** See the last section: the function wrapper holds only
 # because `eval` parses its whole argument before running any of it, and a
 # balanced payload defeats that. The corpus is shell history and carries such
-# text by accident, so the gate runs sandboxed.
+# text by accident, so the gate runs its bash under `sandbox-exec` — the profile
+# and what each denial is for are in `bash-oracle/src/lib.rs`, and both arms of
+# it are asserted in `bash-oracle/tests/oracle.rs`. The section below is the
+# unsandboxed demonstration those arms rest on: if it ever stops escaping, the
+# containment test is proving nothing.
 # Every failing command here is a shape bash REFUSED, and each is caught by an
 # `if !` or a `||` — where `-e` is suspended — so strict mode costs nothing.
 set -euo pipefail
