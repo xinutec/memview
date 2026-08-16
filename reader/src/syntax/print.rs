@@ -12,7 +12,7 @@
 //! usable as an equivalence test.
 
 use super::ast::{
-    Anchor, AndOr, Assignment, Command, CommandKind, Conditional, Connector, ForLoop, Glob,
+    Anchor, AndOr, Assignment, Brace, Command, CommandKind, Conditional, Connector, ForLoop, Glob,
     Heredoc, Item, Parameter, ParameterOp, Pipeline, Redirect, RedirectOp, RedirectTarget, Script,
     Segment, SegmentKind, Simple, Subscript, Tilde, Timed, WhileLoop, Word,
 };
@@ -573,6 +573,20 @@ fn print_segment(segment: &Segment) -> String {
         // Reached only where there is nothing after it to run into; `print_word`
         // handles the general case.
         SegmentKind::Parameter(parameter) => print_parameter(parameter, None),
+        // ⚠ Written bare, always: the braces ARE the construct, and quoting
+        // them would turn several words into one.
+        SegmentKind::Brace(Brace::Alternatives(words)) => format!(
+            "{{{}}}",
+            words
+                .iter()
+                .map(print_operand)
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        SegmentKind::Brace(Brace::Range { from, to, step }) => match step {
+            Some(step) => format!("{{{from}..{to}..{step}}}"),
+            None => format!("{{{from}..{to}}}"),
+        },
         SegmentKind::Substitution(substitution) => {
             // ⚠ A substitution's own heredocs are refused by the parser, so
             // nothing can reach this vector — and if that ever changed, the body

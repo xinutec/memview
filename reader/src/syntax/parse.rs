@@ -23,10 +23,10 @@
 //! at a special character always lands on a character boundary.
 
 use super::ast::{
-    Anchor, AndOr, Assignment, Command, CommandKind, Comment, Conditional, Connector, ForLoop,
-    Function, Glob, Heredoc, Item, Link, Parameter, ParameterOp, Pipeline, Redirect, RedirectOp,
-    RedirectTarget, Replace, Script, Segment, SegmentKind, Simple, Span, Subscript, Substitution,
-    Tilde, Timed, WhileLoop, Word,
+    Anchor, AndOr, Assignment, Brace, Command, CommandKind, Comment, Conditional, Connector,
+    ForLoop, Function, Glob, Heredoc, Item, Link, Parameter, ParameterOp, Pipeline, Redirect,
+    RedirectOp, RedirectTarget, Replace, Script, Segment, SegmentKind, Simple, Span, Subscript,
+    Substitution, Tilde, Timed, WhileLoop, Word,
 };
 
 /// Where a word is being read, which decides what expands inside it.
@@ -1380,7 +1380,17 @@ impl<'t> Parser<'t> {
                 // glob-level construct and a different build from `{ a; }`.
                 // Naming it `Grouping` counted a word construct inside a
                 // compound-statement build and hid it there.
-                b'{' | b'}' => return self.refuse(Reason::BraceExpansion, 1),
+                b'{' => segments.push(self.brace_or_literal()?),
+                // ⚠ A `}` with no expansion open is an ordinary character —
+                // `echo a}b` prints `a}b` — so it joins the word rather than
+                // being refused.
+                b'}' => {
+                    self.at += 1;
+                    segments.push(Segment {
+                        kind: SegmentKind::Literal("}".to_string()),
+                        span: Span::new(at, self.at),
+                    });
+                }
                 b'(' | b')' => return self.refuse(Reason::Grouping, 1),
                 // ⚠ A `$` that opens nothing is an ordinary character, and
                 // bash agrees: `echo $`, `echo a$` and `echo $.` all parse and
@@ -1935,6 +1945,9 @@ impl<'t> Parser<'t> {
                 },
                 b'\'' => segments.push(self.single_quoted()?),
                 b'"' => segments.extend(self.double_quoted()?),
+                // ⚠ Alternatives nest: `{a,{b,c}}` is one expansion holding
+                // another, and the inner one consumes its own `}`.
+                b'{' => segments.push(self.brace_or_literal()?),
                 b'\\' => match self.peek_at(1) {
                     Some(next) => {
                         self.at += 2;
@@ -1975,6 +1988,57 @@ impl<'t> Parser<'t> {
         }
         Ok(Word {
             segments: merge_literals(segments),
+            span: Span::new(start, self.at),
+        })
+    }
+
+    /// `{a,b}` or `{1..9}` — or the literal characters, where neither is what
+    /// this is.
+    ///
+    /// ⚠ **The fallback is not absorption.** `{a}` holds nothing to expand and
+    /// bash prints it back as itself, so a literal `{` is the FAITHFUL reading
+    /// rather than a construct being swallowed — which is why the decision is
+    /// made by [`brace_expansion`] before any character is consumed, and shared
+    /// with the survey so both agree about which braces are which.
+    fn brace_or_literal(&mut self) -> Result<Segment, Refusal> {
+        let start = self.at;
+        let Some(shape) = brace_expansion(self.bytes, self.at) else {
+            self.at += 1;
+            return Ok(Segment {
+                kind: SegmentKind::Literal("{".to_string()),
+                span: Span::new(start, self.at),
+            });
+        };
+        if let BraceShape::Range {
+            end,
+            from,
+            to,
+            step,
+        } = shape
+        {
+            self.at = end;
+            return Ok(Segment {
+                kind: SegmentKind::Brace(Brace::Range { from, to, step }),
+                span: Span::new(start, self.at),
+            });
+        }
+        self.at += 1; // the `{`
+        let mut alternatives = Vec::new();
+        loop {
+            alternatives.push(self.operand(b",}")?);
+            match self.peek() {
+                Some(b',') => self.at += 1,
+                Some(b'}') => {
+                    self.at += 1;
+                    break;
+                }
+                // `brace_expansion` found the closing brace, so the only way to
+                // arrive here is a bug in one of them agreeing with the other.
+                _ => return self.refuse(Reason::BraceExpansion, 1),
+            }
+        }
+        Ok(Segment {
+            kind: SegmentKind::Brace(Brace::Alternatives(alternatives)),
             span: Span::new(start, self.at),
         })
     }
@@ -2062,6 +2126,115 @@ fn one_command(kind: CommandKind, span: Span) -> Item {
     })
 }
 
+/// Does a brace EXPANSION start at `at`, and where does it end?
+///
+/// `None` where the braces hold nothing to expand: `{a}` and `{}` are ordinary
+/// text to bash, so they are ordinary text here — measured, not assumed.
+///
+/// ⚠ **Shared with the survey deliberately**, exactly as [`classify_expansion`]
+/// is. Whether a given `{` opens an expansion has one answer; two
+/// implementations of it would drift, and the drift would look like a parser
+/// bug rather than a disagreement.
+pub fn brace_expansion(bytes: &[u8], at: usize) -> Option<BraceShape> {
+    if bytes.get(at) != Some(&b'{') {
+        return None;
+    }
+    let mut depth = 0usize;
+    let mut comma = false;
+    let mut scan = at;
+    while let Some(&byte) = bytes.get(scan) {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    let interior = &bytes[at + 1..scan];
+                    return if comma {
+                        Some(BraceShape::Alternatives { end: scan + 1 })
+                    } else {
+                        range_parts(interior).map(|(from, to, step)| BraceShape::Range {
+                            end: scan + 1,
+                            from,
+                            to,
+                            step,
+                        })
+                    };
+                }
+            }
+            b',' if depth == 1 => comma = true,
+            // A quote suspends everything: `{a,'b}'}` closes where the quote
+            // says, not where the first `}` is.
+            b'\'' | b'"' => {
+                let quote = byte;
+                scan += 1;
+                while bytes.get(scan).is_some_and(|b| *b != quote) {
+                    scan += 1;
+                }
+                // A quote that never closes: there is no expansion here to find.
+                bytes.get(scan)?;
+            }
+            b'\\' => scan += 1,
+            _ => {}
+        }
+        scan += 1;
+    }
+    None
+}
+
+/// What a `{ … }` in a word turns out to be.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BraceShape {
+    Alternatives {
+        end: usize,
+    },
+    Range {
+        end: usize,
+        from: String,
+        to: String,
+        step: Option<String>,
+    },
+}
+
+impl BraceShape {
+    pub fn end(&self) -> usize {
+        match self {
+            BraceShape::Alternatives { end } | BraceShape::Range { end, .. } => *end,
+        }
+    }
+}
+
+/// `1..9`, `a..e`, `1..9..2` — the pieces, where the interior spells a sequence.
+fn range_parts(interior: &[u8]) -> Option<(String, String, Option<String>)> {
+    let text = std::str::from_utf8(interior).ok()?;
+    let mut parts = text.split("..");
+    let from = parts.next()?.to_string();
+    let to = parts.next()?.to_string();
+    let step = parts.next().map(str::to_string);
+    if parts.next().is_some() || from.is_empty() || to.is_empty() {
+        return None;
+    }
+    // A range runs over digits or over single letters; anything else holding two
+    // dots is text bash leaves alone (`{1.5..3}`).
+    let number = |part: &str| {
+        let digits = part.strip_prefix('-').unwrap_or(part);
+        !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())
+    };
+    let letter =
+        |part: &str| part.len() == 1 && part.starts_with(|c: char| c.is_ascii_alphabetic());
+    if !(number(&from) && number(&to)) && !(letter(&from) && letter(&to)) {
+        return None;
+    }
+    // ⚠ **The step is always a NUMBER, even over letters.** `{a..e..2}` gives
+    // `a c e`, and `{x..y..z}` does not expand at all — measured. A check that
+    // let a letter through there would have built a Range node for text bash
+    // reads literally: a wrong tree that prints and re-reads as itself, and
+    // that bash's verbatim printing puts beyond the second gate's reach.
+    if step.as_deref().is_some_and(|s| !number(s)) {
+        return None;
+    }
+    Some((from, to, step))
+}
+
 /// Which construct does the `$` or backtick at `at` open?
 ///
 /// `None` where it opens nothing: a `$` not followed by something expandable is
@@ -2087,7 +2260,7 @@ pub fn classify_expansion(bytes: &[u8], at: usize, in_double_quotes: bool) -> Op
         // are only reachable from unquoted text.
         Some(b'\'') if !in_double_quotes => Some(Reason::AnsiQuote),
         Some(b'"') if !in_double_quotes => Some(Reason::LocaleQuote),
-        Some(b'{') => Some(brace_expansion(bytes, at + 2)),
+        Some(b'{') => Some(braced_parameter(bytes, at + 2)),
         Some(byte) if byte.is_ascii_alphanumeric() || byte == b'_' => Some(Reason::Parameter),
         // `$@`, `$*`, `$?`, `$$`, `$!`, `$#`, `$-`: the special parameters, each
         // one character and each naming a value the shell already holds.
@@ -2102,7 +2275,7 @@ pub fn classify_expansion(bytes: &[u8], at: usize, in_double_quotes: bool) -> Op
 /// anything else is an operator, and operators are a language rather than a
 /// construct — `${x:-y}` defaults, `${#x}` measures, `${x%%y}` is a rational
 /// transduction that would need an automaton.
-fn brace_expansion(bytes: &[u8], from: usize) -> Reason {
+fn braced_parameter(bytes: &[u8], from: usize) -> Reason {
     // A lone special parameter in braces — `${@}`, `${#}` — is still just a name
     // for a value the shell holds. Checked first, because the loop below stops
     // at the very characters that spell one.

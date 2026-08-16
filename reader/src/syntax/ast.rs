@@ -456,6 +456,36 @@ pub enum SegmentKind {
     Parameter(Parameter),
     /// `$(cmd)` — the output of a whole script.
     Substitution(Substitution),
+    /// `{a,b}`, `{1..9}` — one word that becomes several.
+    Brace(Brace),
+}
+
+/// Brace expansion: the one word-level construct that changes how MANY words
+/// there are.
+///
+/// ⚠ **Not grouping, though it shares the character.** `{ a; }` is a command
+/// list; `a{b,c}d` is a single word that expands to `abd acd`. It sits beside
+/// [`Glob`] rather than beside a compound statement — both name a set the text
+/// does not enumerate.
+///
+/// ⚠ **A brace with nothing to expand is ordinary text.** `{a}` and `{}` come
+/// out of bash as themselves — measured in `reader/probes/brace.sh` — so reading
+/// them as literal characters is what bash does, not an absorption of something
+/// unmodelled. The test is whether a top-level comma or a range is in there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Brace {
+    /// `{a,b,c}` — the alternatives, which nest and may be empty (`{a,}`).
+    Alternatives(Vec<Word>),
+    /// `{1..9}`, `{a..e}`, `{1..9..2}` — a sequence, descending where `from`
+    /// exceeds `to`.
+    ///
+    /// Held as written rather than enumerated: the tree says what the text says,
+    /// and expanding it is the reader's job one layer up.
+    Range {
+        from: String,
+        to: String,
+        step: Option<String>,
+    },
 }
 
 /// `$(cmd)`, whose value is what the commands inside it print.
@@ -625,7 +655,10 @@ impl Word {
                 SegmentKind::Glob(_)
                 | SegmentKind::Tilde(_)
                 | SegmentKind::Parameter(_)
-                | SegmentKind::Substitution(_) => {
+                | SegmentKind::Substitution(_)
+                // A brace expansion names several words, so "the" text of the
+                // word it sits in is a category error twice over.
+                | SegmentKind::Brace(_) => {
                     return None;
                 }
             }

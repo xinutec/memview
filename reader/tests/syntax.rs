@@ -1889,3 +1889,125 @@ fn the_law_holds_across_the_parameter_operator_shapes() {
         );
     }
 }
+
+// ---- brace expansion ----
+
+fn brace_of(text: &str) -> reader::syntax::ast::Brace {
+    match &segments(text, 1)[..] {
+        [
+            Segment {
+                kind: SegmentKind::Brace(b),
+                ..
+            },
+        ] => b.clone(),
+        other => panic!("{text:?} is not one brace expansion: {other:?}"),
+    }
+}
+
+#[test]
+fn a_brace_with_nothing_to_expand_is_ordinary_text() {
+    // ⚠ Measured: `{a}` and `{}` are printed AND expanded by bash as
+    // themselves. So reading them as literal characters is what bash does — not
+    // a construct being absorbed — and the decision is a lookahead made before
+    // anything is consumed.
+    assert_eq!(print(&tree("echo {a}")), "echo '{a}'");
+    assert!(parse("echo {}").is_ok());
+    assert!(check("echo {a}").holds());
+    assert!(survey("echo {a}").is_empty());
+    // A `}` closing nothing is a character too: `echo a}b` prints `a}b`.
+    assert!(check("echo a}b").holds());
+}
+
+#[test]
+fn a_range_is_digits_or_single_letters_and_its_step_is_always_a_number() {
+    use reader::syntax::ast::Brace;
+    assert!(matches!(brace_of("echo {1..9}"), Brace::Range { .. }));
+    assert!(matches!(brace_of("echo {a..e}"), Brace::Range { .. }));
+    assert!(matches!(
+        brace_of("echo {1..9..2}"),
+        Brace::Range { step: Some(_), .. }
+    ));
+    assert!(matches!(brace_of("echo {a..e..2}"), Brace::Range { .. }));
+    assert!(matches!(brace_of("echo {-3..3}"), Brace::Range { .. }));
+    // ⚠ These do NOT expand, so they must not become Range nodes — a wrong tree
+    // here prints and re-reads as itself, and bash prints braces verbatim, so
+    // neither gate could report it.
+    for text in [
+        "echo {x..y..z}",
+        "echo {1..9..x}",
+        "echo {1.5..3}",
+        "echo {a..bc}",
+    ] {
+        assert!(
+            parse(text).is_ok(),
+            "{text:?} should read as literal text, not a range"
+        );
+        assert!(
+            !matches!(
+                &segments(text, 1)[..],
+                [Segment {
+                    kind: SegmentKind::Brace(_),
+                    ..
+                }]
+            ),
+            "{text:?} must not be a brace node"
+        );
+    }
+}
+
+#[test]
+fn alternatives_nest_and_keep_an_empty_one() {
+    use reader::syntax::ast::Brace;
+    let Brace::Alternatives(words) = brace_of("echo {a,b,c}") else {
+        panic!("not alternatives");
+    };
+    assert_eq!(words.len(), 3);
+    // `{a,}` expands to `a` and the empty word, so the empty alternative is
+    // part of what was written and the printer puts it back.
+    assert_eq!(print(&tree("echo {a,}")), "echo {a,}");
+    assert!(parse("echo {a,{b,c}}").is_ok());
+    assert_eq!(print(&tree("echo {a,{b,c}}")), "echo {a,{b,c}}");
+}
+
+#[test]
+fn quoting_a_brace_turns_the_expansion_off() {
+    // `"{a,b}"` is ONE word — the braces are literal — so it is a different
+    // tree from the bare form, which is several words.
+    assert_ne!(tree("echo {a,b}"), tree(r#"echo "{a,b}""#));
+    assert!(check(r#"echo "{a,b}""#).holds());
+}
+
+#[test]
+fn the_law_holds_across_the_brace_shapes() {
+    for text in [
+        "echo {a,b}",
+        "echo a{b,c}d",
+        "echo {1..3}",
+        "echo {1..9..2}",
+        "echo {a..e}",
+        "echo {-3..3}",
+        "echo {a,{b,c}}",
+        "echo {a,b}{c,d}",
+        "echo {a}",
+        "echo {}",
+        "echo a}b",
+        "echo {a,}",
+        r#"echo "{a,b}""#,
+        "echo ${x}{a,b}",
+        "cp file{,.bak}",
+        "mkdir -p /tmp/{a,b}/c",
+        "echo {a,b} | wc -l",
+        "for f in {1..3}; do echo $f; done",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+        assert!(
+            survey(text).is_empty(),
+            "{text:?} should need nothing: {:?}",
+            survey(text)
+        );
+    }
+}

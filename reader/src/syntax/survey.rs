@@ -30,7 +30,7 @@
 
 use std::collections::BTreeSet;
 
-use super::parse::{Reason, classify_expansion, opens_assignment, reserved_word};
+use super::parse::{Reason, brace_expansion, classify_expansion, opens_assignment, reserved_word};
 
 pub fn survey(text: &str) -> BTreeSet<Reason> {
     scan(text).found
@@ -448,11 +448,17 @@ impl Survey<'_> {
                     braces -= 1;
                     self.at += 1;
                 }
+                // ⚠ Whether a `{` opens an expansion has ONE answer, and it
+                // comes from the parser's own lookahead — see `brace_expansion`.
+                // A brace with nothing to expand (`{a}`) is ordinary text to
+                // bash and so to both readers.
                 b'{' | b'}' => {
                     in_word = true;
                     word.push(byte as char);
-                    self.found.insert(Reason::BraceExpansion);
-                    self.at += 1;
+                    match brace_expansion(self.bytes, self.at) {
+                        Some(shape) => self.at = shape.end(),
+                        None => self.at += 1,
+                    }
                 }
                 b'$' | b'`' => {
                     in_word = true;

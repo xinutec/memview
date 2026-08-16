@@ -6,7 +6,7 @@ the fleet executes, plus a printer that puts it back.
 **Status: simple commands with binding prefixes, comments, pipelines, and-or
 lists, redirection, heredocs, tilde prefixes, parameters and their operators,
 `$( )` substitutions, `for`/`while`/`until`/`select` loops, `if`, subshells,
-brace groups and function definitions; three gates wired.**
+brace groups, function definitions and brace expansion; three gates wired.**
 `reader/src/syntax/` holds the tree, the parser and the printer; the
 `bash-oracle` crate holds the second and third gates and the report.
 
@@ -80,7 +80,7 @@ made of — re-run it against a new bash before trusting any of them:
 | --- | --- |
 | a fixpoint | printing its own print returns it unchanged, every shape tried |
 | verbatim on words | `a`, `'a'`, `"a"`, `ec'h'o`, `${x:-y}` come back as written; only `$'…'`, `$"…"` and `\`-newline are resolved |
-| verbatim inside `${ }` | every operator form — `${x%%.*}`, `${x/a/b}`, `${x:1:3}`, `${a[0]}`, and `${x-y}` distinct from `${x:-y}` — so this gate has **no opinion at all** about a parameter operator, exactly as it has none about the inside of a word |
+| verbatim inside `${ }` and `{a,b}` | every operator form — `${x%%.*}`, `${x/a/b}`, `${x:1:3}`, `${a[0]}`, and `${x-y}` distinct from `${x:-y}` — so this gate has **no opinion at all** about a parameter operator, exactly as it has none about the inside of a word |
 | normalising on structure | indentation, `;` versus newline, `f() { … }` → `function f () { … }`, a `( … )` function body wrapped in a brace group |
 | desugaring | `ls \|& cat` → `ls 2>&1 \| cat`; `! time a \| b` → `time ! a \| b` |
 | near-verbatim on heredoc bodies | reproduced as written, including one nested in `$( )` inside a double-quoted word — but a `\`-newline in an *unquoted* body is joined, and `<<-` strips its tabs, both at parse time |
@@ -237,8 +237,8 @@ sharpest case is `Grouping`, which named four things sharing a character: a
 subshell (778), a brace group (776), a function definition (153) — three forms of
 "a command list in a wrapper" — and a brace *expansion*, which is none of them.
 `{a,b}.txt` is one word that expands to two, so it is word-level work like a
-glob, and it was hiding inside a compound-statement build. Split out, it is 558
-commands and the largest single item left.
+glob, and it was hiding inside a compound-statement build. Split out it was 566
+commands — the largest single item at the time, and built next because of it.
 
 `<` and `>` began as one `Redirection`. Split into a file-or-descriptor target, a heredoc
 whose operand is on the following lines, and a process substitution that is a
