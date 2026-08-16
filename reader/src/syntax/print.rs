@@ -206,9 +206,8 @@ fn print_segment(segment: &Segment) -> String {
     }
 }
 
-/// Single quotes, because inside them the shell expands nothing at all. An
-/// `argv` element is a value, and any spelling that could expand would be a
-/// different claim about it.
+/// Single quotes: a word in the tree is a *value*, and any spelling that could
+/// expand would be a different claim about it.
 fn quote(text: &str) -> String {
     if text.is_empty() {
         return "''".to_string();

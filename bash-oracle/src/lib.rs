@@ -1,43 +1,25 @@
 //! The second gate: bash printing its own parse, and us reading it back.
 //!
 //! Wrapping a command in a function and running `declare -f` on it makes bash
-//! render its tree as text without running anything. That is the only view of
-//! bash's parse available without execution, so it is the one independent check
-//! this design has.
+//! render its tree as text without running it — the only view of bash's parse
+//! available without execution, and so the one check here that is not ours.
 //!
-//! **What it can and cannot say**, measured by `reader/probes/bash-printer.sh`
-//! against bash 5.3:
+//! What that view can and cannot say is measured by
+//! `reader/probes/bash-printer.sh` and stated in `docs/execution-model.md`. Two
+//! consequences shape this module: bash prints *words* verbatim, so the
+//! comparison is tree against tree rather than text against text; and it deletes
+//! comments, so comments are excluded from both sides.
 //!
-//! - it is a fixpoint, and it reproduces heredoc bodies verbatim;
-//! - it prints *words* exactly as written, so it says nothing about what is
-//!   inside one. An unimplemented expansion absorbed into a literal is printed
-//!   back and absorbed again, and this gate agrees with the mistake;
-//! - it normalises and desugars *structure*, and that is where it is worth
-//!   having: `ls |& cat` comes back `ls 2>&1 | cat`, `! time a | b` comes back
-//!   `time ! a | b`, and a compound is laid out with `do` on its own line;
-//! - it deletes comments, so comments are excluded from the comparison here and
-//!   covered by the round-trip law alone.
+//! ⚠ **Bash is shown the ORIGINAL text, never our print of it.** A gate fed its
+//! subject's own output can only confirm self-consistency. While it was, it
+//! caught nothing and a misparse of `a |\nb` passed both gates.
 //!
-//! So the comparison is tree against tree, never text against text: bash keeps
-//! the spelling this printer normalises away, and comparing the two spellings
-//! would report a difference on every quoted word in the corpus.
-//!
-//! ⚠ **Bash is shown the ORIGINAL text, not our print of it.** Feeding it our
-//! own output looked safer and made the gate nearly useless: it could then only
-//! confirm that bash agrees with our canonical form, and never that we read the
-//! corpus command correctly in the first place. `a |\nb` — a newline inside a
-//! pipeline — parsed as two pipelines, printed as two lines, and both gates
-//! agreed with the mistake, because the text that was misread was the one text
-//! bash never saw.
-//!
-//! The safety argument survives the change intact. The wrapper holds only
-//! because bash parses a whole definition before running any of it, and a
-//! balanced payload defeats that — `echo a; }; rm -rf x; { echo b` closes the
-//! function, runs, and reopens a group for the trailing brace to close. But the
-//! gate runs **only on commands the parser accepted**, and the accepted language
-//! refuses `(`, `)`, `{` and `}` outright, so an accepted command cannot contain
-//! the brace that would close the wrapper. **When the grammar grows to accept
-//! grouping, that argument lapses and this needs `sandbox-exec` around it.**
+//! ⚠ **The wrapper is not containment.** A balanced payload closes the function,
+//! runs, and reopens a group for the trailing brace — measured, not reasoned
+//! about. What keeps such text out is that this runs **only on commands the
+//! parser accepted**, and the accepted language refuses `(`, `)`, `{` and `}`.
+//! **That lapses the moment grouping is accepted, and then this needs
+//! `sandbox-exec` around it.**
 
 use std::io::Write;
 use std::path::PathBuf;

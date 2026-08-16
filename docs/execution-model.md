@@ -87,30 +87,18 @@ So the comparison is **tree against tree** — parse the command, parse bash's
 print of it, require the same tree, exclude comments. Not text against text:
 bash preserves the spelling we normalise away.
 
-⚠ **Bash is shown the ORIGINAL command, not our print of it.** The first version
-fed it the printer's output, which looked safer and made the gate nearly
-vacuous: it could then only confirm bash agreed with our canonical form, never
-that we had read the corpus text correctly. `a |⏎b` is one pipeline — bash's
-grammar is `pipeline '|' newline_list pipeline` — and reading it as two printed
-two lines that read back as two just as wrongly. The law held, and the gate
-agreed, because **the text that was misread was the one text bash never saw.**
+⚠ **Bash is shown the ORIGINAL command, never our print of it.** A gate fed its
+subject's own output can only confirm self-consistency; while it was, it caught
+nothing, and a misparse of `a |⏎b` passed both gates. **The text that is misread
+is the one text bash has to see.**
 
-The safety argument survives the change. The wrapper holds only because `eval`
-parses a whole definition before running any of it; but the gate runs only on
-commands the parser *accepted*, and the accepted language refuses `(`, `)`, `{`
-and `}` outright, so an accepted command cannot carry the brace that would close
-the wrapper. That argument lapses when grouping is accepted — see below.
-
-Its power is exactly where bash's output differs structurally from its input:
-`for f in *.log; do …; done` laid out with `do` on its own line, `|&` desugared,
-`! time` reordered, a newline inside a pipeline closed up.
-
-⚠ **It executes.** A balanced payload defeats the wrapper:
-`echo a; }; touch /tmp/X; { echo b` closes the function, runs the `touch`, and
-reopens a group the trailing `}` closes. Measured, not reasoned about, by
-`reader/probes/bash-printer.sh`. Today the refusal of grouping is what keeps such
-text out; **once grouping is accepted this needs `sandbox-exec` around it**,
-denying process execution and writes outside a scratch directory.
+⚠ **It executes.** A balanced payload defeats the wrapper —
+`echo a; }; touch X; { echo b` closes the function, runs, and reopens a group for
+the trailing brace. What keeps such text out today is that the gate runs only on
+*accepted* commands and the accepted language refuses `(`, `)`, `{` and `}`.
+**That argument lapses the moment grouping is accepted, and then this needs
+`sandbox-exec`** denying process execution and writes outside a scratch
+directory.
 
 Distinct from `reader/tests/oracle.rs`, which shims `PATH` and diffs predictions
 against real execution. That covers expansion, globbing and `cd`, and cannot
@@ -215,48 +203,28 @@ Four numbers, reported apart — **per command**, **per byte**, **per node**, an
 
 ### A refusal ranking is not a work queue
 
-The parser stops at the first construct it cannot read, so each refused command
-is counted once, under whichever construct the scan reached first. That ranking
-answers "what stopped us", which is a different question from "what would
-building this unlock" — and the two disagree badly. Measured 2026-08-16 over the
-frozen union, **before any of these were built** (the figures move as each
-lands; run the report for current ones):
+⚠ **Never plan off the ranking.** The parser stops at the first construct it
+cannot read, so each command is counted once, under whichever came leftmost —
+which answers "what stopped us", not "what would building this unlock". Measured,
+the top of the ranking was worth the least of the top three and the pipe was
+worth 3.4× it. `syntax::survey` returns the whole set a command needs, and the
+report plans off a greedy cumulative curve; its predictions have matched the
+realised coverage at every step so far.
 
-| construct | ranked first-refusal | unlocks alone |
-| --- | --- | --- |
-| redirection | 28.49%, 1st | 3.26% |
-| and-or | 22.66%, 2nd | 5.65% |
-| pipe | 13.32%, 3rd | **11.03%** |
-| tilde | 12.39%, 4th | 0.29% |
+Most refused commands need three or more constructs, so a per-construct
+percentage is the wrong unit.
 
-Redirection led the ranking and was worth the least of the three; the pipe was
-worth 3.4× it. Planning off the ranking would have built them in the wrong order.
-So `syntax::survey` returns the **whole set** of constructs a command needs, and
-the report plans off a greedy cumulative curve instead.
+⚠ **A reason is a unit of work, so split it the way the work splits.** `<` and
+`>` began as one `Redirection`. Split into a file-or-descriptor target, a heredoc
+whose operand is on the following lines, and a process substitution that is a
+whole command, the file forms alone were four fifths of it — and the hard half
+was never on the critical path.
 
-Most refused commands need three or more constructs, not one, which is why a
-per-construct percentage is the wrong unit and the cumulative curve is the right
-one.
-
-**The prediction has been tested at every step, by building what it named**, and
-has been right each time: the pipe at 11.03% (13.57% → 24.60%), and-or lists
-45,326 predicted and 45,327 reached, redirection 81,623 and 81,623, tilde
-prefixes 94,694 and 94,694.
-
-⚠ **Splitting a reason can change the plan.** `<` and `>` began as one
-`Redirection`, worth +45,030. Split by what it takes to *build* them — a file or
-descriptor target, versus a heredoc whose operand is on the following lines,
-versus a process substitution that is a whole command — the file forms alone were
-+36,296 and the heredoc a separate +9,859. The hard half was never on the
-critical path. A reason is a unit of work, so it has to be split the way the work
-splits.
-
-⚠ **The survey is a second scanner and is pinned, not trusted.** It has to read
+⚠ **The survey is a second scanner, pinned rather than trusted.** It must read
 text the parser cannot, so it cannot be built from the parser, and it drifted on
-its first run — 191 commands where it claimed a construct the parser had
-accepted. The invariant is that the parser's refusal appears in the survey's
-set, and that the set is empty exactly when the parser accepts; the report
-re-checks it on every corpus row and says so in its output.
+its first run. The invariant: the parser's refusal appears in the survey's set,
+and the set is empty exactly when the parser accepts. The report re-checks it on
+every corpus row and says so.
 
 ## The corpus
 
@@ -347,23 +315,11 @@ Four properties are load-bearing and each has a test that fails without it:
   the closing `/` goes through bare and quoting resumes after it. Found by the
   law on 319 commands.
 
-⚠ **Gate 2 became load-bearing when it was pointed at the original text**, and
-it has since earned it. Its first real catch was one command in 81,623:
-`… 2>&1 1>/dev/null`, where the tree recorded `fd: Some(1)` on a `>` that bash
-prints back without the `1`. Bash drops an explicit default on `>` and *supplies*
-one on `>&` — so a redirection's descriptor is stored as the effective one, never
-the written one, and `1> f` and `> f` are one tree. Nothing else could have found
-that: the round-trip law is satisfied by any consistent wrong answer.
-
-Its second catch was the same shape and worse. `"a"\⏎"b"` is **one** word — bash
-removes a backslash-newline inside a word and joins what is either side. Ending
-the word there split a 337-character `perl` argument into three, and the law
-agreed, because three wrong words print as three words and read back as three.
-The survey agreed too: it only knows what is refused, and nothing was.
-
-⚠ **Both catches are the same lesson.** A wrong tree that is *internally
-consistent* satisfies every check we can build out of our own parser. Only a
-reader that is not ours can object.
+⚠ **Only a reader that is not ours can object to a consistently wrong tree.** The
+round-trip law is satisfied by *any* wrong answer that prints and re-reads as
+itself, and the survey only knows what is refused. Gate 2 has caught two such —
+a descriptor normalisation and a word split at a line continuation — each written
+up at the node it corrected. It found nothing while it was fed our own output.
 
 ⚠ **`bash -n` adjudicates every refusal that is a claim about the input.**
 `UnterminatedQuote`, `DanglingEscape` and `EmptyOperand` assert the text is not
