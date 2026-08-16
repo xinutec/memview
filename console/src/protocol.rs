@@ -1132,6 +1132,80 @@ pub fn set_mode(request_id: &str, mode: &str) -> String {
     .to_string()
 }
 
+/// What the request id of a mode change looks like, so its answer is found.
+///
+/// One per session and not one per request: a second change asked for while the
+/// first is unanswered would otherwise need a table of ids to match against, and
+/// the answer to the older of two is of no interest — the newer one is what the
+/// session is being asked to be.
+pub const SET_MODE: &str = "set-mode-";
+
+/// How a session answered a mode change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModeReply {
+    /// The mode the CLI says it is now in. **Not** the mode that was asked for:
+    /// the answer carries its own, and it is the only thing here read off the
+    /// session rather than hoped for.
+    Now(String),
+    /// The CLI refused, in its own words. Kept verbatim because they are better
+    /// than anything this console would write — see the two measured below.
+    Refused(String),
+}
+
+/// A session's answer to a mode change, if that is what this line is.
+///
+/// ⚠ **Nothing read this until 2026-08-16, and a mode was claimed on screen that
+/// the CLI never entered.** The console recorded what it asked for the moment
+/// stdin took the line; a switch to `bypassPermissions` therefore read *Bypass
+/// Permissions* in the header while the CLI stayed in `auto` and went on asking
+/// for approval. That is the wrong direction to be wrong in, and it is the whole
+/// reason the mode is shown at all.
+///
+/// **The shapes are measured, not assumed** — CLI 2.1.226, 2026-08-16, a
+/// throwaway session sent three requests:
+///
+/// ```text
+/// {"subtype":"success","request_id":"…","response":{"mode":"acceptEdits"}}
+/// {"subtype":"error","request_id":"…","error":"Cannot set permission mode to
+///   bypassPermissions because the session was not launched with
+///   --dangerously-skip-permissions"}
+/// {"subtype":"error","request_id":"…","error":"Cannot set permission mode: must
+///   be one of acceptEdits, auto, bypassPermissions, default, dontAsk, plan"}
+/// ```
+///
+/// ⚠ **The success carries the mode, so this confirms rather than assumes it.**
+/// Reading `subtype == success` alone would re-introduce the same defect one
+/// level down — a reply that succeeded at *something* taken as agreement about
+/// *which* mode.
+///
+/// Matched on the request id, unlike [`usage_reply`], because this console does
+/// ask for more than one thing on this channel now.
+pub fn mode_reply(line: &str) -> Option<ModeReply> {
+    let parsed: serde_json::Value = serde_json::from_str(line).ok()?;
+    if parsed.get("type")?.as_str()? != "control_response" {
+        return None;
+    }
+    let response = parsed.get("response")?;
+    if !response.get("request_id")?.as_str()?.starts_with(SET_MODE) {
+        return None;
+    }
+    match response.get("subtype")?.as_str()? {
+        "success" => Some(ModeReply::Now(
+            response.get("response")?.get("mode")?.as_str()?.to_string(),
+        )),
+        // A refusal with no words is still a refusal: the claim on screen has to
+        // come down either way, and an empty reason is better than a wrong one.
+        "error" => Some(ModeReply::Refused(
+            response
+                .get("error")
+                .and_then(|it| it.as_str())
+                .unwrap_or("the session refused the change")
+                .to_string(),
+        )),
+        _ => None,
+    }
+}
+
 /// Ask the session what the account has spent.
 ///
 /// **The only route to the routine figures**, and it took some finding. The

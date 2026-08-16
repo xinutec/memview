@@ -444,6 +444,19 @@ pub struct Summary {
     /// prettifying these itself.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
+    /// Why the last mode change was refused, in the CLI's own words.
+    ///
+    /// ⚠ **Present only until the next change is asked for**, because it
+    /// describes an attempt rather than a state. [`mode`](Self::mode) beside it
+    /// has already been put back to what the session is actually in, so this is
+    /// the explanation for a switch that appeared to happen and then did not.
+    ///
+    /// The CLI's wording rather than this console's: measured on 2026-08-16, it
+    /// says *"Cannot set permission mode to bypassPermissions because the
+    /// session was not launched with --dangerously-skip-permissions"*, which
+    /// names the cause and the remedy better than anything written from here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode_refused: Option<String>,
     /// How many questions it is blocked on. The one number that means "this
     /// session cannot go on without you", so it belongs in the list of sessions
     /// and not only on the page of one.
@@ -583,10 +596,19 @@ struct State {
     /// See [`Summary::interactions`], and [`crate::past::counted`] for why the
     /// byte offset travels with the number.
     counted: crate::past::Counted,
-    /// See [`Summary::mode`]. Set when the session is spawned and whenever the
-    /// console changes it; carried across an upgrade, because no file records it
-    /// in a way that can be trusted.
+    /// See [`Summary::mode`]. Set when the session is spawned, written
+    /// optimistically when the console asks for a change, and **corrected when
+    /// the CLI answers** — see [`Session::settle_mode`]. Carried across an
+    /// upgrade, because no file records it in a way that can be trusted.
     mode: Option<String>,
+    /// What the mode was before a change the CLI has not answered yet, so a
+    /// refusal can put back the mode the session is actually in.
+    ///
+    /// `None` means nothing is outstanding. Cleared either way when the answer
+    /// arrives, so a later refusal cannot restore a mode from two changes ago.
+    restore: Option<String>,
+    /// See [`Summary::mode_refused`].
+    mode_refused: Option<String>,
     cost_usd: f64,
     /// The last turn's prompt size and the window it went into. See
     /// [`Summary::context`].
@@ -1323,6 +1345,12 @@ impl Session {
                         session.record_usage(windows);
                         continue;
                     }
+                    // The other answer this console asks for, and for a long
+                    // time the one nothing read — see [`Session::settle_mode`].
+                    if let Some(reply) = protocol::mode_reply(&line) {
+                        session.settle_mode(reply);
+                        continue;
+                    }
                     for event in protocol::read(&line) {
                         // The end of a turn is the one moment the exchange count
                         // can have changed, and by then the CLI has written the
@@ -1642,8 +1670,53 @@ impl Session {
             .context("asking the session to change mode")?;
         stdin.flush().await.context("flushing the mode change")?;
         drop(held);
-        self.state.lock().expect("session state poisoned").mode = Some(mode.to_string());
+        let mut state = self.state.lock().expect("session state poisoned");
+        // Kept so a refusal can put back the mode the session is really in. Only
+        // when nothing is already outstanding: two changes in flight and the
+        // second would record the first's optimistic value as the truth to
+        // return to, which is the same defect one step along.
+        if state.restore.is_none() {
+            state.restore = state.mode.clone();
+        }
+        // The old explanation goes with the old attempt.
+        state.mode_refused = None;
+        state.mode = Some(mode.to_string());
         Ok(())
+    }
+
+    /// Take the CLI at its word about what mode it is in.
+    ///
+    /// ⚠ **This is the correction [`Session::set_mode`]'s optimism depends on.**
+    /// Without it a mode the CLI refused stayed on screen for the life of the
+    /// session: a switch to `bypassPermissions` read *Bypass Permissions* in the
+    /// header while the CLI stayed in `auto` and went on asking for approval
+    /// (memview #96). Optimism between asking and hearing back is a fair trade
+    /// for not freezing a client behind a busy session; a claim that is never
+    /// corrected is not.
+    ///
+    /// **The confirmed mode comes from the reply**, not from what was asked for
+    /// — see [`protocol::mode_reply`], where the measured shapes are written
+    /// down. Taking "it succeeded" as agreement about *which* mode would be the
+    /// same mistake at one remove.
+    fn settle_mode(&self, reply: protocol::ModeReply) {
+        let mut state = self.state.lock().expect("session state poisoned");
+        match reply {
+            protocol::ModeReply::Now(mode) => {
+                state.mode = Some(mode);
+                state.mode_refused = None;
+            }
+            protocol::ModeReply::Refused(why) => {
+                tracing::info!("{}: the mode change was refused — {why}", self.id);
+                // Back to what it was. `restore` is empty only if a reply
+                // arrived for a change this console did not make, in which case
+                // there is nothing it can honestly put back.
+                if let Some(was) = state.restore.clone() {
+                    state.mode = Some(was);
+                }
+                state.mode_refused = Some(why);
+            }
+        }
+        state.restore = None;
     }
 
     /// Keep what the CLI answered about each window.
@@ -2100,6 +2173,7 @@ impl Session {
             working: state.working,
             interactions: state.counted.interactions,
             mode: state.mode.clone(),
+            mode_refused: state.mode_refused.clone(),
             cost_usd: state.cost_usd,
             limit: state.limit.clone(),
             context: state.context,

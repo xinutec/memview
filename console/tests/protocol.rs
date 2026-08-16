@@ -982,3 +982,72 @@ fn a_long_label_is_cut_and_flattened() {
     );
     assert_eq!(multi.label.as_deref(), Some("one two three"));
 }
+
+/// The three answers CLI 2.1.226 gave on 2026-08-16, copied from the probe.
+///
+/// ⚠ **Not composed here.** The success carries the mode it settled on, which is
+/// the whole reason the console can confirm rather than assume; and the refusals
+/// are the CLI's own words, which name a remedy the console would not have
+/// known to give. A throwaway session was sent three `set_permission_mode`
+/// requests and these came back.
+const MODE_SET: &str = r#"{"type":"control_response","response":{"subtype":"success","request_id":"set-mode-6f7c2f11","response":{"mode":"acceptEdits"}}}"#;
+const MODE_REFUSED: &str = r#"{"type":"control_response","response":{"subtype":"error","request_id":"set-mode-6f7c2f11","error":"Cannot set permission mode to bypassPermissions because the session was not launched with --dangerously-skip-permissions"}}"#;
+const MODE_UNKNOWN: &str = r#"{"type":"control_response","response":{"subtype":"error","request_id":"set-mode-6f7c2f11","error":"Cannot set permission mode: must be one of acceptEdits, auto, bypassPermissions, default, dontAsk, plan"}}"#;
+
+#[test]
+fn a_settled_mode_is_the_one_the_reply_names() {
+    // ⚠ **Read out of the answer, not carried over from the request.** Taking
+    // `subtype == success` as agreement about WHICH mode would repeat #96 one
+    // level down: a reply that succeeded at something, read as the mode asked
+    // for.
+    assert_eq!(
+        console::protocol::mode_reply(MODE_SET),
+        Some(console::protocol::ModeReply::Now("acceptEdits".to_string()))
+    );
+}
+
+#[test]
+fn a_refusal_keeps_the_words_the_cli_used() {
+    // They name the cause AND the remedy — the launch flag — which is more than
+    // this console knows to say. #96 was open because nothing read this at all.
+    let Some(console::protocol::ModeReply::Refused(why)) =
+        console::protocol::mode_reply(MODE_REFUSED)
+    else {
+        panic!("a refused mode change did not read as a refusal");
+    };
+    assert!(
+        why.contains("--dangerously-skip-permissions"),
+        "the remedy was dropped from: {why}"
+    );
+}
+
+#[test]
+fn an_unknown_mode_is_refused_like_any_other() {
+    let Some(console::protocol::ModeReply::Refused(why)) =
+        console::protocol::mode_reply(MODE_UNKNOWN)
+    else {
+        panic!("an unknown mode did not read as a refusal");
+    };
+    assert!(why.contains("must be one of"), "unexpected words: {why}");
+}
+
+#[test]
+fn another_sessions_answer_is_not_this_ones() {
+    // Matched on the request id, unlike the usage reply — this console now asks
+    // for more than one thing on this channel, and a `get_usage` answer must not
+    // read as a mode nobody asked for.
+    let usage = console::protocol::mode_reply(USAGE_REPLY);
+    assert_eq!(usage, None, "a usage answer was taken for a mode change");
+    let approval = r#"{"type":"control_response","response":{"subtype":"success","request_id":"toolu_1","response":{"behavior":"allow"}}}"#;
+    assert_eq!(console::protocol::mode_reply(approval), None);
+}
+
+#[test]
+fn what_is_not_a_control_response_is_not_a_mode() {
+    assert_eq!(console::protocol::mode_reply("{}"), None);
+    assert_eq!(console::protocol::mode_reply("not json at all"), None);
+    // A control REQUEST going the other way carries the same id and must not be
+    // read as its own answer.
+    let asked = console::protocol::set_mode("set-mode-6f7c2f11", "plan");
+    assert_eq!(console::protocol::mode_reply(&asked), None);
+}

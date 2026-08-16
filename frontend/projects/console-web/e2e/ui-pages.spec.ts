@@ -4222,6 +4222,40 @@ test('the rename sheet offers nothing when no model has named the conversation @
   await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
 });
 
+test('a refused mode change says so and puts the mode back @ phone width', async ({ page }) => {
+  // ⚠ **The defect this covers is a claim, not a crash.** The console asked for
+  // `bypassPermissions`, the header read Bypass Permissions, and the CLI stayed
+  // in `auto` and went on asking for approval — a session shown as unrestricted
+  // while it was anything but, which is the wrong direction to be wrong in
+  // (memview #96). The refusal arrives on the POLL, not on the request, which is
+  // why nothing watching the tap could ever have caught it.
+  const REFUSED =
+    'Cannot set permission mode to bypassPermissions because the session was not ' +
+    'launched with --dangerously-skip-permissions';
+  await mockRunner(page);
+  // What the runner sends once its own `settle_mode` has put the mode back: the
+  // true mode, and the CLI's words for why the other one did not take.
+  const settled = { ...STATE.sessions[0], mode: 'auto', mode_refused: REFUSED };
+  await page.route('**/api/state', (r) =>
+    r.fulfill({ json: { ...STATE, sessions: [settled, STATE.sessions[1]] } }),
+  );
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+
+  // Said out loud, because the mode lives in a menu that is shut by the time the
+  // answer comes back — a correction nobody can see is the defect over again.
+  const snack = page.locator('mat-snack-bar-container');
+  await expect(snack, 'the refusal was never shown').toContainText(
+    '--dangerously-skip-permissions',
+  );
+
+  // And the header agrees with the session rather than with the request.
+  await page
+    .locator('.bar')
+    .getByRole('button', { name: /what to do with/ })
+    .click();
+  await expect(page.locator('.session-menu .current')).toHaveText('Auto');
+});
+
 test('the permission modes are one row that opens a sheet @ phone width', async ({
   page,
 }, testInfo) => {

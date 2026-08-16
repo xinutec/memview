@@ -93,6 +93,20 @@ export interface Summary {
   /** What the session may do without asking. One of `MODES`; absent until the
    *  session has recorded one. */
   mode?: string;
+  /**
+   * Why the last mode change was refused, in the CLI's own words.
+   *
+   * ⚠ **`mode` above is already back to the truth when this is set.** The
+   * console asks over the control channel and records the new mode at once so a
+   * client is not frozen behind a busy session; when the CLI refuses, the mode
+   * goes back and this says why. Until 2026-08-16 nothing read that answer and
+   * the header could claim Bypass Permissions on a session still in `auto` —
+   * memview #96.
+   *
+   * Absent in the ordinary case, and cleared the moment another change is
+   * asked for: it describes an attempt, not a state.
+   */
+  mode_refused?: string;
   /** The last request's prompt size in tokens, and the window it went into. */
   context?: number;
   window?: number;

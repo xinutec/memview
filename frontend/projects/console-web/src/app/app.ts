@@ -1,10 +1,11 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, effect, inject } from '@angular/core';
 import { MatBottomSheet, MatBottomSheetModule } from '@angular/material/bottom-sheet';
 import { MatButtonModule } from '@angular/material/button';
 import { MatDividerModule } from '@angular/material/divider';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { RouterLink, RouterOutlet } from '@angular/router';
 
@@ -40,6 +41,7 @@ import { SessionStore } from './session-store';
     MatIconModule,
     MatMenuModule,
     MatDividerModule,
+    MatSnackBarModule,
   ],
 })
 export class App {
@@ -49,6 +51,7 @@ export class App {
   private api = inject(ConsoleApi);
   private sheet = inject(MatBottomSheet);
   private dismiss = inject(Dismiss);
+  private snack = inject(MatSnackBar);
   /** Read by the toolbar: the conversation on screen, when there is one. */
   readonly here = inject(Here);
   /** Read by the toolbar: whether the screen is being kept on. See [[Awake]]. */
@@ -96,7 +99,45 @@ export class App {
   protected readonly build = BUILD_INFO;
   protected readonly builtAt = new Date(BUILD_INFO.builtAt).toLocaleString();
 
+  /**
+   * The last refusal shown, so the poll does not show it every five seconds.
+   *
+   * The words themselves rather than a flag: a second refusal with a different
+   * reason is worth saying, and the same one twice is not.
+   */
+  private said?: string;
+
   constructor() {
+    // Say why a mode change did not take, in the CLI's own words.
+    //
+    // ⚠ **The refusal arrives on the poll, not on the request.** The console
+    // writes the change to stdin and answers at once — the CLI's `error` comes
+    // back on its own stream some time later — so `setMode`'s error branch below
+    // sees only a request that could not be written. Until this existed the
+    // header simply claimed the new mode for ever; see memview #96 and
+    // `Session::settle_mode`.
+    //
+    // A snack-bar because the mode lives in a menu that is shut by the time the
+    // answer comes: a correction nobody can see is the defect over again.
+    effect(() => {
+      const why = this.here.open()?.mode_refused;
+      if (!why) {
+        // Cleared server-side when another change is asked for, which is what
+        // makes the same reason sayable again if it happens again.
+        this.said = undefined;
+        return;
+      }
+      if (why === this.said) return;
+      this.said = why;
+      this.telemetry.note('mode-refused', why);
+      // ⚠ **At the top, which is not the default.** A snack-bar sits at the
+      // bottom, and the bottom of a session is the composer — looked at on the
+      // phone width, it covered the text field and the send button for the whole
+      // ten seconds, so the answer to "your mode did not change" was "and now
+      // you cannot type". The toolbar it covers instead is navigation, which is
+      // not what somebody is doing at the moment a refusal arrives.
+      this.snack.open(why, 'ok', { duration: 10_000, verticalPosition: 'top' });
+    });
     this.telemetry.init();
     // Before anything else on screen: an unstyled console is one showing the
     // words `more_vert` and `send` where its buttons were.
@@ -109,11 +150,17 @@ export class App {
   /**
    * Ask the session to change what it may do without asking.
    *
-   * ⚠ **Shown as chosen before the runner has confirmed it.** A menu that waits
+   * ⚠ **Shown as chosen before anything has confirmed it.** A menu that waits
    * for a round trip over a phone connection reads as a menu that ignored the
-   * tap. The poll a few seconds later is what corrects it if the runner refused
-   * — and the runner records the mode only once it has actually written the
-   * request to the session, so a failure leaves the true mode showing there.
+   * tap. Two different things can still refuse it, and both are corrected now:
+   *
+   * * The **runner**, if it cannot write to the session — the branch below,
+   *   which puts the summary back. It records the mode only once stdin has taken
+   *   the line, so a failure leaves the true mode showing.
+   * * The **CLI**, on its own stream some time later, which no amount of
+   *   watching this request will show. That correction arrives on the poll as
+   *   `mode_refused`, and the effect in the constructor is what says so.
+   *   Until 2026-08-16 nothing read it and the claim stood for ever (#96).
    */
   protected setMode(mode: string): void {
     const open = this.here.open();
