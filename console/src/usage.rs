@@ -564,3 +564,23 @@ fn at(stamp: &str) -> Option<i64> {
 fn now_ms() -> i64 {
     (OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000) as i64
 }
+
+/// How sessions are ranked when one of them must be asked what the account has
+/// spent. Highest wins.
+///
+/// ⚠ **Idleness first, recency second — and this order is the whole point.** A
+/// session answers `get_usage` from its own process's cached rate-limit headers,
+/// so the one that spoke most recently holds the freshest figure; that is why
+/// the console asks the most recent speaker. But a busy CLI does not answer a
+/// control request until its turn ends, and "spoke most recently" is very nearly
+/// "is working right now" — so the console was reliably asking the one session
+/// least able to reply. Measured 2026-08-12: asked 2.0 s into a turn, answered at
+/// 8.5 s (memview #817).
+///
+/// A session that has just finished a turn has a cache almost as fresh and
+/// answers at once, which is the better trade. When every session is working
+/// this still picks the freshest of them — the old behaviour, and better than
+/// asking nobody at all.
+pub fn asked_before(working: bool, last_heard: i64) -> (bool, i64) {
+    (!working, last_heard)
+}

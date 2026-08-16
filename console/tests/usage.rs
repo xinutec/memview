@@ -428,3 +428,54 @@ fn but_a_window_that_has_turned_over_does_drop_the_old_high_water_mark() {
         "a fresh window's honest 3% beats the old window's high-water mark"
     );
 }
+
+/// Who gets asked what the account has spent, highest first. See memview #817.
+mod who_is_asked {
+    use console::usage::asked_before;
+
+    /// The pick a roster would make, without needing live sessions to make it.
+    fn asked(sessions: &[(&str, bool, i64)]) -> &'static str {
+        let mut best: Option<(&str, (bool, i64))> = None;
+        for (name, working, heard) in sessions {
+            let rank = asked_before(*working, *heard);
+            // `max_by_key`'s rule: a later equal does not displace an earlier.
+            if best.is_none_or(|(_, held)| rank > held) {
+                best = Some((name, rank));
+            }
+        }
+        // Leaked to keep the helper's signature simple; the names are literals.
+        Box::leak(best.expect("nobody to ask").0.to_string().into_boxed_str())
+    }
+
+    #[test]
+    fn an_idle_session_is_asked_before_a_busier_but_more_recent_one() {
+        // ⚠ **The whole of #817.** `busy` spoke most recently and therefore holds
+        // the freshest figure — and will not answer until its turn ends, which is
+        // how the ages drifted to 109s against a sixty-second beat. `idle` has a
+        // cache seconds older and answers now.
+        assert_eq!(
+            asked(&[("idle", false, 1_000), ("busy", true, 9_999)]),
+            "idle"
+        );
+    }
+
+    #[test]
+    fn among_idle_sessions_the_freshest_cache_wins() {
+        // Recency still decides, because the answer is only as new as that
+        // process's last request — an hour-idle session answers about an hour ago.
+        assert_eq!(
+            asked(&[("stale", false, 1_000), ("fresh", false, 8_000)]),
+            "fresh"
+        );
+    }
+
+    #[test]
+    fn a_fleet_that_is_entirely_busy_still_gets_asked() {
+        // Falls back to the old rule rather than to nobody: a deferred answer is
+        // worth more than a figure that never updates while everything works.
+        assert_eq!(
+            asked(&[("older", true, 1_000), ("newer", true, 8_000)]),
+            "newer"
+        );
+    }
+}

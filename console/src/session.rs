@@ -2153,6 +2153,13 @@ impl Session {
         self.state.lock().expect("session state poisoned").alive
     }
 
+    /// Whether a turn is running right now. See [`Summary::working`], and ⚠ not
+    /// [`Summary::busy`], which cannot answer this — a status is announced when
+    /// it *changes*, so a long stretch of one activity leaves nothing standing.
+    pub fn working(&self) -> bool {
+        self.state.lock().expect("session state poisoned").working
+    }
+
     pub fn summary(&self) -> Summary {
         let state = self.state.lock().expect("session state poisoned");
         Summary {

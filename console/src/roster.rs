@@ -621,18 +621,35 @@ impl Roster {
     /// an hour ago on this loop's own beat. See [`crate::usage::fresher`] for the
     /// half of the fix that survives being asked the wrong session anyway.
     ///
+    /// ⚠ **But not one that is mid-turn, which the rule above walked straight
+    /// into.** A busy CLI does not answer a control request until its turn ends
+    /// — measured 2026-08-12, a request written 2.0 s into a turn was answered at
+    /// 8.5 s, three seconds *after* the turn's own result and with nothing in
+    /// between — and "spoke most recently" is very nearly a definition of "is
+    /// working now". So the console reliably asked the one session least able to
+    /// reply, and the ages drifted to 109 s against a sixty-second beat
+    /// (memview #817).
+    ///
+    /// A session that has just finished a turn has a cache almost as fresh and
+    /// answers at once, so idleness is ranked above recency rather than instead
+    /// of it: `(not working, last heard)` picks the freshest idle session, and
+    /// falls back to the freshest working one when the whole fleet is busy —
+    /// which is the old behaviour, and still better than asking nobody.
+    ///
     /// Nothing is returned: the answer comes back on that session's stdout and
     /// lands in its tally, where [`Self::spent`] finds it.
     pub async fn ask_usage(&self) {
-        let busiest = {
+        let asked = {
             let sessions = self.sessions.read().expect("roster poisoned");
             sessions
                 .values()
                 .filter(|session| session.alive())
-                .max_by_key(|session| session.last_heard())
+                .max_by_key(|session| {
+                    crate::usage::asked_before(session.working(), session.last_heard())
+                })
                 .cloned()
         };
-        if let Some(session) = busiest {
+        if let Some(session) = asked {
             session.ask_usage().await;
         }
     }
