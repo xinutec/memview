@@ -48,17 +48,46 @@ vacuous.
 ⚠ **The law cannot see a systematic misparse.** A parser treating an
 unimplemented `${x:-y}` as a literal parses, prints faithfully, and re-parses to
 the identical wrong tree; (1) and (2) both hold, and the corpus does not object
-because the command parses. Hence a second gate, required from the first
-construct: a subset parser is where unimplemented constructs get absorbed into
-literals, and adding the gate later means re-auditing everything validated
-without it.
+because the command parses. Two defences, neither of them the law:
 
-## Second gate: an independent parse oracle
+- **inside a word, by construction** — no run of literal characters may swallow
+  one that opens a construct. Unquoted and inside double quotes those are `$`,
+  `` ` ``, `\` and the quotes, so an unimplemented `${x:-y}` is a parse *error*
+  rather than a literal. Nothing observes this after the fact; it has to be
+  impossible.
+- **across words, by the second gate** — bash's own printer, below.
 
-Bash prints its own parse — wrap a command in a function, `declare -f` it, and
-bash renders its tree as text with no execution. Compare our canonical print
-against bash's. The oracle is not ours, so it does not share our blind spots.
-Needs its own layout-normalising comparison.
+## Second gate: bash's own printer
+
+`declare -f` on a wrapped command makes bash print its parse. Measured against
+bash 5.3 by `reader/probes/bash-printer.sh`, which is what every row below is
+made of — re-run it against a new bash before trusting any of them:
+
+| | |
+| --- | --- |
+| a fixpoint | printing its own print returns it unchanged, every shape tried |
+| verbatim on words | `a`, `'a'`, `"a"`, `ec'h'o`, `${x:-y}` come back as written; only `$'…'`, `$"…"` and `\`-newline are resolved |
+| normalising on structure | indentation, `;` versus newline, `f() { … }` → `function f () { … }`, a `( … )` function body wrapped in a brace group |
+| desugaring | `ls \|& cat` → `ls 2>&1 \| cat`; `! time a \| b` → `time ! a \| b` |
+| faithful on heredocs | bodies reproduced verbatim, including one nested in `$( )` inside a double-quoted word |
+| blind to comments | deleted |
+
+So the comparison is **tree against tree** — parse bash's print with our parser,
+require the same tree, exclude comments. Not text against text: bash preserves
+the spelling we normalise away.
+
+Its power is exactly where bash's output differs structurally from its input.
+That is not hypothetical — bash lays `for f in *.log; do echo "$f"; done` out
+with `do` on its own line, which the current flat grammar reads as one command
+more than the input had. The gate fires on the model, not on a typo.
+
+⚠ **It executes.** The wrapper holds only because `eval` parses its whole
+argument before running any of it, and a balanced payload defeats that:
+`echo a; }; touch /tmp/X; { echo b` closes the function, runs the `touch`, and
+reopens a group the trailing `}` closes. Measured, not reasoned about. The
+corpus is shell history, so it carries such text by accident rather than design.
+The oracle runs under `sandbox-exec`, denying process execution and writes
+outside a scratch directory.
 
 Distinct from `reader/tests/oracle.rs`, which shims `PATH` and diffs predictions
 against real execution. That covers expansion, globbing and `cd`, and cannot
@@ -87,7 +116,10 @@ layout and quoting style.**
 `time ./x.sh` runs bash's keyword; `'time' ./x.sh` runs `/usr/bin/time`, a
 different program with different output. Same for `!`. So a reserved word is not
 a word, the tree must record which it is, and the printer must never quote one.
-`declare -f` catches this, because it preserves the quotes for the same reason.
+
+Neither gate catches it: bash prints the quotes straight back, so a tree that
+collapsed them collapses them again and both comparisons agree. Construction
+requirement, fixture behind it.
 
 ### Grammar, not elevation
 
@@ -98,7 +130,10 @@ Two kinds of wrapping, and they belong at different layers.
 | shell grammar | `time`, `time -p`, `!`, `FOO=bar cmd` | the tree — fields on the pipeline or the simple command |
 | commands taking a command | `timeout`, `nohup`, `env`, `nice`, `sudo`, `bash -c` | elevation |
 
-`type -t time` says `keyword`, and the pipeline is `[!] [time [-p]] cmd [| cmd …]`.
+`type -t time` says `keyword`, and the pipeline is `[time [-p]] [!] cmd [| cmd …]`.
+Bash accepts either order and prints this one — `! time a | b` comes back as
+`time ! a | b` — so the tree holds two independent flags, not a sequence.
+
 **Scope is what forces it into the tree:** `time a | b` times the whole pipeline,
 while `nohup a | b` applies to `a` alone, and `time` at `argv[0]` cannot express
 the difference.
