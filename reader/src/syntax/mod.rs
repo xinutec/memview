@@ -2,9 +2,12 @@
 //! back.
 //!
 //! `docs/execution-model.md` is the design. What it reads today: and-or lists of
-//! pipelines of simple commands, with redirections and heredocs, comments as
-//! nodes, and words of typed segments — literal text, globs, tilde prefixes and
-//! parameters. `time` and `!` are fields on the pipeline, not `argv[0]`.
+//! pipelines, whose commands are either simple — a binding prefix, words and
+//! redirections — or a `for`/`while`/`until`/`select` loop carrying a body.
+//! Words are typed segments: literal text, globs, tilde prefixes, parameters and
+//! `$( )` substitutions, which hold a whole script and are where this parser
+//! recurses into itself. Heredocs and comments are nodes. `time` and `!` are
+//! fields on the pipeline, not `argv[0]`.
 //!
 //! **Everything else is refused by name.** The ranked refusals in the
 //! `bash-oracle` crate's `syntax-report` are what choose the next construct, and

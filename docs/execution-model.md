@@ -3,8 +3,9 @@
 Design for the syntax layer under `reader/`: a faithful tree for every language
 the fleet executes, plus a printer that puts it back.
 
-**Status: simple commands, comments, pipelines, and-or lists, redirection and
-tilde prefixes; both gates wired.**
+**Status: simple commands with binding prefixes, comments, pipelines, and-or
+lists, redirection, heredocs, tilde prefixes, parameters, `$( )` substitutions
+and `for`/`while`/`until`/`select` loops; both gates wired.**
 `reader/src/syntax/` holds the tree, the parser and the printer; the
 `bash-oracle` crate holds the second gate and the report.
 
@@ -243,6 +244,14 @@ every corpus row and says so.
 
 ## The corpus
 
+**It is what the agents ran, not what anyone wrote down.** Every row is a command
+issued from a `Bash` tool call in a past session — already executed, on a
+filesystem that has moved on. There is no script on disk to go and fix, and a
+malformed command in here is a fact about what happened rather than a bug report.
+That is also why the denominator is every command and not a sample: the question
+this layer answers is *what did the fleet do*, and a command left unread is an
+answer withheld.
+
 **Freeze a snapshot and measure against it.** The live corpus shrinks: Claude
 Code prunes its own sessions, and since 2026-08-14 the odin archive mirrors
 deletions rather than appending. odin's restic retention is the only deeper
@@ -314,6 +323,23 @@ pipeline — has an answer.
 Everything not modelled is refused **by name**, and the ranked refusals are the
 work queue. Coverage starts low on purpose — a rate that begins high is a parser
 absorbing what it does not understand.
+
+⚠ **A refusal is a placeholder, not an answer. The target is all of it.** The
+corpus is shell history: every command in it ran, and the job is to read what it
+did. So the queue drains to zero, and "this construct is awkward" is never a
+reason to leave something on it — only "this construct is not built yet" is.
+Misreading the rule as *refuse whatever is inconvenient* cost 13 commands and a
+paragraph of invented principle before it was caught, and the argument for
+refusing them was wrong twice over.
+
+Two corollaries, both learned the hard way:
+
+- **Check which gate is actually blind before concluding both are** — see the
+  runaway heredoc below.
+- **A refusal must name the CONSTRUCT, not the character.** Calling a malformed
+  `for` header a `Redirection` was true about the byte and false about what could
+  not be read, and since redirections are modelled the survey went looking for
+  something that could not be there. Only the invariant caught it.
 
 Four properties are load-bearing and each has a test that fails without it:
 

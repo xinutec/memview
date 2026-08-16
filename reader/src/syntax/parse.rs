@@ -12,6 +12,12 @@
 //! low at the start and ratchet. `bash-oracle`'s `syntax-report` ranks the
 //! refusals so the next construct is chosen by the corpus rather than by taste.
 //!
+//! ⚠ **A refusal names what cannot be read, and the survey checks that it is
+//! the truth.** Calling a malformed `for` header a `Redirection` was accurate
+//! about the character and wrong about the construct — and since redirections
+//! ARE modelled, the survey looked for one and found nothing. The invariant
+//! caught it; no test would have.
+//!
 //! Scanning is over bytes. Every character with meaning to the shell is ASCII, so
 //! a multi-byte sequence can only ever be interior to a literal run, and slicing
 //! at a special character always lands on a character boundary.
