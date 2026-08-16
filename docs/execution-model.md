@@ -4,8 +4,9 @@ Design for the syntax layer under `reader/`: a faithful tree for every language
 the fleet executes, plus a printer that puts it back.
 
 **Status: simple commands with binding prefixes, comments, pipelines, and-or
-lists, redirection, heredocs, tilde prefixes, parameters, `$( )` substitutions,
-`for`/`while`/`until`/`select` loops and `if`; both gates wired.**
+lists, redirection, heredocs, tilde prefixes, parameters and their operators,
+`$( )` substitutions, `for`/`while`/`until`/`select` loops and `if`; both gates
+wired.**
 `reader/src/syntax/` holds the tree, the parser and the printer; the
 `bash-oracle` crate holds the second gate and the report.
 
@@ -79,6 +80,7 @@ made of — re-run it against a new bash before trusting any of them:
 | --- | --- |
 | a fixpoint | printing its own print returns it unchanged, every shape tried |
 | verbatim on words | `a`, `'a'`, `"a"`, `ec'h'o`, `${x:-y}` come back as written; only `$'…'`, `$"…"` and `\`-newline are resolved |
+| verbatim inside `${ }` | every operator form — `${x%%.*}`, `${x/a/b}`, `${x:1:3}`, `${a[0]}`, and `${x-y}` distinct from `${x:-y}` — so this gate has **no opinion at all** about a parameter operator, exactly as it has none about the inside of a word |
 | normalising on structure | indentation, `;` versus newline, `f() { … }` → `function f () { … }`, a `( … )` function body wrapped in a brace group |
 | desugaring | `ls \|& cat` → `ls 2>&1 \| cat`; `! time a \| b` → `time ! a \| b` |
 | near-verbatim on heredoc bodies | reproduced as written, including one nested in `$( )` inside a double-quoted word — but a `\`-newline in an *unquoted* body is joined, and `<<-` strips its tabs, both at parse time |

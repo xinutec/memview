@@ -23,9 +23,10 @@
 //! at a special character always lands on a character boundary.
 
 use super::ast::{
-    AndOr, Assignment, Command, CommandKind, Comment, Conditional, Connector, ForLoop, Glob,
-    Heredoc, Item, Link, Parameter, Pipeline, Redirect, RedirectOp, RedirectTarget, Script,
-    Segment, SegmentKind, Simple, Span, Substitution, Tilde, Timed, WhileLoop, Word,
+    Anchor, AndOr, Assignment, Command, CommandKind, Comment, Conditional, Connector, ForLoop,
+    Glob, Heredoc, Item, Link, Parameter, ParameterOp, Pipeline, Redirect, RedirectOp,
+    RedirectTarget, Replace, Script, Segment, SegmentKind, Simple, Span, Subscript, Substitution,
+    Tilde, Timed, WhileLoop, Word,
 };
 
 /// Where a word is being read, which decides what expands inside it.
@@ -768,6 +769,8 @@ impl<'t> Parser<'t> {
                     kind: SegmentKind::Parameter(Parameter {
                         name: "@".to_string(),
                         quoted: true,
+                        subscript: None,
+                        op: None,
                     }),
                     span: Span::new(self.at, self.at),
                 }],
@@ -1484,18 +1487,7 @@ impl<'t> Parser<'t> {
         let start = self.at;
         self.at += 1;
         let name = if self.peek() == Some(b'{') {
-            self.at += 1;
-            let from = self.at;
-            while self.peek().is_some_and(|byte| byte != b'}') {
-                self.at += 1;
-            }
-            if self.peek().is_none() {
-                self.at = start;
-                return self.refuse(Reason::UnterminatedExpansion, 1);
-            }
-            let name = self.text[from..self.at].to_string();
-            self.at += 1;
-            name
+            return self.braced_parameter(start, quoted);
         } else if self.peek().is_some_and(|byte| byte.is_ascii_digit()) {
             // ⚠ **Exactly one digit.** `$10` is `${1}` followed by a `0` — bash
             // prints both spellings identically, so this was settled by running
@@ -1521,7 +1513,281 @@ impl<'t> Parser<'t> {
             self.text[from..self.at].to_string()
         };
         Ok(Segment {
-            kind: SegmentKind::Parameter(Parameter { name, quoted }),
+            kind: SegmentKind::Parameter(Parameter {
+                name,
+                quoted,
+                subscript: None,
+                op: None,
+            }),
+            span: Span::new(start, self.at),
+        })
+    }
+
+    /// `${…}` — a name, maybe a subscript, maybe an operator on it.
+    ///
+    /// ⚠ **Nothing here may be read as text.** Bash prints every operator form
+    /// back verbatim, so the second gate sees the same characters on both sides
+    /// and cannot object to a wrong tree — an operator absorbed into a literal
+    /// would satisfy both gates and be silently wrong. Every branch therefore
+    /// either spells the operator or refuses by name.
+    fn braced_parameter(&mut self, start: usize, quoted: bool) -> Result<Segment, Refusal> {
+        self.at += 1; // the `{`
+        // `${#x}` and `${!x}` put their operator in front of the name, so they
+        // are read before it. `${#}` is the special parameter, not a length.
+        let prefix = match (self.peek(), self.peek_at(1)) {
+            (Some(b'#'), Some(byte)) if byte != b'}' => {
+                self.at += 1;
+                Some(ParameterOp::Length)
+            }
+            (Some(b'!'), Some(byte)) if byte != b'}' => {
+                self.at += 1;
+                Some(ParameterOp::Indirect)
+            }
+            _ => None,
+        };
+        let from = self.at;
+        if prefix.is_none()
+            && let Some(byte) = self.peek()
+            && !byte.is_ascii_alphanumeric()
+            && byte != b'_'
+        {
+            // A special parameter in braces: `${@}`, `${?}`.
+            self.at += 1;
+        }
+        while self
+            .peek()
+            .is_some_and(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+        {
+            self.at += 1;
+        }
+        let name = self.text[from..self.at].to_string();
+        if name.is_empty() {
+            return self.refuse(Reason::ParameterOperator, 1);
+        }
+        let subscript = self.subscript()?;
+        let op = match prefix {
+            Some(op) => {
+                if self.peek() != Some(b'}') {
+                    return self.refuse(Reason::ParameterOperator, 1);
+                }
+                Some(op)
+            }
+            None => self.parameter_op()?,
+        };
+        if self.peek() != Some(b'}') {
+            return self.refuse(Reason::UnterminatedExpansion, 1);
+        }
+        self.at += 1;
+        Ok(Segment {
+            kind: SegmentKind::Parameter(Parameter {
+                name,
+                quoted,
+                subscript,
+                op,
+            }),
+            span: Span::new(start, self.at),
+        })
+    }
+
+    /// `[0]`, `[@]`, `[$i]` — which element, where there is one.
+    fn subscript(&mut self) -> Result<Option<Subscript>, Refusal> {
+        if self.peek() != Some(b'[') {
+            return Ok(None);
+        }
+        self.at += 1;
+        if self.peek_at(1) == Some(b']') {
+            let all = match self.peek() {
+                Some(b'@') => Some(Subscript::All),
+                Some(b'*') => Some(Subscript::Joined),
+                _ => None,
+            };
+            if let Some(subscript) = all {
+                self.at += 2;
+                return Ok(Some(subscript));
+            }
+        }
+        let index = self.operand(b"]")?;
+        if self.peek() != Some(b']') {
+            return self.refuse(Reason::UnterminatedExpansion, 1);
+        }
+        self.at += 1;
+        // ⚠ An index that is arithmetic is refused, not stored. `+` inside
+        // `${a[i+1]}` is an operator, and keeping it as literal text is the one
+        // failure neither gate can see. None occur in the corpus.
+        if index
+            .as_literal()
+            .is_some_and(|text| !text.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'))
+        {
+            return self.refuse(Reason::Arithmetic, 1);
+        }
+        Ok(Some(Subscript::Index(index)))
+    }
+
+    /// The operator after a name, if the text gives one.
+    fn parameter_op(&mut self) -> Result<Option<ParameterOp>, Refusal> {
+        // ⚠ The colon is a field: `${x-y}` substitutes only for an UNSET `x`,
+        // `${x:-y}` also for an empty one. Bash keeps both spellings, so
+        // collapsing them would be a wrong tree no gate could report.
+        let colon = self.peek() == Some(b':');
+        let at = if colon { self.at + 1 } else { self.at };
+        let op = match self.bytes.get(at).copied() {
+            Some(b'-') => Some(1),
+            Some(b'=') => Some(2),
+            Some(b'?') => Some(3),
+            Some(b'+') => Some(4),
+            _ => None,
+        };
+        if let Some(which) = op {
+            self.at = at + 1;
+            let word = self.operand(b"}")?;
+            return Ok(Some(match which {
+                1 => ParameterOp::Default { colon, word },
+                2 => ParameterOp::Assign { colon, word },
+                3 => ParameterOp::Error { colon, word },
+                _ => ParameterOp::Alternate { colon, word },
+            }));
+        }
+        // A `:` that opens none of those is a substring, whose operands are
+        // arithmetic — a language of its own, and not this build.
+        if colon {
+            return self.refuse(Reason::ParameterOperator, 1);
+        }
+        match self.peek() {
+            Some(byte @ (b'#' | b'%')) => {
+                self.at += 1;
+                let longest = self.peek() == Some(byte);
+                if longest {
+                    self.at += 1;
+                }
+                let pattern = self.operand(b"}")?;
+                Ok(Some(if byte == b'#' {
+                    ParameterOp::StripPrefix { longest, pattern }
+                } else {
+                    ParameterOp::StripSuffix { longest, pattern }
+                }))
+            }
+            Some(b'/') => Ok(Some(ParameterOp::Replace(self.replace()?))),
+            Some(byte @ (b'^' | b',')) => {
+                self.at += 1;
+                let every = self.peek() == Some(byte);
+                if every {
+                    self.at += 1;
+                }
+                Ok(Some(ParameterOp::Case {
+                    upper: byte == b'^',
+                    every,
+                }))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// `${x/pat/rep}`, and the spellings that narrow which occurrence.
+    fn replace(&mut self) -> Result<Replace, Refusal> {
+        self.at += 1; // the `/`
+        let every = self.peek() == Some(b'/');
+        if every {
+            self.at += 1;
+        }
+        // ⚠ `${x/#pat/rep}` anchors at the start, and the `#` is NOT part of the
+        // pattern. Only meaningful straight after the slash — a `#` later on is
+        // an ordinary character in the pattern.
+        let anchor = match self.peek() {
+            Some(b'#') => Some(Anchor::Start),
+            Some(b'%') => Some(Anchor::End),
+            _ => None,
+        };
+        if anchor.is_some() {
+            self.at += 1;
+        }
+        let pattern = self.operand(b"/}")?;
+        // `${x/pat}` deletes the match; with no `/` there is no replacement to
+        // read, which is a different text from `${x/pat/}` and the same tree.
+        let replacement = if self.peek() == Some(b'/') {
+            self.at += 1;
+            Some(self.operand(b"}")?)
+        } else {
+            None
+        };
+        Ok(Replace {
+            every,
+            anchor,
+            pattern,
+            replacement,
+        })
+    }
+
+    /// A word inside `${…}`, up to one of `stop` at brace depth zero.
+    ///
+    /// ⚠ **It nests, and it holds spaces.** `${x:-$(date)}` and `${x:-${y}}` are
+    /// both legal, so this cannot stop at the first `}`; `${x:-a b}` is ONE word
+    /// to bash, so it cannot stop at a space either. Both measured.
+    fn operand(&mut self, stop: &[u8]) -> Result<Word, Refusal> {
+        let start = self.at;
+        let mut segments: Vec<Segment> = Vec::new();
+        loop {
+            let Some(byte) = self.peek() else {
+                return self.refuse(Reason::UnterminatedExpansion, 1);
+            };
+            if stop.contains(&byte) {
+                break;
+            }
+            let at = self.at;
+            match byte {
+                b'$' | b'`' => match classify_expansion(self.bytes, self.at, false) {
+                    Some(Reason::Parameter) => segments.push(self.parameter(false)?),
+                    Some(Reason::CommandSubstitution) => segments.push(self.substitution(false)?),
+                    Some(reason) => return self.refuse(reason, 1),
+                    None => {
+                        self.at += 1;
+                        segments.push(Segment {
+                            kind: SegmentKind::Literal("$".to_string()),
+                            span: Span::new(at, self.at),
+                        });
+                    }
+                },
+                b'\'' => segments.push(self.single_quoted()?),
+                b'"' => segments.extend(self.double_quoted()?),
+                b'\\' => match self.peek_at(1) {
+                    Some(next) => {
+                        self.at += 2;
+                        segments.push(Segment {
+                            kind: SegmentKind::Literal((next as char).to_string()),
+                            span: Span::new(at, self.at),
+                        });
+                    }
+                    None => return self.refuse(Reason::DanglingEscape, 1),
+                },
+                // ⚠ A glob here is the PATTERN language, which is the same one
+                // pathname expansion uses — `${f%%.*}` cuts at the first dot the
+                // way `*.txt` matches. So it is a `Glob`, not literal text.
+                b'*' | b'?' => {
+                    self.at += 1;
+                    let glob = if byte == b'*' { Glob::Any } else { Glob::One };
+                    segments.push(Segment {
+                        kind: SegmentKind::Glob(glob),
+                        span: Span::new(at, self.at),
+                    });
+                }
+                _ => {
+                    let from = self.at;
+                    while let Some(next) = self.peek() {
+                        if stop.contains(&next)
+                            || matches!(next, b'$' | b'`' | b'\'' | b'"' | b'\\' | b'*' | b'?')
+                        {
+                            break;
+                        }
+                        self.at += 1;
+                    }
+                    segments.push(Segment {
+                        kind: SegmentKind::Literal(self.text[from..self.at].to_string()),
+                        span: Span::new(from, self.at),
+                    });
+                }
+            }
+        }
+        Ok(Word {
+            segments: merge_literals(segments),
             span: Span::new(start, self.at),
         })
     }
@@ -1660,19 +1926,48 @@ fn brace_expansion(bytes: &[u8], from: usize) -> Reason {
     {
         return Reason::Parameter;
     }
+    // `${#x}` measures and `${!x}` dereferences — both are operators on a name,
+    // and both are modelled.
+    let from = match bytes.get(from) {
+        Some(b'#' | b'!') => from + 1,
+        _ => from,
+    };
     let mut at = from;
-    while let Some(&byte) = bytes.get(at) {
-        match byte {
-            b'}' => break,
-            _ if byte.is_ascii_alphanumeric() || byte == b'_' => at += 1,
-            _ => return Reason::ParameterOperator,
-        }
+    while bytes
+        .get(at)
+        .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+    {
+        at += 1;
     }
     // `${}` names nothing, so it is not the same node `$name` is.
     if at == from {
         return Reason::ParameterOperator;
     }
-    Reason::Parameter
+    // A subscript is part of naming the value, and what follows it decides the
+    // rest exactly as it would without one.
+    if bytes.get(at) == Some(&b'[') {
+        match bytes[at..].iter().position(|byte| *byte == b']') {
+            Some(offset) => at += offset + 1,
+            None => return Reason::ParameterOperator,
+        }
+    }
+    match bytes.get(at) {
+        Some(b'}') => Reason::Parameter,
+        // ⚠ `:` opens four operators and one that is NOT modelled: `${x:1:3}`
+        // takes arithmetic on both sides, so it is refused where `${x:-y}` is
+        // read. Deciding that needs the character after the colon.
+        Some(b':') => match bytes.get(at + 1) {
+            Some(b'-' | b'=' | b'?' | b'+') => Reason::Parameter,
+            _ => Reason::ParameterOperator,
+        },
+        Some(b'-' | b'=' | b'?' | b'+' | b'#' | b'%' | b'/' | b'^' | b',') => Reason::Parameter,
+        // ⚠ The text ran out before the brace closed, and that is a claim about
+        // the INPUT rather than about what is modelled: bash refuses `${x` too.
+        // Classifying it as unmodelled would hide it from `bash -n`, which is
+        // the check that keeps "we cannot read it" apart from "it is not shell".
+        None => Reason::Parameter,
+        _ => Reason::ParameterOperator,
+    }
 }
 
 /// Resolve the backslash-newlines in an unquoted heredoc body, as bash does at

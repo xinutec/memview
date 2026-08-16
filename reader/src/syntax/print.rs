@@ -12,9 +12,9 @@
 //! usable as an equivalence test.
 
 use super::ast::{
-    AndOr, Assignment, Command, CommandKind, Conditional, Connector, ForLoop, Glob, Heredoc, Item,
-    Parameter, Pipeline, Redirect, RedirectOp, RedirectTarget, Script, Segment, SegmentKind,
-    Simple, Tilde, Timed, WhileLoop, Word,
+    Anchor, AndOr, Assignment, Command, CommandKind, Conditional, Connector, ForLoop, Glob,
+    Heredoc, Item, Parameter, ParameterOp, Pipeline, Redirect, RedirectOp, RedirectTarget, Script,
+    Segment, SegmentKind, Simple, Subscript, Tilde, Timed, WhileLoop, Word,
 };
 use super::parse::{is_assignment, is_reserved};
 
@@ -345,7 +345,16 @@ fn closing_brackets_after(word: &Word) -> Vec<bool> {
 
 /// `$x`, `${x}`, `"$x"` — the least spelling that reads back as this node.
 fn print_parameter(parameter: &Parameter, next: Option<&Segment>) -> String {
-    let bare = if needs_braces(&parameter.name, next) {
+    // ⚠ A subscript or an operator forces the braces, whatever follows: `$a[0]`
+    // is the value of `a` beside the literal `[0]`, an entirely different word.
+    let bare = if parameter.subscript.is_some() || parameter.op.is_some() {
+        format!(
+            "${{{}{}{}}}",
+            print_prefix_op(parameter.op.as_ref()),
+            parameter.name,
+            print_subscript(parameter.subscript.as_ref()) + &print_suffix_op(parameter.op.as_ref())
+        )
+    } else if needs_braces(&parameter.name, next) {
         format!("${{{}}}", parameter.name)
     } else {
         format!("${}", parameter.name)
@@ -357,6 +366,107 @@ fn print_parameter(parameter: &Parameter, next: Option<&Segment>) -> String {
     } else {
         bare
     }
+}
+
+/// `[0]`, `[@]` — where the node names an array element.
+fn print_subscript(subscript: Option<&Subscript>) -> String {
+    match subscript {
+        None => String::new(),
+        Some(Subscript::All) => "[@]".to_string(),
+        Some(Subscript::Joined) => "[*]".to_string(),
+        Some(Subscript::Index(word)) => format!("[{}]", print_operand(word)),
+    }
+}
+
+/// The two operators bash writes BEFORE the name.
+fn print_prefix_op(op: Option<&ParameterOp>) -> &'static str {
+    match op {
+        Some(ParameterOp::Length) => "#",
+        Some(ParameterOp::Indirect) => "!",
+        _ => "",
+    }
+}
+
+/// Everything else, which is written after the name and its subscript.
+fn print_suffix_op(op: Option<&ParameterOp>) -> String {
+    let colon = |c: bool| if c { ":" } else { "" };
+    match op {
+        None | Some(ParameterOp::Length | ParameterOp::Indirect) => String::new(),
+        Some(ParameterOp::Default { colon: c, word }) => {
+            format!("{}-{}", colon(*c), print_operand(word))
+        }
+        Some(ParameterOp::Assign { colon: c, word }) => {
+            format!("{}={}", colon(*c), print_operand(word))
+        }
+        Some(ParameterOp::Error { colon: c, word }) => {
+            format!("{}?{}", colon(*c), print_operand(word))
+        }
+        Some(ParameterOp::Alternate { colon: c, word }) => {
+            format!("{}+{}", colon(*c), print_operand(word))
+        }
+        Some(ParameterOp::StripPrefix { longest, pattern }) => {
+            format!(
+                "{}{}",
+                if *longest { "##" } else { "#" },
+                print_operand(pattern)
+            )
+        }
+        Some(ParameterOp::StripSuffix { longest, pattern }) => {
+            format!(
+                "{}{}",
+                if *longest { "%%" } else { "%" },
+                print_operand(pattern)
+            )
+        }
+        Some(ParameterOp::Case { upper, every }) => {
+            let c = if *upper { '^' } else { ',' };
+            if *every {
+                format!("{c}{c}")
+            } else {
+                c.to_string()
+            }
+        }
+        Some(ParameterOp::Replace(replace)) => {
+            let anchor = match replace.anchor {
+                Some(Anchor::Start) => "#",
+                Some(Anchor::End) => "%",
+                None => "",
+            };
+            let tail = match &replace.replacement {
+                Some(word) => format!("/{}", print_operand(word)),
+                None => String::new(),
+            };
+            format!(
+                "{}{anchor}{}{tail}",
+                if replace.every { "//" } else { "/" },
+                print_operand(&replace.pattern),
+            )
+        }
+    }
+}
+
+/// A word inside `${…}`, where quoting works differently from a word outside.
+///
+/// ⚠ **No quoting is added.** The braces already delimit it — `${x:-a b}` is one
+/// word to bash with the space bare — and a quote here would be read back as
+/// part of the value. What must still be escaped is the handful of characters
+/// that would end the expansion or change its operator.
+fn print_operand(word: &Word) -> String {
+    let mut out = String::new();
+    for segment in &word.segments {
+        match &segment.kind {
+            SegmentKind::Literal(text) => {
+                for c in text.chars() {
+                    if matches!(c, '}' | '{' | '$' | '`' | '\\' | '"' | '\'' | '/') {
+                        out.push('\\');
+                    }
+                    out.push(c);
+                }
+            }
+            _ => out.push_str(&print_segment(segment)),
+        }
+    }
+    out
 }
 
 /// Would the name run on into what comes next, or is it unspellable bare?

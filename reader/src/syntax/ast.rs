@@ -469,12 +469,101 @@ pub struct Parameter {
     /// `0`, and only `${10}` names the tenth. Measured, since bash's printer
     /// spells both the same.
     pub name: String,
+    /// `${a[0]}`, `${a[@]}` — which element, where the parameter is an array.
+    ///
+    /// ⚠ **A field rather than part of the name**, because it selects: `${a[0]}`
+    /// and `${a[1]}` name the same parameter and different values, and a reader
+    /// asking "which variable is this" must not have to unpick a string. The
+    /// commonest by far is `${PIPESTATUS[0]}`.
+    pub subscript: Option<Subscript>,
+    /// `${x:-y}`, `${x%%.*}`, `${#x}` — what is done to the value.
+    ///
+    /// ⚠ **Neither gate can check what is in here.** Bash prints every operator
+    /// form back verbatim — measured in `reader/probes/parameter-op.sh` — so the
+    /// second gate compares two identical texts and has no opinion, exactly as
+    /// it has none about the inside of a word. That leaves the round-trip law
+    /// and construction, which is why an operator this enum cannot spell is a
+    /// refusal rather than literal text.
+    pub op: Option<ParameterOp>,
     /// ⚠ **Semantic, unlike a literal's quoting.** An unquoted expansion is
     /// split into words and then globbed; a quoted one is a single word whatever
     /// it holds. `echo $x` and `echo "$x"` are different programs, so this is a
     /// field on the tree rather than a decision the printer gets to make — the
     /// same reason `Glob` is not a `Literal` holding an asterisk.
     pub quoted: bool,
+}
+
+/// Which element of an array a `${a[…]}` names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Subscript {
+    /// `[@]` — every element, each its own word.
+    All,
+    /// `[*]` — every element, joined into one.
+    ///
+    /// Kept apart from [`Subscript::All`] because the difference is the same one
+    /// `"$@"` and `"$*"` have, and it decides how many arguments a command gets.
+    Joined,
+    /// `[0]`, `[i]`, `[$n]` — an index.
+    ///
+    /// ⚠ **Held as a word, not a number.** The corpus writes `${a[$g]}` as well
+    /// as `${a[0]}`, so the index expands. An index that is *arithmetic*
+    /// (`${a[i+1]}`) is refused rather than stored: `+` there is an operator,
+    /// and keeping it as literal text would be the absorption this tree exists
+    /// to prevent. None occur in 131,246 commands.
+    Index(Word),
+}
+
+/// What a `${…}` does to the value it names.
+///
+/// ⚠ **The `:` is a field, not a spelling.** `${x-y}` substitutes only when `x`
+/// is *unset*; `${x:-y}` also substitutes when it is set and empty. Bash prints
+/// both back as written, so nothing downstream would catch the two being
+/// collapsed — measured, and the reason every branch below carries the flag.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParameterOp {
+    /// `${x:-y}` — use `y` instead, leaving `x` alone.
+    Default { colon: bool, word: Word },
+    /// `${x:=y}` — use `y` and assign it.
+    Assign { colon: bool, word: Word },
+    /// `${x:?y}` — fail with `y` as the message.
+    Error { colon: bool, word: Word },
+    /// `${x:+y}` — use `y` only when `x` IS set. The sense is reversed from the
+    /// three above, which is why it is its own variant rather than a flag.
+    Alternate { colon: bool, word: Word },
+    /// `${x#pat}` / `${x##pat}` — cut a matching prefix.
+    StripPrefix { longest: bool, pattern: Word },
+    /// `${x%pat}` / `${x%%pat}` — cut a matching suffix.
+    StripSuffix { longest: bool, pattern: Word },
+    /// `${x/pat/rep}` and its anchored spellings.
+    Replace(Replace),
+    /// `${x^}`, `${x^^}`, `${x,}`, `${x,,}` — change case.
+    Case { upper: bool, every: bool },
+    /// `${#x}` — how long the value is, or how many elements an array has.
+    Length,
+    /// `${!x}` — the value of the parameter *named* by `x`.
+    Indirect,
+}
+
+/// `${x/pat/rep}`: which occurrences, and what replaces them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Replace {
+    /// `//` — every occurrence rather than the first.
+    pub every: bool,
+    /// `/#` and `/%` — anchored at the start or the end.
+    pub anchor: Option<Anchor>,
+    pub pattern: Word,
+    /// Absent where the text gave none: `${x/pat}` deletes the match, and
+    /// `${x/pat/}` says the same thing. One tree, so the printer picks a
+    /// spelling.
+    pub replacement: Option<Word>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Anchor {
+    /// `${x/#pat/rep}` — only at the start.
+    Start,
+    /// `${x/%pat/rep}` — only at the end.
+    End,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

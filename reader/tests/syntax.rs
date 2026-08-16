@@ -885,9 +885,12 @@ fn each_dollar_form_is_named_apart() {
     // ⚠ A reason is a unit of work, and these are not one build: naming a
     // parameter is a leaf, `${x%%y}` is a small language, and `$(…)` is a whole
     // script this parser would have to recurse into.
-    assert_eq!(refusal("echo ${x:-y}"), Reason::ParameterOperator);
-    assert_eq!(refusal("echo ${#x}"), Reason::ParameterOperator);
-    assert_eq!(refusal("echo ${x%%.*}"), Reason::ParameterOperator);
+    // The operator family is built now; what is left of this reason is the
+    // substring, whose operands are arithmetic.
+    assert_eq!(refusal("echo ${x:1:3}"), Reason::ParameterOperator);
+    assert!(parse("echo ${x:-y}").is_ok());
+    assert!(parse("echo ${#x}").is_ok());
+    assert!(parse("echo ${x%%.*}").is_ok());
     assert_eq!(refusal("echo `date`"), Reason::Backtick);
     assert_eq!(refusal("echo $((1+2))"), Reason::Arithmetic);
     assert_eq!(refusal("echo $'\\x41'"), Reason::AnsiQuote);
@@ -993,7 +996,9 @@ fn the_braces_are_a_spelling_and_the_name_is_the_node() {
             Segment {
                 kind: SegmentKind::Parameter(reader::syntax::ast::Parameter {
                     name: "1".into(),
-                    quoted: false
+                    quoted: false,
+                    subscript: None,
+                    op: None
                 }),
                 span: Span::new(0, 0)
             },
@@ -1031,7 +1036,9 @@ fn a_word_can_hold_text_and_parameters_together() {
             Segment {
                 kind: SegmentKind::Parameter(reader::syntax::ast::Parameter {
                     name: "x".into(),
-                    quoted: false
+                    quoted: false,
+                    subscript: None,
+                    op: None
                 }),
                 span: Span::new(0, 0)
             },
@@ -1635,6 +1642,217 @@ fn the_law_holds_across_the_conditional_shapes() {
         "cd x && if a; then b; fi",
         "if a; then FOO=1 b; fi",
         "echo $(if a; then b; fi)",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+        assert!(
+            survey(text).is_empty(),
+            "{text:?} should need nothing: {:?}",
+            survey(text)
+        );
+    }
+}
+
+// ---- parameter operators ----
+
+fn parameter_of(text: &str) -> reader::syntax::ast::Parameter {
+    match &segments(text, 1)[..] {
+        [
+            Segment {
+                kind: SegmentKind::Parameter(p),
+                ..
+            },
+        ] => p.clone(),
+        other => panic!("{text:?} is not one parameter: {other:?}"),
+    }
+}
+
+#[test]
+fn the_colon_is_a_field_because_it_changes_what_substitutes() {
+    // ⚠ `${x-y}` substitutes only for an UNSET x; `${x:-y}` also for an empty
+    // one. Bash prints both back as written, so nothing downstream would catch
+    // these being collapsed — construction is the only defence.
+    use reader::syntax::ast::ParameterOp;
+    let with = parameter_of("echo ${x:-y}").op.expect("an operator");
+    let without = parameter_of("echo ${x-y}").op.expect("an operator");
+    assert!(matches!(with, ParameterOp::Default { colon: true, .. }));
+    assert!(matches!(without, ParameterOp::Default { colon: false, .. }));
+    assert_ne!(with, without);
+    assert_eq!(print(&tree("echo ${x-y}")), "echo ${x-y}");
+}
+
+#[test]
+fn each_operator_is_its_own_node_not_a_string() {
+    use reader::syntax::ast::ParameterOp;
+    assert!(matches!(
+        parameter_of("echo ${x:=y}").op,
+        Some(ParameterOp::Assign { .. })
+    ));
+    assert!(matches!(
+        parameter_of("echo ${x:?y}").op,
+        Some(ParameterOp::Error { .. })
+    ));
+    assert!(matches!(
+        parameter_of("echo ${x:+y}").op,
+        Some(ParameterOp::Alternate { .. })
+    ));
+    assert!(matches!(
+        parameter_of("echo ${#x}").op,
+        Some(ParameterOp::Length)
+    ));
+    assert!(matches!(
+        parameter_of("echo ${!x}").op,
+        Some(ParameterOp::Indirect)
+    ));
+    // The doubled forms take the LONGEST match, which is a different program.
+    assert!(matches!(
+        parameter_of("echo ${x#p}").op,
+        Some(ParameterOp::StripPrefix { longest: false, .. })
+    ));
+    assert!(matches!(
+        parameter_of("echo ${x##p}").op,
+        Some(ParameterOp::StripPrefix { longest: true, .. })
+    ));
+    assert!(matches!(
+        parameter_of("echo ${x%%s}").op,
+        Some(ParameterOp::StripSuffix { longest: true, .. })
+    ));
+    assert!(matches!(
+        parameter_of("echo ${x^^}").op,
+        Some(ParameterOp::Case {
+            upper: true,
+            every: true
+        })
+    ));
+}
+
+#[test]
+fn a_subscript_names_an_element_and_forces_the_braces() {
+    use reader::syntax::ast::Subscript;
+    let p = parameter_of("echo ${PIPESTATUS[0]}");
+    assert_eq!(p.name, "PIPESTATUS");
+    assert!(matches!(p.subscript, Some(Subscript::Index(_))));
+    assert!(matches!(
+        parameter_of("echo ${a[@]}").subscript,
+        Some(Subscript::All)
+    ));
+    // ⚠ `[@]` and `[*]` differ the way `"$@"` and `"$*"` do — how many words.
+    assert!(matches!(
+        parameter_of("echo ${a[*]}").subscript,
+        Some(Subscript::Joined)
+    ));
+    assert_ne!(parameter_of("echo ${a[@]}"), parameter_of("echo ${a[*]}"));
+    // `$a[0]` is `$a` and the literal `[0]`: a different word entirely, so the
+    // printer may never drop these braces.
+    assert_eq!(print(&tree("echo ${a[0]}")), "echo ${a[0]}");
+    // `$a[0]` is `$a` followed by `[0]`, which unquoted is a bracket
+    // expression — a construct this tree does not model yet. That it is refused
+    // rather than read as the subscript above is the point.
+    assert_eq!(refusal("echo $a[0]"), Reason::BracketExpression);
+}
+
+#[test]
+fn an_operand_nests_and_holds_spaces_bare() {
+    // ⚠ Both measured: `${x:-$(date)}` means the operand cannot be found by
+    // scanning to the first `}`, and `${x:-a b}` is ONE word, so it cannot stop
+    // at a space either.
+    assert!(parse("echo ${x:-$(date)}").is_ok());
+    assert!(parse("echo ${x:-${y}}").is_ok());
+    assert_eq!(print(&tree("echo ${x:-a b}")), "echo ${x:-a b}");
+    assert!(check("echo ${x:-$(date)}").holds());
+    assert!(check("echo ${x:-${y}}").holds());
+}
+
+#[test]
+fn a_pattern_operand_is_a_pattern_not_literal_text() {
+    // `${f%%.*}` cuts at the FIRST dot: the `*` is the same glob language
+    // pathname expansion uses, so it is a Glob segment rather than an asterisk.
+    use reader::syntax::ast::{Glob, ParameterOp};
+    let Some(ParameterOp::StripSuffix { pattern, .. }) = parameter_of("echo ${f%%.*}").op else {
+        panic!("not a suffix strip");
+    };
+    assert!(
+        pattern
+            .segments
+            .iter()
+            .any(|s| matches!(s.kind, SegmentKind::Glob(Glob::Any))),
+        "the `*` in a pattern must be a glob: {pattern:?}"
+    );
+}
+
+#[test]
+fn a_replacement_is_absent_rather_than_empty_when_none_was_written() {
+    use reader::syntax::ast::{Anchor, ParameterOp};
+    let Some(ParameterOp::Replace(r)) = parameter_of("echo ${x/a/b}").op else {
+        panic!("not a replace");
+    };
+    assert!(!r.every && r.anchor.is_none() && r.replacement.is_some());
+    let Some(ParameterOp::Replace(all)) = parameter_of("echo ${x//a/b}").op else {
+        panic!("not a replace");
+    };
+    assert!(all.every);
+    let Some(ParameterOp::Replace(anchored)) = parameter_of("echo ${x/#a/b}").op else {
+        panic!("not a replace");
+    };
+    assert_eq!(anchored.anchor, Some(Anchor::Start));
+    // `${x/a}` deletes the match and gives no replacement to read.
+    let Some(ParameterOp::Replace(cut)) = parameter_of("echo ${x/a}").op else {
+        panic!("not a replace");
+    };
+    assert!(cut.replacement.is_none());
+}
+
+#[test]
+fn what_this_build_does_not_reach_is_still_refused_by_name() {
+    // ⚠ A substring takes ARITHMETIC on both sides, which is a language of its
+    // own — so it stays refused rather than being read as text.
+    assert_eq!(refusal("echo ${x:1:3}"), Reason::ParameterOperator);
+    assert!(survey("echo ${x:1:3}").contains(&Reason::ParameterOperator));
+    // An arithmetic index is refused as arithmetic, which is what it is.
+    assert_eq!(refusal("echo ${a[i+1]}"), Reason::Arithmetic);
+    assert_eq!(refusal("echo ${}"), Reason::ParameterOperator);
+    // Bash refuses this one too, so `bash -n` adjudicates the claim.
+    assert_eq!(refusal("echo ${x"), Reason::UnterminatedExpansion);
+}
+
+#[test]
+fn the_law_holds_across_the_parameter_operator_shapes() {
+    for text in [
+        "echo ${x:-y}",
+        "echo ${x-y}",
+        "echo ${x:=y}",
+        "echo ${x:?msg}",
+        "echo ${x:+y}",
+        "echo ${#x}",
+        "echo ${!x}",
+        "echo ${x#p}",
+        "echo ${x##*/}",
+        "echo ${x%s}",
+        "echo ${f%%.*}",
+        "echo ${x/a/b}",
+        "echo ${x//a/b}",
+        "echo ${x/#a/b}",
+        "echo ${x/%a/b}",
+        "echo ${x/a}",
+        "echo ${x^}",
+        "echo ${x,,}",
+        "echo ${PIPESTATUS[0]}",
+        "echo ${a[@]}",
+        "echo ${#a[@]}",
+        "echo ${a[$i]}",
+        r#"echo "${x:-y}""#,
+        "echo ${x:-a b}",
+        "echo ${x:-$(date)}",
+        "echo ${x:-${y}}",
+        "echo ${x:-}",
+        "echo ${x:-*}",
+        "echo ${x:-a/b}",
+        "FOO=${x:-y} cmd",
+        "for f in ${a[@]}; do echo ${f%%.*}; done",
+        "if [ -n ${x:-} ]; then echo ${#x}; fi",
     ] {
         assert!(
             check(text).holds(),
