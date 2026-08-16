@@ -26,9 +26,22 @@ fn session_cookie(value: String) -> Cookie<'static> {
 }
 
 /// Only allow same-site internal paths as a post-login redirect target.
+///
+/// ⚠ **The test is on the character AFTER the leading slash, because that is
+/// what decides whether a host follows.** `//host` is protocol-relative, and so
+/// is `/\host`: the URL Standard treats a backslash as a slash for http(s), so a
+/// browser resolves `Location: /\attacker.com` to `http://attacker.com/` and the
+/// redirect leaves the site. Testing only for `//` reads as a same-site check
+/// and is not one.
+///
+/// A backslash anywhere LATER is an ordinary path character and stays allowed —
+/// it cannot open an authority, and rejecting it would drop a legitimate return
+/// to a search whose query holds one.
 pub fn validate_return_to(return_to: Option<&str>) -> String {
     match return_to {
-        Some(p) if p.starts_with('/') && !p.starts_with("//") => p.to_string(),
+        Some(p) if p.starts_with('/') && !matches!(p.as_bytes().get(1), Some(b'/' | b'\\')) => {
+            p.to_string()
+        }
         _ => "/".to_string(),
     }
 }

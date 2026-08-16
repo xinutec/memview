@@ -99,7 +99,16 @@
   }
 }
 
-@if (results(); as hits) {
+@if (failed()) {
+  <!-- Never "No matches." for a search that did not run. The empty list is a
+       claim about the corpus, and a reader who believes it goes and writes a
+       memory that already exists. -->
+  <p class="failed">
+    The search didn't run — the server didn't answer. This says nothing about whether such memories
+    exist.
+    <button mat-button type="button" (click)="retry()">Try again</button>
+  </p>
+} @else if (results(); as hits) {
   @if (relaxed()) {
     <!-- Never silent. Widening the query changes the question being answered,
          and a reader shown results for a question they did not ask has no way

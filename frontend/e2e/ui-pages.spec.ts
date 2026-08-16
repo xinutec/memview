@@ -1,4 +1,4 @@
-import { test, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 // The fleet-shared harness, published as @xinutec/ui-harness (source repo
 // ~/Code/ui-harness). Ships compiled JS, so it loads straight from node_modules.
 import {
@@ -128,7 +128,9 @@ const AGENTS = {
         },
       },
       remote_paths: { 'odin:/etc/nixos/configuration.nix': { reads: 312, edits: 44 } },
-      commit_lines: { 'health/src/geo/velocity.ts': { added: 38104, deleted: 12960, commits: 214 } },
+      commit_lines: {
+        'health/src/geo/velocity.ts': { added: 38104, deleted: 12960, commits: 214 },
+      },
       commits: 214,
       reads: { health: 4820 },
       writes: { health: 3110 },
@@ -287,7 +289,8 @@ const EFFECTS = {
       // wire. dev-lint's wire-mirror check is what caught it.
       did: 'w',
       path: 'health/packages/health-sync-backend/src/decode/quantiseLegCost.ts',
-      command: "sed -i '' 's/Math.round/Math.floor/' packages/health-sync-backend/src/decode/quantiseLegCost.ts",
+      command:
+        "sed -i '' 's/Math.round/Math.floor/' packages/health-sync-backend/src/decode/quantiseLegCost.ts",
       reached: true,
       verdict: 'ok',
     },
@@ -388,7 +391,9 @@ test('all list — type filters + long slugs @ phone width', async ({ page }, te
  * a project row carrying a bar, two counts, a shell aside, an uncertainty aside
  * and a line delta. Every one of those is a wrapping risk at 390px.
  */
-test('agents — a dense totals line and its provenance @ phone width', async ({ page }, testInfo) => {
+test('agents — a dense totals line and its provenance @ phone width', async ({
+  page,
+}, testInfo) => {
   await mockApi(page);
   await page.goto('/agents');
   // Scoped to the row, because the page's own lede explains the shell reader in
@@ -531,3 +536,42 @@ for (const scheme of ['light', 'dark'] as const) {
     await expectCanvasLegible(page, testInfo, 'app-graph-view canvas');
   });
 }
+
+// ⚠ The failure states, which no other case reaches: every test above mocks a
+// backend that answers. They are the states most likely to be wrong on a phone,
+// because they are the ones nobody looks at — and a sentence plus a button is
+// exactly the shape that wraps badly at 412px.
+test('search — a failed search says so rather than "No matches." @ phone width', async ({
+  page,
+}, testInfo) => {
+  await mockApi(page);
+  await page.route('**/api/search**', (r) => r.fulfill({ status: 500, body: 'boom' }));
+  await page.goto('/search?q=lean');
+  await page.getByText("The search didn't run", { exact: false }).waitFor();
+  // The claim this replaces must be absent: rendering both would be worse than
+  // rendering only the wrong one.
+  await expect(page.locator('.empty')).toHaveCount(0);
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+});
+
+test('memory — a failed load is not "hasn\'t been written yet" @ phone width', async ({
+  page,
+}, testInfo) => {
+  await mockApi(page);
+  await page.route('**/api/memory/**', (r) => r.fulfill({ status: 500, body: 'boom' }));
+  await page.goto('/m/project_health_verified_core_lean');
+  await page.getByText("didn't load", { exact: false }).waitFor();
+  await expect(page.getByText('marks something worth writing')).toHaveCount(0);
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+});
+
+test('memory — a 404 still reads as not yet written @ phone width', async ({ page }, testInfo) => {
+  await mockApi(page);
+  await page.route('**/api/memory/**', (r) => r.fulfill({ status: 404, body: 'no such memory' }));
+  await page.goto('/m/project_never_written');
+  await page.getByText('marks something worth writing', { exact: false }).waitFor();
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+});

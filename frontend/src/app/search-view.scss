@@ -42,6 +42,26 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
+// The search did not run. Styled as an error where `.relaxed` is styled as a
+// remark, because this one withholds an answer rather than qualifying it — the
+// colour is the fastest way to say "what is missing here is not a result".
+.failed {
+  font: var(--mat-sys-body-medium);
+  color: var(--mat-sys-error);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+
+  // The button carries its own horizontal padding, which at phone width lands
+  // it in its own row and indented past the sentence it follows. Pulled back so
+  // the two line up on the left edge.
+  button {
+    margin-left: -8px;
+  }
+}
+
 // The widened-query notice. Styled as a remark rather than an error: the
 // results below it are real, they simply answer a looser question than the one
 // that was typed.

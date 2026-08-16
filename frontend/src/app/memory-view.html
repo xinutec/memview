@@ -61,6 +61,15 @@
       </ul>
     </section>
   }
+} @else if (failed()) {
+  <!-- Deliberately NOT the "hasn't been written yet" copy below: that sentence
+       invites writing the memory, and doing so because the server was down is
+       how a duplicate gets created. -->
+  <div class="missing">
+    <h1>{{ name() }}</h1>
+    <p>This memory didn't load — the server didn't answer. Whether it exists is unknown.</p>
+    <a routerLink="/">Back to the index</a>
+  </div>
 } @else if (missing()) {
   <div class="missing">
     <h1>{{ name() }}</h1>
