@@ -188,6 +188,37 @@ Four numbers, reported apart — **per command**, **per byte**, **per node**, an
 
 ⚠ A parse rate is not a coverage figure, and the trap recurs at every layer.
 
+### A refusal ranking is not a work queue
+
+The parser stops at the first construct it cannot read, so each refused command
+is counted once, under whichever construct the scan reached first. That ranking
+answers "what stopped us", which is a different question from "what would
+building this unlock" — and the two disagree badly. Measured 2026-08-16 over the
+frozen union:
+
+| construct | ranked first-refusal | unlocks alone |
+| --- | --- | --- |
+| redirection | 28.49%, 1st | 3.26% |
+| and-or | 22.66%, 2nd | 5.65% |
+| pipe | 13.32%, 3rd | **11.03%** |
+| tilde | 12.39%, 4th | 0.29% |
+
+Redirection leads the ranking and is worth the least of the three; the pipe is
+worth 3.4× it. Planning off the ranking would have built them in the wrong
+order. So `syntax::survey` returns the **whole set** of constructs a command
+needs, and the report plans off a greedy cumulative curve instead: pipe → and-or
+→ redirection → background → tilde → expansion reaches 86.78% of commands.
+
+Only 27,322 of 113,439 refused commands need a single construct — most need
+three or more, which is why a per-construct percentage is the wrong unit.
+
+⚠ **The survey is a second scanner and is pinned, not trusted.** It has to read
+text the parser cannot, so it cannot be built from the parser, and it drifted on
+its first run — 191 commands where it claimed a construct the parser had
+accepted. The invariant is that the parser's refusal appears in the survey's
+set, and that the set is empty exactly when the parser accepts; the report
+re-checks it on every corpus row and says so in its output.
+
 ## The corpus
 
 **Freeze a snapshot and measure against it.** The live corpus shrinks: Claude

@@ -7,7 +7,8 @@
 //! split and the reserved words are all of that kind.
 
 use reader::syntax::ast::{Glob, Item, Segment, SegmentKind, Span, Word};
-use reader::syntax::{Outcome, Reason, check, parse, print};
+use reader::syntax::{Outcome, Reason, check, parse, print, survey};
+use std::collections::BTreeSet;
 
 fn tree(text: &str) -> reader::syntax::Script {
     parse(text).unwrap_or_else(|refusal| panic!("{text:?} was refused: {:?}", refusal.reason))
@@ -198,4 +199,70 @@ fn the_law_reports_a_refusal_apart_from_a_failure() {
     // a perfect law.
     assert!(matches!(check("a | b"), Outcome::Refused(_)));
     assert!(!check("a | b").holds());
+}
+
+// ---- the survey: which constructs a command needs, not which stopped us ----
+
+#[test]
+fn the_survey_returns_every_blocking_construct_not_the_first() {
+    // The whole reason it exists: `parse` stops at the pipe and never sees the
+    // redirection, so the refusal ranking under-counts whatever sits rightmost.
+    assert_eq!(refusal("a | b > c"), Reason::Pipe);
+    assert_eq!(
+        survey("a | b > c"),
+        BTreeSet::from([Reason::Pipe, Reason::Redirection])
+    );
+}
+
+#[test]
+fn an_argument_is_not_a_command_name() {
+    // ⚠ Regression. Preserving `at_command_start` across a word made every word
+    // on the line look like a command head, so `BatchMode=yes` was reported as
+    // an assignment prefix and `in` as a reserved word — 191 corpus commands
+    // where the survey claimed a construct the parser had accepted.
+    assert!(survey("ssh -o BatchMode=yes host").is_empty());
+    assert!(survey("git add in do done").is_empty());
+    assert_eq!(survey("FOO=bar cmd"), BTreeSet::from([Reason::Assignment]));
+    assert_eq!(survey("for f in a"), BTreeSet::from([Reason::ReservedWord]));
+}
+
+#[test]
+fn the_survey_looks_past_what_it_cannot_own() {
+    // A substitution's interior belongs to the layer that gets one, and a
+    // heredoc body is data. Both are reported as themselves and not descended.
+    assert_eq!(
+        survey("echo $(git log | head)"),
+        BTreeSet::from([Reason::Expansion])
+    );
+    assert_eq!(
+        survey("cat <<EOF\na | b && c\nEOF"),
+        BTreeSet::from([Reason::Redirection])
+    );
+}
+
+#[test]
+fn the_survey_is_empty_exactly_when_the_parser_accepts() {
+    // The invariant the corpus report re-checks on every row. Stated here too,
+    // because a drift found on 131k commands is a worse place to find it.
+    for text in [
+        "echo a",
+        "ls a*b",
+        "[ -f x ]",
+        "# a comment",
+        "a; b",
+        "'time' ./x.sh",
+        "a | b",
+        "cd ~/x",
+        "echo $x",
+        "a && b",
+        "x > y",
+        "(a)",
+    ] {
+        assert_eq!(
+            survey(text).is_empty(),
+            parse(text).is_ok(),
+            "survey and parser disagree about {text:?}: {:?}",
+            survey(text)
+        );
+    }
 }

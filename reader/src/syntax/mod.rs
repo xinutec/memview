@@ -33,8 +33,10 @@ pub mod ast;
 pub mod law;
 pub mod parse;
 pub mod print;
+pub mod survey;
 
 pub use ast::{Command, Comment, Glob, Item, Script, Segment, SegmentKind, Span, Word};
 pub use law::{Outcome, check};
 pub use parse::{Reason, Refusal, parse};
 pub use print::print;
+pub use survey::survey;
