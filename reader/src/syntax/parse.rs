@@ -17,8 +17,8 @@
 //! at a special character always lands on a character boundary.
 
 use super::ast::{
-    AndOr, Command, Comment, Connector, Glob, Heredoc, Item, Link, Pipeline, Redirect, RedirectOp,
-    RedirectTarget, Script, Segment, SegmentKind, Span, Tilde, Timed, Word,
+    AndOr, Command, Comment, Connector, Glob, Heredoc, Item, Link, Parameter, Pipeline, Redirect,
+    RedirectOp, RedirectTarget, Script, Segment, SegmentKind, Span, Tilde, Timed, Word,
 };
 
 /// Why a piece of text was not read.
@@ -68,6 +68,9 @@ pub enum Reason {
     Assignment,
     /// A quote with no partner.
     UnterminatedQuote,
+    /// `${x` — an expansion with no closing brace. Bash refuses it too, so this
+    /// is a claim about the input and `bash -n` adjudicates it.
+    UnterminatedExpansion,
     /// A backslash at end of input.
     DanglingEscape,
     /// `a |` or `a &&` with nothing after it. Bash calls this a syntax error too.
@@ -96,6 +99,7 @@ impl Reason {
             Reason::ReservedWord => "reserved word",
             Reason::Assignment => "assignment prefix (FOO=bar)",
             Reason::UnterminatedQuote => "unterminated quote",
+            Reason::UnterminatedExpansion => "unterminated expansion (${ with no })",
             Reason::DanglingEscape => "dangling escape",
             Reason::EmptyOperand => "empty operand (an operator with nothing after it)",
             Reason::CommentInList => "comment inside an and-or list",
@@ -679,17 +683,37 @@ impl<'t> Parser<'t> {
                     };
                     text.push_str(&inner);
                 }
+                // ⚠ Read literally, NOT with [`Parser::double_quoted`]. A
+                // heredoc delimiter undergoes quote removal and nothing else, so
+                // `<<"E$F"` ends at a line reading `E$F` — the `$` names no
+                // parameter. Sharing the word reader here would put an expansion
+                // in a place the shell does not expand.
                 b'"' => {
                     quoted = true;
                     read_anything = true;
-                    let Segment {
-                        kind: SegmentKind::Literal(inner),
-                        ..
-                    } = self.double_quoted()?
-                    else {
-                        unreachable!("a double-quoted run with no expansion is one literal")
-                    };
-                    text.push_str(&inner);
+                    self.at += 1;
+                    loop {
+                        match self.peek() {
+                            None => {
+                                return Err(Refusal {
+                                    reason: Reason::UnterminatedQuote,
+                                    span: Span::new(self.at, self.bytes.len()),
+                                });
+                            }
+                            Some(b'"') => {
+                                self.at += 1;
+                                break;
+                            }
+                            Some(b'\\') if matches!(self.peek_at(1), Some(b'"' | b'\\')) => {
+                                text.push(self.bytes[self.at + 1] as char);
+                                self.at += 2;
+                            }
+                            Some(byte) => {
+                                text.push(byte as char);
+                                self.at += 1;
+                            }
+                        }
+                    }
                 }
                 b'\\' => match self.peek_at(1) {
                     // A line continuation does not end the delimiter, and the
@@ -803,6 +827,7 @@ impl<'t> Parser<'t> {
                 // bash agrees: `echo $`, `echo a$` and `echo $.` all parse and
                 // print back unchanged.
                 b'$' | b'`' => match classify_expansion(self.bytes, self.at, false) {
+                    Some(Reason::Parameter) => segments.push(self.parameter(false)?),
                     Some(reason) => return self.refuse(reason, 1),
                     None => {
                         self.at += 1;
@@ -829,7 +854,7 @@ impl<'t> Parser<'t> {
                 }
                 b'"' => {
                     quoted_anywhere = true;
-                    segments.push(self.double_quoted()?);
+                    segments.extend(self.double_quoted()?);
                 }
                 _ => segments.push(self.bare()?),
             }
@@ -940,23 +965,45 @@ impl<'t> Parser<'t> {
         })
     }
 
-    /// Double quotes suppress splitting and globbing but not expansion, so the
-    /// text inside is literal and a `$` or a backtick inside is refused exactly
-    /// as it would be outside.
-    fn double_quoted(&mut self) -> Result<Segment, Refusal> {
-        let start = self.at;
+    /// A double-quoted run, which may hold more than one segment.
+    ///
+    /// ⚠ **Quoting suppresses splitting and globbing, not expansion**, so a `$`
+    /// in here is a parameter exactly as it is outside — and the segment it
+    /// makes carries `quoted: true`, which is the whole difference between
+    /// `echo $x` and `echo "$x"`.
+    fn double_quoted(&mut self) -> Result<Vec<Segment>, Refusal> {
+        let open = self.at;
         self.at += 1;
+        let mut segments: Vec<Segment> = Vec::new();
         let mut text = String::new();
+        let mut from = self.at;
+        // Flush the literal run gathered so far, so a parameter can be pushed
+        // after it in the order they were written.
+        macro_rules! flush {
+            () => {
+                if !text.is_empty() {
+                    segments.push(Segment {
+                        kind: SegmentKind::Literal(std::mem::take(&mut text)),
+                        span: Span::new(from, self.at),
+                    });
+                }
+            };
+        }
         loop {
             let Some(byte) = self.peek() else {
                 return Err(Refusal {
                     reason: Reason::UnterminatedQuote,
-                    span: Span::new(start, self.bytes.len()),
+                    span: Span::new(open, self.bytes.len()),
                 });
             };
             match byte {
                 b'"' => break,
                 b'$' | b'`' => match classify_expansion(self.bytes, self.at, true) {
+                    Some(Reason::Parameter) => {
+                        flush!();
+                        segments.push(self.parameter(true)?);
+                        from = self.at;
+                    }
                     Some(reason) => return self.refuse(reason, 1),
                     None => {
                         text.push('$');
@@ -981,20 +1028,76 @@ impl<'t> Parser<'t> {
                     }
                 }
                 _ => {
-                    let from = self.at;
+                    let run = self.at;
                     while let Some(next) = self.peek() {
                         if matches!(next, b'"' | b'\\' | b'$' | b'`') {
                             break;
                         }
                         self.at += 1;
                     }
-                    text.push_str(&self.text[from..self.at]);
+                    text.push_str(&self.text[run..self.at]);
                 }
             }
         }
+        flush!();
         self.at += 1;
+        // An empty pair of quotes is a word with no content, and the word reader
+        // needs a segment to say so.
+        if segments.is_empty() {
+            segments.push(Segment {
+                kind: SegmentKind::Literal(String::new()),
+                span: Span::new(open, self.at),
+            });
+        }
+        Ok(segments)
+    }
+
+    /// `$name`, `${name}`, `$1`, `$@` — with the braces resolved away.
+    ///
+    /// Only reached when [`classify_expansion`] has already said this is a plain
+    /// parameter, so every branch below finds a name.
+    fn parameter(&mut self, quoted: bool) -> Result<Segment, Refusal> {
+        let start = self.at;
+        self.at += 1;
+        let name = if self.peek() == Some(b'{') {
+            self.at += 1;
+            let from = self.at;
+            while self.peek().is_some_and(|byte| byte != b'}') {
+                self.at += 1;
+            }
+            if self.peek().is_none() {
+                self.at = start;
+                return self.refuse(Reason::UnterminatedExpansion, 1);
+            }
+            let name = self.text[from..self.at].to_string();
+            self.at += 1;
+            name
+        } else if self.peek().is_some_and(|byte| byte.is_ascii_digit()) {
+            // ⚠ **Exactly one digit.** `$10` is `${1}` followed by a `0` — bash
+            // prints both spellings identically, so this was settled by running
+            // it rather than by reading the printer.
+            self.at += 1;
+            self.text[start + 1..self.at].to_string()
+        } else if self
+            .peek()
+            .is_some_and(|byte| !byte.is_ascii_alphanumeric() && byte != b'_')
+        {
+            // A special parameter: `$@`, `$?`, `$$` and the rest, one character
+            // each.
+            self.at += 1;
+            self.text[start + 1..self.at].to_string()
+        } else {
+            let from = self.at;
+            while self
+                .peek()
+                .is_some_and(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+            {
+                self.at += 1;
+            }
+            self.text[from..self.at].to_string()
+        };
         Ok(Segment {
-            kind: SegmentKind::Literal(text),
+            kind: SegmentKind::Parameter(Parameter { name, quoted }),
             span: Span::new(start, self.at),
         })
     }

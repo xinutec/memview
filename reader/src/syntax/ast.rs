@@ -321,6 +321,32 @@ pub enum SegmentKind {
     /// which is the only place the shell expands one: `~/x` is a home directory
     /// and `"~/x"` is a filename beginning with a tilde.
     Tilde(Tilde),
+    /// `$name`, `${name}`, `$1`, `$@` — a parameter's value.
+    Parameter(Parameter),
+}
+
+/// A parameter, named and nothing more.
+///
+/// ⚠ **The braces are not recorded.** `$x` and `${x}` name the same value, so
+/// they are one node and the printer puts braces back only where the following
+/// character would otherwise extend the name — `${x}y`. Bash keeps the two
+/// spellings in its own output, but both sides of the second gate see the same
+/// text there, so it has no opinion; this is the same collapse `'a'`, `"a"` and
+/// `a` get.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Parameter {
+    /// `x`, `1`, `@`, `?` — without the `$` and without any braces.
+    ///
+    /// ⚠ An unbraced positional takes exactly ONE digit: `$10` is `${1}` then a
+    /// `0`, and only `${10}` names the tenth. Measured, since bash's printer
+    /// spells both the same.
+    pub name: String,
+    /// ⚠ **Semantic, unlike a literal's quoting.** An unquoted expansion is
+    /// split into words and then globbed; a quoted one is a single word whatever
+    /// it holds. `echo $x` and `echo "$x"` are different programs, so this is a
+    /// field on the tree rather than a decision the printer gets to make — the
+    /// same reason `Glob` is not a `Literal` holding an asterisk.
+    pub quoted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -353,9 +379,12 @@ impl Word {
         for segment in &self.segments {
             match &segment.kind {
                 SegmentKind::Literal(text) => out.push_str(text),
-                // A glob names a set and a tilde names a directory nobody has
-                // told us; asking for "the" text of either is a category error.
-                SegmentKind::Glob(_) | SegmentKind::Tilde(_) => return None,
+                // A glob names a set, a tilde names a directory nobody has told
+                // us, and a parameter names a value nobody has told us either;
+                // asking for "the" text of any of them is a category error.
+                SegmentKind::Glob(_) | SegmentKind::Tilde(_) | SegmentKind::Parameter(_) => {
+                    return None;
+                }
             }
         }
         Some(out)

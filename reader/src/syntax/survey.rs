@@ -262,6 +262,14 @@ impl Survey<'_> {
                 b'$' | b'`' => {
                     in_word = true;
                     match classify_expansion(self.bytes, self.at, false) {
+                        // Modelled now, so not a finding — but the word still
+                        // has to record that something was here, or `if$x` would
+                        // finish as the reserved word `if` and the survey would
+                        // claim a construct the parser accepted.
+                        Some(Reason::Parameter) => {
+                            word.push('$');
+                            self.skip_expansion();
+                        }
                         Some(reason) => {
                             self.found.insert(reason);
                             self.skip_expansion();
@@ -574,6 +582,7 @@ impl Survey<'_> {
                 }
                 b'\\' => self.at += 2,
                 b'$' | b'`' => match classify_expansion(self.bytes, self.at, true) {
+                    Some(Reason::Parameter) => self.skip_expansion(),
                     Some(reason) => {
                         self.found.insert(reason);
                         self.skip_expansion();

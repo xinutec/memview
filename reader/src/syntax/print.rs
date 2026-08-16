@@ -12,8 +12,8 @@
 //! usable as an equivalence test.
 
 use super::ast::{
-    AndOr, Command, Connector, Glob, Heredoc, Item, Pipeline, Redirect, RedirectOp, RedirectTarget,
-    Script, Segment, SegmentKind, Tilde, Timed, Word,
+    AndOr, Command, Connector, Glob, Heredoc, Item, Parameter, Pipeline, Redirect, RedirectOp,
+    RedirectTarget, Script, Segment, SegmentKind, Tilde, Timed, Word,
 };
 use super::parse::{is_assignment, is_reserved};
 
@@ -179,16 +179,90 @@ pub fn print_word(word: &Word, first: bool) -> String {
     // something the tree does not. Found by the round-trip law on 319 commands
     // — `cat ~/.config/…/Local\ State`, where the space forced a quote right
     // where the prefix ends.
+    // ⚠ **A bracket expression is a property of the WHOLE word, so the decision
+    // to quote cannot be made one segment at a time.** `"[rc=$?]"` holds the
+    // literal `[rc=`, which needs no quoting by itself, and the literal `]`,
+    // which needs none either — printed bare they compose into `[rc="$?"]`, and
+    // that reads back as a bracket expression rather than as this word. Found by
+    // the round-trip law on 2 commands. So a literal holding a `[` is quoted
+    // whenever a LATER literal holds the `]` that would close it.
+    let closed_later = closing_brackets_after(word);
     let mut out = String::new();
     let mut after_tilde = false;
-    for segment in &word.segments {
+    for (index, segment) in word.segments.iter().enumerate() {
         match (&segment.kind, after_tilde) {
             (SegmentKind::Literal(text), true) => out.push_str(&print_after_tilde(text)),
+            (SegmentKind::Literal(text), false) if text.contains('[') && closed_later[index] => {
+                out.push_str(&quote(text));
+            }
+            // ⚠ A parameter is the one segment whose spelling depends on what
+            // FOLLOWS it: `$x` beside the literal `y` has to be written `${x}y`
+            // or the name reads as `xy`.
+            (SegmentKind::Parameter(parameter), _) => {
+                out.push_str(&print_parameter(parameter, word.segments.get(index + 1)));
+            }
             _ => out.push_str(&print_segment(segment)),
         }
         after_tilde = matches!(segment.kind, SegmentKind::Tilde(_));
     }
     out
+}
+
+/// For each segment, does a `]` appear in a literal after it?
+///
+/// Only a literal can carry one: a glob, a tilde and a parameter each print as
+/// characters the bracket reader stops at or steps over, and none of them can
+/// contribute the `]`.
+fn closing_brackets_after(word: &Word) -> Vec<bool> {
+    let mut flags = vec![false; word.segments.len()];
+    let mut seen = false;
+    for (index, segment) in word.segments.iter().enumerate().rev() {
+        flags[index] = seen;
+        if let SegmentKind::Literal(text) = &segment.kind
+            && text.contains(']')
+        {
+            seen = true;
+        }
+    }
+    flags
+}
+
+/// `$x`, `${x}`, `"$x"` — the least spelling that reads back as this node.
+fn print_parameter(parameter: &Parameter, next: Option<&Segment>) -> String {
+    let bare = if needs_braces(&parameter.name, next) {
+        format!("${{{}}}", parameter.name)
+    } else {
+        format!("${}", parameter.name)
+    };
+    // ⚠ The quotes are the node, not decoration: without them the value would
+    // be split into words and globbed, which is a different command.
+    if parameter.quoted {
+        format!("\"{bare}\"")
+    } else {
+        bare
+    }
+}
+
+/// Would the name run on into what comes next, or is it unspellable bare?
+fn needs_braces(name: &str, next: Option<&Segment>) -> bool {
+    // A special parameter is one character that cannot start a name, so nothing
+    // can extend it: `$@abc` is `$@` and then `abc`.
+    let special =
+        name.len() == 1 && !name.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_');
+    if special {
+        return false;
+    }
+    // Only `${10}` names the tenth positional; `$10` is `$1` and a `0`.
+    if name.len() > 1 && name.chars().all(|c| c.is_ascii_digit()) {
+        return true;
+    }
+    // Only a literal can extend a name — a glob, a tilde or another parameter
+    // all start with a character a name cannot hold.
+    matches!(
+        next.map(|segment| &segment.kind),
+        Some(SegmentKind::Literal(text))
+            if text.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_')
+    )
 }
 
 /// A literal that follows a tilde prefix, spelled so the prefix still ends where
@@ -240,6 +314,9 @@ fn print_segment(segment: &Segment) -> String {
                 text.clone()
             }
         }
+        // Reached only where there is nothing after it to run into; `print_word`
+        // handles the general case.
+        SegmentKind::Parameter(parameter) => print_parameter(parameter, None),
     }
 }
 

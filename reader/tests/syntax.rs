@@ -144,9 +144,7 @@ fn an_assignment_prefix_is_grammar_and_an_argument_is_not() {
 #[test]
 fn every_construct_the_tree_does_not_model_is_named() {
     assert_eq!(refusal("(cd x)"), Reason::Grouping);
-    assert_eq!(refusal("echo $x"), Reason::Parameter);
     assert_eq!(refusal("echo `ls`"), Reason::CommandSubstitution);
-    assert_eq!(refusal(r#"echo "$x""#), Reason::Parameter);
     // Bash agrees this one is unterminated: an apostrophe opens a quote.
     assert_eq!(refusal("echo it's"), Reason::UnterminatedQuote);
     assert_eq!(refusal("ls 'unclosed"), Reason::UnterminatedQuote);
@@ -226,10 +224,10 @@ fn the_survey_returns_every_blocking_construct_not_the_first() {
     // The whole reason it exists: `parse` stops at the first thing it cannot
     // read and never sees the rest, so the refusal ranking under-counts
     // whatever sits rightmost.
-    assert_eq!(refusal("ls a[0-9]b | grep $y"), Reason::BracketExpression);
+    assert_eq!(refusal("ls a[0-9]b | grep `y`"), Reason::BracketExpression);
     assert_eq!(
-        survey("ls a[0-9]b | grep $y"),
-        BTreeSet::from([Reason::BracketExpression, Reason::Parameter])
+        survey("ls a[0-9]b | grep `y`"),
+        BTreeSet::from([Reason::BracketExpression, Reason::CommandSubstitution])
     );
 }
 
@@ -876,11 +874,6 @@ fn each_dollar_form_is_named_apart() {
     // ⚠ A reason is a unit of work, and these are not one build: naming a
     // parameter is a leaf, `${x%%y}` is a small language, and `$(…)` is a whole
     // script this parser would have to recurse into.
-    assert_eq!(refusal("echo $x"), Reason::Parameter);
-    assert_eq!(refusal("echo ${x}"), Reason::Parameter);
-    assert_eq!(refusal("echo $1"), Reason::Parameter);
-    assert_eq!(refusal("echo $@"), Reason::Parameter);
-    assert_eq!(refusal("echo ${@}"), Reason::Parameter);
     assert_eq!(refusal("echo ${x:-y}"), Reason::ParameterOperator);
     assert_eq!(refusal("echo ${#x}"), Reason::ParameterOperator);
     assert_eq!(refusal("echo ${x%%.*}"), Reason::ParameterOperator);
@@ -945,4 +938,176 @@ fn a_binding_is_decided_by_the_name_not_by_the_word() {
         );
     }
     assert!(survey("'FOO=bar' cmd").is_empty());
+}
+
+// ---- parameters ----
+
+fn segments(text: &str, index: usize) -> Vec<Segment> {
+    words(text)[index].segments.clone()
+}
+
+fn parameter(text: &str) -> reader::syntax::ast::Parameter {
+    match &segments(text, 1)[..] {
+        [
+            Segment {
+                kind: SegmentKind::Parameter(p),
+                ..
+            },
+        ] => p.clone(),
+        other => panic!("{text:?} is not one parameter: {other:?}"),
+    }
+}
+
+#[test]
+fn quoting_a_parameter_is_semantic_and_quoting_a_literal_is_not() {
+    // ⚠ The distinction the tree MUST keep, and the reason `quoted` is a field
+    // rather than a print-time choice: an unquoted expansion is split into words
+    // and then globbed, a quoted one is one word whatever it holds. `'a'`, `"a"`
+    // and `a` collapse; `$x` and `"$x"` do not.
+    assert!(!parameter("echo $x").quoted);
+    assert!(parameter(r#"echo "$x""#).quoted);
+    assert_ne!(words("echo $x"), words(r#"echo "$x""#));
+    // ...while the literal spellings still collapse, as before.
+    assert_eq!(words("echo a"), words(r#"echo "a""#));
+}
+
+#[test]
+fn the_braces_are_a_spelling_and_the_name_is_the_node() {
+    assert_eq!(parameter("echo $x"), parameter("echo ${x}"));
+    assert_eq!(parameter("echo $x").name, "x");
+    assert_eq!(parameter("echo $@").name, "@");
+    assert_eq!(parameter("echo ${@}").name, "@");
+    assert_eq!(parameter("echo $?").name, "?");
+    assert_eq!(parameter("echo ${HOME}").name, "HOME");
+    // ⚠ One digit unbraced: `$10` is `${1}` and a `0`. Settled by running bash,
+    // because its printer spells both the same.
+    assert_eq!(parameter("echo ${10}").name, "10");
+    assert_eq!(
+        segments("echo $10", 1),
+        vec![
+            Segment {
+                kind: SegmentKind::Parameter(reader::syntax::ast::Parameter {
+                    name: "1".into(),
+                    quoted: false
+                }),
+                span: Span::new(0, 0)
+            },
+            Segment {
+                kind: SegmentKind::Literal("0".into()),
+                span: Span::new(0, 0)
+            },
+        ]
+    );
+}
+
+#[test]
+fn the_printer_braces_a_name_that_would_otherwise_run_on() {
+    // Without this `${x}y` prints as `$xy`, which names a different parameter —
+    // and re-reads as one, so the round-trip law is what catches it.
+    assert_eq!(print(&tree("echo ${x}y")), "echo ${x}y");
+    assert_eq!(print(&tree("echo ${10}")), "echo ${10}");
+    // Nothing to run into, so no braces are needed.
+    assert_eq!(print(&tree("echo ${x}")), "echo $x");
+    assert_eq!(print(&tree("echo ${x}/y")), "echo $x/y");
+    assert_eq!(print(&tree("echo ${x}*")), "echo $x*");
+    // A special parameter cannot be extended, so it never needs them.
+    assert_eq!(print(&tree("echo ${@}abc")), "echo $@abc");
+}
+
+#[test]
+fn a_word_can_hold_text_and_parameters_together() {
+    assert_eq!(
+        segments("echo a$x", 1),
+        vec![
+            Segment {
+                kind: SegmentKind::Literal("a".into()),
+                span: Span::new(0, 0)
+            },
+            Segment {
+                kind: SegmentKind::Parameter(reader::syntax::ast::Parameter {
+                    name: "x".into(),
+                    quoted: false
+                }),
+                span: Span::new(0, 0)
+            },
+        ]
+    );
+    // Inside quotes the run is several segments too, and the parameter carries
+    // the quoting while the text around it does not need to.
+    let mixed = segments(r#"echo "a$x b""#, 1);
+    assert_eq!(mixed.len(), 3);
+    assert!(matches!(&mixed[1].kind, SegmentKind::Parameter(p) if p.quoted && p.name == "x"));
+}
+
+#[test]
+fn a_parameter_is_not_a_literal_and_cannot_be_read_as_one() {
+    // `as_literal` is what the reserved-word check uses, so a word holding an
+    // expansion must not answer it — otherwise `$x` could be mistaken for
+    // grammar, or an expansion could be silently compared as text.
+    assert_eq!(words("echo $x")[1].as_literal(), None);
+    assert_eq!(words("echo a$x")[1].as_literal(), None);
+}
+
+#[test]
+fn a_binding_survives_a_value_that_expands() {
+    // ⚠ The regression this construct would otherwise have caused: with `$x` a
+    // segment, `FOO=$x cmd` has no literal-only first word, so a check that read
+    // the finished word would have skipped silently.
+    assert_eq!(refusal("FOO=$x cmd"), Reason::Assignment);
+    assert_eq!(refusal("FOO=$x"), Reason::Assignment);
+    // And a command whose NAME expands is not a binding.
+    assert!(parse("$x=y").is_ok());
+}
+
+#[test]
+fn an_expansion_with_no_closing_brace_is_refused() {
+    // Bash refuses it too, so this is a claim about the input.
+    assert_eq!(refusal("echo ${x"), Reason::UnterminatedExpansion);
+}
+
+#[test]
+fn the_law_holds_across_the_parameter_shapes() {
+    for text in [
+        "echo $x",
+        r#"echo "$x""#,
+        "echo ${x}y",
+        "echo a$x",
+        "echo $x$y",
+        r#"echo "a$x b""#,
+        "echo $@",
+        r#"echo "$@""#,
+        "echo $1 $2",
+        "echo ${10}",
+        "echo $HOME/code",
+        "cd $HOME",
+        "echo $x*",
+        r#"echo "$x"'y'"#,
+        "cat <<EOF\n$x\nEOF",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+        assert!(
+            survey(text).is_empty(),
+            "{text:?} should need nothing: {:?}",
+            survey(text)
+        );
+    }
+}
+
+#[test]
+fn a_bracket_pair_split_across_segments_is_still_quoted() {
+    // ⚠ Regression found by the round-trip law on 2 corpus commands. `[rc=` and
+    // `]` each need no quoting alone, and printed bare they compose into
+    // `[rc="$?"]` — which reads back as a bracket expression, not as this word.
+    // The rule is per-word and the quoting decision was per-segment.
+    assert!(check(r#"echo "[rc=$?]""#).holds());
+    assert!(check(r#"echo "[a$x]""#).holds());
+    assert!(check("echo '[a'$x']'").holds());
+    // A `[` with no `]` after it still goes out bare, so the commonest
+    // conditional in the corpus is untouched.
+    assert_eq!(print(&tree("[ -f x ]")), "[ -f x ]");
+    assert_eq!(print(&tree("echo [rc=")), "echo [rc=");
 }
