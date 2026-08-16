@@ -206,10 +206,10 @@ fn render(printed: &[String]) -> Result<Vec<Option<String>>> {
 
 /// Does bash refuse this text too?
 ///
-/// ⚠ **Only two refusals are claims about the TEXT rather than about us.**
-/// `UnterminatedQuote` and `DanglingEscape` say the input is not valid shell;
-/// every other reason says only that this parser does not model a construct,
-/// which bash has no opinion about. So those two are the ones worth checking,
+/// ⚠ **Only some refusals are claims about the TEXT rather than about us.**
+/// `UnterminatedQuote`, `DanglingEscape` and `EmptyOperand` say the input is not
+/// valid shell; every other reason says only that this parser does not model a
+/// construct, which bash has no opinion about. So those are the ones to check,
 /// and checking them is what keeps "we cannot read it" and "it does not parse"
 /// apart — a distinction `docs/execution-model.md` requires and which silently
 /// rots otherwise.

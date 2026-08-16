@@ -14,10 +14,11 @@ It is an **abstract interpreter**: evaluate as far as the text determines, then
 stop. What is undetermined is recorded as undetermined and counted, so the gap is
 a number rather than a silence.
 
-[execution-model.md](execution-model.md) specifies the syntax layer underneath —
-`reader/src/syntax/`, first construct built — and the laws that govern it. The
-chain below is the projection that layer will eventually be read through; today
-the two are independent, and the syntax tree reads far less.
+[execution-model.md](execution-model.md) specifies the syntax layer underneath,
+`reader/src/syntax/`, and the two gates that govern it. The chain below is the
+projection that layer will eventually be read through; today the two are
+independent and are built from different grammars, so **a coverage figure from
+one says nothing about the other**.
 
 ## Chain
 

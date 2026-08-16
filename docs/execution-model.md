@@ -138,11 +138,12 @@ layout and quoting style.**
 ⚠ **The collapse rule stops at reserved words, where quoting is semantic.**
 `time ./x.sh` runs bash's keyword; `'time' ./x.sh` runs `/usr/bin/time`, a
 different program with different output. Same for `!`. So a reserved word is not
-a word, the tree must record which it is, and the printer must never quote one.
+a word at all: it is a field on the pipeline, and a *quoted* one is an ordinary
+word the printer must quote to keep it one.
 
-Neither gate catches it: bash prints the quotes straight back, so a tree that
-collapsed them collapses them again and both comparisons agree. Construction
-requirement, fixture behind it.
+Neither gate catches a tree that confuses the two: bash prints the quotes
+straight back, so a parser that collapsed them collapses them again and both
+comparisons agree. Construction requirement, fixtures behind it.
 
 ### Grammar, not elevation
 
@@ -218,7 +219,8 @@ The parser stops at the first construct it cannot read, so each refused command
 is counted once, under whichever construct the scan reached first. That ranking
 answers "what stopped us", which is a different question from "what would
 building this unlock" — and the two disagree badly. Measured 2026-08-16 over the
-frozen union:
+frozen union, **before any of these were built** (the figures move as each
+lands; run the report for current ones):
 
 | construct | ranked first-refusal | unlocks alone |
 | --- | --- | --- |
@@ -227,20 +229,19 @@ frozen union:
 | pipe | 13.32%, 3rd | **11.03%** |
 | tilde | 12.39%, 4th | 0.29% |
 
-Redirection leads the ranking and is worth the least of the three; the pipe is
-worth 3.4× it. Planning off the ranking would have built them in the wrong
-order. So `syntax::survey` returns the **whole set** of constructs a command
-needs, and the report plans off a greedy cumulative curve instead: pipe → and-or
-→ redirection → background → tilde → expansion reaches 86.78% of commands.
+Redirection led the ranking and was worth the least of the three; the pipe was
+worth 3.4× it. Planning off the ranking would have built them in the wrong order.
+So `syntax::survey` returns the **whole set** of constructs a command needs, and
+the report plans off a greedy cumulative curve instead.
 
-Only 27,322 of 113,439 refused commands need a single construct — most need
-three or more, which is why a per-construct percentage is the wrong unit.
+Most refused commands need three or more constructs, not one, which is why a
+per-construct percentage is the wrong unit and the cumulative curve is the right
+one.
 
-**The prediction has been tested three times, by building what it named.** The
-pipe was predicted at 11.03% and coverage went 13.57% → 24.60%. And-or lists were
-predicted to reach 45,326 and reached 45,327. Redirection was predicted to reach
-81,623 and reached 81,623. Tilde prefixes were predicted to reach 94,694 and
-reached 94,694.
+**The prediction has been tested at every step, by building what it named**, and
+has been right each time: the pipe at 11.03% (13.57% → 24.60%), and-or lists
+45,326 predicted and 45,327 reached, redirection 81,623 and 81,623, tilde
+prefixes 94,694 and 94,694.
 
 ⚠ **Splitting a reason can change the plan.** `<` and `>` began as one
 `Redirection`, worth +45,030. Split by what it takes to *build* them — a file or
@@ -325,14 +326,13 @@ The tree has the pipeline node now, so `time` and `!` are fields on it and the
 scope question the flat model could not express — `time a | b` times the whole
 pipeline — has an answer.
 
-## What the first construct establishes
+## What the construction rests on
 
-It reads simple commands and comments; words hold literal text and globs.
-Everything else is refused **by name**, and the ranked refusals are the work
-queue. Coverage starts low on purpose — a rate that begins high is a parser
+Everything not modelled is refused **by name**, and the ranked refusals are the
+work queue. Coverage starts low on purpose — a rate that begins high is a parser
 absorbing what it does not understand.
 
-Three properties are load-bearing and each has a test that fails without it:
+Four properties are load-bearing and each has a test that fails without it:
 
 - **`Span` compares equal to every other `Span`.** Position-blindness lives in
   the one type rather than in each node's `PartialEq`, so a node added later
@@ -343,6 +343,9 @@ Three properties are load-bearing and each has a test that fails without it:
 - **The printer quotes a word that would read back as grammar.** A tree holding
   the literal `time` as a command name must print `'time'`, or `t₂` is a
   different program.
+- **No quote may touch a tilde prefix.** `~'/x'` is the literal `~/x` to bash, so
+  the closing `/` goes through bare and quoting resumes after it. Found by the
+  law on 319 commands.
 
 ⚠ **Gate 2 became load-bearing when it was pointed at the original text**, and
 it has since earned it. Its first real catch was one command in 81,623:
@@ -362,11 +365,12 @@ The survey agreed too: it only knows what is refused, and nothing was.
 consistent* satisfies every check we can build out of our own parser. Only a
 reader that is not ours can object.
 
-⚠ **`bash -n` adjudicates the two refusals that are claims about the input.**
-`UnterminatedQuote` and `DanglingEscape` assert the text is not shell; every
-other reason asserts only that we do not model something. Checking those two is
-what keeps "we cannot read it" apart from "it does not parse" — the distinction
-above, which otherwise rots silently.
+⚠ **`bash -n` adjudicates every refusal that is a claim about the input.**
+`UnterminatedQuote`, `DanglingEscape` and `EmptyOperand` assert the text is not
+shell; every other reason asserts only that we do not model something, which bash
+has no opinion about. Checking them is what keeps "we cannot read it" apart from
+"it does not parse" — the distinction above, which otherwise rots silently. A new
+reason of that kind has to join the list, or it is an unchecked claim.
 
 ⚠ **The oracle is its own crate.** `reader` states that it runs nothing and opens
 nothing, and that claim is what lets the privileged console link it. Spawning

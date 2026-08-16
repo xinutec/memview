@@ -87,9 +87,13 @@ fn main() -> anyhow::Result<()> {
         match syntax::check(command) {
             Outcome::Refused(refusal) => {
                 refused.add(command);
+                // ⚠ Every reason that asserts the TEXT is broken, not merely
+                // unmodelled. `EmptyOperand` belongs here too: bash refuses
+                // `a &&` and `cat >` exactly as we do, so the claim is
+                // falsifiable and has to be falsified.
                 if matches!(
                     refusal.reason,
-                    Reason::UnterminatedQuote | Reason::DanglingEscape
+                    Reason::UnterminatedQuote | Reason::DanglingEscape | Reason::EmptyOperand
                 ) {
                     claimed_invalid.push(command.to_string());
                 }

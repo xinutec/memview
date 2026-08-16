@@ -1,11 +1,14 @@
 //! A faithful tree for the text the fleet executes, and a printer that puts it
 //! back.
 //!
-//! `docs/execution-model.md` is the design; this is the first construct of it.
-//! What it reads today is a script of simple commands and comments, with words
-//! made of literal text and globs. Everything else is refused by name, and the
-//! refusal ranking in the `bash-oracle` crate's `syntax-report` is what chooses what to
-//! build next.
+//! `docs/execution-model.md` is the design. What it reads today: and-or lists of
+//! pipelines of simple commands, with redirections, comments as nodes, and words
+//! of typed segments — literal text, globs and tilde prefixes. `time` and `!` are
+//! fields on the pipeline, not `argv[0]`.
+//!
+//! **Everything else is refused by name.** The ranked refusals in the
+//! `bash-oracle` crate's `syntax-report` are what choose the next construct, and
+//! the figures live there rather than here — one `cargo run` away, and moving.
 //!
 //! ## Why this is not [`crate::shell`]
 //!
