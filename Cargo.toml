@@ -7,8 +7,17 @@
 # no configuration of it to get wrong. Its own Cargo.toml is where that is kept
 # true. Sharing it is what stops the two from re-deriving the same transcript
 # knowledge separately, which has already produced one bug — see reader/src/lib.rs.
+#
+# `bash-oracle` spawns bash to check the syntax tree against bash's own parse.
+# It is a member rather than a module of `reader` so that the leaf claim above
+# stays literally true; see docs/execution-model.md.
+#
+# ⚠ **A member added here must also be added to flake.nix's fileset.** Cargo
+# loads every member's manifest before building any package, so the console
+# package — which links none of this — fails with "failed to load manifest for
+# workspace member" when a directory is missing from the source.
 [workspace]
-members = ["console", "reader"]
+members = ["bash-oracle", "console", "reader"]
 
 [package]
 # Adding src/bin/memory-lint.rs made `cargo run` ambiguous, which silently broke

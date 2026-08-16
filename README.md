@@ -19,6 +19,11 @@ The console links nothing from the viewer. The viewer is read-only on an
 internet-facing host; the console spawns subprocesses on the root-of-truth
 machine. They share a repository, a toolchain and a gate, and nothing else.
 
+`reader` is the one crate both may link, because it runs nothing and opens
+nothing. A fourth member, `bash-oracle`, exists so that stays true: it spawns
+bash to check the syntax tree against bash's own parse, and nothing depends on
+it but its own report.
+
 ## Documentation
 
 | doc | what |

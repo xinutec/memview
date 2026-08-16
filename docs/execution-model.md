@@ -3,8 +3,15 @@
 Design for the syntax layer under `reader/`: a faithful tree for every language
 the fleet executes, plus a printer that puts it back.
 
-**Status: specified, not built.** No coverage rate is recorded here: each is one
-`cargo run` away and moves on its own. Figures that size a decision stay.
+**Status: first construct built, both gates wired.** `reader/src/syntax/` holds
+the tree, the parser and the printer; the `bash-oracle` crate holds the second
+gate and the report. No coverage rate is recorded here: each is one `cargo run`
+away and moves on its own. Figures that size a decision stay.
+
+```sh
+cargo run --release -p bash-oracle --bin syntax-report -- \
+  ~/.claude/corpus/union.jsonl --oracle [--why SUBSTRING]
+```
 
 ## Purpose
 
@@ -240,8 +247,46 @@ to throw away later.
 
 ### Known misparse, left for the tree
 
-`time ./x.sh` parses today as a simple command with `argv[0] = "time"`, because
-the reader has `time` in its wrapper list beside `nohup` and `exec`. That is a
-category error: `time` is grammar. It reaches the right command anyway, so no
-count reports it, and it is 236 distinct corpus commands. **Not fixed in the flat
-model** — a correct fix needs the pipeline node to hang the flag on.
+`time ./x.sh` parses in the flat reader as a simple command with
+`argv[0] = "time"`, because it has `time` in its wrapper list beside `nohup` and
+`exec`. That is a category error: `time` is grammar. It reaches the right command
+anyway, so no count reports it. **Still unfixed there** — a correct fix needs the
+pipeline node to hang the flag on. The tree refuses it instead, which is not a
+fix but is not a wrong answer either.
+
+## What the first construct establishes
+
+It reads simple commands and comments; words hold literal text and globs.
+Everything else is refused **by name**, and the ranked refusals are the work
+queue. Coverage starts low on purpose — a rate that begins high is a parser
+absorbing what it does not understand.
+
+Three properties are load-bearing and each has a test that fails without it:
+
+- **`Span` compares equal to every other `Span`.** Position-blindness lives in
+  the one type rather than in each node's `PartialEq`, so a node added later
+  cannot forget and quietly make the law unsatisfiable.
+- **The printer takes no source.** There is no `&str` of input in its
+  signatures, which is what makes condition (2) a real check rather than a
+  restatement of (1).
+- **The printer quotes a word that would read back as grammar.** A tree holding
+  the literal `time` as a command name must print `'time'`, or `t₂` is a
+  different program.
+
+⚠ **Gate 2 is wired and green, and not yet load-bearing.** Bash prints simple
+commands back verbatim, so over today's accepted language it can see nothing the
+round-trip law cannot. It earns its place at the compounds, where bash's printer
+normalises — which is exactly why it is in place before them rather than after.
+Its own tests provoke each verdict it can reach, because a gate that is green
+everywhere is indistinguishable from one that cannot fail.
+
+⚠ **`bash -n` adjudicates the two refusals that are claims about the input.**
+`UnterminatedQuote` and `DanglingEscape` assert the text is not shell; every
+other reason asserts only that we do not model something. Checking those two is
+what keeps "we cannot read it" apart from "it does not parse" — the distinction
+above, which otherwise rots silently.
+
+⚠ **The oracle is its own crate.** `reader` states that it runs nothing and opens
+nothing, and that claim is what lets the privileged console link it. Spawning
+bash belongs outside it, for the same reason the console is a workspace member
+and not a feature of the viewer.

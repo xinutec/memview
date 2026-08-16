@@ -36,11 +36,19 @@
           # silently, which is the failure mode worth spending five lines on.
           # `src/` is memview's own, and is here because cargo resolves every
           # workspace member's targets even when asked for one package.
+          #
+          # ⚠ **Every workspace member belongs here, including ones the console
+          # never links.** Cargo loads the manifest of each member named in the
+          # root `Cargo.toml` before it builds anything, so an absent directory
+          # is not a smaller build — it is `failed to load manifest for
+          # workspace member`. Adding `bash-oracle` to the workspace failed this
+          # build and nothing else.
           src = pkgs.lib.fileset.toSource {
             root = ./.;
             fileset = pkgs.lib.fileset.unions [
               ./Cargo.toml
               ./Cargo.lock
+              ./bash-oracle
               ./console
               ./reader
               ./src

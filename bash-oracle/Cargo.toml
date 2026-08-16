@@ -1,0 +1,19 @@
+[package]
+name = "bash-oracle"
+version = "0.1.0"
+edition = "2024"
+
+# The second gate: bash printing its own parse, so the syntax tree has a check
+# that is not itself. See docs/execution-model.md and src/lib.rs.
+#
+# ⚠ **A workspace member and not a module of `reader`, for the reason the
+# console is one and not a feature of the viewer.** `reader` states that it runs
+# nothing, opens nothing and touches no filesystem, and that claim is what lets
+# both privilege levels link it. This crate spawns bash and writes a file. It
+# depends on `reader`; nothing depends on it but its own binary, so the leaf
+# stays a leaf.
+
+[dependencies]
+reader = { path = "../reader" }
+anyhow = "1"
+serde_json = "1"
