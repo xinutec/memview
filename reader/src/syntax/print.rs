@@ -12,18 +12,27 @@
 //! usable as an equivalence test.
 
 use super::ast::{
-    AndOr, Command, Connector, Glob, Item, Pipeline, Redirect, RedirectOp, RedirectTarget, Script,
-    Segment, SegmentKind, Tilde, Timed, Word,
+    AndOr, Command, Connector, Glob, Heredoc, Item, Pipeline, Redirect, RedirectOp, RedirectTarget,
+    Script, Segment, SegmentKind, Tilde, Timed, Word,
 };
 use super::parse::{is_assignment, is_reserved};
 
 pub fn print(script: &Script) -> String {
     let mut lines: Vec<String> = Vec::with_capacity(script.items.len());
     for item in &script.items {
-        lines.push(match item {
-            Item::Comment(comment) => format!("#{}", comment.text),
-            Item::List(list) => print_and_or(list),
-        });
+        match item {
+            Item::Comment(comment) => lines.push(format!("#{}", comment.text)),
+            Item::List(list) => {
+                // ⚠ **A heredoc body goes after the line, not after its
+                // operator.** The printer collects them for the whole list —
+                // `cat <<A | cat <<B` opens two on one line — and emits them in
+                // the order the openers were written, which is the order bash
+                // reads them back in.
+                let mut bodies: Vec<String> = Vec::new();
+                lines.push(print_and_or(list, &mut bodies));
+                lines.extend(bodies);
+            }
+        }
     }
     lines.join("\n")
 }
@@ -33,14 +42,14 @@ pub fn print(script: &Script) -> String {
 /// One line, unlike `;`-separated lists which become one item each. That is
 /// bash's own split: `declare -f` keeps `a && b` together and breaks `a; b`
 /// apart, so following it keeps the printed form comparable with bash's.
-pub fn print_and_or(list: &AndOr) -> String {
-    let mut out = print_pipeline(&list.first);
+fn print_and_or(list: &AndOr, bodies: &mut Vec<String>) -> String {
+    let mut out = print_pipeline(&list.first, bodies);
     for link in &list.rest {
         out.push_str(match link.connector {
             Connector::And => " && ",
             Connector::Or => " || ",
         });
-        out.push_str(&print_pipeline(&link.pipeline));
+        out.push_str(&print_pipeline(&link.pipeline, bodies));
     }
     if list.background {
         out.push_str(" &");
@@ -51,7 +60,7 @@ pub fn print_and_or(list: &AndOr) -> String {
 /// ⚠ **`time` before `!`, whichever order they were written in.** That is the
 /// order bash's own printer emits, and matching it is what lets the second gate
 /// compare trees rather than argue about spelling.
-pub fn print_pipeline(pipeline: &Pipeline) -> String {
+fn print_pipeline(pipeline: &Pipeline, bodies: &mut Vec<String>) -> String {
     let mut parts: Vec<String> = Vec::new();
     match pipeline.time {
         Some(Timed::Plain) => parts.push("time".into()),
@@ -65,7 +74,7 @@ pub fn print_pipeline(pipeline: &Pipeline) -> String {
         .commands
         .iter()
         .enumerate()
-        .map(|(index, command)| print_command(command, index == 0))
+        .map(|(index, command)| print_command(command, index == 0, bodies))
         .collect();
     parts.push(commands.join(" | "));
     parts.retain(|part| !part.is_empty());
@@ -75,7 +84,7 @@ pub fn print_pipeline(pipeline: &Pipeline) -> String {
 /// `head` is whether this command opens the pipeline — the only place `time`
 /// and `!` are grammar, and therefore the only place a word spelling one has to
 /// be quoted to stay a value.
-fn print_command(command: &Command, head: bool) -> String {
+fn print_command(command: &Command, head: bool, bodies: &mut Vec<String>) -> String {
     // ⚠ Words first, then redirections — bash's own order. `> out cat f` comes
     // back from `declare -f` as `cat f > out`, so putting them anywhere else
     // would be a spelling bash does not use and the tree does not record.
@@ -85,11 +94,16 @@ fn print_command(command: &Command, head: bool) -> String {
         .enumerate()
         .map(|(index, word)| print_word(word, index == 0 && head))
         .collect();
-    parts.extend(command.redirects.iter().map(print_redirect));
+    parts.extend(
+        command
+            .redirects
+            .iter()
+            .map(|redirect| print_redirect(redirect, bodies)),
+    );
     parts.join(" ")
 }
 
-fn print_redirect(redirect: &Redirect) -> String {
+fn print_redirect(redirect: &Redirect, bodies: &mut Vec<String>) -> String {
     // The descriptor is written only when it is not the operator's own default,
     // which is how `>` stays `>` and `2>` stays `2>`.
     let fd = match redirect.fd {
@@ -107,12 +121,35 @@ fn print_redirect(redirect: &Redirect) -> String {
         RedirectOp::Both => "&>",
         RedirectOp::BothAppend => "&>>",
         RedirectOp::BothWord => ">&",
+        RedirectOp::Here => "<<",
+        RedirectOp::HereDash => "<<-",
     };
     match &redirect.target {
         // No space after a dup operator: `2>&1`, not `2>& 1`.
         RedirectTarget::Fd(target) => format!("{fd}{op}{target}"),
         RedirectTarget::Close => format!("{fd}{op}-"),
         RedirectTarget::File(word) => format!("{fd}{op} {}", print_word(word, false)),
+        RedirectTarget::Here(here) => {
+            bodies.push(format!("{}{}", here.body, here.delimiter));
+            format!("{fd}{op}{}", print_delimiter(here))
+        }
+    }
+}
+
+/// The delimiter, spelled so it reads back with the same `quoted` bit.
+///
+/// ⚠ **Single quotes whenever it was quoted at all, which is bash's own
+/// spelling.** `declare -f` prints `<<"EOF"`, `<<\EOF` and `<<E"O"F` all as
+/// `<<'EOF'`, so a printer that chose differently would be the only thing in the
+/// comparison saying those four texts are not one tree.
+///
+/// An unquoted delimiter goes out bare whatever is in it: nothing expands there,
+/// so a `*` is an asterisk, and quoting it would flip the bit.
+fn print_delimiter(here: &Heredoc) -> String {
+    if here.quoted {
+        quote(&here.delimiter)
+    } else {
+        here.delimiter.clone()
     }
 }
 

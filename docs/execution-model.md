@@ -80,7 +80,7 @@ made of — re-run it against a new bash before trusting any of them:
 | verbatim on words | `a`, `'a'`, `"a"`, `ec'h'o`, `${x:-y}` come back as written; only `$'…'`, `$"…"` and `\`-newline are resolved |
 | normalising on structure | indentation, `;` versus newline, `f() { … }` → `function f () { … }`, a `( … )` function body wrapped in a brace group |
 | desugaring | `ls \|& cat` → `ls 2>&1 \| cat`; `! time a \| b` → `time ! a \| b` |
-| faithful on heredocs | bodies reproduced verbatim, including one nested in `$( )` inside a double-quoted word |
+| near-verbatim on heredoc bodies | reproduced as written, including one nested in `$( )` inside a double-quoted word — but a `\`-newline in an *unquoted* body is joined, and `<<-` strips its tabs, both at parse time |
 | blind to comments | deleted |
 
 So the comparison is **tree against tree** — parse the command, parse bash's
@@ -327,6 +327,15 @@ shell; every other reason asserts only that we do not model something, which bas
 has no opinion about. Checking them is what keeps "we cannot read it" apart from
 "it does not parse" — the distinction above, which otherwise rots silently. A new
 reason of that kind has to join the list, or it is an unchecked claim.
+
+⚠ **A shape neither gate can judge is refused, not modelled.** An unterminated
+heredoc is the only one so far. Bash *accepts* it, so the exit code says nothing;
+`declare -f` cannot render it, because the runaway body swallows the wrapper's
+closing brace. What is left is bash's warning — `here-document at line N
+delimited by end-of-file` — and `bash_warns_of_a_runaway_heredoc` reads it, so
+even this refusal rests on bash rather than on us. Where no such channel existed,
+the answer would be to refuse and say so, never to guess at a construct with
+nothing able to contradict the guess.
 
 ⚠ **The oracle is its own crate.** `reader` states that it runs nothing and opens
 nothing, and that claim is what lets the privileged console link it. Spawning

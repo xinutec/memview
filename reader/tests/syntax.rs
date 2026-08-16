@@ -215,20 +215,21 @@ fn the_law_reports_a_refusal_apart_from_a_failure() {
     // A refusal is the work queue, not a defect, and the two must never be
     // added together — a parser that refused everything would otherwise score
     // a perfect law.
-    assert!(matches!(check("cat <<EOF\nx\nEOF"), Outcome::Refused(_)));
-    assert!(!check("cat <<EOF\nx\nEOF").holds());
+    assert!(matches!(check("cat <<< word"), Outcome::Refused(_)));
+    assert!(!check("cat <<< word").holds());
 }
 
 // ---- the survey: which constructs a command needs, not which stopped us ----
 
 #[test]
 fn the_survey_returns_every_blocking_construct_not_the_first() {
-    // The whole reason it exists: `parse` stops at the pipe and never sees the
-    // redirection, so the refusal ranking under-counts whatever sits rightmost.
-    assert_eq!(refusal("cat <<E\nx\nE\n$y"), Reason::Heredoc);
+    // The whole reason it exists: `parse` stops at the first thing it cannot
+    // read and never sees the rest, so the refusal ranking under-counts
+    // whatever sits rightmost.
+    assert_eq!(refusal("ls a[0-9]b | grep $y"), Reason::BracketExpression);
     assert_eq!(
-        survey("cat <<E\nx\nE\n$y"),
-        BTreeSet::from([Reason::Heredoc, Reason::Expansion])
+        survey("ls a[0-9]b | grep $y"),
+        BTreeSet::from([Reason::BracketExpression, Reason::Expansion])
     );
 }
 
@@ -247,15 +248,13 @@ fn an_argument_is_not_a_command_name() {
 #[test]
 fn the_survey_looks_past_what_it_cannot_own() {
     // A substitution's interior belongs to the layer that gets one, and a
-    // heredoc body is data. Both are reported as themselves and not descended.
+    // heredoc body is data — the first is reported as itself and not descended,
+    // and the second is not a finding at all now that it is modelled.
     assert_eq!(
         survey("echo $(git log | head)"),
         BTreeSet::from([Reason::Expansion])
     );
-    assert_eq!(
-        survey("cat <<EOF\na | b && c\nEOF"),
-        BTreeSet::from([Reason::Heredoc])
-    );
+    assert!(survey("cat <<EOF\na | b && c\nEOF").is_empty());
 }
 
 #[test]
@@ -534,7 +533,6 @@ fn a_descriptor_must_touch_its_operator() {
 
 #[test]
 fn what_is_still_refused_is_named() {
-    assert_eq!(refusal("cat <<EOF\nx\nEOF"), Reason::Heredoc);
     assert_eq!(refusal("cat <<< word"), Reason::HereString);
     assert_eq!(refusal("diff <(a) <(b)"), Reason::ProcessSubstitution);
     assert_eq!(refusal("cat >"), Reason::EmptyOperand);
@@ -651,4 +649,219 @@ fn a_backslash_newline_joins_a_word() {
     );
     assert_eq!(words("cmd one\\\ntwo").len(), 2);
     assert!(check("perl -e \"a\"\\\n\"b\"").holds());
+}
+
+// ---- heredocs ----
+
+fn here(text: &str) -> reader::syntax::ast::Heredoc {
+    match &redirects(text)[..] {
+        [redirect] => match &redirect.target {
+            RedirectTarget::Here(here) => here.clone(),
+            other => panic!("{text:?} redirects to {other:?}, not a heredoc"),
+        },
+        other => panic!("{text:?} is not one redirection: {other:?}"),
+    }
+}
+
+#[test]
+fn every_quoted_spelling_of_a_delimiter_is_one_tree() {
+    // ⚠ The distinction bash itself does not keep: `declare -f` prints all four
+    // of these back as `<<'EOF'`. A tree that recorded the spelling would say
+    // they differ, and the second gate — which compares bash's rendering of each
+    // — could never object, because it is bash that collapsed them.
+    let quoted = [
+        "cat <<'EOF'\n$x\nEOF",
+        "cat <<\"EOF\"\n$x\nEOF",
+        "cat <<\\EOF\n$x\nEOF",
+    ];
+    for text in quoted {
+        let here = here(text);
+        assert_eq!(here.delimiter, "EOF", "delimiter of {text:?}");
+        assert!(here.quoted, "{text:?} has a quoted delimiter");
+        assert_eq!(here.body, "$x\n");
+    }
+    assert_eq!(here(quoted[0]), here(quoted[1]));
+    assert_eq!(here(quoted[0]), here(quoted[2]));
+
+    // And the unquoted form is a DIFFERENT tree, because the body expands.
+    let plain = here("cat <<EOF\n$x\nEOF");
+    assert!(!plain.quoted);
+    assert_ne!(plain, here(quoted[0]));
+}
+
+#[test]
+fn a_body_is_data_and_reaches_the_tree_whole() {
+    // Nothing in a body is a construct: an unclosed quote, a `$(`, a reserved
+    // word and a `|` are all just bytes, and scanning them as shell would invent
+    // refusals nobody wrote.
+    let here = here("cat <<'PY'\nif x | y then '\ndone $(\nPY");
+    assert_eq!(here.body, "if x | y then '\ndone $(\n");
+    assert!(survey("cat <<'PY'\nif x | y then '\ndone $(\nPY").is_empty());
+}
+
+#[test]
+fn an_empty_body_is_not_a_missing_one() {
+    assert_eq!(here("cat <<EOF\nEOF").body, "");
+    assert!(check("cat <<EOF\nEOF").holds());
+}
+
+#[test]
+fn a_dash_strips_leading_tabs_and_only_tabs() {
+    // ⚠ Bash strips at PARSE time and prints the `-` back with an unindented
+    // body, so the tree holds the stripped text and the operator both.
+    assert_eq!(here("cat <<-EOF\n\tbody\n\tEOF").body, "body\n");
+    assert_eq!(
+        redirects("cat <<-EOF\n\tbody\n\tEOF")[0].op,
+        RedirectOp::HereDash
+    );
+    assert_eq!(redirects("cat <<EOF\nbody\nEOF")[0].op, RedirectOp::Here);
+    // Spaces are not tabs: they stay in the body, and a terminator behind one
+    // does not terminate.
+    assert_eq!(here("cat <<-EOF\n\t  spaced\n\tEOF").body, "  spaced\n");
+    assert_eq!(
+        refusal("cat <<-EOF\nbody\n\t EOF"),
+        Reason::UnterminatedHeredoc
+    );
+}
+
+#[test]
+fn a_terminator_is_matched_exactly() {
+    // Bash does not trim: `EOF ` is body text, and what follows runs off the end.
+    assert_eq!(
+        refusal("cat <<EOF\nbody\nEOF "),
+        Reason::UnterminatedHeredoc
+    );
+    assert_eq!(
+        refusal("cat <<EOF\nbody\n EOF"),
+        Reason::UnterminatedHeredoc
+    );
+    // Nor is a substring one.
+    assert_eq!(here("cat <<EOF\nEOFEOF\nEOF").body, "EOFEOF\n");
+}
+
+#[test]
+fn several_heredocs_on_one_line_take_their_bodies_in_order() {
+    // ⚠ The reason the body-to-opener match is positional: two heredocs may
+    // share a delimiter, so nothing in the text pairs them but order.
+    let redirects = redirects("cat <<A <<A\none\nA\ntwo\nA");
+    let bodies: Vec<String> = redirects
+        .iter()
+        .map(|redirect| match &redirect.target {
+            RedirectTarget::Here(here) => here.body.clone(),
+            other => panic!("not a heredoc: {other:?}"),
+        })
+        .collect();
+    assert_eq!(bodies, ["one\n", "two\n"]);
+    assert!(check("cat <<A <<A\none\nA\ntwo\nA").holds());
+}
+
+#[test]
+fn the_body_starts_after_the_logical_line_not_the_next_newline() {
+    // ⚠ Both measured in `reader/probes/heredoc.sh`, and both are why the body
+    // is read where a line ending is CONSUMED rather than by scanning ahead for
+    // the next `\n`.
+    assert_eq!(here("cat <<EOF \\\nextra\nbody\nEOF").body, "body\n");
+    assert_eq!(here("cat <<EOF \"q\nr\"\nbody\nEOF").body, "body\n");
+    // A heredoc opened before a `|` or a `&&` still takes the line's end.
+    let piped = list("cat <<EOF |\nbody\nEOF\nwc -l");
+    match &piped.first.commands[0].redirects[0].target {
+        RedirectTarget::Here(here) => assert_eq!(here.body, "body\n"),
+        other => panic!("not a heredoc: {other:?}"),
+    }
+    assert_eq!(
+        here("cat <<EOF && true\nbody\nEOF").body,
+        "body\n",
+        "the body follows the whole list, not the first command"
+    );
+}
+
+#[test]
+fn a_backslash_newline_joins_an_unquoted_body_and_not_a_quoted_one() {
+    // ⚠ Bash resolves the continuation at parse time, so `quoted` decides what
+    // the body STRING is and not only what will expand later.
+    assert_eq!(here("cat <<EOF\na\\\nb\nEOF").body, "ab\n");
+    assert_eq!(here("cat <<'EOF'\na\\\nb\nEOF").body, "a\\\nb\n");
+    // And the join is not a text replacement: an escaped backslash protects the
+    // newline behind it.
+    assert_eq!(here("cat <<EOF\na\\\\\nb\nEOF").body, "a\\\\\nb\n");
+    // A backslash before anything else keeps both characters.
+    assert_eq!(here("cat <<EOF\n\\$lit\nEOF").body, "\\$lit\n");
+}
+
+#[test]
+fn a_join_that_would_forge_a_terminator_is_refused() {
+    // `EO\` + `F` becomes the line `EOF`, which the printer has no way to write
+    // back without ending the heredoc early.
+    assert_eq!(
+        refusal("cat <<EOF\nEO\\\nF\nEOF"),
+        Reason::UnterminatedHeredoc
+    );
+}
+
+#[test]
+fn a_heredoc_defaults_to_stdin_and_takes_a_descriptor() {
+    assert_eq!(redirects("cat <<EOF\nx\nEOF")[0].fd, Some(0));
+    assert_eq!(redirects("cat 3<<EOF\nx\nEOF")[0].fd, Some(3));
+    assert!(check("cat 3<<EOF\nx\nEOF").holds());
+}
+
+#[test]
+fn an_unterminated_heredoc_is_refused_rather_than_guessed_at() {
+    // ⚠ Neither gate can judge this shape — bash accepts it with a warning and
+    // `declare -f` cannot render it at all — so the parser declines it.
+    assert_eq!(refusal("cat <<EOF"), Reason::UnterminatedHeredoc);
+    assert_eq!(refusal("cat <<EOF\nbody"), Reason::UnterminatedHeredoc);
+    assert_eq!(refusal("cat <<"), Reason::EmptyOperand);
+    // Legal bash, terminated by an empty line — and refused because the printer
+    // has no way to write that terminator at the end of its output.
+    assert_eq!(refusal("cat <<''\nbody\n\n"), Reason::EmptyOperand);
+    assert_eq!(refusal("cat <<$x\nbody\n$x"), Reason::Expansion);
+}
+
+#[test]
+fn the_survey_agrees_with_the_parser_about_heredocs() {
+    for text in [
+        "cat <<EOF\nbody\nEOF",
+        "cat <<-'EOF'\n\tbody\n\tEOF",
+        "cat <<A <<B\none\nA\ntwo\nB",
+        "cat <<EOF",
+        "cat <<EOF\nbody\nEOF ",
+        "cat <<$x\nbody\n$x",
+        "cat <<EOF\n$(danger)\nEOF",
+    ] {
+        let found = survey(text);
+        match parse(text) {
+            Ok(_) => assert!(
+                found.is_empty(),
+                "{text:?} parsed but the survey found {found:?}"
+            ),
+            Err(refusal) => assert!(
+                found.contains(&refusal.reason),
+                "{text:?} was refused for {:?}, which the survey missed: {found:?}",
+                refusal.reason
+            ),
+        }
+    }
+}
+
+#[test]
+fn the_law_holds_across_the_heredoc_shapes() {
+    for text in [
+        "cat <<EOF\nbody\nEOF",
+        "cat <<'EOF'\n$x stays\nEOF",
+        "cat <<-EOF\n\tindented\n\tEOF",
+        "cat <<EOF\nEOF",
+        "cat <<EOF > out\nbody\nEOF",
+        "cat > out <<EOF\nbody\nEOF",
+        "cat <<EOF | wc -l\nbody\nEOF",
+        "cat <<A <<B\none\nA\ntwo\nB",
+        "cat <<EOF && true\nbody\nEOF",
+        "cat <<EOF\nbody\nEOF\necho after",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+    }
 }

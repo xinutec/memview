@@ -5,13 +5,12 @@
 //! returned `Agrees` unconditionally would look exactly the same. So each
 //! verdict it can reach is provoked here on purpose.
 //!
-//! ⚠ **It is not yet load-bearing, and that is expected.** The gate earns its
-//! place where bash's printer *normalises* — desugaring `|&`, reordering
-//! `! time`, laying a compound out with `do` on its own line — and the grammar
-//! refuses all of those today. Over simple commands bash prints words back
-//! verbatim, so there is nothing it can see that the round-trip law cannot. It
-//! is wired now because adding it later would mean re-auditing everything
-//! accepted without it.
+//! ⚠ **It is load-bearing where bash's printer NORMALISES**, and nowhere else.
+//! Over plain words bash prints back what it was given, so there is nothing it
+//! can see that the round-trip law cannot. Where it collapses two spellings into
+//! one — a heredoc delimiter's quoting, a descriptor on `1>`, a word split at a
+//! line continuation — it has caught real defects, and the last two are written
+//! up at the nodes they corrected.
 
 use bash_oracle::{Verdict, compare};
 use reader::syntax::parse;
@@ -37,6 +36,19 @@ fn bash_reads_our_printed_form_the_way_we_do() {
         "! grep -q x f",
         "! time a | b",
         "a | time b",
+        // Heredocs: the delimiter's quoting is normalised to one spelling, the
+        // body is not, and `<<-` keeps its dash over a body already stripped.
+        "cat <<EOF\nbody\nEOF",
+        "cat <<'EOF'\n$x stays\nEOF",
+        "cat <<\"EOF\"\n$x stays\nEOF",
+        "cat <<-EOF\n\tindented\n\tEOF",
+        "cat <<A <<B\none\nA\ntwo\nB",
+        "cat <<EOF | wc -l\nbody\nEOF",
+        "cat <<EOF > out\nbody\nEOF",
+        "cat 3<<EOF\nbody\nEOF",
+        // An unquoted body's line continuation is resolved by bash at parse
+        // time, so a printer that kept it would be printing a different string.
+        "cat <<EOF\na\\\nb\nEOF",
     ]
     .iter()
     .map(|text| {
@@ -74,7 +86,7 @@ fn the_gate_catches_a_misparse_of_the_original_text() {
 fn a_command_we_cannot_read_is_reported_not_scored_as_agreement() {
     // The gate promises to run only on accepted commands. Handed one that is
     // not, it has to say so rather than quietly count a pass.
-    let verdicts = compare(&["cat <<EOF\nx\nEOF".to_string()]).expect("the oracle should run");
+    let verdicts = compare(&["cat <<< word".to_string()]).expect("the oracle should run");
     assert!(
         matches!(verdicts[0], Verdict::Unreadable(_)),
         "{verdicts:?}"

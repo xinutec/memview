@@ -59,8 +59,9 @@ impl Survey<'_> {
     }
 
     fn run(mut self) -> BTreeSet<Reason> {
-        // Delimiters of heredocs opened on this line, skipped once the line ends.
-        let mut heredocs: Vec<String> = Vec::new();
+        // Heredocs opened on this line, skipped once the line ends: the
+        // delimiter, and whether `<<-` lets a terminator be tab-indented.
+        let mut heredocs: Vec<(String, bool)> = Vec::new();
         // A word is only grammar at the head of a command, so the scan has to
         // know where commands begin — which is after every separator, not only
         // at the start of the text.
@@ -158,8 +159,10 @@ impl Survey<'_> {
                 b'\n' => {
                     separator!();
                     self.at += 1;
-                    for delimiter in heredocs.drain(..) {
-                        self.skip_heredoc_body(&delimiter);
+                    for (delimiter, strip_tabs) in std::mem::take(&mut heredocs) {
+                        if !self.skip_heredoc_body(&delimiter, strip_tabs) {
+                            self.found.insert(Reason::UnterminatedHeredoc);
+                        }
                     }
                 }
                 b';' => {
@@ -224,13 +227,20 @@ impl Survey<'_> {
                         self.found.insert(Reason::HereString);
                         self.at += 3;
                     } else if byte == b'<' && self.peek_at(1) == Some(b'<') {
-                        self.found.insert(Reason::Heredoc);
+                        // Modelled now, so the heredoc itself is not a finding —
+                        // only the delimiter has to be tracked, so the body can
+                        // be stepped over rather than scanned as shell.
                         self.at += 2;
-                        if self.peek() == Some(b'-') {
+                        let strip_tabs = self.peek() == Some(b'-');
+                        if strip_tabs {
                             self.at += 1;
                         }
+                        // An unreadable delimiter leaves the body's extent
+                        // unknown, so nothing is tracked and the body is scanned
+                        // as shell — whatever made it unreadable is recorded by
+                        // `take_delimiter` itself, so the invariant still holds.
                         if let Some(delimiter) = self.take_delimiter() {
-                            heredocs.push(delimiter);
+                            heredocs.push((delimiter, strip_tabs));
                         }
                     } else {
                         // Every other `<`/`>` form is modelled now.
@@ -322,10 +332,8 @@ impl Survey<'_> {
                 }
             }
         }
-        // Not `end_word!` — nothing reads the scanner's state after this, and
-        // assigning it here is three dead stores the linter is right about.
         // Direct, not `finish!` — nothing reads the word state after this, and
-        // clearing it here is two dead stores.
+        // clearing it here is two dead stores the linter is right about.
         if in_word {
             finish_word(
                 &mut self.found,
@@ -334,6 +342,10 @@ impl Survey<'_> {
                 at_pipeline_head,
                 word_quoted,
             );
+        }
+        // The text ended with a heredoc still open, so its delimiter never came.
+        if !heredocs.is_empty() {
+            self.found.insert(Reason::UnterminatedHeredoc);
         }
         self.found
     }
@@ -371,28 +383,71 @@ impl Survey<'_> {
         false
     }
 
-    /// The word after `<<`, unquoted, which ends the heredoc.
+    /// The word after `<<` with its quoting removed, or `None` where the
+    /// delimiter is not readable and the body's extent is therefore unknown.
+    ///
+    /// The stop set is the parser's, not [`is_stop`]: `*`, `?`, `[` and the
+    /// brace and paren characters are ordinary text in a delimiter, because
+    /// nothing expands there.
     fn take_delimiter(&mut self) -> Option<String> {
         while matches!(self.peek(), Some(b' ') | Some(b'\t')) {
             self.at += 1;
         }
         let mut delimiter = String::new();
+        let mut read_anything = false;
         while let Some(byte) = self.peek() {
             match byte {
-                b'\'' | b'"' => self.at += 1,
-                b'\\' => self.at += 1,
-                b if is_stop(b) => break,
+                b' ' | b'\t' | b'\r' | b'\n' | b';' | b'|' | b'&' | b'<' | b'>' | b')' => break,
+                b'$' | b'`' => {
+                    self.found.insert(Reason::Expansion);
+                    self.skip_expansion();
+                    return None;
+                }
+                b'\'' | b'"' => {
+                    read_anything = true;
+                    let from = self.at + 1;
+                    let closed = if byte == b'\'' {
+                        self.skip_single_quote()
+                    } else {
+                        self.skip_double_quote()
+                    };
+                    if !closed {
+                        self.found.insert(Reason::UnterminatedQuote);
+                        return None;
+                    }
+                    delimiter.push_str(&self.text[from..self.at - 1]);
+                }
+                b'\\' => {
+                    read_anything = true;
+                    self.at += 1;
+                    if let Some(escaped) = self.peek() {
+                        delimiter.push(escaped as char);
+                        self.at += 1;
+                    }
+                }
                 b => {
+                    read_anything = true;
                     delimiter.push(b as char);
                     self.at += 1;
                 }
             }
         }
-        (!delimiter.is_empty()).then_some(delimiter)
+        // `<<''` is a legal, empty delimiter; `<<` with nothing after it is not.
+        if read_anything {
+            return Some(delimiter);
+        }
+        self.found.insert(Reason::EmptyOperand);
+        None
     }
 
-    /// Step over a heredoc body, which is data rather than shell.
-    fn skip_heredoc_body(&mut self, delimiter: &str) {
+    /// Step over a heredoc body, which is data rather than shell. `false` if the
+    /// delimiter never appeared, which is the one heredoc the parser refuses.
+    ///
+    /// ⚠ **The terminator is matched exactly, with no trimming of trailing
+    /// whitespace.** Bash does not trim either — `EOF ` does not end a heredoc —
+    /// and a survey that were lenient here would step over a line the parser
+    /// keeps reading, which is the direction that breaks the invariant.
+    fn skip_heredoc_body(&mut self, delimiter: &str, strip_tabs: bool) -> bool {
         while self.at < self.bytes.len() {
             let line_start = self.at;
             while self.peek().is_some_and(|b| b != b'\n') {
@@ -402,11 +457,16 @@ impl Survey<'_> {
             if self.peek() == Some(b'\n') {
                 self.at += 1;
             }
-            // `<<-` strips leading tabs from the terminator too.
-            if line.trim_start_matches('\t').trim_end() == delimiter {
-                return;
+            let line = if strip_tabs {
+                line.trim_start_matches('\t')
+            } else {
+                line
+            };
+            if line == delimiter {
+                return true;
             }
         }
+        false
     }
 
     /// `$name`, `${…}`, `$(…)`, `$((…))` or a backtick run.

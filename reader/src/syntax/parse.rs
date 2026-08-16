@@ -17,7 +17,7 @@
 //! at a special character always lands on a character boundary.
 
 use super::ast::{
-    AndOr, Command, Comment, Connector, Glob, Item, Link, Pipeline, Redirect, RedirectOp,
+    AndOr, Command, Comment, Connector, Glob, Heredoc, Item, Link, Pipeline, Redirect, RedirectOp,
     RedirectTarget, Script, Segment, SegmentKind, Span, Tilde, Timed, Word,
 };
 
@@ -33,10 +33,17 @@ pub enum Reason {
     /// `>`, `>>`, `<`, `2>&1`, `&>`, `>|`, `<>`, `{fd}>` — a file or a
     /// descriptor, and nothing that carries a body.
     Redirection,
-    /// `<<` or `<<-`. Split from the rest because it is the only redirection
-    /// whose operand is on the FOLLOWING lines, which changes the parser's
-    /// shape rather than adding an operator.
-    Heredoc,
+    /// A heredoc whose delimiter never appears on a line of its own.
+    ///
+    /// ⚠ **Neither gate can judge this one, so it is refused rather than
+    /// modelled.** Bash accepts it — with `warning: here-document at line N
+    /// delimited by end-of-file` on stderr — and takes the rest of the input as
+    /// the body, so `bash -n` cannot adjudicate it the way it adjudicates an
+    /// unterminated quote. The second gate cannot either: the runaway body
+    /// swallows the closing brace of the function wrapper, so `declare -f`
+    /// refuses to render it at all. A construct no gate can check is one this
+    /// layer declines to guess at.
+    UnterminatedHeredoc,
     /// `<<<` — a value, not a file, and no body.
     HereString,
     /// `<(cmd)` or `>(cmd)`: a whole command, so it needs grouping first.
@@ -68,7 +75,7 @@ impl Reason {
         match self {
             Reason::Expansion => "expansion ($ or backtick)",
             Reason::Redirection => "redirection (> >> < 2>&1 &>)",
-            Reason::Heredoc => "heredoc (<< <<-)",
+            Reason::UnterminatedHeredoc => "unterminated heredoc (delimiter never appears)",
             Reason::HereString => "here-string (<<<)",
             Reason::ProcessSubstitution => "process substitution (<( >()",
             Reason::Grouping => "grouping (( ) { })",
@@ -111,18 +118,47 @@ const RESERVED: &[&str] = &[
 ];
 
 pub fn parse(text: &str) -> Result<Script, Refusal> {
-    Parser {
+    let mut parser = Parser {
         bytes: text.as_bytes(),
         text,
         at: 0,
-    }
-    .script()
+        pending: Vec::new(),
+        bodies: Vec::new(),
+    };
+    let mut script = parser.script()?;
+    let mut bodies = parser.bodies.into_iter();
+    fill_script(&mut script, &mut bodies);
+    debug_assert!(
+        bodies.next().is_none(),
+        "a heredoc body was read that no opener in the tree claimed"
+    );
+    Ok(script)
 }
 
 struct Parser<'t> {
     bytes: &'t [u8],
     text: &'t str,
     at: usize,
+    /// Heredocs opened on the line being read, still waiting for their bodies.
+    ///
+    /// ⚠ **A heredoc body cannot be found by scanning ahead for a newline.** The
+    /// rest of the opener's line may hold a newline that does not end it — inside
+    /// a quoted word, or after a backslash — and bash starts the body after the
+    /// *logical* line instead. Both are measured in `reader/probes/heredoc.sh`.
+    /// Deferring to the point where the parser actually consumes a line ending
+    /// gets that right for free, because the quote and escape readers have
+    /// already stepped over the newlines that do not count.
+    pending: Vec<Pending>,
+    /// Bodies, in the order they were read, waiting to be matched to openers.
+    bodies: Vec<Heredoc>,
+}
+
+/// A heredoc's opener, held until the line it was written on ends.
+struct Pending {
+    delimiter: String,
+    quoted: bool,
+    strip_tabs: bool,
+    span: Span,
 }
 
 impl<'t> Parser<'t> {
@@ -150,9 +186,10 @@ impl<'t> Parser<'t> {
                 // A separator with no command in front of it: `;` after a
                 // command already ended, or a blank line. Nothing to record —
                 // the tree holds sequence, and an empty step is not one.
-                Some(b';') | Some(b'\n') => {
+                Some(b';') => {
                     self.at += 1;
                 }
+                Some(b'\n') => self.take_newline()?,
                 Some(b'#') => items.push(Item::Comment(self.comment())),
                 _ => {
                     let list = self.and_or()?;
@@ -161,6 +198,14 @@ impl<'t> Parser<'t> {
                     }
                 }
             }
+        }
+        // The text ran out with a heredoc still open, so its delimiter never
+        // appeared on a line of its own.
+        if let Some(pending) = self.pending.first() {
+            return Err(Refusal {
+                reason: Reason::UnterminatedHeredoc,
+                span: pending.span,
+            });
         }
         Ok(Script {
             items,
@@ -183,14 +228,84 @@ impl<'t> Parser<'t> {
 
     /// Blanks, and the newlines that a list or pipeline operator makes into
     /// continuations rather than terminators.
-    fn skip_blanks_and_newlines(&mut self) {
+    fn skip_blanks_and_newlines(&mut self) -> Result<(), Refusal> {
         loop {
             self.skip_blanks();
             if self.peek() == Some(b'\n') {
-                self.at += 1;
+                self.take_newline()?;
             } else {
-                return;
+                return Ok(());
             }
+        }
+    }
+
+    /// Consume the newline under the cursor, and with it the bodies of every
+    /// heredoc opened on the line it ends.
+    ///
+    /// ⚠ **The one place a line ending is consumed.** A heredoc body starts here
+    /// and nowhere else, so routing every newline through this function is what
+    /// makes "the body follows the line" true rather than approximately true.
+    fn take_newline(&mut self) -> Result<(), Refusal> {
+        self.at += 1;
+        for pending in std::mem::take(&mut self.pending) {
+            let body = self.heredoc_body(&pending)?;
+            self.bodies.push(body);
+        }
+        Ok(())
+    }
+
+    /// The lines from the cursor up to the one holding the delimiter alone.
+    fn heredoc_body(&mut self, pending: &Pending) -> Result<Heredoc, Refusal> {
+        let mut body = String::new();
+        loop {
+            if self.at >= self.bytes.len() {
+                return Err(Refusal {
+                    reason: Reason::UnterminatedHeredoc,
+                    span: pending.span,
+                });
+            }
+            let from = self.at;
+            while self.peek().is_some_and(|byte| byte != b'\n') {
+                self.at += 1;
+            }
+            let line = &self.text[from..self.at];
+            // A final line with no newline after it still terminates the body.
+            if self.peek() == Some(b'\n') {
+                self.at += 1;
+            }
+            // ⚠ `<<-` strips leading TABS, and only tabs. A line indented with
+            // spaces is body text and a terminator preceded by one is not a
+            // terminator — both measured, and both the shape a `<<-` in the
+            // corpus is most likely to be written wrong in.
+            let line = if pending.strip_tabs {
+                line.trim_start_matches('\t')
+            } else {
+                line
+            };
+            if line == pending.delimiter {
+                let body = if pending.quoted {
+                    body
+                } else {
+                    join_continuations(&body)
+                };
+                // ⚠ Joining can *create* a terminator: a body holding `EO\⏎F`
+                // becomes a line reading `EOF`, and printing that back would end
+                // the heredoc early. Refused rather than printed, because the
+                // printer has no other spelling available to it.
+                if body.lines().any(|line| line == pending.delimiter) {
+                    return Err(Refusal {
+                        reason: Reason::UnterminatedHeredoc,
+                        span: pending.span,
+                    });
+                }
+                return Ok(Heredoc {
+                    delimiter: pending.delimiter.clone(),
+                    quoted: pending.quoted,
+                    body,
+                });
+            }
+            body.push_str(line);
+            body.push('\n');
         }
     }
 
@@ -235,7 +350,7 @@ impl<'t> Parser<'t> {
                 _ => break,
             };
             self.at += 2;
-            self.skip_blanks_and_newlines();
+            self.skip_blanks_and_newlines()?;
             // ⚠ Bash accepts a comment here and DELETES it. This tree keeps
             // comments byte-exact, so accepting one would be destructive —
             // refused rather than silently dropped.
@@ -311,7 +426,7 @@ impl<'t> Parser<'t> {
                 // this `a |⏎b` read as TWO pipelines — a silent misparse that
                 // both gates passed, because the printed form was two lines and
                 // read back as two pipelines just as wrongly.
-                self.skip_blanks_and_newlines();
+                self.skip_blanks_and_newlines()?;
                 if self.at_end_of_command() {
                     return self.refuse(Reason::EmptyOperand, 1);
                 }
@@ -434,8 +549,40 @@ impl<'t> Parser<'t> {
                 at += 2;
                 RedirectOp::ReadWrite
             }
-            // A heredoc or here-string is refused elsewhere; leave it alone.
-            (Some(b'<'), Some(b'<')) => return Ok(None),
+            // A here-string is refused elsewhere; leave it alone.
+            (Some(b'<'), Some(b'<')) if self.bytes.get(at + 2) == Some(&b'<') => return Ok(None),
+            (Some(b'<'), Some(b'<')) => {
+                at += 2;
+                let strip_tabs = self.bytes.get(at) == Some(&b'-');
+                if strip_tabs {
+                    at += 1;
+                }
+                self.at = at;
+                let start_of_delimiter = self.at;
+                let (delimiter, quoted) = self.heredoc_delimiter()?;
+                self.pending.push(Pending {
+                    delimiter,
+                    quoted,
+                    strip_tabs,
+                    span: Span::new(start_of_delimiter, self.at),
+                });
+                return Ok(Some(Redirect {
+                    fd: fd.or(Some(0)),
+                    op: if strip_tabs {
+                        RedirectOp::HereDash
+                    } else {
+                        RedirectOp::Here
+                    },
+                    // A placeholder until the line ends and the body is read;
+                    // `fill_script` puts the real one in.
+                    target: RedirectTarget::Here(Heredoc {
+                        delimiter: String::new(),
+                        quoted: false,
+                        body: String::new(),
+                    }),
+                    span: Span::new(start, self.at),
+                }));
+            }
             // A process substitution is a command, not a target.
             (Some(b'<'), Some(b'(')) | (Some(b'>'), Some(b'(')) => return Ok(None),
             (Some(b'>'), _) => {
@@ -467,6 +614,82 @@ impl<'t> Parser<'t> {
             target,
             span: Span::new(start, self.at),
         }))
+    }
+
+    /// The word after `<<`: what the delimiter says, and whether it was quoted.
+    ///
+    /// ⚠ **Every quoted spelling is one node.** `<<'EOF'`, `<<"EOF"`, `<<\EOF`
+    /// and `<<E"O"F` all print back from `declare -f` as `<<'EOF'`, so bash keeps
+    /// the text and one bit and forgets which spelling produced them. Keeping
+    /// more would be a distinction the second gate reads as a difference that
+    /// is not there.
+    ///
+    /// Nothing here expands: the delimiter is taken literally, so a `*` in it is
+    /// an asterisk rather than a glob. A `$` is refused all the same — bash reads
+    /// it literally too, but a body's expansion depends on the quoting and
+    /// guessing at what `<<$x` means about it is not worth one command.
+    fn heredoc_delimiter(&mut self) -> Result<(String, bool), Refusal> {
+        self.skip_blanks();
+        let mut text = String::new();
+        let mut quoted = false;
+        let mut read_anything = false;
+        while let Some(byte) = self.peek() {
+            match byte {
+                b' ' | b'\t' | b'\r' | b'\n' | b';' | b'|' | b'&' | b'<' | b'>' | b')' => break,
+                b'$' | b'`' => return self.refuse(Reason::Expansion, 1),
+                b'\'' => {
+                    quoted = true;
+                    read_anything = true;
+                    let Segment {
+                        kind: SegmentKind::Literal(inner),
+                        ..
+                    } = self.single_quoted()?
+                    else {
+                        unreachable!("a single-quoted run is always one literal")
+                    };
+                    text.push_str(&inner);
+                }
+                b'"' => {
+                    quoted = true;
+                    read_anything = true;
+                    let Segment {
+                        kind: SegmentKind::Literal(inner),
+                        ..
+                    } = self.double_quoted()?
+                    else {
+                        unreachable!("a double-quoted run with no expansion is one literal")
+                    };
+                    text.push_str(&inner);
+                }
+                b'\\' => match self.peek_at(1) {
+                    // A line continuation does not end the delimiter, and the
+                    // body still starts after the line it continues onto.
+                    Some(b'\n') => self.at += 2,
+                    Some(next) => {
+                        quoted = true;
+                        read_anything = true;
+                        text.push(next as char);
+                        self.at += 2;
+                    }
+                    None => return self.refuse(Reason::DanglingEscape, 1),
+                },
+                _ => {
+                    read_anything = true;
+                    text.push(byte as char);
+                    self.at += 1;
+                }
+            }
+        }
+        // ⚠ `<<''` is legal bash — its terminator is an empty line — and it is
+        // refused all the same, because the printer cannot write one back. A
+        // body's last line and the terminator would both be empty, so the two
+        // are indistinguishable at the end of the output and `t₂` reads as an
+        // unterminated heredoc. Refusing is the honest answer where the tree can
+        // be built but not spelled.
+        if !read_anything || text.is_empty() {
+            return self.refuse(Reason::EmptyOperand, 1);
+        }
+        Ok((text, quoted))
     }
 
     fn redirect_target(&mut self, op: RedirectOp) -> Result<RedirectTarget, Refusal> {
@@ -528,14 +751,17 @@ impl<'t> Parser<'t> {
                     // one build. A heredoc's operand is on the following lines;
                     // a process substitution is a whole command. Naming them
                     // apart is what let the corpus say which to do first.
+                    // A `<<` reaching this reader is glued to the end of a word
+                    // (`foo<<EOF`), which bash reads as a word and a redirection
+                    // and this parser does not split — so what is unmodelled here
+                    // is the gluing, not the heredoc.
                     let reason = if self.peek_at(1) == Some(b'(') {
                         Reason::ProcessSubstitution
-                    } else if byte == b'<' && self.peek_at(1) == Some(b'<') {
-                        if self.peek_at(2) == Some(b'<') {
-                            Reason::HereString
-                        } else {
-                            Reason::Heredoc
-                        }
+                    } else if byte == b'<'
+                        && self.peek_at(1) == Some(b'<')
+                        && self.peek_at(2) == Some(b'<')
+                    {
+                        Reason::HereString
                     } else {
                         Reason::Redirection
                     };
@@ -769,6 +995,80 @@ impl<'t> Parser<'t> {
             kind: SegmentKind::Literal(text),
             span: Span::new(start, self.at),
         })
+    }
+}
+
+/// Resolve the backslash-newlines in an unquoted heredoc body, as bash does at
+/// parse time.
+///
+/// ⚠ **The join is not a text replacement.** A backslash escapes the character
+/// after it, so an escaped backslash protects the newline that follows: `a\\⏎b`
+/// stays two lines while `a\⏎b` becomes one. Measured — a naive
+/// `replace("\\\n", "")` gets the first wrong.
+fn join_continuations(body: &str) -> String {
+    let bytes = body.as_bytes();
+    let mut out = String::with_capacity(body.len());
+    let mut at = 0;
+    while at < bytes.len() {
+        match (bytes[at], bytes.get(at + 1)) {
+            (b'\\', Some(b'\n')) => at += 2,
+            // The backslash and whatever it escapes both stay: bash resolves
+            // neither until the body is expanded, and `\$` comes back from
+            // `declare -f` with the backslash still on it. The escaped character
+            // is copied whole rather than by two bytes — it may be multi-byte,
+            // and it is the only place in this module where a slice is taken at
+            // a position the shell's own grammar did not choose.
+            (b'\\', Some(_)) => {
+                out.push('\\');
+                at += 1;
+                let width = body[at..].chars().next().map_or(0, char::len_utf8);
+                out.push_str(&body[at..at + width]);
+                at += width;
+            }
+            _ => {
+                let from = at;
+                while at < bytes.len() && bytes[at] != b'\\' {
+                    at += 1;
+                }
+                out.push_str(&body[from..at]);
+            }
+        }
+    }
+    out
+}
+
+/// Hand each heredoc opener the body that was read for it.
+///
+/// ⚠ **This is a positional match, and it is sound because both sequences are in
+/// the order the text is written.** Bodies are read when a line ends, in the
+/// order their openers appeared on it; the walk below visits redirections in
+/// that same order. Nothing else pairs them — a heredoc's opener and its body
+/// share no delimiter that is unique (`cat <<A <<A` is legal, and its two bodies
+/// differ), so order is the only thing that can.
+fn fill_script(script: &mut Script, bodies: &mut impl Iterator<Item = Heredoc>) {
+    for item in &mut script.items {
+        if let Item::List(list) = item {
+            fill_and_or(list, bodies);
+        }
+    }
+}
+
+fn fill_and_or(list: &mut AndOr, bodies: &mut impl Iterator<Item = Heredoc>) {
+    fill_pipeline(&mut list.first, bodies);
+    for link in &mut list.rest {
+        fill_pipeline(&mut link.pipeline, bodies);
+    }
+}
+
+fn fill_pipeline(pipeline: &mut Pipeline, bodies: &mut impl Iterator<Item = Heredoc>) {
+    for command in &mut pipeline.commands {
+        for redirect in &mut command.redirects {
+            if let RedirectTarget::Here(here) = &mut redirect.target
+                && let Some(body) = bodies.next()
+            {
+                *here = body;
+            }
+        }
     }
 }
 

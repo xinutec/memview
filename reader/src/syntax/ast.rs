@@ -218,6 +218,15 @@ pub enum RedirectOp {
     /// although they mean the same thing, because bash prints them differently
     /// (`&> f` versus `>&f`) and so holds them apart itself.
     BothWord,
+    /// `<<` — a body on the following lines.
+    Here,
+    /// `<<-`, which strips leading tabs from the body and the terminator.
+    ///
+    /// ⚠ **Kept as an operator although the body is already stripped.** Bash
+    /// strips at parse time and prints the `-` back with an unindented body, so
+    /// dropping the flag would print a text bash reads the same way but writes
+    /// differently. The stripping itself is not re-derivable from the body.
+    HereDash,
 }
 
 impl RedirectOp {
@@ -226,7 +235,11 @@ impl RedirectOp {
     /// `None` for the `&>` forms, which act on two and admit no number.
     pub fn default_fd(self) -> Option<u32> {
         match self {
-            RedirectOp::Read | RedirectOp::ReadWrite | RedirectOp::DupIn => Some(0),
+            RedirectOp::Read
+            | RedirectOp::ReadWrite
+            | RedirectOp::DupIn
+            | RedirectOp::Here
+            | RedirectOp::HereDash => Some(0),
             RedirectOp::Write
             | RedirectOp::Append
             | RedirectOp::Clobber
@@ -243,6 +256,38 @@ pub enum RedirectTarget {
     Fd(u32),
     /// `>&-`, closing the descriptor.
     Close,
+    /// The body of a heredoc, which is the one operand that is not on the line
+    /// its operator was written on.
+    Here(Heredoc),
+}
+
+/// `<<DELIM` and the lines up to the one holding `DELIM` alone.
+///
+/// ⚠ **The body is not a [`Word`].** A word is a value the shell splits, globs
+/// and quotes; a heredoc body is a run of lines handed to a descriptor whole. It
+/// is held as a `String` because nothing in it is a segment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Heredoc {
+    /// The delimiter with its quoting removed: `<<'EOF'`, `<<"EOF"`, `<<\EOF`
+    /// and `<<E"O"F` all give `EOF`.
+    pub delimiter: String,
+    /// ⚠ **Was the delimiter quoted at all?** Bash prints every quoted spelling
+    /// back as `<<'EOF'`, so it keeps this one bit and forgets the rest — and it
+    /// is a bit about the *body*, not about the delimiter: quoting suppresses
+    /// expansion inside the body, so `<<'PY'` and `<<PY` are different nodes
+    /// rather than two ways of writing one.
+    pub quoted: bool,
+    /// The body, ending in a newline unless it is empty.
+    ///
+    /// ⚠ **Not verbatim when `quoted` is false.** Bash joins a backslash-newline
+    /// inside an unquoted body at parse time — `a\⏎b` is stored as `ab` — and
+    /// leaves it alone inside a quoted one. So the same lines mean two different
+    /// strings depending on the delimiter, which is the second reason `quoted`
+    /// cannot be recovered from the spelling later.
+    ///
+    /// A `<<-` body is stored with its leading tabs already gone, which is what
+    /// bash prints back.
+    pub body: String,
 }
 
 /// One word: a sequence of typed segments, with quoting derived at print time.

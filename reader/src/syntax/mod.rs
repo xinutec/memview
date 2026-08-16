@@ -2,9 +2,9 @@
 //! back.
 //!
 //! `docs/execution-model.md` is the design. What it reads today: and-or lists of
-//! pipelines of simple commands, with redirections, comments as nodes, and words
-//! of typed segments — literal text, globs and tilde prefixes. `time` and `!` are
-//! fields on the pipeline, not `argv[0]`.
+//! pipelines of simple commands, with redirections and heredocs, comments as
+//! nodes, and words of typed segments — literal text, globs and tilde prefixes.
+//! `time` and `!` are fields on the pipeline, not `argv[0]`.
 //!
 //! **Everything else is refused by name.** The ranked refusals in the
 //! `bash-oracle` crate's `syntax-report` are what choose the next construct, and
@@ -39,7 +39,7 @@ pub mod print;
 pub mod survey;
 
 pub use ast::{
-    AndOr, Command, Comment, Connector, Glob, Item, Link, Pipeline, Redirect, RedirectOp,
+    AndOr, Command, Comment, Connector, Glob, Heredoc, Item, Link, Pipeline, Redirect, RedirectOp,
     RedirectTarget, Script, Segment, SegmentKind, Span, Tilde, Timed, Word,
 };
 pub use law::{Outcome, check};

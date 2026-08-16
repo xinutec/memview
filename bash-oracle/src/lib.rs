@@ -198,17 +198,35 @@ fn render(printed: &[String]) -> Result<Vec<Option<String>>> {
 ///
 /// `bash -n` reads and executes nothing.
 pub fn bash_also_refuses(command: &str) -> Result<bool> {
+    Ok(!bash_parse(command)?.0)
+}
+
+/// Does bash warn that a heredoc ran off the end of the input?
+///
+/// ⚠ **The one malformed shape bash accepts.** An unterminated heredoc exits
+/// zero — bash takes the rest of the input as the body and says so on stderr —
+/// so [`bash_also_refuses`] cannot adjudicate it and the warning has to. Without
+/// this, `UnterminatedHeredoc` would be the only refusal resting on nothing but
+/// this parser's own say-so.
+pub fn bash_warns_of_a_runaway_heredoc(command: &str) -> Result<bool> {
+    Ok(bash_parse(command)?.1.contains("delimited by end-of-file"))
+}
+
+/// `bash -n` on the text: whether it accepted, and what it said while doing it.
+fn bash_parse(command: &str) -> Result<(bool, String)> {
     let bash = std::env::var("SYNTAX_ORACLE_BASH").unwrap_or_else(|_| "bash".to_string());
     let script = Scratch::write(command.as_bytes())?;
-    let status = Command::new(&bash)
+    let output = Command::new(&bash)
         .arg("-n")
         .arg(&script.path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
+        .output()
         .with_context(|| format!("spawning {bash} -n"))?;
-    Ok(!status.success())
+    Ok((
+        output.status.success(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    ))
 }
 
 /// A driver file that removes itself.
