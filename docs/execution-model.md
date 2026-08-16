@@ -159,6 +159,12 @@ inherit an existing durability path rather than grow a new one: `~/.claude` is
 already rsynced to odin nightly and held in restic. Not in this repository —
 memview is public and that is shell history.
 
+⚠ **A run that stops happening has to be visible, or the ratchet rots quietly.**
+`fleet_health`'s `claude corpus` check grades the snapshot's age hourly and
+charts the union's row count, so a stalled job and a shrinking union both
+surface. This is the one job here whose silent failure destroys something: what
+it captures is being pruned from the live tree by design.
+
 **Union for the ratchet, snapshot for frequency.** A corpus row is
 `{cmd, cwd, ran}` with no call id, so `sort -u` collapses exact repeats the
 moment it merges. Distinctness survives and multiplicity does not, which is why
