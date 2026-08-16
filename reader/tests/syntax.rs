@@ -6,7 +6,7 @@
 //! law, so no corpus run could ever object. Quoting collapse, the glob/literal
 //! split and the reserved words are all of that kind.
 
-use reader::syntax::ast::{Glob, Item, Segment, SegmentKind, Span, Word};
+use reader::syntax::ast::{Glob, Item, Segment, SegmentKind, Span, Timed, Word};
 use reader::syntax::{Outcome, Reason, check, parse, print, survey};
 use std::collections::BTreeSet;
 
@@ -23,8 +23,18 @@ fn refusal(text: &str) -> Reason {
 
 fn words(text: &str) -> Vec<Word> {
     match &tree(text).items[..] {
-        [Item::Command(command)] => command.words.clone(),
-        other => panic!("{text:?} is not one command: {other:?}"),
+        [Item::Pipeline(pipeline)] => match &pipeline.commands[..] {
+            [command] => command.words.clone(),
+            other => panic!("{text:?} is not one command: {other:?}"),
+        },
+        other => panic!("{text:?} is not one pipeline: {other:?}"),
+    }
+}
+
+fn pipeline(text: &str) -> reader::syntax::Pipeline {
+    match &tree(text).items[..] {
+        [Item::Pipeline(pipeline)] => pipeline.clone(),
+        other => panic!("{text:?} is not one pipeline: {other:?}"),
     }
 }
 
@@ -87,9 +97,12 @@ fn a_glob_is_not_the_character_that_spells_it() {
 
 #[test]
 fn a_reserved_word_is_refused_and_a_quoted_one_is_a_command() {
-    assert_eq!(refusal("time ./x.sh"), Reason::ReservedWord);
     assert_eq!(refusal("for f in a; do echo; done"), Reason::ReservedWord);
-    // `'time' ./x.sh` runs /usr/bin/time — a program, and an ordinary word.
+    // `time` is no longer refused — the pipeline models it. What still matters
+    // is that the QUOTED one stays a program: `'time' ./x.sh` runs
+    // /usr/bin/time, so its tree holds a word, not a flag.
+    assert_eq!(pipeline("time ./x.sh").time, Some(Timed::Plain));
+    assert_eq!(pipeline("'time' ./x.sh").time, None);
     assert_eq!(
         words("'time' ./x.sh")[0].as_literal().as_deref(),
         Some("time")
@@ -120,7 +133,6 @@ fn an_assignment_prefix_is_grammar_and_an_argument_is_not() {
 fn every_construct_the_tree_does_not_model_is_named() {
     assert_eq!(refusal("a && b"), Reason::AndOr);
     assert_eq!(refusal("a || b"), Reason::AndOr);
-    assert_eq!(refusal("a | b"), Reason::Pipe);
     assert_eq!(refusal("a &"), Reason::Background);
     assert_eq!(refusal("echo > out"), Reason::Redirection);
     assert_eq!(refusal("(cd x)"), Reason::Grouping);
@@ -197,8 +209,8 @@ fn the_law_reports_a_refusal_apart_from_a_failure() {
     // A refusal is the work queue, not a defect, and the two must never be
     // added together — a parser that refused everything would otherwise score
     // a perfect law.
-    assert!(matches!(check("a | b"), Outcome::Refused(_)));
-    assert!(!check("a | b").holds());
+    assert!(matches!(check("a && b"), Outcome::Refused(_)));
+    assert!(!check("a && b").holds());
 }
 
 // ---- the survey: which constructs a command needs, not which stopped us ----
@@ -207,10 +219,10 @@ fn the_law_reports_a_refusal_apart_from_a_failure() {
 fn the_survey_returns_every_blocking_construct_not_the_first() {
     // The whole reason it exists: `parse` stops at the pipe and never sees the
     // redirection, so the refusal ranking under-counts whatever sits rightmost.
-    assert_eq!(refusal("a | b > c"), Reason::Pipe);
+    assert_eq!(refusal("a && b > c"), Reason::AndOr);
     assert_eq!(
-        survey("a | b > c"),
-        BTreeSet::from([Reason::Pipe, Reason::Redirection])
+        survey("a && b > c"),
+        BTreeSet::from([Reason::AndOr, Reason::Redirection])
     );
 }
 
@@ -251,7 +263,6 @@ fn the_survey_is_empty_exactly_when_the_parser_accepts() {
         "# a comment",
         "a; b",
         "'time' ./x.sh",
-        "a | b",
         "cd ~/x",
         "echo $x",
         "a && b",
@@ -265,4 +276,118 @@ fn the_survey_is_empty_exactly_when_the_parser_accepts() {
             survey(text)
         );
     }
+}
+
+// ---- the pipeline ----
+
+#[test]
+fn a_pipeline_holds_its_commands_and_its_two_flags() {
+    let p = pipeline("a | b | c");
+    assert_eq!(p.commands.len(), 3);
+    assert_eq!(p.time, None);
+    assert!(!p.negated);
+}
+
+#[test]
+fn time_and_bang_are_fields_not_argv() {
+    // The misparse the flat reader still carries: `time` at `argv[0]` cannot say
+    // whether the whole pipeline or only its first command is timed.
+    let p = pipeline("time a | b");
+    assert_eq!(p.time, Some(Timed::Plain));
+    assert_eq!(p.commands.len(), 2);
+    assert_eq!(p.commands[0].words[0].as_literal().as_deref(), Some("a"));
+
+    assert_eq!(pipeline("time -p ls").time, Some(Timed::Posix));
+    assert!(pipeline("! grep -q x f").negated);
+}
+
+#[test]
+fn either_order_of_the_prefixes_is_one_tree() {
+    // ⚠ Bash accepts both and prints `time` first — `! time a | b` comes back
+    // from `declare -f` as `time ! a | b`. Two texts, one tree, and the printer
+    // picks bash's spelling.
+    assert_eq!(pipeline("! time a | b"), pipeline("time ! a | b"));
+    assert_eq!(print(&tree("! time a | b")), "time ! a | b");
+}
+
+#[test]
+fn negation_is_a_toggle_because_bash_collapses_it() {
+    // `declare -f` prints `! ! a` back as `a`.
+    assert!(!pipeline("! ! a").negated);
+    assert!(pipeline("! ! ! a").negated);
+    assert_eq!(print(&tree("! ! a")), "a");
+}
+
+#[test]
+fn a_keyword_is_only_a_keyword_at_the_head() {
+    // Measured: `a | time b` is accepted and runs /usr/bin/time, while
+    // `a | ! b` is a syntax error. So one is a word and the other is refused.
+    let p = pipeline("a | time b");
+    assert_eq!(p.time, None);
+    assert_eq!(p.commands[1].words[0].as_literal().as_deref(), Some("time"));
+    assert_eq!(refusal("a | ! b"), Reason::ReservedWord);
+}
+
+#[test]
+fn timeout_is_not_time() {
+    // Without a word-boundary check the keyword eats the first four characters
+    // of the commonest wrapper in the corpus.
+    let p = pipeline("timeout 5 ls");
+    assert_eq!(p.time, None);
+    assert_eq!(
+        p.commands[0].words[0].as_literal().as_deref(),
+        Some("timeout")
+    );
+}
+
+#[test]
+fn the_printer_keeps_a_quoted_time_a_command_and_a_piped_one_bare() {
+    // At the head, printing `time` bare would turn this program into a keyword.
+    assert_eq!(print(&tree("'time' ./x.sh")), "'time' ./x.sh");
+    // After a pipe it is already a program name, so quoting would be noise.
+    assert_eq!(print(&tree("a | time b")), "a | time b");
+    assert!(check("'time' ./x.sh").holds());
+    assert!(check("a | time b").holds());
+}
+
+#[test]
+fn the_law_holds_across_the_pipeline_shapes() {
+    for text in [
+        "a | b",
+        "a | b | c",
+        "time a | b",
+        "time -p a",
+        "! a | b",
+        "! time a | b",
+        "ls -1 | wc -l",
+        "a|b",
+        "a |b| c",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+    }
+}
+
+#[test]
+fn a_pipeline_prefix_does_not_start_the_command() {
+    // ⚠ Regression, found by the corpus invariant on ONE command out of 131k:
+    // `time PYTHONPATH=… python -m recall doctor`. Treating `time` as the
+    // command name made the assignment after it look like an argument, so the
+    // survey reported nothing where the parser refused.
+    assert_eq!(
+        survey("time PYTHONPATH=/x python -m recall"),
+        BTreeSet::from([Reason::Assignment])
+    );
+    assert_eq!(
+        refusal("time PYTHONPATH=/x python -m recall"),
+        Reason::Assignment
+    );
+    // `-p` is a prefix only after `time`; alone it is an ordinary argument.
+    assert_eq!(
+        survey("time -p FOO=bar x"),
+        BTreeSet::from([Reason::Assignment])
+    );
 }

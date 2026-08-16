@@ -63,8 +63,49 @@ pub struct Script {
 /// the round-trip law alone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Item {
-    Command(Command),
+    Pipeline(Pipeline),
     Comment(Comment),
+}
+
+/// `[time [-p]] [!] cmd [| cmd …]`.
+///
+/// ⚠ **`time` and `!` are fields here, not `argv[0]`.** They are grammar, and
+/// scope is what forces it: `time a | b` times the whole pipeline while a
+/// wrapper command like `nohup a | b` applies to `a` alone. A reader that puts
+/// `time` at `argv[0]` cannot express the difference, which is the misparse the
+/// flat reader still carries.
+///
+/// Both are recognised **only at the head**, which is bash's rule and is
+/// observable: `a | ! b` is a syntax error, while `a | time b` runs the program
+/// `/usr/bin/time`. So a `time` after a `|` is an ordinary word and this struct
+/// says nothing about it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pipeline {
+    /// Written before or after `!`; bash accepts either and prints this first,
+    /// so the tree holds two flags rather than an order.
+    pub time: Option<Timed>,
+    /// ⚠ A toggle, not a count: bash prints `! ! a` back as `a`.
+    pub negated: bool,
+    pub commands: Vec<Command>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Timed {
+    /// `time`
+    Plain,
+    /// `time -p`, the POSIX output format.
+    Posix,
+}
+
+impl Pipeline {
+    /// Is this pipeline nothing at all — no commands and no grammar?
+    ///
+    /// `time` on its own is a legal pipeline that bash prints back, so an empty
+    /// `commands` is not by itself an empty pipeline.
+    pub fn is_empty(&self) -> bool {
+        self.commands.is_empty() && self.time.is_none() && !self.negated
+    }
 }
 
 /// The text after `#`, without the `#` and without the newline.

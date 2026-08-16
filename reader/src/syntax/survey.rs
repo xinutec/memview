@@ -65,6 +65,11 @@ impl Survey<'_> {
         // know where commands begin — which is after every separator, not only
         // at the start of the text.
         let mut at_command_start = true;
+        // `time` and `!` are grammar only where a pipeline begins. Every other
+        // separator opens one; a `|` does not.
+        let mut at_pipeline_head = true;
+        // `-p` is a prefix only after `time`; on its own it is an argument.
+        let mut seen_time = false;
         let mut word = String::new();
         let mut word_quoted = false;
         let mut in_word = false;
@@ -75,41 +80,90 @@ impl Survey<'_> {
         // assignment prefix that is plainly an argument — 191 commands where the
         // survey claimed a construct the parser had accepted. A separator sets
         // the flag back on afterwards; whitespace must not.
-        macro_rules! end_word {
+        // Three ways a word can end, and they differ only in what the shell is
+        // at afterwards. Split rather than parameterised because a conditional
+        // store followed by an unconditional one is a dead store the linter is
+        // right about — and because naming them says what each separator means.
+        macro_rules! finish {
             () => {
                 if in_word {
-                    finish_word(&mut self.found, &word, at_command_start, word_quoted);
+                    finish_word(
+                        &mut self.found,
+                        &word,
+                        at_command_start,
+                        at_pipeline_head,
+                        word_quoted,
+                    );
                     in_word = false;
                     word.clear();
                     word_quoted = false;
                 }
             };
         }
+        // Whitespace: still inside the same command, unless a word just ended.
+        macro_rules! end_word {
+            () => {
+                if in_word {
+                    // ⚠ Decided BEFORE `finish!`, assigned after. `finish_word`
+                    // reads both flags, so clearing them first makes every
+                    // command name look like an argument — `FOO=bar cmd` then
+                    // reports nothing at all.
+                    //
+                    // A pipeline's prefix words do not end its head: in
+                    // `time ! a` the head is still open and `a` is the name.
+                    let keeps_head = at_pipeline_head
+                        && (word == "!" || word == "time" || (seen_time && word == "-p"));
+                    if at_pipeline_head && word == "time" {
+                        seen_time = true;
+                    }
+                    finish!();
+                    // ⚠ A prefix word does not start the command either: after
+                    // `time`, the NEXT word is the command name, and treating it
+                    // as an argument hid the assignment in
+                    // `time PYTHONPATH=… python -m x`.
+                    at_command_start = keeps_head;
+                    at_pipeline_head = keeps_head;
+                }
+            };
+        }
+        // `;`, a newline, `&`, `&&`, `||`, a group: a new pipeline starts.
+        macro_rules! separator {
+            () => {
+                finish!();
+                at_command_start = true;
+                at_pipeline_head = true;
+                seen_time = false;
+            };
+        }
+        // A single `|`: a new command, but the SAME pipeline — which is what
+        // makes `! a | b` legal and `a | ! b` a syntax error.
+        macro_rules! pipe {
+            () => {
+                finish!();
+                at_command_start = true;
+                at_pipeline_head = false;
+                seen_time = false;
+            };
+        }
 
         while let Some(byte) = self.peek() {
             match byte {
                 b' ' | b'\t' | b'\r' => {
-                    let ended = in_word;
                     end_word!();
-                    if ended {
-                        at_command_start = false;
-                    }
                     self.at += 1;
                 }
                 b'\\' if self.peek_at(1) == Some(b'\n') => {
                     self.at += 2;
                 }
                 b'\n' => {
-                    end_word!();
-                    at_command_start = true;
+                    separator!();
                     self.at += 1;
                     for delimiter in heredocs.drain(..) {
                         self.skip_heredoc_body(&delimiter);
                     }
                 }
                 b';' => {
-                    end_word!();
-                    at_command_start = true;
+                    separator!();
                     self.at += 1;
                 }
                 b'#' if !in_word => {
@@ -118,19 +172,20 @@ impl Survey<'_> {
                     }
                 }
                 b'|' => {
-                    end_word!();
-                    at_command_start = true;
                     if self.peek_at(1) == Some(b'|') {
+                        separator!();
                         self.found.insert(Reason::AndOr);
                         self.at += 2;
                     } else {
-                        self.found.insert(Reason::Pipe);
+                        pipe!();
+                        // A pipe is modelled, so it is not a finding — but the
+                        // command after it is NOT a pipeline head, which is
+                        // what makes `a | ! b` a refusal and `! a | b` fine.
                         self.at += 1;
                     }
                 }
                 b'&' => {
-                    end_word!();
-                    at_command_start = true;
+                    separator!();
                     if self.peek_at(1) == Some(b'&') {
                         self.found.insert(Reason::AndOr);
                         self.at += 2;
@@ -160,8 +215,7 @@ impl Survey<'_> {
                     }
                 }
                 b'(' | b')' | b'{' | b'}' => {
-                    end_word!();
-                    at_command_start = true;
+                    separator!();
                     self.found.insert(Reason::Grouping);
                     self.at += 1;
                 }
@@ -233,8 +287,16 @@ impl Survey<'_> {
         }
         // Not `end_word!` — nothing reads the scanner's state after this, and
         // assigning it here is three dead stores the linter is right about.
+        // Direct, not `finish!` — nothing reads the word state after this, and
+        // clearing it here is two dead stores.
         if in_word {
-            finish_word(&mut self.found, &word, at_command_start, word_quoted);
+            finish_word(
+                &mut self.found,
+                &word,
+                at_command_start,
+                at_pipeline_head,
+                word_quoted,
+            );
         }
         self.found
     }
@@ -388,7 +450,18 @@ impl Survey<'_> {
 
 /// A finished word is only grammar where a command begins, and only unquoted:
 /// `'time'` at the head of a command is a program, not the keyword.
-fn finish_word(found: &mut BTreeSet<Reason>, word: &str, at_command_start: bool, quoted: bool) {
+fn finish_word(
+    found: &mut BTreeSet<Reason>,
+    word: &str,
+    at_command_start: bool,
+    at_pipeline_head: bool,
+    quoted: bool,
+) {
+    // `!` opening a pipeline is grammar the tree models; the same `!` after a
+    // `|` is a syntax error bash refuses, and the parser refuses it too.
+    if at_pipeline_head && word == "!" {
+        return;
+    }
     if at_command_start && !quoted {
         if is_reserved(word) {
             found.insert(Reason::ReservedWord);

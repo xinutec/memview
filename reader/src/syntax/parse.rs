@@ -16,7 +16,9 @@
 //! a multi-byte sequence can only ever be interior to a literal run, and slicing
 //! at a special character always lands on a character boundary.
 
-use super::ast::{Command, Comment, Glob, Item, Script, Segment, SegmentKind, Span, Word};
+use super::ast::{
+    Command, Comment, Glob, Item, Pipeline, Script, Segment, SegmentKind, Span, Timed, Word,
+};
 
 /// Why a piece of text was not read.
 ///
@@ -29,8 +31,6 @@ pub enum Reason {
     Expansion,
     /// `<` or `>` in any of their forms.
     Redirection,
-    /// A single `|`.
-    Pipe,
     /// `&&` or `||`.
     AndOr,
     /// A trailing `&`.
@@ -57,7 +57,6 @@ impl Reason {
         match self {
             Reason::Expansion => "expansion ($ or backtick)",
             Reason::Redirection => "redirection (< >)",
-            Reason::Pipe => "pipe (|)",
             Reason::AndOr => "and-or (&& ||)",
             Reason::Background => "background (&)",
             Reason::Grouping => "grouping (( ) { })",
@@ -84,9 +83,16 @@ pub struct Refusal {
 /// first word of a command, no quoting anywhere in it. That distinction is
 /// invisible to both gates — bash prints the quotes straight back — which is why
 /// it is decided here, where the quoting is still known.
+/// ⚠ **`time` is deliberately absent.** At the head of a pipeline it is grammar
+/// and [`Parser::pipeline`] consumes it before any word is read; anywhere else
+/// bash runs the program of that name — `a | time b` is accepted and executes
+/// `/usr/bin/time`. Refusing it as a word would refuse a legal command.
+///
+/// `!` stays, because it is grammar at the head and a *syntax error* elsewhere:
+/// bash rejects `a | ! b`. Refusing it is the right answer in both positions.
 const RESERVED: &[&str] = &[
     "!", "[[", "]]", "case", "coproc", "do", "done", "elif", "else", "esac", "fi", "for",
-    "function", "if", "in", "select", "then", "time", "until", "while",
+    "function", "if", "in", "select", "then", "until", "while",
 ];
 
 pub fn parse(text: &str) -> Result<Script, Refusal> {
@@ -134,9 +140,9 @@ impl<'t> Parser<'t> {
                 }
                 Some(b'#') => items.push(Item::Comment(self.comment())),
                 _ => {
-                    let command = self.command()?;
-                    if !command.words.is_empty() {
-                        items.push(Item::Command(command));
+                    let pipeline = self.pipeline()?;
+                    if !pipeline.is_empty() {
+                        items.push(Item::Pipeline(pipeline));
                     }
                 }
             }
@@ -176,6 +182,79 @@ impl<'t> Parser<'t> {
         }
     }
 
+    /// `[time [-p]] [!] cmd [| cmd …]`.
+    ///
+    /// The prefixes are read in a loop because bash accepts them in either
+    /// order and normalises to `time` first — `! time a | b` comes back from
+    /// `declare -f` as `time ! a | b`. Reading both into the same two fields is
+    /// what makes those two texts one tree.
+    fn pipeline(&mut self) -> Result<Pipeline, Refusal> {
+        let start = self.at;
+        let mut time = None;
+        let mut negated = false;
+        loop {
+            self.skip_blanks();
+            if self.take_keyword("!") {
+                // ⚠ Toggled, not counted: bash prints `! ! a` back as `a`.
+                negated = !negated;
+            } else if self.take_keyword("time") {
+                // ⚠ The blanks between `time` and `-p` have to go first.
+                // Without this the option is never seen and every `time -p`
+                // silently becomes a plain `time` with `-p` as the command.
+                self.skip_blanks();
+                time = Some(if self.take_keyword("-p") {
+                    Timed::Posix
+                } else {
+                    Timed::Plain
+                });
+            } else {
+                break;
+            }
+        }
+
+        let mut commands = Vec::new();
+        loop {
+            let command = self.command()?;
+            if !command.words.is_empty() {
+                commands.push(command);
+            }
+            self.skip_blanks();
+            if self.peek() == Some(b'|') && self.peek_at(1) != Some(b'|') {
+                self.at += 1;
+                continue;
+            }
+            break;
+        }
+
+        Ok(Pipeline {
+            time,
+            negated,
+            commands,
+            span: Span::new(start, self.at),
+        })
+    }
+
+    /// Take an unquoted word equal to `word`, if that is what is next.
+    ///
+    /// The boundary check is the whole of it: `time` is a keyword and `timeout`
+    /// is a program, and without a lookahead the second would lose its first
+    /// four characters. A quote makes it a value rather than grammar, and a
+    /// quote character here means the word did not start where we are.
+    fn take_keyword(&mut self, word: &str) -> bool {
+        let end = self.at + word.len();
+        if self.text.get(self.at..end) != Some(word) {
+            return false;
+        }
+        let boundary = matches!(
+            self.bytes.get(end).copied(),
+            None | Some(b' ') | Some(b'\t') | Some(b'\r') | Some(b'\n') | Some(b';') | Some(b'|')
+        );
+        if boundary {
+            self.at = end;
+        }
+        boundary
+    }
+
     fn command(&mut self) -> Result<Command, Refusal> {
         let start = self.at;
         let mut words: Vec<Word> = Vec::new();
@@ -183,6 +262,9 @@ impl<'t> Parser<'t> {
             self.skip_blanks();
             match self.peek() {
                 None | Some(b';') | Some(b'\n') => break,
+                // The pipeline owns `|`; a bare one ends this command. `||` is
+                // an and-or list and is still refused, by the word reader.
+                Some(b'|') if self.peek_at(1) != Some(b'|') => break,
                 // `#` opens a comment only where a word would start; inside a
                 // word it is an ordinary character, which is why this is tested
                 // here and not in the word reader.
@@ -220,12 +302,10 @@ impl<'t> Parser<'t> {
                 b' ' | b'\t' | b'\r' | b'\n' | b';' => break,
                 b'\\' if self.peek_at(1) == Some(b'\n') => break,
                 b'|' => {
-                    let reason = if self.peek_at(1) == Some(b'|') {
-                        Reason::AndOr
-                    } else {
-                        Reason::Pipe
-                    };
-                    return self.refuse(reason, 1);
+                    if self.peek_at(1) == Some(b'|') {
+                        return self.refuse(Reason::AndOr, 1);
+                    }
+                    break;
                 }
                 b'&' => {
                     let reason = if self.peek_at(1) == Some(b'&') {

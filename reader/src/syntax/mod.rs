@@ -35,7 +35,9 @@ pub mod parse;
 pub mod print;
 pub mod survey;
 
-pub use ast::{Command, Comment, Glob, Item, Script, Segment, SegmentKind, Span, Word};
+pub use ast::{
+    Command, Comment, Glob, Item, Pipeline, Script, Segment, SegmentKind, Span, Timed, Word,
+};
 pub use law::{Outcome, check};
 pub use parse::{Reason, Refusal, parse};
 pub use print::print;

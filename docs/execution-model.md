@@ -3,10 +3,13 @@
 Design for the syntax layer under `reader/`: a faithful tree for every language
 the fleet executes, plus a printer that puts it back.
 
-**Status: first construct built, both gates wired.** `reader/src/syntax/` holds
-the tree, the parser and the printer; the `bash-oracle` crate holds the second
-gate and the report. No coverage rate is recorded here: each is one `cargo run`
-away and moves on its own. Figures that size a decision stay.
+**Status: simple commands, comments and pipelines; both gates wired.**
+`reader/src/syntax/` holds the tree, the parser and the printer; the
+`bash-oracle` crate holds the second gate and the report.
+
+**No coverage rate is tracked here** — each is one `cargo run` away and moves on
+its own. The figures that stay are the ones that *sized a decision*, and they say
+so where they appear.
 
 ```sh
 cargo run --release -p bash-oracle --bin syntax-report -- \
@@ -138,8 +141,16 @@ Two kinds of wrapping, and they belong at different layers.
 | commands taking a command | `timeout`, `nohup`, `env`, `nice`, `sudo`, `bash -c` | elevation |
 
 `type -t time` says `keyword`, and the pipeline is `[time [-p]] [!] cmd [| cmd …]`.
-Bash accepts either order and prints this one — `! time a | b` comes back as
-`time ! a | b` — so the tree holds two independent flags, not a sequence.
+Three things about it were measured rather than assumed, and each shapes the node:
+
+- **Either order, one tree.** `! time a | b` comes back from `declare -f` as
+  `time ! a | b`, so the tree holds two independent flags and the printer emits
+  bash's order.
+- **Head only.** `a | ! b` is a *syntax error* while `a | time b` is accepted and
+  runs `/usr/bin/time`. So after a `|`, `!` is refused and `time` is an ordinary
+  word — and the printer must quote a `time` at the head while leaving one after
+  a pipe bare.
+- **`!` is a toggle, not a count.** Bash prints `! ! a` back as `a`.
 
 **Scope is what forces it into the tree:** `time a | b` times the whole pipeline,
 while `nohup a | b` applies to `a` alone, and `time` at `argv[0]` cannot express
@@ -212,6 +223,11 @@ needs, and the report plans off a greedy cumulative curve instead: pipe → and-
 Only 27,322 of 113,439 refused commands need a single construct — most need
 three or more, which is why a per-construct percentage is the wrong unit.
 
+**The prediction was then tested by building the pipeline.** The survey said the
+pipe alone was worth 11.03%; coverage went 13.57% → 24.60%, which is 11.03%.
+That is the survey's own validation, and it is why the greedy curve is worth
+planning from: and-or next at +9.93%, then redirection at +7.86%.
+
 ⚠ **The survey is a second scanner and is pinned, not trusted.** It has to read
 text the parser cannot, so it cannot be built from the parser, and it drifted on
 its first run — 191 commands where it claimed a construct the parser had
@@ -276,14 +292,16 @@ The ordering constraint is correctness, not preservation. Nothing is built in th
 flat model to tide things over, because a half-representation invented now is one
 to throw away later.
 
-### Known misparse, left for the tree
+### Known misparse, fixed in the tree and still live in the reader
 
 `time ./x.sh` parses in the flat reader as a simple command with
 `argv[0] = "time"`, because it has `time` in its wrapper list beside `nohup` and
 `exec`. That is a category error: `time` is grammar. It reaches the right command
-anyway, so no count reports it. **Still unfixed there** — a correct fix needs the
-pipeline node to hang the flag on. The tree refuses it instead, which is not a
-fix but is not a wrong answer either.
+anyway, so no count reports it. **Still unfixed there.**
+
+The tree has the pipeline node now, so `time` and `!` are fields on it and the
+scope question the flat model could not express — `time a | b` times the whole
+pipeline — has an answer.
 
 ## What the first construct establishes
 

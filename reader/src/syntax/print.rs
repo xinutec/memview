@@ -11,7 +11,7 @@
 //! in layout or quoting print identically, which is what makes the printed form
 //! usable as an equivalence test.
 
-use super::ast::{Glob, Item, Script, Segment, SegmentKind, Word};
+use super::ast::{Command, Glob, Item, Pipeline, Script, Segment, SegmentKind, Timed, Word};
 use super::parse::{is_assignment, is_reserved};
 
 pub fn print(script: &Script) -> String {
@@ -19,20 +19,51 @@ pub fn print(script: &Script) -> String {
     for item in &script.items {
         lines.push(match item {
             Item::Comment(comment) => format!("#{}", comment.text),
-            Item::Command(command) => command
-                .words
-                .iter()
-                .enumerate()
-                .map(|(index, word)| print_word(word, index == 0))
-                .collect::<Vec<_>>()
-                .join(" "),
+            Item::Pipeline(pipeline) => print_pipeline(pipeline),
         });
     }
     lines.join("\n")
 }
 
-/// One word. `first` is whether it opens a command, the only position where the
-/// shell reads a word as grammar rather than as a value.
+/// ⚠ **`time` before `!`, whichever order they were written in.** That is the
+/// order bash's own printer emits, and matching it is what lets the second gate
+/// compare trees rather than argue about spelling.
+pub fn print_pipeline(pipeline: &Pipeline) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    match pipeline.time {
+        Some(Timed::Plain) => parts.push("time".into()),
+        Some(Timed::Posix) => parts.push("time -p".into()),
+        None => {}
+    }
+    if pipeline.negated {
+        parts.push("!".into());
+    }
+    let commands: Vec<String> = pipeline
+        .commands
+        .iter()
+        .enumerate()
+        .map(|(index, command)| print_command(command, index == 0))
+        .collect();
+    parts.push(commands.join(" | "));
+    parts.retain(|part| !part.is_empty());
+    parts.join(" ")
+}
+
+/// `head` is whether this command opens the pipeline — the only place `time`
+/// and `!` are grammar, and therefore the only place a word spelling one has to
+/// be quoted to stay a value.
+fn print_command(command: &Command, head: bool) -> String {
+    command
+        .words
+        .iter()
+        .enumerate()
+        .map(|(index, word)| print_word(word, index == 0 && head))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// One word. `first` is whether it opens the pipeline's head command, the only
+/// position where the shell reads a word as grammar rather than as a value.
 pub fn print_word(word: &Word, first: bool) -> String {
     // ⚠ **A word that would read back as grammar is quoted whole.** `time` at
     // the head of a command is a keyword and `FOO=bar` is a binding, so printing
@@ -40,9 +71,12 @@ pub fn print_word(word: &Word, first: bool) -> String {
     // refuse — and a refusal on `t₂` is a round-trip failure. Quoting is what
     // says "this really is the name of a program", which is exactly what the
     // shell means by it.
+    // ⚠ `time` is checked by name because it is NOT in `RESERVED` — it is
+    // grammar only here, at a pipeline's head, and a plain program name after a
+    // `|`. Printing this tree's `time` bare would turn a command into a keyword.
     if first
         && let Some(text) = word.as_literal()
-        && (is_reserved(&text) || is_assignment(&text))
+        && (is_reserved(&text) || is_assignment(&text) || text == "time")
     {
         return quote(&text);
     }

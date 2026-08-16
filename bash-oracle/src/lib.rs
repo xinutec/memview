@@ -136,7 +136,7 @@ fn without_comments(script: &Script) -> Script {
         items: script
             .items
             .iter()
-            .filter(|item| matches!(item, Item::Command(_)))
+            .filter(|item| matches!(item, Item::Pipeline(_)))
             .cloned()
             .collect(),
         span: script.span,

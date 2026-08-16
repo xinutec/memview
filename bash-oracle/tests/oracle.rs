@@ -14,11 +14,21 @@
 //! accepted without it.
 
 use bash_oracle::{Verdict, compare};
-use reader::syntax::ast::{Command, Script, Segment, SegmentKind, Span, Word};
+use reader::syntax::ast::{Command, Pipeline, Script, Segment, SegmentKind, Span, Word};
 use reader::syntax::parse;
 
 fn nowhere() -> Span {
     Span::new(0, 0)
+}
+
+/// A pipeline of exactly one command, with no grammar on it.
+fn one(command: Command) -> Pipeline {
+    Pipeline {
+        time: None,
+        negated: false,
+        commands: vec![command],
+        span: nowhere(),
+    }
 }
 
 fn literal(text: &str) -> Segment {
@@ -42,6 +52,13 @@ fn bash_reads_our_printed_form_the_way_we_do() {
         // The two words that are only words because they are quoted.
         "'time' ./x.sh",
         "'FOO=bar'",
+        // The pipeline shapes: bash reorders the prefixes and we must agree.
+        "a | b | c",
+        "time a | b",
+        "time -p ls",
+        "! grep -q x f",
+        "! time a | b",
+        "a | time b",
     ]
     .iter()
     .map(|text| parse(text).expect("fixture should parse"))
@@ -62,10 +79,10 @@ fn a_tree_bash_cannot_read_is_reported_not_passed() {
     // empty body is a syntax error. The parser never builds one — this is
     // constructed by hand precisely because it has to come from somewhere.
     let empty = Script {
-        items: vec![reader::syntax::Item::Command(Command {
+        items: vec![reader::syntax::Item::Pipeline(one(Command {
             words: vec![],
             span: nowhere(),
-        })],
+        }))],
         span: nowhere(),
     };
     assert_eq!(compare(&[empty]).unwrap()[0], Verdict::BashRefused);
@@ -77,13 +94,13 @@ fn a_tree_that_is_not_in_normal_form_is_caught() {
     // reads back as ONE segment. The trees differ, and the gate has to say so —
     // this is the shape of every real disagreement it will ever report.
     let unmerged = Script {
-        items: vec![reader::syntax::Item::Command(Command {
+        items: vec![reader::syntax::Item::Pipeline(one(Command {
             words: vec![Word {
                 segments: vec![literal("a"), literal("b")],
                 span: nowhere(),
             }],
             span: nowhere(),
-        })],
+        }))],
         span: nowhere(),
     };
     assert!(
@@ -99,10 +116,10 @@ fn a_refusal_in_a_batch_does_not_swallow_its_neighbours() {
     // wrong input. The fallback re-runs the batch one at a time; without it
     // this test reports `BashRefused` for the good commands too.
     let broken = Script {
-        items: vec![reader::syntax::Item::Command(Command {
+        items: vec![reader::syntax::Item::Pipeline(one(Command {
             words: vec![],
             span: nowhere(),
-        })],
+        }))],
         span: nowhere(),
     };
     let good = parse("echo after").expect("fixture should parse");
