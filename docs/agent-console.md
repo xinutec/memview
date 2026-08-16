@@ -1758,6 +1758,28 @@ build does need _an_ address, and it lives in `console/android/console.env` —
 outside the repository, beside the pin it belongs with, and written by the script
 that generated the key.
 
+## Configuration
+
+| var | default | meaning |
+| --- | --- | --- |
+| `CONSOLE_DIRS` | `~/Code` | colon-separated roots a session may start in |
+| `CONSOLE_MODEL` | unset | model for spawned sessions; unset = the CLI's own |
+| `CONSOLE_PERMISSION_MODE` | unset | `manual` asks before every tool call |
+| `CLAUDE_BIN` | `claude` | the CLI to spawn |
+| `BIND_ADDR` | `127.0.0.1:8097` | must be loopback unless the gate is configured |
+| `CONSOLE_DESK_ADDR` | `127.0.0.1:8096` | plaintext socket for this machine, only when the gate is on |
+| `CONSOLE_TLS_CERT` / `CONSOLE_TLS_KEY` | unset | the console's own PEM certificate and key |
+| `CONSOLE_CLIENT_KEYS` | unset | comma-separated SHA-256 pins of the client keys admitted |
+
+`CONSOLE_DESK_ADDR` exists because the Mac is headless: an SSH forward has no
+certificate to present, so the gate would lock out the machine the console runs
+on. It is loopback-only and appears only once the gate is configured.
+
+⚠ Left on the CLI's **default** permission mode a headless session refuses every
+tool call needing permission and asks nobody, so it can converse and little else
+— measured, not assumed. `manual` is the useful setting now that approvals
+exist; `acceptEdits` is a blanket yes for edits.
+
 ## Open decisions
 
 - ~~**Name.**~~ Settled: `console`, as a part of memview rather than a product of

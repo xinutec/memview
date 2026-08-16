@@ -1,0 +1,179 @@
+# Execution model
+
+Design for the syntax layer under `reader/`: a faithful tree for every language
+the fleet executes, plus a printer that puts it back.
+
+**Status: specified, not built.** Figures are omitted throughout — every rate is
+one `cargo run` away and moves on its own.
+
+## Purpose
+
+Two questions per command, neither well answered today:
+
+- **prediction** — what a command will name and change, before it runs;
+- **reconstruction** — what it did, from history.
+
+Diffing the two is the point.
+
+The existing reader answers a weak form of the second. Its semantics hold and
+stay. It has no tree: output is a flat command list with structure projected
+away. So nothing above it can render a command back, compare two commands for
+equivalence, or hold an embedded language as a node rather than a substring
+re-parsed from the outer text.
+
+## The round-trip law
+
+`P` parses, `G` generates.
+
+```
+t₁ ──P──→ A₁ ──G──→ t₂ ──P──→ A₂ ──G──→ t₃
+
+(1)  A₂ = A₁          the generated text parses to the same tree
+(2)  t₃ = t₂          the generated form is a fixpoint
+     t₂ ≠ t₁          permitted: layout and quoting normalise
+```
+
+(2) follows from (1) when `G` is a pure function of the tree. It is stated
+separately because the only way to satisfy (1) and fail (2) is a `G` reading
+something else — the source buffer, a comment-offset table, a span. Printers are
+commonly written that way. The constraint is therefore: **the tree is
+sufficient.**
+
+**Spans are retained and excluded from `PartialEq`.** They are needed for error
+reporting and transcript pointers. `A₁` and `A₂` carry different spans, so a `G`
+that reads one fails (2). Erasing spans to make equality easy makes the law
+vacuous.
+
+⚠ **The law cannot see a systematic misparse.** A parser treating an
+unimplemented `${x:-y}` as a literal parses, prints faithfully, and re-parses to
+the identical wrong tree; (1) and (2) both hold, and the corpus does not object
+because the command parses. Hence a second gate, required from the first
+construct: a subset parser is exactly where unimplemented constructs get absorbed
+into literals, and adding the gate later means re-auditing everything validated
+without it.
+
+## Second gate: an independent parse oracle
+
+Bash prints its own parse — wrap a command in a function, `declare -f` it, and
+bash renders its tree as text with no execution. Compare our canonical print
+against bash's. The oracle is not ours, so it does not share our blind spots.
+Needs its own layout-normalising comparison.
+
+Distinct from `reader/tests/oracle.rs`, which shims `PATH` and diffs predictions
+against real execution. That covers expansion, globbing and `cd`, and cannot
+scale to the corpus — history is never re-executed. Two oracles, two jobs: shims
+for semantics on fixtures, `declare -f` for parse shape on the corpus.
+
+## What the tree holds
+
+| retained | normalised away |
+| --- | --- |
+| comments — byte-exact, in a node with a slot for later semantic parsing | whitespace, indentation |
+| every distinction that changes meaning | quoting style |
+| spans, outside equality | blank lines, unless preserving costs one counter on the following item |
+
+A word is a sequence of typed segments; quoting is derived at print time.
+
+- `'a'` = `"a"` = `a` — one tree, one word.
+- `"$x"` ≠ `$x` — they differ in splitting.
+- `'$x'` is a literal, not an expansion.
+
+So `t₂` is a canonical form: two textually different commands that mean the same
+thing compare equal.
+
+⚠ **The collapse rule stops at reserved words, where quoting is semantic.**
+`time ./x.sh` runs bash's keyword; `'time' ./x.sh` runs `/usr/bin/time`, a
+different program with different output. Same for `!`. So a reserved word is not
+a word, the tree must record which it is, and the printer must never quote one.
+`declare -f` catches this — it preserves the quotes for exactly this reason.
+
+**Grammar is not elevation, and `time` is the case that shows the line.**
+`type -t time` says `keyword`: the pipeline is `[!] [time [-p]] cmd [| cmd …]`,
+so `time` and `!` are pipeline prefixes and belong in the tree — as fields on the
+pipeline node, not as wrapper nodes. Scope is why: `time a | b` times the whole
+pipeline, while `nohup a | b` applies to `a` alone, and `time` at `argv[0]`
+cannot express the difference. `timeout`, `nohup`, `env`, `nice` and `sudo` are
+ordinary commands taking a command as an operand, and stay in elevation.
+
+**Non-destructive means the tree retains everything except layout and quoting
+style.**
+
+## No escape hatches
+
+- **Nothing is left unparsed.** A payload in another language gets another
+  parser. JSON, YAML and the rest are parsed as themselves.
+- **Prose is a typed `Text` leaf** — a commit message, a task body. The leaf is a
+  claim about the *site*, never a fallback from a failed parse.
+- **Each parser covers 100% of the corpus, not 100% of the syntax.** Method
+  unchanged: add what the failure report ranks highest, re-measure.
+- **"We cannot parse it" and "it does not parse" stay distinguishable.** The
+  corpus is self-labelling — a command that exited 0 was accepted by bash, so if
+  we cannot read it we are wrong. `bash -n` is a second opinion and executes
+  nothing.
+
+## Embedding
+
+Shell contains a word, not a Python node. The language follows from the
+execution site: `python3 -c`, a heredoc fed to an interpreter, a
+`nix-shell -i python3` shebang. `<<'PY'` names it; `<<EOF` does not.
+
+- **Recognition is a separate pass** over a pure host parse, attaching
+  `Embedded { lang, ast }`. Keeping it out of the parse means improving a
+  recognition rule does not change the tree of unchanged text.
+- **The law holds independently at each layer.**
+- **Descend until no semantic layers remain** — shell → Python → shell → …
+- **Expansion-bearing payloads are descended into as well.** `<<PY` with an
+  unquoted delimiter is a shell word that expands into Python, so it parses as a
+  program with holes. Tractability depends on where a hole lands: inside a string
+  literal it is a token, across a token boundary it is not. Which shapes occur is
+  a corpus question, not one to answer in advance.
+
+## Measurement
+
+Four numbers, reported apart — **per command**, **per byte**, **per node**, and
+**depth**.
+
+- The first three diverge: a parser at 99% of commands can be at 60% of bytes
+  when the long commands are what fail. One blended figure hides that.
+- **Depth** is share of code payloads descended into, and share of corpus bytes
+  at layer ≥ 2. Without it a parser that descends into nothing scores 100% on the
+  host layer. `reader/src/bin/opacity.rs` already asks a version of this.
+
+⚠ A parse rate is not a coverage figure, and the trap recurs at every layer.
+
+## The corpus
+
+**Freeze a snapshot and measure against it.** The live corpus shrinks: Claude
+Code prunes its own sessions, and since 2026-08-14 the odin archive mirrors
+deletions rather than appending. odin's restic retention is the only deeper
+history.
+
+1. Commands leave the denominator, so coverage rises with no work done. A ratchet
+   against a moving corpus is not a ratchet.
+2. Loss is continuous, so the snapshot precedes the parser work.
+
+**Pending action: choose where the snapshot lives.** It is shell history, so not
+this repository — memview is public.
+
+**The first copy of a duplicated call wins.** Transcripts re-append stretches
+already written, and the later copy carries a shallower `cwd`.
+`src/bin/bash-corpus.rs` does this.
+
+**No invented test input.** The corpus is the test suite. Hand-written cases come
+from someone who knows a parser is watching; past sessions did not. Fixtures stay
+correct for the semantics oracle, which cannot use history at all.
+
+## Scope
+
+Bash first, then the Python inside it — Python arrives constantly as a payload,
+so the two do not stay separable.
+
+`Bash` tool calls only. `Workflow` JavaScript and scripts checked into
+repositories are deferred, not declined.
+
+## Placement
+
+The tree goes underneath the reader, and `shell::Simple` becomes a projection
+from it. `shell_ops`, `shell_files`, `python`, `activity` and `doing` are not
+re-derived; their tests keep passing throughout and become the new tree's
+regression suite. Rewriting in place risks every one of those layers at once.
