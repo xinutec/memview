@@ -107,3 +107,74 @@ fn a_refusal_in_a_batch_does_not_swallow_its_neighbours() {
         verdicts[1]
     );
 }
+
+// ---- gate 3: is our own print shell at all? ----
+
+/// Print a command the way the printer does, so the fixtures below read as the
+/// texts a user would see rather than as trees.
+fn printed(text: &str) -> String {
+    reader::syntax::print(&parse(text).expect("the fixture must parse"))
+}
+
+#[test]
+fn the_printed_form_is_valid_shell() {
+    // ⚠ The shapes where the printer chooses a SEPARATOR, which is where it can
+    // emit text bash refuses. `a & ; b` is a syntax error where `a & b` is not,
+    // and every compound below ends its body with one.
+    let texts: Vec<String> = [
+        "echo a",
+        "for f in a; do b & done",
+        "while a; do b & done",
+        "until a; do b & done",
+        "if a; then b & fi",
+        "if a; then b; else c & fi",
+        "for f in a; do for g in b; do c & done; done",
+        "if a; then for f in x; do y & done; fi",
+        "cat <<EOF\nbody\nEOF",
+        "for f in a; do cat <<EOF\nx\nEOF\ndone",
+        "echo ${x:-a b}",
+        "echo ${x/a/b}",
+        "echo ${a[0]}",
+        "echo $(a | b)",
+    ]
+    .iter()
+    .map(|text| printed(text))
+    .collect();
+    let verdicts = bash_oracle::validity(&texts).expect("bash -n runs");
+    for (text, verdict) in texts.iter().zip(&verdicts) {
+        assert_eq!(
+            *verdict,
+            bash_oracle::Validity::Parses,
+            "bash refuses our print of {text:?}: {verdict:?}"
+        );
+    }
+}
+
+#[test]
+fn the_gate_catches_a_print_bash_would_refuse() {
+    // ⚠ **A gate that cannot fail is not a gate.** This is the exact text the
+    // printer used to emit for a loop body ending in `&`, and it is why this
+    // gate exists: gate 1 re-reads it happily with our own parser, and gate 2
+    // never sees our print at all.
+    let verdicts =
+        bash_oracle::validity(&["for f in a; do b & ; done".to_string()]).expect("bash -n runs");
+    assert!(
+        matches!(verdicts[0], bash_oracle::Validity::Refused(_)),
+        "bash should refuse `do b & ; done`: {verdicts:?}"
+    );
+}
+
+#[test]
+fn one_bad_print_in_a_batch_does_not_condemn_its_neighbours() {
+    // The batch is one bash process while everything parses; a failure re-asks
+    // each member alone. Without that, one bad text would mark the whole batch.
+    let texts = vec![
+        "echo before".to_string(),
+        "for f in a; do b & ; done".to_string(),
+        "echo after".to_string(),
+    ];
+    let verdicts = bash_oracle::validity(&texts).expect("bash -n runs");
+    assert_eq!(verdicts[0], bash_oracle::Validity::Parses);
+    assert!(matches!(verdicts[1], bash_oracle::Validity::Refused(_)));
+    assert_eq!(verdicts[2], bash_oracle::Validity::Parses);
+}

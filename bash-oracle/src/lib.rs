@@ -230,6 +230,63 @@ fn render(printed: &[String]) -> Result<Vec<Option<String>>> {
     Ok(blocks)
 }
 
+/// Is our printed form shell at all?
+///
+/// ⚠ **The third gate, and it exists because the first two are blind to this.**
+/// Gate 1 re-reads `t₂` with *this* parser, which is more permissive than bash
+/// in places; gate 2 is shown the ORIGINAL command by design, so it never looks
+/// at what we print. Between them sits a question neither asks: is `t₂` valid?
+/// It is not hypothetical — the printer wrote `do b & ; done` for every compound
+/// whose body ended in a `&`, which bash refuses, and the loop tests asserted
+/// the round-trip law over exactly that text while it held.
+///
+/// Distinct from gate 2's `BashRefused`, which is about the original.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Validity {
+    Parses,
+    /// Bash refused our print, with what it said about it.
+    Refused(String),
+}
+
+/// Run `bash -n` over each printed form, in batches.
+///
+/// ⚠ **Safe to batch and safe to wrap, for one reason: `-n` executes nothing.**
+/// Gate 2 must worry about a balanced payload closing its wrapper and running;
+/// here the worst a payload can do is parse. That is also why this gate can be
+/// applied to text gate 2 must never touch.
+///
+/// The wrapper is per command so that one text cannot bleed into the next. A
+/// runaway heredoc would swallow the closing brace, as it does in [`render`] —
+/// but it cannot arise here, because the printer always writes the terminator
+/// back. That is a property of `t₂` the original text does not have.
+pub fn validity(printed: &[String]) -> Result<Vec<Validity>> {
+    let mut out = Vec::with_capacity(printed.len());
+    for batch in printed.chunks(BATCH) {
+        let mut driver = String::new();
+        for (index, text) in batch.iter().enumerate() {
+            driver.push_str(&format!("__v{index}__() {{\n{text}\n}}\n"));
+        }
+        // One process for the whole batch while everything parses, which is the
+        // common case by far. A batch that fails says nothing about WHICH member
+        // failed, so it is re-asked one at a time — the same shape [`compare`]
+        // uses, and for the same reason.
+        if bash_parse(&driver)?.0 {
+            out.extend(std::iter::repeat_n(Validity::Parses, batch.len()));
+            continue;
+        }
+        for text in batch {
+            let wrapped = format!("__v__() {{\n{text}\n}}\n");
+            let (ok, said) = bash_parse(&wrapped)?;
+            out.push(if ok {
+                Validity::Parses
+            } else {
+                Validity::Refused(said.trim().to_string())
+            });
+        }
+    }
+    Ok(out)
+}
+
 /// Does bash refuse this text too?
 ///
 /// ⚠ **Only some refusals are claims about the TEXT rather than about us.**

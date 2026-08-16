@@ -366,6 +366,38 @@ fn main() -> anyhow::Result<()> {
             println!("  ⚠ bash refused our print for some OTHER reason — a defect:");
             println!("           ---\n{command}\n           ---");
         }
+
+        // ⚠ **A different question from either gate above.** Gate 1 asks whether
+        // `t₂` reads back as the same tree — with THIS parser, which is more
+        // permissive than bash in places — and gate 2 never sees `t₂` at all.
+        // Neither notices a printer emitting text bash refuses, and one did:
+        // `do b & ; done`, for every compound whose body ended in a `&`.
+        println!("\ngate 3 — is our own print shell at all? (`bash -n` over t₂)");
+        let printed: Vec<String> = accepted
+            .iter()
+            .map(|(_, tree)| syntax::print(tree))
+            .collect();
+        let judged = oracle::validity(&printed)?;
+        let bad: Vec<(&String, &String)> = judged
+            .iter()
+            .zip(printed.iter())
+            .filter_map(|(verdict, text)| match verdict {
+                oracle::Validity::Refused(said) => Some((said, text)),
+                oracle::Validity::Parses => None,
+            })
+            .collect();
+        println!(
+            "  {:>7}  parse  ({:.2}% of what was printed)",
+            printed.len() - bad.len(),
+            percent(printed.len() - bad.len(), printed.len()),
+        );
+        if !bad.is_empty() {
+            println!("  {:>7}  BASH REFUSES OUR PRINT", bad.len());
+        }
+        for (said, text) in bad.iter().take(3) {
+            println!("  ⚠ {said}");
+            println!("           ---\n{text}\n           ---");
+        }
     }
     Ok(())
 }

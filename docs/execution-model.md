@@ -364,13 +364,29 @@ Four properties are load-bearing and each has a test that fails without it:
   the closing `/` goes through bare and quoting resumes after it. Found by the
   law on 319 commands.
 
-⚠ **Neither gate can tell that `t₂` is shell at all.** Gate 1 re-reads our print
-with our own parser, which is more permissive than bash in places, and gate 2 is
-shown the ORIGINAL command by design. So a printer emitting text bash refuses
-passes both: `do b & ; done` was printed for every compound whose body ended in
-a `&`, and the loop tests asserted the law over exactly that shape while it held.
+## Third gate: is our own print shell at all?
+
+⚠ **Neither gate above can tell.** Gate 1 re-reads our print with our own
+parser, which is more permissive than bash in places, and gate 2 is shown the
+ORIGINAL command by design. So a printer emitting text bash refuses passed both:
+`do b & ; done` was printed for every compound whose body ended in a `&`, and the
+loop tests asserted the law over exactly that shape while it held.
+
 Validity is a third question — neither "does it re-read as the same tree" nor
-"does bash agree about the tree" — and `bash -n` over `t₂` is what asks it.
+"does bash agree about the tree" — and `bash -n` over `t₂` asks it. It reports
+with the others under `--oracle`.
+
+Two things make this gate cheap where gate 2 is delicate:
+
+- **`-n` executes nothing**, so the balanced-payload problem does not arise and
+  the wrapper is safe. This gate could be pointed at text gate 2 must not touch.
+- **`t₂` always terminates its heredocs**, because the printer writes the
+  delimiter back — so the runaway body that puts 13 commands outside gate 2
+  cannot arise here. A property of our print, not of the corpus.
+
+Over the corpus it is at 100%, which is a claim about the printer that could not
+be made before it existed. `bash-oracle/tests/oracle.rs` provokes a refusal on
+purpose, because a gate that cannot fail is not a gate.
 
 ⚠ **Only a reader that is not ours can object to a consistently wrong tree.** The
 round-trip law is satisfied by *any* wrong answer that prints and re-reads as
