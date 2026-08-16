@@ -170,6 +170,11 @@ fn strip_pipeline(pipeline: &mut Pipeline) {
                 loop_.condition = strip(&loop_.condition);
                 loop_.body = strip(&loop_.body);
             }
+            CommandKind::If(conditional) => {
+                conditional.condition = strip(&conditional.condition);
+                conditional.then = strip(&conditional.then);
+                conditional.otherwise = conditional.otherwise.as_deref().map(strip);
+            }
         }
     }
 }

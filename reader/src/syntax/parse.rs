@@ -23,9 +23,9 @@
 //! at a special character always lands on a character boundary.
 
 use super::ast::{
-    AndOr, Assignment, Command, CommandKind, Comment, Connector, ForLoop, Glob, Heredoc, Item,
-    Link, Parameter, Pipeline, Redirect, RedirectOp, RedirectTarget, Script, Segment, SegmentKind,
-    Simple, Span, Substitution, Tilde, Timed, WhileLoop, Word,
+    AndOr, Assignment, Command, CommandKind, Comment, Conditional, Connector, ForLoop, Glob,
+    Heredoc, Item, Link, Parameter, Pipeline, Redirect, RedirectOp, RedirectTarget, Script,
+    Segment, SegmentKind, Simple, Span, Substitution, Tilde, Timed, WhileLoop, Word,
 };
 
 /// Where a word is being read, which decides what expands inside it.
@@ -598,9 +598,13 @@ impl<'t> Parser<'t> {
         if self.text.get(self.at..end) != Some(word) {
             return false;
         }
+        // ⚠ The same boundary set [`Parser::at_keyword`] uses, `&` included:
+        // `done&` backgrounds a loop and `fi&` a conditional, both without a
+        // space, and a closing keyword that did not end there would be read as
+        // the word `done&`.
         let boundary = matches!(
             self.bytes.get(end).copied(),
-            None | Some(b' ' | b'\t' | b'\r' | b'\n' | b';' | b'|' | b')')
+            None | Some(b' ' | b'\t' | b'\r' | b'\n' | b';' | b'|' | b'&' | b')')
         );
         if boundary {
             self.at = end;
@@ -679,6 +683,10 @@ impl<'t> Parser<'t> {
     /// uses.** A loop's body is a command list and nothing more, so a second
     /// reader for it would be a second place for the grammar to be wrong.
     fn compound(&mut self) -> Result<Option<CommandKind>, Refusal> {
+        if self.at_keyword("if") {
+            self.at += 2;
+            return Ok(Some(CommandKind::If(self.conditional()?)));
+        }
         let select = self.at_keyword("select");
         if select || self.at_keyword("for") {
             self.at += if select { 6 } else { 3 };
@@ -798,6 +806,68 @@ impl<'t> Parser<'t> {
             return self.refuse(Reason::CommentInList, 1);
         }
         Ok(body)
+    }
+
+    /// `if cond; then body [elif …] [else body] fi`, with the opening keyword
+    /// already taken.
+    ///
+    /// ⚠ **An `elif` recurses, and the recursion takes the `fi`.** A whole chain
+    /// closes with exactly one `fi`, so it belongs to whichever arm ends the
+    /// chain — the nested call where there is an `elif`, this one otherwise.
+    /// That is the desugaring bash itself performs, and [`Conditional`] says why
+    /// the tree has to follow it.
+    fn conditional(&mut self) -> Result<Conditional, Refusal> {
+        let condition = self.arm(&["then"])?;
+        if !self.take_keyword("then") {
+            return self.refuse(Reason::Conditional, 1);
+        }
+        let then = self.arm(&["elif", "else", "fi"])?;
+        let otherwise = if self.at_keyword("elif") {
+            let start = self.at;
+            self.at += 4;
+            let nested = self.conditional()?;
+            Some(vec![one_command(
+                CommandKind::If(nested),
+                Span::new(start, self.at),
+            )])
+        } else if self.take_keyword("else") {
+            let body = self.arm(&["fi"])?;
+            if !self.take_keyword("fi") {
+                return self.refuse(Reason::Conditional, 1);
+            }
+            Some(body)
+        } else {
+            if !self.take_keyword("fi") {
+                return self.refuse(Reason::Conditional, 1);
+            }
+            None
+        };
+        Ok(Conditional {
+            condition,
+            then,
+            otherwise,
+        })
+    }
+
+    /// One of a conditional's lists — a condition or a branch.
+    ///
+    /// ⚠ **An empty one is a syntax error, not an empty list.** Bash refuses
+    /// `if; then b; fi` and `if a; then fi` outright, so this is a claim about
+    /// the input rather than about what is modelled, and `bash -n` adjudicates
+    /// it.
+    fn arm(&mut self, until: &[&str]) -> Result<Vec<Item>, Refusal> {
+        let items = self.items(until)?;
+        // ⚠ The printer puts a conditional on one line, where a comment would
+        // swallow everything after it. Refused rather than dropped — the same
+        // answer a loop body's comment gets, and bash has no opinion either way
+        // because it deletes them.
+        if items.iter().any(|item| matches!(item, Item::Comment(_))) {
+            return self.refuse(Reason::CommentInList, 1);
+        }
+        if items.is_empty() {
+            return self.refuse(Reason::EmptyOperand, 1);
+        }
+        Ok(items)
     }
 
     /// `NAME=value` or `NAME+=value`, with the value read as a value.
@@ -1514,6 +1584,31 @@ impl<'t> Parser<'t> {
     }
 }
 
+/// One compound, wrapped in the list layers between it and an [`Item`].
+///
+/// Used only for the conditional an `elif` desugars into: bash puts a whole
+/// nested `if` in the `else` arm, and an arm is a command list, so the layers
+/// have to be there. They carry no grammar of their own — no connector, no
+/// pipe, no `&` — which is what makes this a spelling of the same tree the text
+/// `else if …; fi` produces rather than a different one.
+fn one_command(kind: CommandKind, span: Span) -> Item {
+    Item::List(AndOr {
+        first: Pipeline {
+            time: None,
+            negated: false,
+            commands: vec![Command {
+                kind,
+                redirects: Vec::new(),
+                span,
+            }],
+            span,
+        },
+        rest: Vec::new(),
+        background: false,
+        span,
+    })
+}
+
 /// Which construct does the `$` or backtick at `at` open?
 ///
 /// `None` where it opens nothing: a `$` not followed by something expandable is
@@ -1654,6 +1749,13 @@ fn fill_pipeline(pipeline: &mut Pipeline, bodies: &mut impl Iterator<Item = Here
             CommandKind::While(loop_) => {
                 fill_items(&mut loop_.condition, bodies);
                 fill_items(&mut loop_.body, bodies);
+            }
+            CommandKind::If(conditional) => {
+                fill_items(&mut conditional.condition, bodies);
+                fill_items(&mut conditional.then, bodies);
+                if let Some(otherwise) = &mut conditional.otherwise {
+                    fill_items(otherwise, bodies);
+                }
             }
         }
         for redirect in &mut command.redirects {

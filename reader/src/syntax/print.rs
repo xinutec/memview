@@ -12,9 +12,9 @@
 //! usable as an equivalence test.
 
 use super::ast::{
-    AndOr, Assignment, Command, CommandKind, Connector, ForLoop, Glob, Heredoc, Item, Parameter,
-    Pipeline, Redirect, RedirectOp, RedirectTarget, Script, Segment, SegmentKind, Simple, Tilde,
-    Timed, WhileLoop, Word,
+    AndOr, Assignment, Command, CommandKind, Conditional, Connector, ForLoop, Glob, Heredoc, Item,
+    Parameter, Pipeline, Redirect, RedirectOp, RedirectTarget, Script, Segment, SegmentKind,
+    Simple, Tilde, Timed, WhileLoop, Word,
 };
 use super::parse::{is_assignment, is_reserved};
 
@@ -93,6 +93,7 @@ fn print_command(command: &Command, head: bool, bodies: &mut Vec<String>) -> Str
         CommandKind::Simple(simple) => print_simple(simple, head),
         CommandKind::For(loop_) => vec![print_for(loop_, bodies)],
         CommandKind::While(loop_) => vec![print_while(loop_, bodies)],
+        CommandKind::If(conditional) => vec![print_if(conditional, bodies)],
     };
     parts.extend(
         command
@@ -133,21 +134,53 @@ fn print_for(loop_: &ForLoop, bodies: &mut Vec<String>) -> String {
         .iter()
         .map(|word| print_word(word, false))
         .collect();
-    format!(
-        "{opener} {} in {}; do {}; done",
-        loop_.name,
-        words.join(" "),
-        print_body(&loop_.body, bodies)
+    let head = format!("{opener} {} in {}", loop_.name, words.join(" "));
+    let with_do = follow(&head, "do");
+    follow(
+        &format!("{with_do} {}", print_body(&loop_.body, bodies)),
+        "done",
     )
 }
 
 fn print_while(loop_: &WhileLoop, bodies: &mut Vec<String>) -> String {
     let opener = if loop_.until { "until" } else { "while" };
-    format!(
-        "{opener} {}; do {}; done",
-        print_body(&loop_.condition, bodies),
-        print_body(&loop_.body, bodies)
+    let head = follow(
+        &format!("{opener} {}", print_body(&loop_.condition, bodies)),
+        "do",
+    );
+    follow(
+        &format!("{head} {}", print_body(&loop_.body, bodies)),
+        "done",
     )
+}
+
+/// `if cond; then body; else body; fi` — on one line, like the loops and for the
+/// same reason: a heredoc body has to follow the line its `<<` was written on.
+///
+/// ⚠ **There is no `elif` to print.** The tree does not hold one — see
+/// [`Conditional`] — so a chain comes out as the nested `else if …; fi; fi` bash
+/// itself prints, which is what makes the two spellings compare equal.
+fn print_if(conditional: &Conditional, bodies: &mut Vec<String>) -> String {
+    let head = follow(
+        &format!("if {}", print_body(&conditional.condition, bodies)),
+        "then",
+    );
+    let mut out = format!("{head} {}", print_body(&conditional.then, bodies));
+    if let Some(otherwise) = &conditional.otherwise {
+        out = format!("{} {}", follow(&out, "else"), print_body(otherwise, bodies));
+    }
+    follow(&out, "fi")
+}
+
+/// Put a keyword after a command list, with the separator the list has earned.
+///
+/// ⚠ **A `&` already terminates its list, so no `;` may follow it.** Bash
+/// accepts `if a; then b & fi` and refuses `if a; then b & ; fi` — measured —
+/// and the same is true of every `do … done`. Shared rather than repeated,
+/// because it was written out three times and got the loops wrong.
+fn follow(list: &str, keyword: &str) -> String {
+    let separator = if list.ends_with('&') { " " } else { "; " };
+    format!("{list}{separator}{keyword}")
 }
 
 /// A command list on one line.

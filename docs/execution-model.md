@@ -4,8 +4,8 @@ Design for the syntax layer under `reader/`: a faithful tree for every language
 the fleet executes, plus a printer that puts it back.
 
 **Status: simple commands with binding prefixes, comments, pipelines, and-or
-lists, redirection, heredocs, tilde prefixes, parameters, `$( )` substitutions
-and `for`/`while`/`until`/`select` loops; both gates wired.**
+lists, redirection, heredocs, tilde prefixes, parameters, `$( )` substitutions,
+`for`/`while`/`until`/`select` loops and `if`; both gates wired.**
 `reader/src/syntax/` holds the tree, the parser and the printer; the
 `bash-oracle` crate holds the second gate and the report.
 
@@ -228,6 +228,12 @@ and `coproc` block nothing at all in 131,246 commands — this corpus is
 interactive commands, not scripts. Building the obvious "simplest compound"
 first would have bought fifty commands.
 
+⚠ **What a construct is worth is a function of what is already built, so it is
+re-measured rather than remembered.** That same `if` was worth 50 when it was
+measured beside the loops and **846** when it was actually built, four
+constructs later — the commands holding it had stopped needing anything else.
+A figure from an earlier state of the parser is evidence about that state.
+
 The same split of `Expansion` said it twice more. Naming a parameter unlocks
 5,795 commands and is a leaf; command substitution unlocks 2,273 and needs this
 parser to recurse into itself; an operator inside the braces unlocks 508 and is a
@@ -355,6 +361,14 @@ Four properties are load-bearing and each has a test that fails without it:
 - **No quote may touch a tilde prefix.** `~'/x'` is the literal `~/x` to bash, so
   the closing `/` goes through bare and quoting resumes after it. Found by the
   law on 319 commands.
+
+⚠ **Neither gate can tell that `t₂` is shell at all.** Gate 1 re-reads our print
+with our own parser, which is more permissive than bash in places, and gate 2 is
+shown the ORIGINAL command by design. So a printer emitting text bash refuses
+passes both: `do b & ; done` was printed for every compound whose body ended in
+a `&`, and the loop tests asserted the law over exactly that shape while it held.
+Validity is a third question — neither "does it re-read as the same tree" nor
+"does bash agree about the tree" — and `bash -n` over `t₂` is what asks it.
 
 ⚠ **Only a reader that is not ours can object to a consistently wrong tree.** The
 round-trip law is satisfied by *any* wrong answer that prints and re-reads as

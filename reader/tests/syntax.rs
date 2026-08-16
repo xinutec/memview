@@ -1234,8 +1234,10 @@ fn the_law_holds_across_the_assignment_shapes() {
 fn each_reserved_word_belongs_to_the_construct_it_opens() {
     // ⚠ A reason is a unit of work, and these keywords are five grammars, not
     // one: counting them together would say how many commands hold a keyword,
-    // which is not a number anything can be built against.
-    assert_eq!(refusal("if a; then b; fi"), Reason::Conditional);
+    // which is not a number anything can be built against. `if` was in this
+    // list until the conditional was built, and the split is what said it was
+    // worth 50 commands where the loops were worth 4,573.
+    assert!(parse("if a; then b; fi").is_ok());
     assert_eq!(refusal("case $x in a) b;; esac"), Reason::Case);
     assert_eq!(refusal("[[ -f x ]]"), Reason::TestExpression);
     assert_eq!(refusal("function f { a; }"), Reason::FunctionDefinition);
@@ -1486,6 +1488,153 @@ fn the_law_holds_across_the_substitution_shapes() {
         r#"echo "$(a)$(b)""#,
         "echo $(a > out)",
         "echo $(cat f | wc -l) lines",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+        assert!(
+            survey(text).is_empty(),
+            "{text:?} should need nothing: {:?}",
+            survey(text)
+        );
+    }
+}
+
+// ---- conditionals ----
+
+fn conditional(text: &str) -> reader::syntax::ast::Conditional {
+    match loop_of(text) {
+        reader::syntax::ast::CommandKind::If(c) => c,
+        other => panic!("{text:?} is not a conditional: {other:?}"),
+    }
+}
+
+#[test]
+fn elif_is_desugared_the_way_bash_desugars_it() {
+    // ⚠ Measured in `reader/probes/conditional.sh`: bash prints
+    // `if a; then b; elif c; then d; fi` back as
+    // `if a; then b; else if c; then d; fi; fi`. So an `elif` is an `else`
+    // holding one nested conditional, and a tree with a list of arms would make
+    // those two texts two trees — which the second gate would report.
+    assert_eq!(
+        conditional("if a; then b; elif c; then d; fi"),
+        conditional("if a; then b; else if c; then d; fi; fi")
+    );
+    assert_eq!(
+        print(&tree("if a; then b; elif c; then d; else e; fi")),
+        "if a; then b; else if c; then d; else e; fi; fi"
+    );
+}
+
+#[test]
+fn a_conditional_is_three_lists_and_layout_is_not_recorded() {
+    assert_eq!(
+        conditional("if a; then b; fi"),
+        conditional("if a\nthen\n  b\nfi")
+    );
+    let c = conditional("if a; b; then c; d; else e; fi");
+    // ⚠ The condition is a LIST whose last status decides the branch, not one
+    // command: `if a; b; then` runs both and tests `b`.
+    assert_eq!(c.condition.len(), 2);
+    assert_eq!(c.then.len(), 2);
+    assert_eq!(c.otherwise.map(|items| items.len()), Some(1));
+    assert!(conditional("if a; then b; fi").otherwise.is_none());
+}
+
+#[test]
+fn an_empty_arm_is_a_syntax_error_not_an_empty_list() {
+    // Bash refuses all three, so these are claims about the input and `bash -n`
+    // adjudicates them.
+    assert_eq!(refusal("if a; then fi"), Reason::EmptyOperand);
+    assert_eq!(refusal("if; then b; fi"), Reason::EmptyOperand);
+    assert_eq!(refusal("if a; then b; else fi"), Reason::EmptyOperand);
+}
+
+#[test]
+fn a_conditional_that_does_not_close_is_refused_by_name() {
+    assert_eq!(refusal("if a; then b"), Reason::Conditional);
+    assert_eq!(refusal("if a then b; fi"), Reason::Conditional);
+    assert_eq!(refusal("if a; then b; elif c; fi"), Reason::Conditional);
+    // A branch keyword with no `if` open is refused where it stands.
+    assert_eq!(refusal("fi"), Reason::Conditional);
+    assert_eq!(refusal("then b"), Reason::Conditional);
+    // ⚠ Each of those is in the survey's set too, or the invariant that pins
+    // the two scanners together would be broken.
+    for text in [
+        "if a; then b",
+        "if a then b; fi",
+        "if a; then b; elif c; fi",
+        "fi",
+        "then b",
+    ] {
+        assert!(
+            survey(text).contains(&Reason::Conditional),
+            "the survey missed the conditional in {text:?}: {:?}",
+            survey(text)
+        );
+    }
+}
+
+#[test]
+fn a_quoted_keyword_is_a_program_and_stays_one() {
+    // `'if' a` runs a program called `if`; bash prints the quotes straight
+    // back, so neither gate can see a tree that confused the two.
+    assert!(parse("'if' a").is_ok());
+    assert_eq!(print(&tree("'if' a")), "'if' a");
+    assert!(check("'if' a").holds());
+}
+
+#[test]
+fn a_comment_inside_a_conditional_is_refused_rather_than_dropped() {
+    // The printer puts a conditional on one line, where a comment would swallow
+    // the rest of it. Bash deletes comments, so it has no opinion — the same
+    // answer a loop body's comment gets.
+    assert_eq!(refusal("if a; then\n# note\nb\nfi"), Reason::CommentInList);
+    assert!(survey("if a; then\n# note\nb\nfi").contains(&Reason::CommentInList));
+}
+
+#[test]
+fn a_body_ending_in_an_ampersand_takes_no_semicolon_after_it() {
+    // ⚠ Measured: `if a; then b & fi` is legal and `if a; then b & ; fi` is a
+    // syntax error. The printer emitted the second for every compound whose
+    // body ended in a `&` — invalid shell that BOTH gates passed, because gate
+    // 1 re-reads it with this parser and gate 2 never sees our print.
+    assert_eq!(print(&tree("if a; then b & fi")), "if a; then b & fi");
+    assert_eq!(
+        print(&tree("for f in a; do b & done")),
+        "for f in a; do b & done"
+    );
+    assert_eq!(print(&tree("while a; do b & done")), "while a; do b & done");
+}
+
+#[test]
+fn the_law_holds_across_the_conditional_shapes() {
+    for text in [
+        "if a; then b; fi",
+        "if a\nthen\nb\nfi",
+        "if a; then b; else c; fi",
+        "if a; then b; elif c; then d; fi",
+        "if a; then b; elif c; then d; elif e; then f; else g; fi",
+        "if ! a; then b; fi",
+        "if a && b || c; then d; fi",
+        "if a | b; then c; fi",
+        "if a; b; then c; fi",
+        "if [ -f x ]; then b; fi",
+        "if a; then b; c; fi",
+        "if a; then b; fi > out",
+        "if a; then b; fi | wc -l",
+        "a | if b; then c; fi",
+        "if a; then b & fi",
+        "if a; then if b; then c; fi; fi",
+        "if a; then for f in x; do y; done; fi",
+        "for f in x; do if a; then b; fi; done",
+        "if a; then cat <<EOF\nx\nEOF\nfi",
+        "if a; then b; fi <<EOF\nx\nEOF",
+        "cd x && if a; then b; fi",
+        "if a; then FOO=1 b; fi",
+        "echo $(if a; then b; fi)",
     ] {
         assert!(
             check(text).holds(),

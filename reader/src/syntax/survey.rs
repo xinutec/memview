@@ -101,6 +101,10 @@ impl Survey<'_> {
         // loop is open.
         let mut loop_header = false;
         let mut loop_depth = 0usize;
+        // ⚠ Where the `if` chain stands — see [`conditional_keyword`]. The
+        // keywords are modelled now, so an `if` is not a finding, but the shapes
+        // bash refuses still are and nothing else here can see them.
+        let mut if_stack: Vec<bool> = Vec::new();
         // How far through a `for NAME in` header the scan is: 1 after `for`,
         // 2 after the name. A word other than `in` at 2 is a header bash refuses
         // — `for p /style.css; do …` — and the parser refuses it as a loop.
@@ -143,6 +147,9 @@ impl Survey<'_> {
                     }
                     word_opens_list = false;
                     if at_command_start && !word_quoted {
+                        if let Some(branch) = branch(&word) {
+                            conditional_keyword(&mut if_stack, &mut self.found, branch);
+                        }
                         match word.as_str() {
                             // ⚠ Only `for` and `select`. A `while` condition is
                             // an ordinary command list and may redirect —
@@ -158,14 +165,18 @@ impl Survey<'_> {
                             // next word is a command NAME. Without it, `do [[ …`
                             // read the `[[` as an argument and the survey missed
                             // a construct the parser refuses.
-                            "do" | "then" | "else" | "elif" => {
+                            "do" => {
                                 loop_header = false;
                                 word_opens_list = true;
-                                if word == "do" {
-                                    loop_depth += 1;
-                                }
+                                loop_depth += 1;
                             }
                             "done" => loop_depth = loop_depth.saturating_sub(1),
+                            // A command list starts after each of these too; the
+                            // chain itself is tracked above.
+                            "if" | "then" | "elif" | "else" => {
+                                loop_header = false;
+                                word_opens_list = true;
+                            }
                             _ => {}
                         }
                     }
@@ -275,7 +286,10 @@ impl Survey<'_> {
                 }
                 b'#' if !in_word => {
                     self.saw_comment = true;
-                    if loop_header || loop_depth > 0 {
+                    // Anywhere inside a compound: the printer puts one on a
+                    // single line, so a comment in there has nowhere to go and
+                    // the parser refuses it.
+                    if loop_header || loop_depth > 0 || !if_stack.is_empty() {
                         self.found.insert(Reason::CommentInList);
                     }
                     while self.peek().is_some_and(|b| b != b'\n') {
@@ -474,6 +488,16 @@ impl Survey<'_> {
         // Direct, not `finish!` — nothing reads the word state after this, and
         // clearing it here is two dead stores the linter is right about.
         if in_word {
+            // ⚠ The last word of a text is a keyword too, and it is the one that
+            // matters most here: `fi` closes the chain, and a trailing `if`
+            // opens one nothing can close. Missed while this path skipped the
+            // bookkeeping, and `time PYTHONPATH=/x if` is the test.
+            if at_command_start
+                && !word_quoted
+                && let Some(branch) = branch(&word)
+            {
+                conditional_keyword(&mut if_stack, &mut self.found, branch);
+            }
             finish_word(
                 &mut self.found,
                 &word,
@@ -481,6 +505,11 @@ impl Survey<'_> {
                 at_pipeline_head,
                 word_quoted,
             );
+        }
+        // An `if` the text never closed. The parser reaches the end looking for
+        // a `fi` and refuses the conditional, so the set has to hold one.
+        if !if_stack.is_empty() {
+            self.found.insert(Reason::Conditional);
         }
         self
     }
@@ -745,6 +774,71 @@ impl Survey<'_> {
     }
 }
 
+/// A keyword of an `if` chain — a closed set, so not a string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Branch {
+    If,
+    Then,
+    Elif,
+    Else,
+    Fi,
+}
+
+/// The boundary where a word becomes one of them, and the only place the
+/// spelling is read.
+fn branch(word: &str) -> Option<Branch> {
+    Some(match word {
+        "if" => Branch::If,
+        "then" => Branch::Then,
+        "elif" => Branch::Elif,
+        "else" => Branch::Else,
+        "fi" => Branch::Fi,
+        _ => return None,
+    })
+}
+
+/// Where the `if` chain stands, one entry per open `if` — `true` while that arm
+/// is still waiting for the `then` that has to follow it.
+///
+/// ⚠ **This is the whole of what the survey knows about conditionals**, and it
+/// exists because every shape it reports is one bash refuses: `if a then b; fi`
+/// never says `then` where a command begins, `fi` on its own closes nothing,
+/// `if a; then b` leaves the chain open, and `if a; else b; fi` branches before
+/// it has tested anything. The parser refuses each of them by name, so the
+/// survey's set has to hold a `Conditional` for each.
+///
+/// A depth counter is not enough: it balances on `if a then b; fi`, where the
+/// `then` is an argument to `a` rather than the keyword.
+fn conditional_keyword(stack: &mut Vec<bool>, found: &mut BTreeSet<Reason>, branch: Branch) {
+    match branch {
+        Branch::If => stack.push(true),
+        Branch::Then => match stack.last_mut() {
+            Some(waiting) => *waiting = false,
+            None => {
+                found.insert(Reason::Conditional);
+            }
+        },
+        // `elif` re-opens the wait — it has a `then` of its own — and `else`
+        // ends it. Either one before any `then` is a shape bash refuses.
+        Branch::Elif | Branch::Else => match stack.last_mut() {
+            Some(waiting) if *waiting => {
+                found.insert(Reason::Conditional);
+            }
+            Some(waiting) => *waiting = branch == Branch::Elif,
+            None => {
+                found.insert(Reason::Conditional);
+            }
+        },
+        Branch::Fi => match stack.pop() {
+            // A chain closes only where it reached its `then`.
+            Some(false) => {}
+            Some(true) | None => {
+                found.insert(Reason::Conditional);
+            }
+        },
+    }
+}
+
 /// A finished word is only grammar where a command begins, and only unquoted:
 /// `'time'` at the head of a command is a program, not the keyword.
 fn finish_word(
@@ -762,10 +856,11 @@ fn finish_word(
     if at_command_start
         && !quoted
         && let Some(reason) = reserved_word(word)
-        // ⚠ The loop keywords are modelled now, so they are not findings — but
-        // they stay in `reserved_word`, because the printer still has to quote a
-        // word that spells one to keep it a value.
-        && !matches!(reason, Reason::Loop)
+        // ⚠ The loop and conditional keywords are modelled now, so they are not
+        // findings on their own — the caller reports the shapes of those two the
+        // parser still refuses. They stay in `reserved_word`, because the
+        // printer has to quote a word that spells one to keep it a value.
+        && !matches!(reason, Reason::Loop | Reason::Conditional)
     {
         found.insert(reason);
     }

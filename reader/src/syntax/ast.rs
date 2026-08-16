@@ -186,6 +186,8 @@ pub enum CommandKind {
     For(ForLoop),
     /// `while cond; do … done`, and `until` which differs only in the sense.
     While(WhileLoop),
+    /// `if cond; then … [else …] fi`.
+    If(Conditional),
 }
 
 /// `FOO=bar cmd arg` — a name, its arguments, and the bindings in front.
@@ -222,6 +224,27 @@ pub struct WhileLoop {
     /// A list, not one command: `while read -r a && test x; do` is legal.
     pub condition: Vec<Item>,
     pub body: Vec<Item>,
+}
+
+/// `if cond; then body [else body] fi`.
+///
+/// ⚠ **There is no `elif` here, because bash does not keep one.**
+/// `if a; then b; elif c; then d; fi` comes back from `declare -f` as
+/// `if a; then b; else if c; then d; fi; fi` — an `elif` is sugar for an `else`
+/// holding one nested conditional, and bash unfolds it at parse time. A tree
+/// with a list of arms would make those two texts two trees, and the second gate
+/// would say so. Same desugaring the `words` of a bare [`ForLoop`] get, and for
+/// the same reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Conditional {
+    /// A list, whose LAST command's status decides the branch: `if a; b; then`
+    /// runs both and tests `b`.
+    pub condition: Vec<Item>,
+    /// Never empty — `if a; then fi` is a syntax error, and bash refuses it.
+    pub then: Vec<Item>,
+    /// The `else` arm, absent where none was written. Never an empty list, for
+    /// the same reason `then` is not.
+    pub otherwise: Option<Vec<Item>>,
 }
 
 impl Command {
