@@ -174,8 +174,8 @@ impl Survey<'_> {
                 b'|' => {
                     if self.peek_at(1) == Some(b'|') {
                         separator!();
-                        self.found.insert(Reason::AndOr);
                         self.at += 2;
+                        self.after_connector();
                     } else {
                         pipe!();
                         // A pipe is modelled, so it is not a finding — but the
@@ -199,10 +199,11 @@ impl Survey<'_> {
                 b'&' => {
                     separator!();
                     if self.peek_at(1) == Some(b'&') {
-                        self.found.insert(Reason::AndOr);
                         self.at += 2;
+                        self.after_connector();
                     } else {
-                        self.found.insert(Reason::Background);
+                        // A bare `&` backgrounds the list and ends it; both are
+                        // modelled, so neither is a finding.
                         self.at += 1;
                     }
                 }
@@ -311,6 +312,27 @@ impl Survey<'_> {
             );
         }
         self.found
+    }
+
+    /// Step over the blanks and newlines a list connector allows after it, and
+    /// record what the parser would refuse there — a comment it cannot keep, or
+    /// nothing at all.
+    fn after_connector(&mut self) {
+        while matches!(
+            self.peek(),
+            Some(b' ') | Some(b'\t') | Some(b'\r') | Some(b'\n')
+        ) {
+            self.at += 1;
+        }
+        match self.peek() {
+            Some(b'#') => {
+                self.found.insert(Reason::CommentInList);
+            }
+            None | Some(b';') | Some(b'|') | Some(b'&') => {
+                self.found.insert(Reason::EmptyOperand);
+            }
+            _ => {}
+        }
     }
 
     fn closes_bracket(&self) -> bool {

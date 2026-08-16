@@ -63,8 +63,47 @@ pub struct Script {
 /// the round-trip law alone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Item {
-    Pipeline(Pipeline),
+    List(AndOr),
     Comment(Comment),
+}
+
+/// `pipeline [(&& | ||) pipeline …] [&]` — bash calls it an and-or list, and it
+/// is the unit `;`, a newline and `&` separate.
+///
+/// ⚠ **`&` belongs to the LIST, not to its last pipeline.** `a && b &`
+/// backgrounds the whole list, which `declare -f` prints back as `a && b &`.
+/// Hanging the flag on `b` would say something different and wrong.
+///
+/// The connectors are a flat sequence because bash's are left-associative and
+/// equal in precedence: `a && b || c` is `((a && b) || c)`, which a list in
+/// order already says. A tree of binary nodes would add a shape the text does
+/// not have.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AndOr {
+    pub first: Pipeline,
+    pub rest: Vec<Link>,
+    pub background: bool,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Link {
+    pub connector: Connector,
+    pub pipeline: Pipeline,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Connector {
+    /// `&&`
+    And,
+    /// `||`
+    Or,
+}
+
+impl AndOr {
+    pub fn is_empty(&self) -> bool {
+        self.first.is_empty() && self.rest.is_empty() && !self.background
+    }
 }
 
 /// `[time [-p]] [!] cmd [| cmd …]`.

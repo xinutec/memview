@@ -36,7 +36,8 @@ pub mod print;
 pub mod survey;
 
 pub use ast::{
-    Command, Comment, Glob, Item, Pipeline, Script, Segment, SegmentKind, Span, Timed, Word,
+    AndOr, Command, Comment, Connector, Glob, Item, Link, Pipeline, Script, Segment, SegmentKind,
+    Span, Timed, Word,
 };
 pub use law::{Outcome, check};
 pub use parse::{Reason, Refusal, parse};

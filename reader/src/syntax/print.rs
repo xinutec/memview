@@ -11,7 +11,9 @@
 //! in layout or quoting print identically, which is what makes the printed form
 //! usable as an equivalence test.
 
-use super::ast::{Command, Glob, Item, Pipeline, Script, Segment, SegmentKind, Timed, Word};
+use super::ast::{
+    AndOr, Command, Connector, Glob, Item, Pipeline, Script, Segment, SegmentKind, Timed, Word,
+};
 use super::parse::{is_assignment, is_reserved};
 
 pub fn print(script: &Script) -> String {
@@ -19,10 +21,30 @@ pub fn print(script: &Script) -> String {
     for item in &script.items {
         lines.push(match item {
             Item::Comment(comment) => format!("#{}", comment.text),
-            Item::Pipeline(pipeline) => print_pipeline(pipeline),
+            Item::List(list) => print_and_or(list),
         });
     }
     lines.join("\n")
+}
+
+/// `a && b || c &` — connectors inline, `&` last.
+///
+/// One line, unlike `;`-separated lists which become one item each. That is
+/// bash's own split: `declare -f` keeps `a && b` together and breaks `a; b`
+/// apart, so following it keeps the printed form comparable with bash's.
+pub fn print_and_or(list: &AndOr) -> String {
+    let mut out = print_pipeline(&list.first);
+    for link in &list.rest {
+        out.push_str(match link.connector {
+            Connector::And => " && ",
+            Connector::Or => " || ",
+        });
+        out.push_str(&print_pipeline(&link.pipeline));
+    }
+    if list.background {
+        out.push_str(" &");
+    }
+    out
 }
 
 /// ⚠ **`time` before `!`, whichever order they were written in.** That is the

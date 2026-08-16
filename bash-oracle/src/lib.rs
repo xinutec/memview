@@ -150,7 +150,7 @@ fn without_comments(script: &Script) -> Script {
         items: script
             .items
             .iter()
-            .filter(|item| matches!(item, Item::Pipeline(_)))
+            .filter(|item| matches!(item, Item::List(_)))
             .cloned()
             .collect(),
         span: script.span,

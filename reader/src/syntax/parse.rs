@@ -17,7 +17,8 @@
 //! at a special character always lands on a character boundary.
 
 use super::ast::{
-    Command, Comment, Glob, Item, Pipeline, Script, Segment, SegmentKind, Span, Timed, Word,
+    AndOr, Command, Comment, Connector, Glob, Item, Link, Pipeline, Script, Segment, SegmentKind,
+    Span, Timed, Word,
 };
 
 /// Why a piece of text was not read.
@@ -31,10 +32,6 @@ pub enum Reason {
     Expansion,
     /// `<` or `>` in any of their forms.
     Redirection,
-    /// `&&` or `||`.
-    AndOr,
-    /// A trailing `&`.
-    Background,
     /// `(`, `)`, `{` or `}`.
     Grouping,
     /// `[…]` inside a word — a bracket expression, not the `[` builtin.
@@ -49,8 +46,11 @@ pub enum Reason {
     UnterminatedQuote,
     /// A backslash at end of input.
     DanglingEscape,
-    /// `a |` with nothing after it. Bash calls this a syntax error too.
+    /// `a |` or `a &&` with nothing after it. Bash calls this a syntax error too.
     EmptyOperand,
+    /// A comment between a list operator and its right-hand side. Bash deletes
+    /// it, and this tree keeps comments, so there is nowhere to put it.
+    CommentInList,
 }
 
 impl Reason {
@@ -59,8 +59,6 @@ impl Reason {
         match self {
             Reason::Expansion => "expansion ($ or backtick)",
             Reason::Redirection => "redirection (< >)",
-            Reason::AndOr => "and-or (&& ||)",
-            Reason::Background => "background (&)",
             Reason::Grouping => "grouping (( ) { })",
             Reason::BracketExpression => "bracket expression ([…])",
             Reason::Tilde => "tilde (~)",
@@ -68,7 +66,8 @@ impl Reason {
             Reason::Assignment => "assignment prefix (FOO=bar)",
             Reason::UnterminatedQuote => "unterminated quote",
             Reason::DanglingEscape => "dangling escape",
-            Reason::EmptyOperand => "empty operand (a | with nothing after it)",
+            Reason::EmptyOperand => "empty operand (an operator with nothing after it)",
+            Reason::CommentInList => "comment inside an and-or list",
         }
     }
 }
@@ -144,9 +143,9 @@ impl<'t> Parser<'t> {
                 }
                 Some(b'#') => items.push(Item::Comment(self.comment())),
                 _ => {
-                    let pipeline = self.pipeline()?;
-                    if !pipeline.is_empty() {
-                        items.push(Item::Pipeline(pipeline));
+                    let list = self.and_or()?;
+                    if !list.is_empty() {
+                        items.push(Item::List(list));
                     }
                 }
             }
@@ -187,7 +186,7 @@ impl<'t> Parser<'t> {
     fn at_end_of_command(&self) -> bool {
         matches!(
             self.peek(),
-            None | Some(b';') | Some(b'\n') | Some(b'|') | Some(b'#')
+            None | Some(b';') | Some(b'\n') | Some(b'|') | Some(b'&') | Some(b'#')
         )
     }
 
@@ -205,6 +204,55 @@ impl<'t> Parser<'t> {
             text: self.text[from..self.at].to_string(),
             span: Span::new(start, self.at),
         }
+    }
+
+    /// `pipeline [(&& | ||) pipeline …] [&]`.
+    ///
+    /// A newline after a connector continues the list — bash's grammar is
+    /// `list AND_AND newline_list list` — so `a &&⏎b` is one list, exactly as a
+    /// newline after `|` stays inside a pipeline.
+    fn and_or(&mut self) -> Result<AndOr, Refusal> {
+        let start = self.at;
+        let first = self.pipeline()?;
+        let mut rest = Vec::new();
+        loop {
+            self.skip_blanks();
+            let connector = match (self.peek(), self.peek_at(1)) {
+                (Some(b'&'), Some(b'&')) => Connector::And,
+                (Some(b'|'), Some(b'|')) => Connector::Or,
+                _ => break,
+            };
+            self.at += 2;
+            self.skip_blanks_and_newlines();
+            // ⚠ Bash accepts a comment here and DELETES it. This tree keeps
+            // comments byte-exact, so accepting one would be destructive —
+            // refused rather than silently dropped.
+            if self.peek() == Some(b'#') {
+                return self.refuse(Reason::CommentInList, 1);
+            }
+            if self.at_end_of_command() {
+                return self.refuse(Reason::EmptyOperand, 1);
+            }
+            rest.push(Link {
+                connector,
+                pipeline: self.pipeline()?,
+            });
+        }
+
+        // A single `&` ends the list and backgrounds it. `&&` was taken above,
+        // so anything left here is the async operator.
+        self.skip_blanks();
+        let background = self.peek() == Some(b'&');
+        if background {
+            self.at += 1;
+        }
+
+        Ok(AndOr {
+            first,
+            rest,
+            background,
+            span: Span::new(start, self.at),
+        })
     }
 
     /// `[time [-p]] [!] cmd [| cmd …]`.
@@ -296,9 +344,9 @@ impl<'t> Parser<'t> {
             self.skip_blanks();
             match self.peek() {
                 None | Some(b';') | Some(b'\n') => break,
-                // The pipeline owns `|`; a bare one ends this command. `||` is
-                // an and-or list and is still refused, by the word reader.
-                Some(b'|') if self.peek_at(1) != Some(b'|') => break,
+                // The pipeline owns a bare `|`; `||`, `&&` and `&` belong to
+                // the list above it. All of them end this command.
+                Some(b'|') | Some(b'&') => break,
                 // `#` opens a comment only where a word would start; inside a
                 // word it is an ordinary character, which is why this is tested
                 // here and not in the word reader.
@@ -335,20 +383,9 @@ impl<'t> Parser<'t> {
             match byte {
                 b' ' | b'\t' | b'\r' | b'\n' | b';' => break,
                 b'\\' if self.peek_at(1) == Some(b'\n') => break,
-                b'|' => {
-                    if self.peek_at(1) == Some(b'|') {
-                        return self.refuse(Reason::AndOr, 1);
-                    }
-                    break;
-                }
-                b'&' => {
-                    let reason = if self.peek_at(1) == Some(b'&') {
-                        Reason::AndOr
-                    } else {
-                        Reason::Background
-                    };
-                    return self.refuse(reason, 1);
-                }
+                // `|`, `||` and `&` all end a word; which of them it is, is the
+                // list's business rather than this reader's.
+                b'|' | b'&' => break,
                 b'<' | b'>' => return self.refuse(Reason::Redirection, 1),
                 b'(' | b')' | b'{' | b'}' => return self.refuse(Reason::Grouping, 1),
                 b'$' | b'`' => return self.refuse(Reason::Expansion, 1),

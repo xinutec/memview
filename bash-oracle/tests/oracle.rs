@@ -74,7 +74,7 @@ fn the_gate_catches_a_misparse_of_the_original_text() {
 fn a_command_we_cannot_read_is_reported_not_scored_as_agreement() {
     // The gate promises to run only on accepted commands. Handed one that is
     // not, it has to say so rather than quietly count a pass.
-    let verdicts = compare(&["a && b".to_string()]).expect("the oracle should run");
+    let verdicts = compare(&["a > b".to_string()]).expect("the oracle should run");
     assert!(
         matches!(verdicts[0], Verdict::Unreadable(_)),
         "{verdicts:?}"

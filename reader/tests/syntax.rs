@@ -6,7 +6,7 @@
 //! law, so no corpus run could ever object. Quoting collapse, the glob/literal
 //! split and the reserved words are all of that kind.
 
-use reader::syntax::ast::{Glob, Item, Segment, SegmentKind, Span, Timed, Word};
+use reader::syntax::ast::{Connector, Glob, Item, Segment, SegmentKind, Span, Timed, Word};
 use reader::syntax::{Outcome, Reason, check, parse, print, survey};
 use std::collections::BTreeSet;
 
@@ -23,18 +23,27 @@ fn refusal(text: &str) -> Reason {
 
 fn words(text: &str) -> Vec<Word> {
     match &tree(text).items[..] {
-        [Item::Pipeline(pipeline)] => match &pipeline.commands[..] {
+        [Item::List(list)] if list.rest.is_empty() => match &list.first.commands[..] {
             [command] => command.words.clone(),
             other => panic!("{text:?} is not one command: {other:?}"),
         },
-        other => panic!("{text:?} is not one pipeline: {other:?}"),
+        other => panic!("{text:?} is not one plain pipeline: {other:?}"),
     }
 }
 
 fn pipeline(text: &str) -> reader::syntax::Pipeline {
+    let list = list(text);
+    assert!(
+        list.rest.is_empty(),
+        "{text:?} is an and-or list, not a pipeline"
+    );
+    list.first
+}
+
+fn list(text: &str) -> reader::syntax::AndOr {
     match &tree(text).items[..] {
-        [Item::Pipeline(pipeline)] => pipeline.clone(),
-        other => panic!("{text:?} is not one pipeline: {other:?}"),
+        [Item::List(list)] => list.clone(),
+        other => panic!("{text:?} is not one list: {other:?}"),
     }
 }
 
@@ -131,9 +140,6 @@ fn an_assignment_prefix_is_grammar_and_an_argument_is_not() {
 
 #[test]
 fn every_construct_the_tree_does_not_model_is_named() {
-    assert_eq!(refusal("a && b"), Reason::AndOr);
-    assert_eq!(refusal("a || b"), Reason::AndOr);
-    assert_eq!(refusal("a &"), Reason::Background);
     assert_eq!(refusal("echo > out"), Reason::Redirection);
     assert_eq!(refusal("(cd x)"), Reason::Grouping);
     assert_eq!(refusal("echo $x"), Reason::Expansion);
@@ -209,8 +215,8 @@ fn the_law_reports_a_refusal_apart_from_a_failure() {
     // A refusal is the work queue, not a defect, and the two must never be
     // added together — a parser that refused everything would otherwise score
     // a perfect law.
-    assert!(matches!(check("a && b"), Outcome::Refused(_)));
-    assert!(!check("a && b").holds());
+    assert!(matches!(check("a > b"), Outcome::Refused(_)));
+    assert!(!check("a > b").holds());
 }
 
 // ---- the survey: which constructs a command needs, not which stopped us ----
@@ -219,10 +225,10 @@ fn the_law_reports_a_refusal_apart_from_a_failure() {
 fn the_survey_returns_every_blocking_construct_not_the_first() {
     // The whole reason it exists: `parse` stops at the pipe and never sees the
     // redirection, so the refusal ranking under-counts whatever sits rightmost.
-    assert_eq!(refusal("a && b > c"), Reason::AndOr);
+    assert_eq!(refusal("cd ~/x > out"), Reason::Tilde);
     assert_eq!(
-        survey("a && b > c"),
-        BTreeSet::from([Reason::AndOr, Reason::Redirection])
+        survey("cd ~/x > out"),
+        BTreeSet::from([Reason::Tilde, Reason::Redirection])
     );
 }
 
@@ -265,7 +271,6 @@ fn the_survey_is_empty_exactly_when_the_parser_accepts() {
         "'time' ./x.sh",
         "cd ~/x",
         "echo $x",
-        "a && b",
         "x > y",
         "(a)",
     ] {
@@ -390,4 +395,72 @@ fn a_pipeline_prefix_does_not_start_the_command() {
         survey("time -p FOO=bar x"),
         BTreeSet::from([Reason::Assignment])
     );
+}
+
+// ---- and-or lists ----
+
+#[test]
+fn a_list_holds_its_connectors_in_order() {
+    let l = list("a && b || c");
+    assert_eq!(l.rest.len(), 2);
+    assert_eq!(l.rest[0].connector, Connector::And);
+    assert_eq!(l.rest[1].connector, Connector::Or);
+    assert!(!l.background);
+}
+
+#[test]
+fn background_belongs_to_the_list_not_its_last_pipeline() {
+    // ⚠ `a && b &` backgrounds the WHOLE list — `declare -f` prints it back
+    // that way. Hanging the flag on `b` would say something else.
+    let l = list("a && b &");
+    assert!(l.background);
+    assert_eq!(l.rest.len(), 1);
+    assert_eq!(print(&tree("a && b &")), "a && b &");
+}
+
+#[test]
+fn a_semicolon_separates_lists_and_a_connector_does_not() {
+    // Bash's own split: `a; b` prints on two lines, `a && b` on one.
+    assert_eq!(tree("a; b").items.len(), 2);
+    assert_eq!(tree("a && b").items.len(), 1);
+    assert_eq!(tree("a & b").items.len(), 2);
+    assert!(list("a &").background);
+}
+
+#[test]
+fn a_newline_after_a_connector_continues_the_list() {
+    // Same rule as a newline after `|`, and the same silent misparse if missed.
+    assert_eq!(tree("a &&\nb"), tree("a && b"));
+    assert_eq!(tree("a ||\n  b"), tree("a || b"));
+}
+
+#[test]
+fn an_operator_with_nothing_after_it_is_refused() {
+    assert_eq!(refusal("a &&"), Reason::EmptyOperand);
+    assert_eq!(refusal("a |"), Reason::EmptyOperand);
+    // ⚠ Bash accepts a comment here and DELETES it. Keeping comments byte-exact
+    // and accepting this are incompatible, so it is refused rather than dropped.
+    assert_eq!(refusal("a && # note\nb"), Reason::CommentInList);
+}
+
+#[test]
+fn the_law_holds_across_the_list_shapes() {
+    for text in [
+        "a && b",
+        "a || b",
+        "a && b || c",
+        "a | b && c | d",
+        "a && b &",
+        "a &",
+        "time a && b",
+        "! a || b",
+        "a &&\nb",
+        "a; b && c; d",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+    }
 }

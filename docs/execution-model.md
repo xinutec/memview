@@ -3,7 +3,7 @@
 Design for the syntax layer under `reader/`: a faithful tree for every language
 the fleet executes, plus a printer that puts it back.
 
-**Status: simple commands, comments and pipelines; both gates wired.**
+**Status: simple commands, comments, pipelines and and-or lists; both gates wired.**
 `reader/src/syntax/` holds the tree, the parser and the printer; the
 `bash-oracle` crate holds the second gate and the report.
 
@@ -235,10 +235,11 @@ needs, and the report plans off a greedy cumulative curve instead: pipe → and-
 Only 27,322 of 113,439 refused commands need a single construct — most need
 three or more, which is why a per-construct percentage is the wrong unit.
 
-**The prediction was then tested by building the pipeline.** The survey said the
-pipe alone was worth 11.03%; coverage went 13.57% → 24.60%, which is 11.03%.
-That is the survey's own validation, and it is why the greedy curve is worth
-planning from: and-or next at +9.93%, then redirection at +7.86%.
+**The prediction has been tested twice, by building what it named.** The pipe was
+predicted at 11.03% and coverage went 13.57% → 24.60%. And-or lists were
+predicted to reach 45,326 commands and reached 45,327. The greedy curve is
+therefore worth planning from, and it now says **redirection**, alone worth
++45,030 — the largest single step left.
 
 ⚠ **The survey is a second scanner and is pinned, not trusted.** It has to read
 text the parser cannot, so it cannot be built from the parser, and it drifted on
