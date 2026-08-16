@@ -4256,6 +4256,45 @@ test('a refused mode change says so and puts the mode back @ phone width', async
   await expect(page.locator('.session-menu .current')).toHaveText('Auto');
 });
 
+test('a session opened with no answer from the Mac reads from the kept copy @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **The console is not an offline app and this does not make it one** — it
+  // has no service worker on purpose, because it sits behind a client-certificate
+  // gate. What this covers is narrower and is the half of memview #90 that was
+  // wanted: a phone whose tunnel has dropped can still READ the session it was
+  // looking at. Sending is untouched; a send that cannot reach the Mac keeps its
+  // draft in the composer as it always did.
+  const id = STATE.sessions[0].id;
+  await page.addInitScript(
+    ([key, copy]) => localStorage.setItem(key, copy),
+    [
+      `console.kept.${id}`,
+      JSON.stringify([
+        { kind: 'said', text: 'a line from before the tunnel dropped', at: 1785600000000 },
+        { kind: 'turn', text: '' },
+      ]),
+    ] as const,
+  );
+  await mockRunner(page);
+  // The Mac does not answer: the transcript stream never opens, which is exactly
+  // what a dropped tunnel looks like from here.
+  await page.route('**/api/sessions/*/events*', (r) => r.abort());
+  await page.goto(`/s/${id}`);
+
+  await expect(
+    page.getByText('a line from before the tunnel dropped'),
+    'the kept copy was not read',
+  ).toBeVisible();
+  // ⚠ **And it says what it is.** A transcript that has stopped growing looks
+  // exactly like a quiet one, so a copy drawn as though it were the conversation
+  // would be the same defect #96 was about, one screen along.
+  const banner = page.locator('.adrift');
+  await expect(banner, 'a copy was drawn as though it were live').toContainText('Kept copy');
+  await expectNoHorizontalOverflow(page, testInfo, '.adrift');
+  await expectNoClippedText(page, testInfo, '.adrift');
+});
+
 test('the permission modes are one row that opens a sheet @ phone width', async ({
   page,
 }, testInfo) => {
