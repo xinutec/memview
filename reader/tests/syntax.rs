@@ -6,7 +6,9 @@
 //! law, so no corpus run could ever object. Quoting collapse, the glob/literal
 //! split and the reserved words are all of that kind.
 
-use reader::syntax::ast::{Connector, Glob, Item, Segment, SegmentKind, Span, Timed, Word};
+use reader::syntax::ast::{
+    Connector, Glob, Item, RedirectOp, RedirectTarget, Segment, SegmentKind, Span, Timed, Word,
+};
 use reader::syntax::{Outcome, Reason, check, parse, print, survey};
 use std::collections::BTreeSet;
 
@@ -140,7 +142,6 @@ fn an_assignment_prefix_is_grammar_and_an_argument_is_not() {
 
 #[test]
 fn every_construct_the_tree_does_not_model_is_named() {
-    assert_eq!(refusal("echo > out"), Reason::Redirection);
     assert_eq!(refusal("(cd x)"), Reason::Grouping);
     assert_eq!(refusal("echo $x"), Reason::Expansion);
     assert_eq!(refusal("echo `ls`"), Reason::Expansion);
@@ -215,8 +216,8 @@ fn the_law_reports_a_refusal_apart_from_a_failure() {
     // A refusal is the work queue, not a defect, and the two must never be
     // added together — a parser that refused everything would otherwise score
     // a perfect law.
-    assert!(matches!(check("a > b"), Outcome::Refused(_)));
-    assert!(!check("a > b").holds());
+    assert!(matches!(check("cat <<EOF\nx\nEOF"), Outcome::Refused(_)));
+    assert!(!check("cat <<EOF\nx\nEOF").holds());
 }
 
 // ---- the survey: which constructs a command needs, not which stopped us ----
@@ -225,10 +226,10 @@ fn the_law_reports_a_refusal_apart_from_a_failure() {
 fn the_survey_returns_every_blocking_construct_not_the_first() {
     // The whole reason it exists: `parse` stops at the pipe and never sees the
     // redirection, so the refusal ranking under-counts whatever sits rightmost.
-    assert_eq!(refusal("cd ~/x > out"), Reason::Tilde);
+    assert_eq!(refusal("cd ~/x $y"), Reason::Tilde);
     assert_eq!(
-        survey("cd ~/x > out"),
-        BTreeSet::from([Reason::Tilde, Reason::Redirection])
+        survey("cd ~/x $y"),
+        BTreeSet::from([Reason::Tilde, Reason::Expansion])
     );
 }
 
@@ -254,7 +255,7 @@ fn the_survey_looks_past_what_it_cannot_own() {
     );
     assert_eq!(
         survey("cat <<EOF\na | b && c\nEOF"),
-        BTreeSet::from([Reason::Redirection])
+        BTreeSet::from([Reason::Heredoc])
     );
 }
 
@@ -456,6 +457,108 @@ fn the_law_holds_across_the_list_shapes() {
         "! a || b",
         "a &&\nb",
         "a; b && c; d",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+    }
+}
+
+// ---- redirection ----
+
+fn redirects(text: &str) -> Vec<reader::syntax::Redirect> {
+    match &list(text).first.commands[..] {
+        [command] => command.redirects.clone(),
+        other => panic!("{text:?} is not one command: {other:?}"),
+    }
+}
+
+#[test]
+fn a_redirect_is_not_a_word_and_its_position_is_not_recorded() {
+    // ⚠ Bash prints `> out cat f` back as `cat f > out`, so the position among
+    // the words carries nothing. Both spellings must be one tree.
+    assert_eq!(tree("> out cat f"), tree("cat f > out"));
+    assert_eq!(words("cat f > out").len(), 2);
+    assert_eq!(redirects("cat f > out").len(), 1);
+}
+
+#[test]
+fn the_order_of_redirects_among_themselves_does_matter() {
+    // `cat > out 2>&1` and `cat 2>&1 > out` send stderr to different places.
+    assert_ne!(tree("cat > out 2>&1"), tree("cat 2>&1 > out"));
+}
+
+#[test]
+fn every_form_reaches_its_own_node() {
+    use RedirectOp::*;
+    for (text, op) in [
+        ("cat < in", Read),
+        ("cat > out", Write),
+        ("cat >> out", Append),
+        ("cat <> rw", ReadWrite),
+        ("cat >| out", Clobber),
+        ("cat 2>&1", DupOut),
+        ("cat 0<&3", DupIn),
+        ("cat &> both", Both),
+        ("cat &>> both", BothAppend),
+        ("cat >& both", BothWord),
+    ] {
+        assert_eq!(redirects(text)[0].op, op, "{text:?}");
+    }
+    assert_eq!(redirects("cat 2>&-")[0].target, RedirectTarget::Close);
+    assert_eq!(redirects("cat 2> err")[0].fd, Some(2));
+}
+
+#[test]
+fn the_dup_forms_default_their_descriptor_and_the_others_do_not() {
+    // ⚠ `>&2` comes back from `declare -f` as `1>&2`, so the two are one tree.
+    assert_eq!(tree("cat >&2"), tree("cat 1>&2"));
+    assert_eq!(redirects("cat >&2")[0].fd, Some(1));
+    // `> out` never gains a descriptor, and bash never prints one.
+    // `> out` means fd 1 whether it says so or not, and bash agrees by
+    // printing `1> out` back as `> out`.
+    assert_eq!(redirects("cat > out")[0].fd, Some(1));
+    assert_eq!(tree("cat 1> out"), tree("cat > out"));
+    assert_eq!(tree("cat 0< in"), tree("cat < in"));
+    assert_eq!(redirects("cat &> both")[0].fd, None);
+}
+
+#[test]
+fn a_descriptor_must_touch_its_operator() {
+    // `cat 2>out` redirects fd 2; `cat 2 > out` passes 2 as an argument.
+    assert_eq!(redirects("cat 2>out")[0].fd, Some(2));
+    assert_eq!(redirects("cat 2 > out")[0].fd, Some(1));
+    assert_eq!(words("cat 2 > out").len(), 2);
+}
+
+#[test]
+fn what_is_still_refused_is_named() {
+    assert_eq!(refusal("cat <<EOF\nx\nEOF"), Reason::Heredoc);
+    assert_eq!(refusal("cat <<< word"), Reason::HereString);
+    assert_eq!(refusal("diff <(a) <(b)"), Reason::ProcessSubstitution);
+    assert_eq!(refusal("cat >"), Reason::EmptyOperand);
+}
+
+#[test]
+fn the_law_holds_across_the_redirection_shapes() {
+    for text in [
+        "cat > out",
+        "cat >> out",
+        "cat < in",
+        "cat 2> err",
+        "cat 2>&1",
+        "cat >&2",
+        "cat &> both",
+        "cat 2>&-",
+        "cat >| out",
+        "cat <> rw",
+        "> out cat f",
+        "cat f > out 2>&1",
+        "a > x | b",
+        "a && b > x",
+        "cat > out &",
     ] {
         assert!(
             check(text).holds(),

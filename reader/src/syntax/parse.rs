@@ -17,8 +17,8 @@
 //! at a special character always lands on a character boundary.
 
 use super::ast::{
-    AndOr, Command, Comment, Connector, Glob, Item, Link, Pipeline, Script, Segment, SegmentKind,
-    Span, Timed, Word,
+    AndOr, Command, Comment, Connector, Glob, Item, Link, Pipeline, Redirect, RedirectOp,
+    RedirectTarget, Script, Segment, SegmentKind, Span, Timed, Word,
 };
 
 /// Why a piece of text was not read.
@@ -30,8 +30,17 @@ use super::ast::{
 pub enum Reason {
     /// `$…` or a backtick — a substitution or a parameter expansion.
     Expansion,
-    /// `<` or `>` in any of their forms.
+    /// `>`, `>>`, `<`, `2>&1`, `&>`, `>|`, `<>`, `{fd}>` — a file or a
+    /// descriptor, and nothing that carries a body.
     Redirection,
+    /// `<<` or `<<-`. Split from the rest because it is the only redirection
+    /// whose operand is on the FOLLOWING lines, which changes the parser's
+    /// shape rather than adding an operator.
+    Heredoc,
+    /// `<<<` — a value, not a file, and no body.
+    HereString,
+    /// `<(cmd)` or `>(cmd)`: a whole command, so it needs grouping first.
+    ProcessSubstitution,
     /// `(`, `)`, `{` or `}`.
     Grouping,
     /// `[…]` inside a word — a bracket expression, not the `[` builtin.
@@ -58,7 +67,10 @@ impl Reason {
     pub fn label(self) -> &'static str {
         match self {
             Reason::Expansion => "expansion ($ or backtick)",
-            Reason::Redirection => "redirection (< >)",
+            Reason::Redirection => "redirection (> >> < 2>&1 &>)",
+            Reason::Heredoc => "heredoc (<< <<-)",
+            Reason::HereString => "here-string (<<<)",
+            Reason::ProcessSubstitution => "process substitution (<( >()",
             Reason::Grouping => "grouping (( ) { })",
             Reason::BracketExpression => "bracket expression ([…])",
             Reason::Tilde => "tilde (~)",
@@ -340,10 +352,14 @@ impl<'t> Parser<'t> {
     fn command(&mut self) -> Result<Command, Refusal> {
         let start = self.at;
         let mut words: Vec<Word> = Vec::new();
+        let mut redirects: Vec<Redirect> = Vec::new();
         loop {
             self.skip_blanks();
             match self.peek() {
                 None | Some(b';') | Some(b'\n') => break,
+                // `&>` is a redirection, not the list's `&`. Checked first, or
+                // every `cmd &> log` would end the command at the ampersand.
+                Some(b'&') if self.peek_at(1) == Some(b'>') => {}
                 // The pipeline owns a bare `|`; `||`, `&&` and `&` belong to
                 // the list above it. All of them end this command.
                 Some(b'|') | Some(b'&') => break,
@@ -353,13 +369,128 @@ impl<'t> Parser<'t> {
                 Some(b'#') => break,
                 _ => {}
             }
+            if let Some(redirect) = self.redirect()? {
+                redirects.push(redirect);
+                continue;
+            }
             let word = self.word(words.is_empty())?;
             words.push(word);
         }
         Ok(Command {
             words,
+            redirects,
             span: Span::new(start, self.at),
         })
+    }
+
+    /// A redirection, if one starts here.
+    ///
+    /// ⚠ **The descriptor must touch the operator.** `cat 2>out` redirects fd 2;
+    /// `cat 2 > out` passes `2` as an argument and redirects stdout. Only a run
+    /// of digits ending exactly at `<` or `>` is a descriptor, and because this
+    /// is tried at a word boundary, `file2>out` cannot be read as one either.
+    fn redirect(&mut self) -> Result<Option<Redirect>, Refusal> {
+        let start = self.at;
+        let mut at = self.at;
+        while self.bytes.get(at).is_some_and(u8::is_ascii_digit) {
+            at += 1;
+        }
+        let fd: Option<u32> = (at > self.at)
+            .then(|| self.text[self.at..at].parse().ok())
+            .flatten();
+        // A digit run too long to be a descriptor is a word, not a redirection.
+        if at > self.at && fd.is_none() {
+            return Ok(None);
+        }
+        let after_fd = self.bytes.get(at).copied();
+        let op = match (after_fd, self.bytes.get(at + 1).copied()) {
+            // `&>` and `&>>` take no descriptor before them.
+            (Some(b'&'), Some(b'>')) if fd.is_none() => {
+                if self.bytes.get(at + 2) == Some(&b'>') {
+                    at += 3;
+                    RedirectOp::BothAppend
+                } else {
+                    at += 2;
+                    RedirectOp::Both
+                }
+            }
+            (Some(b'>'), Some(b'>')) => {
+                at += 2;
+                RedirectOp::Append
+            }
+            (Some(b'>'), Some(b'|')) => {
+                at += 2;
+                RedirectOp::Clobber
+            }
+            (Some(b'>'), Some(b'&')) => {
+                at += 2;
+                RedirectOp::DupOut
+            }
+            (Some(b'<'), Some(b'&')) => {
+                at += 2;
+                RedirectOp::DupIn
+            }
+            (Some(b'<'), Some(b'>')) => {
+                at += 2;
+                RedirectOp::ReadWrite
+            }
+            // A heredoc or here-string is refused elsewhere; leave it alone.
+            (Some(b'<'), Some(b'<')) => return Ok(None),
+            // A process substitution is a command, not a target.
+            (Some(b'<'), Some(b'(')) | (Some(b'>'), Some(b'(')) => return Ok(None),
+            (Some(b'>'), _) => {
+                at += 1;
+                RedirectOp::Write
+            }
+            (Some(b'<'), _) => {
+                at += 1;
+                RedirectOp::Read
+            }
+            _ => return Ok(None),
+        };
+        self.at = at;
+
+        let target = self.redirect_target(op)?;
+        // ⚠ `>&2` duplicates a descriptor; `>&file` sends BOTH streams to a
+        // file. Same two characters, different construct, and the target is
+        // what tells them apart — so the operator is settled after reading it.
+        let op = match (op, &target) {
+            (RedirectOp::DupOut, RedirectTarget::File(_)) => RedirectOp::BothWord,
+            _ => op,
+        };
+        Ok(Some(Redirect {
+            // ⚠ Always the effective descriptor, never the written one — see
+            // `Redirect::fd`. `1> f` and `> f` are one redirection, and bash
+            // says so by printing the first as the second.
+            fd: fd.or(op.default_fd()),
+            op,
+            target,
+            span: Span::new(start, self.at),
+        }))
+    }
+
+    fn redirect_target(&mut self, op: RedirectOp) -> Result<RedirectTarget, Refusal> {
+        self.skip_blanks();
+        if matches!(op, RedirectOp::DupOut | RedirectOp::DupIn) {
+            if self.peek() == Some(b'-') {
+                self.at += 1;
+                return Ok(RedirectTarget::Close);
+            }
+            let from = self.at;
+            while self.peek().is_some_and(|b| b.is_ascii_digit()) {
+                self.at += 1;
+            }
+            if self.at > from
+                && let Ok(fd) = self.text[from..self.at].parse::<u32>()
+            {
+                return Ok(RedirectTarget::Fd(fd));
+            }
+            self.at = from;
+        }
+        if self.at_end_of_command() {
+            return self.refuse(Reason::EmptyOperand, 1);
+        }
+        Ok(RedirectTarget::File(self.word(false)?))
     }
 
     /// One word. `first` is whether it opens the command, which is the only
@@ -386,7 +517,24 @@ impl<'t> Parser<'t> {
                 // `|`, `||` and `&` all end a word; which of them it is, is the
                 // list's business rather than this reader's.
                 b'|' | b'&' => break,
-                b'<' | b'>' => return self.refuse(Reason::Redirection, 1),
+                b'<' | b'>' => {
+                    // ⚠ Four constructs share these characters and they are not
+                    // one build. A heredoc's operand is on the following lines;
+                    // a process substitution is a whole command. Naming them
+                    // apart is what let the corpus say which to do first.
+                    let reason = if self.peek_at(1) == Some(b'(') {
+                        Reason::ProcessSubstitution
+                    } else if byte == b'<' && self.peek_at(1) == Some(b'<') {
+                        if self.peek_at(2) == Some(b'<') {
+                            Reason::HereString
+                        } else {
+                            Reason::Heredoc
+                        }
+                    } else {
+                        Reason::Redirection
+                    };
+                    return self.refuse(reason, 1);
+                }
                 b'(' | b')' | b'{' | b'}' => return self.refuse(Reason::Grouping, 1),
                 b'$' | b'`' => return self.refuse(Reason::Expansion, 1),
                 b'[' if self.closes_bracket() => {

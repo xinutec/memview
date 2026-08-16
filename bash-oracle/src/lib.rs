@@ -94,21 +94,17 @@ pub fn compare(commands: &[String]) -> Result<Vec<Verdict>> {
     let mut verdicts = Vec::with_capacity(commands.len());
     for chunk in commands.chunks(BATCH) {
         let printed: Vec<String> = chunk.to_vec();
-        let rendered = match render(&printed) {
-            // A batch is all-or-nothing: bash aborts a script at the first
-            // syntax error, so one refusal truncates the stream and every
-            // command after it would be misattributed. Re-run the batch one at
-            // a time to find out which.
-            Ok(blocks) if blocks.len() == printed.len() => blocks,
-            _ => printed
-                .iter()
-                .map(|one| {
-                    render(std::slice::from_ref(one))
-                        .ok()
-                        .and_then(|mut blocks| blocks.pop().flatten())
-                })
-                .collect(),
-        };
+        // Bash aborts a script at the first syntax error, so one command it
+        // will not define costs every later block in the batch. Those come back
+        // as `None` — addressed, not shifted — and are retried alone.
+        let mut rendered = render(&printed).unwrap_or_else(|_| vec![None; printed.len()]);
+        for (slot, one) in rendered.iter_mut().zip(&printed) {
+            if slot.is_none() {
+                *slot = render(std::slice::from_ref(one))
+                    .ok()
+                    .and_then(|blocks| blocks.into_iter().next().flatten());
+            }
+        }
         for (command, block) in chunk.iter().zip(rendered) {
             verdicts.push(judge(command, block.as_deref()));
         }
@@ -186,18 +182,23 @@ fn render(printed: &[String]) -> Result<Vec<Option<String>>> {
         .output()
         .with_context(|| format!("spawning {bash}"))?;
 
-    let mut blocks: Vec<Option<String>> = Vec::with_capacity(printed.len());
+    // ⚠ **Blocks are placed by the INDEX bash prints, never by position.**
+    // The stream was read in order once, and a single command whose definition
+    // bash declined left no block — shifting every later one, so a command was
+    // judged against its neighbour's parse. That surfaced as exactly one
+    // DIFFERENT TREE in 81,623 which agreed when re-run alone: the worst shape
+    // of bug this gate can have, because it manufactures a disagreement rather
+    // than missing one.
+    //
+    // `declare -f` names the function it prints, and the driver numbered them,
+    // so the answer carries its own address and nothing has to line up.
+    let mut blocks: Vec<Option<String>> = vec![None; printed.len()];
     for raw in output.stdout.split(|byte| *byte == SEPARATOR) {
-        if blocks.len() == printed.len() {
-            break;
-        }
         let text = String::from_utf8_lossy(raw);
-        match body_of(&text) {
-            Some(body) => blocks.push(Some(body)),
-            // The trailing piece after the last separator is empty and is not a
-            // block; anything else empty means bash printed no function.
-            None if text.trim().is_empty() => {}
-            None => blocks.push(None),
+        if let Some((index, body)) = body_of(&text)
+            && index < blocks.len()
+        {
+            blocks[index] = Some(body);
         }
     }
     Ok(blocks)
@@ -263,13 +264,13 @@ impl Drop for Scratch {
     }
 }
 
-/// The function body out of `declare -f` output: drop the `name ()` and `{`
-/// lines and the closing `}`.
+/// The index and body out of one `declare -f` block: the driver's `__pN__`
+/// gives the index, and the body is everything between the `{` and `}` lines.
 ///
 /// Inner indentation is left alone. The parser skips leading blanks, and the
 /// indentation of a nested line is bash's statement about structure — reflowing
 /// it here would throw away the part of the answer worth having.
-fn body_of(text: &str) -> Option<String> {
+fn body_of(text: &str) -> Option<(usize, String)> {
     let lines: Vec<&str> = text.trim_matches('\n').lines().collect();
     if lines.len() < 3 {
         return None;
@@ -277,5 +278,12 @@ fn body_of(text: &str) -> Option<String> {
     if !lines[0].contains("()") || lines[1].trim() != "{" || lines[lines.len() - 1].trim() != "}" {
         return None;
     }
-    Some(lines[2..lines.len() - 1].join("\n"))
+    let index = lines[0]
+        .trim()
+        .strip_prefix("__p")?
+        .split("__")
+        .next()?
+        .parse()
+        .ok()?;
+    Some((index, lines[2..lines.len() - 1].join("\n")))
 }

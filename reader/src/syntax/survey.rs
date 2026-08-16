@@ -209,13 +209,22 @@ impl Survey<'_> {
                 }
                 b'<' | b'>' => {
                     end_word!();
-                    self.found.insert(Reason::Redirection);
-                    // `<<` opens a heredoc and `<<<` does not; only the first
-                    // has a body to step over.
-                    if byte == b'<'
+                    // ⚠ Four different constructs share these two characters,
+                    // and only one of them is "a redirection to a file". Counted
+                    // apart because they are not one build: a heredoc's operand
+                    // is on the FOLLOWING lines, and a process substitution is a
+                    // whole command.
+                    if self.peek_at(1) == Some(b'(') {
+                        self.found.insert(Reason::ProcessSubstitution);
+                        self.at += 2;
+                    } else if byte == b'<'
                         && self.peek_at(1) == Some(b'<')
-                        && self.peek_at(2) != Some(b'<')
+                        && self.peek_at(2) == Some(b'<')
                     {
+                        self.found.insert(Reason::HereString);
+                        self.at += 3;
+                    } else if byte == b'<' && self.peek_at(1) == Some(b'<') {
+                        self.found.insert(Reason::Heredoc);
                         self.at += 2;
                         if self.peek() == Some(b'-') {
                             self.at += 1;
@@ -224,6 +233,7 @@ impl Survey<'_> {
                             heredocs.push(delimiter);
                         }
                     } else {
+                        // Every other `<`/`>` form is modelled now.
                         self.at += 1;
                     }
                 }

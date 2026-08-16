@@ -3,7 +3,8 @@
 Design for the syntax layer under `reader/`: a faithful tree for every language
 the fleet executes, plus a printer that puts it back.
 
-**Status: simple commands, comments, pipelines and and-or lists; both gates wired.**
+**Status: simple commands, comments, pipelines, and-or lists and redirection;
+both gates wired.**
 `reader/src/syntax/` holds the tree, the parser and the printer; the
 `bash-oracle` crate holds the second gate and the report.
 
@@ -235,11 +236,18 @@ needs, and the report plans off a greedy cumulative curve instead: pipe → and-
 Only 27,322 of 113,439 refused commands need a single construct — most need
 three or more, which is why a per-construct percentage is the wrong unit.
 
-**The prediction has been tested twice, by building what it named.** The pipe was
-predicted at 11.03% and coverage went 13.57% → 24.60%. And-or lists were
-predicted to reach 45,326 commands and reached 45,327. The greedy curve is
-therefore worth planning from, and it now says **redirection**, alone worth
-+45,030 — the largest single step left.
+**The prediction has been tested three times, by building what it named.** The
+pipe was predicted at 11.03% and coverage went 13.57% → 24.60%. And-or lists were
+predicted to reach 45,326 and reached 45,327. Redirection was predicted to reach
+81,623 and reached 81,623.
+
+⚠ **Splitting a reason can change the plan.** `<` and `>` began as one
+`Redirection`, worth +45,030. Split by what it takes to *build* them — a file or
+descriptor target, versus a heredoc whose operand is on the following lines,
+versus a process substitution that is a whole command — the file forms alone were
++36,296 and the heredoc a separate +9,859. The hard half was never on the
+critical path. A reason is a unit of work, so it has to be split the way the work
+splits.
 
 ⚠ **The survey is a second scanner and is pinned, not trusted.** It has to read
 text the parser cannot, so it cannot be built from the parser, and it drifted on
@@ -335,11 +343,13 @@ Three properties are load-bearing and each has a test that fails without it:
   the literal `time` as a command name must print `'time'`, or `t₂` is a
   different program.
 
-⚠ **Gate 2 became load-bearing when it was pointed at the original text.** While
-it read the printer's output it could only agree; the `a |⏎b` misparse is the
-demonstration, and it is now the regression test. A gate that is green everywhere
-is indistinguishable from one that cannot fail, so its tests provoke each verdict
-it can reach.
+⚠ **Gate 2 became load-bearing when it was pointed at the original text**, and
+it has since earned it. Its first real catch was one command in 81,623:
+`… 2>&1 1>/dev/null`, where the tree recorded `fd: Some(1)` on a `>` that bash
+prints back without the `1`. Bash drops an explicit default on `>` and *supplies*
+one on `>&` — so a redirection's descriptor is stored as the effective one, never
+the written one, and `1> f` and `> f` are one tree. Nothing else could have found
+that: the round-trip law is satisfied by any consistent wrong answer.
 
 ⚠ **`bash -n` adjudicates the two refusals that are claims about the input.**
 `UnterminatedQuote` and `DanglingEscape` assert the text is not shell; every

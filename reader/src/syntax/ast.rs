@@ -164,7 +164,85 @@ pub struct Comment {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Command {
     pub words: Vec<Word>,
+    /// ⚠ **In their own list, because their position among the words means
+    /// nothing.** `> out cat f` and `cat f > out` are the same command, and
+    /// `declare -f` proves it: bash prints the first back as the second. Order
+    /// *within* this list does matter — `cat > out 2>&1` and `cat 2>&1 > out`
+    /// send stderr to different places, and bash preserves both as written.
+    pub redirects: Vec<Redirect>,
     pub span: Span,
+}
+
+/// `[n]op target` — `2> err`, `>> log`, `2>&1`, `&> both`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Redirect {
+    /// The descriptor being redirected — **always the effective one**, whether
+    /// the text spelled it out or not.
+    ///
+    /// ⚠ **Found by the second gate, on one command in 81,623.** Bash prints
+    /// `1>/dev/null` back as `>/dev/null` and `>&2` as `1>&2`: it drops an
+    /// explicit default on one operator and supplies it on another. Recording
+    /// what was *written* therefore made `1> f` and `> f` two trees for one
+    /// thing. Recording what it *means* makes them one, and the printer decides
+    /// the spelling.
+    ///
+    /// `None` only where the operator takes no descriptor at all: `&>` and
+    /// `&>>` name both streams and bash rejects a number in front of them.
+    pub fd: Option<u32>,
+    pub op: RedirectOp,
+    pub target: RedirectTarget,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RedirectOp {
+    /// `<`
+    Read,
+    /// `>`
+    Write,
+    /// `>>`
+    Append,
+    /// `<>`
+    ReadWrite,
+    /// `>|`, which writes even under `noclobber`.
+    Clobber,
+    /// `>&` or `n>&m` — duplicate an output descriptor.
+    DupOut,
+    /// `<&` or `n<&m` — duplicate an input descriptor.
+    DupIn,
+    /// `&>` — stdout and stderr to one file.
+    Both,
+    /// `&>>` — the same, appending.
+    BothAppend,
+    /// `>&word` where the word is not a descriptor. Kept apart from `&>`
+    /// although they mean the same thing, because bash prints them differently
+    /// (`&> f` versus `>&f`) and so holds them apart itself.
+    BothWord,
+}
+
+impl RedirectOp {
+    /// The descriptor this operator acts on when the text does not say.
+    ///
+    /// `None` for the `&>` forms, which act on two and admit no number.
+    pub fn default_fd(self) -> Option<u32> {
+        match self {
+            RedirectOp::Read | RedirectOp::ReadWrite | RedirectOp::DupIn => Some(0),
+            RedirectOp::Write
+            | RedirectOp::Append
+            | RedirectOp::Clobber
+            | RedirectOp::DupOut
+            | RedirectOp::BothWord => Some(1),
+            RedirectOp::Both | RedirectOp::BothAppend => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RedirectTarget {
+    File(Word),
+    Fd(u32),
+    /// `>&-`, closing the descriptor.
+    Close,
 }
 
 /// One word: a sequence of typed segments, with quoting derived at print time.

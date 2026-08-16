@@ -12,7 +12,8 @@
 //! usable as an equivalence test.
 
 use super::ast::{
-    AndOr, Command, Connector, Glob, Item, Pipeline, Script, Segment, SegmentKind, Timed, Word,
+    AndOr, Command, Connector, Glob, Item, Pipeline, Redirect, RedirectOp, RedirectTarget, Script,
+    Segment, SegmentKind, Timed, Word,
 };
 use super::parse::{is_assignment, is_reserved};
 
@@ -75,13 +76,44 @@ pub fn print_pipeline(pipeline: &Pipeline) -> String {
 /// and `!` are grammar, and therefore the only place a word spelling one has to
 /// be quoted to stay a value.
 fn print_command(command: &Command, head: bool) -> String {
-    command
+    // ⚠ Words first, then redirections — bash's own order. `> out cat f` comes
+    // back from `declare -f` as `cat f > out`, so putting them anywhere else
+    // would be a spelling bash does not use and the tree does not record.
+    let mut parts: Vec<String> = command
         .words
         .iter()
         .enumerate()
         .map(|(index, word)| print_word(word, index == 0 && head))
-        .collect::<Vec<_>>()
-        .join(" ")
+        .collect();
+    parts.extend(command.redirects.iter().map(print_redirect));
+    parts.join(" ")
+}
+
+fn print_redirect(redirect: &Redirect) -> String {
+    // The descriptor is written only when it is not the operator's own default,
+    // which is how `>` stays `>` and `2>` stays `2>`.
+    let fd = match redirect.fd {
+        Some(fd) if Some(fd) != redirect.op.default_fd() => fd.to_string(),
+        _ => String::new(),
+    };
+    let op = match redirect.op {
+        RedirectOp::Read => "<",
+        RedirectOp::Write => ">",
+        RedirectOp::Append => ">>",
+        RedirectOp::ReadWrite => "<>",
+        RedirectOp::Clobber => ">|",
+        RedirectOp::DupOut => ">&",
+        RedirectOp::DupIn => "<&",
+        RedirectOp::Both => "&>",
+        RedirectOp::BothAppend => "&>>",
+        RedirectOp::BothWord => ">&",
+    };
+    match &redirect.target {
+        // No space after a dup operator: `2>&1`, not `2>& 1`.
+        RedirectTarget::Fd(target) => format!("{fd}{op}{target}"),
+        RedirectTarget::Close => format!("{fd}{op}-"),
+        RedirectTarget::File(word) => format!("{fd}{op} {}", print_word(word, false)),
+    }
 }
 
 /// One word. `first` is whether it opens the pipeline's head command, the only
