@@ -2,6 +2,15 @@
   "checks": [
     {
       "argv": [
+        "./scripts/workspace-members.sh"
+      ],
+      "cwd": ".",
+      "env": {},
+      "name": "workspace members are in every build that loads them",
+      "timeout_s": 60
+    },
+    {
+      "argv": [
         "nix",
         "develop",
         "--no-warn-dirty",

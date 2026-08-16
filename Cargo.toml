@@ -12,10 +12,13 @@
 # It is a member rather than a module of `reader` so that the leaf claim above
 # stays literally true; see docs/execution-model.md.
 #
-# ⚠ **A member added here must also be added to flake.nix's fileset.** Cargo
-# loads every member's manifest before building any package, so the console
-# package — which links none of this — fails with "failed to load manifest for
-# workspace member" when a directory is missing from the source.
+# ⚠ **A member added here must also be added to flake.nix AND the Dockerfile.**
+# Cargo loads every member's manifest before building any package, so a member
+# absent from a build's source tree fails that build with "failed to load
+# manifest for workspace member" — including builds that link none of it.
+# `scripts/workspace-members.sh` checks all three lists and is a gate row,
+# because this comment's predecessor in the Dockerfile did not stop it happening
+# twice.
 [workspace]
 members = ["bash-oracle", "console", "reader"]
 

@@ -71,7 +71,24 @@ let G = ../dev-lint/gate/schema.dhall
 
 in  { name = "memview"
     , checks =
-      [ G.Check::{
+      [ {-  Cargo loads EVERY workspace member's manifest before compiling
+            anything, so a member missing from a build's source tree kills that
+            build instantly. Three hand-maintained lists name them: `members` in
+            Cargo.toml, the Dockerfile's dep-caching stubs, and flake.nix's
+            fileset.
+
+            ⚠ **This is here because a comment asking for it failed twice.** When
+            `reader` arrived the image job was red for 21 runs while the gate
+            stayed green; when `bash-oracle` arrived it broke the flake locally
+            and the image on push. The gate does not build the image — too slow,
+            needs a registry — so nothing else can catch it before CI does.
+        -}
+        G.Check::{
+        , name = "workspace members are in every build that loads them"
+        , argv = [ "./scripts/workspace-members.sh" ]
+        , timeout_s = 60
+        }
+      , G.Check::{
         , name = "formatting"
         , argv = G.inDevShell [ "cargo", "fmt", "--all", "--check" ]
         , timeout_s = 180

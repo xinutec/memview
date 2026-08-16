@@ -47,17 +47,24 @@ COPY Cargo.toml Cargo.lock ./
 # Cargo.toml does. It did not when `reader` arrived on 2026-08-07, and the image
 # job was red for 21 runs while `verify` stayed green, because the gate does not
 # build the image and nothing else looks.
+#
+# ⚠ **It happened again on 2026-08-16, with `bash-oracle`.** Same failure, same
+# invisibility: the gate passed, the image job went red on push. The list is now
+# checked rather than remembered — `scripts/workspace-members.sh`, a gate row —
+# because a comment saying "add a line here" has now failed twice.
 COPY console/Cargo.toml console/
 COPY reader/Cargo.toml reader/
+COPY bash-oracle/Cargo.toml bash-oracle/
 # The console's stub needs a main.rs as well as a lib.rs: its manifest names a
 # `default-run`, and a manifest whose default target does not exist fails to
 # parse — before any of this compiles, and with an error that names the manifest
 # rather than the missing file. `reader` declares no targets at all, so an empty
 # lib.rs is the whole of it and its five src/bin/* are simply not discovered.
-RUN mkdir -p src console/src reader/src \
+RUN mkdir -p src console/src reader/src bash-oracle/src \
     && echo 'fn main() {}' > src/main.rs && echo '' > src/lib.rs \
     && echo '' > console/src/lib.rs && echo 'fn main() {}' > console/src/main.rs \
     && echo '' > reader/src/lib.rs \
+    && echo '' > bash-oracle/src/lib.rs \
     && cargo build --release --bin memview && rm -rf src
 COPY src/ src/
 # ⚠ **reader's REAL source, unlike the console's.** The viewer links it
