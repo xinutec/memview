@@ -296,6 +296,14 @@ history.
    against a moving corpus is not a ratchet.
 2. Loss is continuous, so the snapshot precedes the parser work.
 
+⚠ **The union moves the other way too, and that is the half that surprises.** It
+is cumulative, so the nightly job *adds* newly-mined commands — 131,246 to
+134,622 overnight on 2026-08-17 — and a rate falls with no work undone. Two
+figures from either side of a nightly run are not comparable in either
+direction, and a count taken now against a total remembered from before reads as
+arithmetically impossible: on that morning the greedy curve was called a report
+bug, and the report was right. Re-read the header of the run you are quoting.
+
 **It lives in `~/.claude/corpus/`** — dated snapshots beside a cumulative
 `union.jsonl`, written nightly by `xinutec-infra/scripts/claude-corpus-snapshot.sh`
 from `claude-sync.sh`'s mining step, before the archive runs. It sits there to
