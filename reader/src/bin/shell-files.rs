@@ -110,7 +110,7 @@ fn main() -> anyhow::Result<()> {
     let mut by_op: BTreeMap<&'static str, usize> = BTreeMap::new();
     let mut searched: BTreeMap<String, usize> = BTreeMap::new();
     let mut renames = 0usize;
-    let mut nested_unparsed = 0usize;
+    let mut nested_unparsed: BTreeMap<String, usize> = BTreeMap::new();
     let mut unrolled = 0usize;
     // File uses by what had to hold for the command naming them to run.
     let (mut always, mut on_success, mut sometimes) = (0usize, 0usize, 0usize);
@@ -165,7 +165,9 @@ fn main() -> anyhow::Result<()> {
         };
         let found = shell_files::extract_knowing(&parsed, cwd, &home, &refused);
         handled += found.handled;
-        nested_unparsed += found.nested_unparsed;
+        for (reason, n) in &found.nested_unparsed {
+            *nested_unparsed.entry(reason.clone()).or_insert(0) += n;
+        }
         unrolled += found.unrolled;
         for use_ in &found.remote {
             let host = remote.entry(use_.host.clone()).or_default();
@@ -257,7 +259,18 @@ fn main() -> anyhow::Result<()> {
     // A wrapper whose inner shell will not parse is a hole in exactly the third
     // of the corpus that runs through one, so it is counted rather than shrugged
     // at — the same rule as every other refusal here.
-    println!("  nested, unparsed  {nested_unparsed}");
+    // ⚠ **Ranked, not totalled.** A nested script that will not read is a whole
+    // script's worth of file uses lost, and a bare number names no construct to
+    // build — which is how this sat at 405 for a day saying nothing (#1028).
+    println!(
+        "  nested, unparsed  {}",
+        nested_unparsed.values().sum::<usize>()
+    );
+    let mut ranked: Vec<_> = nested_unparsed.iter().collect();
+    ranked.sort_by_key(|(reason, n)| (std::cmp::Reverse(**n), (*reason).clone()));
+    for (reason, n) in ranked.iter().take(8) {
+        println!("      {n:>5}  {reason}");
+    }
     println!("file uses           {} reads, {writes} writes", reads);
     println!("  ran regardless    {always}   on `&&` {on_success}   conditional {sometimes}");
     println!(

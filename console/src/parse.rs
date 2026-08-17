@@ -161,7 +161,7 @@ pub fn parsed(asked: &Asked, cwd: Option<&str>, home: &str) -> Parsed {
             })
             .collect(),
         unrolled: walk.unrolled,
-        nested_unparsed: walk.nested_unparsed,
+        nested_unparsed: walk.nested_unparsed.values().sum(),
     }
 }
 

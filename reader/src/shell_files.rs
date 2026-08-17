@@ -137,10 +137,17 @@ pub struct Extract {
     /// ⚠ These are still **not named**, and [`Extract::subjects_not_named`]
     /// counts them. Bounded is a better answer than opaque; it is not an answer.
     pub bounded: BTreeMap<String, usize>,
-    /// Nested scripts the grammar could not read. Reported rather than dropped:
-    /// a devshell wrapper whose inner shell fails to parse is a silent hole in
-    /// exactly the third of the corpus that runs through one.
-    pub nested_unparsed: usize,
+    /// Nested scripts the reader could not read, by the construct that stopped
+    /// it. Reported rather than dropped: a devshell wrapper whose inner shell
+    /// fails to parse is a silent hole in exactly the third of the corpus that
+    /// runs through one.
+    ///
+    /// ⚠ **A bare count said nothing about what to build.** It stood at 405 for
+    /// a day naming no construct, so nothing could be done about it and the only
+    /// honest thing to say was that the cause was unmeasured (memview#1028).
+    /// Keyed by [`crate::syntax::Reason`] it ranks itself, exactly as the tree's
+    /// own refusals do in `syntax-report`.
+    pub nested_unparsed: BTreeMap<String, usize>,
     /// The walk itself, command by command — empty unless [`trace`] asked for it.
     ///
     /// ⚠ **Recorded by the walk rather than reconstructed from its results**,
@@ -310,7 +317,9 @@ impl Extract {
         self.activities.extend(inner.activities);
         self.handled += inner.handled;
         self.unrolled += inner.unrolled;
-        self.nested_unparsed += inner.nested_unparsed;
+        for (reason, n) in inner.nested_unparsed {
+            *self.nested_unparsed.entry(reason).or_insert(0) += n;
+        }
         self.python.merge(inner.python);
         for (name, n) in inner.unhandled {
             *self.unhandled.entry(name).or_insert(0) += n;
@@ -827,7 +836,11 @@ fn extract_nested(
                         out.absorb(found);
                     }
                     Ok(_) => {}
-                    Err(_) => out.nested_unparsed += 1,
+                    Err(refusal) => {
+                        *out.nested_unparsed
+                            .entry(format!("{:?}", refusal.reason))
+                            .or_insert(0) += 1;
+                    }
                 }
             }
             // Another machine's shell. Read the same way, recorded elsewhere,
@@ -846,7 +859,11 @@ fn extract_nested(
                         out.absorb(found);
                     }
                     Ok(_) => {}
-                    Err(_) => out.nested_unparsed += 1,
+                    Err(refusal) => {
+                        *out.nested_unparsed
+                            .entry(format!("{:?}", refusal.reason))
+                            .or_insert(0) += 1;
+                    }
                 }
             }
             // A program in another language, read by another reader — and

@@ -214,11 +214,19 @@ difference. **Do not move the zero-times rule into `project`**: it is a statemen
 about running, the flat chain draws the line in the same place, and putting it
 earlier reports a disagreement that is only a difference of stage.
 
-⚠ **The tree refuses by name where the grammar guessed, and inside a `bash -c '…'`
-payload it refuses four times as often** — 405 scripts whose file uses are lost,
-against 98 before. Every other figure improved on the switch, which is why it
-happened; **what those 405 are has not been measured**, so "the tree reads more"
-is true of the whole and unproven of that part. memview#1028.
+⚠ **A nested script that will not read is a whole script's worth of file uses
+lost, so the count is ranked by the construct that stopped it** — `shell-files`
+prints the ranking. A bare number stood at 405 for a day naming nothing, which is
+how a figure hides: 405 *occurrences* turned out to be **20 distinct scripts, 14
+of which bash refuses too** (measured with `bash -n`, via
+`--example nested-why`). Broken quoting in a commit message, mostly: a `\'` inside
+single quotes does not escape, so the string ends early and the rest of the line
+becomes shell that was never meant to be. The grammar read them by guessing.
+
+Of the six bash accepts, one is a `node -e` payload whose JavaScript sits inside
+a **backtick** — where `bash -n` defers and has no opinion at all, so its
+acceptance says nothing (see execution-model.md). The rest are ordinary
+construct gaps, ranked with everything else. memview#1028.
 
 ⚠ **A flat outer parse cannot feed a tree nested one.** `shell.rs` hides a
 heredoc body inside its own delimiter so a nested re-parse can still see it, and
