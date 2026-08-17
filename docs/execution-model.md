@@ -287,6 +287,18 @@ its first run. The invariant: the parser's refusal appears in the survey's set,
 and the set is empty exactly when the parser accepts. The report re-checks it on
 every corpus row and says so.
 
+⚠ **And that invariant has a blind side: an EXTRA finding on a command that was
+refused anyway.** The set is checked for containing the refusal, not for holding
+nothing else, so `{Case, Grouping}` passes where `{Case}` was right. It cost the
+only number the survey exists to produce. A `)` closing a process substitution
+and a `)` ending a `case` arm were both read as unmatched parens, so all 343 such
+commands sat in *needs two constructs* and **neither construct appeared on the
+"build one and this many become readable" list at all** — the list the next build
+is chosen from. Corrected, *needs one construct* went from 218 to 561, and the
+top two of the queue turned out to be worth 212 and 131 on their own. A survey
+that over-reports does not look broken; it looks like there is nothing cheap
+left to build.
+
 ## The corpus
 
 **It is what the agents ran, not what anyone wrote down.** Every row is a command

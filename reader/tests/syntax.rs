@@ -257,10 +257,36 @@ fn an_argument_is_not_a_command_name() {
     assert!(survey("ssh -o BatchMode=yes host").is_empty());
     assert!(survey("git add in do done").is_empty());
     assert!(survey("FOO=bar cmd").is_empty());
-    // A keyword at the head of a command still is one. (`case` also trips the
-    // survey's grouping scan on its `)`, which is over-reporting the invariant
-    // allows — the parser refuses `case` first either way.)
+    // A keyword at the head of a command still is one.
     assert!(survey("case x in a) b;; esac").contains(&Reason::Case));
+}
+
+#[test]
+fn the_survey_reports_the_construct_and_not_its_punctuation() {
+    // ⚠ **An EXTRA finding is as wrong as a missing one, and only the extras
+    // hide.** The invariant pins one direction — what the parser refused is in
+    // the set — so an over-report passes it silently, and the survey's whole
+    // purpose is the OTHER number: what building one construct would unlock.
+    //
+    // Both of these reported `Grouping` as well, because the `)` that closes a
+    // process substitution and the one that ends a `case` arm each looked like
+    // an unmatched paren. That put all 352 of those commands in "needs 2
+    // constructs" and took both — the top two of the queue — off the "build one
+    // construct" list entirely, which is the list the next build is chosen from.
+    assert_eq!(
+        survey("diff <(sort a) <(sort b)"),
+        BTreeSet::from([Reason::ProcessSubstitution])
+    );
+    assert_eq!(
+        survey("case $x in a) b;; c) d;; esac"),
+        BTreeSet::from([Reason::Case])
+    );
+    // What is genuinely in there is still reported: a process substitution's
+    // interior is a command list the parser will have to read.
+    assert_eq!(
+        survey("diff <(grep `x` a) b"),
+        BTreeSet::from([Reason::ProcessSubstitution, Reason::Backtick])
+    );
 }
 
 #[test]

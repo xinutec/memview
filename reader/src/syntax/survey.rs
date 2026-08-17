@@ -105,6 +105,9 @@ impl Survey<'_> {
         // makes and nothing else here can see.
         let mut parens = 0usize;
         let mut braces = 0usize;
+        // How many `case … esac` are open, which is the only thing that can tell
+        // an arm's `)` apart from an unmatched one.
+        let mut case_depth = 0usize;
         // How far through a `for NAME in` header the scan is: 1 after `for`,
         // 2 after the name. A word other than `in` at 2 is a header bash refuses
         // — `for p /style.css; do …` — and the parser refuses it as a loop.
@@ -181,6 +184,12 @@ impl Survey<'_> {
                                 loop_header = false;
                                 word_opens_list = true;
                             }
+                            // ⚠ Tracked only so the `)` that ends an ARM is not
+                            // read as an unmatched paren. `case` is refused
+                            // either way, and the over-report cost it its place
+                            // on the "build one construct" list.
+                            "case" => case_depth += 1,
+                            "esac" => case_depth = case_depth.saturating_sub(1),
                             _ => {}
                         }
                     }
@@ -364,7 +373,7 @@ impl Survey<'_> {
                     // whole command.
                     if self.peek_at(1) == Some(b'(') {
                         self.found.insert(Reason::ProcessSubstitution);
-                        self.at += 2;
+                        self.process_substitution();
                     } else if byte == b'<'
                         && self.peek_at(1) == Some(b'<')
                         && self.peek_at(2) == Some(b'<')
@@ -442,7 +451,9 @@ impl Survey<'_> {
                     separator!();
                     if parens > 0 {
                         parens -= 1;
-                    } else {
+                    } else if case_depth == 0 {
+                        // Inside a `case` this closes an arm's pattern, which is
+                        // the case grammar rather than a paren with no partner.
                         self.found.insert(Reason::Grouping);
                     }
                     self.at += 1;
@@ -754,16 +765,18 @@ impl Survey<'_> {
         }
     }
 
-    /// `$name`, `${…}`, `$(…)`, `$((…))` or a backtick run.
-    /// Step over `$( … )`, reporting the two shapes the parser refuses inside
-    /// one.
+    /// Step over `$( … )`, reporting what the parser will refuse inside one.
     ///
-    /// ⚠ **Not descended into, still.** The substitution is modelled, but the
-    /// survey's job is which constructs a command NEEDS, and scanning the
-    /// interior as an independent command would double-count everything in it.
-    /// What it does look for is the one shape the parser still refuses in there:
-    /// a comment, which would swallow the rest of the line. A heredoc used to be
-    /// the other, and is not any more — the printer gives it the lines it needs.
+    /// ⚠ **Descended into**, because a construct in there is one the parser will
+    /// meet and refuse — a backtick inside a substitution is still a backtick —
+    /// so looking past it would miss exactly the refusals the invariant exists
+    /// to catch. Guessing from the raw text instead reported a comment for every
+    /// `#` in a path or a flag: 326 commands the parser reads perfectly well.
+    ///
+    /// One shape in there is refused for *where* it is rather than for what it
+    /// is: a comment, which an inline print has nowhere to put. A heredoc used
+    /// to be the other, and is not any more — the printer gives it the lines it
+    /// needs.
     fn substitution(&mut self) {
         self.at += 1;
         let open = self.at;
@@ -779,17 +792,34 @@ impl Survey<'_> {
             .text
             .get(open + 1..self.at.saturating_sub(1))
             .unwrap_or_default();
-        // ⚠ **Descended into, now that it is modelled.** A construct inside a
-        // substitution is one the parser will meet and refuse — a backtick in
-        // there is still a backtick — so looking past it would miss exactly the
-        // refusals this invariant exists to catch. Guessing from the raw text
-        // instead reported a comment for every `#` in a path or a flag: 326
-        // commands the parser reads perfectly well.
         let inner = scan(interior);
         self.found.extend(inner.found);
         if inner.saw_comment {
             self.found.insert(Reason::CommentInList);
         }
+    }
+
+    /// Step over `<( … )` or `>( … )`, whose interior is a command list too.
+    ///
+    /// ⚠ **The whole run, not the two opening characters.** Stepping over `<(`
+    /// alone left its `)` to be read as an unmatched paren, so every process
+    /// substitution reported `Grouping` as well — an over-report the invariant
+    /// cannot see, since it only pins that the parser's refusal is *in* the set.
+    /// The cost was the figure the survey exists to produce: 213 commands sat in
+    /// "needs 2 constructs" and the construct itself never appeared on the
+    /// "build one and this many become readable" list at all.
+    fn process_substitution(&mut self) {
+        self.at += 1; // the `<` or `>`
+        let open = self.at;
+        self.skip_balanced(b'(', b')');
+        let interior = self
+            .text
+            .get(open + 1..self.at.saturating_sub(1))
+            .unwrap_or_default();
+        // Descended into for the reason a substitution's interior is: what is in
+        // there has to be built before this command can be read.
+        let inner = scan(interior);
+        self.found.extend(inner.found);
     }
 
     fn skip_expansion(&mut self) {
