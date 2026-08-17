@@ -165,7 +165,7 @@ cargo run --release -p reader --bin shell-report     -- <corpus>  # grammar
 cargo run --release -p reader --bin shell-files      -- <corpus>  # semantics
 cargo run --release -p reader --bin activity-report  -- <corpus> [--sample KIND]
 cargo run --release -p reader --bin python-report    -- <corpus> [--why|--sample]
-cargo run --release -p reader --bin opacity          -- <corpus> [--why <label>]
+cargo run --release -p reader --bin opacity          -- <corpus> [--why|--dump <label>]
 # do the two readers agree about what ran? — and where they do not
 cargo run --release -p reader --bin projection -- <corpus> [--show <n>] [--only <bucket>]
 

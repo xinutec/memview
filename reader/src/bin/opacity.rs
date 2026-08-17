@@ -1,6 +1,6 @@
 //! What the fleet's commands carry that nothing looks inside.
 //!
-//!     cargo run --release --bin opacity -- <corpus.jsonl> [--show <n>] [--why <label>]
+//!     cargo run --release --bin opacity -- <corpus.jsonl> [--show <n>] [--why|--dump <label>]
 //!
 //! The fourth of the family after `shell-report` (the grammar), `shell-files`
 //! (the shell's semantics) and `python-report` (the Python inside it). Those
@@ -19,6 +19,15 @@
 //! was grown by. Instinct said the next reader should be JavaScript; the numbers
 //! said `tsx`/`vitest`/`playwright` are 4,201 calls of plain file operands while
 //! `node -e` is 724 calls with 23 writes. Rank first, then build.
+//!
+//! ⚠ **Asked again from the other side, 2026-08-17, and it came out the same.**
+//! Once the sniff stopped calling TypeScript "Python", TypeScript became the
+//! biggest carried language by bytes — 698 bodies, 953 kB — which reads like a
+//! reason to build one. `--dump` hands the bodies out and the tally settles it:
+//! **19 of the 698 write a file, 23 writes in total**, 241 only read, and 450
+//! touch no file at all. The same 23 the command-side count found. A body is
+//! large because it embeds a TypeScript AST walk, not because it does much, so
+//! **size ranked this wrongly and the operations ranked it right**. memview#1034.
 //!
 //! ⚠ **The language of a heredoc body is SNIFFED, and a sniff is a guess.** It
 //! is reported as "looks like" for that reason. The point is the ranking — is
@@ -70,7 +79,7 @@ impl Weighed {
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let Some(path) = args.get(1) else {
-        anyhow::bail!("usage: opacity <corpus.jsonl> [--show <n>] [--why <label>]");
+        anyhow::bail!("usage: opacity <corpus.jsonl> [--show <n>] [--why|--dump <label>]");
     };
     let show: usize = args
         .iter()
@@ -82,6 +91,16 @@ fn main() -> anyhow::Result<()> {
     let why: Option<String> = args
         .iter()
         .position(|a| a == "--why")
+        .and_then(|i| args.get(i + 1))
+        .map(|label| label.to_lowercase());
+    // ⚠ **A bucket's size never says whether reading it is worth it.** That
+    // takes looking at what the bodies *do*, and no reader exists for the
+    // language in question — which is the very thing being decided. So the
+    // bodies go out NUL-separated for whatever can answer, the same bargain
+    // `nested-why` and `python-raised` strike with `bash -n` and `ast.parse`.
+    let dump: Option<String> = args
+        .iter()
+        .position(|a| a == "--dump")
         .and_then(|i| args.get(i + 1))
         .map(|label| label.to_lowercase());
     let home = std::env::var("HOME").unwrap_or_default();
@@ -162,6 +181,12 @@ fn main() -> anyhow::Result<()> {
                 {
                     *opened.entry((mark, cut(body))).or_default() += 1;
                 }
+                if dump
+                    .as_deref()
+                    .is_some_and(|label| guess.to_lowercase().contains(label) || label == "all")
+                {
+                    print!("{body}\0");
+                }
                 // ⚠ **And by the command that opened it, which is the question
                 // that actually decides anything.** A body fed to an interpreter
                 // is a program we cannot read; a body redirected into a file is
@@ -217,6 +242,9 @@ fn main() -> anyhow::Result<()> {
     // ⚠ `--why` answers a different question and prints instead of, not beside,
     // the census: the point is to read what a bucket actually holds, and a
     // thousand bodies below a summary is not something anybody reads.
+    if dump.is_some() {
+        return Ok(());
+    }
     if let Some(label) = &why {
         println!("bodies sniffed as {label:?}, by the mark that decided it\n");
         let mut sorted: Vec<(&(&str, String), &usize)> = opened.iter().collect();
