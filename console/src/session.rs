@@ -166,32 +166,27 @@ pub struct Seen {
 
 /// Wait on an adopted child, so the kernel can let go of it when it ends.
 ///
-/// ⚠ **An adopted session has no [`Child`] to wait on.** The handle belonged to
-/// the image that `execve`d away; only the pid and three descriptors crossed. So
-/// nothing ever called `wait` on it, and every adopted session that ended left a
-/// `<defunct>` entry behind a parent that would never ask. Measured 2026-08-12:
-/// **22 of them** under a console up three days, against 16 the day before — one
-/// per session that has ended since the first upgrade. They cost a process-table
-/// slot each and nothing else; the reason to fix it is that the number only ever
-/// goes up, because this process is deliberately never restarted (memview #753).
+/// ⚠ **An adopted session has no [`Child`] to wait on.** The handle belonged to the
+/// image that `execve`d away; only the pid and three descriptors crossed. So nothing
+/// called `wait`, and every adopted session that ended left a `<defunct>` entry behind a
+/// parent that would never ask — measured at 22 under a console up three days, one per
+/// session ended since the first upgrade. They cost a process-table slot each; the
+/// reason to fix it is that the number only ever goes up, this process being deliberately
+/// never restarted (memview #753).
 ///
-/// A **blocking** `waitpid` rather than a poll on a timer: the pid is this
-/// process's own child, so the kernel already knows when to wake us and there is
-/// nothing to choose an interval for. The thread it holds is released the moment
-/// the child exits, and there is one per adopted session — a handful, against a
-/// blocking pool of hundreds.
+/// A **blocking** `waitpid` rather than a timer poll: the pid is this process's own
+/// child, so the kernel knows when to wake us and there is no interval to choose. One
+/// thread per adopted session — a handful, against a blocking pool of hundreds.
 ///
-/// ⚠ **NOT `SIGCHLD` set to `SIG_IGN`**, which is the obvious cure and the wrong
-/// one: it reaps every child automatically and takes the exit status with it.
-/// [`Session::reap`] reads that status and [`Session::ended`] reports it, so a
-/// spawned session's clean exit would start arriving as `code: None`, which
-/// reads as *killed*. This file has made that mistake once and has a test
-/// against it.
+/// ⚠ **NOT `SIGCHLD` = `SIG_IGN`**, the obvious cure and the wrong one: it reaps every
+/// child automatically and takes the exit status with it. [`Session::reap`] reads that
+/// status and [`Session::ended`] reports it, so a spawned session's clean exit would
+/// arrive as `code: None`, which reads as *killed*. This file has made that mistake once
+/// and has a test against it.
 ///
-/// The status is deliberately dropped here rather than reported. For an adopted
-/// session end-of-file is what declares the session over
-/// ([`Session::read_from`]), and it has already fired by the time this returns;
-/// making this the authority instead would be the same race that test guards.
+/// The status is dropped rather than reported: for an adopted session, end-of-file
+/// declares it over ([`Session::read_from`]) and has already fired by the time this
+/// returns, so making this the authority would be the same race that test guards.
 fn reap_adopted(pid: u32) {
     tokio::task::spawn_blocking(move || {
         let mut status = 0;
@@ -808,20 +803,17 @@ fn in_flight(state: &mut State, event: &Event) {
 /// has ever spoken, which is what a session that is still starting up actually
 /// is.
 ///
-/// ⚠ **`Started` and `Joined` clear it**, for exactly the reason they set
-/// `idle_since` in [`in_flight`]: `Joined` is pushed after the seeded
-/// transcript, so it is what stops a conversation whose file ends mid-turn —
-/// killed, crashed, compacted — from reading as a turn still running in a
-/// process that has only just started. That half was written for `idle_since`
-/// and not for this, so a resumed session could be marked idle and working at
-/// once. Measured: `hardware` resumed 2026-08-08 22:53 and its card read
-/// `working` for 84 minutes over a process with no API socket, a flat 0.5% of a
-/// core and nothing appended to its transcript since that morning; a message
-/// sent at 00:17 was picked up at once. See memview #640.
+/// ⚠ **`Started` and `Joined` clear it**, for the reason they set `idle_since` in
+/// [`in_flight`]: `Joined` is pushed after the seeded transcript, so it is what stops a
+/// conversation whose file ends mid-turn — killed, crashed, compacted — from reading as
+/// a turn still running in a process that has only just started. That half was written
+/// for `idle_since` and not for this, so a resumed session could be idle and working at
+/// once: `hardware` resumed 2026-08-08 22:53 and read `working` for 84 minutes over a
+/// process with no API socket, a flat 0.5% of a core and nothing appended to its
+/// transcript since that morning (memview #640).
 ///
-/// Public for the reason [`deaf_after`] is: this is the part worth testing, and
-/// reaching the case that was wrong otherwise needs a transcript ending mid-turn
-/// and a resume to read it.
+/// Public for [`deaf_after`]'s reason: this is the part worth testing, and reaching the
+/// case that was wrong otherwise needs a transcript ending mid-turn and a resume.
 pub fn working_after(was: bool, event: &Event) -> bool {
     match event {
         Event::Text { .. }
@@ -1834,14 +1826,13 @@ impl Session {
     /// How long this session has been failing to read what was written to it,
     /// in milliseconds — `None` for one that is merely busy, or quiet.
     ///
-    /// ⚠ **The console has always held the evidence and never drawn the
-    /// conclusion.** A message written to a session that has stopped reading its
-    /// stdin gets an *Accepted*, which the client draws as *waiting to be read* —
-    /// the identical words it uses for a message a working session will get to in
-    /// a minute. On 2026-08-08 `hardware` went deaf twice in seventy-five
-    /// minutes and both times the screen said the ordinary thing, so both times
-    /// somebody had to work out by hand that it was not ordinary. See
-    /// [`crate::past`] and the memory `reference_console_session_stops_reading_stdin`.
+    /// ⚠ **The console has always held the evidence and never drawn the conclusion.** A
+    /// message written to a session that has stopped reading stdin gets an *Accepted*,
+    /// which the client draws as *waiting to be read* — the same words it uses for a
+    /// message a working session will reach in a minute. On 2026-08-08 `hardware` went
+    /// deaf twice in seventy-five minutes and the screen said the ordinary thing both
+    /// times. See [`crate::past`] and
+    /// `reference_console_session_stops_reading_stdin`.
     ///
     /// **Three things at once, and the conjunction is the point:**
     ///

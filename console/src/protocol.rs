@@ -653,51 +653,41 @@ pub fn running(event: &Event) -> Running {
 
 /// What a tool says when it has left work running.
 ///
-/// ⚠ **The call's answer, not its arguments — and this is the whole of the
-/// decision about what counts.** It used to be `run_in_background: true` on the
-/// input, which is a *request* to detach and which only `Bash` accepts. Measured
-/// across 27,731 calls in one 241 MB transcript: that flag appears on `Bash` and
-/// on nothing else, so a `Monitor` running for twenty-five minutes counted as
-/// nothing, and the card said the session had nothing going on.
+/// ⚠ **The call's answer, not its arguments.** It used to be `run_in_background: true`
+/// on the input, which is a *request* to detach and which only `Bash` accepts: measured
+/// across 27,731 calls in one 241 MB transcript, that flag appears on `Bash` and nothing
+/// else, so a `Monitor` running twenty-five minutes counted as nothing and the card said
+/// the session had nothing going on.
 ///
-/// Every tool that detaches says so in the first words it returns, and those
-/// words are the CLI's, not ours. Measured against the same corpus — 13,858
-/// calls whose result is known, of which 510 were later followed by a
-/// task-notification:
+/// Every tool that detaches says so in the first words it returns. Measured over the
+/// same corpus — 13,858 calls whose result is known, 510 later followed by a
+/// task-notification: **495** carried a phrase and were notified; **8** carried one with
+/// no notification yet, which is what a running task looks like at end of file; **15**
+/// were notified with no phrase (13 `SendMessage` replies, whose result is JSON with
+/// nothing to match, plus 2 timeouts); **13,340** had neither. **No call matched a phrase
+/// without the work being real** — the precision that matters, the failure to avoid
+/// being a count that never comes down.
 ///
-/// - **495** carried one of these phrases and were notified.
-/// - **8** carried one and had no notification yet, which is what a task still
-///   running looks like at the end of a file.
-/// - **15** were notified with no phrase: 13 `SendMessage` replies, whose result
-///   is JSON with nothing to match on, and 2 more of the timeout kind below.
-/// - **13,340** had neither. **No call matched a phrase without the work being
-///   real** — the precision that matters, since the failure to avoid is a count
-///   that never comes down.
+/// ⚠ **The timeout phrase is the one no rule about arguments could have found.** A
+/// foreground command outliving its timeout is moved to the background by the harness,
+/// and its input says `run_in_background: false`, because that is what was asked for.
 ///
-/// ⚠ **The timeout phrase is the one no rule about arguments could have found.**
-/// A foreground command that outlives its timeout is moved to the background by
-/// the harness — thirteen of them in that transcript — and its input says
-/// `run_in_background: false`, because that is what was asked for.
+/// ⚠ **Matching prose is not free; the shape of the risk decides it.** A reworded CLI
+/// stops matching — but an unmatched phrase undercounts, which is visibly wrong in one
+/// direction only, where a rule guessing from the tool's *name* would count work that
+/// never started and stick at one for the life of the session. Failing closed is worth a
+/// fragile match.
 ///
-/// ⚠ **Matching prose is not free and the shape of the risk decides it.** These
-/// are English sentences and a reworded CLI stops matching. But an unmatched
-/// phrase undercounts, which is exactly today's behaviour and is visibly wrong
-/// in one direction only; a rule that guessed from the tool's *name* would count
-/// work that never started and leave the number stuck at one for the life of the
-/// session. Failing closed is worth a fragile match.
+/// ⚠ **The phrase must *open* the result, not merely appear in it — otherwise reading
+/// this file starts a task.** A `contains` counted every result that *quoted* one of
+/// these sentences: a grep, a `Read` of this module, a `Read` of the test listing them
+/// verbatim. The console inflated its own count whenever anyone opened the rule defining
+/// it. Measured: 7,416 results matched anywhere, 7,405 at the front, and all 11 of the
+/// difference were quotations.
 ///
-/// ⚠ **The phrase has to *open* the result, not merely appear in it — because
-/// otherwise reading this file starts a task.** A `contains` counted every
-/// result that *quoted* one of these sentences: a grep for the phrase, a `Read`
-/// of this module, a `Read` of the test that lists the openings verbatim. The
-/// console inflated its own count whenever anyone opened the rule that defines
-/// it. Measured over this machine's transcripts: 7,416 results matched
-/// anywhere, 7,405 at the front, and all 11 of the difference were quotations —
-/// no genuine launch announces itself in the middle of a sentence.
-///
-/// Returns the task id the harness gave the work, since a kill names that and
-/// not the call. `Some(None)` is a detach whose id could not be read: still
-/// running, merely not matchable to a kill. It was readable on all 7,405.
+/// Returns the task id the harness gave the work, since a kill names that and not the
+/// call. `Some(None)` is a detach whose id could not be read — still running, merely not
+/// matchable to a kill. It was readable on all 7,405.
 fn detached(said: &str) -> Option<Option<String>> {
     /// One way a result opens when it has left work running: the words it starts
     /// with, and the marker its task id follows.

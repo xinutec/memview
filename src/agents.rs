@@ -1,31 +1,26 @@
 //! Which named Claude session works on which part of the codebase.
 //!
-//! Several sessions run in parallel, each named for what it does — `recall`,
-//! `health`, `tumor`, `observe`. That naming is a claim, and this is the
-//! evidence for or against it: what each one actually opened and actually
-//! changed, counted per project directory.
+//! Several sessions run in parallel, each named for what it does. That naming is a
+//! claim, and this is the evidence for or against it: what each one actually opened and
+//! actually changed, counted per project directory.
 //!
-//! **The signal is the file paths of tool calls, not `cwd` and not any text.**
-//! `cwd` says where a session was started and barely moves; text is hopeless,
-//! because MEMORY.md names every project and is injected into every session, so
-//! grepping for a project name matches nearly everything. What a session
-//! *opened* and *wrote* cannot be faked by injected context, and it is the
-//! record of work rather than of intent.
+//! ⚠ **The signal is the file paths of tool calls, not `cwd` and not any text.** `cwd`
+//! says where a session was started and barely moves; text is hopeless, because
+//! MEMORY.md names every project and is injected everywhere, so grepping for a project
+//! name matches nearly everything. What a session *opened* and *wrote* cannot be faked
+//! by injected context — a record of work rather than of intent.
 //!
-//! **Reads and writes are counted apart, and that distinction is the point.** A
-//! session that reads a repository is consulting it; one that writes there is
-//! responsible for it. `health` reads the `pippijn` monorepo more than anything
-//! else while doing its writing in `health` — reporting one number would call it
-//! a monorepo session, which is not what it is.
+//! **Reads and writes are counted apart**, because a session that reads a repository is
+//! consulting it and one that writes there is responsible for it. `health` reads the
+//! `pippijn` monorepo more than anything else while writing in `health`; one number
+//! would call it a monorepo session, which it is not.
 //!
-//! **Where an agent works is decided by recent days present, not by lifetime
-//! file counts** — see [`recency`]. A session is renamed as its job changes, and
-//! the name is a claim about what it is doing *now*, so its history has to be
-//! weighted the same way.
+//! **Where an agent works is decided by recent days present, not lifetime file counts**
+//! ([`recency`]): a session is renamed as its job changes, so the name is a claim about
+//! *now* and its history has to be weighted the same way.
 //!
-//! Only names, project names and integers leave this module — the same rule the
-//! rest of the mining follows, for the same reason
-//! (see the module docs on [`crate::couse`]).
+//! Only names, project names and integers leave this module — the rule the rest of the
+//! mining follows ([`crate::couse`]).
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
