@@ -15,7 +15,7 @@ stop. What is undetermined is recorded as undetermined and counted, so the gap i
 a number rather than a silence.
 
 [execution-model.md](execution-model.md) specifies the syntax layer underneath,
-`reader/src/syntax/`, and the two gates that govern it. The chain below is the
+`reader/src/syntax/`, and the three gates that govern it. The chain below is the
 projection that layer will eventually be read through; today the two are
 independent and are built from different grammars, so **a coverage figure from
 one says nothing about the other**.
@@ -155,7 +155,7 @@ cargo run --release -p reader --bin opacity          -- <corpus>  # what nothing
 cargo run --release -p reader --example roundtrip-probe -- <corpus>
 cargo run --release -p reader --example unparsed-probe  -- <corpus>
 
-# the syntax tree: coverage, the ranked refusals, and both gates
+# the syntax tree: coverage, the ranked refusals, and all three gates
 cargo run --release -p bash-oracle --bin syntax-report -- <corpus> [--oracle] [--why SUBSTRING]
 ```
 
