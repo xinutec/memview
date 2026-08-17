@@ -452,6 +452,10 @@ fn print_redirect(redirect: &Redirect, bodies: &mut Vec<String>) -> String {
         RedirectOp::BothWord => ">&",
         RedirectOp::Here => "<<",
         RedirectOp::HereDash => "<<-",
+        // ⚠ A space after it, which is bash's own spelling: `cat <<<$x` comes
+        // back from `declare -f` as `cat <<< $x`. The `File` arm below supplies
+        // it, as it does for every other word target.
+        RedirectOp::HereString => "<<<",
     };
     match &redirect.target {
         // No space after a dup operator: `2>&1`, not `2>& 1`.

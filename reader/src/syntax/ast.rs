@@ -405,6 +405,14 @@ pub enum RedirectOp {
     BothWord,
     /// `<<` — a body on the following lines.
     Here,
+    /// `<<<` — a here-STRING, whose operand is a word on this line rather than
+    /// a body on the following ones.
+    ///
+    /// ⚠ **Not a heredoc with a shorter body.** It carries no delimiter, no
+    /// quoting bit and nothing deferred to the next line — the operand is an
+    /// ordinary word that expands, which is why it is a [`RedirectTarget::File`]
+    /// like any other and shares none of the heredoc machinery.
+    HereString,
     /// `<<-`, which strips leading tabs from the body and the terminator.
     ///
     /// ⚠ **Kept as an operator although the body is already stripped.** Bash
@@ -424,7 +432,8 @@ impl RedirectOp {
             | RedirectOp::ReadWrite
             | RedirectOp::DupIn
             | RedirectOp::Here
-            | RedirectOp::HereDash => Some(0),
+            | RedirectOp::HereDash
+            | RedirectOp::HereString => Some(0),
             RedirectOp::Write
             | RedirectOp::Append
             | RedirectOp::Clobber

@@ -425,7 +425,9 @@ impl Survey<'_> {
                         && self.peek_at(1) == Some(b'<')
                         && self.peek_at(2) == Some(b'<')
                     {
-                        self.found.insert(Reason::HereString);
+                        // Modelled now: a redirection whose operand is a word on
+                        // this line. Only the GLUED form is still a refusal, and
+                        // the rule above has already reported it.
                         self.at += 3;
                     } else if byte == b'<' && self.peek_at(1) == Some(b'<') {
                         // Modelled now, so the heredoc itself is not a finding —
@@ -573,6 +575,14 @@ impl Survey<'_> {
                         // Modelled now; the interior is arithmetic, which holds
                         // no construct this scanner reports on its own.
                         Some(Reason::Arithmetic) => self.skip_expansion(),
+                        // Modelled now, and it resolves to a LITERAL — so the
+                        // word has to record it, and the one escape the parser
+                        // still refuses is reported from inside.
+                        Some(Reason::AnsiQuote) => {
+                            word.push('$');
+                            word_quoted = true;
+                            self.ansi_quote();
+                        }
                         Some(reason) => {
                             self.found.insert(reason);
                             self.skip_expansion();
@@ -919,6 +929,55 @@ impl Survey<'_> {
         if inner.saw_comment {
             self.found.insert(Reason::CommentInList);
         }
+    }
+
+    /// Step over `$'…'`, reporting the escapes the parser still refuses.
+    ///
+    /// ⚠ **`\'` does not close it**, so a naive single-quote skip ends the word
+    /// in the middle of one — and the two readers then disagree about where
+    /// everything after it is.
+    fn ansi_quote(&mut self) {
+        self.at += 2; // `$'`
+        while let Some(byte) = self.peek() {
+            match byte {
+                b'\'' => {
+                    self.at += 1;
+                    return;
+                }
+                b'\\' => {
+                    // `\u` and `\U` are refused rather than decoded, and a NUL
+                    // because bash carries none; every other escape resolves to
+                    // a character the tree holds.
+                    if matches!(self.peek_at(1), Some(b'u' | b'U')) || self.is_nul_escape() {
+                        self.found.insert(Reason::AnsiQuote);
+                    }
+                    self.at += 2;
+                }
+                _ => self.at += 1,
+            }
+        }
+        // The text ended inside it, which the parser names.
+        self.found.insert(Reason::UnterminatedQuote);
+    }
+
+    /// Does the escape under the cursor spell a NUL — `\0`, `\x0`, `\000`?
+    ///
+    /// The parser refuses one, so the survey has to see it. Read from the digits
+    /// rather than by decoding: every spelling of zero is zero.
+    fn is_nul_escape(&self) -> bool {
+        let (radix, from) = match self.peek_at(1) {
+            Some(b'x') => (16u32, self.at + 2),
+            Some(b'0'..=b'7') => (8, self.at + 1),
+            _ => return false,
+        };
+        let most = if radix == 16 { 2 } else { 3 };
+        let digits: Vec<u8> = self.bytes[from..]
+            .iter()
+            .take(most)
+            .copied()
+            .take_while(|byte| (*byte as char).is_digit(radix))
+            .collect();
+        !digits.is_empty() && digits.iter().all(|byte| *byte == b'0')
     }
 
     /// Is `word` sitting at the cursor, with a shell boundary on both sides?

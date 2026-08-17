@@ -1172,6 +1172,121 @@ impl<'t> Parser<'t> {
         })
     }
 
+    /// `$'…'` — a spelling of a LITERAL, resolved here and stored as one.
+    ///
+    /// ⚠ **Not an expansion, and not a quoting style either.** Bash resolves the
+    /// escapes at parse time and prints the result as an ordinary single-quoted
+    /// string — `$'\x41'` comes back as `'A'`, `$'\101'` as `'A'`, `$'a\tb'`
+    /// with a real tab — so a tree keeping the `$'` spelling would say two texts
+    /// differ where bash says they do not, and the second gate would object.
+    /// Resolving it here is also what lets that gate CHECK the decoding: it
+    /// compares our tree against the tree of bash's own resolved output, so a
+    /// wrong escape is a difference rather than a shared mistake.
+    ///
+    /// ⚠ **`\u` and `\U` are refused rather than decoded.** Measured on bash
+    /// 5.3.15, `$'é'` comes back as the six characters `é` — parsed
+    /// and re-spelled rather than resolved — and guessing which of the two a
+    /// different build would do is not worth the commands it would buy.
+    fn ansi_quote(&mut self) -> Result<Segment, Refusal> {
+        let start = self.at;
+        self.at += 2; // `$'`
+        let mut text = String::new();
+        loop {
+            let Some(byte) = self.peek() else {
+                return self.refuse(Reason::UnterminatedQuote, 1);
+            };
+            match byte {
+                b'\'' => {
+                    self.at += 1;
+                    return Ok(Segment {
+                        kind: SegmentKind::Literal(text),
+                        span: Span::new(start, self.at),
+                    });
+                }
+                b'\\' => {
+                    self.at += 1;
+                    let Some(escape) = self.peek() else {
+                        return self.refuse(Reason::DanglingEscape, 1);
+                    };
+                    self.at += 1;
+                    match escape {
+                        b'a' => text.push('\u{7}'),
+                        b'b' => text.push('\u{8}'),
+                        b'e' | b'E' => text.push('\u{1b}'),
+                        b'f' => text.push('\u{c}'),
+                        b'n' => text.push('\n'),
+                        b'r' => text.push('\r'),
+                        b't' => text.push('\t'),
+                        b'v' => text.push('\u{b}'),
+                        b'\\' | b'\'' | b'"' | b'?' => text.push(escape as char),
+                        // `\cX` is the control character X names: the letter's
+                        // code with bit 6 cleared, which is what bash prints
+                        // back as `^A`.
+                        b'c' => match self.peek() {
+                            Some(byte) => {
+                                self.at += 1;
+                                text.push(((byte.to_ascii_uppercase()) ^ 0x40) as char);
+                            }
+                            None => return self.refuse(Reason::DanglingEscape, 1),
+                        },
+                        b'x' => text.push(self.escape_digits(16, 2)?),
+                        b'0'..=b'7' => {
+                            self.at -= 1;
+                            text.push(self.escape_digits(8, 3)?);
+                        }
+                        b'u' | b'U' => return self.refuse(Reason::AnsiQuote, 1),
+                        // ⚠ An escape bash does not know keeps its backslash:
+                        // `$'\z'` is the two characters `\z`, measured.
+                        _ => {
+                            text.push('\\');
+                            text.push(escape as char);
+                        }
+                    }
+                }
+                _ => {
+                    let from = self.at;
+                    while self
+                        .peek()
+                        .is_some_and(|byte| byte != b'\'' && byte != b'\\')
+                    {
+                        self.at += 1;
+                    }
+                    text.push_str(&self.text[from..self.at]);
+                }
+            }
+        }
+    }
+
+    /// The digits of a `\xHH` or `\nnn` escape, at most `most` of them.
+    fn escape_digits(&mut self, radix: u32, most: usize) -> Result<char, Refusal> {
+        let from = self.at;
+        while self.at - from < most
+            && self
+                .peek()
+                .is_some_and(|byte| (byte as char).is_digit(radix))
+        {
+            self.at += 1;
+        }
+        // `$'\x'` with no digit at all is the letter itself to bash, and there
+        // is no character to push for an empty run.
+        if self.at == from {
+            return self.refuse(Reason::AnsiQuote, 1);
+        }
+        let value = u32::from_str_radix(&self.text[from..self.at], radix)
+            .expect("digits of the radix just scanned");
+        // ⚠ **A NUL is refused, because bash cannot carry one in a word.**
+        // `$'\0'` expands to nothing at all — measured — so a tree holding the
+        // character would print a byte bash then drops, and the second gate
+        // would be right to call the two trees different.
+        if value == 0 {
+            return self.refuse(Reason::AnsiQuote, 1);
+        }
+        char::from_u32(value).ok_or_else(|| Refusal {
+            reason: Reason::AnsiQuote,
+            span: Span::new(from, self.at),
+        })
+    }
+
     /// One pattern: a word, read where `)` and `|` end it.
     ///
     /// ⚠ **A word, not a string.** Bash prints a pattern back verbatim, so the
@@ -1262,8 +1377,13 @@ impl<'t> Parser<'t> {
                 at += 2;
                 RedirectOp::ReadWrite
             }
-            // A here-string is refused elsewhere; leave it alone.
-            (Some(b'<'), Some(b'<')) if self.bytes.get(at + 2) == Some(&b'<') => return Ok(None),
+            // ⚠ **Checked before `<<`, or a here-string is read as a heredoc
+            // whose delimiter begins with `<`.** Three characters, and the third
+            // is what decides which construct this is.
+            (Some(b'<'), Some(b'<')) if self.bytes.get(at + 2) == Some(&b'<') => {
+                at += 3;
+                RedirectOp::HereString
+            }
             (Some(b'<'), Some(b'<')) => {
                 at += 2;
                 let strip_tabs = self.bytes.get(at) == Some(&b'-');
@@ -1502,24 +1622,13 @@ impl<'t> Parser<'t> {
                 b'<' | b'>' if self.peek_at(1) == Some(b'(') => {
                     segments.push(self.process_substitution()?);
                 }
-                b'<' | b'>' => {
-                    // ⚠ Three constructs share these characters and they are not
-                    // one build. A heredoc's operand is on the following lines;
-                    // a here-string's is a value on this one.
-                    // A `<<` reaching this reader is glued to the end of a word
-                    // (`foo<<EOF`), which bash reads as a word and a redirection
-                    // and this parser does not split — so what is unmodelled here
-                    // is the gluing, not the heredoc.
-                    let reason = if byte == b'<'
-                        && self.peek_at(1) == Some(b'<')
-                        && self.peek_at(2) == Some(b'<')
-                    {
-                        Reason::HereString
-                    } else {
-                        Reason::Redirection
-                    };
-                    return self.refuse(reason, 1);
-                }
+                // ⚠ **Whatever reaches this reader is GLUED to the end of a
+                // word** — `foo<<EOF`, `a<<<b`, `NF>10` — which bash reads as a
+                // word followed by a redirection and this parser does not split.
+                // So what is unmodelled here is the gluing, not the operator,
+                // and naming the operator sent the survey looking for a
+                // construct that is built.
+                b'<' | b'>' => return self.refuse(Reason::Redirection, 1),
                 // Inside a substitution a `)` closes it rather than opening a
                 // group, and inside a `case` pattern it ends the pattern — so
                 // either way it ends the word instead of being refused. A quoted
@@ -1550,6 +1659,13 @@ impl<'t> Parser<'t> {
                     Some(Reason::Parameter) => segments.push(self.parameter(false)?),
                     Some(Reason::CommandSubstitution) => segments.push(self.substitution(false)?),
                     Some(Reason::Arithmetic) => segments.push(self.arith_expansion()?),
+                    // ⚠ A literal, and it makes the WORD quoted: `$'a b'` is one
+                    // argument, so the word must not be split or globbed on what
+                    // the escapes produced.
+                    Some(Reason::AnsiQuote) => {
+                        quoted_anywhere = true;
+                        segments.push(self.ansi_quote()?);
+                    }
                     Some(reason) => return self.refuse(reason, 1),
                     None => {
                         self.at += 1;

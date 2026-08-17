@@ -90,6 +90,7 @@ made of — re-run it against a new bash before trusting any of them:
 | desugaring | `ls \|& cat` → `ls 2>&1 \| cat`; `! time a \| b` → `time ! a \| b` |
 | near-verbatim on heredoc bodies | reproduced as written, including one nested in `$( )` inside a double-quoted word — but a `\`-newline in an *unquoted* body is joined, and `<<-` strips its tabs, both at parse time |
 | blind to comments | deleted |
+| **not** blind to `$'…'` | it resolves the escapes and prints the result — `$'\x41'` comes back as `'A'` — so this is the one word-internal construct the gate can check rather than merely echo |
 
 So the comparison is **tree against tree** — parse the command, parse bash's
 print of it, require the same tree, exclude comments. Not text against text:
@@ -475,13 +476,20 @@ purpose, because a gate that cannot fail is not a gate.
 
 ⚠ **Only a reader that is not ours can object to a consistently wrong tree.** The
 round-trip law is satisfied by *any* wrong answer that prints and re-reads as
-itself, and the survey only knows what is refused. Gate 2 has caught three such —
-a descriptor normalisation, a word split at a line continuation, and `3<&-`
-recorded as a different operation from `3>&-` — each written up at the node it
-corrected. It found nothing while it was fed our own output.
+itself, and the survey only knows what is refused. Gate 2 has caught four such —
+a descriptor normalisation, a word split at a line continuation, `3<&-` recorded
+as a different operation from `3>&-`, and `$'\x00'` held as a character bash
+drops — each written up at the node it corrected. It found nothing while it was
+fed our own output.
 
-The last of those is the clearest example of the shape: our print of the wrong
-tree (`3<&- 3>&-`) read back as the same wrong tree, so the law held; it is valid
+⚠ **The last of those arrived twice, from both ends, and that is the point.** The
+`$'…'` probe showed `\0` producing no bytes at all, and gate 2 independently
+named the two corpus commands it broke — a measurement and an oracle reaching
+the same defect without either being told about the other. Neither alone would
+have been evidence; together they are.
+
+The `3<&-` one is the clearest example of the shape: our print of the wrong tree
+(`3<&- 3>&-`) read back as the same wrong tree, so the law held; it is valid
 shell, so gate 3 held; and construction cannot see it because both spellings are
 modelled. One command in 129,329.
 

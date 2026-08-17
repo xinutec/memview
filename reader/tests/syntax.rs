@@ -230,8 +230,8 @@ fn the_law_reports_a_refusal_apart_from_a_failure() {
     // A refusal is the work queue, not a defect, and the two must never be
     // added together — a parser that refused everything would otherwise score
     // a perfect law.
-    assert!(matches!(check("cat <<< word"), Outcome::Refused(_)));
-    assert!(!check("cat <<< word").holds());
+    assert!(matches!(check("[[ -f x ]]"), Outcome::Refused(_)));
+    assert!(!check("[[ -f x ]]").holds());
 }
 
 // ---- the survey: which constructs a command needs, not which stopped us ----
@@ -567,8 +567,13 @@ fn a_descriptor_must_touch_its_operator() {
 
 #[test]
 fn what_is_still_refused_is_named() {
-    assert_eq!(refusal("cat <<< word"), Reason::HereString);
     assert_eq!(refusal("cat >"), Reason::EmptyOperand);
+    // ⚠ **A redirection GLUED to a word is the refusal, not the operator.**
+    // `awk 'NF>10'` unquoted and `a<<<b` are both a word bash splits and this
+    // parser does not, so naming the operator would send the survey looking for
+    // a construct that is built.
+    assert_eq!(refusal("awk NF>10 f"), Reason::Redirection);
+    assert_eq!(refusal("echo a<<<b"), Reason::Redirection);
 }
 
 #[test]
@@ -604,6 +609,14 @@ fn the_law_holds_across_the_redirection_shapes() {
         "a > x | b",
         "a && b > x",
         "cat > out &",
+        // A here-string, whose operand is a word on this line and not a body on
+        // the next. Bash prints `cat <<<$x` as `cat <<< $x`, so the space is its
+        // spelling rather than ours.
+        "cat <<< word",
+        "cat <<< $x",
+        "cat <<< \"a string\"",
+        "cat 3<<< x",
+        "grep -q y <<< \"$out\" && echo hit",
     ] {
         assert!(
             check(text).holds(),
@@ -938,7 +951,7 @@ fn each_dollar_form_is_named_apart() {
     assert!(parse("echo ${x%%.*}").is_ok());
     assert_eq!(refusal("echo `date`"), Reason::Backtick);
     assert!(parse("echo $((1+2))").is_ok());
-    assert_eq!(refusal("echo $'\\x41'"), Reason::AnsiQuote);
+    assert!(parse("echo $'\\x41'").is_ok());
     assert_eq!(refusal("echo $\"hello\""), Reason::LocaleQuote);
 }
 
@@ -957,11 +970,50 @@ fn a_dollar_that_opens_nothing_is_an_ordinary_character() {
     }
     // Inside double quotes a following quote is an ordinary character, so the
     // two quoting forms are only reachable from unquoted text.
-    assert_eq!(refusal("echo $'a'"), Reason::AnsiQuote);
+    assert_eq!(words("echo $'a'")[1].as_literal().as_deref(), Some("a"));
     assert_eq!(
         words(r#"echo "$'a'""#)[1].as_literal().as_deref(),
         Some("$'a'")
     );
+}
+
+#[test]
+fn an_ansi_c_string_is_a_literal_with_its_escapes_resolved() {
+    // ⚠ **A spelling, not a construct.** Bash resolves the escapes at parse
+    // time and prints an ordinary single-quoted string back, so `$'\x41'` and
+    // `'A'` are ONE tree — and because the second gate compares our tree against
+    // the tree of bash's resolved output, it can check every decoding below
+    // rather than being blind to them the way it is inside a word.
+    for (text, want) in [
+        (r"echo $'\x41'", "A"),
+        (r"echo $'\101'", "A"),
+        (r"echo $'a\tb'", "a\tb"),
+        (r"echo $'a\nb'", "a\nb"),
+        (r"echo $'\\'", "\\"),
+        (r"echo $'\e[1m'", "\u{1b}[1m"),
+        (r"echo $'\cA'", "\u{1}"),
+        // An escape bash does not know keeps its backslash.
+        (r"echo $'\z'", "\\z"),
+        (r"echo $''", ""),
+    ] {
+        assert_eq!(
+            words(text)[1].as_literal().as_deref(),
+            Some(want),
+            "{text:?}"
+        );
+        assert!(check(text).holds(), "the law failed on {text:?}");
+        assert!(survey(text).is_empty(), "{text:?} should need nothing");
+    }
+    // It is a segment, so it glues — `x$'a'y` is one word — and it makes the
+    // word quoted, so `$'a b'` is one argument rather than two.
+    assert_eq!(words("echo x$'a'y")[1].as_literal().as_deref(), Some("xay"));
+    assert_eq!(words("echo $'a b'").len(), 2);
+    // ⚠ `\u` is refused rather than decoded: measured on bash 5.3.15, it comes
+    // back re-spelled with the escape intact and the hex uppercased rather than
+    // resolved to a character — and guessing what another build does with it is
+    // not worth the commands it would buy.
+    assert_eq!(refusal(r"echo $'\u00e9'"), Reason::AnsiQuote);
+    assert_eq!(refusal("echo $'unterminated"), Reason::UnterminatedQuote);
 }
 
 #[test]
