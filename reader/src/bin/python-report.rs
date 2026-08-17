@@ -12,7 +12,7 @@
 use std::collections::BTreeMap;
 
 use reader::shell_ops::Op;
-use reader::{python, shell, shell_files};
+use reader::{python, shell_files};
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -70,7 +70,7 @@ fn main() -> anyhow::Result<()> {
             })
             .unwrap_or_default();
         calls += 1;
-        let Ok(parsed) = shell::parse(cmd) else {
+        let Ok(parsed) = reader::project::read(cmd) else {
             continue;
         };
         let found = shell_files::extract_knowing(&parsed, cwd, &home, &refused);

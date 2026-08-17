@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 
 use reader::activity::Activity;
-use reader::{shell, shell_files};
+use reader::shell_files;
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -52,7 +52,7 @@ fn main() -> anyhow::Result<()> {
                     .collect()
             })
             .unwrap_or_default();
-        let Ok(parsed) = shell::parse(cmd) else {
+        let Ok(parsed) = reader::project::read(cmd) else {
             continue;
         };
         let found = shell_files::extract_knowing(&parsed, cwd, &home, &refused);

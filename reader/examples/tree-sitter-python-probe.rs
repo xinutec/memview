@@ -44,7 +44,7 @@
 use std::collections::BTreeMap;
 
 use reader::shell_ops::Op;
-use reader::{python, shell, shell_files};
+use reader::{python, shell_files};
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -81,7 +81,7 @@ fn main() -> anyhow::Result<()> {
             continue;
         };
         let cwd = row["cwd"].as_str().filter(|c| !c.is_empty());
-        let Ok(parsed) = shell::parse(cmd) else {
+        let Ok(parsed) = reader::project::read(cmd) else {
             continue;
         };
         for op in &shell_files::extract(&parsed, cwd, &home).ops {

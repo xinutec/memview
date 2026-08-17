@@ -48,12 +48,83 @@ use crate::syntax::ast::{
 };
 use crate::syntax::print::print_value as value;
 
+/// How far a determinate loop may be run out.
+///
+/// A backstop against a generated script whose word list is a thousand long
+/// turning one body into a thousand commands, not a limit anything real meets:
+/// the corpus's longest literal list is well inside it. A loop over the cap is
+/// left folded, exactly as every loop was before.
+pub(crate) const MAX_UNROLL: usize = 256;
+
+/// `$(seq …)` with every bound written out, run out into the numbers it prints.
+///
+/// ⚠ **This is the reader running a program in its head**, which is a different
+/// act from substituting a value it was told, and the list of programs it will do
+/// that for is deliberately closed. `seq` is on it because it is 46% of every
+/// loop the reader could not run out and because its answer depends on nothing
+/// outside the text. Nothing else goes on this list without a measurement saying
+/// what it buys.
+///
+/// A bound that is not a literal integer refuses the whole thing — `$(seq 1
+/// $rounds)` is 6 loops in the corpus and belongs with the opaque ones, where
+/// what it printed is genuinely gone.
+///
+/// An empty range is a real answer, not a failure: `seq 3 1` prints nothing, so
+/// the body ran zero times, and running it out to nothing is exactly right.
+pub(crate) fn counted(word: &str) -> Option<Vec<String>> {
+    let inner = word.strip_prefix("$(")?.strip_suffix(')')?.trim();
+    let mut words = inner.split_whitespace();
+    if words.next()? != "seq" {
+        return None;
+    }
+    let bounds = words
+        .map(|bound| bound.parse::<i64>().ok())
+        .collect::<Option<Vec<_>>>()?;
+    // `seq LAST`, `seq FIRST LAST`, `seq FIRST STEP LAST` — the three forms, in
+    // the order the tool documents them.
+    let (first, step, last) = match bounds[..] {
+        [last] => (1, 1, last),
+        [first, last] => (first, 1, last),
+        [first, step, last] => (first, step, last),
+        _ => return None,
+    };
+    if step == 0 {
+        return None;
+    }
+    let mut out = Vec::new();
+    let mut at = first;
+    while (step > 0 && at <= last) || (step < 0 && at >= last) {
+        // Bounded here as well as in [`run_out`], because that cap is on the
+        // commands produced and this one is on the list itself: `seq 1 100000000`
+        // must not be built before anybody multiplies it by a body.
+        if out.len() >= MAX_UNROLL {
+            return None;
+        }
+        out.push(at.to_string());
+        at = at.checked_add(step)?;
+    }
+    Some(out)
+}
+
 /// Every simple command the script *says*, in running order.
 ///
 /// One command per command written, which is what makes this comparable with
 /// [`crate::shell::parse`] — see `--bin projection`.
 pub fn project(script: &Script) -> Vec<Simple> {
-    walk(script, false)
+    walk(script, false).commands
+}
+
+/// What a script ran, and how much of it exists only because a loop was run out.
+///
+/// ⚠ **The count has to come from the walk.** By the time anything downstream
+/// sees a flat list the loop is gone, so "how many of these commands are
+/// evaluation rather than text" cannot be recovered — and a report that answers
+/// nought where the truth is a fifth of the list is worse than one that does not
+/// answer.
+#[derive(Debug, Clone, Default)]
+pub struct Ran {
+    pub commands: Vec<Simple>,
+    pub unrolled: usize,
 }
 
 /// Every simple command the script *ran*: as [`project`], with the loops the
@@ -68,7 +139,7 @@ pub fn project(script: &Script) -> Vec<Simple> {
 ///
 /// The two entry points are the same distinction the flat chain draws between
 /// `shell::parse` and its `unrolled`: what the text says, and what it did.
-pub fn run_out(script: &Script) -> Vec<Simple> {
+pub fn run_out(script: &Script) -> Ran {
     walk(script, true)
 }
 
@@ -84,21 +155,28 @@ pub fn run_out(script: &Script) -> Vec<Simple> {
 /// readers taking turns would mean no command's reading could be attributed to
 /// either, and the 16 commands this refuses where the grammar does not are
 /// outnumbered four to one by the 66 the other way.
-pub fn read(script: &str) -> Result<Vec<Simple>, crate::syntax::Refusal> {
+pub fn read(script: &str) -> Result<Ran, crate::syntax::Refusal> {
     Ok(run_out(&crate::syntax::parse(script)?))
 }
 
-fn walk(script: &Script, unroll: bool) -> Vec<Simple> {
+fn walk(script: &Script, unroll: bool) -> Ran {
     let mut walk = Walk {
         out: Vec::new(),
         next: 0,
         unroll,
         bound: BTreeMap::new(),
+        unrolled: 0,
     };
     walk.items(&script.items, &[], Reached::Always);
     let mut out = walk.out;
+    // ⚠ **After the unrolling and not before.** A loop reports only its LAST
+    // iteration's status, so every earlier iteration's `&&` is unconfirmable —
+    // which is only visible once the body exists as one copy per value.
     crate::shell::forget_discarded_status(&mut out);
-    out
+    Ran {
+        commands: out,
+        unrolled: walk.unrolled,
+    }
 }
 
 /// The walk's own state: what has been found, and the last subshell id handed
@@ -116,6 +194,14 @@ struct Walk {
     /// time. Restored on the way out rather than cleared: `for f` inside
     /// `for f` shadows and then gives the name back.
     bound: BTreeMap<String, String>,
+    /// Commands that exist *because* a loop was run out: everything past the
+    /// first iteration's worth.
+    ///
+    /// ⚠ **Saturating, because a loop the text determines can run ZERO times.**
+    /// `$(seq 3 1)` prints nothing, so its body is emitted no times at all and
+    /// the walk comes back shorter than the text — which is not a negative
+    /// contribution, it is none.
+    unrolled: usize,
 }
 
 impl Walk {
@@ -494,10 +580,18 @@ impl Walk {
     /// rather than about the text.
     fn iterations(&mut self, loop_: &ForLoop, values: &[String], scope: &[usize], body: Reached) {
         let shadowed = self.bound.remove(&loop_.name);
+        let before = self.out.len();
         for value in values {
             self.bound.insert(loop_.name.clone(), value.clone());
             self.items(&loop_.body, scope, body);
         }
+        let grew = self.out.len() - before;
+        let once = if values.is_empty() {
+            0
+        } else {
+            grew / values.len()
+        };
+        self.unrolled += grew.saturating_sub(once);
         self.bound.remove(&loop_.name);
         if let Some(outer) = shadowed {
             self.bound.insert(loop_.name.clone(), outer);
@@ -519,7 +613,7 @@ impl Walk {
         // `$(seq 1 18)` is one word, so it is asked about before the general
         // rule — which would refuse it, and correctly, as an expansion.
         if let [only] = &loop_.words[..]
-            && let Some(numbers) = crate::shell_files::counted(&self.word(only))
+            && let Some(numbers) = counted(&self.word(only))
         {
             return Some(numbers);
         }
@@ -547,7 +641,7 @@ impl Walk {
         // commands produced, and [`crate::shell_files::counted`]'s is on the
         // list itself, so `seq 1 100000000` is never built at all.
         let body = count(&loop_.body);
-        (values.len().checked_mul(body)? <= crate::shell_files::MAX_UNROLL).then_some(values)
+        (values.len().checked_mul(body)? <= MAX_UNROLL).then_some(values)
     }
 
     /// A word as `argv` holds it, with whatever a loop has bound standing in.

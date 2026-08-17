@@ -5,7 +5,7 @@
 //! no file in its arguments and is an edit.
 
 use reader::activity::{Activity, of};
-use reader::shell::parse;
+use reader::project::read as parse;
 use reader::shell_files::extract;
 
 const HOME: &str = "/home/example";
@@ -92,7 +92,7 @@ fn what_it_cannot_name_says_so() {
             &reader::shell_ops::Op::Unknown {
                 name: "frobnicate".into()
             },
-            &parse("frobnicate x").unwrap()[0]
+            &parse("frobnicate x").unwrap().commands[0]
         ),
         Activity::Other { .. }
     ));

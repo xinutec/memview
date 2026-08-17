@@ -179,7 +179,7 @@ fn actually(script: &str, given: &[(&str, &str)]) -> (Scratch, Vec<Ran>) {
 /// Only the shimmed verbs, because only those can be compared — a wrapper's own
 /// step has no counterpart in the log by design.
 fn predicted(script: &str, root: &Path) -> Vec<Claim> {
-    let cmds = reader::shell::parse(script)
+    let cmds = reader::project::read(script)
         .unwrap_or_else(|at| panic!("the fixture does not parse, stopped at {at:?}"));
     let root = root.to_string_lossy().to_string();
     reader::shell_files::trace(&cmds, Some(&root), HOME)
@@ -372,7 +372,7 @@ fn a_loop_over_a_glob_is_undercounted_and_never_invented() {
     // the bound is a claim about an execution that did not happen — the one kind
     // of error a constrained unknown could introduce that a plain refusal could
     // not. Needs no old filesystem: the language is in the text.
-    let cmds = reader::shell::parse(script).unwrap();
+    let cmds = reader::project::read(script).unwrap();
     let root = scratch.0.to_string_lossy().to_string();
     let found = reader::shell_files::extract(&cmds, Some(&root), HOME);
     let patterns: Vec<&String> = found.bounded.keys().collect();

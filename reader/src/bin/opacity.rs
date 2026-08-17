@@ -26,8 +26,8 @@
 
 use std::collections::BTreeMap;
 
+use reader::shell_files;
 use reader::shell_ops::Op;
-use reader::{shell, shell_files};
 
 /// A tally of things and how many bytes they came to.
 #[derive(Default)]
@@ -92,13 +92,13 @@ fn main() -> anyhow::Result<()> {
             })
             .unwrap_or_default();
         calls += 1;
-        let Ok(parsed) = shell::parse(cmd) else {
+        let Ok(parsed) = reader::project::read(cmd) else {
             continue;
         };
 
         // Unresolvable words come off the parse: they are a property of the text
         // as written rather than of what it does.
-        for simple in &parsed {
+        for simple in &parsed.commands {
             for word in &simple.argv {
                 if let Some(why) = refuses(word) {
                     unresolved.entry(why).or_default().add(word, show);
@@ -121,7 +121,7 @@ fn main() -> anyhow::Result<()> {
                 _ => None,
             })
             .collect();
-        for simple in &parsed {
+        for simple in &parsed.commands {
             for body in &simple.heredocs {
                 if carried.iter().any(|source| source.contains(body.as_str())) {
                     continue;

@@ -36,7 +36,7 @@ fn the_view_names_what_the_miner_names() {
     // The agreement that everything else rests on: this is the same walk, so a
     // path that reaches the index reaches the view, resolved the same way.
     let command = "cp src/geo/velocity.ts /tmp/keep.ts";
-    let commands = reader::shell::parse(command).unwrap();
+    let commands = reader::project::read(command).unwrap();
     let mined = reader::shell_files::extract(&commands, Some(CWD), HOME);
     let shown: Vec<(String, bool)> = uses(command, Some(true))
         .into_iter()

@@ -18,6 +18,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::project::Ran;
 use crate::shell::Simple;
 use crate::shell_ops::{
     GitOp, Op, assignment, basename, classify_naming, expand, looks_like_path, resolve,
@@ -479,8 +480,8 @@ pub fn files_of(op: &Op, reached: crate::shell::Reached) -> Vec<FileUse> {
 /// every line, and it is the one piece of context a relative path cannot be read
 /// without. `None` where it is unknown, in which case only absolute paths
 /// survive.
-pub fn extract(cmds: &[Simple], cwd: Option<&str>, home: &str) -> Extract {
-    extract_nested(cmds, cwd, home, None, 0, false, &[])
+pub fn extract(ran: &Ran, cwd: Option<&str>, home: &str) -> Extract {
+    extract_nested(ran, cwd, home, None, 0, false, &[])
 }
 
 /// As [`extract`], told which `cd` targets the shell refused.
@@ -494,13 +495,8 @@ pub fn extract(cmds: &[Simple], cwd: Option<&str>, home: &str) -> Extract {
 /// A caller with the call's output should use this. `extract` remains for the
 /// callers that have none — a corpus row carries a verdict but not the words —
 /// and is the same walk with nothing known.
-pub fn extract_knowing(
-    cmds: &[Simple],
-    cwd: Option<&str>,
-    home: &str,
-    refused: &[String],
-) -> Extract {
-    extract_nested(cmds, cwd, home, None, 0, false, refused)
+pub fn extract_knowing(ran: &Ran, cwd: Option<&str>, home: &str, refused: &[String]) -> Extract {
+    extract_nested(ran, cwd, home, None, 0, false, refused)
 }
 
 /// As [`extract_knowing`], but recording the walk.
@@ -509,13 +505,8 @@ pub fn extract_knowing(
 /// a row shows the *command* that produced a file use, which only a [`Step`]
 /// carries, and it must resolve against the directory the shell actually reached,
 /// which only the refusals say.
-pub fn trace_knowing(
-    cmds: &[Simple],
-    cwd: Option<&str>,
-    home: &str,
-    refused: &[String],
-) -> Extract {
-    extract_nested(cmds, cwd, home, None, 0, true, refused)
+pub fn trace_knowing(ran: &Ran, cwd: Option<&str>, home: &str, refused: &[String]) -> Extract {
+    extract_nested(ran, cwd, home, None, 0, true, refused)
 }
 
 /// Whether this `cd` is one the shell reported it could not carry out.
@@ -591,14 +582,14 @@ fn already_there(argv: &[String], here: Option<&str>) -> bool {
 /// ⚠ **A separate entry point rather than the default**, because the corpus runs
 /// this 883,000 times in one pass and a step per command is a hundred megabytes
 /// nobody asked for. One command's worth is free; every command's is not.
-pub fn trace(cmds: &[Simple], cwd: Option<&str>, home: &str) -> Extract {
-    extract_nested(cmds, cwd, home, None, 0, true, &[])
+pub fn trace(ran: &Ran, cwd: Option<&str>, home: &str) -> Extract {
+    extract_nested(ran, cwd, home, None, 0, true, &[])
 }
 
 /// As [`extract`], tracking how deep inside `bash -c` this script sits and which
 /// machine it is running on (`None` for this one).
 fn extract_nested(
-    cmds: &[Simple],
+    ran: &Ran,
     cwd: Option<&str>,
     home: &str,
     host: Option<&str>,
@@ -622,28 +613,14 @@ fn extract_nested(
     // never be substituted as one. See [`Extract::bounded`].
     let mut patterns: BTreeMap<Vec<usize>, BTreeMap<String, String>> = BTreeMap::new();
 
-    // A loop the text already determines is run out into the commands it ran,
-    // before anything looks at any of them — see [`unrolled`].
-    let mut ran = unrolled(cmds);
-    // ⚠ **Saturating, because a loop the text determines can run ZERO times.**
-    // Every list that could be run out used to have at least one value, so this
-    // could only grow and a plain subtraction was safe. `$(seq 3 1)` prints
-    // nothing (#821), so its body is dropped and the walk comes back *shorter* —
-    // which underflowed here, and in release would have wrapped to a colossal
-    // number and taken the whole "from unrolling" figure with it.
-    //
-    // Nought is the right answer rather than a negative one: this counts commands
-    // that exist *because* a loop was run out, and a loop that ran no times
-    // brought none into existence. The disappearance is not lost — it is in the
-    // total below, which counts what ran.
-    out.unrolled += ran.len().saturating_sub(cmds.len());
-    // ⚠ **Again, now that the iterations exist separately.** The parser demoted
-    // the `&&`s the exit status cannot reach, but it saw a loop body *once*. A
-    // loop reports only its last iteration's status, so every earlier
-    // iteration's `&&` is unconfirmable — and that is only visible after the
-    // body has been run out into one copy per value.
-    crate::shell::forget_discarded_status(&mut ran);
-    let cmds = &ran;
+    // ⚠ **The `&&`s a loop's exit status cannot reach were demoted when the
+    // loop was run out, not here.** A loop reports only its LAST iteration's
+    // status, so every earlier iteration's `&&` is unconfirmable — and that is
+    // only visible once the body exists as one copy per value, which is why
+    // `project::run_out` applies `forget_discarded_status` after unrolling
+    // rather than the parser applying it before.
+    out.unrolled += ran.unrolled;
+    let cmds = &ran.commands;
     for cmd in cmds {
         let here = current(&dirs, &cmd.scope);
         // ⚠ **Expansion happens before anything else looks at the words**, so
@@ -932,174 +909,6 @@ fn extract_nested(
     out
 }
 
-/// How far a determinate loop may be run out.
-///
-/// A backstop against a generated script whose word list is a thousand long
-/// turning one body into a thousand commands, not a limit anything real meets:
-/// the corpus's longest literal list is well inside it. A loop over the cap is
-/// left folded, exactly as every loop was before.
-pub(crate) const MAX_UNROLL: usize = 256;
-
-/// Run the loops the text already determines out into the commands they ran.
-///
-/// ⚠ **This is where the reader stops looking commands up and starts evaluating
-/// them.** A `for` over a literal word list says exactly what happened — 4,524
-/// of the corpus's 6,474 shell loops — and reading it as a header plus a body
-/// full of `$f` threw away the largest single class of subject there is: `$f`
-/// alone was refused 1,416 times, `$r` 338, `$d` 308.
-///
-/// A list is run out only when every value is in the text. A glob is answered by
-/// the filesystem of the day, which is gone, and `$(…)` by running something,
-/// which never happens here; those loops are left as they were for the path
-/// guard to refuse.
-///
-/// Heredoc bodies are not substituted into. They are data handed to another
-/// reader, and a loop variable inside one is rare enough not to be worth the
-/// risk of rewriting a program's text.
-fn unrolled(cmds: &[Simple]) -> Vec<Simple> {
-    let mut out = Vec::new();
-    let mut at = 0;
-    while at < cmds.len() {
-        match run_out(cmds, at) {
-            Some((commands, next)) => {
-                out.extend(commands);
-                at = next;
-            }
-            None => {
-                if let Some((end, ran_at_least_once)) = folded(cmds, at) {
-                    out.push(cmds[at].clone());
-                    // Inner loops first, as in `run_out` — an outer `while`
-                    // makes an inner body uncertain too, and the meet is
-                    // idempotent so applying both is safe.
-                    let body = unrolled(&cmds[at + 1..end]);
-                    out.extend(body.into_iter().map(|mut cmd| {
-                        if !ran_at_least_once {
-                            cmd.reached = cmd.reached.and(crate::shell::Reached::Sometimes);
-                        }
-                        cmd
-                    }));
-                    out.push(cmds[end].clone());
-                    at = end + 1;
-                    continue;
-                }
-                out.push(cmds[at].clone());
-                at += 1;
-            }
-        }
-    }
-    out
-}
-
-/// One loop run out, with the index just past its `done` — or `None` when the
-/// command at `at` does not open a loop the text determines.
-///
-/// The `for` and its `done` are kept, so the commands a script *wrote* are still
-/// all counted; what grows is the body, once per value.
-fn run_out(cmds: &[Simple], at: usize) -> Option<(Vec<Simple>, usize)> {
-    let (name, values) = literal_loop(&cmds[at].argv)?;
-    let end = closing_done(cmds, at)?;
-    // Inner loops first, so an outer list multiplies a body already run out.
-    let body = unrolled(&cmds[at + 1..end]);
-    if values.len().checked_mul(body.len())? > MAX_UNROLL {
-        return None;
-    }
-    let mut out = vec![cmds[at].clone()];
-    for value in values {
-        let env = BTreeMap::from([(name.to_string(), value)]);
-        out.extend(body.iter().map(|cmd| substituted(cmd, &env)));
-    }
-    out.push(cmds[end].clone());
-    Some((out, end + 1))
-}
-
-/// `for NAME in W1 W2 …`, when every value is written out — or counted out.
-///
-/// Read through [`unwrap_command`] because a nested loop arrives with the
-/// keyword in front of it: `for d in x y; do for f in a b; do …` splits on `;`
-/// into a command whose first word is `do`, with the inner `for` behind it.
-fn literal_loop(argv: &[String]) -> Option<(&str, Vec<String>)> {
-    let [head, name, over, values @ ..] = unwrap_command(argv) else {
-        return None;
-    };
-    if head != "for" || over != "in" || values.is_empty() {
-        return None;
-    }
-    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-        return None;
-    }
-    // ⚠ **A `$` is not always a question.** `$(seq 1 18)` fails [`determinate`]
-    // like any other substitution, and for eighteen months every one of these was
-    // left folded on that basis — 1,029 loops, the largest unrun class in the
-    // corpus and larger than every glob put together. But nothing about it is
-    // unknown: it is arithmetic on numbers already written down, not a question
-    // for a filesystem that no longer exists. See [`counted`].
-    if let [only] = values
-        && let Some(numbers) = counted(only)
-    {
-        return Some((name.as_str(), numbers));
-    }
-    values
-        .iter()
-        .map(|value| determinate(value).then(|| value.to_string()))
-        .collect::<Option<Vec<_>>>()
-        .map(|values| (name.as_str(), values))
-}
-
-/// A loop that could not be run out: where its `done` is, and whether its body
-/// certainly ran at all.
-///
-/// ⚠ **A body that may have run zero times must not be recorded as certainly
-/// run** — the same over-claim as both arms of an `if` (memview#832), and a much
-/// larger one: 4,544 calls carry a `while` or `until`.
-///
-/// ⚠ **But most folded loops DID run their body, and demoting them all would
-/// trade one over-claim for a bigger under-claim.** The rule is bash's, not a
-/// guess:
-///
-/// * `while` and `until` test before the first iteration, so an empty input runs
-///   the body no times. Uncertain.
-/// * `for` over words that are all written out runs once per word — and that
-///   includes a **glob**, because with `nullglob` off a pattern matching nothing
-///   expands to *itself* and the body runs once with the pattern as the value.
-///   Certain.
-/// * `for` over a `$(…)` or a variable can have an empty list and run no times.
-///   Uncertain.
-///
-/// A determinate list that [`run_out`] declined only because it would exceed
-/// `MAX_UNROLL` still ran, and lands on the certain side by the same rule.
-fn folded(cmds: &[Simple], at: usize) -> Option<(usize, bool)> {
-    let argv = &cmds[at].argv;
-    let head = opens(argv)?;
-    if !matches!(head, "for" | "while" | "until" | "select") {
-        return None;
-    }
-    let end = closing_done(cmds, at)?;
-    let certain = head == "for"
-        && argv
-            .iter()
-            .position(|word| word == "in")
-            .is_some_and(|over| {
-                let values = &argv[over + 1..];
-                !values.is_empty() && values.iter().all(|value| !value.contains(['$', '`']))
-            });
-    Some((end, certain))
-}
-
-/// The word a command opens with, past the keyword that introduced it.
-///
-/// ⚠ **Not [`unwrap_command`], which strips `while` and `until` as wrappers** —
-/// correctly, since what they wrap is the command whose status they test, but it
-/// means a loop keyword vanishes before anything can see it. `closing_done` used
-/// it and so never counted a `while` at all: every `while` loop's `done` closed
-/// nothing, and the body of one could not be found. Only the keywords that
-/// introduce a command are skipped here; the loop words are what is being looked
-/// for.
-fn opens(argv: &[String]) -> Option<&str> {
-    argv.iter()
-        .map(String::as_str)
-        .find(|word| !matches!(*word, "do" | "then" | "else" | "elif" | "if" | "!"))
-}
-
 /// `for NAME in <pattern>`, where the list is a glob the filesystem answered.
 ///
 /// The complement of [`literal_loop`]: that one runs a loop out because the text
@@ -1196,103 +1005,6 @@ fn bounded_by(
         return resolve(&put, cwd, home);
     }
     None
-}
-
-/// `$(seq …)` with every bound written out, run out into the numbers it prints.
-///
-/// ⚠ **This is the reader running a program in its head**, which is a different
-/// act from substituting a value it was told, and the list of programs it will do
-/// that for is deliberately closed. `seq` is on it because it is 46% of every
-/// loop the reader could not run out and because its answer depends on nothing
-/// outside the text. Nothing else goes on this list without a measurement saying
-/// what it buys.
-///
-/// A bound that is not a literal integer refuses the whole thing — `$(seq 1
-/// $rounds)` is 6 loops in the corpus and belongs with the opaque ones, where
-/// what it printed is genuinely gone.
-///
-/// An empty range is a real answer, not a failure: `seq 3 1` prints nothing, so
-/// the body ran zero times, and running it out to nothing is exactly right.
-pub(crate) fn counted(word: &str) -> Option<Vec<String>> {
-    let inner = word.strip_prefix("$(")?.strip_suffix(')')?.trim();
-    let mut words = inner.split_whitespace();
-    if words.next()? != "seq" {
-        return None;
-    }
-    let bounds = words
-        .map(|bound| bound.parse::<i64>().ok())
-        .collect::<Option<Vec<_>>>()?;
-    // `seq LAST`, `seq FIRST LAST`, `seq FIRST STEP LAST` — the three forms, in
-    // the order the tool documents them.
-    let (first, step, last) = match bounds[..] {
-        [last] => (1, 1, last),
-        [first, last] => (first, 1, last),
-        [first, step, last] => (first, step, last),
-        _ => return None,
-    };
-    if step == 0 {
-        return None;
-    }
-    let mut out = Vec::new();
-    let mut at = first;
-    while (step > 0 && at <= last) || (step < 0 && at >= last) {
-        // Bounded here as well as in [`run_out`], because that cap is on the
-        // commands produced and this one is on the list itself: `seq 1 100000000`
-        // must not be built before anybody multiplies it by a body.
-        if out.len() >= MAX_UNROLL {
-            return None;
-        }
-        out.push(at.to_string());
-        at = at.checked_add(step)?;
-    }
-    Some(out)
-}
-
-/// Whether a word is a value in its own right, needing nothing run and nothing
-/// looked up to know it.
-fn determinate(word: &str) -> bool {
-    !word.is_empty() && !word.contains(['$', '`', '*', '?', '[', '{'])
-}
-
-/// The `done` that closes the loop opened at `at`, counting the loops between.
-fn closing_done(cmds: &[Simple], at: usize) -> Option<usize> {
-    let mut depth = 0usize;
-    for (n, cmd) in cmds.iter().enumerate().skip(at) {
-        // ⚠ [`opens`], not `unwrap_command` — see its note. This counted no
-        // `while` at all, so a `while` loop's `done` matched nothing and the
-        // whole construct was invisible to every rule that works on loop spans.
-        match opens(&cmd.argv) {
-            Some("for" | "while" | "until" | "select") => depth += 1,
-            // `echo done` is not a `done` — this reads the command's own name,
-            // which is why the grammar was right to leave the keyword ordinary.
-            Some("done") => {
-                depth = depth.checked_sub(1)?;
-                if depth == 0 {
-                    return Some(n);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-/// One command with the loop's value put in place of its name.
-fn substituted(cmd: &Simple, env: &BTreeMap<String, String>) -> Simple {
-    Simple {
-        argv: cmd.argv.iter().map(|word| expand(word, env)).collect(),
-        reached: cmd.reached,
-        scope: cmd.scope.clone(),
-        redirects: cmd
-            .redirects
-            .iter()
-            .map(|redirect| crate::shell::Redirect {
-                target: expand(&redirect.target, env),
-                write: redirect.write,
-            })
-            .collect(),
-        heredocs: cmd.heredocs.clone(),
-    }
 }
 
 /// Whether a value is worth keeping at all, as opposed to being kept as a

@@ -4,7 +4,7 @@
 //! searched for, what a file used to be called, which script ran. A test here
 //! is a claim about meaning; `tests/shell_files.rs` still tests the projection.
 
-use reader::shell::parse;
+use reader::project::read as parse;
 use reader::shell_ops::{GitOp, Op, classify};
 
 const HOME: &str = "/home/example";
@@ -14,6 +14,7 @@ const CWD: &str = "/home/example/Code/health";
 fn ops(script: &str) -> Vec<Op> {
     parse(script)
         .unwrap_or_else(|at| panic!("failed to parse, stopped at {at:?}"))
+        .commands
         .iter()
         .map(|cmd| classify(&cmd.argv, &cmd.heredocs, Some(CWD), HOME))
         .collect()

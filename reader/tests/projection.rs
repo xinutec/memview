@@ -267,6 +267,7 @@ fn a_pipeline_prefix_is_not_a_command() {
 fn a_loop_the_text_determines_is_run_out() {
     let ran = |script: &str| -> Vec<Vec<String>> {
         reader::project::run_out(&syntax::parse(script).expect("the fixture must parse"))
+            .commands
             .into_iter()
             .map(|cmd| cmd.argv)
             .collect()
@@ -346,6 +347,7 @@ fn a_loop_body_is_certain_only_if_the_loop_certainly_ran_it() {
     // exactly as `shell::parse` does.
     let body = |script: &str| -> Reached {
         reader::project::run_out(&syntax::parse(script).expect("the fixture must parse"))
+            .commands
             .into_iter()
             .find(|cmd| {
                 unwrap_command(&cmd.argv)
