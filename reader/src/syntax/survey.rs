@@ -32,7 +32,10 @@
 
 use std::collections::BTreeSet;
 
-use super::parse::{Reason, brace_expansion, classify_expansion, opens_assignment, reserved_word};
+use super::parse::{
+    Bracket, Reason, brace_expansion, bracket_expression, classify_expansion, opens_assignment,
+    reserved_word,
+};
 
 pub fn survey(text: &str) -> BTreeSet<Reason> {
     scan(text).found
@@ -632,15 +635,23 @@ impl Survey<'_> {
                         break;
                     }
                 }
-                b'[' if in_word || self.closes_bracket() => {
-                    // `[` alone is the test builtin; `[…]` inside a word is a
-                    // bracket expression. Only the second is a construct.
-                    if self.closes_bracket() {
-                        self.found.insert(Reason::BracketExpression);
-                    }
+                // ⚠ The same three answers the parser gets, from the same
+                // function — a `[` that closes nothing is the test builtin or
+                // ordinary text, one this reader cannot own is a finding, and a
+                // set it can own is not.
+                b'[' => {
                     in_word = true;
-                    word.push('[');
-                    self.at += 1;
+                    match bracket_expression(self.text, self.at) {
+                        Bracket::Class(_, end) => self.at = end,
+                        Bracket::Unread => {
+                            self.found.insert(Reason::BracketExpression);
+                            self.at += 1;
+                        }
+                        Bracket::Literal => {
+                            word.push('[');
+                            self.at += 1;
+                        }
+                    }
                 }
                 b'*' | b'?' => {
                     in_word = true;
@@ -765,19 +776,6 @@ impl Survey<'_> {
         }
         self.bytes.get(at) == Some(&b')')
     }
-
-    fn closes_bracket(&self) -> bool {
-        let mut at = self.at + 1;
-        while let Some(&byte) = self.bytes.get(at) {
-            match byte {
-                b']' => return true,
-                b' ' | b'\t' | b'\n' | b'\r' | b';' => return false,
-                _ => at += 1,
-            }
-        }
-        false
-    }
-
     /// The word after `<<` with its quoting removed, or `None` where the
     /// delimiter is not readable and the body's extent is therefore unknown.
     ///

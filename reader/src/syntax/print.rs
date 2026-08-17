@@ -19,10 +19,10 @@
 //! heredoc still prints on one line.
 
 use super::ast::{
-    Anchor, AndOr, Arith, ArmEnd, Assignment, BinaryOp, Brace, Case, Command, CommandKind,
-    Conditional, Connector, Direction, ForLoop, Glob, Heredoc, Item, Parameter, ParameterOp,
-    Pipeline, Redirect, RedirectOp, RedirectTarget, Script, Segment, SegmentKind, Simple, Step,
-    Subscript, Tilde, Timed, UnaryOp, WhileLoop, Word,
+    Anchor, AndOr, Arith, ArmEnd, Assignment, BinaryOp, Brace, Case, Class, ClassItem, Command,
+    CommandKind, Conditional, Connector, Direction, ForLoop, Glob, Heredoc, Item, Parameter,
+    ParameterOp, Pipeline, Redirect, RedirectOp, RedirectTarget, Script, Segment, SegmentKind,
+    Simple, Step, Subscript, Tilde, Timed, UnaryOp, WhileLoop, Word,
 };
 use super::parse::{is_assignment, is_reserved};
 
@@ -746,6 +746,7 @@ fn print_segment(segment: &Segment) -> String {
     match &segment.kind {
         SegmentKind::Glob(Glob::Any) => "*".to_string(),
         SegmentKind::Glob(Glob::One) => "?".to_string(),
+        SegmentKind::Glob(Glob::Class(class)) => print_class(class),
         SegmentKind::Tilde(Tilde::Home) => "~".to_string(),
         SegmentKind::Tilde(Tilde::Pwd) => "~+".to_string(),
         SegmentKind::Tilde(Tilde::OldPwd) => "~-".to_string(),
@@ -824,6 +825,37 @@ fn print_parenthesised(items: &[Item], opener: &str) -> String {
     } else {
         format!("{open}{body}\n{}\n)", bodies.join("\n"))
     }
+}
+
+/// `[abc]`, `[!a-z]`, `[[:digit:]]` — the set, spelled so it reads back as
+/// itself.
+///
+/// ⚠ **`!`, never `^`.** The two negate identically — measured — so they are one
+/// tree and the printer has to pick one; `!` is the POSIX spelling and the one
+/// the corpus writes. `t₂ ≠ t₁` where the source said `^`, which the law
+/// permits, and bash's own print of the original re-reads to the same tree.
+///
+/// A `]` member needs no escaping and gets none: it can only have come from the
+/// first position, where it is a member rather than the close, and that is where
+/// it goes back.
+fn print_class(class: &Class) -> String {
+    let mut out = String::from("[");
+    if class.negated {
+        out.push('!');
+    }
+    for item in &class.items {
+        match item {
+            ClassItem::Char(c) => out.push(*c),
+            ClassItem::Range { from, to } => {
+                out.push(*from);
+                out.push('-');
+                out.push(*to);
+            }
+            ClassItem::Named(name) => out.push_str(&format!("[:{name}:]")),
+        }
+    }
+    out.push(']');
+    out
 }
 
 /// Single quotes: a word in the tree is a *value*, and any spelling that could

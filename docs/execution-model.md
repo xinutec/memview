@@ -4,10 +4,10 @@ Design for the syntax layer under `reader/`: a faithful tree for every language
 the fleet executes, plus a printer that puts it back.
 
 **Status: simple commands with binding prefixes, comments, pipelines, and-or
-lists, redirection, heredocs, tilde prefixes, parameters and their operators,
-`$( )` substitutions, `for`/`while`/`until`/`select` loops, `if`, subshells,
-brace groups, function definitions, brace expansion and arithmetic; three gates
-wired.**
+lists, redirection, heredocs, here-strings, tilde prefixes, parameters and their
+operators, `$( )` and `<( )` substitutions, `for`/`while`/`until`/`select` loops,
+`if`, `case`, subshells, brace groups, function definitions, brace expansion,
+bracket expressions, `$'…'` and arithmetic; three gates wired.**
 `reader/src/syntax/` holds the tree, the parser and the printer; the
 `bash-oracle` crate holds the second and third gates and the report.
 
@@ -417,7 +417,7 @@ Two corollaries, both learned the hard way:
   not be read, and since redirections are modelled the survey went looking for
   something that could not be there. Only the invariant caught it.
 
-Six properties are load-bearing and each has a test that fails without it:
+Seven properties are load-bearing and each has a test that fails without it:
 
 - **`Span` compares equal to every other `Span`.** Position-blindness lives in
   the one type rather than in each node's `PartialEq`, so a node added later
@@ -431,6 +431,12 @@ Six properties are load-bearing and each has a test that fails without it:
 - **No quote may touch a tilde prefix.** `~'/x'` is the literal `~/x` to bash, so
   the closing `/` goes through bare and quoting resumes after it. Found by the
   law on 319 commands.
+- **A `[` has three answers, and the middle one is why it is not two.** Ordinary
+  text (`[abc` expands to itself, and `[ -f x ]` is the test builtin), a set, or
+  a set holding something unmodelled. That third has to be **refused**, never
+  read as text: bash prints a bracket expression back verbatim, so absorbing one
+  into a literal prints and re-reads as itself and bash agrees with the mistake.
+  The only oracle is matching, in `reader/probes/bracket.sh`.
 - **A `case` pattern is a word, and quoting one changes what it matches.** `*`
   is every string and `'*'` is one asterisk. Bash prints a pattern back verbatim,
   so a tree that dropped the quotes, or absorbed them into a literal, would print

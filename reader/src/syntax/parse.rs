@@ -23,11 +23,11 @@
 //! at a special character always lands on a character boundary.
 
 use super::ast::{
-    Anchor, AndOr, Arith, Arm, ArmEnd, Assignment, BinaryOp, Brace, Case, Command, CommandKind,
-    Comment, Conditional, Connector, Direction, ForArith, ForLoop, Function, Glob, Heredoc, Item,
-    Link, Parameter, ParameterOp, Pipeline, ProcessSubstitution, Redirect, RedirectOp,
-    RedirectTarget, Replace, Script, Segment, SegmentKind, Simple, Span, Step, Subscript,
-    Substitution, Tilde, Timed, UnaryOp, WhileLoop, Word,
+    Anchor, AndOr, Arith, Arm, ArmEnd, Assignment, BinaryOp, Brace, Case, Class, ClassItem,
+    Command, CommandKind, Comment, Conditional, Connector, Direction, ForArith, ForLoop, Function,
+    Glob, Heredoc, Item, Link, Parameter, ParameterOp, Pipeline, ProcessSubstitution, Redirect,
+    RedirectOp, RedirectTarget, Replace, Script, Segment, SegmentKind, Simple, Span, Step,
+    Subscript, Substitution, Tilde, Timed, UnaryOp, WhileLoop, Word,
 };
 
 /// Where a word is being read, which decides what expands inside it.
@@ -1675,8 +1675,28 @@ impl<'t> Parser<'t> {
                         });
                     }
                 },
-                b'[' if self.closes_bracket() => {
-                    return self.refuse(Reason::BracketExpression, 1);
+                // ⚠ **A glob only where pathname expansion happens**, as `*` and
+                // `?` are: `FOO=[ab]` binds those four characters. And a `[`
+                // that closes nothing is ordinary text — `[ -f x ]` is the test
+                // builtin, whose `]` is a separate word.
+                b'[' if kind == WordKind::Argument => {
+                    match bracket_expression(self.text, self.at) {
+                        Bracket::Class(class, end) => {
+                            self.at = end;
+                            segments.push(Segment {
+                                kind: SegmentKind::Glob(Glob::Class(class)),
+                                span: Span::new(at, self.at),
+                            });
+                        }
+                        Bracket::Unread => return self.refuse(Reason::BracketExpression, 1),
+                        Bracket::Literal => {
+                            self.at += 1;
+                            segments.push(Segment {
+                                kind: SegmentKind::Literal("[".to_string()),
+                                span: Span::new(at, self.at),
+                            });
+                        }
+                    }
                 }
                 // ⚠ A `*` is a glob only where pathname expansion happens. In
                 // an assignment's value it is an ordinary character — measured,
@@ -1777,25 +1797,6 @@ impl<'t> Parser<'t> {
             kind: SegmentKind::Tilde(tilde),
             span: Span::new(start, self.at),
         })
-    }
-
-    /// Is the `[` under the cursor the opening of a bracket expression — that
-    /// is, does a `]` follow it before the word ends?
-    ///
-    /// Without this, `[ -f x ]` could not be read at all: its `[` is the test
-    /// builtin, a whole word with no `]` after it, and refusing every `[` would
-    /// throw the commonest conditional in the corpus away for a construct that
-    /// is not there.
-    fn closes_bracket(&self) -> bool {
-        let mut at = self.at + 1;
-        while let Some(&byte) = self.bytes.get(at) {
-            match byte {
-                b']' => return true,
-                b' ' | b'\t' | b'\n' | b'\r' | b';' => return false,
-                _ => at += 1,
-            }
-        }
-        false
     }
 
     fn single_quoted(&mut self) -> Result<Segment, Refusal> {
@@ -2741,7 +2742,10 @@ impl<'t> Parser<'t> {
                 b'~' if kind == WordKind::Value && text.ends_with(':') => break,
                 b' ' | b'\t' | b'\r' | b'\n' | b';' | b'\'' | b'"' | b'|' | b'&' | b'<' | b'>'
                 | b'(' | b')' | b'{' | b'}' | b'$' | b'`' => break,
-                b'[' if self.closes_bracket() => break,
+                // ⚠ Hand the `[` back to the word reader, which is where a
+                // bracket expression is built. In a VALUE there is no pathname
+                // expansion, so it stays ordinary text and the run swallows it.
+                b'[' if kind == WordKind::Argument && opens_bracket(self.text, self.at) => break,
                 _ => {
                     let from = self.at;
                     while let Some(next) = self.peek() {
@@ -2749,7 +2753,9 @@ impl<'t> Parser<'t> {
                         // run may swallow them.
                         let globs_here = kind == WordKind::Argument || !matches!(next, b'*' | b'?');
                         if (is_bare_stop(next) && globs_here)
-                            || (next == b'[' && self.closes_bracket())
+                            || (next == b'['
+                                && kind == WordKind::Argument
+                                && opens_bracket(self.text, self.at))
                         {
                             break;
                         }
@@ -2801,6 +2807,116 @@ fn one_command(kind: CommandKind, span: Span) -> Item {
         background: false,
         span,
     })
+}
+
+/// What is the `[` at `at`: a bracket expression, ordinary text, or something
+/// this reader cannot own?
+///
+/// ⚠ **Three answers, and the third is why this is not an `Option`.** Falling
+/// back to literal text where bash would glob is a wrong tree that no gate can
+/// see — bash prints a bracket expression back verbatim, so it agrees with the
+/// mistake — so anything found inside one that is not modelled has to be
+/// REFUSED rather than absorbed. `Literal` is reserved for the case bash itself
+/// reads as text: no `]` closes it before the word ends.
+///
+/// ⚠ **Shared with the survey**, as [`brace_expansion`] and
+/// [`classify_expansion`] are: whether a given `[` opens one has a single
+/// answer, and two implementations of it would drift.
+pub fn bracket_expression(text: &str, at: usize) -> Bracket {
+    let bytes = text.as_bytes();
+    if bytes.get(at) != Some(&b'[') {
+        return Bracket::Literal;
+    }
+    let mut scan = at + 1;
+    let negated = matches!(bytes.get(scan), Some(b'!' | b'^'));
+    if negated {
+        scan += 1;
+    }
+    // ⚠ A `]` here is a MEMBER, so the search for the close starts past it —
+    // which is also why `[]` and `[!]` are ordinary text.
+    let first_is_close_bracket = bytes.get(scan) == Some(&b']');
+    if !closes_before_the_word_ends(bytes, scan + usize::from(first_is_close_bracket)) {
+        return Bracket::Literal;
+    }
+    let mut items = Vec::new();
+    let mut first = true;
+    loop {
+        let Some(byte) = bytes.get(scan).copied() else {
+            return Bracket::Unread;
+        };
+        match byte {
+            b']' if !first => {
+                scan += 1;
+                break;
+            }
+            // `[:alpha:]`, whose own `]` is not the close.
+            b'[' if bytes.get(scan + 1) == Some(&b':') => {
+                let Some(end) = text[scan + 2..].find(":]") else {
+                    return Bracket::Unread;
+                };
+                items.push(ClassItem::Named(text[scan + 2..scan + 2 + end].to_string()));
+                scan += 2 + end + 2;
+            }
+            // ⚠ Nothing that expands, escapes or quotes. Each would change what
+            // the set holds, and none is worth guessing at: refused by name.
+            b'$' | b'`' | b'\\' | b'\'' | b'"' => return Bracket::Unread,
+            _ => {
+                let Some(from) = text[scan..].chars().next() else {
+                    return Bracket::Unread;
+                };
+                scan += from.len_utf8();
+                // `a-z` is a range; `a-` is two members, because the `-` has no
+                // character after it to reach.
+                if bytes.get(scan) == Some(&b'-') && bytes.get(scan + 1) != Some(&b']') {
+                    let Some(to) = text[scan + 1..].chars().next() else {
+                        return Bracket::Unread;
+                    };
+                    scan += 1 + to.len_utf8();
+                    items.push(ClassItem::Range { from, to });
+                } else {
+                    items.push(ClassItem::Char(from));
+                }
+            }
+        }
+        first = false;
+    }
+    Bracket::Class(Class { negated, items }, scan)
+}
+
+/// Does the `[` at `at` open a bracket expression at all — modelled or not?
+///
+/// The literal reader stops there so the word reader can decide; both answers
+/// that are not `Literal` need a segment of their own.
+fn opens_bracket(text: &str, at: usize) -> bool {
+    !matches!(bracket_expression(text, at), Bracket::Literal)
+}
+
+/// Is there a `]` between here and the end of the word?
+fn closes_before_the_word_ends(bytes: &[u8], from: usize) -> bool {
+    let mut at = from;
+    while let Some(&byte) = bytes.get(at) {
+        match byte {
+            b']' => return true,
+            // The characters that genuinely end a word. A `*`, a `?` or a brace
+            // is an ordinary member inside a bracket and must not stop this.
+            b' ' | b'\t' | b'\r' | b'\n' | b';' | b'|' | b'&' | b'<' | b'>' | b'(' | b')' => {
+                return false;
+            }
+            _ => at += 1,
+        }
+    }
+    false
+}
+
+/// What a `[` turned out to be.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Bracket {
+    /// Ordinary text, which is what bash makes of it too.
+    Literal,
+    /// A bracket expression holding something this reader does not model.
+    Unread,
+    /// The set, and where it ends.
+    Class(Class, usize),
 }
 
 /// Does a brace EXPANSION start at `at`, and where does it end?

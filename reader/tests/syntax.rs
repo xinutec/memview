@@ -7,8 +7,8 @@
 //! split and the reserved words are all of that kind.
 
 use reader::syntax::ast::{
-    ArmEnd, Connector, Glob, Item, RedirectOp, RedirectTarget, Segment, SegmentKind, Span, Tilde,
-    Timed, Word,
+    ArmEnd, ClassItem, Connector, Glob, Item, RedirectOp, RedirectTarget, Segment, SegmentKind,
+    Span, Tilde, Timed, Word,
 };
 use reader::syntax::{Outcome, Reason, check, parse, print, survey};
 use std::collections::BTreeSet;
@@ -173,7 +173,74 @@ fn a_bracket_is_a_builtin_until_it_closes() {
     // bracket expression: refusing every `[` would throw it away for a
     // construct that is not there.
     assert_eq!(words("[ -f x ]").len(), 4);
-    assert_eq!(refusal("ls a[0-9]b"), Reason::BracketExpression);
+    assert!(
+        words("[ -f x ]")[0]
+            .segments
+            .iter()
+            .all(|segment| matches!(segment.kind, SegmentKind::Literal(_)))
+    );
+    // ⚠ **And an unclosed one is ordinary text, not a refusal.** `[abc` expands
+    // to itself — measured — so reading it as anything else would be a wrong
+    // tree, and the three answers a `[` can have are Literal, a set, or a set
+    // this reader cannot own.
+    assert_eq!(words("echo [abc")[1].as_literal().as_deref(), Some("[abc"));
+    assert_eq!(words("echo []")[1].as_literal().as_deref(), Some("[]"));
+}
+
+#[test]
+fn a_bracket_expression_names_a_set_and_only_matching_can_say_so() {
+    // ⚠ **No gate can see this one.** Bash prints a bracket expression back
+    // verbatim, so `[a-z]` read as five literal characters prints and re-reads
+    // as itself and bash agrees with the mistake. The oracle is matching, which
+    // `reader/probes/bracket.sh` does against real files; these assert what it
+    // measured.
+    let class = |text: &str| match &words(text)[1].segments[..] {
+        [
+            Segment {
+                kind: SegmentKind::Glob(Glob::Class(class)),
+                ..
+            },
+        ] => class.clone(),
+        other => panic!("{text:?} is not one bracket expression: {other:?}"),
+    };
+    assert_eq!(
+        class("ls [ab]").items,
+        vec![ClassItem::Char('a'), ClassItem::Char('b')]
+    );
+    assert_eq!(
+        class("ls [a-z]").items,
+        vec![ClassItem::Range { from: 'a', to: 'z' }]
+    );
+    assert_eq!(
+        class("ls [[:digit:]]").items,
+        vec![ClassItem::Named("digit".into())]
+    );
+    // ⚠ `[^a]` and `[!a]` match identically, the caret included, so they are ONE
+    // tree — and the printer picks the POSIX spelling.
+    assert_eq!(class("ls [!a]"), class("ls [^a]"));
+    assert!(class("ls [!a]").negated);
+    assert_eq!(print(&tree("ls [^a-z]")), "ls [!a-z]");
+    // A `-` at either end is a member; a `]` first is a member too.
+    assert_eq!(
+        class("ls [a-]").items,
+        vec![ClassItem::Char('a'), ClassItem::Char('-')]
+    );
+    assert_eq!(
+        class("ls []a]").items,
+        vec![ClassItem::Char(']'), ClassItem::Char('a')]
+    );
+    // What is inside it but not modelled is refused, never absorbed: absorbing
+    // is the wrong tree neither gate can object to.
+    assert_eq!(refusal("ls [$x]"), Reason::BracketExpression);
+    assert_eq!(refusal(r"ls [\]]"), Reason::BracketExpression);
+    // ⚠ A glob only where pathname expansion happens: `FOO=[ab]` binds four
+    // characters, exactly as `FOO=*.txt` binds five.
+    assert_eq!(
+        tree("FOO=[ab]").items.len(),
+        1,
+        "an assignment's value holds no glob"
+    );
+    assert!(check("FOO=[ab]").holds());
 }
 
 // ---- comments are nodes ----
@@ -241,10 +308,10 @@ fn the_survey_returns_every_blocking_construct_not_the_first() {
     // The whole reason it exists: `parse` stops at the first thing it cannot
     // read and never sees the rest, so the refusal ranking under-counts
     // whatever sits rightmost.
-    assert_eq!(refusal("ls a[0-9]b | grep `y`"), Reason::BracketExpression);
+    assert_eq!(refusal("[[ -f x ]] | grep `y`"), Reason::TestExpression);
     assert_eq!(
-        survey("ls a[0-9]b | grep `y`"),
-        BTreeSet::from([Reason::BracketExpression, Reason::Backtick])
+        survey("[[ -f x ]] | grep `y`"),
+        BTreeSet::from([Reason::TestExpression, Reason::Backtick])
     );
 }
 
@@ -2161,10 +2228,23 @@ fn a_subscript_names_an_element_and_forces_the_braces() {
     // `$a[0]` is `$a` and the literal `[0]`: a different word entirely, so the
     // printer may never drop these braces.
     assert_eq!(print(&tree("echo ${a[0]}")), "echo ${a[0]}");
-    // `$a[0]` is `$a` followed by `[0]`, which unquoted is a bracket
-    // expression — a construct this tree does not model yet. That it is refused
-    // rather than read as the subscript above is the point.
-    assert_eq!(refusal("echo $a[0]"), Reason::BracketExpression);
+    // ⚠ `$a[0]` is `$a` followed by the bracket EXPRESSION `[0]` — a glob, not
+    // the subscript above. That the two spellings reach different nodes is the
+    // whole reason the printer may never drop the braces.
+    match &words("echo $a[0]")[1].segments[..] {
+        [
+            Segment {
+                kind: SegmentKind::Parameter(parameter),
+                ..
+            },
+            Segment {
+                kind: SegmentKind::Glob(Glob::Class(_)),
+                ..
+            },
+        ] => assert_eq!(parameter.subscript, None),
+        other => panic!("expected a parameter and a bracket expression: {other:?}"),
+    }
+    assert!(check("echo $a[0]").holds());
 }
 
 #[test]

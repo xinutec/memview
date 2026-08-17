@@ -876,12 +876,46 @@ pub enum Tilde {
     OldPwd,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Glob {
     /// `*`
     Any,
     /// `?`
     One,
+    /// `[abc]`, `[!a-z]`, `[[:digit:]]` — one character out of a named set.
+    Class(Class),
+}
+
+/// The set a bracket expression names.
+///
+/// ⚠ **Bash prints one back verbatim, so no gate can see this wrong.** `[a-z]`
+/// read as five literal characters prints and re-reads as itself, and bash
+/// agrees with the mistake because it echoes the text either way. The only
+/// oracle for it is matching, which `reader/probes/bracket.sh` does against real
+/// files.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Class {
+    /// ⚠ **`[^a]` and `[!a]` are ONE tree.** Measured: both match everything but
+    /// `a`, the caret included, so the caret negates rather than joining the
+    /// set and recording which was written would make one set two trees.
+    pub negated: bool,
+    /// ⚠ **In order, because a `]` is only a member in FIRST position** — later
+    /// it closes the expression, so the order is not free to normalise.
+    pub items: Vec<ClassItem>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClassItem {
+    /// One character, itself.
+    Char(char),
+    /// `a-z` — every character between the two, in the collating order the
+    /// shell was run under, which is not knowable here.
+    ///
+    /// ⚠ A `-` at either END of the set is a [`ClassItem::Char`], not half a
+    /// range: `[a-]` matches `a` and `-`. Measured.
+    Range { from: char, to: char },
+    /// `[:alpha:]` — a POSIX character class, named rather than enumerated.
+    Named(String),
 }
 
 impl Word {
