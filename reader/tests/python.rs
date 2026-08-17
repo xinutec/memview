@@ -265,3 +265,39 @@ fn a_directory_is_not_a_file() {
         [used("src/**/*.ts", false)]
     );
 }
+
+#[test]
+fn a_program_that_could_not_have_run_names_no_files() {
+    // ⚠ **Soundness, not coverage.** `f"{d[\"k\"]}"` is a `SyntaxError` on every
+    // interpreter this corpus ran — 3.9.6 and 3.12.14 both, PEP 701
+    // notwithstanding — so the program raised before its first statement. A
+    // permissive grammar reads it happily and hands back the paths it mentions,
+    // which are then recorded as work that happened.
+    let program =
+        read("import json\nd = json.load(open(\"/tmp/in.json\"))\nprint(f\"{d[\\\"k\\\"]}\")\n");
+    assert_eq!(
+        program.did_not_run,
+        Some("an escaped quote in an f-string replacement field")
+    );
+    assert!(
+        program.uses.is_empty(),
+        "a program that raised used no file"
+    );
+}
+
+#[test]
+fn the_shapes_that_do_run_are_left_alone() {
+    // The ablation. PEP 701's nested quote is valid on 3.12, a backslash in the
+    // *literal* half of an f-string has always been valid, and a backslash in an
+    // ordinary string has nothing to do with any of it.
+    for source in [
+        "d = json.load(open(\"/tmp/in.json\"))\nprint(f\"a\\\"b\")\n",
+        "p = open(\"/tmp/in.json\")\nprint(f\"{d['k']}\")\n",
+        "p = open(\"/tmp/in.json\")\nprint(\"a\\\"b\")\n",
+        "p = open(\"/tmp/in.json\")\nprint(f\"{{literal}}\")\n",
+    ] {
+        let program = read(source);
+        assert_eq!(program.did_not_run, None, "{source:?}");
+        assert_eq!(program.uses.len(), 1, "{source:?}");
+    }
+}

@@ -90,6 +90,15 @@ pub struct Program {
     /// the honest response is to stop trusting relative paths out of that
     /// program. The caller enforces it; this only reports it.
     pub chdir: bool,
+    /// Set when the text is not Python any interpreter would accept, so the
+    /// program **raised a `SyntaxError` and ran none of itself**.
+    ///
+    /// ⚠ **`uses` is empty whenever this is set, and that is the point.** A
+    /// permissive grammar reads a broken program as happily as a working one
+    /// and hands back the paths it mentions — which are then recorded as work
+    /// that happened. Soundness here is the same property the shell oracle
+    /// asserts: never claim an operation the machine did not perform.
+    pub did_not_run: Option<&'static str>,
 }
 
 /// What the Python across many programs did — the report's view, and the
@@ -184,6 +193,12 @@ fn merge(into: &mut BTreeMap<String, usize>, from: BTreeMap<String, usize>) {
 /// — what it cannot make sense of shows up as an unknown call rather than as a
 /// parse error.
 pub fn read(source: &str) -> Program {
+    if let Some(why) = did_not_run(source) {
+        return Program {
+            did_not_run: Some(why),
+            ..Program::default()
+        };
+    }
     let Ok(mut parsed) = PythonParser::parse(Rule::program, source) else {
         return Program::default();
     };
@@ -202,6 +217,124 @@ pub fn read(source: &str) -> Program {
         reader.element(element);
     }
     reader.out
+}
+
+/// Whether the text is Python no interpreter would accept, so nothing in it ran.
+///
+/// One shape, because one shape is what the corpus has and a wrong answer here
+/// *deletes* real file operations rather than inventing them: **an escaped
+/// outer quote inside an f-string's replacement field.** `f"{d[\"k\"]}"` is
+/// written that way to survive the shell's quoting, and the backslashes reach
+/// the interpreter.
+///
+/// ⚠ **Checked against the interpreters that ran this corpus, not assumed.**
+/// `SyntaxError` on 3.9.6 ("f-string expression part cannot include a
+/// backslash") and on 3.12.14 ("unexpected character after line continuation
+/// character"). PEP 701 lifted two neighbouring things on 3.12 and left this
+/// one an error: the unescaped nested quote `f"{d["k"]}"` now runs, and so does
+/// a backslash inside a *nested string*, `f"{'\n'.join(x)}"`. An earlier rule
+/// here fired on any backslash and threw away two programs that worked, which
+/// is why the test is the escaped quote and not the backslash.
+///
+/// **Measured 2026-08-17 against CPython 3.12.14** — `--example python-raised`
+/// hands every program to `ast.parse`. Of 12,240 distinct programs it refuses
+/// 72; this flags 39 and flags nothing CPython accepts. Of the 33 left, 19 hold
+/// an unexpanded shell variable and so ran perfectly well once the shell had
+/// substituted it, and 14 are genuinely broken — a heredoc cut short, mostly.
+///
+/// This is deliberately not a general validity check. `python.pest` accepts
+/// punctuation it has no reading for by design, and turning it into a Python
+/// syntax gate would cost far more than those last 14 programs are worth.
+pub fn did_not_run(source: &str) -> Option<&'static str> {
+    let chars: Vec<char> = source.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '#' => {
+                while i < chars.len() && chars[i] != '\n' {
+                    i += 1;
+                }
+            }
+            // ⚠ **Every string is consumed whole, not only the f-strings.** This
+            // corpus rewrites its own source — `s.replace('f"{a}\\n"', …)` — so an
+            // f-string appears *inside* an ordinary literal as data. Scanning for
+            // `f"` without tracking which quotes are open read four such programs
+            // as broken and threw away the files they really did touch.
+            '"' | '\'' => match string(&chars, i, "") {
+                Ok(next) => i = next,
+                Err(why) => return Some(why),
+            },
+            c if c.is_alphabetic() || c == '_' => {
+                let start = i;
+                while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+                    i += 1;
+                }
+                // A name is a prefix only if the quote comes straight after it;
+                // otherwise it is an ordinary identifier and `format` is not `f`.
+                let word: String = chars[start..i].iter().collect();
+                if matches!(chars.get(i), Some('"' | '\''))
+                    && word.len() <= 2
+                    && word.chars().all(|c| "rbufRBUF".contains(c))
+                {
+                    match string(&chars, i, &word) {
+                        Ok(next) => i = next,
+                        Err(why) => return Some(why),
+                    }
+                }
+            }
+            _ => i += 1,
+        }
+    }
+    None
+}
+
+/// Consume one string literal, starting at its opening quote, and return where
+/// it ends. `Err` is the finding: this program raised before it ran.
+fn string(chars: &[char], at: usize, prefix: &str) -> Result<usize, &'static str> {
+    let quote = chars[at];
+    let triple = chars.get(at + 1) == Some(&quote) && chars.get(at + 2) == Some(&quote);
+    let raw = prefix.to_lowercase().contains('r');
+    let formatted = prefix.to_lowercase().contains('f');
+    let mut i = at + if triple { 3 } else { 1 };
+    // Replacement-field depth, counted only where it can mean anything.
+    let mut depth = 0usize;
+    while i < chars.len() {
+        // A one-line literal stops at its line's end — the same rule
+        // `python.pest` follows, so an unterminated quote cannot swallow the
+        // rest of the program.
+        if !triple && chars[i] == '\n' {
+            return Ok(i);
+        }
+        if triple
+            && chars[i] == quote
+            && chars.get(i + 1) == Some(&quote)
+            && chars.get(i + 2) == Some(&quote)
+        {
+            return Ok(i + 3);
+        }
+        if !triple && chars[i] == quote && depth == 0 {
+            return Ok(i + 1);
+        }
+        match chars[i] {
+            '{' if formatted && chars.get(i + 1) == Some(&'{') => i += 1,
+            '{' if formatted => depth += 1,
+            '}' if formatted => depth = depth.saturating_sub(1),
+            // ⚠ **The escaped quote, not any backslash.** PEP 701 allows a
+            // backslash inside a replacement field on 3.12 — `f"{'\n'.join(x)}"`
+            // runs there — and flagging those discarded two programs that
+            // worked. What both 3.9 and 3.12 refuse is the *outer* quote
+            // escaped, which is what surviving the shell's quoting produces.
+            '\\' if formatted && depth > 0 && chars.get(i + 1) == Some(&quote) => {
+                return Err("an escaped quote in an f-string replacement field");
+            }
+            // Outside a replacement field a backslash escapes the next
+            // character, which is how `"a\"b"` stays one string.
+            '\\' if !raw => i += 1,
+            _ => {}
+        }
+        i += 1;
+    }
+    Ok(i)
 }
 
 // ---- constants ----

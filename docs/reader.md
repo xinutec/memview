@@ -245,14 +245,30 @@ only that reader decodes the marker — mixing the two silently loses every nest
 
 ## The Python inside it
 
-Two questions, and only the second had ever been asked. **Does what we found
-parse?** `tree-sitter-python` reads 14,982 of 15,074 programs (99.4%), and our
-exposure to the 92 it rejects is 25 of 14,735 file operations (0.2%). Those 92
-are three known kinds: a `$VAR` or `${p%%:*}` left literal, which is the shell
-rule and the Python rule meeting rather than a defect; an escaped quote inside
-an f-string, which is a real `SyntaxError`, so **those commands never ran** and
-every file operation taken from one is work that did not happen; and a handful
-of triple-quoted strings.
+Three questions. **Does what we found parse?** `tree-sitter-python` reads 14,982
+of 15,074 programs (99.4%).
+
+**Did it run?** A different question, and the one that decides whether a file
+operation is a fact. `python.pest` accepts a broken program as happily as a
+working one and hands back the paths it mentions, which are then recorded as
+work that happened — so `python::did_not_run` refuses the one shape confirmed to
+raise, an escaped outer quote inside an f-string replacement field, and the
+reader keeps nothing from it.
+
+⚠ **The over-claim direction is the one that costs.** Flagging a program
+discards everything it named, so a false positive destroys knowledge while a
+false negative merely fails to gain any. `--example python-raised` hands every
+program to real CPython and answers both ways: of 12,240 distinct programs
+3.12.14 refuses 72, the reader flags 39, and it flags **nothing CPython
+accepts**. Of the 33 it lets through, 19 hold an unexpanded shell variable and
+ran perfectly well once the shell substituted it — two rules meeting, not a
+defect — and 14 are genuinely broken, mostly a heredoc cut short.
+
+⚠ **And `tree-sitter` is not the authority for this.** It accepts 10 of the
+programs CPython refuses; an editor's parser is built to keep going. An earlier
+version of the rule fired on any backslash in a replacement field and threw away
+two programs that worked, because PEP 701 permits `f"{'\n'.join(x)}"` on 3.12.
+Ask the interpreter that ran the corpus.
 
 **And is there Python we never noticed was Python?** That one a coverage figure
 cannot answer, because its denominator is what we found — a call the verb table

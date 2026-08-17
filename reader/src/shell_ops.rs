@@ -649,6 +649,31 @@ enum Verb {
     NoFiles,
 }
 
+/// Whether a command name is a Python interpreter: `python`, `python3`,
+/// `python3.12`.
+///
+/// ⚠ **A dot is required for the two-part version, and that is not fussiness.**
+/// `python313` with no dot is a nixpkgs attribute — it appears 68 times in this
+/// corpus inside `nix-shell -p python313`, where it names a package and never
+/// runs anything. Reading it as a call would invent an interpreter invocation
+/// out of a dependency.
+pub fn is_python(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix("python") else {
+        return false;
+    };
+    match rest.split_once('.') {
+        None => {
+            rest.is_empty() || rest.len() == 1 && rest.starts_with(|c: char| c.is_ascii_digit())
+        }
+        Some((major, minor)) => {
+            !major.is_empty()
+                && major.chars().all(|c| c.is_ascii_digit())
+                && !minor.is_empty()
+                && minor.chars().all(|c| c.is_ascii_digit())
+        }
+    }
+}
+
 /// The one place a command name is read. `None` means "not taught yet", which is
 /// [`Op::Unknown`] — never a silent success.
 fn verb(name: &str) -> Option<Verb> {
@@ -701,7 +726,14 @@ fn verb(name: &str) -> Option<Verb> {
         }
         "mv" => Verb::Move(Flags::NONE),
 
-        "python" | "python3" => Verb::Python,
+        // ⚠ **A version suffix is part of how this interpreter is spelled**, and
+        // matching the two bare names missed `python3.12` entirely — not as a
+        // wrong reading but as an absence, since a name the table has never
+        // heard of produces no `Op::Python` and so appears in no Python report
+        // at all. Small in this corpus (`reader/examples/python-calls.rs` finds
+        // the population), and invisible by construction, which is the reason to
+        // match the shape rather than the spellings anyone thought to list.
+        name if is_python(name) => Verb::Python,
         // An interpreter's flags carry code or a module name, never a path.
         "node" | "deno" | "bun" => Verb::Interpreter {
             flags: Flags::valued(&["-e", "-p", "--eval"]),

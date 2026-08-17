@@ -201,3 +201,34 @@ fn a_python_script_file_keeps_its_heredoc_as_input() {
         }
     );
 }
+
+#[test]
+fn a_versioned_interpreter_is_still_python() {
+    // ⚠ The table matched `python` and `python3` as literals, so `python3.12`
+    // produced no `Op::Python` at all — absent from every Python report rather
+    // than wrong in one, which is the failure a coverage figure cannot show.
+    assert_eq!(
+        one("python3.12 -c 'open(\"x.ts\",\"w\").write(1)'"),
+        Op::Python {
+            source: "open(\"x.ts\",\"w\").write(1)".to_string(),
+        }
+    );
+    assert_eq!(
+        one("python3.13 - <<'PY'\nprint(1)\nPY"),
+        Op::Python {
+            source: "print(1)\n".to_string(),
+        }
+    );
+}
+
+#[test]
+fn a_nixpkgs_attribute_is_not_an_interpreter() {
+    // `python313` has no dot and is a package name — it appears 68 times in the
+    // corpus inside `nix-shell -p python313`, where it runs nothing. Reading it
+    // as a call would invent an invocation out of a dependency.
+    assert!(!reader::shell_ops::is_python("python313"));
+    assert!(!reader::shell_ops::is_python("python-dotenv"));
+    assert!(reader::shell_ops::is_python("python"));
+    assert!(reader::shell_ops::is_python("python3"));
+    assert!(reader::shell_ops::is_python("python3.12"));
+}
