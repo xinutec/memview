@@ -1596,10 +1596,6 @@ fn what_a_case_cannot_be_is_named() {
     assert_eq!(refusal("case $x in ) b;; esac"), Reason::EmptyOperand);
     assert_eq!(refusal("case"), Reason::EmptyOperand);
     // A comment has nowhere to go in a one-line print, as in a loop body.
-    assert_eq!(
-        refusal("case $x in a) b # note\n;; esac"),
-        Reason::CommentInList
-    );
 }
 
 #[test]
@@ -1749,13 +1745,60 @@ fn a_heredoc_inside_a_body_still_finds_its_body() {
 }
 
 #[test]
-fn a_comment_in_a_body_is_refused_rather_than_dropped() {
-    // The printer puts a loop on one line, where a comment would swallow the
-    // rest of it. The same answer this tree gives a comment in an and-or list.
+fn a_comment_in_a_body_takes_the_line_it_needs() {
+    // ⚠ **A comment runs to the end of ITS line, so a list holding one cannot be
+    // written on a single line at all.** That is why it was refused: not that
+    // the tree could not hold it, but that the printer had nowhere to put it.
+    // The answer is the one a heredoc inside `$( )` got — take the lines.
     assert_eq!(
-        refusal("for f in a; do\n# note\nb\ndone"),
-        Reason::CommentInList
+        print(&tree("for f in a; do\n# note\nb\ndone")),
+        "for f in a; do # note\nb\ndone"
     );
+    // ⚠ **And the closing keyword needs a line of its own once the body spans
+    // any**, for two different reasons. A comment: `# note; done` is all comment
+    // and the loop never closes.
+    assert_eq!(
+        print(&tree("for f in a; do\nb\n# note\ndone")),
+        "for f in a; do b\n# note\ndone"
+    );
+    // ⚠ And a heredoc TERMINATOR, which must be a line holding the delimiter and
+    // nothing else — `PY; done` is body text, the heredoc runs away, and the
+    // `done` is gone. Found by the round-trip law on one command in 134,555, and
+    // gate 3 could not see it: bash accepts a runaway heredoc with a warning and
+    // an exit code of zero.
+    assert_eq!(
+        print(&tree("for f in a; do\n# note\ncat <<'PY'\nbody\nPY\ndone")),
+        "for f in a; do # note\ncat <<'PY'\nbody\nPY\ndone"
+    );
+    for text in [
+        "for f in a; do\n# note\nb\ndone",
+        "for f in a; do\nb\n# note\ndone",
+        "while a; do\n# c\nb\ndone",
+        "while\n# c\na\ndo b; done",
+        "if a; then\n# note\nb\nfi",
+        "if a; then b\n# note\nelse c\nfi",
+        "( a\n# note\nb )",
+        "{ a\n# note\nb\n}",
+        "f() {\n# note\na\n}",
+        "case $x in a)\n# note\nb;; esac",
+        "echo $(a\n# note\nb)",
+        "cat <<X\nbody\nX\n# note",
+        "for f in a; do\n# note\ncat <<'PY'\nbody\nPY\ndone",
+        "while a; do\n# c\ncat <<X\nb\nX\ndone",
+        "if a; then\n# c\ncat <<X\nb\nX\nfi",
+        "{ \n# c\ncat <<X\nb\nX\n}",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+        assert!(
+            survey(text).is_empty(),
+            "{text:?} should need nothing: {:?}",
+            survey(text)
+        );
+    }
 }
 
 #[test]
@@ -1879,8 +1922,6 @@ fn a_backtick_is_the_same_node_as_a_substitution() {
 
 #[test]
 fn what_a_substitution_cannot_carry_is_named() {
-    // A comment would swallow the rest of the inline form.
-    assert_eq!(refusal("echo $(a # note\n)"), Reason::CommentInList);
     // An unclosed one is a syntax error to bash too.
     assert_eq!(refusal("echo $(a"), Reason::UnterminatedExpansion);
     // ⚠ And so is a body that runs past the `)`: it swallows the paren, and bash
@@ -2161,12 +2202,18 @@ fn a_quoted_keyword_is_a_program_and_stays_one() {
 }
 
 #[test]
-fn a_comment_inside_a_conditional_is_refused_rather_than_dropped() {
-    // The printer puts a conditional on one line, where a comment would swallow
-    // the rest of it. Bash deletes comments, so it has no opinion — the same
-    // answer a loop body's comment gets.
-    assert_eq!(refusal("if a; then\n# note\nb\nfi"), Reason::CommentInList);
-    assert!(survey("if a; then\n# note\nb\nfi").contains(&Reason::CommentInList));
+fn what_a_comment_still_cannot_be_part_of() {
+    // ⚠ **An and-or list is ONE line by bash's own split**, so a comment inside
+    // one has nowhere to go however many lines the printer takes: `a && b` stays
+    // together where `a; b` breaks apart. Refused rather than dropped.
+    assert_eq!(refusal("a && # note\nb"), Reason::CommentInList);
+    // The other two are tree shapes rather than printer ones — neither a `case`
+    // header nor an array literal has a slot for a comment to live in.
+    assert_eq!(
+        refusal("case $x in # which\na) b;; esac"),
+        Reason::CommentInList
+    );
+    assert_eq!(refusal("x=(a # note\nb)"), Reason::CommentInList);
 }
 
 #[test]

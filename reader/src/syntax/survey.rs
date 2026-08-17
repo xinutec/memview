@@ -41,19 +41,13 @@ pub fn survey(text: &str) -> BTreeSet<Reason> {
     scan(text).found
 }
 
-/// The whole scanner state after a run, not just the set it found.
-///
-/// ⚠ **A substitution needs more than the set.** Its interior is a script the
-/// parser reads, so every construct in there is reported by descending — but the
-/// parser also refuses a comment *because* it is inside one, which is not a
-/// finding on its own. That fact comes back as a flag.
+/// The whole scanner state after a run.
 fn scan(text: &str) -> Survey<'_> {
     Survey {
         bytes: text.as_bytes(),
         text,
         at: 0,
         found: BTreeSet::new(),
-        saw_comment: false,
     }
     .run()
 }
@@ -63,9 +57,6 @@ struct Survey<'t> {
     text: &'t str,
     at: usize,
     found: BTreeSet<Reason>,
-    /// Did a comment appear? Refused inside a substitution for the same reason
-    /// a comment in a loop body is: the printer writes both inline.
-    saw_comment: bool,
 }
 
 impl Survey<'_> {
@@ -351,16 +342,12 @@ impl Survey<'_> {
                     self.at += 1;
                 }
                 b'#' if !in_word => {
-                    self.saw_comment = true;
-                    // Anywhere inside a compound: the printer puts one on a
-                    // single line, so a comment in there has nowhere to go and
-                    // the parser refuses it.
-                    if loop_header
-                        || loop_depth > 0
-                        || !if_stack.is_empty()
-                        || parens > 0
-                        || braces > 0
-                    {
+                    // ⚠ Modelled everywhere a command list is — the printer
+                    // takes a line for one now. What is left is the two places
+                    // the TREE has no slot for it: between the `in` of a `case`
+                    // and its first pattern, and inside an array literal, which
+                    // `array_literal` reports for itself.
+                    if cases.last() == Some(&CaseStage::Pattern) {
                         self.found.insert(Reason::CommentInList);
                     }
                     while self.peek().is_some_and(|b| b != b'\n') {
@@ -979,9 +966,6 @@ impl Survey<'_> {
             .unwrap_or_default();
         let inner = scan(interior);
         self.found.extend(inner.found);
-        if inner.saw_comment {
-            self.found.insert(Reason::CommentInList);
-        }
     }
 
     /// Step over `` ` … ` ``, whose interior is a script once it is unescaped.
@@ -1029,9 +1013,6 @@ impl Survey<'_> {
         }
         let interior = scan(&inner);
         self.found.extend(interior.found);
-        if interior.saw_comment {
-            self.found.insert(Reason::CommentInList);
-        }
     }
 
     /// Step over `<( … )` or `>( … )`, whose interior is a command list too.
@@ -1057,9 +1038,6 @@ impl Survey<'_> {
         // there has to be built before this command can be read.
         let inner = scan(interior);
         self.found.extend(inner.found);
-        if inner.saw_comment {
-            self.found.insert(Reason::CommentInList);
-        }
     }
 
     /// Step over `$'…'`, reporting the escapes the parser still refuses.

@@ -11,12 +11,18 @@
 //! in layout or quoting print identically, which is what makes the printed form
 //! usable as an equivalence test.
 //!
-//! ⚠ **One construct breaks the line, and it is not a layout choice.** A heredoc
-//! inside `$( )` opens inside a word, and its body has to follow the line the
-//! `<<` was written on — which is a line inside the substitution. So that word
-//! is printed across lines, exactly as bash prints it. Canonicity survives: the
-//! layout is still a function of the tree alone, and a tree without such a
-//! heredoc still prints on one line.
+//! ⚠ **Two things break the line, and neither is a layout choice.**
+//!
+//! - A heredoc inside `$( )` opens inside a word, and its body has to follow the
+//!   line the `<<` was written on — which is a line inside the substitution. So
+//!   that word is printed across lines, exactly as bash prints it.
+//! - A **comment** runs to the end of its own line, so a list holding one cannot
+//!   be written on a single line at all. Every construct that carries a comment
+//!   therefore takes the lines it needs, and the keyword that closes it takes one
+//!   of its own — `# note; done` is all comment, and the loop never closes.
+//!
+//! Canonicity survives both: the layout is still a function of the tree alone,
+//! and a tree holding neither still prints on one line.
 
 use super::ast::{
     Anchor, AndOr, Arith, ArmEnd, ArrayElement, Assignment, BinaryOp, Brace, Case, Class,
@@ -107,7 +113,11 @@ fn print_command(command: &Command, head: bool, bodies: &mut Vec<String>) -> Str
         // REQUIRES one before its `}` — `{ a }` is a syntax error where `( a )`
         // is not. Measured; `follow` supplies the right separator, including
         // none at all after a `&`.
-        CommandKind::Subshell(items) => vec![format!("( {} )", print_body(items, bodies))],
+        CommandKind::Subshell(items) => {
+            let body = print_body(items, bodies);
+            let close = if spans_lines(&body) { "\n)" } else { " )" };
+            vec![format!("( {body}{close}")]
+        }
         CommandKind::Group(items) => {
             vec![format!("{{ {} }}", terminated(&print_body(items, bodies)))]
         }
@@ -235,7 +245,8 @@ fn print_case(case: &Case, bodies: &mut Vec<String>) -> String {
         if body.is_empty() {
             out.push_str(&format!(" {}) {end}", patterns.join("|")));
         } else {
-            out.push_str(&format!(" {}) {body} {end}", patterns.join("|")));
+            let gap = if spans_lines(&body) { "\n" } else { " " };
+            out.push_str(&format!(" {}) {body}{gap}{end}", patterns.join("|")));
         }
     }
     out.push_str(" esac");
@@ -384,15 +395,40 @@ fn binary_precedence(op: BinaryOp) -> u8 {
 /// read as one. The exception is the same as everywhere else: a `&` has already
 /// ended the list, and `{ a & ; }` is refused in turn.
 fn terminated(list: &str) -> String {
-    if list.ends_with('&') {
+    if spans_lines(list) {
+        format!("{list}\n")
+    } else if list.ends_with('&') {
         list.to_string()
     } else {
         format!("{list};")
     }
 }
 
+/// Does this printed list span lines — so that nothing may be appended to its
+/// last one?
+///
+/// ⚠ **The one thing a closing keyword has to ask, and TWO different things
+/// make the answer yes.** A comment: `# note; done` is all comment and the loop
+/// never closes. And a heredoc body, whose terminator is a line that must hold
+/// the delimiter and nothing else — `PY; done` is body text, the heredoc runs
+/// away, and the `done` is gone. The second was found by the round-trip law on
+/// one command in 134,555, and gate 3 could not see it: bash ACCEPTS a runaway
+/// heredoc, with a warning and an exit code of zero.
+///
+/// Asking about lines rather than about either cause is deliberate: once a list
+/// is several lines, what its last one will hold is not this function's to know.
+fn spans_lines(list: &str) -> bool {
+    list.contains('\n')
+}
+
 fn follow(list: &str, keyword: &str) -> String {
-    let separator = if list.ends_with('&') { " " } else { "; " };
+    let separator = if spans_lines(list) {
+        "\n"
+    } else if list.ends_with('&') {
+        " "
+    } else {
+        "; "
+    };
     format!("{list}{separator}{keyword}")
 }
 
@@ -402,11 +438,18 @@ fn follow(list: &str, keyword: &str) -> String {
 /// is a syntax error where `b & c` is not, which is why the separator is chosen
 /// from what came before rather than fixed.
 fn print_body(items: &[Item], bodies: &mut Vec<String>) -> String {
+    // ⚠ **A comment runs to the end of ITS line, so a list holding one cannot be
+    // written on a single line at all.** That is the whole reason a comment in a
+    // body was refused for so long: not that the tree could not hold it, but
+    // that the printer had nowhere to put it. The answer is the one a heredoc
+    // inside `$( )` got — take the lines the construct needs.
+    if items.iter().any(|item| matches!(item, Item::Comment(_))) {
+        return print_body_across_lines(items);
+    }
     let mut out = String::new();
     for item in items {
         let text = match item {
-            // Refused by the parser, so unreachable — and printed as a comment
-            // would swallow the rest of the line if it ever were not.
+            // Unreachable: the branch above takes every list holding one.
             Item::Comment(comment) => format!("#{}", comment.text),
             Item::List(list) => print_and_or(list, bodies),
         };
@@ -416,6 +459,26 @@ fn print_body(items: &[Item], bodies: &mut Vec<String>) -> String {
         out.push_str(&text);
     }
     out
+}
+
+/// The same list, one item per line.
+///
+/// ⚠ **Each line collects its OWN heredoc bodies**, rather than handing them to
+/// the caller — a body has to follow the line its `<<` was written on, and once
+/// a list is several lines the caller's line is the wrong one.
+fn print_body_across_lines(items: &[Item]) -> String {
+    let mut lines: Vec<String> = Vec::with_capacity(items.len());
+    for item in items {
+        match item {
+            Item::Comment(comment) => lines.push(format!("#{}", comment.text)),
+            Item::List(list) => {
+                let mut bodies = Vec::new();
+                lines.push(print_and_or(list, &mut bodies));
+                lines.extend(bodies);
+            }
+        }
+    }
+    lines.join("\n")
 }
 
 /// ⚠ Assignments, then words — bash's own order, and it says so structurally:
@@ -845,10 +908,12 @@ fn print_parenthesised(items: &[Item], opener: &str) -> String {
     } else {
         format!("{opener}(")
     };
-    if bodies.is_empty() {
-        format!("{open}{body})")
-    } else {
+    if !bodies.is_empty() {
         format!("{open}{body}\n{}\n)", bodies.join("\n"))
+    } else if spans_lines(&body) {
+        format!("{open}{body}\n)")
+    } else {
+        format!("{open}{body})")
     }
 }
 

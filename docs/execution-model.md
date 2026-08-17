@@ -149,15 +149,42 @@ So `t₂` is a canonical form: two textually different commands that mean the sa
 thing compare equal. **Non-destructive means the tree retains everything except
 layout and quoting style.**
 
-⚠ **One construct is printed across lines, and it is not a layout choice.** A
-heredoc inside `$( )` opens inside a *word*, and a body has to follow the line
+⚠ **Two constructs are printed across lines, and neither is a layout choice.**
+
+A heredoc inside `$( )` opens inside a *word*, and a body has to follow the line
 its `<<` was written on — which is a line inside the substitution. So that word
 takes the lines it needs, in bash's own spelling: `declare -f` renders
-`x=$(cat <<X⏎body⏎X⏎)` exactly so and re-prints its own print unchanged.
-Canonicity survives, because the layout is still a function of the tree alone and
-a tree without such a heredoc still prints on one line. It was worth 338
-commands — 0.25% of them but **1% of the bytes**, since a command carrying a
-heredoc is a long one.
+`x=$(cat <<X⏎body⏎X⏎)` exactly so and re-prints its own print unchanged. It was
+worth 338 commands — 0.25% of them but **1% of the bytes**, since a command
+carrying a heredoc is a long one.
+
+A **comment** runs to the end of its own line, so a list holding one cannot be
+written on a single line at all. That, and not the tree, is why a comment in a
+loop body was refused for so long: the node existed and the printer had nowhere
+to put it. Once the printer could take a line — the answer the heredoc had
+already forced — seven refusal sites lifted at once, worth 47 commands. The
+closing keyword needs a line of its own too: `# note; done` is all comment, and
+the loop never closes.
+
+Canonicity survives both, because the layout is still a function of the tree
+alone and a tree holding neither still prints on one line.
+
+⚠ **Once a list spans lines, nothing may be appended to its last one — and the
+second reason for that is not the comment.** The round-trip law caught it on one
+command in 134,555: a heredoc inside a commented body put its TERMINATOR on that
+last line, the printer wrote `PY; done`, and a terminator has to be a line
+holding the delimiter and nothing else. So the body ran away and the `done`
+vanished. **Gate 3 could not see it** — bash accepts a runaway heredoc, with a
+warning and an exit code of zero — which is the same blind spot that put 13
+commands outside gate 2, showing up in a third place. The printer therefore asks
+whether the list spans lines at all, rather than asking about either cause.
+
+⚠ **Three places still refuse a comment, and they are refusing for a different
+reason.** Between a list operator and its right-hand side (`a && # c`), an
+and-or list is ONE line by bash's own split, so no number of lines helps. Between
+a `case`'s `in` and its first pattern, and inside an array literal, the TREE has
+no slot for one. Those are tree changes, not printer changes, and saying which is
+which is the difference between a queue item and a closed question.
 
 ⚠ **The collapse rule stops at reserved words, where quoting is semantic.**
 `time ./x.sh` runs bash's keyword; `'time' ./x.sh` runs `/usr/bin/time`, a

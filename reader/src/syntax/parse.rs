@@ -819,12 +819,6 @@ impl<'t> Parser<'t> {
         if until || self.at_keyword("while") {
             self.at += 5; // both `while` and `until` are five characters
             let condition = self.items(&["do"])?;
-            if condition
-                .iter()
-                .any(|item| matches!(item, Item::Comment(_)))
-            {
-                return self.refuse(Reason::CommentInList, 1);
-            }
             let body = self.loop_body()?;
             return Ok(Some(CommandKind::While(WhileLoop {
                 until,
@@ -919,13 +913,6 @@ impl<'t> Parser<'t> {
         if !self.take_keyword("done") {
             return self.refuse(Reason::Loop, 1);
         }
-        // ⚠ The printer puts a loop on one line, where a comment would swallow
-        // everything after it. Refused rather than dropped — the same answer
-        // this tree gives a comment between a list operator and its right-hand
-        // side, and for the same reason.
-        if body.iter().any(|item| matches!(item, Item::Comment(_))) {
-            return self.refuse(Reason::CommentInList, 1);
-        }
         Ok(body)
     }
 
@@ -948,7 +935,7 @@ impl<'t> Parser<'t> {
         if items.is_empty() {
             return self.refuse(Reason::EmptyOperand, 1);
         }
-        self.body_without_comments(items)
+        Ok(items)
     }
 
     /// `{ list; }` — a command list in this shell.
@@ -961,7 +948,7 @@ impl<'t> Parser<'t> {
         if items.is_empty() {
             return self.refuse(Reason::EmptyOperand, 1);
         }
-        self.body_without_comments(items)
+        Ok(items)
     }
 
     /// `name() { … }` or `name() ( … )`, if one starts here.
@@ -1062,18 +1049,6 @@ impl<'t> Parser<'t> {
         }
     }
 
-    /// A compound's body, refused if it carries a comment.
-    ///
-    /// ⚠ The printer writes every compound on one line, where a comment would
-    /// swallow the rest of it — the same answer a loop body and a conditional
-    /// arm get, and for the same reason.
-    fn body_without_comments(&self, items: Vec<Item>) -> Result<Vec<Item>, Refusal> {
-        if items.iter().any(|item| matches!(item, Item::Comment(_))) {
-            return self.refuse(Reason::CommentInList, 1);
-        }
-        Ok(items)
-    }
-
     /// `if cond; then body [elif …] [else body] fi`, with the opening keyword
     /// already taken.
     ///
@@ -1123,13 +1098,6 @@ impl<'t> Parser<'t> {
     /// it.
     fn arm(&mut self, until: &[&str]) -> Result<Vec<Item>, Refusal> {
         let items = self.items(until)?;
-        // ⚠ The printer puts a conditional on one line, where a comment would
-        // swallow everything after it. Refused rather than dropped — the same
-        // answer a loop body's comment gets, and bash has no opinion either way
-        // because it deletes them.
-        if items.iter().any(|item| matches!(item, Item::Comment(_))) {
-            return self.refuse(Reason::CommentInList, 1);
-        }
         if items.is_empty() {
             return self.refuse(Reason::EmptyOperand, 1);
         }
@@ -1203,9 +1171,6 @@ impl<'t> Parser<'t> {
         let body = self.items(&["esac"]);
         self.arm_depth -= 1;
         let body = body?;
-        if body.iter().any(|item| matches!(item, Item::Comment(_))) {
-            return self.refuse(Reason::CommentInList, 1);
-        }
         // ⚠ **Three terminators, and they are three different programs** — `;;`
         // stops, `;&` runs the next arm's body without testing it, `;;&` goes on
         // testing. Measured by running them; see `reader/probes/case.sh`.
@@ -2138,13 +2103,6 @@ impl<'t> Parser<'t> {
             reason: refusal.reason,
             span,
         })?;
-        if script
-            .items
-            .iter()
-            .any(|item| matches!(item, Item::Comment(_)))
-        {
-            return self.refuse(Reason::CommentInList, 1);
-        }
         Ok(Segment {
             kind: SegmentKind::Substitution(Substitution {
                 items: script.items,
@@ -2228,9 +2186,6 @@ impl<'t> Parser<'t> {
         self.pending = outer;
         self.in_pattern = in_pattern;
         self.arm_depth = arm_depth;
-        if items.iter().any(|item| matches!(item, Item::Comment(_))) {
-            return self.refuse(Reason::CommentInList, 1);
-        }
         Ok(items)
     }
 
