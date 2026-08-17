@@ -605,6 +605,46 @@ pub fn print_word(word: &Word, first: bool) -> String {
     out
 }
 
+/// One word as a *value*: quoting resolved away, expansions left as spelling.
+///
+/// This is what [`crate::shell::Simple`]'s `argv` holds, and the projection in
+/// [`crate::project`] is its only caller. It sits here rather than there because
+/// spelling an expansion is this module's job and nobody else can do it right:
+/// **`${n}_v4` is not `$n_v4`.** Built one segment at a time by the caller, a
+/// parameter had nothing following it to run into and the braces came off — a
+/// word naming the variable `n_v4` instead of `n`. Found by `--bin projection`
+/// on 8 corpus commands, all of them redirection targets, all of them a file
+/// nobody wrote to.
+///
+/// The two halves come from different places on purpose. A literal already *is*
+/// its value — `'a b'`, `"a b"` and `a\ b` are one `Literal` — so it goes out as
+/// itself, unquoted, which is what a value means. An expansion has no value
+/// until something runs, so what a value can hold is its spelling; the quoting
+/// that is part of the NODE (`"$x"`) is dropped with the rest, because argv is
+/// a list of strings and cannot say it.
+pub fn print_value(word: &Word) -> String {
+    let mut out = String::new();
+    for (index, segment) in word.segments.iter().enumerate() {
+        match &segment.kind {
+            SegmentKind::Literal(text) => out.push_str(text),
+            SegmentKind::Parameter(parameter) => out.push_str(&print_parameter(
+                &Parameter {
+                    quoted: false,
+                    ..parameter.clone()
+                },
+                word.segments.get(index + 1),
+            )),
+            // Bare, because the quotes belong to the node and a value has no
+            // room for them: `"$(a)"` and `$(a)` are one argv string.
+            SegmentKind::Substitution(substitution) => {
+                out.push_str(&print_parenthesised(&substitution.items, "$"));
+            }
+            _ => out.push_str(&print_segment(segment)),
+        }
+    }
+    out
+}
+
 /// For each segment, does a `]` appear in a literal after it?
 ///
 /// Only a literal can carry one: a glob, a tilde and a parameter each print as

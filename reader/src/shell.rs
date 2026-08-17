@@ -499,14 +499,33 @@ fn walk(
             // `a && b; c`, `b` needs `a` to have worked and `c` needs nothing.
             let mut here = Reached::Always;
             let mut open = Vec::new();
+            // ⚠ **A connector with nothing after it yet has not ended anything.**
+            // `a &&⏎b` is one and-or list — bash's grammar is
+            // `and_or '&&' newline_list pipeline` — but both the `&&` and the
+            // newline arrive here as separators, and reading the newline as one
+            // put `b` back at unconditional. The same shape as the `a |⏎b`
+            // misparse in `reader/tests/oracle.rs`, one level up. 86 corpus
+            // commands, found by `--bin projection`.
+            let mut connected = false;
             for inner in pair.into_inner() {
                 match inner.as_rule() {
-                    Rule::and_if => here = here.and(Reached::OnSuccess),
-                    Rule::or_if => here = here.and(Reached::Sometimes),
+                    Rule::and_if => {
+                        here = here.and(Reached::OnSuccess);
+                        connected = true;
+                    }
+                    Rule::or_if => {
+                        here = here.and(Reached::Sometimes);
+                        connected = true;
+                    }
                     // `;`, a newline or `&` end the chain: what follows runs
                     // however the last one went.
-                    Rule::seq => here = Reached::Always,
+                    Rule::seq => {
+                        if !connected {
+                            here = Reached::Always;
+                        }
+                    }
                     _ => {
+                        connected = false;
                         let arm = if sequence {
                             branch(&mut open, &inner)
                         } else {
@@ -573,14 +592,25 @@ fn branch(open: &mut Vec<bool>, pair: &pest::iterators::Pair<Rule>) -> Reached {
 /// Stops at the first word that is not one, which is the command being guarded.
 /// A group is not descended into: `( if x; then y; fi )` balances inside itself,
 /// and reading its `if` from out here would leave a level open forever.
+///
+/// ⚠ **A loop's `do` is stepped over rather than stopped at, because it is not
+/// the command being guarded either.** `for p in …; do if [ -d "$p" ]; then rm
+/// -rf "$p"; fi; done` writes `do` and `if` into one pipeline, and stopping at
+/// the `do` meant the `if` never opened — so the `rm -rf` inside a branch read
+/// as certain, which is exactly the over-claim this function exists to prevent.
+/// 621 corpus commands write `do if`, `do while` or `do until`; found by
+/// `--bin projection`, which had the tree's answer to compare against.
 fn leading_keywords(pair: &pest::iterators::Pair<Rule>) -> Vec<&'static str> {
     const BRANCH: [&str; 5] = ["if", "then", "elif", "else", "fi"];
+    // Grammar that opens a body without guarding anything by itself.
+    const STEP_OVER: [&str; 1] = ["do"];
     let mut out = Vec::new();
     let mut stack = vec![pair.clone()];
     while let Some(part) = stack.pop() {
         match part.as_rule() {
             Rule::word => match BRANCH.iter().find(|kw| **kw == part.as_str()) {
                 Some(keyword) => out.push(*keyword),
+                None if STEP_OVER.contains(&part.as_str()) => {}
                 None => return out,
             },
             Rule::pipeline | Rule::command => {

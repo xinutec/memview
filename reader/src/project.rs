@@ -41,7 +41,7 @@ use crate::syntax::ast::{
     ParameterOp, RedirectOp, RedirectTarget, Script, Segment, SegmentKind, Subscript, TestExpr,
     Word,
 };
-use crate::syntax::print::print_word;
+use crate::syntax::print::print_value as value;
 
 /// Every simple command the script runs, in running order.
 pub fn project(script: &Script) -> Vec<Simple> {
@@ -389,59 +389,4 @@ fn binding(assignment: &Assignment) -> String {
         if assignment.append { "+" } else { "" },
         value(&assignment.value)
     )
-}
-
-/// A word as `argv` holds it: **quoting resolved away, expansions left alone.**
-///
-/// ⚠ **The two halves are read from different places, and that is not an
-/// inconsistency.** A literal segment already *is* its value — `'a b'`, `"a b"`
-/// and `a\ b` all parse to one `Literal("a b")` — so it goes out as itself. An
-/// expansion has no value until something runs, so what argv can hold is its
-/// spelling, and the printer is the one thing that knows how to spell a node.
-///
-/// The spelling is the printer's, not the corpus's: `${x}` comes back as `$x`,
-/// and `$( a|b )` as `$(a | b)`. Nothing downstream reads inside an expansion —
-/// it is undetermined either way — but the `projection` report counts these
-/// separately rather than calling them agreement, because a difference nobody
-/// looked at is not the same as none.
-fn value(word: &Word) -> String {
-    let mut out = String::new();
-    for segment in &word.segments {
-        match &segment.kind {
-            SegmentKind::Literal(text) => out.push_str(text),
-            // ⚠ Printed through a one-segment word so the quoting the tree holds
-            // is dropped: `"$x"` is a different node from `$x` and the same argv
-            // string, because the flat reader took the quotes off and this has to
-            // agree with it about what a word IS.
-            _ => out.push_str(&print_word(
-                &Word {
-                    segments: vec![bare(segment)],
-                    span: segment.span,
-                },
-                false,
-            )),
-        }
-    }
-    out
-}
-
-/// A segment with its own quoting cleared, which is what argv means by a word.
-fn bare(segment: &Segment) -> Segment {
-    let kind = match &segment.kind {
-        SegmentKind::Parameter(parameter) => SegmentKind::Parameter(Parameter {
-            quoted: false,
-            ..parameter.clone()
-        }),
-        SegmentKind::Substitution(substitution) => {
-            SegmentKind::Substitution(crate::syntax::ast::Substitution {
-                quoted: false,
-                ..substitution.clone()
-            })
-        }
-        other => other.clone(),
-    };
-    Segment {
-        kind,
-        span: segment.span,
-    }
 }

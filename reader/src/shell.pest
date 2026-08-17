@@ -132,9 +132,14 @@ fd_dup = @{ (ASCII_DIGIT* ~ ">" ~ ">"? | "&>" | ">&") ~ "&"? ~ ASCII_DIGIT+ }
 // was free to sit a space away from its own `>` — so the `1` of
 // `monkey -c LAUNCHER 1 >/dev/null` was read as that redirection's descriptor
 // and the argument was gone.
+// ⚠ **`&>file` is a write to a file, and the `&` has to be part of the
+// operator.** Left out, the `&` matched `seq` — a background separator — so
+// `chrome --port=9222 &>/tmp/chrome.log` read as a backgrounded command and a
+// second, nameless one holding the redirection. The log file belonged to nobody
+// and the write went uncounted. 18 corpus commands.
 file_redirect = { (append | write | read) ~ word }
-append = @{ ASCII_DIGIT? ~ ">>" }
-write  = @{ ASCII_DIGIT? ~ ">" }
+append = @{ ASCII_DIGIT? ~ ">>" | "&>>" }
+write  = @{ ASCII_DIGIT? ~ ">" | "&>" }
 read   = @{ ASCII_DIGIT? ~ "<" }
 
 // ---- words ----

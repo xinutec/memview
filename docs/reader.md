@@ -20,7 +20,7 @@ projection that layer will eventually be read through. The two are still built
 from different grammars, so **a coverage figure from one says nothing about the
 other** — but they are no longer unrelated: `reader/src/project.rs` puts the tree
 into the chain's own shape and the `projection` report diffs the two over one
-corpus. **96.1% of 134,622 distinct commands read identically**, and the 3.9%
+corpus. **96.3% of 134,622 distinct commands read identically**, and the 3.7%
 that do not are the port's worklist, ranked. See *Two readers*, below.
 
 ## Chain
@@ -182,17 +182,27 @@ reader's own shape, so `--bin projection` can diff them command by command.
 ⚠ **The differences were not evenly distributed, and neither reader owned them.**
 Measured 2026-08-17 over `union.jsonl`:
 
-| what disagrees | commands | who was wrong |
+| what disagreed | commands | who was wrong |
 | --- | --- | --- |
-| a backslash inside `" "` | 21,481 | the flat reader — **fixed**, `unquote` |
-| an argument before a redirection | 1,649 | the flat reader — **fixed**, `shell.pest` |
-| the condition on a loop body | ~2,000 | the flat reader: `for`/`do` are words to it |
-| `<(cmd)` as an argument | 152 | the flat reader: it is a redirection there |
-| how an expansion is spelled back | ~2,700 | neither — see below |
+| a backslash inside `" "` | 21,481 | flat reader — **fixed**, `unquote` |
+| an argument before a redirection | 1,649 | flat reader — **fixed**, `shell.pest` |
+| `do if x; then …` — the branch never opened | 621 | flat reader — **fixed**, `leading_keywords` |
+| `a &&⏎b` — the newline ended the list | 86 | flat reader — **fixed**, `walk` |
+| `cmd &>file` — the `&` was a separator | 18 | flat reader — **fixed**, `shell.pest` |
+| `${n}_v4` printed as `$n_v4` | 8 | the projection — **fixed**, `print_value` |
+| the condition on a loop body | 1,048 | flat reader, and **structurally**: see below |
+| `<(cmd)` as an argument | 154 | flat reader: it is a redirection there |
+| how an expansion is spelled back | ~2,600 | neither — see below |
 
-The first two were live defects nothing else could see: `grep -E "\s+"` was read
-as `grep -E "s+"`, and `nc -w3 host 25 2>&1` named no port. Both are gone, and
-agreement went **79.3% → 96.1%** on the two fixes alone.
+Five of the six fixed ones were live defects nothing else could see. `grep -E
+"\s+"` was read as `grep -E "s+"`; `nc -w3 host 25 2>&1` named no port; a
+`rm -rf "$p"` inside `do if …; then` was recorded as having certainly run.
+Agreement went **79.3% → 96.3%**.
+
+⚠ **The 1,048 that are left are the argument for the port.** `a && for f in x;
+do b; done` runs `b` only if `a` worked, and to this grammar `do` is a word after
+a `;`, so the condition resets. Carrying it across would mean rebuilding the loop
+structure the tree already has — which is what porting to the tree *is*.
 
 ⚠ **A spelling difference is not a reading difference.** An argv string holding
 `$(a|b)` is one reader's source text and the other's reprint of a parsed tree, so

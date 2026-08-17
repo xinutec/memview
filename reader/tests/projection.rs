@@ -13,6 +13,7 @@
 
 use reader::project::project;
 use reader::shell::{self, Reached};
+use reader::shell_ops::unwrap_command;
 use reader::syntax;
 
 /// The commands the tree finds, as the flat chain would see them.
@@ -73,9 +74,67 @@ fn a_number_before_a_redirection_is_still_an_argument() {
     }
 }
 
-/// 1,011 commands. `a && for f in x; do b; done` runs `b` only if `a` worked,
-/// and the flat reader called it certain: the `;` before `do` reset the
-/// condition, because to that grammar `do` is an ordinary word.
+/// ⚠ **The three shapes where the flat reader claimed a command certainly ran
+/// and it had not**, which is the one direction of error this reader is built to
+/// avoid. All three are fixed in `shell.rs` and `shell.pest`; asserted on both
+/// readers, because a silent regression here over-counts rather than under.
+#[test]
+fn the_flat_reader_no_longer_over_claims_certainty() {
+    // 621 commands: `do` and `if` land in one pipeline, and `leading_keywords`
+    // stopped at the `do` — so the branch never opened and its body read as
+    // certain. Both arms of an `if` cannot have run.
+    let script = r#"for p in a b; do if [ -d "$p" ]; then rm -rf "$p"; fi; done"#;
+    for cmds in [tree(script), shell::parse(script).unwrap()] {
+        // Through `unwrap_command`, because the flat grammar leaves the `then`
+        // it read as a word standing in front of the command it guards.
+        let rm = cmds
+            .iter()
+            .find(|c| unwrap_command(&c.argv).first().is_some_and(|w| w == "rm"))
+            .expect("the body is there");
+        assert_eq!(rm.reached, Reached::Sometimes, "{script}");
+    }
+
+    // 86 commands: a connector at the end of a line. `a &&⏎b` is one and-or
+    // list — bash's own grammar puts a newline_list after the `&&` — and reading
+    // the newline as a separator put `b` back at unconditional.
+    for cmds in [tree("a &&\nb"), shell::parse("a &&\nb").unwrap()] {
+        assert_eq!(cmds[1].reached, Reached::OnSuccess);
+    }
+
+    // 18 commands: `&>file` writes, and the `&` read as a background separator
+    // left the log file belonging to no command at all.
+    for cmds in [
+        tree("chrome --port=9222 &>/tmp/chrome.log"),
+        shell::parse("chrome --port=9222 &>/tmp/chrome.log").unwrap(),
+    ] {
+        assert_eq!(cmds.len(), 1, "one command, not a background and an orphan");
+        assert_eq!(cmds[0].redirects.len(), 1);
+        assert_eq!(cmds[0].redirects[0].target, "/tmp/chrome.log");
+        assert!(cmds[0].redirects[0].write);
+    }
+}
+
+/// ⚠ **`${n}_v4` is not `$n_v4`** — they name different variables, and a value
+/// built one segment at a time loses the difference because the braces are
+/// needed only by what FOLLOWS. 8 commands, all of them redirection targets,
+/// all of them a file nobody was recorded as writing to. The spelling lives in
+/// `syntax::print::print_value` for this reason.
+#[test]
+fn a_parameter_keeps_the_braces_that_hold_its_name_together() {
+    assert_eq!(argv("replay > /tmp/${n}_v4.svg")[0], ["replay"]);
+    assert_eq!(
+        tree("replay > /tmp/${n}_v4.svg")[0].redirects[0].target,
+        "/tmp/${n}_v4.svg"
+    );
+    // And drops the ones nothing needs, which is the printer's canonical form.
+    assert_eq!(argv("echo ${n} x")[0], ["echo", "$n", "x"]);
+}
+
+/// 1,048 commands, and the one class of disagreement left that the flat reader
+/// cannot fix: `a && for f in x; do b; done` runs `b` only if `a` worked, and
+/// the `;` before `do` resets the condition because to that grammar `do` is an
+/// ordinary word. Carrying it across would mean rebuilding the loop structure
+/// the tree simply has.
 #[test]
 fn a_loop_after_an_and_carries_the_condition_into_its_body() {
     let cmds = tree("a && for f in x y; do b; done");
