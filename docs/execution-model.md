@@ -255,10 +255,14 @@ subshell (778), a brace group (776), a function definition (153) — three forms
 glob, and it was hiding inside a compound-statement build. Split out it was 566
 commands — the largest single item at the time, and built next because of it.
 
-`<` and `>` began as one `Redirection`. Split into a file-or-descriptor target, a heredoc
-whose operand is on the following lines, and a process substitution that is a
-whole command, the file forms alone were four fifths of it — and the hard half
-was never on the critical path.
+`<` and `>` began as one `Redirection`. Split into a file-or-descriptor target, a
+heredoc whose operand is on the following lines, and a process substitution, the
+file forms alone were four fifths of it — and the hard half was never on the
+critical path. The split also corrected what the third one *is*: not a
+redirection carrying a command, but a **word** carrying one. `diff x<(a)` is a
+single argument and `x=<(a)` is a binding, so it sits beside a parameter in a
+word, and the redirection reader reaches it only the way it reaches any other
+target word.
 
 The split of `ReservedWord` said it loudest. One bucket of 8,681 keywords was
 **99.1% loops**: `for`/`while`/`until` block 8,606 commands and unlock 4,573 on

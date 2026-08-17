@@ -24,9 +24,10 @@
 
 use super::ast::{
     Anchor, AndOr, Arith, Assignment, BinaryOp, Brace, Command, CommandKind, Comment, Conditional,
-    Connector, ForArith, ForLoop, Function, Glob, Heredoc, Item, Link, Parameter, ParameterOp,
-    Pipeline, Redirect, RedirectOp, RedirectTarget, Replace, Script, Segment, SegmentKind, Simple,
-    Span, Step, Subscript, Substitution, Tilde, Timed, UnaryOp, WhileLoop, Word,
+    Connector, Direction, ForArith, ForLoop, Function, Glob, Heredoc, Item, Link, Parameter,
+    ParameterOp, Pipeline, ProcessSubstitution, Redirect, RedirectOp, RedirectTarget, Replace,
+    Script, Segment, SegmentKind, Simple, Span, Step, Subscript, Substitution, Tilde, Timed,
+    UnaryOp, WhileLoop, Word,
 };
 
 /// Where a word is being read, which decides what expands inside it.
@@ -1359,18 +1360,23 @@ impl<'t> Parser<'t> {
                 // `|`, `||` and `&` all end a word; which of them it is, is the
                 // list's business rather than this reader's.
                 b'|' | b'&' => break,
+                // ⚠ **The space decides, and there is no other test.**
+                // `diff < (a) b` — one blank between them — is a syntax error to
+                // bash rather than a redirection to a subshell, so `<`
+                // immediately followed by `(` is a process substitution
+                // wherever it appears. Measured.
+                b'<' | b'>' if self.peek_at(1) == Some(b'(') => {
+                    segments.push(self.process_substitution()?);
+                }
                 b'<' | b'>' => {
-                    // ⚠ Four constructs share these characters and they are not
+                    // ⚠ Three constructs share these characters and they are not
                     // one build. A heredoc's operand is on the following lines;
-                    // a process substitution is a whole command. Naming them
-                    // apart is what let the corpus say which to do first.
+                    // a here-string's is a value on this one.
                     // A `<<` reaching this reader is glued to the end of a word
                     // (`foo<<EOF`), which bash reads as a word and a redirection
                     // and this parser does not split — so what is unmodelled here
                     // is the gluing, not the heredoc.
-                    let reason = if self.peek_at(1) == Some(b'(') {
-                        Reason::ProcessSubstitution
-                    } else if byte == b'<'
+                    let reason = if byte == b'<'
                         && self.peek_at(1) == Some(b'<')
                         && self.peek_at(2) == Some(b'<')
                     {
@@ -1661,25 +1667,56 @@ impl<'t> Parser<'t> {
     }
 
     /// `$(cmd)` — a whole script, read by the reader that reads a whole script.
+    fn substitution(&mut self, quoted: bool) -> Result<Segment, Refusal> {
+        let start = self.at;
+        self.at += 2; // `$(`
+        let items = self.parenthesised_list()?;
+        Ok(Segment {
+            kind: SegmentKind::Substitution(Substitution { items, quoted }),
+            span: Span::new(start, self.at),
+        })
+    }
+
+    /// `<(cmd)` or `>(cmd)` — the same recursion, a different thing done with
+    /// what it prints.
     ///
-    /// ⚠ **A heredoc in here belongs to this substitution and nothing else.**
-    /// Both halves of that matter and both are measured in
+    /// ⚠ **It is a segment, so it glues.** `diff x<(a)` is one word and
+    /// `x=<(a)` is a binding, both measured — which is why this is reached from
+    /// the word reader rather than from the redirection reader, even though a
+    /// redirection target is where the corpus mostly writes it.
+    fn process_substitution(&mut self) -> Result<Segment, Refusal> {
+        let start = self.at;
+        let direction = match self.peek() {
+            Some(b'<') => Direction::Read,
+            _ => Direction::Write,
+        };
+        self.at += 2; // `<(` or `>(`
+        let items = self.parenthesised_list()?;
+        Ok(Segment {
+            kind: SegmentKind::ProcessSubstitution(ProcessSubstitution { direction, items }),
+            span: Span::new(start, self.at),
+        })
+    }
+
+    /// The command list inside `$( … )` or `<( … )`, from just past the `(` to
+    /// just past the `)`, with its own heredoc bodies already paired up.
+    ///
+    /// ⚠ **A heredoc in here belongs to this list and nothing else.** Both
+    /// halves of that matter and both are measured in
     /// `reader/probes/substitution-heredoc.sh`:
     ///
     /// - An opener the ENCLOSING line left waiting may not be handed a body from
     ///   in here. `cat <<A "$(cat <<X⏎i⏎X⏎)"` gives the argument `X`'s body and
     ///   stdin `A`'s, so the pending list is set aside for the duration.
-    /// - This substitution's own bodies are paired up *here*, at the closing
-    ///   paren, rather than left for the walk in [`fill_script`]. Bash reads a
-    ///   body when the line holding its opener ends, and a line inside a
-    ///   substitution ends before the one around it — an order no walk over the
-    ///   finished tree reproduces, since it is neither the order the openers were
-    ///   written in nor the order the tree holds them in. Draining them at the
-    ///   close makes the question local, and leaves the outer walk with exactly
-    ///   the bodies the outer line opened.
-    fn substitution(&mut self, quoted: bool) -> Result<Segment, Refusal> {
-        let start = self.at;
-        self.at += 2; // `$(`
+    /// - This list's own bodies are paired up *here*, at the closing paren,
+    ///   rather than left for the walk in [`fill_script`]. Bash reads a body when
+    ///   the line holding its opener ends, and a line inside a substitution ends
+    ///   before the one around it — an order no walk over the finished tree
+    ///   reproduces, since it is neither the order the openers were written in
+    ///   nor the order the tree holds them in. Draining them at the close makes
+    ///   the question local, and leaves the outer walk with exactly the bodies
+    ///   the outer line opened.
+    fn parenthesised_list(&mut self) -> Result<Vec<Item>, Refusal> {
         let outer = std::mem::take(&mut self.pending);
         let bodies_before = self.bodies.len();
         self.parens += 1;
@@ -1710,10 +1747,7 @@ impl<'t> Parser<'t> {
         if items.iter().any(|item| matches!(item, Item::Comment(_))) {
             return self.refuse(Reason::CommentInList, 1);
         }
-        Ok(Segment {
-            kind: SegmentKind::Substitution(Substitution { items, quoted }),
-            span: Span::new(start, self.at),
-        })
+        Ok(items)
     }
 
     /// `$name`, `${name}`, `$1`, `$@` — with the braces resolved away.

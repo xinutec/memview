@@ -353,16 +353,22 @@ impl Survey<'_> {
                     }
                 }
                 b'<' | b'>' => {
+                    // ⚠ **A process substitution is a word SEGMENT, so neither
+                    // rule below applies to it.** It is legal in a `for` header
+                    // and legal glued into a word — `diff x<(a)` is one word —
+                    // and testing it after those two claimed a redirection on
+                    // every glued one.
+                    let opens_process = self.peek_at(1) == Some(b'(');
                     // A redirection in a `for` header is a syntax error to bash,
                     // and the parser refuses the loop rather than the operator.
-                    if loop_header {
+                    if loop_header && !opens_process {
                         self.found.insert(Reason::Loop);
                     }
                     // ⚠ **Glued into a word, it is not a redirection at all.**
                     // `awk 'NF>10'` unquoted puts a `>` in the middle of a word,
                     // which the parser refuses by that name; a descriptor is the
                     // one thing that may precede the operator, and it is digits.
-                    if in_word && !word.chars().all(|c| c.is_ascii_digit()) {
+                    if in_word && !opens_process && !word.chars().all(|c| c.is_ascii_digit()) {
                         self.found.insert(Reason::Redirection);
                     }
                     end_word!();
@@ -370,9 +376,10 @@ impl Survey<'_> {
                     // and only one of them is "a redirection to a file". Counted
                     // apart because they are not one build: a heredoc's operand
                     // is on the FOLLOWING lines, and a process substitution is a
-                    // whole command.
-                    if self.peek_at(1) == Some(b'(') {
-                        self.found.insert(Reason::ProcessSubstitution);
+                    // word whose value is a path the shell invents — modelled
+                    // now, with its interior still scanned, because the parser
+                    // reads it.
+                    if opens_process {
                         self.process_substitution();
                     } else if byte == b'<'
                         && self.peek_at(1) == Some(b'<')
@@ -811,7 +818,9 @@ impl Survey<'_> {
     fn process_substitution(&mut self) {
         self.at += 1; // the `<` or `>`
         let open = self.at;
-        self.skip_balanced(b'(', b')');
+        if !self.skip_balanced(b'(', b')') {
+            self.found.insert(Reason::UnterminatedExpansion);
+        }
         let interior = self
             .text
             .get(open + 1..self.at.saturating_sub(1))
@@ -820,6 +829,9 @@ impl Survey<'_> {
         // there has to be built before this command can be read.
         let inner = scan(interior);
         self.found.extend(inner.found);
+        if inner.saw_comment {
+            self.found.insert(Reason::CommentInList);
+        }
     }
 
     fn skip_expansion(&mut self) {

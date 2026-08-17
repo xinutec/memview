@@ -461,6 +461,8 @@ pub enum SegmentKind {
     Parameter(Parameter),
     /// `$(cmd)` — the output of a whole script.
     Substitution(Substitution),
+    /// `<(cmd)`, `>(cmd)` — a path the shell invents, wired to a whole script.
+    ProcessSubstitution(ProcessSubstitution),
     /// `{a,b}`, `{1..9}` — one word that becomes several.
     Brace(Brace),
     /// `$((1+2))` — a number, not a string.
@@ -658,6 +660,39 @@ pub struct Substitution {
     pub quoted: bool,
 }
 
+/// `<(cmd)` or `>(cmd)`, whose value is a path the shell invents.
+///
+/// ⚠ **A word segment, not a command.** It glues: `diff x<(a)` is ONE word — the
+/// invented path concatenated onto `x` — and `x=<(a)` is an assignment whose
+/// value is one. Both measured. So it sits beside a parameter in a word, and the
+/// same node is reachable from a redirection's target, which is where the corpus
+/// mostly writes it: `while read -r l; do …; done < <(ls)`.
+///
+/// ⚠ **The interior is normalised by bash, so the second gate checks it**, just
+/// as it does a `$( )`: `<(a|b)` comes back as `<(a | b)`. Measured in
+/// `reader/probes/process-substitution.sh`.
+///
+/// There is no `quoted` bit, because there is nothing to quote: `"<(a)"` is the
+/// four literal characters, not a substitution, so this segment only ever
+/// reaches the tree from unquoted text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProcessSubstitution {
+    /// Which direction the invented path carries: `<(cmd)` is one to READ, and
+    /// `>(cmd)` one to WRITE. Named for what the enclosing command does with it,
+    /// the way [`RedirectOp`] is.
+    pub direction: Direction,
+    pub items: Vec<Item>,
+}
+
+/// Which way a process substitution's invented path is used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    /// `<(cmd)` — the command's output, as a file to read.
+    Read,
+    /// `>(cmd)` — the command's input, as a file to write.
+    Write,
+}
+
 /// A parameter, named and nothing more.
 ///
 /// ⚠ **The braces are not recorded.** `$x` and `${x}` name the same value, so
@@ -808,6 +843,10 @@ impl Word {
                 | SegmentKind::Tilde(_)
                 | SegmentKind::Parameter(_)
                 | SegmentKind::Substitution(_)
+                // A process substitution names a path the shell has not invented
+                // yet — `/dev/fd/63`, and `/dev/fd/62` for the next one in the
+                // same command.
+                | SegmentKind::ProcessSubstitution(_)
                 // A brace expansion names several words, so "the" text of the
                 // word it sits in is a category error twice over.
                 | SegmentKind::Brace(_)

@@ -20,7 +20,7 @@
 
 use super::ast::{
     Anchor, AndOr, Arith, Assignment, BinaryOp, Brace, Command, CommandKind, Conditional,
-    Connector, ForLoop, Glob, Heredoc, Item, Parameter, ParameterOp, Pipeline, Redirect,
+    Connector, Direction, ForLoop, Glob, Heredoc, Item, Parameter, ParameterOp, Pipeline, Redirect,
     RedirectOp, RedirectTarget, Script, Segment, SegmentKind, Simple, Step, Subscript, Tilde,
     Timed, UnaryOp, WhileLoop, Word,
 };
@@ -729,32 +729,53 @@ fn print_segment(segment: &Segment) -> String {
         },
         SegmentKind::Arithmetic(value) => format!("$(({}))", print_arith(value)),
         SegmentKind::Substitution(substitution) => {
-            let mut inner = Vec::new();
-            let body = print_body(&substitution.items, &mut inner);
-            // ⚠ **`$((` is arithmetic, so a substitution holding a subshell
-            // needs the space bash needs.** `$( (cd x) && y )` written without
-            // it opens an arithmetic expansion instead — for bash as well as for
-            // this parser, which is how the round-trip law caught it on 9
-            // commands the moment grouping made the shape reachable.
-            let opener = if body.starts_with('(') { "$( " } else { "$(" };
-            // ⚠ **The one place a word is printed across lines.** A heredoc's
-            // body has to follow the line its `<<` was written on, and that line
-            // is in here — so the substitution takes the lines it needs and
-            // closes on one of its own. This is bash's own spelling: `declare
-            // -f` renders `x=$(cat <<X⏎body⏎X⏎)` exactly so and re-prints its
-            // own print unchanged, measured in
-            // `reader/probes/substitution-heredoc.sh`.
-            let text = if inner.is_empty() {
-                format!("{opener}{body})")
-            } else {
-                format!("{opener}{body}\n{}\n)", inner.join("\n"))
-            };
+            let text = print_parenthesised(&substitution.items, "$");
             if substitution.quoted {
                 format!("\"{text}\"")
             } else {
                 text
             }
         }
+        // ⚠ Never quoted: `"<(a)"` is four literal characters to bash, so this
+        // segment can only have come from unquoted text and printing it any
+        // other way would say something the tree does not.
+        SegmentKind::ProcessSubstitution(substitution) => print_parenthesised(
+            &substitution.items,
+            match substitution.direction {
+                Direction::Read => "<",
+                Direction::Write => ">",
+            },
+        ),
+    }
+}
+
+/// `$( … )`, `<( … )`, `>( … )` — a command list inside a word.
+///
+/// ⚠ **`$((` is arithmetic, so a substitution holding a subshell needs the space
+/// bash needs.** `$( (cd x) && y )` written without it opens an arithmetic
+/// expansion instead — for bash as well as for this parser, which is how the
+/// round-trip law caught it on 9 commands the moment grouping made the shape
+/// reachable. Written for every opener rather than only for `$`, because the
+/// rule is about what follows the paren and the cost is one character.
+///
+/// ⚠ **The one place a word is printed across lines.** A heredoc's body has to
+/// follow the line its `<<` was written on, and that line is in here — so the
+/// list takes the lines it needs and closes on one of its own. This is bash's
+/// own spelling: `declare -f` renders `x=$(cat <<X⏎body⏎X⏎)` exactly so and
+/// re-prints its own print unchanged, measured in
+/// `reader/probes/substitution-heredoc.sh`.
+fn print_parenthesised(items: &[Item], opener: &str) -> String {
+    let mut bodies = Vec::new();
+    let body = print_body(items, &mut bodies);
+    let open = if body.starts_with('(') {
+        format!("{opener}( ")
+    } else {
+        format!("{opener}(")
+    };
+    if bodies.is_empty() {
+        format!("{open}{body})")
+    } else {
+        format!("{open}{body}\n{}\n)", bodies.join("\n"))
     }
 }
 

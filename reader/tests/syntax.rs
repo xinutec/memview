@@ -273,19 +273,16 @@ fn the_survey_reports_the_construct_and_not_its_punctuation() {
     // an unmatched paren. That put all 352 of those commands in "needs 2
     // constructs" and took both — the top two of the queue — off the "build one
     // construct" list entirely, which is the list the next build is chosen from.
-    assert_eq!(
-        survey("diff <(sort a) <(sort b)"),
-        BTreeSet::from([Reason::ProcessSubstitution])
-    );
+    assert!(survey("diff <(sort a) <(sort b)").is_empty());
     assert_eq!(
         survey("case $x in a) b;; c) d;; esac"),
         BTreeSet::from([Reason::Case])
     );
     // What is genuinely in there is still reported: a process substitution's
-    // interior is a command list the parser will have to read.
+    // interior is a command list the parser reads.
     assert_eq!(
         survey("diff <(grep `x` a) b"),
-        BTreeSet::from([Reason::ProcessSubstitution, Reason::Backtick])
+        BTreeSet::from([Reason::Backtick])
     );
 }
 
@@ -572,7 +569,6 @@ fn a_descriptor_must_touch_its_operator() {
 #[test]
 fn what_is_still_refused_is_named() {
     assert_eq!(refusal("cat <<< word"), Reason::HereString);
-    assert_eq!(refusal("diff <(a) <(b)"), Reason::ProcessSubstitution);
     assert_eq!(refusal("cat >"), Reason::EmptyOperand);
 }
 
@@ -1624,6 +1620,62 @@ fn a_substitution_carrying_a_heredoc_prints_across_lines() {
         print(&tree("f \"$(cat <<X\nINNER\nX\n)\" <<A\nOUTER\nA")),
         "f \"$(cat <<X\nINNER\nX\n)\" <<A\nOUTER\nA"
     );
+}
+
+#[test]
+fn a_process_substitution_is_a_segment_and_not_a_command() {
+    // ⚠ **It glues, and no gate can see it if the tree splits the word.** Bash
+    // prints `diff x<(a)` back verbatim, so the second gate agrees with a tree
+    // that made it two words; our print of that tree would be `diff x <(a)`,
+    // which re-reads as the same wrong tree, so the law holds too. Only
+    // construction decides it, against `reader/probes/process-substitution.sh`.
+    let words = words("diff x<(a) b");
+    assert_eq!(words.len(), 3);
+    assert_eq!(words[1].segments.len(), 2);
+    assert_eq!(print(&tree("diff x<(a) b")), "diff x<(a) b");
+    // A binding whose value is one, which bash also renders unchanged.
+    assert_eq!(print(&tree("x=<(a)")), "x=<(a)");
+    // The direction is the whole difference, and it is kept.
+    assert_ne!(tree("tee >(a)"), tree("tee <(a)"));
+    assert_eq!(print(&tree("tee >(wc -l)")), "tee >(wc -l)");
+}
+
+#[test]
+fn the_law_holds_across_the_process_substitution_shapes() {
+    for text in [
+        "diff <(sort a) <(sort b)",
+        "tee >(wc -l) >(md5sum)",
+        // The idiom the corpus actually holds: a redirection whose target is one.
+        "while read -r l; do echo $l; done < <(ls)",
+        "cat < <(ls)",
+        "cat 3< <(a)",
+        "echo hi >> >(cat)",
+        // The interior is a script, so everything the script reader reads is in
+        // there too.
+        "diff <(a | b) <(c && d)",
+        "diff <(for f in a; do b; done) c",
+        "diff <(diff <(a) <(b)) c",
+        "diff <($(echo a)) b",
+        // A heredoc inside one, which takes the lines a heredoc needs.
+        "diff <(cat <<X\nbody\nX\n) b",
+        // Glued, bound, and empty — all three render in bash.
+        "diff x<(a)",
+        "x=<(a)",
+        "diff <()",
+        // Quoted, where it is four literal characters and no substitution.
+        "echo \"<(a)\"",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+        assert!(
+            survey(text).is_empty(),
+            "{text:?} should need nothing: {:?}",
+            survey(text)
+        );
+    }
 }
 
 #[test]
