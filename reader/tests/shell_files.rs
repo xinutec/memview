@@ -4,7 +4,7 @@
 //! as much weight as the positive: this table's only real failure mode is
 //! putting a path into an agent's record that the command never named.
 
-use reader::shell::parse;
+use reader::project::read as parse;
 use reader::shell_files::extract;
 
 const HOME: &str = "/home/example";
@@ -187,7 +187,13 @@ fn a_subject_the_text_does_not_determine_is_counted_rather_than_dropped() {
     // for `$` alone missed it — measured on the day the counter shipped, `cat
     // `which claude`` recorded no read and no admission of one. The older syntax
     // is rarer but it is not gone.
-    assert_eq!(unnamed("cat `which claude`"), ["`which claude`"]);
+    //
+    // ⚠ It is *shown* as `$( )` since the chain read through the tree
+    // (`43ae9fe`), because the two spellings are one node there and the printer
+    // picks one. What is admitted is the same admission; only the way it is
+    // written down changed, and one spelling for one thing is the better answer
+    // for a list a person reads.
+    assert_eq!(unnamed("cat `which claude`"), ["$(which claude)"]);
 
     // Still no file, and that has not changed: naming what was refused must not
     // become a way of inventing it.

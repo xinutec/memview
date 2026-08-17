@@ -133,9 +133,12 @@ pub fn parsed(asked: &Asked, cwd: Option<&str>, home: &str) -> Parsed {
         Some(false) => Verdict::Failed,
         None => Verdict::Unknown,
     };
-    let commands = match reader::shell::parse(&asked.command) {
+    let commands = match reader::project::read(&asked.command) {
         Ok(commands) => commands,
-        Err(at) => {
+        // The construct that stopped the read, by name. The flat grammar gave
+        // back the text it gave up at; this one knows what it was looking at.
+        Err(refusal) => {
+            let at = format!("{:?}", refusal.reason);
             return Parsed {
                 error: Some(at),
                 steps: Vec::new(),

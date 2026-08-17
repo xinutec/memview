@@ -17,8 +17,8 @@ use std::collections::BTreeMap;
 
 use anyhow::Context;
 
+use reader::shell_files;
 use reader::shell_ops::{GitOp, Op};
-use reader::{shell, shell_files};
 
 /// The shape of an operation, for the distribution.
 fn op_name(op: &Op) -> &'static str {
@@ -56,7 +56,7 @@ fn truncate(s: &str, n: usize) -> String {
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let Some(path) = args.get(1) else {
-        anyhow::bail!("usage: shell-files <corpus.jsonl> [--show <n>] [--paths <n>] [--tree]");
+        anyhow::bail!("usage: shell-files <corpus.jsonl> [--show <n>] [--paths <n>]");
     };
     let count = |flag: &str, default: usize| -> usize {
         args.iter()
@@ -65,7 +65,6 @@ fn main() -> anyhow::Result<()> {
             .and_then(|n| n.parse().ok())
             .unwrap_or(default)
     };
-    let tree = args.iter().any(|a| a == "--tree");
     let show = count("--show", 25);
     let paths = count("--paths", 0);
     // The check that matters: not how many paths came out, but whether a given
@@ -154,28 +153,17 @@ fn main() -> anyhow::Result<()> {
                 .with_context(|| format!("unreadable outcome in the corpus: {outcome}"))?,
         };
         calls += 1;
-        // ⚠ **Two readers, and `--tree` is which one.** The flat grammar is what
-        // the artefacts are built from today; the syntax tree is what
-        // `docs/reader.md` calls the projection the chain will be read through.
-        // The switch is here rather than in the chain so the two can be run over
-        // one corpus and the counts compared — which is the only way to know the
-        // port loses nothing. `--bin projection` compares them a layer earlier.
-        let parsed = if tree {
-            match reader::syntax::parse(cmd) {
-                Ok(script) => reader::project::run_out(&script),
-                Err(_) => {
-                    unparsed += 1;
-                    continue;
-                }
-            }
-        } else {
-            match shell::parse(cmd) {
-                Ok(parsed) => parsed,
-                Err(_) => {
-                    unparsed += 1;
-                    continue;
-                }
-            }
+        // ⚠ **The tree, which is what the chain reads through as of 43ae9fe.**
+        // This ran both ways behind a `--tree` flag for exactly as long as it
+        // took to decide the port, and the flag is gone because a half-switched
+        // mode misleads: `shell_files` reads a nested `bash -c` through the tree
+        // whichever reader opened the outer script, so a "grammar" column here
+        // would not have been one. The standing comparison is `--bin
+        // projection`, which asks both readers the same question a layer earlier
+        // and needs neither of them switched.
+        let Ok(parsed) = reader::project::read(cmd) else {
+            unparsed += 1;
+            continue;
         };
         let found = shell_files::extract_knowing(&parsed, cwd, &home, &refused);
         handled += found.handled;

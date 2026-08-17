@@ -836,7 +836,7 @@ fn extract_nested(
             // inside stays inside — which is what the inner shell does.
             Op::Nested { script } => {
                 out.handled += 1;
-                match crate::shell::parse(script) {
+                match crate::project::read(script) {
                     Ok(inner) if depth < MAX_NESTING => {
                         let found = extract_nested(
                             &inner,
@@ -862,7 +862,7 @@ fn extract_nested(
                 script,
             } => {
                 out.handled += 1;
-                match crate::shell::parse(script) {
+                match crate::project::read(script) {
                     Ok(inner) if depth < MAX_NESTING => {
                         let found =
                             extract_nested(&inner, None, home, Some(there), depth + 1, trace, &[]);

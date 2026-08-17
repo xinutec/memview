@@ -74,6 +74,22 @@ pub fn run_out(script: &Script) -> Vec<Simple> {
     walk(script, true)
 }
 
+/// **The chain's reader**: what one script ran, off the tree.
+///
+/// ⚠ **This is the entry point the artefacts are built from, and it is
+/// deliberately not [`crate::shell::parse`].** That one stays, because a
+/// comparison needs two answers and `--bin projection` is what keeps this one
+/// honest — the moment the flat grammar becomes a call to this, nothing checks
+/// either of them again.
+///
+/// A refusal is a refusal: there is no falling back to the other reader. Two
+/// readers taking turns would mean no command's reading could be attributed to
+/// either, and the 16 commands this refuses where the grammar does not are
+/// outnumbered four to one by the 66 the other way.
+pub fn read(script: &str) -> Result<Vec<Simple>, crate::syntax::Refusal> {
+    Ok(run_out(&crate::syntax::parse(script)?))
+}
+
 fn walk(script: &Script, unroll: bool) -> Vec<Simple> {
     let mut walk = Walk {
         out: Vec::new(),

@@ -15,13 +15,16 @@ stop. What is undetermined is recorded as undetermined and counted, so the gap i
 a number rather than a silence.
 
 [execution-model.md](execution-model.md) specifies the syntax layer underneath,
-`reader/src/syntax/`, and the three gates that govern it. The chain below is the
-projection that layer will eventually be read through. The two are still built
-from different grammars, so **a coverage figure from one says nothing about the
-other** — but they are no longer unrelated: `reader/src/project.rs` puts the tree
-into the chain's own shape and the `projection` report diffs the two over one
-corpus. **96.3% of 134,622 distinct commands read identically**, and the 3.7%
-that do not are the port's worklist, ranked. See *Two readers*, below.
+`reader/src/syntax/`, and the three gates that govern it. **The chain below reads
+through it** — `reader/src/project.rs` puts that tree into the flat shape the
+rest of the chain consumes, and `project::read` is the entry point every artefact
+is built from.
+
+`shell.rs` and its pest grammar are still here, and are not dead: they are the
+*second* answer that makes a disagreement mean something. `--bin projection` asks
+both readers the same question over one corpus — **96.3% of 134,622 distinct
+commands read identically**, and the 3.7% that do not are ranked. That comparison
+is what found six defects nothing else could see; see *Two readers*, below.
 
 ## Chain
 
@@ -29,7 +32,8 @@ Each stage's authoritative explanation is its module doc-comment.
 
 | module | question |
 | --- | --- |
-| `reader/src/shell.rs` + `shell.pest` | which commands does this script run? |
+| `reader/src/syntax/` + `project.rs` | which commands does this script run? |
+| `reader/src/shell.rs` + `shell.pest` | the same question, second answer — the check on the first |
 | `reader/src/shell_ops.rs` | what does one command do, to which paths? |
 | `reader/src/python.rs` + `python.pest` | same, for inline Python |
 | `reader/src/shell_files.rs` | resolved against a cwd, which files? |
@@ -206,9 +210,16 @@ structure the tree already has — which is what porting to the tree *is*.
 
 ### The whole chain, both ways
 
-`shell-files --tree` runs the same corpus through the same semantics table from
-the tree instead of the grammar — `project::run_out` in place of
-`shell::parse` + the unrolling. Measured 2026-08-17:
+**The chain reads through the tree as of `43ae9fe`** — `project::read` at every
+entry point that builds an artefact, including the nested `bash -c` payloads.
+Before switching, the same corpus was run through the same semantics table both
+ways behind a `--tree` flag; that flag is gone, because with nested scripts on
+the tree a "grammar" column would no longer have been one. The standing
+comparison is `--bin projection`, which asks both readers the same question a
+layer earlier and needs neither of them switched.
+
+The grammar column below was measured at `dc2fe2a`, the commit before the
+switch. Measured 2026-08-17:
 
 | | grammar | tree |
 | --- | --- | --- |
@@ -219,11 +230,21 @@ the tree instead of the grammar — `project::run_out` in place of
 | uses the outcome confirms | 185,235 | **194,702** |
 | subjects a glob loop bounded | 407 | **427** |
 | subjects not named | 4.3% | 4.3% |
+| **nested scripts unread** | **98** | **405** |
 
 **The tree reads more of the same corpus, and reads it as more certain.** More
 loops are run out — the grammar had to find the `done` by counting keywords and
 lost the ones it mis-parsed — so more bodies are real commands rather than a
 `$f`, and a loop that certainly ran contributes uses the outcome can confirm.
+With the nested payloads on the tree as well (`43ae9fe`), writes rise again to
+33,179 and the table reads 98.0%.
+
+⚠ **One figure moved the wrong way, and it is the last row.** The tree refuses
+by name where the grammar guessed, and inside a `bash -c '…'` payload it refuses
+four times as often — 405 scripts whose file uses are lost, against the 98 the
+grammar lost. Every other column is better, which is why the switch happened
+anyway; **what those 405 are has not been measured**, and until it is, "the tree
+reads more" is true of the whole and unproven of that part. memview#1028.
 
 ⚠ **Two entry points, and the difference between them is the whole of the
 evaluation.** `project` is what the script *says*: one command per command

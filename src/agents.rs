@@ -1289,7 +1289,7 @@ fn scan_transcript(
         }
         if let Some(BashLine { cwd, calls }) = bash_calls_with_ids(line) {
             for BashCall { id: call, command } in calls {
-                let Ok(parsed) = reader::shell::parse(&command) else {
+                let Ok(parsed) = reader::project::read(&command) else {
                     continue;
                 };
                 // ⚠ **Traced, because the effects artefact shows the command a
