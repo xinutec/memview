@@ -536,6 +536,15 @@ The `3<&-` one is the clearest example of the shape: our print of the wrong tree
 shell, so gate 3 held; and construction cannot see it because both spellings are
 modelled. One command in 129,329.
 
+⚠ **It does not look inside a backtick, and that is a hole in the adjudication
+below.** `echo $(rglob("k"))` is refused and `` echo `rglob("k")` `` is accepted
+— measured — because bash parses a `$( )` interior at parse time and defers a
+backtick's. So a refusal from inside one cannot be put to `bash -n` at all: it
+answers *accepts* for text that is not shell. Two of the corpus's remaining 66
+refusals are exactly that, markdown backticks inside a string, and the refusal is
+right in both. The claim below held until backticks were built and has to be read
+with this exception now.
+
 ⚠ **`bash -n` adjudicates every refusal that is a claim about the input.**
 `UnterminatedQuote`, `DanglingEscape` and `EmptyOperand` assert the text is not
 shell; every other reason asserts only that we do not model something, which bash
