@@ -505,11 +505,27 @@ impl Agents {
     }
 }
 
-/// The tools whose `file_path` counts as reading.
-const READ_TOOLS: [&str; 1] = ["Read"];
-/// ...and as writing. `NotebookEdit` carries `notebook_path`, not `file_path`,
-/// so it is not counted here rather than counted wrongly.
-const WRITE_TOOLS: [&str; 2] = ["Write", "Edit"];
+/// The tool calls worth finding in a transcript, and what each one is.
+///
+/// `Some(false)` reads a file, `Some(true)` changes one, `None` touches no path
+/// this can name. **All three produce a timeline row**; only the first two
+/// attribute a file to anybody.
+///
+/// ⚠ **Taken from the corpus, not from the tool list anybody remembers.**
+/// Counted across `~/.claude/projects` on 2026-08-17: Edit 72,103, Read 42,891,
+/// Write 12,508, WebFetch 1,218, WebSearch 870, Agent 422, Grep 421 — and
+/// `Task`, `MultiEdit` and `NotebookEdit` **zero**, so listing them would have
+/// been three needles that never fire. Delegation is `Agent` here; the
+/// `Task*` names in these transcripts are a task-store tool and not work.
+const TOOLS: [(&str, Option<bool>); 7] = [
+    ("Read", Some(false)),
+    ("Write", Some(true)),
+    ("Edit", Some(true)),
+    ("Grep", None),
+    ("Agent", None),
+    ("WebFetch", None),
+    ("WebSearch", None),
+];
 
 /// How long it takes for a day's presence to count half as much.
 ///
@@ -1127,14 +1143,7 @@ fn call_completed(
     at: usize,
     outcomes: &std::collections::HashMap<String, reader::doing::Verdict>,
 ) -> bool {
-    const ID: &[u8] = b"\"id\":\"";
-    let Some(start) = crate::couse::last_at(&line[..at], ID).map(|pos| pos + ID.len()) else {
-        return true;
-    };
-    let Some(end) = find_at(line, b"\"", start) else {
-        return true;
-    };
-    let Ok(id) = std::str::from_utf8(&line[start..end]) else {
+    let Some(id) = call_id(line, at) else {
         return true;
     };
     outcomes
@@ -1142,6 +1151,37 @@ fn call_completed(
         .copied()
         .unwrap_or(reader::doing::Verdict::Unknown)
         .completed()
+}
+
+/// The `file_path` inside one tool call's input object, if it has one.
+///
+/// ⚠ **It is not always the input's first key.** `Edit` serialises
+/// `replace_all` ahead of it — every one of the 28,546 in the live corpus — so a
+/// needle demanding the path directly after the tool name matched none of them
+/// at all, and the miner reported zero edits while calling the number "writes".
+/// The key is looked up inside the object instead, bounded by `limit` so a call
+/// carrying no path cannot borrow the following call's.
+fn path_in(line: &[u8], input: usize, limit: usize) -> Option<&str> {
+    let key = find_at(line, PATH_KEY, input)?;
+    if key >= limit {
+        return None;
+    }
+    let start = key + PATH_KEY.len();
+    let end = find_at(line, b"\"", start)?;
+    std::str::from_utf8(&line[start..end]).ok()
+}
+
+/// The tool-use id of the call a needle landed inside.
+///
+/// The id sits just before the name in the same object, so the nearest one
+/// behind the needle is this call's — the same reasoning [`call_completed`]
+/// relies on, shared rather than written twice so a timeline row and the
+/// completeness gate can never disagree about which call they are talking about.
+fn call_id(line: &[u8], at: usize) -> Option<&str> {
+    const ID: &[u8] = b"\"id\":\"";
+    let start = crate::couse::last_at(&line[..at], ID).map(|pos| pos + ID.len())?;
+    let end = find_at(line, b"\"", start)?;
+    std::str::from_utf8(&line[start..end]).ok()
 }
 
 /// The call a `tool_result` line answers, and what became of it.
@@ -1244,14 +1284,9 @@ fn scan_transcript(
     let refusals = refusals(text);
     // Built once per transcript rather than once per line — the needles are
     // fixed and the corpus is millions of lines.
-    let needles: Vec<(String, bool)> = READ_TOOLS
+    let needles: Vec<(String, &str, Option<bool>)> = TOOLS
         .iter()
-        .map(|tool| (format!("\"name\":\"{tool}\",\"input\":{{"), false))
-        .chain(
-            WRITE_TOOLS
-                .iter()
-                .map(|tool| (format!("\"name\":\"{tool}\",\"input\":{{"), true)),
-        )
+        .map(|(tool, role)| (format!("\"name\":\"{tool}\",\"input\":{{"), *tool, *role))
         .collect();
     for line in text.split(|&c| c == b'\n') {
         if line.is_empty() {
@@ -1498,51 +1533,61 @@ fn scan_transcript(
         // walked rather than only the first — a batched turn that opens six
         // files is six reads, and counting it as one would understate exactly
         // the sessions that work hardest.
-        for (head, is_write) in &needles {
-            let is_write = *is_write;
-            let (counter, days) = if is_write {
-                (&mut *agent_writes, &mut seen.writes)
-            } else {
-                (&mut *agent_reads, &mut seen.reads)
-            };
+        for (head, tool, role) in &needles {
             let mut from = 0;
             while let Some(at) = find_at(line, head.as_bytes(), from) {
                 let input = at + head.len();
                 from = input;
+                // Bounded by the next tool call so a call carrying no path
+                // cannot borrow the following call's. A tool's own payload
+                // cannot forge the marker: it is a JSON string, so its quotes
+                // arrive backslash-escaped.
+                let limit = find_at(line, b"\"name\":\"", input).unwrap_or(line.len());
+                // ⚠ **The timeline row goes in whatever the call returned**,
+                // exactly as a shell command's does: being refused or failing is
+                // part of the record, and the verdict arrives later by id. File
+                // attribution is the opposite and is gated below — a `Edit` that
+                // failed left the file untouched.
+                //
+                // Pushed before the path is known, because a `Grep` or a `Task`
+                // never has one and is still work somebody did.
+                if let Some(minute) = stamp.and_then(reader::doing::minute)
+                    && let Some(activity) = reader::activity::Activity::of_tool(tool)
+                    && let Some(call) = call_id(line, at)
+                {
+                    let project =
+                        path_in(line, input, limit).and_then(|p| project_of(p, code_root));
+                    log.push(reader::doing::Work {
+                        call,
+                        agent: agent_name,
+                        project: project.as_deref(),
+                        host: None,
+                        kind: activity.label(),
+                        n: 1,
+                        minute,
+                    });
+                }
+                let Some(is_write) = role else {
+                    continue; // no path of its own to attribute
+                };
+                let is_write = *is_write;
+                let (counter, days) = if is_write {
+                    (&mut *agent_writes, &mut seen.writes)
+                } else {
+                    (&mut *agent_reads, &mut seen.reads)
+                };
+                if !call_completed(line, at, &outcomes) {
+                    continue;
+                }
                 // ⚠ **A tool call that failed did nothing.** `Edit` fails when
                 // its `old_string` is absent and leaves the file untouched; 990
                 // of them in the corpus, plus 289 `Write`s, were counted as
                 // changes to files they never altered. One thing, one result —
                 // none of the reachability reasoning a shell script needs.
-                //
-                // The id sits just before the name in the same object, so the
-                // nearest one behind this needle is this call's.
-                if !call_completed(line, at, &outcomes) {
+                let Some(path) = path_in(line, input, limit) else {
                     continue;
-                }
-                // **`file_path` is not always the input's first key.** `Edit`
-                // serialises `replace_all` ahead of it — every one of the 28,546
-                // in the live corpus — so a needle demanding the path directly
-                // after the tool name matched none of them at all, and the miner
-                // reported zero edits while calling the number "writes". The
-                // path is looked up inside the object instead.
-                //
-                // Bounded by the next tool call so one carrying no path cannot
-                // borrow the following call's. A tool's own payload cannot forge
-                // either marker: it is a JSON string, so its quotes arrive
-                // backslash-escaped and match neither needle.
-                let limit = find_at(line, b"\"name\":\"", input).unwrap_or(line.len());
-                let Some(key) = find_at(line, PATH_KEY, input) else {
-                    break;
                 };
-                if key >= limit {
-                    continue;
-                }
-                let start = key + PATH_KEY.len();
-                let Some(end) = find_at(line, b"\"", start) else {
-                    break;
-                };
-                if let Ok(path) = std::str::from_utf8(&line[start..end]) {
+                {
                     if let Some(project) = project_of(path, code_root) {
                         *counter.entry(project.clone()).or_insert(0) += 1;
                         if let Some(day) = day {
@@ -1579,7 +1624,6 @@ fn scan_transcript(
                         }
                     }
                 }
-                from = end;
             }
         }
     }

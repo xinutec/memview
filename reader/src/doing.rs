@@ -12,6 +12,19 @@
 //! was written: a viewer that serves the literal history makes the corpus
 //! depend on the transcripts instead of distilling them.
 //!
+//! ⚠ **Everything that happened, not the notable part of it** — Pippijn's call,
+//! 2026-08-17, when tool calls joined the shell here. Reading a file is smaller
+//! work than running a build and the timeline does not say so: it is a record,
+//! and a record that quietly dropped the small things would answer "what was
+//! this session doing" with a curated version of it. Weighting is a question for
+//! whatever *displays* a row, which can see how many there are; deciding it here
+//! would take the choice away from every reader at once.
+//!
+//! Until that day this was **Bash-only**, so half the fleet's work was missing
+//! from it: the history holds 284,839 `Bash` calls against 127,502 `Read`,
+//! `Write` and `Edit` ones, and an agent who reached for `Edit` showed an
+//! emptier day than one who reached for `sed`.
+//!
 //! **Dictionaries, not strings.** The agent, repository, kind and host of every
 //! row repeat endlessly across a hundred thousand of them, so they are interned
 //! and the rows carry indices. It is what keeps the artefact in the same order

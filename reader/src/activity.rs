@@ -54,6 +54,14 @@ pub enum Activity {
     Install,
     /// Asked a database.
     Query,
+    /// Handed work to another agent — the `Agent` tool.
+    ///
+    /// ⚠ **Its own kind rather than [`Activity::Other`]**, which is the bucket
+    /// for a command nothing in the table names. Delegation is named everywhere
+    /// else in this repository — the roster counts it per agent — and a turn
+    /// that delegates is doing something quite different from one that runs an
+    /// unrecognised program.
+    Delegate,
     /// Moved around, listed a directory, printed something. Understood, and not
     /// work anybody would name.
     Navigate,
@@ -260,6 +268,32 @@ impl Activity {
         !matches!(self, Activity::Navigate | Activity::Nothing)
     }
 
+    /// What a TOOL call is, as opposed to a shell command.
+    ///
+    /// ⚠ **The timeline was Bash-only until 2026-08-17**, so half the fleet's
+    /// work was invisible in it: the history holds 87,918 `Bash` calls against
+    /// 36,371 `Write` and `Edit` ones, and an agent that reaches for `Edit`
+    /// showed an emptier day than one reaching for `sed`. The vocabulary already
+    /// had room — [`Activity::Inspect`] has named the `Read` tool since it was
+    /// written — and this is what fills it.
+    ///
+    /// `None` for a tool that is not work anybody would name: `TodoWrite`
+    /// records an intention, and the harness's own bookkeeping is not activity.
+    pub fn of_tool(name: &str) -> Option<Activity> {
+        Some(match name {
+            "Read" | "NotebookRead" => Activity::Inspect,
+            "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => Activity::Edit,
+            "Grep" | "Glob" => Activity::Search,
+            // ⚠ `Agent`, not `Task`: measured, `"name":"Task"` appears nowhere
+            // in the corpus, and the `Task*` tools in it are a task store.
+            "Agent" | "Task" => Activity::Delegate,
+            // A fetch is a look at something that is not this machine, which is
+            // what `Observe` means for a host.
+            "WebFetch" | "WebSearch" => Activity::Observe,
+            _ => return None,
+        })
+    }
+
     /// A stable name, for tallies and for the wire.
     pub fn label(&self) -> &str {
         match self {
@@ -275,6 +309,7 @@ impl Activity {
             Activity::Observe => "observe",
             Activity::Install => "install",
             Activity::Query => "query",
+            Activity::Delegate => "delegate",
             Activity::Navigate => "navigate",
             Activity::Nothing => "(not work)",
             Activity::Other { name } => name,
