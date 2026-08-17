@@ -33,8 +33,8 @@
 use std::collections::BTreeSet;
 
 use super::parse::{
-    Bracket, Reason, brace_expansion, bracket_expression, classify_expansion, opens_assignment,
-    reserved_word,
+    Bracket, Reason, brace_expansion, bracket_expression, classify_expansion, is_binding_prefix,
+    is_declaration, opens_assignment, reserved_word,
 };
 
 pub fn survey(text: &str) -> BTreeSet<Reason> {
@@ -124,6 +124,10 @@ impl Survey<'_> {
         // definition with a blank before the parens, so by the time the `(` is
         // read the name is behind us and `at_command_start` has been cleared.
         let mut after_name = false;
+        // ⚠ WHICH command, because an array literal is legal in argument
+        // position only after a declaration builtin — bash's own rule, and the
+        // only thing that tells `declare x=(a)` from `echo x=(a)`.
+        let mut command_name = String::new();
 
         // ⚠ **Finishing a word clears `at_command_start`, and only finishing a
         // word does.** Preserving it here instead made every word on a line look
@@ -157,6 +161,9 @@ impl Survey<'_> {
                             for_stage = 0;
                         }
                         _ => {}
+                    }
+                    if at_command_start && !word_is_binding && command_name.is_empty() {
+                        command_name = word.clone();
                     }
                     word_opens_list = false;
                     // ⚠ `case x in` — the same shape as a `for` header, and
@@ -280,6 +287,7 @@ impl Survey<'_> {
                 at_pipeline_head = true;
                 seen_time = false;
                 after_name = false;
+                command_name.clear();
                 // `for f; do …` is legal — the header simply ends here. Written
                 // as a test so it reads the value it clears, which is also what
                 // says the clear is deliberate rather than a leftover.
@@ -490,6 +498,16 @@ impl Survey<'_> {
                         loop_header = false;
                         separator!();
                         self.skip_balanced(b'(', b')');
+                    } else if in_word
+                        && is_binding_prefix(&word)
+                        && (at_command_start || is_declaration(&command_name))
+                    {
+                        // ⚠ `x=(a b)` is an array literal, which is not a
+                        // grouping at all — 16 of the 28 commands this reason
+                        // used to hold. Legal as a command PREFIX and after a
+                        // declaration builtin, and a syntax error anywhere else,
+                        // which is why the command name is tracked.
+                        self.array_literal();
                     } else if self.closes_immediately()
                         && (after_name || (at_command_start && in_word))
                     {
@@ -792,6 +810,33 @@ impl Survey<'_> {
         }
         self.bytes.get(at) == Some(&b')')
     }
+    /// Step over `(a b c)` — an array literal, whose elements are words.
+    ///
+    /// ⚠ **Not descended into as a script.** The interior is a word LIST, and
+    /// scanning it as a command list would read the first element as a command
+    /// name and every keyword in it as grammar. What is looked for instead is
+    /// the one shape the parser refuses in there: a comment, which the printer
+    /// writes an array on one line and has nowhere to put.
+    fn array_literal(&mut self) {
+        let open = self.at;
+        if !self.skip_balanced(b'(', b')') {
+            self.found.insert(Reason::Grouping);
+            return;
+        }
+        let interior = self
+            .text
+            .get(open + 1..self.at.saturating_sub(1))
+            .unwrap_or_default();
+        let mut after_blank = true;
+        for byte in interior.bytes() {
+            if byte == b'#' && after_blank {
+                self.found.insert(Reason::CommentInList);
+                break;
+            }
+            after_blank = matches!(byte, b' ' | b'\t' | b'\n' | b'\r');
+        }
+    }
+
     /// Does a body follow the `()` of a definition — a brace group or a
     /// subshell, which are the two spellings bash accepts?
     fn body_follows(&self) -> bool {

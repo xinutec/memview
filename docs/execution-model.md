@@ -7,7 +7,8 @@ the fleet executes, plus a printer that puts it back.
 lists, redirection, heredocs, here-strings, tilde prefixes, parameters and their
 operators, `$( )`, `` ` ` `` and `<( )` substitutions, `for`/`while`/`until`/`select` loops,
 `if`, `case`, subshells, brace groups, function definitions, brace expansion,
-bracket expressions, `$'…'` and arithmetic; three gates wired.**
+bracket expressions, array literals, `$'…'` and arithmetic; three gates
+wired.**
 `reader/src/syntax/` holds the tree, the parser and the printer; the
 `bash-oracle` crate holds the second and third gates and the report.
 
@@ -256,6 +257,14 @@ subshell (778), a brace group (776), a function definition (153) — three forms
 `{a,b}.txt` is one word that expands to two, so it is word-level work like a
 glob, and it was hiding inside a compound-statement build. Split out it was 566
 commands — the largest single item at the time, and built next because of it.
+
+⚠ **And `Grouping` was still hiding one after that.** Sixteen of the 28 commands
+left under it were **array assignments** — `x=(a b)`, `declare -A M=([k]=v)` —
+which is not a grouping at all: it is a value made of several words, and the `(`
+is the only thing it shares with a subshell. Ranked as `Grouping` it read as
+"malformed input, nothing to build"; named, it was the second-largest item on the
+queue. A generic reason does not merely under-credit a construct — it can hide
+that there is one.
 
 `<` and `>` began as one `Redirection`. Split into a file-or-descriptor target, a
 heredoc whose operand is on the following lines, and a process substitution, the

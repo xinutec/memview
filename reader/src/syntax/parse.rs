@@ -23,11 +23,11 @@
 //! at a special character always lands on a character boundary.
 
 use super::ast::{
-    Anchor, AndOr, Arith, Arm, ArmEnd, Assignment, BinaryOp, Brace, Case, Class, ClassItem,
-    Command, CommandKind, Comment, Conditional, Connector, Direction, ForArith, ForLoop, Function,
-    Glob, Heredoc, Item, Link, Parameter, ParameterOp, Pipeline, ProcessSubstitution, Redirect,
-    RedirectOp, RedirectTarget, Replace, Script, Segment, SegmentKind, Simple, Span, Step,
-    Subscript, Substitution, Tilde, Timed, UnaryOp, WhileLoop, Word,
+    Anchor, AndOr, Arith, Arm, ArmEnd, ArrayElement, Assignment, BinaryOp, Brace, Case, Class,
+    ClassItem, Command, CommandKind, Comment, Conditional, Connector, Direction, ForArith, ForLoop,
+    Function, Glob, Heredoc, Item, Link, Parameter, ParameterOp, Pipeline, ProcessSubstitution,
+    Redirect, RedirectOp, RedirectTarget, Replace, Script, Segment, SegmentKind, Simple, Span,
+    Step, Subscript, Substitution, Tilde, Timed, UnaryOp, WhileLoop, Word,
 };
 
 /// Where a word is being read, which decides what expands inside it.
@@ -43,6 +43,52 @@ enum WordKind {
     /// An assignment's value: no pathname expansion, and a tilde after any
     /// unquoted `:` as well as at the head.
     Value,
+    /// An argument to a declaration builtin — `declare`, `typeset`, `export`,
+    /// `readonly`, `local`.
+    ///
+    /// ⚠ **The only argument position where `NAME=(a b)` is legal**, and bash
+    /// decides it by the command NAME: `echo x=(a)` is a syntax error while
+    /// `declare x=(a)` is not. Measured, both. Otherwise an argument.
+    Declaration,
+}
+
+/// Do the segments read so far spell `NAME=` or `NAME+=` and nothing else?
+///
+/// That is the one shape an array literal may follow in argument position:
+/// `declare -a T=(a b)` binds, and `declare -a T(a b)` is not a binding at all.
+fn spells_a_binding(segments: &[Segment]) -> bool {
+    match segments {
+        [
+            Segment {
+                kind: SegmentKind::Literal(text),
+                ..
+            },
+        ] => is_binding_prefix(text),
+        _ => false,
+    }
+}
+
+/// Is this text `NAME=` or `NAME+=` and nothing more?
+///
+/// Shared with the survey, which has the same question to answer about the same
+/// `(` and must not answer it differently.
+pub fn is_binding_prefix(text: &str) -> bool {
+    let Some(name) = text.strip_suffix('=') else {
+        return false;
+    };
+    let name = name.strip_suffix('+').unwrap_or(name);
+    !name.is_empty()
+        && !name.starts_with(|c: char| c.is_ascii_digit())
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// The builtins that read their arguments as declarations, which is the only
+/// thing that makes an array literal legal in argument position.
+pub fn is_declaration(name: &str) -> bool {
+    matches!(
+        name,
+        "declare" | "typeset" | "export" | "readonly" | "local"
+    )
 }
 
 /// Why a piece of text was not read.
@@ -229,6 +275,7 @@ pub fn parse(text: &str) -> Result<Script, Refusal> {
         parens: 0,
         arm_depth: 0,
         in_pattern: false,
+        in_array: false,
     };
     let mut script = parser.script()?;
     let mut bodies = parser.bodies.into_iter();
@@ -261,6 +308,9 @@ struct Parser<'t> {
     /// How many `case` arm bodies are being read. Inside one, `;;`, `;&` and
     /// `;;&` end the list rather than separating commands in it.
     arm_depth: usize,
+    /// Is an array literal's element list being read? A `)` ends it, where in a
+    /// word it would be a grouping character with no partner.
+    in_array: bool,
     /// Is a `case` PATTERN being read? An unquoted `)` ends one, wherever the
     /// enclosing text would otherwise take it for something else.
     in_pattern: bool,
@@ -701,7 +751,15 @@ impl<'t> Parser<'t> {
                 redirects.push(redirect);
                 continue;
             }
-            let word = self.word(words.is_empty(), WordKind::Argument)?;
+            // ⚠ **The command's NAME decides how its arguments are read.**
+            // `declare x=(a)` parses and `echo x=(a)` is a syntax error — bash's
+            // own rule, measured — so an array literal in argument position is
+            // legal only after one of five builtins.
+            let kind = match words.first().and_then(Word::as_literal) {
+                Some(name) if is_declaration(&name) => WordKind::Declaration,
+                _ => WordKind::Argument,
+            };
+            let word = self.word(words.is_empty(), kind)?;
             words.push(word);
         }
         Ok(Command {
@@ -1292,6 +1350,76 @@ impl<'t> Parser<'t> {
         })
     }
 
+    /// `(a b c)`, `([0]=a [1]=b)`, `()` — the elements of an array.
+    ///
+    /// ⚠ **The second gate CAN see in here**, unlike the inside of a word: bash
+    /// normalises the whitespace between elements, so `x=(a   b)` comes back as
+    /// `x=(a b)` and one written across four lines comes back on one. A
+    /// mis-split of the elements is a difference it reports.
+    ///
+    /// ⚠ **A newline between elements is a separator**, not a terminator —
+    /// which is how the corpus writes a long one.
+    fn array_literal(&mut self) -> Result<Segment, Refusal> {
+        let start = self.at;
+        self.at += 1; // the `(`
+        let was = self.in_array;
+        self.in_array = true;
+        let elements = self.array_elements();
+        self.in_array = was;
+        let elements = elements?;
+        self.at += 1; // the `)`
+        Ok(Segment {
+            kind: SegmentKind::Array(elements),
+            span: Span::new(start, self.at),
+        })
+    }
+
+    /// The elements, up to but not including the closing `)`.
+    fn array_elements(&mut self) -> Result<Vec<ArrayElement>, Refusal> {
+        let mut elements = Vec::new();
+        loop {
+            self.skip_blanks_and_newlines()?;
+            match self.peek() {
+                None => return self.refuse(Reason::Grouping, 1),
+                Some(b')') => return Ok(elements),
+                // The printer writes an array on one line, so a comment in one
+                // has nowhere to go — the same answer a loop body's gets.
+                Some(b'#') => return self.refuse(Reason::CommentInList, 1),
+                _ => {
+                    let key = self.array_key()?;
+                    let value = self.word(false, WordKind::Argument)?;
+                    elements.push(ArrayElement { key, value });
+                }
+            }
+        }
+    }
+
+    /// `[k]=` in front of an element, where the text gives one.
+    ///
+    /// ⚠ **Told apart from a bracket EXPRESSION by the `=` after the `]`.**
+    /// `x=([0]=a)` names slot zero and `x=([0]a)` is a glob matching a filename;
+    /// both are legal, bash prints both verbatim, and only this lookahead
+    /// decides which the tree gets.
+    fn array_key(&mut self) -> Result<Option<Word>, Refusal> {
+        if self.peek() != Some(b'[') {
+            return Ok(None);
+        }
+        let close = match self.bytes[self.at..]
+            .iter()
+            .position(|byte| matches!(byte, b']' | b' ' | b'\t' | b'\n' | b')'))
+        {
+            Some(offset) if self.bytes[self.at + offset] == b']' => self.at + offset,
+            _ => return Ok(None),
+        };
+        if self.bytes.get(close + 1) != Some(&b'=') {
+            return Ok(None);
+        }
+        self.at += 1; // the `[`
+        let key = self.operand(b"]")?;
+        self.at += 2; // the `]=`
+        Ok(Some(key))
+    }
+
     /// One pattern: a word, read where `)` and `|` end it.
     ///
     /// ⚠ **A word, not a string.** Bash prints a pattern back verbatim, so the
@@ -1639,7 +1767,7 @@ impl<'t> Parser<'t> {
                 // either way it ends the word instead of being refused. A quoted
                 // or escaped one never reaches here, which is what makes
                 // `'a)b')` a pattern holding a paren.
-                b')' if self.parens > 0 || self.in_pattern => break,
+                b')' if self.parens > 0 || self.in_pattern || self.in_array => break,
                 // ⚠ **A brace INSIDE a word is expansion, not grouping.**
                 // `echo {a,b}.txt` is one word that expands to two, which is a
                 // glob-level construct and a different build from `{ a; }`.
@@ -1655,6 +1783,17 @@ impl<'t> Parser<'t> {
                         kind: SegmentKind::Literal("}".to_string()),
                         span: Span::new(at, self.at),
                     });
+                }
+                // ⚠ **An array literal, in the two places bash allows one** —
+                // opening an assignment's value, or opening one in argument
+                // position after a declaration builtin. Anywhere else a `(` in
+                // a word is a syntax error to bash too, which is what the
+                // refusal below says.
+                b'(' if segments.is_empty() && kind == WordKind::Value => {
+                    segments.push(self.array_literal()?);
+                }
+                b'(' if kind == WordKind::Declaration && spells_a_binding(&segments) => {
+                    segments.push(self.array_literal()?);
                 }
                 b'(' | b')' => return self.refuse(Reason::Grouping, 1),
                 // ⚠ A `$` that opens nothing is an ordinary character, and

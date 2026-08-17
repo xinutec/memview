@@ -242,6 +242,81 @@ fn a_bracket_expression_names_a_set_and_only_matching_can_say_so() {
     assert!(check("FOO=[ab]").holds());
 }
 
+#[test]
+fn an_array_literal_is_a_value_made_of_words() {
+    use reader::syntax::ast::Assignment;
+    let elements = |text: &str| match &tree(text).items[..] {
+        [Item::List(list)] => match &list.first.commands[0].kind {
+            reader::syntax::ast::CommandKind::Simple(simple) => match &simple.assignments[..] {
+                [Assignment { value, .. }] => match &value.segments[..] {
+                    [
+                        Segment {
+                            kind: SegmentKind::Array(elements),
+                            ..
+                        },
+                    ] => elements.clone(),
+                    other => panic!("{text:?} is not one array: {other:?}"),
+                },
+                other => panic!("{text:?} is not one binding: {other:?}"),
+            },
+            other => panic!("{text:?} is not simple: {other:?}"),
+        },
+        other => panic!("{text:?} is not one list: {other:?}"),
+    };
+    assert_eq!(elements("x=(a b c)").len(), 3);
+    assert!(elements("x=()").is_empty());
+    // ⚠ A newline between elements is a separator, not a terminator — which is
+    // how the corpus writes a long one.
+    assert_eq!(elements("x=(\n  a\n  b\n)").len(), 2);
+    // ⚠ An element may name its own slot, and `[0]=a` is an INDEX where `[0]a`
+    // is a glob. Only the `=` after the `]` tells them apart.
+    let keyed = elements("x=([0]=a [1]=b)");
+    assert!(keyed.iter().all(|element| element.key.is_some()));
+    assert!(elements("x=([0]a)")[0].key.is_none());
+    // ⚠ **Legal in exactly two places, and bash decides by the command NAME.**
+    // `declare x=(a)` parses and `echo x=(a)` is a syntax error — measured, both
+    // — so reading one anywhere else would accept text bash refuses.
+    assert!(parse("declare -a T=(a b)").is_ok());
+    assert!(parse("local -a q=(1 2)").is_ok());
+    assert_eq!(refusal("echo x=(a)"), Reason::Grouping);
+    assert_eq!(refusal("cmd x=(a b)"), Reason::Grouping);
+}
+
+#[test]
+fn the_law_holds_across_the_array_shapes() {
+    for text in [
+        "x=(a b c)",
+        "x=()",
+        "x+=(d)",
+        "x=(a   b)",
+        "x=(\"a b\" c)",
+        "x=($(ls) *.txt)",
+        "x=([0]=a [1]=b)",
+        "declare -a T=(a b)",
+        "declare -A M=([k]=v)",
+        "local -a q=(1 2)",
+        "x=(a b) y=(c)",
+        "x=(a b) cmd arg",
+        "moves=(\n\"one two\"\n\"three\"\n)",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+        assert!(
+            survey(text).is_empty(),
+            "{text:?} should need nothing: {:?}",
+            survey(text)
+        );
+    }
+    // ⚠ Bash NORMALISES the whitespace between elements, so the second gate can
+    // see a mis-split in here — the rare word-internal shape it has an opinion
+    // about. The printer therefore writes one space, as bash does.
+    assert_eq!(print(&tree("x=(a   b)")), "x=(a b)");
+    assert_eq!(print(&tree("x=(\n a\n b\n)")), "x=(a b)");
+}
+
 // ---- comments are nodes ----
 
 #[test]

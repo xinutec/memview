@@ -521,6 +521,8 @@ pub enum SegmentKind {
     Substitution(Substitution),
     /// `<(cmd)`, `>(cmd)` — a path the shell invents, wired to a whole script.
     ProcessSubstitution(ProcessSubstitution),
+    /// `(a b c)` — an array literal, which is a value made of several words.
+    Array(Vec<ArrayElement>),
     /// `{a,b}`, `{1..9}` — one word that becomes several.
     Brace(Brace),
     /// `$((1+2))` — a number, not a string.
@@ -719,6 +721,19 @@ pub struct Substitution {
     /// ⚠ Semantic, exactly as it is on a [`Parameter`]: an unquoted
     /// substitution is split into words and globbed, a quoted one is one word.
     pub quoted: bool,
+}
+
+/// One element of an array literal.
+///
+/// ⚠ **A pair, because an element may name its own slot.** `x=([0]=a)` and
+/// `declare -A M=([k]=v)` both come back from `declare -f` verbatim, and the
+/// corpus holds both — so an element is not a bare word and reading one as a
+/// word would put a bracket EXPRESSION where an index belongs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArrayElement {
+    /// `[k]` — the index or key, where the text gives one.
+    pub key: Option<Word>,
+    pub value: Word,
 }
 
 /// `<(cmd)` or `>(cmd)`, whose value is a path the shell invents.
@@ -958,6 +973,9 @@ impl Word {
                 // yet — `/dev/fd/63`, and `/dev/fd/62` for the next one in the
                 // same command.
                 | SegmentKind::ProcessSubstitution(_)
+                // An array names SEVERAL values, so "the" text of the word it
+                // sits in is a category error.
+                | SegmentKind::Array(_)
                 // A brace expansion names several words, so "the" text of the
                 // word it sits in is a category error twice over.
                 | SegmentKind::Brace(_)
