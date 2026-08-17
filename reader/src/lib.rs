@@ -54,5 +54,6 @@ pub mod python;
 pub mod shell;
 pub mod shell_files;
 pub mod shell_ops;
+pub mod sniff;
 pub mod syntax;
 pub mod transcript;

@@ -1,6 +1,6 @@
 //! What the fleet's commands carry that nothing looks inside.
 //!
-//!     cargo run --release --bin opacity -- <corpus.jsonl> [--show <n>]
+//!     cargo run --release --bin opacity -- <corpus.jsonl> [--show <n>] [--why <label>]
 //!
 //! The fourth of the family after `shell-report` (the grammar), `shell-files`
 //! (the shell's semantics) and `python-report` (the Python inside it). Those
@@ -23,11 +23,30 @@
 //! ⚠ **The language of a heredoc body is SNIFFED, and a sniff is a guess.** It
 //! is reported as "looks like" for that reason. The point is the ranking — is
 //! there a kilobyte of SQL here or a megabyte — not the label on any one body.
+//!
+//! ⚠ **And the ranking was wrong for as long as the guess had no tests.** On
+//! 2026-08-17 the Python bucket stood at 1,154 bodies and 2.0 MB; **731 of them
+//! were not Python.** One line opening `import ` decided the language, and
+//! TypeScript, Kotlin, Swift and Lean all open a line that way — as does an
+//! English sentence that wraps onto a line beginning "from". Corrected, the
+//! biggest carried language is **TypeScript or JavaScript at 698 bodies and
+//! 953 kB**, ahead of Python's 423 and 850 kB, and Lean and Swift have buckets
+//! at all. `--why <label>` prints a bucket's bodies with the mark that filed
+//! each one, which is what makes the next such error findable rather than
+//! plausible.
+//!
+//! ⚠ **The 4.4 MB of "prose" is mostly not a gap.** `cat`, `git` and `task`
+//! opened 5,209 of those bodies — a heredoc redirected into a file, a commit
+//! message, a task body. The first is a write to a path already known and the
+//! other two are not programs at all, so the megabytes there rank far below
+//! what their size suggests. Read this census by *opener* as well as by
+//! language.
 
 use std::collections::BTreeMap;
 
 use reader::shell_files;
 use reader::shell_ops::Op;
+use reader::sniff::looks_like;
 
 /// A tally of things and how many bytes they came to.
 #[derive(Default)]
@@ -51,7 +70,7 @@ impl Weighed {
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let Some(path) = args.get(1) else {
-        anyhow::bail!("usage: opacity <corpus.jsonl> [--show <n>]");
+        anyhow::bail!("usage: opacity <corpus.jsonl> [--show <n>] [--why <label>]");
     };
     let show: usize = args
         .iter()
@@ -59,6 +78,12 @@ fn main() -> anyhow::Result<()> {
         .and_then(|i| args.get(i + 1))
         .and_then(|n| n.parse().ok())
         .unwrap_or(12);
+    // Which sniffed label to open up, rather than count.
+    let why: Option<String> = args
+        .iter()
+        .position(|a| a == "--why")
+        .and_then(|i| args.get(i + 1))
+        .map(|label| label.to_lowercase());
     let home = std::env::var("HOME").unwrap_or_default();
 
     let text = std::fs::read_to_string(path)?;
@@ -72,6 +97,9 @@ fn main() -> anyhow::Result<()> {
     let mut openers: BTreeMap<String, usize> = BTreeMap::new();
     // Words we refuse to resolve, by why.
     let mut unresolved: BTreeMap<&'static str, Weighed> = BTreeMap::new();
+    // Under `--why`: the bodies filed under that label, each with the mark that
+    // put it there, tallied so one shape repeated 400 times reads as one line.
+    let mut opened: BTreeMap<(&'static str, String), usize> = BTreeMap::new();
 
     for line in text.lines() {
         let Ok(row) = serde_json::from_str::<serde_json::Value>(line) else {
@@ -126,7 +154,14 @@ fn main() -> anyhow::Result<()> {
                 if carried.iter().any(|source| source.contains(body.as_str())) {
                     continue;
                 }
-                bodies.entry(looks_like(body)).or_default().add(body, show);
+                let (guess, mark) = looks_like(body);
+                bodies.entry(guess).or_default().add(body, show);
+                if why
+                    .as_deref()
+                    .is_some_and(|label| guess.to_lowercase().contains(label) || label == "all")
+                {
+                    *opened.entry((mark, cut(body))).or_default() += 1;
+                }
                 // ⚠ **And by the command that opened it, which is the question
                 // that actually decides anything.** A body fed to an interpreter
                 // is a program we cannot read; a body redirected into a file is
@@ -177,6 +212,19 @@ fn main() -> anyhow::Result<()> {
                 _ => {}
             }
         }
+    }
+
+    // ⚠ `--why` answers a different question and prints instead of, not beside,
+    // the census: the point is to read what a bucket actually holds, and a
+    // thousand bodies below a summary is not something anybody reads.
+    if let Some(label) = &why {
+        println!("bodies sniffed as {label:?}, by the mark that decided it\n");
+        let mut sorted: Vec<(&(&str, String), &usize)> = opened.iter().collect();
+        sorted.sort_by_key(|((mark, _), n)| (*mark, std::cmp::Reverse(**n)));
+        for ((mark, body), n) in sorted {
+            println!("  {n:>5}  [{mark}]  {body}");
+        }
+        return Ok(());
     }
 
     println!("{calls} Bash calls\n");
@@ -244,74 +292,6 @@ fn refuses(word: &str) -> Option<&'static str> {
     } else {
         "a path built around a variable"
     })
-}
-
-/// What a heredoc body looks like. A guess, reported as one.
-///
-/// ⚠ **Anchored, and rewritten once because the first version was mostly wrong.**
-/// It tested for marks *anywhere* in the body: `contains("SELECT ")` filed Python
-/// and shell under SQL because prose says "select", `starts_with('[')` filed an
-/// INI file under JSON, and `contains("\n#")` filed Rust under shell on the
-/// strength of `#[test]`. A sniff that can fire on a substring of a comment is
-/// not a sniff. Every test below is anchored to the start of the body or to the
-/// start of a line, and JSON is not sniffed at all — it is parsed.
-///
-/// Order is by how distinctive the mark is, not by how common the language is.
-/// The Python test carries a second shape because the corpus's commonest Python
-/// heredoc does not open with an import: it opens with `p='some/path'` and goes
-/// straight to `open(p).read()`.
-fn looks_like(body: &str) -> &'static str {
-    let head = body.trim_start();
-    let line_starts = |mark: &str| head.starts_with(mark) || body.contains(&format!("\n{mark}"));
-    if head.starts_with("#!") {
-        "a script with a shebang"
-    } else if serde_json::from_str::<serde_json::Value>(head).is_ok() {
-        "JSON"
-    } else if starts_with_word(
-        head,
-        &[
-            "SELECT", "CREATE", "INSERT", "UPDATE", "DELETE", "PRAGMA", "ATTACH", "BEGIN", "WITH",
-        ],
-    ) {
-        "SQL"
-    } else if line_starts("import ")
-        || line_starts("from ")
-        || line_starts("def ")
-        || (body.contains("open(") && body.contains(".read()"))
-        || body.contains(".read_text()")
-        || body.contains(".write_text(")
-    {
-        "Python"
-    } else if line_starts("#[") || line_starts("fn ") || line_starts("pub fn ") {
-        "Rust"
-    } else if line_starts("package ") || body.contains("kotlinx") || line_starts("fun ") {
-        "Kotlin or Java"
-    } else if head.starts_with("let ") && body.contains(" in ") {
-        "Dhall"
-    } else if head.starts_with("---") || line_starts("apiVersion:") {
-        "YAML"
-    } else if head.starts_with('[') && body.contains('=') {
-        "INI"
-    } else if head.starts_with('<') {
-        "markup"
-    } else if head.starts_with("set -e") || line_starts("for ") || line_starts("if [") {
-        "shell"
-    } else {
-        "prose, or nothing recognised"
-    }
-}
-
-/// Whether the text opens with one of these words, as a word.
-///
-/// `starts_with("WITH")` would match `WITHOUT`, and case is not a signal here —
-/// the corpus writes SQL both ways.
-fn starts_with_word(head: &str, words: &[&str]) -> bool {
-    let first: String = head
-        .chars()
-        .take_while(|c| c.is_ascii_alphabetic())
-        .collect::<String>()
-        .to_uppercase();
-    words.contains(&first.as_str())
 }
 
 fn by_bytes<K: Copy + Ord>(all: &BTreeMap<K, Weighed>) -> Vec<(K, &Weighed)> {

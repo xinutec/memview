@@ -133,9 +133,16 @@ while the rate falls.
 ⚠ **A parse rate is not a coverage figure.** A command that parses can hide the
 ones inside it; `"$( … )"` was opaque while every report looked clean.
 
-Two ways a figure has misled, each written up where it happened: a rate hiding a
-trade (`reader/examples/tree-sitter-probe.rs`) and a census counting text already
-read (`reader/src/bin/opacity.rs`).
+⚠ **A bucket is only as good as the guess that fills it, and a guess with no
+test does not announce itself.** `opacity` sniffs the language of a heredoc body
+from a mark; one line opening `import ` filed TypeScript, Kotlin, Swift and Lean
+alike as Python, and 731 of the 1,154 bodies under that label were not Python.
+Nothing looked wrong, because a census prints the same shape of number either
+way. `--why <label>` opens a bucket and names the mark that filed each body.
+
+Three ways a figure has misled, each written up where it happened: a rate hiding
+a trade (`reader/examples/tree-sitter-probe.rs`), a census counting text already
+read, and a census mislabelling what it counted (both `reader/src/bin/opacity.rs`).
 
 ## Running it
 
@@ -158,12 +165,15 @@ cargo run --release -p reader --bin shell-report     -- <corpus>  # grammar
 cargo run --release -p reader --bin shell-files      -- <corpus>  # semantics
 cargo run --release -p reader --bin activity-report  -- <corpus> [--sample KIND]
 cargo run --release -p reader --bin python-report    -- <corpus> [--why|--sample]
-cargo run --release -p reader --bin opacity          -- <corpus>  # what nothing reads
+cargo run --release -p reader --bin opacity          -- <corpus> [--why <label>]
 # do the two readers agree about what ran? — and where they do not
 cargo run --release -p reader --bin projection -- <corpus> [--show <n>] [--only <bucket>]
 
 cargo run --release -p reader --example roundtrip-probe -- <corpus>
 cargo run --release -p reader --example unparsed-probe  -- <corpus>
+# is there Python we never noticed was Python? — and does what we found parse?
+cargo run --release -p reader --example python-calls          -- <corpus>
+cargo run --release -p reader --example tree-sitter-python-probe -- <corpus>
 
 # the syntax tree: coverage, the ranked refusals, and all three gates
 cargo run --release -p bash-oracle --bin syntax-report -- <corpus> [--oracle] [--why SUBSTRING]
@@ -233,6 +243,30 @@ heredoc body inside its own delimiter so a nested re-parse can still see it, and
 only that reader decodes the marker — mixing the two silently loses every nested
 `python3 - <<PY`. Read the outer and inner scripts with the same reader.
 
+## The Python inside it
+
+Two questions, and only the second had ever been asked. **Does what we found
+parse?** `tree-sitter-python` reads 14,982 of 15,074 programs (99.4%), and our
+exposure to the 92 it rejects is 25 of 14,735 file operations (0.2%). Those 92
+are three known kinds: a `$VAR` or `${p%%:*}` left literal, which is the shell
+rule and the Python rule meeting rather than a defect; an escaped quote inside
+an f-string, which is a real `SyntaxError`, so **those commands never ran** and
+every file operation taken from one is work that did not happen; and a handful
+of triple-quoted strings.
+
+**And is there Python we never noticed was Python?** That one a coverage figure
+cannot answer, because its denominator is what we found — a call the verb table
+does not recognise is *absent* rather than wrong. `--example python-calls` asks
+it from outside the table, by the shape of the argv: **17,453 commands name an
+interpreter and none is missed.** It found one gap, `python3.12`, which matched
+neither literal spelling the table carried.
+
+⚠ **That probe must stay looser than `shell_ops::is_python`.** It is the
+instrument and the table is what it measures; if it asked the table's own
+question it could never find a spelling the table has not been taught. Which is
+also why `python313` — a nixpkgs attribute in `nix-shell -p python313`, 68 of
+them — is matched and then shown to run nothing, rather than filtered out early.
+
 ## Correctness
 
 `reader/tests/oracle.rs` is the only test that catches a *wrong* reading rather
@@ -270,5 +304,8 @@ list anybody remembers**: `Task`, `MultiEdit` and `NotebookEdit` appear in it
 zero times. It records everything that happened rather than the notable part of
 it, and `doing.rs` says why.
 
-What it still has no notion of is **episodes** — the grouping of rows into
-stretches of one intent. Designed and not built: memview#1030.
+Rows group into **episodes** — the stretch of work one instruction produced,
+bracketed by user turns. The boundary is *observed*, never inferred from a gap or
+a change of subject: inference can merge two instructions into one episode, and a
+merge is unrecoverable downstream, where a duplicate bracket is only noise.
+`doing.rs` carries the rule.
