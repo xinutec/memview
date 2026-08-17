@@ -146,6 +146,16 @@ So `t₂` is a canonical form: two textually different commands that mean the sa
 thing compare equal. **Non-destructive means the tree retains everything except
 layout and quoting style.**
 
+⚠ **One construct is printed across lines, and it is not a layout choice.** A
+heredoc inside `$( )` opens inside a *word*, and a body has to follow the line
+its `<<` was written on — which is a line inside the substitution. So that word
+takes the lines it needs, in bash's own spelling: `declare -f` renders
+`x=$(cat <<X⏎body⏎X⏎)` exactly so and re-prints its own print unchanged.
+Canonicity survives, because the layout is still a function of the tree alone and
+a tree without such a heredoc still prints on one line. It was worth 338
+commands — 0.25% of them but **1% of the bytes**, since a command carrying a
+heredoc is a long one.
+
 ⚠ **The collapse rule stops at reserved words, where quoting is semantic.**
 `time ./x.sh` runs bash's keyword; `'time' ./x.sh` runs `/usr/bin/time`, a
 different program with different output. Same for `!`. So a reserved word is not
@@ -384,7 +394,7 @@ Two corollaries, both learned the hard way:
   not be read, and since redirections are modelled the survey went looking for
   something that could not be there. Only the invariant caught it.
 
-Four properties are load-bearing and each has a test that fails without it:
+Five properties are load-bearing and each has a test that fails without it:
 
 - **`Span` compares equal to every other `Span`.** Position-blindness lives in
   the one type rather than in each node's `PartialEq`, so a node added later
@@ -398,6 +408,16 @@ Four properties are load-bearing and each has a test that fails without it:
 - **No quote may touch a tilde prefix.** `~'/x'` is the literal `~/x` to bash, so
   the closing `/` goes through bare and quoting resumes after it. Found by the
   law on 319 commands.
+- **A heredoc inside `$( )` is paired inside it.** Bash reads a body when the
+  line holding its opener ends, and a line inside a substitution ends before the
+  one around it — so `cat <<A "$(cat <<X⏎i⏎X⏎)"` hands the ARGUMENT `X`'s body
+  and stdin `A`'s, whichever order the two openers were written in. That is
+  neither the order they appear in nor the order the tree holds them in, so the
+  bodies are drained at the closing paren rather than by the walk that pairs the
+  rest. Swap them and no gate objects: the swapped tree prints and re-reads as
+  itself, and bash prints a substitution's interior and a heredoc's body back
+  verbatim, so its own rendering parses to the swapped tree too. Measured in
+  `reader/probes/substitution-heredoc.sh`.
 
 ## Third gate: is our own print shell at all?
 

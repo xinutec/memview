@@ -10,6 +10,13 @@
 //! least quoting that reads back as the same tree. Two commands that differ only
 //! in layout or quoting print identically, which is what makes the printed form
 //! usable as an equivalence test.
+//!
+//! ⚠ **One construct breaks the line, and it is not a layout choice.** A heredoc
+//! inside `$( )` opens inside a word, and its body has to follow the line the
+//! `<<` was written on — which is a line inside the substitution. So that word
+//! is printed across lines, exactly as bash prints it. Canonicity survives: the
+//! layout is still a function of the tree alone, and a tree without such a
+//! heredoc still prints on one line.
 
 use super::ast::{
     Anchor, AndOr, Arith, Assignment, BinaryOp, Brace, Command, CommandKind, Conditional,
@@ -722,9 +729,6 @@ fn print_segment(segment: &Segment) -> String {
         },
         SegmentKind::Arithmetic(value) => format!("$(({}))", print_arith(value)),
         SegmentKind::Substitution(substitution) => {
-            // ⚠ A substitution's own heredocs are refused by the parser, so
-            // nothing can reach this vector — and if that ever changed, the body
-            // would have to go somewhere this inline form has no room for.
             let mut inner = Vec::new();
             let body = print_body(&substitution.items, &mut inner);
             // ⚠ **`$((` is arithmetic, so a substitution holding a subshell
@@ -732,10 +736,18 @@ fn print_segment(segment: &Segment) -> String {
             // it opens an arithmetic expansion instead — for bash as well as for
             // this parser, which is how the round-trip law caught it on 9
             // commands the moment grouping made the shape reachable.
-            let text = if body.starts_with('(') {
-                format!("$( {body})")
+            let opener = if body.starts_with('(') { "$( " } else { "$(" };
+            // ⚠ **The one place a word is printed across lines.** A heredoc's
+            // body has to follow the line its `<<` was written on, and that line
+            // is in here — so the substitution takes the lines it needs and
+            // closes on one of its own. This is bash's own spelling: `declare
+            // -f` renders `x=$(cat <<X⏎body⏎X⏎)` exactly so and re-prints its
+            // own print unchanged, measured in
+            // `reader/probes/substitution-heredoc.sh`.
+            let text = if inner.is_empty() {
+                format!("{opener}{body})")
             } else {
-                format!("$({body})")
+                format!("{opener}{body}\n{}\n)", inner.join("\n"))
             };
             if substitution.quoted {
                 format!("\"{text}\"")

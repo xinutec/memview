@@ -858,6 +858,12 @@ fn the_survey_agrees_with_the_parser_about_heredocs() {
         "cat <<EOF\nbody\nEOF ",
         "cat <<$x\nbody\n$x",
         "cat <<EOF\n$(danger)\nEOF",
+        // ⚠ Inside a substitution, where the survey has to find the closing
+        // paren past a body that may hold one. A commit message is prose, and
+        // prose holds `)` and apostrophes.
+        "git commit -m \"$(cat <<'EOF'\nfixed (mostly), didn't break\nEOF\n)\"",
+        "x=$(cat <<X)",
+        "x=$(cat <<X\nbody\n)",
     ] {
         let found = survey(text);
         match parse(text) {
@@ -1494,17 +1500,104 @@ fn a_backtick_is_a_different_build_and_stays_refused() {
 
 #[test]
 fn what_a_substitution_cannot_carry_is_named() {
-    // A heredoc's body would have to sit on the lines after the opener, and a
-    // substitution prints inline — there is nowhere for it to go.
-    assert_eq!(
-        refusal("echo $(cat <<EOF\nx\nEOF\n)"),
-        Reason::CommandSubstitution
-    );
-    assert!(survey("echo $(cat <<EOF\nx\nEOF\n)").contains(&Reason::CommandSubstitution));
     // A comment would swallow the rest of the inline form.
     assert_eq!(refusal("echo $(a # note\n)"), Reason::CommentInList);
     // An unclosed one is a syntax error to bash too.
     assert_eq!(refusal("echo $(a"), Reason::UnterminatedExpansion);
+    // ⚠ And so is a body that runs past the `)`: it swallows the paren, and bash
+    // reports the same thing this reason does — `unexpected EOF while looking
+    // for matching ')'`, measured in `reader/probes/substitution-heredoc.sh`.
+    assert_eq!(
+        refusal("x=$(cat <<X\nbody\n)"),
+        Reason::UnterminatedExpansion
+    );
+}
+
+/// The command list inside a word that is one substitution and nothing else.
+fn interior(word: &Word) -> Vec<Item> {
+    match &word.segments[..] {
+        [
+            Segment {
+                kind: SegmentKind::Substitution(substitution),
+                ..
+            },
+        ] => substitution.items.clone(),
+        other => panic!("not one substitution: {other:?}"),
+    }
+}
+
+/// The body of the one heredoc a command list opens.
+fn only_body(items: &[Item]) -> String {
+    match items {
+        [Item::List(list)] => match &list.first.commands[0].redirects[..] {
+            [redirect] => match &redirect.target {
+                RedirectTarget::Here(here) => here.body.clone(),
+                other => panic!("not a heredoc: {other:?}"),
+            },
+            other => panic!("not one redirection: {other:?}"),
+        },
+        other => panic!("not one list: {other:?}"),
+    }
+}
+
+#[test]
+fn a_heredoc_in_a_substitution_is_paired_inside_it() {
+    // ⚠ **Neither gate can see this pairing go wrong.** Swap the two bodies and
+    // the printed form still reads back as the swapped tree, so the round-trip
+    // law holds; bash prints a substitution's interior and a heredoc's body back
+    // verbatim, so its own rendering parses to the swapped tree too. Only
+    // construction decides it.
+    //
+    // What it is decided against is bash, run:
+    // `reader/probes/substitution-heredoc.sh` gives the ARGUMENT the inner body
+    // and stdin the outer one — in both orders, though bash prints the second
+    // spelling as the first.
+    for text in [
+        "f \"$(cat <<X\nINNER\nX\n)\" <<A\nOUTER\nA",
+        "f <<A \"$(cat <<X\nINNER\nX\n)\"\nOUTER\nA",
+    ] {
+        let command = pipeline(text).commands[0].clone();
+        let simple = match &command.kind {
+            reader::syntax::ast::CommandKind::Simple(simple) => simple.clone(),
+            other => panic!("not a simple command: {other:?}"),
+        };
+        assert_eq!(only_body(&interior(&simple.words[1])), "INNER\n");
+        match &command.redirects[..] {
+            [redirect] => match &redirect.target {
+                RedirectTarget::Here(here) => assert_eq!(here.body, "OUTER\n"),
+                other => panic!("not a heredoc: {other:?}"),
+            },
+            other => panic!("not one redirection: {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_substitutions_heredoc_ends_where_the_substitution_does() {
+    // ⚠ **An opener still waiting at the `)` gets an EMPTY body**, and the text
+    // after the substitution is not its to take. Bash agrees, with a warning and
+    // a zero exit: `x=$(cat <<X); echo "[$x]"` prints `[]`.
+    assert_eq!(only_body(&interior(&words("echo $(cat <<X)")[1])), "");
+    // The same, where there IS text after it to be tempted by.
+    let text = "echo $(cat <<X) after";
+    assert_eq!(only_body(&interior(&words(text)[1])), "");
+    assert_eq!(words(text)[2].as_literal().as_deref(), Some("after"));
+}
+
+#[test]
+fn a_substitution_carrying_a_heredoc_prints_across_lines() {
+    // The one place a word is not printed on one line — and the spelling is
+    // bash's own, which is what makes the second gate able to compare at all.
+    assert_eq!(
+        print(&tree("x=$(cat <<X\nbody\nX\n)")),
+        "x=$(cat <<X\nbody\nX\n)"
+    );
+    // The body belongs to the line its `<<` was written on, so an outer heredoc
+    // still lands after the whole word.
+    assert_eq!(
+        print(&tree("f \"$(cat <<X\nINNER\nX\n)\" <<A\nOUTER\nA")),
+        "f \"$(cat <<X\nINNER\nX\n)\" <<A\nOUTER\nA"
+    );
 }
 
 #[test]
@@ -1525,6 +1618,15 @@ fn the_law_holds_across_the_substitution_shapes() {
         r#"echo "$(a)$(b)""#,
         "echo $(a > out)",
         "echo $(cat f | wc -l) lines",
+        // The heredoc shapes, whose printed form takes lines of its own.
+        "x=$(cat <<X\nbody\nX\n)",
+        "task add \"$(cat <<'EOF'\nbody\nEOF\n)\"",
+        "x=$(cat <<A <<B\none\nA\ntwo\nB\n)",
+        "x=$(echo \"$(cat <<X\ndeep\nX\n)\")",
+        "for f in a; do x=$(cat <<X\nbody\nX\n); echo $x; done",
+        "f \"$(cat <<X\nINNER\nX\n)\" <<A\nOUTER\nA",
+        "f <<A \"$(cat <<X\nINNER\nX\n)\"\nOUTER\nA",
+        "x=$(cat <<X)",
     ] {
         assert!(
             check(text).holds(),

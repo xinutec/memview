@@ -40,15 +40,14 @@ pub fn survey(text: &str) -> BTreeSet<Reason> {
 ///
 /// ⚠ **A substitution needs more than the set.** Its interior is a script the
 /// parser reads, so every construct in there is reported by descending — but the
-/// parser also refuses a heredoc and a comment *because* they are inside one,
-/// and neither is a finding on its own. Those two facts come back as flags.
+/// parser also refuses a comment *because* it is inside one, which is not a
+/// finding on its own. That fact comes back as a flag.
 fn scan(text: &str) -> Survey<'_> {
     Survey {
         bytes: text.as_bytes(),
         text,
         at: 0,
         found: BTreeSet::new(),
-        saw_heredoc: false,
         saw_comment: false,
     }
     .run()
@@ -59,9 +58,6 @@ struct Survey<'t> {
     text: &'t str,
     at: usize,
     found: BTreeSet<Reason>,
-    /// Did a heredoc open in this text? The parser refuses one inside a
-    /// substitution, and nothing else can tell the caller that happened.
-    saw_heredoc: bool,
     /// Did a comment appear? Refused inside a substitution for the same reason
     /// a comment in a loop body is: the printer writes both inline.
     saw_comment: bool,
@@ -376,7 +372,6 @@ impl Survey<'_> {
                         self.found.insert(Reason::HereString);
                         self.at += 3;
                     } else if byte == b'<' && self.peek_at(1) == Some(b'<') {
-                        self.saw_heredoc = true;
                         // Modelled now, so the heredoc itself is not a finding —
                         // only the delimiter has to be tracked, so the body can
                         // be stepped over rather than scanned as shell.
@@ -766,13 +761,19 @@ impl Survey<'_> {
     /// ⚠ **Not descended into, still.** The substitution is modelled, but the
     /// survey's job is which constructs a command NEEDS, and scanning the
     /// interior as an independent command would double-count everything in it.
-    /// What it does look for is the pair the parser will refuse: a heredoc,
-    /// whose body has nowhere to go in an inline print, and a comment, which
-    /// would swallow the rest of the line.
+    /// What it does look for is the one shape the parser still refuses in there:
+    /// a comment, which would swallow the rest of the line. A heredoc used to be
+    /// the other, and is not any more — the printer gives it the lines it needs.
     fn substitution(&mut self) {
         self.at += 1;
         let open = self.at;
-        self.skip_balanced(b'(', b')');
+        if !self.skip_balanced(b'(', b')') {
+            // ⚠ The parser refuses this by that name, so the survey has to say
+            // it or the invariant that pins the two together fails. The shape it
+            // most often takes is a heredoc body that runs past the `)` and
+            // swallows it — which bash refuses too.
+            self.found.insert(Reason::UnterminatedExpansion);
+        }
         // The text between the parens, which is a script in its own right.
         let interior = self
             .text
@@ -786,9 +787,6 @@ impl Survey<'_> {
         // commands the parser reads perfectly well.
         let inner = scan(interior);
         self.found.extend(inner.found);
-        if inner.saw_heredoc {
-            self.found.insert(Reason::CommandSubstitution);
-        }
         if inner.saw_comment {
             self.found.insert(Reason::CommentInList);
         }
@@ -825,10 +823,18 @@ impl Survey<'_> {
         }
     }
 
-    /// Step over a nested, quote-aware bracketed run. Quote-aware because
-    /// `$(echo ")")` is one substitution and a naive counter ends it early.
-    fn skip_balanced(&mut self, open: u8, close: u8) {
+    /// Step over a nested, quote-aware bracketed run, and say whether it closed.
+    ///
+    /// Quote-aware because `$(echo ")")` is one substitution and a naive counter
+    /// ends it early — and heredoc-aware for the same reason, twice over: a body
+    /// is prose, so both `)` and a lone apostrophe are ordinary characters in
+    /// one. Without that, `$(git commit -m "$(cat <<'EOF' … EOF)")` ended at the
+    /// first `)` a commit message happened to hold, and the rest of the message
+    /// was scanned as shell — 182 commands reporting constructs nobody wrote.
+    fn skip_balanced(&mut self, open: u8, close: u8) -> bool {
         let mut depth = 0usize;
+        // Openers waiting for the newline that starts their bodies.
+        let mut heredocs: Vec<(String, bool)> = Vec::new();
         while let Some(byte) = self.peek() {
             match byte {
                 b if b == open => {
@@ -839,23 +845,42 @@ impl Survey<'_> {
                     depth -= 1;
                     self.at += 1;
                     if depth == 0 {
-                        return;
+                        return true;
+                    }
+                }
+                b'\n' => {
+                    self.at += 1;
+                    for (delimiter, strip_tabs) in std::mem::take(&mut heredocs) {
+                        self.skip_heredoc_body(&delimiter, strip_tabs);
+                    }
+                }
+                // `<<` and not `<<<`, which is a here-string with its operand on
+                // the line.
+                b'<' if self.peek_at(1) == Some(b'<') && self.peek_at(2) != Some(b'<') => {
+                    self.at += 2;
+                    let strip_tabs = self.peek() == Some(b'-');
+                    if strip_tabs {
+                        self.at += 1;
+                    }
+                    if let Some(delimiter) = self.take_delimiter() {
+                        heredocs.push((delimiter, strip_tabs));
                     }
                 }
                 b'\'' => {
                     if !self.skip_single_quote() {
-                        return;
+                        return false;
                     }
                 }
                 b'"' => {
                     if !self.skip_double_quote() {
-                        return;
+                        return false;
                     }
                 }
                 b'\\' => self.at += 2,
                 _ => self.at += 1,
             }
         }
+        false
     }
 
     /// `true` if the quote closed.

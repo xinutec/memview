@@ -1662,25 +1662,51 @@ impl<'t> Parser<'t> {
 
     /// `$(cmd)` — a whole script, read by the reader that reads a whole script.
     ///
-    /// ⚠ **A heredoc inside one is refused.** Its body would have to sit on the
-    /// lines after the opener, and the printer writes a substitution inline —
-    /// there is nowhere on that line for the body to go. The construct is named
-    /// as unread rather than guessed at.
+    /// ⚠ **A heredoc in here belongs to this substitution and nothing else.**
+    /// Both halves of that matter and both are measured in
+    /// `reader/probes/substitution-heredoc.sh`:
+    ///
+    /// - An opener the ENCLOSING line left waiting may not be handed a body from
+    ///   in here. `cat <<A "$(cat <<X⏎i⏎X⏎)"` gives the argument `X`'s body and
+    ///   stdin `A`'s, so the pending list is set aside for the duration.
+    /// - This substitution's own bodies are paired up *here*, at the closing
+    ///   paren, rather than left for the walk in [`fill_script`]. Bash reads a
+    ///   body when the line holding its opener ends, and a line inside a
+    ///   substitution ends before the one around it — an order no walk over the
+    ///   finished tree reproduces, since it is neither the order the openers were
+    ///   written in nor the order the tree holds them in. Draining them at the
+    ///   close makes the question local, and leaves the outer walk with exactly
+    ///   the bodies the outer line opened.
     fn substitution(&mut self, quoted: bool) -> Result<Segment, Refusal> {
         let start = self.at;
         self.at += 2; // `$(`
+        let outer = std::mem::take(&mut self.pending);
         let bodies_before = self.bodies.len();
         self.parens += 1;
         let items = self.items(&[]);
         self.parens -= 1;
-        let items = items?;
+        let mut items = items?;
         if self.peek() != Some(b')') {
             return self.refuse(Reason::UnterminatedExpansion, 1);
         }
-        self.at += 1;
-        if self.bodies.len() != bodies_before {
-            return self.refuse(Reason::CommandSubstitution, 1);
+        // ⚠ **An opener still waiting at the `)` gets an EMPTY body**, because
+        // that is what bash makes of it: `$(cat <<X)` warns `command
+        // substitution: 1 unterminated here-document`, expands to nothing, and
+        // `bash -n` accepts it. Reading on from here instead would take a body
+        // out of the text after the substitution, which belongs to nobody.
+        for pending in std::mem::take(&mut self.pending) {
+            let body = self.finish_body(&pending, String::new())?;
+            self.bodies.push(body);
         }
+        self.at += 1;
+        let mut inner = self.bodies.drain(bodies_before..);
+        fill_items(&mut items, &mut inner);
+        debug_assert!(
+            inner.next().is_none(),
+            "a heredoc body was read inside a substitution that no opener in it claimed"
+        );
+        drop(inner);
+        self.pending = outer;
         if items.iter().any(|item| matches!(item, Item::Comment(_))) {
             return self.refuse(Reason::CommentInList, 1);
         }

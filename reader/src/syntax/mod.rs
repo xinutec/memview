@@ -21,17 +21,21 @@
 //! answer what a command would be if written another way, because it cannot
 //! write one at all. This module is the tree that one becomes a projection of.
 //!
-//! ## The two gates
+//! ## The three gates
 //!
 //! - [`law`] — parse, print, parse again: the tree must be equal and the text a
 //!   fixpoint. Runs over the whole corpus for free, and lives here because it
 //!   needs nothing but this module.
-//! - the `bash-oracle` crate — bash prints its own parse of our printed form,
-//!   and we require the same tree back. Independent of us, and blind in a
-//!   different place. **It is a separate crate because it spawns a process**,
-//!   and this one states that it does not; see the workspace `Cargo.toml`.
+//! - the `bash-oracle` crate — bash prints its own parse of the ORIGINAL
+//!   command, and we require the same tree back. Independent of us, and blind in
+//!   a different place.
+//! - the same crate again — `bash -n` over our print, which asks the question
+//!   neither of the others does: is what we emit shell at all?
 //!
-//! ⚠ **Neither gate can see a construct absorbed into a literal**, which is why
+//! **The last two are a separate crate because they spawn a process**, and this
+//! one states that it does not; see the workspace `Cargo.toml`.
+//!
+//! ⚠ **No gate can see a construct absorbed into a literal**, which is why
 //! [`parse`] refuses rather than absorbs. The gates check what the tree says; only
 //! the parser can be wrong about what is in it.
 

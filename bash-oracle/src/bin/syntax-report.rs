@@ -1,4 +1,4 @@
-//! What the syntax tree reads, what it refuses, and whether both gates hold.
+//! What the syntax tree reads, what it refuses, and whether all three gates hold.
 //!
 //!     cargo run --release -p bash-oracle --bin syntax-report -- <corpus.jsonl> [--oracle] [--why SUBSTRING]
 //!
