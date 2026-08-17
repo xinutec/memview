@@ -263,7 +263,12 @@ Each decided from a measurement kept with the thing it decided.
 | a policy-refusal channel | the refused bucket had one member | memview#820 |
 | confirming `\|\|` from a non-zero exit | reachable by arithmetic, and tiny | `reader/src/shell.rs` |
 
-The timeline is a separate thread: **Bash-only** (rows are pushed inside the
-`Bash` branch of `agents::scan_transcript`, so `Read`, `Write`, `Edit`, `Grep`
-and `Task` yield no activity), and it has no **episodes** — the grouping of rows
-into stretches of one intent.
+The timeline takes tool calls as well as the shell since 2026-08-17 — `Read`,
+`Write`, `Edit`, `Grep`, `Agent` and the two web tools each produce a row, and
+`agents::TOOLS` is the list, **taken from the corpus rather than from the tool
+list anybody remembers**: `Task`, `MultiEdit` and `NotebookEdit` appear in it
+zero times. It records everything that happened rather than the notable part of
+it, and `doing.rs` says why.
+
+What it still has no notion of is **episodes** — the grouping of rows into
+stretches of one intent. Designed and not built: memview#1030.
