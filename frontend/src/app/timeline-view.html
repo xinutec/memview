@@ -52,8 +52,20 @@
   </div>
 
   <ul class="moments">
-    @for (m of page.moments; track m.agent + ':' + m.at) {
+    @for (row of moments(); track row.m.agent + ':' + row.m.at) {
+      @let m = row.m;
       <li [class.open]="isOpen(m)">
+        @if (row.episode; as episode) {
+          <!-- ⚠ **What was asked is not here and cannot be**: no prompt text
+               reaches the artefact. What an episode can say is that a stretch
+               was one instruction, how long it ran and how much it held — which
+               is the thing the timeline could not show at all. -->
+          <p class="episode">
+            <span class="n">{{ episode.n }}</span>
+            {{ episode.n === 1 ? 'moment' : 'moments' }} under one instruction,
+            {{ span(episode) }}
+          </p>
+        }
         <!-- The whole row opens the turn. A row carrying a repository, a kind
              and a verdict is already four facts wide at 412px, so the affordance
              is the row itself rather than a control competing with them. -->

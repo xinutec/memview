@@ -137,6 +137,41 @@ pub struct Row {
     /// Index into [`Doing::hosts`], when the work was somewhere else.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub h: Option<u32>,
+    /// Index into [`Doing::episodes`] — which instruction this was part of.
+    ///
+    /// Absent for work with no prompt above it in its transcript, which is what
+    /// a resumed session looks like from the outside.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e: Option<u32>,
+}
+
+/// One instruction, and everything done under it.
+///
+/// ⚠ **The boundary is a user's turn, and that is the only one this reads.**
+/// Every other candidate — a gap in time, a change of repository, a change of
+/// kind — is *inferred*, and inference can merge two instructions into one,
+/// which is the error that makes a grouping lie. A recorded boundary can only
+/// over-segment: two consecutive `proceed`s read as two episodes, which is
+/// merely less useful. So the timeline takes the boundary the transcript
+/// actually writes down.
+///
+/// ⚠ **It cannot be labelled by what was asked.** No prompt text reaches an
+/// artefact — see this module's head — so an episode is a bracket in time plus
+/// whatever its own rows say. That is enough for a reader to see *this stretch
+/// was one instruction*, which is the thing the timeline could not show at all.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Episode {
+    /// Index into [`Doing::agents`].
+    pub a: u32,
+    /// The minute of its first row. Not the prompt's own minute: a turn can sit
+    /// unanswered, and an episode that started before any work happened would
+    /// draw a gap nothing was doing.
+    pub t: i64,
+    /// The minute of its last.
+    pub until: i64,
+    /// How many rows it holds, so a page showing three of them can still say
+    /// how large the stretch was.
+    pub n: u32,
 }
 
 /// The timeline, with its dictionaries.
@@ -150,6 +185,9 @@ pub struct Doing {
     pub hosts: Vec<String>,
     /// Oldest first.
     pub rows: Vec<Row>,
+    /// The instructions those rows were carried out under, oldest first.
+    #[serde(default)]
+    pub episodes: Vec<Episode>,
 }
 
 /// A dictionary being built: a name to its index, once each.
@@ -199,11 +237,52 @@ pub struct Log {
     /// tool-use id. A result arrives on a later line, so the row is written
     /// first and its verdict filled in when the answer comes back.
     pending: BTreeMap<String, Vec<usize>>,
+    pub episodes: Vec<Episode>,
+    /// The prompt seen but not yet acted on, and the episode it becomes.
+    ///
+    /// ⚠ **Materialised by the first row under it, not by the prompt itself.**
+    /// A turn that asked a question and got an answer did no work this records,
+    /// and an episode holding nothing would be a bracket around a blank.
+    prompt: Option<String>,
+    current: Option<u32>,
 }
 
 impl Log {
+    /// A new transcript begins, so no episode is open.
+    ///
+    /// Without this the last instruction of one session would adopt the first
+    /// rows of the next file read, which are somebody else's work entirely.
+    pub fn open_transcript(&mut self) {
+        self.prompt = None;
+        self.current = None;
+    }
+
+    /// A user said something: whatever follows is one instruction's worth.
+    pub fn begin_episode(&mut self, agent: &str) {
+        self.prompt = Some(agent.to_string());
+        self.current = None;
+    }
+
     /// Record one turn's worth of work, unresolved until its result arrives.
     pub fn push(&mut self, work: Work<'_>) {
+        // The episode this row belongs to, created the moment there is a row to
+        // put in it.
+        if let Some(agent) = self.prompt.take() {
+            let a = self.agents.intern(&agent);
+            self.current = Some(self.episodes.len() as u32);
+            self.episodes.push(Episode {
+                a,
+                t: work.minute,
+                until: work.minute,
+                n: 0,
+            });
+        }
+        if let Some(at) = self.current {
+            let episode = &mut self.episodes[at as usize];
+            episode.t = episode.t.min(work.minute);
+            episode.until = episode.until.max(work.minute);
+            episode.n += 1;
+        }
         let row = Row {
             a: self.agents.intern(work.agent),
             p: work.project.map(|p| self.projects.intern(p)),
@@ -212,6 +291,7 @@ impl Log {
             n: work.n,
             v: Verdict::Unknown,
             h: work.host.map(|h| self.hosts.intern(h)),
+            e: self.current,
         };
         self.pending
             .entry(work.call.to_string())
@@ -240,6 +320,7 @@ impl Log {
             kinds: self.kinds.into_vec(),
             hosts: self.hosts.into_vec(),
             rows: self.rows,
+            episodes: self.episodes,
         }
     }
 }

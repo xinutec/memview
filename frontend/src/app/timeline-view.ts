@@ -6,7 +6,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { catchError, of } from 'rxjs';
 
 import { MemviewApi } from './memview-api';
-import { Did, Effect, Evidence, Moment, Timeline } from './models';
+import { Did, Effect, Evidence, Moment, Timeline, TimelineEpisode } from './models';
 
 /**
  * The wire's one-letter verbs, as a reader reads them.
@@ -116,6 +116,35 @@ export class TimelineView {
       });
   }
 
+  /**
+   * The moments, with a marker on each one that opens a new instruction.
+   *
+   * ⚠ **A header, not a nested list.** The page is newest-first and paged, so a
+   * stretch commonly begins above the top of it and continues below the bottom;
+   * a container would have to pretend it knew where both ends were. A marker on
+   * the first row of each run says the true thing — *this is where an
+   * instruction begins* — and needs no boundary the page does not have.
+   *
+   * ⚠ **On the FIRST row of the run as the page draws it, which is the
+   * instruction's newest moment and not its oldest.** Marking where the
+   * instruction chronologically began put the header between two rows of the
+   * same stretch — it read as a label for what came after and split what it
+   * described. A heading goes above what it heads, whichever way time is
+   * running.
+   */
+  readonly moments = computed(() => {
+    const page = this.timeline();
+    if (!page) return [];
+    return page.moments.map((m, at) => {
+      const above = at === 0 ? undefined : page.moments[at - 1];
+      const heads =
+        m.episode !== undefined &&
+        m.episode !== null &&
+        above?.episode !== m.episode;
+      return { m, episode: heads ? page.episodes[m.episode!] : undefined };
+    });
+  });
+
   /** The kinds worth a chip, biggest first. */
   readonly kinds = computed(() => (this.timeline()?.summary ?? []).slice(0, KINDS_SHOWN));
 
@@ -196,6 +225,21 @@ export class TimelineView {
       hour: '2-digit',
       minute: '2-digit',
     });
+  }
+
+  /**
+   * How long an instruction ran, in words.
+   *
+   * ⚠ **Nought minutes is a real answer**, not a missing one: a stretch whose
+   * rows all fall in the same minute is most of them, and "under a minute" says
+   * that where "0 minutes" reads as a bug.
+   */
+  span(episode: TimelineEpisode): string {
+    const minutes = episode.until - episode.at;
+    if (minutes < 1) return 'under a minute';
+    if (minutes < 60) return `${minutes} minutes`;
+    const hours = Math.round(minutes / 6) / 10;
+    return `${hours} hours`;
   }
 
   /** What an effect did, in a word rather than in the wire's letter. */

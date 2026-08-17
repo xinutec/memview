@@ -347,6 +347,13 @@ export interface Moment {
   kind: string;
   /** How many activities this minute folded into one row. */
   n: number;
+  /**
+   * Index into `Timeline.episodes` — which instruction this was part of.
+   *
+   * Absent for work with no prompt above it in its transcript, which is what a
+   * resumed session looks like from the outside.
+   */
+  episode?: number | null;
   verdict: Verdict;
   /**
    * How many effects opening this row would show.
@@ -360,8 +367,25 @@ export interface Moment {
 }
 
 /** A page of the timeline, and the shape of everything the filter matched. */
+/** One instruction, and the stretch of work carried out under it. */
+export interface TimelineEpisode {
+  agent: string;
+  /**
+   * The minute of its FIRST row, which may be older than anything on this page:
+   * an episode says how large the stretch was, not how much of it fitted.
+   */
+  at: number;
+  until: number;
+  n: number;
+}
+
 export interface Timeline {
   moments: Moment[];
+  /**
+   * The instructions the moments were carried out under, referenced by
+   * `Moment.episode`. Only those this page touches.
+   */
+  episodes: TimelineEpisode[];
   /**
    * Kinds of work across the WHOLE filtered range, biggest first — `[kind, n]`.
    * Two hundred rows cannot show the shape of two hundred thousand, so the

@@ -239,12 +239,40 @@ pub struct Moment {
     /// nothing to learn. It also says which turns are worth opening: the median
     /// row carries 10 and the 90th percentile carries 85.
     pub effects: u32,
+    /// Which instruction this was part of — an index into [`Timeline::episodes`]
+    /// for the page, not the artefact's own numbering.
+    ///
+    /// ⚠ **An id and not the episode itself**, because a stretch of one
+    /// instruction is commonly dozens of rows and repeating its bracket on each
+    /// would be most of the response.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub episode: Option<usize>,
+}
+
+/// One instruction, as much of it as the page can see.
+///
+/// ⚠ **Not `Episode`, because `reader::doing::Episode` is already that** — and
+/// the wire-mirror check pairs a TypeScript interface with a Rust type BY NAME.
+/// Two candidates and it chose the artefact's, then reported every field of
+/// this one as drift.
+#[derive(Debug, Serialize)]
+pub struct TimelineEpisode {
+    pub agent: String,
+    /// The minute of its first row — which may be older than anything on this
+    /// page, and is the point: an episode says how large the stretch was, not
+    /// how much of it fitted.
+    pub at: i64,
+    pub until: i64,
+    pub n: u32,
 }
 
 /// A slice of the timeline, and what the whole of the filtered range contains.
 #[derive(Debug, Serialize)]
 pub struct Timeline {
     pub moments: Vec<Moment>,
+    /// The instructions the moments above were carried out under, referenced by
+    /// `Moment::episode`. Only those the page touches.
+    pub episodes: Vec<TimelineEpisode>,
     /// Kinds of work in the filtered range, biggest first — the shape of the
     /// answer, which a page of two hundred rows cannot show.
     pub summary: Vec<(String, usize)>,
@@ -303,6 +331,7 @@ pub async fn doing(
     ) else {
         return Ok(Json(Timeline {
             moments: Vec::new(),
+            episodes: Vec::new(),
             summary: Vec::new(),
             total: 0,
             failed: 0,
@@ -318,6 +347,10 @@ pub async fn doing(
     let mut total = 0usize;
     let mut failed = 0usize;
     let mut moments = Vec::new();
+    // The episodes this page touches, numbered for the page. A stretch of one
+    // instruction is commonly dozens of rows, so the same handful repeat.
+    let mut episodes: Vec<TimelineEpisode> = Vec::new();
+    let mut episode_at: BTreeMap<u32, usize> = BTreeMap::new();
     let limit = query.limit.unwrap_or(PAGE).min(PAGE);
     for row in matching {
         total += 1;
@@ -336,6 +369,26 @@ pub async fn doing(
                 .flatten()
                 .and_then(|a| counts.get(&(a, row.t)).copied())
                 .unwrap_or(0);
+            let episode = row.e.and_then(|at| {
+                let known = episode_at.get(&at).copied();
+                known.or_else(|| {
+                    let episode = log.episodes.get(at as usize)?;
+                    let agent = log
+                        .agents
+                        .get(episode.a as usize)
+                        .cloned()
+                        .unwrap_or_default();
+                    episodes.push(TimelineEpisode {
+                        agent,
+                        at: episode.t,
+                        until: episode.until,
+                        n: episode.n,
+                    });
+                    let here = episodes.len() - 1;
+                    episode_at.insert(at, here);
+                    Some(here)
+                })
+            });
             moments.push(Moment {
                 at: row.t,
                 agent,
@@ -345,6 +398,7 @@ pub async fn doing(
                 n: row.n,
                 verdict: row.v,
                 effects,
+                episode,
             });
         }
     }
@@ -355,6 +409,7 @@ pub async fn doing(
     summary.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     Ok(Json(Timeline {
         moments,
+        episodes,
         summary,
         total,
         failed,

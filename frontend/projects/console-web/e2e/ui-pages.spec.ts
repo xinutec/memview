@@ -3984,7 +3984,13 @@ test('a command that will not parse says so rather than looking empty @ phone wi
   // 0.4% of the corpus's calls land here. An empty sheet would read as a command
   // that did nothing, which is the opposite of what it means.
   await mockRunner(page);
-  await mockParse(page, { error: 'a case arm', steps: [] });
+  // ⚠ **The longest label there is, because it renders inside a `<code>`** and
+  // that does not wrap by default. Invented phrases here ('a case arm') tested
+  // a width nothing produces; this is `Reason::label`'s widest real answer.
+  await mockParse(page, {
+    error: 'parameter with an operator (${x:-y}, ${#x})',
+    steps: [],
+  });
   await page.goto(`/s/${STATE.sessions[0].id}`);
   await openParse(page);
 

@@ -70,6 +70,24 @@
   }
 }
 
+// Where one instruction begins. Quieter than a row on purpose: it is a mark in
+// the margin of the work, not a row of it, and at 412px anything with weight
+// here competes with the seven facts below it.
+.episode {
+  margin: 0;
+  padding: 10px 0 2px;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+  // The rule carries the boundary; the words only name it.
+  border-top: 2px solid var(--mat-sys-outline-variant);
+
+  .n {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--mat-sys-on-surface);
+  }
+}
+
 // The row IS the control. A separate button would be a fifth thing competing
 // for a 412px line that already carries four facts.
 .row {

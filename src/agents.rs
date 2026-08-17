@@ -1288,9 +1288,27 @@ fn scan_transcript(
         .iter()
         .map(|(tool, role)| (format!("\"name\":\"{tool}\",\"input\":{{"), *tool, *role))
         .collect();
+    // ⚠ **Per transcript, or the last instruction of one session adopts the
+    // first rows of the next file read.**
+    log.open_transcript();
     for line in text.split(|&c| c == b'\n') {
         if line.is_empty() {
             continue;
+        }
+        // ⚠ **A `user` line is usually NOT a prompt.** Measured on one
+        // transcript: 7,245 carry a list of `tool_result` blocks — the answers
+        // to the agent's own calls, which arrive wearing the user's name — and
+        // 663 are somebody typing. The distinction is what makes an episode an
+        // instruction rather than a turn of the machinery, and testing for the
+        // absence of `tool_result` is what draws it.
+        //
+        // A prompt whose own text happens to contain that word would be missed
+        // and its work would join the episode before it. That is the merging
+        // error this boundary exists to avoid, so it is worth naming: it is
+        // rare, and the alternative — parsing every line as JSON — costs the
+        // whole corpus a parse to catch it.
+        if field(line, "type") == Some(b"user") && find_at(line, b"tool_result", 0).is_none() {
+            log.begin_episode(agent_name);
         }
         let mut day = None;
         let stamp = field(line, "timestamp").and_then(|t| std::str::from_utf8(t).ok());

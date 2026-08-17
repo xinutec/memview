@@ -16,10 +16,17 @@
 } @else if (parsed()?.error; as where) {
   <!-- A command the grammar could not read. An answer, not a failure — 0.4% of
        the calls in the corpus land here, and saying so is the point. -->
+  <!-- ⚠ **Two flex items, not five.** This row is a flex container, so every
+       inline child of it — the icon, each run of text, the `<code>` — became a
+       COLUMN of its own: with a short reason that read as a sentence, and with
+       a real one ("parameter with an operator (${x:-y}, ${#x})") the code
+       turned into a tall skinny block mid-sentence. The words are one item. -->
   <p class="unread">
     <mat-icon>report</mat-icon>
-    This one does not parse. The reader stopped at <code>{{ where }}</code
-    >, so nothing below it was classified and no file was attributed to it.
+    <span>
+      This one does not parse: the reader refuses <code>{{ where }}</code
+      >, so nothing in it was classified and no file was attributed to it.
+    </span>
   </p>
 } @else {
   <p class="summary">

@@ -135,10 +135,14 @@ pub fn parsed(asked: &Asked, cwd: Option<&str>, home: &str) -> Parsed {
     };
     let commands = match reader::project::read(&asked.command) {
         Ok(commands) => commands,
-        // The construct that stopped the read, by name. The flat grammar gave
-        // back the text it gave up at; this one knows what it was looking at.
+        // ⚠ **The construct, in the words the label was written in.** The flat
+        // grammar handed back the TEXT it gave up at, and the sheet's sentence
+        // was built around that — "stopped at `>/dev/tcp/…`". This reader knows
+        // something better, the construct it was looking at, but `{:?}` on it
+        // spells a Rust identifier: "stopped at `Grouping`". `Reason::label` is
+        // the phrase a person reads, and the sheet's wording now fits it.
         Err(refusal) => {
-            let at = format!("{:?}", refusal.reason);
+            let at = refusal.reason.label().to_string();
             return Parsed {
                 error: Some(at),
                 steps: Vec::new(),

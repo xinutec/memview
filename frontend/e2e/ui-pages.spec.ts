@@ -242,6 +242,7 @@ const DOING = {
       n: 14,
       verdict: 'failed',
       effects: 936,
+      episode: 0,
     },
     {
       at: 29_412_580,
@@ -251,6 +252,7 @@ const DOING = {
       kind: 'build',
       n: 1,
       verdict: 'ok',
+      episode: 0,
       // ⚠ The empty case, which is 12.6% of the live artefact and was the first
       // row Pippijn happened to tap. It must SAY so on the row.
       effects: 0,
@@ -265,6 +267,9 @@ const DOING = {
       n: 1,
       verdict: 'ok',
       effects: 0,
+      // A one-moment instruction, which is the shape that reads worst if the
+      // header says "0 minutes" rather than "under a minute".
+      episode: 1,
     },
     {
       // Work on another machine, and a verdict that is neither ok nor failed.
@@ -296,6 +301,14 @@ const DOING = {
   ],
   total: 769_652,
   failed: 19_517,
+  // ⚠ **An episode commonly begins above the page and ends below it**, which is
+  // why one here holds more moments than the page shows and starts before its
+  // first row. A fixture whose episodes fitted inside the page would never
+  // exercise the case the header exists to state.
+  episodes: [
+    { agent: 'health', at: 29_412_400, until: 29_412_600, n: 63 },
+    { agent: 'memview', at: 29_412_560, until: 29_412_560, n: 1 },
+  ],
 };
 
 /** What one turn did — including the two things a summary would drop. */
