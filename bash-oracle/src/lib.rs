@@ -246,6 +246,9 @@ fn strip_pipeline(pipeline: &mut Pipeline) {
             }
             CommandKind::Subshell(items) | CommandKind::Group(items) => *items = strip(items),
             CommandKind::Function(function) => function.body = strip(&function.body),
+            CommandKind::ForArith(loop_) => loop_.body = strip(&loop_.body),
+            // An expression holds no comment to strip.
+            CommandKind::Arithmetic(_) => {}
         }
     }
 }

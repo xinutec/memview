@@ -23,10 +23,10 @@
 //! at a special character always lands on a character boundary.
 
 use super::ast::{
-    Anchor, AndOr, Assignment, Brace, Command, CommandKind, Comment, Conditional, Connector,
-    ForLoop, Function, Glob, Heredoc, Item, Link, Parameter, ParameterOp, Pipeline, Redirect,
-    RedirectOp, RedirectTarget, Replace, Script, Segment, SegmentKind, Simple, Span, Subscript,
-    Substitution, Tilde, Timed, WhileLoop, Word,
+    Anchor, AndOr, Arith, Assignment, BinaryOp, Brace, Command, CommandKind, Comment, Conditional,
+    Connector, ForArith, ForLoop, Function, Glob, Heredoc, Item, Link, Parameter, ParameterOp,
+    Pipeline, Redirect, RedirectOp, RedirectTarget, Replace, Script, Segment, SegmentKind, Simple,
+    Span, Step, Subscript, Substitution, Tilde, Timed, UnaryOp, WhileLoop, Word,
 };
 
 /// Where a word is being read, which decides what expands inside it.
@@ -695,6 +695,13 @@ impl<'t> Parser<'t> {
     /// uses.** A loop's body is a command list and nothing more, so a second
     /// reader for it would be a second place for the grammar to be wrong.
     fn compound(&mut self) -> Result<Option<CommandKind>, Refusal> {
+        // ⚠ `((` is arithmetic, not two subshells — and bash agrees: `((a))`
+        // evaluates where `( (a) )` would run a command called `a`. Checked
+        // first, because the subshell reader would otherwise take the first
+        // paren and leave a tree that means something else entirely.
+        if self.peek() == Some(b'(') && self.peek_at(1) == Some(b'(') {
+            return Ok(Some(CommandKind::Arithmetic(self.arith_command()?)));
+        }
         if self.peek() == Some(b'(') {
             return Ok(Some(CommandKind::Subshell(self.subshell()?)));
         }
@@ -717,6 +724,11 @@ impl<'t> Parser<'t> {
         let select = self.at_keyword("select");
         if select || self.at_keyword("for") {
             self.at += if select { 6 } else { 3 };
+            self.skip_blanks();
+            // `for ((…))` is a different loop with the same keyword.
+            if !select && self.peek() == Some(b'(') && self.peek_at(1) == Some(b'(') {
+                return Ok(Some(CommandKind::ForArith(self.for_arith()?)));
+            }
             return Ok(Some(CommandKind::For(self.for_loop(select)?)));
         }
         let until = self.at_keyword("until");
@@ -742,10 +754,6 @@ impl<'t> Parser<'t> {
     /// `for NAME [in words]; do body done`.
     fn for_loop(&mut self, select: bool) -> Result<ForLoop, Refusal> {
         self.skip_blanks();
-        // `for ((i=0; i<3; i++))` is the arithmetic form, a different grammar.
-        if self.peek() == Some(b'(') {
-            return self.refuse(Reason::Arithmetic, 1);
-        }
         let from = self.at;
         while self
             .peek()
@@ -1398,6 +1406,7 @@ impl<'t> Parser<'t> {
                 b'$' | b'`' => match classify_expansion(self.bytes, self.at, false) {
                     Some(Reason::Parameter) => segments.push(self.parameter(false)?),
                     Some(Reason::CommandSubstitution) => segments.push(self.substitution(false)?),
+                    Some(Reason::Arithmetic) => segments.push(self.arith_expansion()?),
                     Some(reason) => return self.refuse(reason, 1),
                     None => {
                         self.at += 1;
@@ -1596,6 +1605,11 @@ impl<'t> Parser<'t> {
                     Some(Reason::CommandSubstitution) => {
                         flush!();
                         segments.push(self.substitution(true)?);
+                        from = self.at;
+                    }
+                    Some(Reason::Arithmetic) => {
+                        flush!();
+                        segments.push(self.arith_expansion()?);
                         from = self.at;
                     }
                     Some(reason) => return self.refuse(reason, 1),
@@ -1990,6 +2004,349 @@ impl<'t> Parser<'t> {
             segments: merge_literals(segments),
             span: Span::new(start, self.at),
         })
+    }
+
+    /// `$((…))` — arithmetic whose value becomes part of a word.
+    fn arith_expansion(&mut self) -> Result<Segment, Refusal> {
+        let start = self.at;
+        self.at += 3; // `$((`
+        let value = self.arithmetic(b")")?;
+        self.take_arith_close()?;
+        match value {
+            Some(value) => Ok(Segment {
+                kind: SegmentKind::Arithmetic(value),
+                span: Span::new(start, self.at),
+            }),
+            // `$(())` evaluates to 0, but nothing in the corpus writes it and a
+            // node with no expression would be a lie about the text.
+            None => self.refuse(Reason::Arithmetic, 1),
+        }
+    }
+
+    /// `((…))` — arithmetic as a command.
+    fn arith_command(&mut self) -> Result<Arith, Refusal> {
+        self.at += 2; // `((`
+        let value = self.arithmetic(b")")?;
+        self.take_arith_close()?;
+        value.ok_or_else(|| Refusal {
+            reason: Reason::Arithmetic,
+            span: Span::new(self.at, self.at + 1),
+        })
+    }
+
+    /// The `))` that closes an arithmetic expansion or command.
+    fn take_arith_close(&mut self) -> Result<(), Refusal> {
+        self.skip_arith_blanks();
+        if self.peek() != Some(b')') || self.peek_at(1) != Some(b')') {
+            return self.refuse(Reason::Arithmetic, 1);
+        }
+        self.at += 2;
+        Ok(())
+    }
+
+    /// `for ((init; condition; step)); do … done` — the C-style loop, which
+    /// shares only its keyword with `for NAME in words`.
+    fn for_arith(&mut self) -> Result<ForArith, Refusal> {
+        self.at += 2; // `((`
+        let init = self.arithmetic(b";")?;
+        if self.peek() != Some(b';') {
+            return self.refuse(Reason::Arithmetic, 1);
+        }
+        self.at += 1;
+        let condition = self.arithmetic(b";")?;
+        if self.peek() != Some(b';') {
+            return self.refuse(Reason::Arithmetic, 1);
+        }
+        self.at += 1;
+        let step = self.arithmetic(b")")?;
+        self.take_arith_close()?;
+        let body = self.loop_body()?;
+        Ok(ForArith {
+            init,
+            condition,
+            step,
+            body,
+        })
+    }
+
+    /// An arithmetic expression, up to but not including its terminator.
+    ///
+    /// ⚠ **Precedence climbing, not a flat scan.** `1+2*3` is one tree and
+    /// `(1+2)*3` is another; a reader that kept the text would satisfy the
+    /// round-trip law and say nothing true, and bash prints arithmetic verbatim
+    /// so the second gate cannot object either. This is the construct where
+    /// "nothing is left unparsed" has to be taken literally.
+    ///
+    /// `None` where there is no expression at all, which `for ((;;))` needs.
+    fn arithmetic(&mut self, stop: &[u8]) -> Result<Option<Arith>, Refusal> {
+        self.skip_arith_blanks();
+        if self.peek().is_none_or(|byte| stop.contains(&byte)) {
+            return Ok(None);
+        }
+        let first = self.arith_binary(0, stop)?;
+        // A comma sequence is the lowest precedence of all, and its value is the
+        // last part — `for ((i=0, j=1; …))` is where it shows up.
+        let mut parts = vec![first];
+        loop {
+            self.skip_arith_blanks();
+            if self.peek() != Some(b',') {
+                break;
+            }
+            self.at += 1;
+            parts.push(self.arith_binary(0, stop)?);
+        }
+        Ok(Some(if parts.len() == 1 {
+            parts.pop().expect("one part")
+        } else {
+            Arith::Sequence(parts)
+        }))
+    }
+
+    /// Binary operators at `least` precedence or tighter, then the ternary and
+    /// assignment forms which bind loosest and associate to the RIGHT.
+    fn arith_binary(&mut self, least: u8, stop: &[u8]) -> Result<Arith, Refusal> {
+        let mut left = self.arith_unary(stop)?;
+        loop {
+            self.skip_arith_blanks();
+            // ⚠ Assignment is right-associative and takes an lvalue, so it is
+            // handled here rather than as another binary operator: `a = b = 1`
+            // is `a = (b = 1)`.
+            if let Some((op, width)) = self.arith_assign_op() {
+                self.at += width;
+                let value = self.arith_binary(0, stop)?;
+                left = Arith::Assign {
+                    target: Box::new(left),
+                    op,
+                    value: Box::new(value),
+                };
+                continue;
+            }
+            if self.peek() == Some(b'?') && least == 0 {
+                self.at += 1;
+                let then = self.arith_binary(0, b":")?;
+                self.skip_arith_blanks();
+                if self.peek() != Some(b':') {
+                    return self.refuse(Reason::Arithmetic, 1);
+                }
+                self.at += 1;
+                let otherwise = self.arith_binary(0, stop)?;
+                left = Arith::Ternary {
+                    condition: Box::new(left),
+                    then: Box::new(then),
+                    otherwise: Box::new(otherwise),
+                };
+                continue;
+            }
+            let Some((op, width, precedence)) = self.arith_binary_op(stop) else {
+                break;
+            };
+            if precedence < least {
+                break;
+            }
+            self.at += width;
+            // `**` is the one right-associative arithmetic operator.
+            let next = if op == BinaryOp::Power {
+                precedence
+            } else {
+                precedence + 1
+            };
+            let right = self.arith_binary(next, stop)?;
+            left = Arith::Binary {
+                op,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+        }
+        Ok(left)
+    }
+
+    fn arith_unary(&mut self, stop: &[u8]) -> Result<Arith, Refusal> {
+        self.skip_arith_blanks();
+        let op = match (self.peek(), self.peek_at(1)) {
+            (Some(b'+'), Some(b'+')) => Some((UnaryOp::Step(Step::Increment), 2)),
+            (Some(b'-'), Some(b'-')) => Some((UnaryOp::Step(Step::Decrement), 2)),
+            (Some(b'-'), _) => Some((UnaryOp::Negate, 1)),
+            (Some(b'+'), _) => Some((UnaryOp::Plus, 1)),
+            (Some(b'!'), _) => Some((UnaryOp::Not, 1)),
+            (Some(b'~'), _) => Some((UnaryOp::BitNot, 1)),
+            _ => None,
+        };
+        if let Some((op, width)) = op {
+            self.at += width;
+            let operand = self.arith_unary(stop)?;
+            return Ok(Arith::Unary {
+                op,
+                operand: Box::new(operand),
+            });
+        }
+        let operand = self.arith_operand(stop)?;
+        // `i++` takes the value before the change, so it wraps what came before.
+        self.skip_arith_blanks();
+        let step = match (self.peek(), self.peek_at(1)) {
+            (Some(b'+'), Some(b'+')) => Some(Step::Increment),
+            (Some(b'-'), Some(b'-')) => Some(Step::Decrement),
+            _ => None,
+        };
+        match step {
+            Some(op) => {
+                self.at += 2;
+                Ok(Arith::Postfix {
+                    op,
+                    operand: Box::new(operand),
+                })
+            }
+            None => Ok(operand),
+        }
+    }
+
+    fn arith_operand(&mut self, stop: &[u8]) -> Result<Arith, Refusal> {
+        self.skip_arith_blanks();
+        match self.peek() {
+            Some(b'(') => {
+                self.at += 1;
+                let inner = self.arithmetic(b")")?;
+                if self.peek() != Some(b')') {
+                    return self.refuse(Reason::Arithmetic, 1);
+                }
+                self.at += 1;
+                inner.ok_or_else(|| Refusal {
+                    reason: Reason::Arithmetic,
+                    span: Span::new(self.at, self.at + 1),
+                })
+            }
+            // ⚠ An expansion inside arithmetic is still an expansion: `$x` is
+            // read by the same reader that reads it anywhere else, so a `$(cmd)`
+            // in here recurses into a whole script exactly as it should.
+            Some(b'$') | Some(b'`') => match classify_expansion(self.bytes, self.at, false) {
+                Some(Reason::Parameter) => Ok(Arith::Expansion(Box::new(self.parameter(false)?))),
+                Some(Reason::CommandSubstitution) => {
+                    Ok(Arith::Expansion(Box::new(self.substitution(false)?)))
+                }
+                Some(reason) => self.refuse(reason, 1),
+                None => self.refuse(Reason::Arithmetic, 1),
+            },
+            Some(byte) if byte.is_ascii_digit() => {
+                let from = self.at;
+                // `0x1f` and `007` are one token; the letters belong to the
+                // number, so the run is alphanumeric rather than digits.
+                while self.peek().is_some_and(|b| b.is_ascii_alphanumeric()) {
+                    self.at += 1;
+                }
+                let text = self.text[from..self.at].to_string();
+                if self.peek() != Some(b'#') {
+                    return Ok(Arith::Number(text));
+                }
+                self.at += 1;
+                let digits = match self.peek() {
+                    Some(b'$') | Some(b'`') => self.arith_operand(stop)?,
+                    Some(b) if b.is_ascii_alphanumeric() => {
+                        let from = self.at;
+                        while self.peek().is_some_and(|b| b.is_ascii_alphanumeric()) {
+                            self.at += 1;
+                        }
+                        Arith::Number(self.text[from..self.at].to_string())
+                    }
+                    _ => return self.refuse(Reason::Arithmetic, 1),
+                };
+                Ok(Arith::Based {
+                    base: text,
+                    digits: Box::new(digits),
+                })
+            }
+            Some(byte) if byte.is_ascii_alphabetic() || byte == b'_' => {
+                let from = self.at;
+                while self
+                    .peek()
+                    .is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
+                {
+                    self.at += 1;
+                }
+                Ok(Arith::Variable(self.text[from..self.at].to_string()))
+            }
+            _ => {
+                let _ = stop;
+                self.refuse(Reason::Arithmetic, 1)
+            }
+        }
+    }
+
+    /// `=`, `+=`, `<<=` … — an assignment, and what it does first.
+    fn arith_assign_op(&mut self) -> Option<(Option<BinaryOp>, usize)> {
+        let two = |op: BinaryOp| Some((Some(op), 2));
+        match (self.peek(), self.peek_at(1), self.peek_at(2)) {
+            (Some(b'<'), Some(b'<'), Some(b'=')) => Some((Some(BinaryOp::ShiftLeft), 3)),
+            (Some(b'>'), Some(b'>'), Some(b'=')) => Some((Some(BinaryOp::ShiftRight), 3)),
+            (Some(b'*'), Some(b'*'), Some(b'=')) => Some((Some(BinaryOp::Power), 3)),
+            (Some(b'+'), Some(b'='), _) => two(BinaryOp::Add),
+            (Some(b'-'), Some(b'='), _) => two(BinaryOp::Subtract),
+            (Some(b'*'), Some(b'='), _) => two(BinaryOp::Multiply),
+            (Some(b'/'), Some(b'='), _) => two(BinaryOp::Divide),
+            (Some(b'%'), Some(b'='), _) => two(BinaryOp::Remainder),
+            (Some(b'&'), Some(b'='), _) => two(BinaryOp::BitAnd),
+            (Some(b'^'), Some(b'='), _) => two(BinaryOp::BitXor),
+            (Some(b'|'), Some(b'='), _) => two(BinaryOp::BitOr),
+            // A lone `=`, which is not `==`.
+            (Some(b'='), next, _) if next != Some(b'=') => Some((None, 1)),
+            _ => None,
+        }
+    }
+
+    /// The binary operator under the cursor: which, how wide, how tightly.
+    fn arith_binary_op(&mut self, stop: &[u8]) -> Option<(BinaryOp, usize, u8)> {
+        if self.peek().is_some_and(|byte| stop.contains(&byte)) {
+            return None;
+        }
+        let (op, width) = match (self.peek()?, self.peek_at(1)) {
+            (b'*', Some(b'*')) => (BinaryOp::Power, 2),
+            (b'<', Some(b'<')) => (BinaryOp::ShiftLeft, 2),
+            (b'>', Some(b'>')) => (BinaryOp::ShiftRight, 2),
+            (b'<', Some(b'=')) => (BinaryOp::LessOrEqual, 2),
+            (b'>', Some(b'=')) => (BinaryOp::GreaterOrEqual, 2),
+            (b'=', Some(b'=')) => (BinaryOp::Equal, 2),
+            (b'!', Some(b'=')) => (BinaryOp::NotEqual, 2),
+            (b'&', Some(b'&')) => (BinaryOp::And, 2),
+            (b'|', Some(b'|')) => (BinaryOp::Or, 2),
+            (b'*', _) => (BinaryOp::Multiply, 1),
+            (b'/', _) => (BinaryOp::Divide, 1),
+            (b'%', _) => (BinaryOp::Remainder, 1),
+            (b'+', _) => (BinaryOp::Add, 1),
+            (b'-', _) => (BinaryOp::Subtract, 1),
+            (b'<', _) => (BinaryOp::Less, 1),
+            (b'>', _) => (BinaryOp::Greater, 1),
+            (b'&', _) => (BinaryOp::BitAnd, 1),
+            (b'^', _) => (BinaryOp::BitXor, 1),
+            (b'|', _) => (BinaryOp::BitOr, 1),
+            _ => return None,
+        };
+        // Bash's own table, tightest last. The numbers matter only relative to
+        // each other; they are the reason `1+2*3` is not `(1+2)*3`.
+        let precedence = match op {
+            BinaryOp::Or => 1,
+            BinaryOp::And => 2,
+            BinaryOp::BitOr => 3,
+            BinaryOp::BitXor => 4,
+            BinaryOp::BitAnd => 5,
+            BinaryOp::Equal | BinaryOp::NotEqual => 6,
+            BinaryOp::Less
+            | BinaryOp::LessOrEqual
+            | BinaryOp::Greater
+            | BinaryOp::GreaterOrEqual => 7,
+            BinaryOp::ShiftLeft | BinaryOp::ShiftRight => 8,
+            BinaryOp::Add | BinaryOp::Subtract => 9,
+            BinaryOp::Multiply | BinaryOp::Divide | BinaryOp::Remainder => 10,
+            BinaryOp::Power => 11,
+        };
+        Some((op, width, precedence))
+    }
+
+    /// Blanks and newlines, both of which arithmetic ignores entirely.
+    fn skip_arith_blanks(&mut self) {
+        while self
+            .peek()
+            .is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n'))
+        {
+            self.at += 1;
+        }
     }
 
     /// `{a,b}` or `{1..9}` — or the literal characters, where neither is what
@@ -2416,6 +2773,10 @@ fn fill_pipeline(pipeline: &mut Pipeline, bodies: &mut impl Iterator<Item = Here
                 fill_items(items, bodies);
             }
             CommandKind::Function(function) => fill_items(&mut function.body, bodies),
+            CommandKind::ForArith(loop_) => fill_items(&mut loop_.body, bodies),
+            // An arithmetic command carries no list, so no heredoc can open in
+            // one.
+            CommandKind::Arithmetic(_) => {}
         }
         for redirect in &mut command.redirects {
             if let RedirectTarget::Here(here) = &mut redirect.target

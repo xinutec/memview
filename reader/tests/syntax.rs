@@ -910,7 +910,7 @@ fn each_dollar_form_is_named_apart() {
     assert!(parse("echo ${#x}").is_ok());
     assert!(parse("echo ${x%%.*}").is_ok());
     assert_eq!(refusal("echo `date`"), Reason::Backtick);
-    assert_eq!(refusal("echo $((1+2))"), Reason::Arithmetic);
+    assert!(parse("echo $((1+2))").is_ok());
     assert_eq!(refusal("echo $'\\x41'"), Reason::AnsiQuote);
     assert_eq!(refusal("echo $\"hello\""), Reason::LocaleQuote);
 }
@@ -1389,10 +1389,17 @@ fn a_comment_in_a_body_is_refused_rather_than_dropped() {
 
 #[test]
 fn the_arithmetic_for_is_a_different_grammar() {
-    assert_eq!(
-        refusal("for ((i=0;i<3;i++)); do b; done"),
-        Reason::Arithmetic
-    );
+    // Same keyword, nothing else in common: no name, no word list, three
+    // expressions instead.
+    use reader::syntax::ast::CommandKind;
+    assert!(matches!(
+        loop_of("for ((i=0;i<3;i++)); do b; done"),
+        CommandKind::ForArith(_)
+    ));
+    assert!(matches!(
+        loop_of("for f in a; do b; done"),
+        CommandKind::For(_)
+    ));
 }
 
 #[test]
@@ -1998,6 +2005,137 @@ fn the_law_holds_across_the_brace_shapes() {
         "mkdir -p /tmp/{a,b}/c",
         "echo {a,b} | wc -l",
         "for f in {1..3}; do echo $f; done",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+        assert!(
+            survey(text).is_empty(),
+            "{text:?} should need nothing: {:?}",
+            survey(text)
+        );
+    }
+}
+
+// ---- arithmetic ----
+
+fn arith_of(text: &str) -> reader::syntax::ast::Arith {
+    match &segments(text, 1)[..] {
+        [
+            Segment {
+                kind: SegmentKind::Arithmetic(value),
+                ..
+            },
+        ] => value.clone(),
+        other => panic!("{text:?} is not one arithmetic expansion: {other:?}"),
+    }
+}
+
+#[test]
+fn precedence_is_in_the_tree_not_in_the_text() {
+    use reader::syntax::ast::{Arith, BinaryOp};
+    // ⚠ The whole reason arithmetic is a tree: `1+2*3` and `(1+2)*3` are
+    // different answers, and a reader that kept the source text would satisfy
+    // the round-trip law while recording neither. Bash prints arithmetic
+    // verbatim, so the second gate cannot tell them apart either.
+    let loose = arith_of("echo $((1+2*3))");
+    let Arith::Binary { op, .. } = &loose else {
+        panic!("not a binary expression: {loose:?}");
+    };
+    assert_eq!(*op, BinaryOp::Add, "the `+` is the root of `1+2*3`");
+    let tight = arith_of("echo $(((1+2)*3))");
+    let Arith::Binary { op, .. } = &tight else {
+        panic!("not a binary expression: {tight:?}");
+    };
+    assert_eq!(*op, BinaryOp::Multiply, "the `*` is the root of `(1+2)*3`");
+    assert_ne!(loose, tight);
+    // The printer puts the parens back from precedence, having no source to
+    // copy them from.
+    assert_eq!(print(&tree("echo $((1+2*3))")), "echo $((1 + 2 * 3))");
+    assert_eq!(print(&tree("echo $(((1+2)*3))")), "echo $(((1 + 2) * 3))");
+}
+
+#[test]
+fn spacing_is_not_recorded_but_the_tree_is_the_same() {
+    assert_eq!(arith_of("echo $((1+2))"), arith_of("echo $(( 1 + 2 ))"));
+}
+
+#[test]
+fn a_base_prefix_belongs_to_the_number() {
+    use reader::syntax::ast::Arith;
+    // ⚠ `$((08))` is an invalid octal and `$((10#08))` is 8 — which is why the
+    // corpus writes it for a zero-padded minute. Three commands were refused
+    // until the node held the base.
+    assert!(matches!(arith_of("echo $((10#08))"), Arith::Based { .. }));
+    assert!(matches!(arith_of("echo $((16#ff))"), Arith::Based { .. }));
+    // The digits may be an expansion, because the base applies after it.
+    assert!(matches!(arith_of("echo $((10#$m))"), Arith::Based { .. }));
+    assert_eq!(print(&tree("echo $((10#$m % 10))")), "echo $((10#$m % 10))");
+}
+
+#[test]
+fn double_parens_are_arithmetic_not_two_subshells() {
+    use reader::syntax::ast::CommandKind;
+    // `((a))` evaluates; `( (a) )` runs a command called `a`. Same characters
+    // apart from the space, and entirely different trees.
+    assert!(matches!(loop_of("((i++))"), CommandKind::Arithmetic(_)));
+    assert!(matches!(loop_of("( (a) )"), CommandKind::Subshell(_)));
+}
+
+#[test]
+fn the_c_style_for_keeps_its_three_expressions_apart() {
+    use reader::syntax::ast::CommandKind;
+    let CommandKind::ForArith(loop_) = loop_of("for ((i=0; i<3; i++)); do x; done") else {
+        panic!("not a C-style for");
+    };
+    assert!(loop_.init.is_some() && loop_.condition.is_some() && loop_.step.is_some());
+    // ⚠ Each is ABSENT rather than empty where the text omits it: `for ((;;))`
+    // loops forever, which an empty expression could not say.
+    let CommandKind::ForArith(forever) = loop_of("for ((;;)); do x; done") else {
+        panic!("not a C-style for");
+    };
+    assert!(forever.init.is_none() && forever.condition.is_none() && forever.step.is_none());
+    assert_eq!(
+        print(&tree("for ((;;)); do x; done")),
+        "for ((; ; )); do x; done"
+    );
+}
+
+#[test]
+fn the_law_holds_across_the_arithmetic_shapes() {
+    for text in [
+        "echo $((1+2))",
+        "echo $(( 1 + 2 ))",
+        "echo $((a*b))",
+        "echo $(($x+1))",
+        "echo $((x++))",
+        "echo $((++x))",
+        "echo $((-x))",
+        "echo $((!x))",
+        "echo $((~x))",
+        "echo $((a?b:c))",
+        "echo $((a,b))",
+        "echo $(((1+2)*3))",
+        "echo $((1+2*3))",
+        "echo $((a<<2))",
+        "echo $((a>=b))",
+        "echo $((a&&b))",
+        "echo $((a|b))",
+        "echo $((0x1f))",
+        "echo $((10#$m % 10))",
+        "echo $((i=1))",
+        "echo $((i+=2))",
+        "echo $(($(date +%s)+1))",
+        r#"echo "$((1+2))""#,
+        "((i++))",
+        "((i=1))",
+        "((a<b)) && echo yes",
+        "for ((i=0; i<3; i++)); do echo $i; done",
+        "for ((;;)); do x; done",
+        "n=$((n+1))",
+        "if ((n>0)); then echo yes; fi",
     ] {
         assert!(
             check(text).holds(),

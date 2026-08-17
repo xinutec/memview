@@ -12,9 +12,10 @@
 //! usable as an equivalence test.
 
 use super::ast::{
-    Anchor, AndOr, Assignment, Brace, Command, CommandKind, Conditional, Connector, ForLoop, Glob,
-    Heredoc, Item, Parameter, ParameterOp, Pipeline, Redirect, RedirectOp, RedirectTarget, Script,
-    Segment, SegmentKind, Simple, Subscript, Tilde, Timed, WhileLoop, Word,
+    Anchor, AndOr, Arith, Assignment, BinaryOp, Brace, Command, CommandKind, Conditional,
+    Connector, ForLoop, Glob, Heredoc, Item, Parameter, ParameterOp, Pipeline, Redirect,
+    RedirectOp, RedirectTarget, Script, Segment, SegmentKind, Simple, Step, Subscript, Tilde,
+    Timed, UnaryOp, WhileLoop, Word,
 };
 use super::parse::{is_assignment, is_reserved};
 
@@ -101,6 +102,24 @@ fn print_command(command: &Command, head: bool, bodies: &mut Vec<String>) -> Str
         CommandKind::Subshell(items) => vec![format!("( {} )", print_body(items, bodies))],
         CommandKind::Group(items) => {
             vec![format!("{{ {} }}", terminated(&print_body(items, bodies)))]
+        }
+        CommandKind::Arithmetic(value) => vec![format!("(({}))", print_arith(value))],
+        CommandKind::ForArith(loop_) => {
+            let part = |value: &Option<Arith>| match value {
+                Some(value) => print_arith(value),
+                None => String::new(),
+            };
+            let head = format!(
+                "for (({}; {}; {}))",
+                part(&loop_.init),
+                part(&loop_.condition),
+                part(&loop_.step)
+            );
+            let with_do = follow(&head, "do");
+            vec![follow(
+                &format!("{with_do} {}", print_body(&loop_.body, bodies)),
+                "done",
+            )]
         }
         // ⚠ **`function f ()` is bash's spelling, not ours.** `declare -f`
         // prints every definition that way whichever was written, so matching it
@@ -194,6 +213,120 @@ fn print_if(conditional: &Conditional, bodies: &mut Vec<String>) -> String {
 /// accepts `if a; then b & fi` and refuses `if a; then b & ; fi` — measured —
 /// and the same is true of every `do … done`. Shared rather than repeated,
 /// because it was written out three times and got the loops wrong.
+/// An arithmetic expression, parenthesised wherever the tree says something the
+/// bare spelling would not.
+///
+/// ⚠ **Parens come from PRECEDENCE, not from the source.** The tree does not
+/// record where they were written, so the printer puts them back exactly where
+/// dropping them would change the answer: `(1+2)*3` needs them and `1+2*3` does
+/// not. Getting this wrong is invisible to the second gate — bash prints
+/// arithmetic verbatim — so it is the round-trip law that keeps it honest.
+fn print_arith(value: &Arith) -> String {
+    print_arith_at(value, 0)
+}
+
+fn print_arith_at(value: &Arith, least: u8) -> String {
+    let (text, precedence) = match value {
+        Arith::Number(text) => (text.clone(), u8::MAX),
+        Arith::Variable(name) => (name.clone(), u8::MAX),
+        Arith::Based { base, digits } => {
+            (format!("{base}#{}", print_arith_at(digits, 12)), u8::MAX)
+        }
+        Arith::Expansion(segment) => (print_segment(segment), u8::MAX),
+        Arith::Unary { op, operand } => {
+            let spelling = match op {
+                UnaryOp::Negate => "-",
+                UnaryOp::Plus => "+",
+                UnaryOp::Not => "!",
+                UnaryOp::BitNot => "~",
+                UnaryOp::Step(Step::Increment) => "++",
+                UnaryOp::Step(Step::Decrement) => "--",
+            };
+            (
+                format!("{spelling}{}", print_arith_at(operand, 12)),
+                u8::MAX,
+            )
+        }
+        Arith::Postfix { op, operand } => {
+            let spelling = match op {
+                Step::Increment => "++",
+                Step::Decrement => "--",
+            };
+            (
+                format!("{}{spelling}", print_arith_at(operand, 12)),
+                u8::MAX,
+            )
+        }
+        Arith::Binary { op, left, right } => {
+            let precedence = binary_precedence(*op);
+            // ⚠ The right side is printed one level tighter, so a tree that
+            // re-associates — `a - (b - c)` — keeps the parens that say so.
+            (
+                format!(
+                    "{} {} {}",
+                    print_arith_at(left, precedence),
+                    op.spelling(),
+                    print_arith_at(right, precedence + 1)
+                ),
+                precedence,
+            )
+        }
+        Arith::Ternary {
+            condition,
+            then,
+            otherwise,
+        } => (
+            format!(
+                "{} ? {} : {}",
+                print_arith_at(condition, 1),
+                print_arith(then),
+                print_arith_at(otherwise, 1)
+            ),
+            1,
+        ),
+        Arith::Assign { target, op, value } => (
+            format!(
+                "{} {}= {}",
+                print_arith_at(target, 12),
+                op.map_or(String::new(), |op| op.spelling().to_string()),
+                print_arith(value)
+            ),
+            0,
+        ),
+        Arith::Sequence(parts) => (
+            parts
+                .iter()
+                .map(|part| print_arith_at(part, 1))
+                .collect::<Vec<_>>()
+                .join(", "),
+            0,
+        ),
+    };
+    if precedence < least {
+        format!("({text})")
+    } else {
+        text
+    }
+}
+
+/// The same table the parser climbs, and it has to be: the printer omits a
+/// paren exactly where the parser would not have needed one.
+fn binary_precedence(op: BinaryOp) -> u8 {
+    match op {
+        BinaryOp::Or => 1,
+        BinaryOp::And => 2,
+        BinaryOp::BitOr => 3,
+        BinaryOp::BitXor => 4,
+        BinaryOp::BitAnd => 5,
+        BinaryOp::Equal | BinaryOp::NotEqual => 6,
+        BinaryOp::Less | BinaryOp::LessOrEqual | BinaryOp::Greater | BinaryOp::GreaterOrEqual => 7,
+        BinaryOp::ShiftLeft | BinaryOp::ShiftRight => 8,
+        BinaryOp::Add | BinaryOp::Subtract => 9,
+        BinaryOp::Multiply | BinaryOp::Divide | BinaryOp::Remainder => 10,
+        BinaryOp::Power => 11,
+    }
+}
+
 /// A command list with the terminator a closing `}` needs after it.
 ///
 /// ⚠ **`{ a }` is a syntax error and `( a )` is not** — measured. A brace group
@@ -587,6 +720,7 @@ fn print_segment(segment: &Segment) -> String {
             Some(step) => format!("{{{from}..{to}..{step}}}"),
             None => format!("{{{from}..{to}}}"),
         },
+        SegmentKind::Arithmetic(value) => format!("$(({}))", print_arith(value)),
         SegmentKind::Substitution(substitution) => {
             // ⚠ A substitution's own heredocs are refused by the parser, so
             // nothing can reach this vector — and if that ever changed, the body

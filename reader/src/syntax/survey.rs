@@ -409,7 +409,27 @@ impl Survey<'_> {
                 // not the same test, and using it read every parenthesis in a
                 // prose argument as a subshell.
                 b'(' => {
-                    if self.closes_immediately() && (after_name || (at_command_start && in_word)) {
+                    // ⚠ `((…))` is arithmetic, not two subshells — `((a))`
+                    // evaluates where `( (a) )` runs a command called `a`.
+                    // Stepped over whole: the interior is an expression, so
+                    // nothing in it is a construct this scanner reports, and a
+                    // `<` in there is a comparison rather than a redirection.
+                    // `for ((…))` is the C-style loop: the same doubled paren,
+                    // one word past a command start, which `for_stage` is what
+                    // knows about.
+                    if (at_command_start || for_stage == 1)
+                        && !in_word
+                        && self.peek_at(1) == Some(b'(')
+                    {
+                        // Cleared before the separator rather than after: this
+                        // `for` has no word list to be in the middle of, so the
+                        // header state it set must not outlive the `((`.
+                        loop_header = false;
+                        separator!();
+                        self.skip_balanced(b'(', b')');
+                    } else if self.closes_immediately()
+                        && (after_name || (at_command_start && in_word))
+                    {
                         // `name()` — a definition. Its body is scanned as the
                         // list it is.
                         separator!();
@@ -478,6 +498,9 @@ impl Survey<'_> {
                             word.push('$');
                             self.substitution();
                         }
+                        // Modelled now; the interior is arithmetic, which holds
+                        // no construct this scanner reports on its own.
+                        Some(Reason::Arithmetic) => self.skip_expansion(),
                         Some(reason) => {
                             self.found.insert(reason);
                             self.skip_expansion();
@@ -857,7 +880,10 @@ impl Survey<'_> {
                 }
                 b'\\' => self.at += 2,
                 b'$' | b'`' => match classify_expansion(self.bytes, self.at, true) {
-                    Some(Reason::Parameter) => self.skip_expansion(),
+                    // Modelled: a parameter, a substitution, and arithmetic —
+                    // whose interior is an expression rather than a list, so
+                    // there is nothing in there for this scanner to report.
+                    Some(Reason::Parameter | Reason::Arithmetic) => self.skip_expansion(),
                     Some(Reason::CommandSubstitution) => self.substitution(),
                     Some(reason) => {
                         self.found.insert(reason);

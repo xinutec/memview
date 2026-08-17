@@ -6,7 +6,8 @@ the fleet executes, plus a printer that puts it back.
 **Status: simple commands with binding prefixes, comments, pipelines, and-or
 lists, redirection, heredocs, tilde prefixes, parameters and their operators,
 `$( )` substitutions, `for`/`while`/`until`/`select` loops, `if`, subshells,
-brace groups, function definitions and brace expansion; three gates wired.**
+brace groups, function definitions, brace expansion and arithmetic; three gates
+wired.**
 `reader/src/syntax/` holds the tree, the parser and the printer; the
 `bash-oracle` crate holds the second and third gates and the report.
 
@@ -64,7 +65,11 @@ the identical wrong tree; (1) and (2) both hold, and the corpus does not object
 because the command parses. Two defences, neither of them the law:
 
 - **inside a word, by construction** — no run of literal characters may swallow
-  one that opens a construct. Unquoted and inside double quotes those are `$`,
+  one that opens a construct. The sharpest case is arithmetic: bash prints an
+  expression VERBATIM, whitespace and all, so keeping the source between the
+  parens would satisfy the law and tell the second gate nothing. `1+2*3` and
+  `(1+2)*3` are different answers, so the tree holds an expression and the
+  printer rebuilds the parens from precedence. Unquoted and inside double quotes those are `$`,
   `` ` ``, `\` and the quotes, so an unimplemented `${x:-y}` is a parse *error*
   rather than a literal. Nothing observes this after the fact; it has to be
   impossible.

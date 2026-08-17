@@ -197,6 +197,11 @@ pub enum CommandKind {
     Group(Vec<Item>),
     /// `name() { … }`.
     Function(Function),
+    /// `((i++))` — arithmetic as a command, whose exit status is whether the
+    /// value was non-zero.
+    Arithmetic(Arith),
+    /// `for ((i=0; i<3; i++)); do … done`.
+    ForArith(ForArith),
 }
 
 /// `name() { body }` — a definition, which runs none of its body.
@@ -458,6 +463,153 @@ pub enum SegmentKind {
     Substitution(Substitution),
     /// `{a,b}`, `{1..9}` — one word that becomes several.
     Brace(Brace),
+    /// `$((1+2))` — a number, not a string.
+    Arithmetic(Arith),
+}
+
+/// Shell arithmetic: a real expression, not a span of text.
+///
+/// ⚠ **Held as a tree because the alternative is absorption.** Keeping the
+/// source between the parens would satisfy the round-trip law — it prints back
+/// and re-reads identically — and bash prints arithmetic VERBATIM, whitespace
+/// included, so the second gate has no opinion either. An unparsed string here
+/// would be exactly the failure `docs/execution-model.md` calls the one no gate
+/// can see.
+///
+/// Spacing is not recorded: `$((1+2))` and `$(( 1 + 2 ))` are one tree, and the
+/// printer picks a spelling. `t₂ ≠ t₁` is permitted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Arith {
+    /// `42`, `0x1f`, `007` — as written, because the base is part of what the
+    /// text says and `010` is eight.
+    Number(String),
+    /// `i` — a name, which arithmetic reads without a `$`.
+    Variable(String),
+    /// `16#ff`, `10#$m` — digits in an explicit base.
+    ///
+    /// ⚠ **The base is a wrapper, not part of the number.** `10#08` is eight
+    /// where `08` alone is an invalid octal, which is exactly why the corpus
+    /// writes `$((10#$m % 10))` for a zero-padded minute. The digits may
+    /// themselves be an expansion, because the base prefix is applied after the
+    /// expansion happens.
+    Based {
+        base: String,
+        digits: Box<Arith>,
+    },
+    /// `$x`, `${x}`, `$(cmd)` — an expansion whose VALUE is then arithmetic.
+    /// Kept as the segment it is rather than flattened to a name: `$x` and `x`
+    /// are different texts and, for an unset-versus-empty variable, different
+    /// programs.
+    Expansion(Box<Segment>),
+    Unary {
+        op: UnaryOp,
+        operand: Box<Arith>,
+    },
+    /// `i++`, `i--` — where the value is taken before the change.
+    Postfix {
+        op: Step,
+        operand: Box<Arith>,
+    },
+    Binary {
+        op: BinaryOp,
+        left: Box<Arith>,
+        right: Box<Arith>,
+    },
+    Ternary {
+        condition: Box<Arith>,
+        then: Box<Arith>,
+        otherwise: Box<Arith>,
+    },
+    /// `i = 1`, `i += 2` — assignment, which is an expression in arithmetic.
+    Assign {
+        target: Box<Arith>,
+        op: Option<BinaryOp>,
+        value: Box<Arith>,
+    },
+    /// `a, b` — every part evaluated, the last one's value taken.
+    Sequence(Vec<Arith>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnaryOp {
+    /// `-x`
+    Negate,
+    /// `+x`
+    Plus,
+    /// `!x`
+    Not,
+    /// `~x`
+    BitNot,
+    /// `++x` / `--x`, where the change happens first.
+    Step(Step),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    Increment,
+    Decrement,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinaryOp {
+    Power,
+    Multiply,
+    Divide,
+    Remainder,
+    Add,
+    Subtract,
+    ShiftLeft,
+    ShiftRight,
+    Less,
+    LessOrEqual,
+    Greater,
+    GreaterOrEqual,
+    Equal,
+    NotEqual,
+    BitAnd,
+    BitXor,
+    BitOr,
+    And,
+    Or,
+}
+
+impl BinaryOp {
+    /// How the operator is written, which is also how the printer writes it.
+    pub fn spelling(self) -> &'static str {
+        match self {
+            BinaryOp::Power => "**",
+            BinaryOp::Multiply => "*",
+            BinaryOp::Divide => "/",
+            BinaryOp::Remainder => "%",
+            BinaryOp::Add => "+",
+            BinaryOp::Subtract => "-",
+            BinaryOp::ShiftLeft => "<<",
+            BinaryOp::ShiftRight => ">>",
+            BinaryOp::Less => "<",
+            BinaryOp::LessOrEqual => "<=",
+            BinaryOp::Greater => ">",
+            BinaryOp::GreaterOrEqual => ">=",
+            BinaryOp::Equal => "==",
+            BinaryOp::NotEqual => "!=",
+            BinaryOp::BitAnd => "&",
+            BinaryOp::BitXor => "^",
+            BinaryOp::BitOr => "|",
+            BinaryOp::And => "&&",
+            BinaryOp::Or => "||",
+        }
+    }
+}
+
+/// `for ((init; condition; step))` — the C-style loop, which shares nothing
+/// with `for NAME in words` but its keyword.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForArith {
+    /// Each is absent where the text left it out: `for ((;;))` is legal and
+    /// loops forever, which an empty expression could not say.
+    pub init: Option<Arith>,
+    pub condition: Option<Arith>,
+    pub step: Option<Arith>,
+    pub body: Vec<Item>,
 }
 
 /// Brace expansion: the one word-level construct that changes how MANY words
@@ -658,7 +810,9 @@ impl Word {
                 | SegmentKind::Substitution(_)
                 // A brace expansion names several words, so "the" text of the
                 // word it sits in is a category error twice over.
-                | SegmentKind::Brace(_) => {
+                | SegmentKind::Brace(_)
+                // Arithmetic names a NUMBER nobody has computed yet.
+                | SegmentKind::Arithmetic(_) => {
                     return None;
                 }
             }
