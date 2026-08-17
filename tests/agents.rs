@@ -1802,3 +1802,45 @@ fn a_glob_over_the_corpus_names_no_memory() {
     let names: Vec<&str> = agents[0].memories.keys().map(String::as_str).collect();
     assert_eq!(names, vec!["project_real"], "{names:?}");
 }
+
+/// The episode boundary: which `user` line is somebody typing.
+///
+/// ⚠ **This is the one predicate whose failure MERGES two instructions**, and a
+/// merge is unrecoverable downstream where a duplicate bracket is only noise.
+/// Testing `tool_result` as a bare word cost 17 of them across the corpus.
+mod is_prompt {
+    use memview::agents::is_prompt;
+
+    /// A tool result, as the transcript writes one.
+    const RESULT: &[u8] = br#"{"type":"user","message":{"role":"user","content":[{"tool_use_id":"x","type":"tool_result","content":"ok"}]},"timestamp":"2026-08-17T10:00:00Z"}"#;
+
+    #[test]
+    fn a_tool_result_is_not_a_prompt() {
+        assert!(!is_prompt(RESULT));
+    }
+
+    #[test]
+    fn somebody_typing_is_a_prompt() {
+        let string_content =
+            br#"{"type":"user","message":{"role":"user","content":"proceed"},"timestamp":"t"}"#;
+        assert!(is_prompt(string_content));
+        let block_content = br#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"proceed"}]},"timestamp":"t"}"#;
+        assert!(is_prompt(block_content));
+    }
+
+    #[test]
+    fn a_prompt_that_talks_about_tool_results_is_still_a_prompt() {
+        // The regression. Somebody asking about the machinery is not the
+        // machinery — and inside a JSON string the quotes are escaped, so the
+        // key this looks for cannot appear in prose.
+        let asking = br#"{"type":"user","message":{"role":"user","content":"why does a tool_result line say \"type\":\"tool_result\" twice?"},"timestamp":"t"}"#;
+        assert!(is_prompt(asking));
+    }
+
+    #[test]
+    fn an_assistant_line_is_never_a_prompt() {
+        let assistant =
+            br#"{"type":"assistant","message":{"role":"assistant","content":"done"},"timestamp":"t"}"#;
+        assert!(!is_prompt(assistant));
+    }
+}

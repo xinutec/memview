@@ -1242,6 +1242,29 @@ fn note_hashes(
     }
 }
 
+/// Whether a transcript line is somebody typing, rather than the machinery
+/// answering the agent's own call.
+///
+/// ⚠ **A `user` line is usually NOT a prompt.** Over the whole corpus 492,124
+/// lines wear the user's name and 39,973 are somebody typing; the rest carry a
+/// list of `tool_result` blocks. Which of the two decides whether an episode is
+/// an instruction or a turn of the machinery.
+///
+/// ⚠ **The needle is the JSON key, not the bare word, and the difference was 17
+/// merged episodes.** Testing for `tool_result` anywhere in the line rejects a
+/// prompt that merely *discusses* tool results — and a rejected prompt starts no
+/// episode, so its work joins the one before it. That is the merging error this
+/// boundary exists to prevent, and it was happening.
+///
+/// Matching `"type":"tool_result"` is exact rather than lucky: **inside a JSON
+/// string every quote is escaped**, so those bytes can only ever be structure
+/// and never prose quoting them. Checked against a real parse of all 492,124
+/// lines — no prompt missed, none invented — which is the whole-corpus parse
+/// this avoids paying for on every mine.
+pub fn is_prompt(line: &[u8]) -> bool {
+    field(line, "type") == Some(b"user") && find_at(line, b"\"type\":\"tool_result\"", 0).is_none()
+}
+
 /// Count one transcript's tool calls into `agent`, and note the days.
 #[allow(clippy::too_many_arguments)]
 fn scan_transcript(
@@ -1290,19 +1313,7 @@ fn scan_transcript(
         if line.is_empty() {
             continue;
         }
-        // ⚠ **A `user` line is usually NOT a prompt.** Measured on one
-        // transcript: 7,245 carry a list of `tool_result` blocks — the answers
-        // to the agent's own calls, which arrive wearing the user's name — and
-        // 663 are somebody typing. The distinction is what makes an episode an
-        // instruction rather than a turn of the machinery, and testing for the
-        // absence of `tool_result` is what draws it.
-        //
-        // A prompt whose own text happens to contain that word would be missed
-        // and its work would join the episode before it. That is the merging
-        // error this boundary exists to avoid, so it is worth naming: it is
-        // rare, and the alternative — parsing every line as JSON — costs the
-        // whole corpus a parse to catch it.
-        if field(line, "type") == Some(b"user") && find_at(line, b"tool_result", 0).is_none() {
+        if is_prompt(line) {
             log.begin_episode(agent_name);
         }
         let mut day = None;
