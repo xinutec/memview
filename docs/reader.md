@@ -16,9 +16,12 @@ a number rather than a silence.
 
 [execution-model.md](execution-model.md) specifies the syntax layer underneath,
 `reader/src/syntax/`, and the three gates that govern it. The chain below is the
-projection that layer will eventually be read through; today the two are
-independent and are built from different grammars, so **a coverage figure from
-one says nothing about the other**.
+projection that layer will eventually be read through. The two are still built
+from different grammars, so **a coverage figure from one says nothing about the
+other** — but they are no longer unrelated: `reader/src/project.rs` puts the tree
+into the chain's own shape and the `projection` report diffs the two over one
+corpus. **96.1% of 134,622 distinct commands read identically**, and the 3.9%
+that do not are the port's worklist, ranked. See *Two readers*, below.
 
 ## Chain
 
@@ -152,6 +155,9 @@ cargo run --release -p reader --bin shell-files      -- <corpus>  # semantics
 cargo run --release -p reader --bin activity-report  -- <corpus> [--sample KIND]
 cargo run --release -p reader --bin python-report    -- <corpus> [--why|--sample]
 cargo run --release -p reader --bin opacity          -- <corpus>  # what nothing reads
+# do the two readers agree about what ran? — and where they do not
+cargo run --release -p reader --bin projection -- <corpus> [--show <n>] [--only <bucket>]
+
 cargo run --release -p reader --example roundtrip-probe -- <corpus>
 cargo run --release -p reader --example unparsed-probe  -- <corpus>
 
@@ -165,6 +171,35 @@ commands carry, how much does nobody look inside, and who handed it over.
 
 ⚠ Run these rather than trusting any written-down number. Chaining with `; cat`
 reports the `cat`'s exit code.
+
+## Two readers
+
+`shell.rs` and `syntax/` answer the same first question — *which commands does
+this script run* — from grammars that share no code, and for months nothing asked
+them the same question. `project.rs` projects the tree onto `Simple`, the flat
+reader's own shape, so `--bin projection` can diff them command by command.
+
+⚠ **The differences were not evenly distributed, and neither reader owned them.**
+Measured 2026-08-17 over `union.jsonl`:
+
+| what disagrees | commands | who was wrong |
+| --- | --- | --- |
+| a backslash inside `" "` | 21,481 | the flat reader — **fixed**, `unquote` |
+| an argument before a redirection | 1,649 | the flat reader — **fixed**, `shell.pest` |
+| the condition on a loop body | ~2,000 | the flat reader: `for`/`do` are words to it |
+| `<(cmd)` as an argument | 152 | the flat reader: it is a redirection there |
+| how an expansion is spelled back | ~2,700 | neither — see below |
+
+The first two were live defects nothing else could see: `grep -E "\s+"` was read
+as `grep -E "s+"`, and `nc -w3 host 25 2>&1` named no port. Both are gone, and
+agreement went **79.3% → 96.1%** on the two fixes alone.
+
+⚠ **A spelling difference is not a reading difference.** An argv string holding
+`$(a|b)` is one reader's source text and the other's reprint of a parsed tree, so
+`2>/dev/null` comes back as `2> /dev/null` and `${x}` as `$x`. Nothing reads
+inside an expansion — its value is undetermined either way — so those buckets are
+named apart rather than counted as defects, and `reader/tests/projection.rs`
+asserts they stay spellings.
 
 ## Correctness
 

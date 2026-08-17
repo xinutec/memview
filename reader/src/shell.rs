@@ -733,16 +733,33 @@ fn unquote(word: &str) -> String {
                 }
                 i += 1;
             }
+            // ⚠ **Inside double quotes a backslash escapes FIVE characters and
+            // is an ordinary character before anything else.** `"\.lpass"` is
+            // seven characters, `"lpass \["` keeps its backslash, and `tr -d
+            // '\r'` inside a `bash -c "…"` payload means a carriage return —
+            // measured in `reader/probes/quoting.sh`. Dropping the backslash
+            // unconditionally, which is what this did, rewrote one word in
+            // **21,481 of the corpus's 134,622 distinct commands**: every `grep
+            // -E "\s+"` lost its class and every nested script lost its escapes.
+            // Found by `cargo run -p reader --bin projection`, which reads the
+            // same corpus with the syntax tree and diffs the two.
+            //
+            // A backslash-newline is the sixth case and is not an escape: it is a
+            // line continuation, and bash removes both characters.
             '"' => {
                 i += 1;
                 while i < chars.len() && chars[i] != '"' {
-                    if chars[i] == '\\' && i + 1 < chars.len() {
-                        out.push(chars[i + 1]);
-                        i += 2;
-                        continue;
+                    match chars.get(i + 1) {
+                        Some('\n') if chars[i] == '\\' => i += 2,
+                        Some(&next @ ('$' | '`' | '"' | '\\')) if chars[i] == '\\' => {
+                            out.push(next);
+                            i += 2;
+                        }
+                        _ => {
+                            out.push(chars[i]);
+                            i += 1;
+                        }
                     }
-                    out.push(chars[i]);
-                    i += 1;
                 }
                 i += 1;
             }

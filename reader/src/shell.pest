@@ -116,12 +116,26 @@ herestring = { "<<<" ~ word }
 procsub = { ("<(" | ">(") ~ body ~ ")" }
 // `2>&1` and `&>` name a descriptor, not a file. Matched only so they stop
 // being parse errors — they contribute no path.
-fd_dup = { (ASCII_DIGIT* ~ ">" ~ ">"? | "&>" | ">&") ~ "&"? ~ ASCII_DIGIT+ }
+//
+// ⚠ **Atomic, because whitespace is implicit and a repetition is where it gets
+// in.** Written without the `@`, `ASCII_DIGIT*` was free to match across a space
+// — so `nc -w3 host 25 2>&1` read `25 2` as one digit run and the port vanished
+// from argv, as did the `1` of every `--limit 1 2>&1`. 1,649 of the corpus's
+// 134,622 distinct commands lost an argument that way, and the loss was silent:
+// the command still parsed, still classified, and named one word less than it
+// was given. Found by `cargo run -p reader --bin projection`.
+fd_dup = @{ (ASCII_DIGIT* ~ ">" ~ ">"? | "&>" | ">&") ~ "&"? ~ ASCII_DIGIT+ }
 // The direction is captured so a target can be classified without re-reading it.
-file_redirect = { ASCII_DIGIT? ~ (append | write | read) ~ word }
-append = { ">>" }
-write  = { ">" }
-read   = { "<" }
+//
+// ⚠ **The descriptor belongs to the operator, and it is atomic for the reason
+// `fd_dup` is.** Written as `ASCII_DIGIT? ~ (append | write | read)`, the digit
+// was free to sit a space away from its own `>` — so the `1` of
+// `monkey -c LAUNCHER 1 >/dev/null` was read as that redirection's descriptor
+// and the argument was gone.
+file_redirect = { (append | write | read) ~ word }
+append = @{ ASCII_DIGIT? ~ ">>" }
+write  = @{ ASCII_DIGIT? ~ ">" }
+read   = @{ ASCII_DIGIT? ~ "<" }
 
 // ---- words ----
 
