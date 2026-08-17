@@ -495,6 +495,15 @@ impl Survey<'_> {
                     {
                         // `name()` — a definition. Its body is scanned as the
                         // list it is.
+                        // ⚠ **And it must HAVE one.** `blocks()` with nothing
+                        // after it is a syntax error to bash and the parser
+                        // refuses it by name. Found the moment backticks were
+                        // built: a `blocks()` inside one had been hidden behind
+                        // the backtick refusal, and the survey called the whole
+                        // command clean.
+                        if !self.body_follows() {
+                            self.found.insert(Reason::FunctionDefinition);
+                        }
                         separator!();
                     } else if at_command_start && !in_word {
                         separator!();
@@ -574,6 +583,13 @@ impl Survey<'_> {
                         Some(Reason::CommandSubstitution) => {
                             word.push('$');
                             self.substitution();
+                        }
+                        // Modelled now, as the same node `$( )` is. Its interior
+                        // is a script too, but it has to be UNESCAPED before it
+                        // is one.
+                        Some(Reason::Backtick) => {
+                            word.push('`');
+                            self.backtick();
                         }
                         // Modelled now; the interior is arithmetic, which holds
                         // no construct this scanner reports on its own.
@@ -776,6 +792,28 @@ impl Survey<'_> {
         }
         self.bytes.get(at) == Some(&b')')
     }
+    /// Does a body follow the `()` of a definition — a brace group or a
+    /// subshell, which are the two spellings bash accepts?
+    fn body_follows(&self) -> bool {
+        let mut at = self.at + 1;
+        while self
+            .bytes
+            .get(at)
+            .is_some_and(|byte| matches!(byte, b' ' | b'\t'))
+        {
+            at += 1;
+        }
+        at += 1; // the `)`
+        while self
+            .bytes
+            .get(at)
+            .is_some_and(|byte| matches!(byte, b' ' | b'\t' | b'\n' | b'\r'))
+        {
+            at += 1;
+        }
+        matches!(self.bytes.get(at), Some(b'{' | b'('))
+    }
+
     /// The word after `<<` with its quoting removed, or `None` where the
     /// delimiter is not readable and the body's extent is therefore unknown.
     ///
@@ -897,6 +935,56 @@ impl Survey<'_> {
         let inner = scan(interior);
         self.found.extend(inner.found);
         if inner.saw_comment {
+            self.found.insert(Reason::CommentInList);
+        }
+    }
+
+    /// Step over `` ` … ` ``, whose interior is a script once it is unescaped.
+    ///
+    /// ⚠ **Unescaped first, because the text is not the script.** Inside a
+    /// backtick run bash resolves `` \` ``, `\$` and `\\`, so a nested
+    /// `` \`…\` `` is a nested substitution — and scanning the raw text instead
+    /// would end the run at the first escaped backtick and read the rest of the
+    /// command as if it were outside one.
+    fn backtick(&mut self) {
+        self.at += 1; // the opening backtick
+        let mut inner = String::new();
+        loop {
+            match self.peek() {
+                None => {
+                    self.found.insert(Reason::UnterminatedExpansion);
+                    return;
+                }
+                Some(b'`') => {
+                    self.at += 1;
+                    break;
+                }
+                Some(b'\\') => {
+                    if let Some(next @ (b'`' | b'$' | b'\\')) = self.peek_at(1) {
+                        inner.push(next as char);
+                        self.at += 2;
+                    } else {
+                        inner.push('\\');
+                        self.at += 1;
+                    }
+                }
+                // A run, not a byte at a time: `byte as char` would turn every
+                // non-ASCII character into a different one.
+                Some(_) => {
+                    let from = self.at;
+                    while self
+                        .peek()
+                        .is_some_and(|byte| byte != b'`' && byte != b'\\')
+                    {
+                        self.at += 1;
+                    }
+                    inner.push_str(&self.text[from..self.at]);
+                }
+            }
+        }
+        let interior = scan(&inner);
+        self.found.extend(interior.found);
+        if interior.saw_comment {
             self.found.insert(Reason::CommentInList);
         }
     }
@@ -1123,6 +1211,7 @@ impl Survey<'_> {
                     // there is nothing in there for this scanner to report.
                     Some(Reason::Parameter | Reason::Arithmetic) => self.skip_expansion(),
                     Some(Reason::CommandSubstitution) => self.substitution(),
+                    Some(Reason::Backtick) => self.backtick(),
                     Some(reason) => {
                         self.found.insert(reason);
                         self.skip_expansion();

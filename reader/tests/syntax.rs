@@ -161,7 +161,6 @@ fn every_construct_the_tree_does_not_model_is_named() {
     // `echo (` is refused by bash too.
     assert_eq!(refusal("echo ("), Reason::Grouping);
     assert!(parse("(cd x)").is_ok());
-    assert_eq!(refusal("echo `ls`"), Reason::Backtick);
     // Bash agrees this one is unterminated: an apostrophe opens a quote.
     assert_eq!(refusal("echo it's"), Reason::UnterminatedQuote);
     assert_eq!(refusal("ls 'unclosed"), Reason::UnterminatedQuote);
@@ -308,10 +307,10 @@ fn the_survey_returns_every_blocking_construct_not_the_first() {
     // The whole reason it exists: `parse` stops at the first thing it cannot
     // read and never sees the rest, so the refusal ranking under-counts
     // whatever sits rightmost.
-    assert_eq!(refusal("[[ -f x ]] | grep `y`"), Reason::TestExpression);
+    assert_eq!(refusal("[[ -f x ]] | grep $\"y\""), Reason::TestExpression);
     assert_eq!(
-        survey("[[ -f x ]] | grep `y`"),
-        BTreeSet::from([Reason::TestExpression, Reason::Backtick])
+        survey("[[ -f x ]] | grep $\"y\""),
+        BTreeSet::from([Reason::TestExpression, Reason::LocaleQuote])
     );
 }
 
@@ -347,8 +346,8 @@ fn the_survey_reports_the_construct_and_not_its_punctuation() {
     // What is genuinely in there is still reported: a process substitution's
     // interior is a command list the parser reads.
     assert_eq!(
-        survey("diff <(grep `x` a) b"),
-        BTreeSet::from([Reason::Backtick])
+        survey("diff <(grep $\"x\" a) b"),
+        BTreeSet::from([Reason::LocaleQuote])
     );
 }
 
@@ -359,7 +358,7 @@ fn the_survey_looks_past_what_it_cannot_own() {
     // inside a substitution is only what the parser refuses there.
     assert!(survey("echo $(git log | head)").is_empty());
     assert!(survey("cat <<EOF\na | b && c\nEOF").is_empty());
-    assert!(survey("echo `git log`").contains(&Reason::Backtick));
+    assert!(survey("echo `git log`").is_empty());
 }
 
 #[test]
@@ -1010,13 +1009,12 @@ fn each_dollar_form_is_named_apart() {
     // ⚠ A reason is a unit of work, and these are not one build: naming a
     // parameter is a leaf, `${x%%y}` is a small language, and `$(…)` is a whole
     // script this parser would have to recurse into.
-    // The operator family is built now; what is left of this reason is the
-    // substring, whose operands are arithmetic.
-    assert_eq!(refusal("echo ${x:1:3}"), Reason::ParameterOperator);
+    // The operator family is built, substring and all.
+    assert!(parse("echo ${x:1:3}").is_ok());
     assert!(parse("echo ${x:-y}").is_ok());
     assert!(parse("echo ${#x}").is_ok());
     assert!(parse("echo ${x%%.*}").is_ok());
-    assert_eq!(refusal("echo `date`"), Reason::Backtick);
+    assert!(parse("echo `date`").is_ok());
     assert!(parse("echo $((1+2))").is_ok());
     assert!(parse("echo $'\\x41'").is_ok());
     assert_eq!(refusal("echo $\"hello\""), Reason::LocaleQuote);
@@ -1782,12 +1780,26 @@ fn a_substitution_nests_and_sits_inside_a_word() {
 }
 
 #[test]
-fn a_backtick_is_a_different_build_and_stays_refused() {
-    // ⚠ Bash prints a backtick's interior VERBATIM — `` `a|b` `` stays as
-    // written — where it normalises `$( )`. Different rendering, different
-    // escaping, and 18 corpus commands against 6397.
-    assert_eq!(refusal("echo `a|b`"), Reason::Backtick);
-    assert!(survey("echo `a|b`").contains(&Reason::Backtick));
+fn a_backtick_is_the_same_node_as_a_substitution() {
+    // ⚠ **One tree, because the two mean the same thing** — the difference is
+    // spelling, which this tree normalises away as it does `\'a\'` and `a`. The
+    // printer writes the modern form, and bash's own print of the original is
+    // verbatim, so the second gate parses that back to this same tree.
+    assert_eq!(tree("echo `a|b`"), tree("echo $(a|b)"));
+    assert_eq!(print(&tree("echo `a|b`")), "echo $(a | b)");
+    assert!(check("echo `a|b`").holds());
+    // ⚠ **The interior is not the source text.** `\\`` `\\$` and `\\\\` resolve
+    // before it is a script at all — measured — so a nested run is a nested
+    // substitution rather than the syntax error a raw scan would make of it.
+    assert_eq!(
+        print(&tree("echo `echo \\`inner\\``")),
+        "echo $(echo $(inner))"
+    );
+    assert_eq!(print(&tree("echo `echo \\$x`")), "echo $(echo $x)");
+    assert!(survey("echo `a|b`").is_empty());
+    // What is inside one is still reported, because the parser reads it.
+    assert!(survey("echo `[[ -f x ]]`").contains(&Reason::TestExpression));
+    assert_eq!(refusal("echo `a"), Reason::UnterminatedExpansion);
 }
 
 #[test]
@@ -2300,10 +2312,9 @@ fn a_replacement_is_absent_rather_than_empty_when_none_was_written() {
 
 #[test]
 fn what_this_build_does_not_reach_is_still_refused_by_name() {
-    // ⚠ A substring takes ARITHMETIC on both sides, which is a language of its
-    // own — so it stays refused rather than being read as text.
-    assert_eq!(refusal("echo ${x:1:3}"), Reason::ParameterOperator);
-    assert!(survey("echo ${x:1:3}").contains(&Reason::ParameterOperator));
+    // An empty operand is a slice from nowhere, and a node with no expression
+    // in it would be a lie about the text.
+    assert_eq!(refusal("echo ${x::2}"), Reason::ParameterOperator);
     // An arithmetic index is refused as arithmetic, which is what it is.
     assert_eq!(refusal("echo ${a[i+1]}"), Reason::Arithmetic);
     assert_eq!(refusal("echo ${}"), Reason::ParameterOperator);
@@ -2312,8 +2323,49 @@ fn what_this_build_does_not_reach_is_still_refused_by_name() {
 }
 
 #[test]
+fn a_substring_takes_arithmetic_and_one_space_decides_which_operator_it_is() {
+    use reader::syntax::ast::{Arith, ParameterOp};
+    // ⚠ **One space, two different programs.** `${x:-3}` substitutes a default
+    // and `${x: -3}` takes the last three characters — run, not reasoned. Bash
+    // prints both back verbatim, so the second gate has no opinion and only
+    // construction keeps them apart.
+    assert!(matches!(
+        parameter_of("echo ${x:-3}").op,
+        Some(ParameterOp::Default { .. })
+    ));
+    assert!(matches!(
+        parameter_of("echo ${x: -3}").op,
+        Some(ParameterOp::Substring { .. })
+    ));
+    // ⚠ And the printer has to put the space BACK, or the tree prints as the
+    // other operator. The law catches this one, which is why it is here twice.
+    assert_eq!(print(&tree("echo ${x: -3}")), "echo ${x: -3}");
+    assert!(check("echo ${x: -3}").holds());
+    // The operands are expressions, not text: `${x:n+1:2}` evaluates the `n+1`.
+    match parameter_of("echo ${x:n+1:2}").op {
+        Some(ParameterOp::Substring { offset, length }) => {
+            assert!(matches!(offset, Arith::Binary { .. }));
+            assert!(length.is_some());
+        }
+        other => panic!("expected a substring: {other:?}"),
+    }
+    // A missing length is not a length of zero.
+    match parameter_of("echo ${x:1}").op {
+        Some(ParameterOp::Substring { length, .. }) => assert!(length.is_none()),
+        other => panic!("expected a substring: {other:?}"),
+    }
+}
+
+#[test]
 fn the_law_holds_across_the_parameter_operator_shapes() {
     for text in [
+        "echo ${x:1:3}",
+        "echo ${x:1}",
+        "echo ${x: -3}",
+        "echo ${x:0:-1}",
+        "echo ${x:$n:2}",
+        "echo ${x:n+1:2}",
+        "echo ${@:2}",
         "echo ${x:-y}",
         "echo ${x-y}",
         "echo ${x:=y}",

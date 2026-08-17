@@ -700,16 +700,19 @@ pub enum Brace {
     },
 }
 
-/// `$(cmd)`, whose value is what the commands inside it print.
+/// `$(cmd)` and `` `cmd` ``, whose value is what the commands inside it print.
 ///
 /// ⚠ **The interior is a script, and the second gate checks it.** Bash
 /// normalises what is inside — `$(a|b)` comes back as `$(a | b)` and
 /// `$(ls |& cat)` as `$(ls 2>&1 | cat)` — so unlike a word, this is a real parse
 /// on both sides of the comparison and a misparse in here would be caught.
 ///
-/// Backticks are a different node and are not modelled: bash prints their
-/// interior verbatim, and their escaping rules differ. Measured at 18 commands
-/// against 6,397 for this form.
+/// ⚠ **A backtick is the same node**, because the two mean the same thing and
+/// what differs is spelling. The printer writes `$( )` for both, which the law
+/// permits. What bash does differ about is the RENDERING — it prints a
+/// backtick's interior verbatim where it normalises this one — so the gate is
+/// blind inside one and sees inside the other, while still comparing trees.
+/// The escaping is resolved at parse time; see `Parser::backtick`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Substitution {
     pub items: Vec<Item>,
@@ -834,6 +837,22 @@ pub enum ParameterOp {
     StripSuffix { longest: bool, pattern: Word },
     /// `${x/pat/rep}` and its anchored spellings.
     Replace(Replace),
+    /// `${x:1:3}`, `${x: -3}` — a slice of the value.
+    ///
+    /// ⚠ **Both operands are ARITHMETIC, not text.** `${x:n+1:2}` evaluates the
+    /// `n+1`, so holding the source between the colons would be the failure no
+    /// gate can see: bash prints the whole expansion back verbatim and would
+    /// agree with a literal reading of it.
+    ///
+    /// ⚠ **The space in `${x: -3}` is semantic.** Without it `${x:-3}` is the
+    /// [`ParameterOp::Default`] operator, which is a different program — so the
+    /// printer puts the space back wherever the offset is negative.
+    Substring {
+        offset: Arith,
+        /// Absent where the text gave none: `${x:1}` runs to the end of the
+        /// value, which is not the same as a length of zero.
+        length: Option<Arith>,
+    },
     /// `${x^}`, `${x^^}`, `${x,}`, `${x,,}` — change case.
     Case { upper: bool, every: bool },
     /// `${#x}` — how long the value is, or how many elements an array has.

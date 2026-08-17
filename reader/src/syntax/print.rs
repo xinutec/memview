@@ -635,6 +635,19 @@ fn print_suffix_op(op: Option<&ParameterOp>) -> String {
                 print_operand(pattern)
             )
         }
+        // ⚠ **A space before a negative offset, or it is a different operator.**
+        // `${x:-3}` substitutes a default and `${x: -3}` takes the last three
+        // characters, so printing the offset bare would turn one program into
+        // another — and bash's own print has the space in it too. The LENGTH
+        // needs none: nothing follows a second colon but an expression.
+        Some(ParameterOp::Substring { offset, length }) => {
+            let offset = print_arith(offset);
+            let space = if offset.starts_with('-') { " " } else { "" };
+            match length {
+                Some(length) => format!(":{space}{offset}:{}", print_arith(length)),
+                None => format!(":{space}{offset}"),
+            }
+        }
         Some(ParameterOp::Case { upper, every }) => {
             let c = if *upper { '^' } else { ',' };
             if *every {

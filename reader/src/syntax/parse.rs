@@ -71,13 +71,18 @@ pub enum Reason {
     /// `$(cmd)` — a whole script, whose value is its output. The first
     /// construct that needs this parser to recurse into itself.
     CommandSubstitution,
-    /// `` `cmd` `` — the same meaning, a different build.
+    /// `` `cmd` `` — the older spelling of `$(cmd)`.
     ///
-    /// ⚠ **Split from `$( )` because bash treats the two differently.** It
-    /// NORMALISES the interior of `$(a|b)`, printing it back as `$(a | b)`, and
-    /// prints `` `a|b` `` verbatim — so the second gate can see inside one and
-    /// not the other. The escaping differs too: a backtick's interior needs
-    /// `\``, `\$` and `\\` resolved before it is a script at all.
+    /// ⚠ **A classification, not a refusal.** It reaches the SAME node: the two
+    /// mean the same thing, and what differs is spelling, which this tree
+    /// normalises away. The escaping differs too — a backtick's interior needs
+    /// `` \` ``, `\$` and `\\` resolved before it is a script at all — and that
+    /// resolving happens at parse time, exactly as bash does it.
+    ///
+    /// ⚠ The second gate is BLIND inside one, where it can see inside `$( )`:
+    /// bash normalises `$(a|b)` to `$(a | b)` and prints `` `a|b` `` verbatim.
+    /// It still compares the trees, because it is shown the original and parses
+    /// its verbatim rendering back through this same reader.
     Backtick,
     /// `$((…))` — arithmetic, which is its own grammar.
     Arithmetic,
@@ -1658,6 +1663,7 @@ impl<'t> Parser<'t> {
                 b'$' | b'`' => match classify_expansion(self.bytes, self.at, false) {
                     Some(Reason::Parameter) => segments.push(self.parameter(false)?),
                     Some(Reason::CommandSubstitution) => segments.push(self.substitution(false)?),
+                    Some(Reason::Backtick) => segments.push(self.backtick(false)?),
                     Some(Reason::Arithmetic) => segments.push(self.arith_expansion()?),
                     // ⚠ A literal, and it makes the WORD quoted: `$'a b'` is one
                     // argument, so the word must not be split or globbed on what
@@ -1867,6 +1873,11 @@ impl<'t> Parser<'t> {
                         segments.push(self.substitution(true)?);
                         from = self.at;
                     }
+                    Some(Reason::Backtick) => {
+                        flush!();
+                        segments.push(self.backtick(true)?);
+                        from = self.at;
+                    }
                     Some(Reason::Arithmetic) => {
                         flush!();
                         segments.push(self.arith_expansion()?);
@@ -1928,6 +1939,79 @@ impl<'t> Parser<'t> {
         Ok(Segment {
             kind: SegmentKind::Substitution(Substitution { items, quoted }),
             span: Span::new(start, self.at),
+        })
+    }
+
+    /// `` `cmd` `` — the older spelling of `$(cmd)`, and the SAME node.
+    ///
+    /// ⚠ **One tree, because the two mean the same thing.** The difference is
+    /// how the interior is spelled, not what it does — and this tree normalises
+    /// spelling away, exactly as it does for `'a'` and `a`. The printer writes
+    /// `$( )`, which is `t₂ ≠ t₁` and permitted; bash's own print of the
+    /// original is verbatim, so the second gate parses that back to this same
+    /// tree and the comparison holds.
+    ///
+    /// ⚠ **The interior is not the source text.** Inside a backtick run bash
+    /// resolves `` \` ``, `\$` and `\\` before it is a script at all — measured
+    /// — and leaves every other backslash alone. So the resolved string is what
+    /// gets parsed, which is also how a nested `` \`…\` `` becomes a nested
+    /// substitution rather than a syntax error. The spans in there index the
+    /// resolved text rather than the command, which nothing but error reporting
+    /// reads and which [`Span`] excludes from equality.
+    fn backtick(&mut self, quoted: bool) -> Result<Segment, Refusal> {
+        let start = self.at;
+        self.at += 1; // the opening backtick
+        let mut inner = String::new();
+        loop {
+            match self.peek() {
+                None => return self.refuse(Reason::UnterminatedExpansion, 1),
+                Some(b'`') => {
+                    self.at += 1;
+                    break;
+                }
+                Some(b'\\') => match self.peek_at(1) {
+                    Some(next @ (b'`' | b'$' | b'\\')) => {
+                        inner.push(next as char);
+                        self.at += 2;
+                    }
+                    _ => {
+                        inner.push('\\');
+                        self.at += 1;
+                    }
+                },
+                Some(_) => {
+                    let from = self.at;
+                    while self
+                        .peek()
+                        .is_some_and(|byte| byte != b'`' && byte != b'\\')
+                    {
+                        self.at += 1;
+                    }
+                    inner.push_str(&self.text[from..self.at]);
+                }
+            }
+        }
+        // ⚠ A whole parse, not a borrowed one: the resolved text is a string
+        // this parser does not own a cursor into. Its refusal is this
+        // substitution's refusal, reported at the span of the run.
+        let span = Span::new(start, self.at);
+        let script = parse(&inner).map_err(|refusal| Refusal {
+            reason: refusal.reason,
+            span,
+        })?;
+        if script
+            .items
+            .iter()
+            .any(|item| matches!(item, Item::Comment(_)))
+        {
+            return self.refuse(Reason::CommentInList, 1);
+        }
+        Ok(Segment {
+            kind: SegmentKind::Substitution(Substitution {
+                items: script.items,
+                quoted,
+            }),
+            span,
         })
     }
 
@@ -2155,6 +2239,16 @@ impl<'t> Parser<'t> {
         Ok(Some(Subscript::Index(index)))
     }
 
+    /// One operand of `${x:offset:length}`, which is an expression rather than
+    /// a word. Empty is a refusal: `${x::2}` is a slice from nowhere, and a node
+    /// with no expression in it would be a lie about the text.
+    fn arith_operand_of_a_substring(&mut self, stop: &[u8]) -> Result<Arith, Refusal> {
+        match self.arithmetic(stop)? {
+            Some(value) => Ok(value),
+            None => self.refuse(Reason::ParameterOperator, 1),
+        }
+    }
+
     /// The operator after a name, if the text gives one.
     fn parameter_op(&mut self) -> Result<Option<ParameterOp>, Refusal> {
         // ⚠ The colon is a field: `${x-y}` substitutes only for an UNSET `x`,
@@ -2179,10 +2273,20 @@ impl<'t> Parser<'t> {
                 _ => ParameterOp::Alternate { colon, word },
             }));
         }
-        // A `:` that opens none of those is a substring, whose operands are
-        // arithmetic — a language of its own, and not this build.
+        // ⚠ A `:` opening none of those is a SUBSTRING, and the difference is
+        // one space: `${x:-3}` substitutes a default where `${x: -3}` takes the
+        // last three characters. Measured, and it is why the four operators
+        // above are tested first.
         if colon {
-            return self.refuse(Reason::ParameterOperator, 1);
+            self.at += 1;
+            let offset = self.arith_operand_of_a_substring(b":}")?;
+            let length = if self.peek() == Some(b':') {
+                self.at += 1;
+                Some(self.arith_operand_of_a_substring(b"}")?)
+            } else {
+                None
+            };
+            return Ok(Some(ParameterOp::Substring { offset, length }));
         }
         match self.peek() {
             Some(byte @ (b'#' | b'%')) => {
@@ -2269,6 +2373,7 @@ impl<'t> Parser<'t> {
                 b'$' | b'`' => match classify_expansion(self.bytes, self.at, false) {
                     Some(Reason::Parameter) => segments.push(self.parameter(false)?),
                     Some(Reason::CommandSubstitution) => segments.push(self.substitution(false)?),
+                    Some(Reason::Backtick) => segments.push(self.backtick(false)?),
                     Some(reason) => return self.refuse(reason, 1),
                     None => {
                         self.at += 1;
@@ -3086,15 +3191,24 @@ fn braced_parameter(bytes: &[u8], from: usize) -> Reason {
         _ => from,
     };
     let mut at = from;
-    while bytes
-        .get(at)
-        .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
-    {
+    // ⚠ **A special parameter is a one-character NAME and takes an operator
+    // like any other.** `${@:2}` is a slice of the argument list, which the
+    // parser reads perfectly well — but this classifier ran the alphanumeric
+    // loop over the `@`, found no name, and called the whole thing unmodelled,
+    // so the word reader refused before the parser was ever asked.
+    if matches!(bytes.get(at), Some(b'@' | b'*' | b'?' | b'$' | b'-')) {
         at += 1;
-    }
-    // `${}` names nothing, so it is not the same node `$name` is.
-    if at == from {
-        return Reason::ParameterOperator;
+    } else {
+        while bytes
+            .get(at)
+            .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+        {
+            at += 1;
+        }
+        // `${}` names nothing, so it is not the same node `$name` is.
+        if at == from {
+            return Reason::ParameterOperator;
+        }
     }
     // A subscript is part of naming the value, and what follows it decides the
     // rest exactly as it would without one.
@@ -3106,13 +3220,9 @@ fn braced_parameter(bytes: &[u8], from: usize) -> Reason {
     }
     match bytes.get(at) {
         Some(b'}') => Reason::Parameter,
-        // ⚠ `:` opens four operators and one that is NOT modelled: `${x:1:3}`
-        // takes arithmetic on both sides, so it is refused where `${x:-y}` is
-        // read. Deciding that needs the character after the colon.
-        Some(b':') => match bytes.get(at + 1) {
-            Some(b'-' | b'=' | b'?' | b'+') => Reason::Parameter,
-            _ => Reason::ParameterOperator,
-        },
+        // `:` opens five operators — the four substitutions and the substring —
+        // and all five are modelled.
+        Some(b':') => Reason::Parameter,
         Some(b'-' | b'=' | b'?' | b'+' | b'#' | b'%' | b'/' | b'^' | b',') => Reason::Parameter,
         // ⚠ The text ran out before the brace closed, and that is a claim about
         // the INPUT rather than about what is modelled: bash refuses `${x` too.

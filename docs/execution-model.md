@@ -5,7 +5,7 @@ the fleet executes, plus a printer that puts it back.
 
 **Status: simple commands with binding prefixes, comments, pipelines, and-or
 lists, redirection, heredocs, here-strings, tilde prefixes, parameters and their
-operators, `$( )` and `<( )` substitutions, `for`/`while`/`until`/`select` loops,
+operators, `$( )`, `` ` ` `` and `<( )` substitutions, `for`/`while`/`until`/`select` loops,
 `if`, `case`, subshells, brace groups, function definitions, brace expansion,
 bracket expressions, `$'…'` and arithmetic; three gates wired.**
 `reader/src/syntax/` holds the tree, the parser and the printer; the
@@ -90,6 +90,7 @@ made of — re-run it against a new bash before trusting any of them:
 | desugaring | `ls \|& cat` → `ls 2>&1 \| cat`; `! time a \| b` → `time ! a \| b` |
 | near-verbatim on heredoc bodies | reproduced as written, including one nested in `$( )` inside a double-quoted word — but a `\`-newline in an *unquoted* body is joined, and `<<-` strips its tabs, both at parse time |
 | blind to comments | deleted |
+| blind inside a backtick | `` `a\|b` `` is printed verbatim where `$(a\|b)` is normalised — so the gate sees inside the modern spelling and not the old one, though it still compares TREES, since it parses that verbatim rendering back through this reader |
 | **not** blind to `$'…'` | it resolves the escapes and prints the result — `$'\x41'` comes back as `'A'` — so this is the one word-internal construct the gate can check rather than merely echo |
 
 So the comparison is **tree against tree** — parse the command, parse bash's
