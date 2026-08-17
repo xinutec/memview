@@ -7,8 +7,8 @@ the fleet executes, plus a printer that puts it back.
 lists, redirection, heredocs, here-strings, tilde prefixes, parameters and their
 operators, `$( )`, `` ` ` `` and `<( )` substitutions, `for`/`while`/`until`/`select` loops,
 `if`, `case`, subshells, brace groups, function definitions, brace expansion,
-bracket expressions, array literals, `$'…'` and arithmetic; three gates
-wired.**
+bracket expressions, array literals, `$'…'`, `[[ ]]` and arithmetic; three
+gates wired.**
 `reader/src/syntax/` holds the tree, the parser and the printer; the
 `bash-oracle` crate holds the second and third gates and the report.
 
@@ -285,6 +285,12 @@ subshell (778), a brace group (776), a function definition (153) — three forms
 glob, and it was hiding inside a compound-statement build. Split out it was 566
 commands — the largest single item at the time, and built next because of it.
 
+⚠ **`[[ ]]` was the last of the split, and bash desugars inside it.** A bare word
+comes back as `-n word`, whitespace normalises, so unlike a word this is a real
+parse on both sides of the second gate. The tree performs the same desugaring —
+and, as with `elif`, recording the omission instead would make one command two
+trees. It closed the reason out at 14 commands.
+
 ⚠ **And `Grouping` was still hiding one after that.** Sixteen of the 28 commands
 left under it were **array assignments** — `x=(a b)`, `declare -A M=([k]=v)` —
 which is not a grouping at all: it is a value made of several words, and the `(`
@@ -468,6 +474,14 @@ Seven properties are load-bearing and each has a test that fails without it:
 - **No quote may touch a tilde prefix.** `~'/x'` is the literal `~/x` to bash, so
   the closing `/` goes through bare and quoting resumes after it. Found by the
   law on 319 commands.
+- **A `=~` right-hand side cannot be a word, and all three gates said it could.**
+  Quoting is semantic in a regex — `[[ abc =~ ^a.*c$ ]]` matches and
+  `[[ abc =~ '^a.*c$' ]]` does not — and a word here collapses quoting by design.
+  The printer quoted the regex; the law held, because our own quotes read back
+  the same way; `bash -n` accepted valid shell; and bash's print of the ORIGINAL
+  parses to the tree we had. **Three green gates on a tree that means something
+  else**, and the only thing that caught it was reading the printed form. Refused
+  by name rather than guessed at.
 - **A `[` has three answers, and the middle one is why it is not two.** Ordinary
   text (`[abc` expands to itself, and `[ -f x ]` is the test builtin), a set, or
   a set holding something unmodelled. That third has to be **refused**, never

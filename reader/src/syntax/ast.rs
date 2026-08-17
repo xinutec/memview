@@ -190,6 +190,8 @@ pub enum CommandKind {
     If(Conditional),
     /// `case word in pattern) … ;; esac`.
     Case(Case),
+    /// `[[ … ]]` — a conditional expression, which is its own language.
+    Test(TestExpr),
     /// `( list )` — a command list in a subshell, so what it changes it keeps.
     Subshell(Vec<Item>),
     /// `{ list; }` — a command list in THIS shell, grouped for a redirection or
@@ -204,6 +206,182 @@ pub enum CommandKind {
     Arithmetic(Arith),
     /// `for ((i=0; i<3; i++)); do … done`.
     ForArith(ForArith),
+}
+
+/// `[[ … ]]` — a conditional expression.
+///
+/// ⚠ **Not the `[` builtin.** `[ -f x ]` is a COMMAND whose `]` is an argument;
+/// this is grammar, with its own operators, its own precedence, and no word
+/// splitting or pathname expansion inside it — measured: `[[ -f *.txt ]]` tests a
+/// file literally named `*.txt`. The one place a pattern still expands is the
+/// right-hand side of `==` and `!=`, and quoting it turns that off.
+///
+/// ⚠ **The second gate CAN see in here**, unlike inside a word: bash normalises
+/// the whitespace and DESUGARS a bare word to `-n word`, so `[[ a && b ]]` comes
+/// back as `[[ -n a && -n b ]]`. The tree performs the same desugaring, because
+/// recording the omission would make one command two trees.
+///
+/// ⚠ **Parentheses are not a node.** They carry no meaning beyond grouping, so
+/// the printer rebuilds them from precedence rather than recording where they
+/// were — exactly as it does for arithmetic — and `[[ ( a ) ]]` and `[[ a ]]`
+/// are one tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TestExpr {
+    /// `-f x`, `-n s` — one operand.
+    Unary {
+        op: UnaryTest,
+        operand: Word,
+    },
+    /// `a == b`, `n -eq 3` — two.
+    Binary {
+        op: BinaryTest,
+        left: Word,
+        right: Word,
+    },
+    /// ⚠ A toggle, not a stack: bash prints `[[ ! ! a ]]` back as `[[ -n a ]]`.
+    Not(Box<TestExpr>),
+    And(Box<TestExpr>, Box<TestExpr>),
+    Or(Box<TestExpr>, Box<TestExpr>),
+}
+
+/// The one-operand tests, which are bash's and are a closed set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnaryTest {
+    /// `-n` — a non-empty string. Also what a bare word desugars to.
+    NonEmpty,
+    /// `-z` — an empty string.
+    Empty,
+    /// `-v` — the parameter is set; `-R` — and is a nameref.
+    Set,
+    Nameref,
+    /// `-o` — a shell option is on.
+    Option,
+    /// The file tests, spelled by their letter.
+    File(char),
+}
+
+/// The two-operand tests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinaryTest {
+    /// `==` and `=`, which are ONE operation — the tree keeps no spelling, and
+    /// the printer writes the doubled form.
+    Equal,
+    NotEqual,
+    /// `=~`, whose right-hand side is a regular expression rather than a
+    /// pattern.
+    ///
+    /// ⚠ **Read only to be refused.** Quoting is SEMANTIC in there — `[[ abc =~
+    /// ^a.*c$ ]]` matches and `[[ abc =~ '^a.*c$' ]]` does not — and a [`Word`]
+    /// collapses quoting by design, so this node cannot carry a right-hand side
+    /// that means what the text meant. Named rather than guessed at; all three
+    /// gates passed the guess.
+    Matches,
+    /// `<` and `>` — string order, not file descriptors.
+    Before,
+    After,
+    /// `-eq`, `-ne`, `-lt`, `-le`, `-gt`, `-ge` — arithmetic comparison.
+    Arith(ArithTest),
+    /// `-nt`, `-ot`, `-ef` — file comparison.
+    File(FileTest),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArithTest {
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileTest {
+    /// `-nt` — newer than.
+    Newer,
+    /// `-ot` — older than.
+    Older,
+    /// `-ef` — the same file.
+    Same,
+}
+
+impl UnaryTest {
+    /// The one place the spelling is read. Shared with the survey, so the two
+    /// cannot disagree about which operators are modelled.
+    pub fn of(text: &str) -> Option<Self> {
+        let letter = text.strip_prefix('-').filter(|rest| rest.len() == 1)?;
+        Some(match letter {
+            "n" => UnaryTest::NonEmpty,
+            "z" => UnaryTest::Empty,
+            "v" => UnaryTest::Set,
+            "R" => UnaryTest::Nameref,
+            "o" => UnaryTest::Option,
+            // The file and descriptor tests, each one letter and each its own
+            // question about the same operand.
+            "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "k" | "p" | "r" | "s" | "t" | "u"
+            | "w" | "x" | "G" | "L" | "N" | "O" | "S" => UnaryTest::File(letter.chars().next()?),
+            _ => return None,
+        })
+    }
+
+    pub fn spelling(self) -> String {
+        match self {
+            UnaryTest::NonEmpty => "-n".to_string(),
+            UnaryTest::Empty => "-z".to_string(),
+            UnaryTest::Set => "-v".to_string(),
+            UnaryTest::Nameref => "-R".to_string(),
+            UnaryTest::Option => "-o".to_string(),
+            UnaryTest::File(letter) => format!("-{letter}"),
+        }
+    }
+}
+
+impl BinaryTest {
+    pub fn of(text: &str) -> Option<Self> {
+        Some(match text {
+            "==" | "=" => BinaryTest::Equal,
+            "!=" => BinaryTest::NotEqual,
+            "=~" => BinaryTest::Matches,
+            "<" => BinaryTest::Before,
+            ">" => BinaryTest::After,
+            "-eq" => BinaryTest::Arith(ArithTest::Eq),
+            "-ne" => BinaryTest::Arith(ArithTest::Ne),
+            "-lt" => BinaryTest::Arith(ArithTest::Lt),
+            "-le" => BinaryTest::Arith(ArithTest::Le),
+            "-gt" => BinaryTest::Arith(ArithTest::Gt),
+            "-ge" => BinaryTest::Arith(ArithTest::Ge),
+            "-nt" => BinaryTest::File(FileTest::Newer),
+            "-ot" => BinaryTest::File(FileTest::Older),
+            "-ef" => BinaryTest::File(FileTest::Same),
+            _ => return None,
+        })
+    }
+
+    pub fn spelling(self) -> &'static str {
+        match self {
+            BinaryTest::Equal => "==",
+            BinaryTest::NotEqual => "!=",
+            BinaryTest::Matches => "=~",
+            BinaryTest::Before => "<",
+            BinaryTest::After => ">",
+            BinaryTest::Arith(ArithTest::Eq) => "-eq",
+            BinaryTest::Arith(ArithTest::Ne) => "-ne",
+            BinaryTest::Arith(ArithTest::Lt) => "-lt",
+            BinaryTest::Arith(ArithTest::Le) => "-le",
+            BinaryTest::Arith(ArithTest::Gt) => "-gt",
+            BinaryTest::Arith(ArithTest::Ge) => "-ge",
+            BinaryTest::File(FileTest::Newer) => "-nt",
+            BinaryTest::File(FileTest::Older) => "-ot",
+            BinaryTest::File(FileTest::Same) => "-ef",
+        }
+    }
+
+    /// ⚠ Does the right-hand side GLOB? Only for `==` and `!=`, where it is a
+    /// pattern — measured. A `=~` right-hand side is a regular expression, where
+    /// `.*` is a quantifier and reading it as a glob would be a wrong tree.
+    pub fn right_is_a_pattern(self) -> bool {
+        matches!(self, BinaryTest::Equal | BinaryTest::NotEqual)
+    }
 }
 
 /// `case word in pattern) body ;; esac` — one arm at most, chosen by a pattern.
@@ -870,10 +1048,80 @@ pub enum ParameterOp {
     },
     /// `${x^}`, `${x^^}`, `${x,}`, `${x,,}` — change case.
     Case { upper: bool, every: bool },
+    /// `${x@Q}`, `${x@U}` — a transformation named by one letter.
+    Transform(Transform),
     /// `${#x}` — how long the value is, or how many elements an array has.
     Length,
     /// `${!x}` — the value of the parameter *named* by `x`.
     Indirect,
+}
+
+/// The letter after `@` in `${x@Q}` — bash's parameter transformations.
+///
+/// ⚠ **A closed set of ten, and they are ten different programs.** Measured on
+/// `a b`: `@U` gives `A B`, `@u` gives `A b`, `@L` gives `a b`, `@Q` gives
+/// `'a b'`. Bash prints every one of them back verbatim, so the second gate has
+/// no opinion and only construction keeps them apart. An eleventh letter is a
+/// *runtime* error — `${x@Z}: bad substitution` — which `bash -n` accepts, so
+/// it is refused by name rather than stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Transform {
+    /// `@Q` — quoted so it can be read back by the shell.
+    Quoted,
+    /// `@E` — the backslash escapes expanded, as `$'…'` does.
+    Escapes,
+    /// `@P` — expanded as a prompt string.
+    Prompt,
+    /// `@A` — an assignment statement that would recreate it.
+    Assignment,
+    /// `@a` — the variable's attribute flags.
+    Attributes,
+    /// `@K` — key/value pairs, quoted.
+    Keyed,
+    /// `@k` — key/value pairs, as separate words.
+    KeyedWords,
+    /// `@U` — every character upper case.
+    Upper,
+    /// `@u` — the first character upper case.
+    UpperFirst,
+    /// `@L` — every character lower case.
+    Lower,
+}
+
+impl Transform {
+    /// The letter bash spells it with, which is the whole node.
+    pub fn letter(self) -> char {
+        match self {
+            Transform::Quoted => 'Q',
+            Transform::Escapes => 'E',
+            Transform::Prompt => 'P',
+            Transform::Assignment => 'A',
+            Transform::Attributes => 'a',
+            Transform::Keyed => 'K',
+            Transform::KeyedWords => 'k',
+            Transform::Upper => 'U',
+            Transform::UpperFirst => 'u',
+            Transform::Lower => 'L',
+        }
+    }
+
+    /// The one place the spelling is read, shared with the classifier so the two
+    /// cannot disagree about which letters are modelled.
+    pub fn of(letter: u8) -> Option<Self> {
+        Some(match letter {
+            b'Q' => Transform::Quoted,
+            b'E' => Transform::Escapes,
+            b'P' => Transform::Prompt,
+            b'A' => Transform::Assignment,
+            b'a' => Transform::Attributes,
+            b'K' => Transform::Keyed,
+            b'k' => Transform::KeyedWords,
+            b'U' => Transform::Upper,
+            b'u' => Transform::UpperFirst,
+            b'L' => Transform::Lower,
+            _ => return None,
+        })
+    }
 }
 
 /// `${x/pat/rep}`: which occurrences, and what replaces them.

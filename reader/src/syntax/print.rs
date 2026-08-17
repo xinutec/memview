@@ -28,7 +28,7 @@ use super::ast::{
     Anchor, AndOr, Arith, ArmEnd, ArrayElement, Assignment, BinaryOp, Brace, Case, Class,
     ClassItem, Command, CommandKind, Conditional, Connector, Direction, ForLoop, Glob, Heredoc,
     Item, Parameter, ParameterOp, Pipeline, Redirect, RedirectOp, RedirectTarget, Script, Segment,
-    SegmentKind, Simple, Step, Subscript, Tilde, Timed, UnaryOp, WhileLoop, Word,
+    SegmentKind, Simple, Step, Subscript, TestExpr, Tilde, Timed, UnaryOp, WhileLoop, Word,
 };
 use super::parse::{is_assignment, is_reserved};
 
@@ -109,6 +109,7 @@ fn print_command(command: &Command, head: bool, bodies: &mut Vec<String>) -> Str
         CommandKind::While(loop_) => vec![print_while(loop_, bodies)],
         CommandKind::If(conditional) => vec![print_if(conditional, bodies)],
         CommandKind::Case(case) => vec![print_case(case, bodies)],
+        CommandKind::Test(expr) => vec![format!("[[ {} ]]", print_test(expr, 0))],
         // ⚠ A subshell needs no terminator before its `)`, and a brace group
         // REQUIRES one before its `}` — `{ a }` is a syntax error where `( a )`
         // is not. Measured; `follow` supplies the right separator, including
@@ -711,6 +712,7 @@ fn print_suffix_op(op: Option<&ParameterOp>) -> String {
                 None => format!(":{space}{offset}"),
             }
         }
+        Some(ParameterOp::Transform(transform)) => format!("@{}", transform.letter()),
         Some(ParameterOp::Case { upper, every }) => {
             let c = if *upper { '^' } else { ',' };
             if *every {
@@ -946,6 +948,45 @@ fn print_class(class: &Class) -> String {
     }
     out.push(']');
     out
+}
+
+/// `[[ … ]]` — the expression, parenthesised where precedence needs it.
+///
+/// ⚠ **Parens come from PRECEDENCE, not from the source**, exactly as they do in
+/// arithmetic: `||` binds loosest, then `&&`, then `!`. The tree does not record
+/// where they were written, so the printer puts them back only where dropping
+/// them would change the answer — and `[[ ( a ) ]]` therefore comes out as
+/// `[[ -n a ]]`, which re-reads as the same tree.
+fn print_test(expr: &TestExpr, least: u8) -> String {
+    let (text, rank) = match expr {
+        TestExpr::Or(left, right) => (
+            format!("{} || {}", print_test(left, 1), print_test(right, 2)),
+            1,
+        ),
+        TestExpr::And(left, right) => (
+            format!("{} && {}", print_test(left, 2), print_test(right, 3)),
+            2,
+        ),
+        TestExpr::Not(inner) => (format!("! {}", print_test(inner, 3)), 3),
+        TestExpr::Unary { op, operand } => (
+            format!("{} {}", op.spelling(), print_word(operand, false)),
+            4,
+        ),
+        TestExpr::Binary { op, left, right } => (
+            format!(
+                "{} {} {}",
+                print_word(left, false),
+                op.spelling(),
+                print_word(right, false)
+            ),
+            4,
+        ),
+    };
+    if rank < least {
+        format!("( {text} )")
+    } else {
+        text
+    }
 }
 
 /// `[k]=v` or a bare value — one element of an array literal.

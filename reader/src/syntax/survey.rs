@@ -119,6 +119,11 @@ impl Survey<'_> {
         // position only after a declaration builtin — bash's own rule, and the
         // only thing that tells `declare x=(a)` from `echo x=(a)`.
         let mut command_name = String::new();
+        // ⚠ How many `[[ … ]]` are open. Inside one the grammar is different:
+        // `(` groups an expression rather than opening a subshell, `!` negates
+        // rather than being a misplaced pipeline negation, and `<` compares
+        // strings rather than redirecting.
+        let mut test_depth = 0usize;
 
         // ⚠ **Finishing a word clears `at_command_start`, and only finishing a
         // word does.** Preserving it here instead made every word on a line look
@@ -204,6 +209,10 @@ impl Survey<'_> {
                                 loop_header = false;
                                 word_opens_list = true;
                             }
+                            // Modelled now, with its own grammar inside. Only
+                            // the OPENER is at a command start; the `]]` is
+                            // handled below, outside this guard.
+                            "[[" => test_depth += 1,
                             // Modelled now. What is still reported is a header
                             // that never says `in`, an `esac` closing nothing,
                             // and — at the end of the run — a `case` that never
@@ -221,6 +230,21 @@ impl Survey<'_> {
                                 ) =>
                             {
                                 self.found.insert(Reason::Case);
+                            }
+                            _ => {}
+                        }
+                    }
+                    // ⚠ Outside the command-start guard, because neither of
+                    // these is at one: a test's closing keyword follows an
+                    // operand, and its operators sit between two.
+                    if test_depth > 0 {
+                        match word.as_str() {
+                            "]]" => test_depth -= 1,
+                            // `=~` takes a REGULAR EXPRESSION, where quoting is
+                            // semantic and a word in this tree cannot say so.
+                            // The parser refuses it; see `BinaryTest::Matches`.
+                            "=~" => {
+                                self.found.insert(Reason::TestExpression);
                             }
                             _ => {}
                         }
@@ -464,6 +488,12 @@ impl Survey<'_> {
                 // it as a subshell left the group unbalanced and reported a
                 // grouping refusal on every case written that way.
                 b'(' if !in_word && cases.last() == Some(&CaseStage::Pattern) => {
+                    self.at += 1;
+                }
+                // Inside `[[ … ]]` a paren groups an expression; it opens no
+                // subshell and closes none.
+                b'(' | b')' if test_depth > 0 && !in_word => {
+                    separator!();
                     self.at += 1;
                 }
                 b'(' => {
@@ -719,6 +749,14 @@ impl Survey<'_> {
             // word of every command that holds one: `case $x in a) b;; esac`
             // ends on it, so skipping the bookkeeping here reported an unclosed
             // case for every well-formed one.
+            // ⚠ The last word of a text is a keyword too, and `]]` is the one
+            // that closes every `[[ … ]]` there is — missed while this path
+            // skipped the bookkeeping, exactly as `esac` was.
+            if word == "]]" && test_depth > 0 {
+                test_depth -= 1;
+            } else if word == "[[" && at_command_start && !word_quoted {
+                test_depth += 1;
+            }
             let closes = at_command_start && !word_quoted && word == "esac";
             match cases.last_mut() {
                 Some(stage @ CaseStage::Subject) => *stage = CaseStage::In,
@@ -759,6 +797,10 @@ impl Survey<'_> {
         // that ran out before its `in`.
         if !cases.is_empty() {
             self.found.insert(Reason::Case);
+        }
+        // A `[[` the text never closed, which bash refuses too.
+        if test_depth > 0 {
+            self.found.insert(Reason::TestExpression);
         }
         self
     }
@@ -1350,11 +1392,14 @@ fn finish_word(
     if at_command_start
         && !quoted
         && let Some(reason) = reserved_word(word)
-        // ⚠ The loop, conditional and case keywords are modelled now, so they
-        // are not findings on their own — the caller reports the shapes of those
+        // ⚠ The loop, conditional, case and test keywords are modelled now, so
+        // they are not findings on their own — the caller reports the shapes of those
         // the parser still refuses. They stay in `reserved_word`, because the
         // printer has to quote a word that spells one to keep it a value.
-        && !matches!(reason, Reason::Loop | Reason::Conditional | Reason::Case)
+        && !matches!(
+            reason,
+            Reason::Loop | Reason::Conditional | Reason::Case | Reason::TestExpression
+        )
     {
         found.insert(reason);
     }

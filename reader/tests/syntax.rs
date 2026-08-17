@@ -124,7 +124,7 @@ fn a_glob_is_not_the_character_that_spells_it() {
 
 #[test]
 fn a_reserved_word_is_refused_and_a_quoted_one_is_a_command() {
-    assert_eq!(refusal("[[ -f x ]]"), Reason::TestExpression);
+    assert_eq!(refusal("echo $\"hello\""), Reason::LocaleQuote);
     // `time` is no longer refused — the pipeline models it. What still matters
     // is that the QUOTED one stays a program: `'time' ./x.sh` runs
     // /usr/bin/time, so its tree holds a word, not a flag.
@@ -371,8 +371,8 @@ fn the_law_reports_a_refusal_apart_from_a_failure() {
     // A refusal is the work queue, not a defect, and the two must never be
     // added together — a parser that refused everything would otherwise score
     // a perfect law.
-    assert!(matches!(check("[[ -f x ]]"), Outcome::Refused(_)));
-    assert!(!check("[[ -f x ]]").holds());
+    assert!(matches!(check("echo $\"hi\""), Outcome::Refused(_)));
+    assert!(!check("echo $\"hi\"").holds());
 }
 
 // ---- the survey: which constructs a command needs, not which stopped us ----
@@ -382,10 +382,10 @@ fn the_survey_returns_every_blocking_construct_not_the_first() {
     // The whole reason it exists: `parse` stops at the first thing it cannot
     // read and never sees the rest, so the refusal ranking under-counts
     // whatever sits rightmost.
-    assert_eq!(refusal("[[ -f x ]] | grep $\"y\""), Reason::TestExpression);
+    assert_eq!(refusal("echo $\"a\" ${x@Z}"), Reason::LocaleQuote);
     assert_eq!(
-        survey("[[ -f x ]] | grep $\"y\""),
-        BTreeSet::from([Reason::TestExpression, Reason::LocaleQuote])
+        survey("echo $\"a\" ${x@Z}"),
+        BTreeSet::from([Reason::LocaleQuote, Reason::ParameterOperator])
     );
 }
 
@@ -400,7 +400,7 @@ fn an_argument_is_not_a_command_name() {
     assert!(survey("FOO=bar cmd").is_empty());
     // A keyword at the head of a command still is one — `[[` here, since `case`
     // is modelled and a well-formed one needs nothing.
-    assert!(survey("[[ -f x ]]").contains(&Reason::TestExpression));
+    assert!(survey("echo $\"hi\"").contains(&Reason::LocaleQuote));
     assert!(survey("case x in a) b;; esac").is_empty());
 }
 
@@ -1483,7 +1483,7 @@ fn each_reserved_word_belongs_to_the_construct_it_opens() {
     // worth 50 commands where the loops were worth 4,573.
     assert!(parse("if a; then b; fi").is_ok());
     assert!(parse("case $x in a) b;; esac").is_ok());
-    assert_eq!(refusal("[[ -f x ]]"), Reason::TestExpression);
+    assert_eq!(refusal("echo $\"hello\""), Reason::LocaleQuote);
     // ⚠ `function NAME` is bash's own spelling — `declare -f` prints every
     // definition that way — so the parser must READ it, or it cannot read back
     // its own print. What is still refused is the keyword with no body.
@@ -1633,6 +1633,127 @@ fn the_law_holds_across_the_case_shapes() {
         "for f in a; do case $f in b) c;; esac; done",
         "x=$(case $y in a) echo b;; esac)",
         "case $x in a) b;; esac | wc -l",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+        assert!(
+            survey(text).is_empty(),
+            "{text:?} should need nothing: {:?}",
+            survey(text)
+        );
+    }
+}
+
+// ---- [[ ]] ----
+
+#[test]
+fn a_test_expression_is_a_language_and_not_the_bracket_builtin() {
+    use reader::syntax::ast::{CommandKind, TestExpr, UnaryTest};
+    let expr = |text: &str| match &list(text).first.commands[0].kind {
+        CommandKind::Test(expr) => expr.clone(),
+        other => panic!("{text:?} is not a test: {other:?}"),
+    };
+    // ⚠ **A bare word desugars to `-n word`**, which is bash's own rendering:
+    // `[[ a && b ]]` comes back from `declare -f` as `[[ -n a && -n b ]]`. So
+    // the tree does it too — recording the omission would make one command two.
+    assert!(matches!(
+        expr("[[ a ]]"),
+        TestExpr::Unary {
+            op: UnaryTest::NonEmpty,
+            ..
+        }
+    ));
+    assert_eq!(print(&tree("[[ a && b ]]")), "[[ -n a && -n b ]]");
+    // ⚠ Negation is a TOGGLE — bash prints `[[ ! ! a ]]` back as `[[ -n a ]]`.
+    assert_eq!(expr("[[ ! ! a ]]"), expr("[[ a ]]"));
+    // ⚠ `=` and `==` are one operation, and parens are not a node: the printer
+    // rebuilds them from precedence, exactly as it does for arithmetic.
+    assert_eq!(expr("[[ $x = y ]]"), expr("[[ $x == y ]]"));
+    assert_eq!(expr("[[ ( a ) ]]"), expr("[[ a ]]"));
+    assert_eq!(
+        print(&tree("[[ ( a || b ) && c ]]")),
+        "[[ ( -n a || -n b ) && -n c ]]"
+    );
+    assert_eq!(
+        print(&tree("[[ a || b && c ]]")),
+        "[[ -n a || -n b && -n c ]]"
+    );
+    // ⚠ **No pathname expansion in here at all** — `[[ -f *.txt ]]` tests a file
+    // literally named `*.txt`, measured — except the right-hand side of `==`,
+    // which IS a pattern.
+    let pattern = |text: &str| match expr(text) {
+        TestExpr::Binary { right, .. } => right,
+        other => panic!("not a binary test: {other:?}"),
+    };
+    assert!(pattern("[[ $x == b* ]]").as_literal().is_none());
+    assert_eq!(
+        pattern("[[ $x == \"b*\" ]]").as_literal().as_deref(),
+        Some("b*")
+    );
+    match expr("[[ -f *.txt ]]") {
+        TestExpr::Unary { operand, .. } => {
+            assert_eq!(operand.as_literal().as_deref(), Some("*.txt"))
+        }
+        other => panic!("not a unary test: {other:?}"),
+    }
+    // `[` is the builtin and stays a command; `[[` is grammar.
+    assert!(parse("[ -f x ]").is_ok());
+    assert_eq!(words("[ -f x ]").len(), 4);
+}
+
+#[test]
+fn a_regex_right_hand_side_is_refused_and_all_three_gates_would_have_passed() {
+    // ⚠ **The sharpest case of the failure no gate can see.** Quoting is
+    // SEMANTIC in a `=~` right-hand side — measured by running it: `[[ abc =~
+    // ^a.*c$ ]]` matches and `[[ abc =~ '^a.*c$' ]]` does not, because quoting
+    // any part makes that part literal. A word in this tree collapses quoting by
+    // design, so it cannot hold the distinction.
+    //
+    // The printer quoted the regex; the LAW still held, because our own quotes
+    // read back the same way; `bash -n` accepted valid shell; and bash's print
+    // of the ORIGINAL parses to the tree we had. Three green gates on a tree
+    // that means something else. Named rather than guessed at.
+    assert_eq!(refusal("[[ $x =~ ^a.*b$ ]]"), Reason::TestExpression);
+    assert!(survey("[[ $x =~ ^a.*b$ ]]").contains(&Reason::TestExpression));
+}
+
+#[test]
+fn what_a_test_expression_cannot_be_is_named() {
+    // Bash refuses an empty one too.
+    assert_eq!(refusal("[[ ]]"), Reason::TestExpression);
+    assert_eq!(refusal("[[ -n $x"), Reason::TestExpression);
+    assert!(survey("[[ -n $x").contains(&Reason::TestExpression));
+}
+
+#[test]
+fn the_law_holds_across_the_test_shapes() {
+    for text in [
+        "[[ -n \"$x\" ]]",
+        "[[ -f $f ]]",
+        "[[ -z $x ]]",
+        "[[ -v name ]]",
+        "[[ -o errexit ]]",
+        "[[ \"$a\" == b* ]]",
+        "[[ \"$a\" == \"b*\" ]]",
+        "[[ $x != y ]]",
+        "[[ ! -s \"$f\" ]]",
+        "[[ a && b ]]",
+        "[[ a || b ]]",
+        "[[ a && b || c ]]",
+        "[[ ( a || b ) && c ]]",
+        "[[ \"$m\" > \"2026-07-19\" ]]",
+        "[[ a < b ]]",
+        "[[ $n -eq 3 ]]",
+        "[[ $a -nt $b ]]",
+        "[[    -n   \"$x\"    ]]",
+        "[[ -n $x ]] && echo y",
+        "if [[ -n $x ]]; then y; fi",
+        "[[ -z $x && ! -f $f ]]",
+        "[[ \"$URL\" == sgnl://* ]]",
+        "while [[ -n $x ]]; do b; done",
     ] {
         assert!(
             check(text).holds(),
@@ -1916,7 +2037,7 @@ fn a_backtick_is_the_same_node_as_a_substitution() {
     assert_eq!(print(&tree("echo `echo \\$x`")), "echo $(echo $x)");
     assert!(survey("echo `a|b`").is_empty());
     // What is inside one is still reported, because the parser reads it.
-    assert!(survey("echo `[[ -f x ]]`").contains(&Reason::TestExpression));
+    assert!(survey("echo `x $\"y\"`").contains(&Reason::LocaleQuote));
     assert_eq!(refusal("echo `a"), Reason::UnterminatedExpansion);
 }
 
@@ -2479,8 +2600,38 @@ fn a_substring_takes_arithmetic_and_one_space_decides_which_operator_it_is() {
 }
 
 #[test]
+fn a_transformation_is_ten_letters_and_ten_programs() {
+    use reader::syntax::ast::{ParameterOp, Transform};
+    // ⚠ **Ten different programs, and bash prints every one of them verbatim.**
+    // Measured on `a b`: `@U` gives `A B`, `@u` gives `A b`, `@L` gives `a b`,
+    // `@Q` gives `'a b'`. So the second gate has no opinion, and a tree that
+    // collapsed any two of them would satisfy both gates and be wrong.
+    assert_eq!(
+        parameter_of("echo ${x@Q}").op,
+        Some(ParameterOp::Transform(Transform::Quoted))
+    );
+    assert_ne!(parameter_of("echo ${x@U}"), parameter_of("echo ${x@u}"));
+    assert_ne!(parameter_of("echo ${x@U}"), parameter_of("echo ${x@L}"));
+    // ⚠ An eleventh letter is a RUNTIME error — `${x@Z}: bad substitution` —
+    // which `bash -n` accepts, so it is refused by name rather than stored.
+    assert_eq!(refusal("echo ${x@Z}"), Reason::ParameterOperator);
+    assert!(survey("echo ${x@Z}").contains(&Reason::ParameterOperator));
+}
+
+#[test]
 fn the_law_holds_across_the_parameter_operator_shapes() {
     for text in [
+        "echo ${x@Q}",
+        "echo ${x@E}",
+        "echo ${x@P}",
+        "echo ${x@A}",
+        "echo ${x@a}",
+        "echo ${x@K}",
+        "echo ${x@k}",
+        "echo ${x@U}",
+        "echo ${x@u}",
+        "echo ${x@L}",
+        "echo \"${args[*]@Q}\"",
         "echo ${x:1:3}",
         "echo ${x:1}",
         "echo ${x: -3}",

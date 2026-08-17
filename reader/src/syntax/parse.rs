@@ -23,11 +23,12 @@
 //! at a special character always lands on a character boundary.
 
 use super::ast::{
-    Anchor, AndOr, Arith, Arm, ArmEnd, ArrayElement, Assignment, BinaryOp, Brace, Case, Class,
-    ClassItem, Command, CommandKind, Comment, Conditional, Connector, Direction, ForArith, ForLoop,
-    Function, Glob, Heredoc, Item, Link, Parameter, ParameterOp, Pipeline, ProcessSubstitution,
-    Redirect, RedirectOp, RedirectTarget, Replace, Script, Segment, SegmentKind, Simple, Span,
-    Step, Subscript, Substitution, Tilde, Timed, UnaryOp, WhileLoop, Word,
+    Anchor, AndOr, Arith, Arm, ArmEnd, ArrayElement, Assignment, BinaryOp, BinaryTest, Brace, Case,
+    Class, ClassItem, Command, CommandKind, Comment, Conditional, Connector, Direction, ForArith,
+    ForLoop, Function, Glob, Heredoc, Item, Link, Parameter, ParameterOp, Pipeline,
+    ProcessSubstitution, Redirect, RedirectOp, RedirectTarget, Replace, Script, Segment,
+    SegmentKind, Simple, Span, Step, Subscript, Substitution, TestExpr, Tilde, Timed, Transform,
+    UnaryOp, UnaryTest, WhileLoop, Word,
 };
 
 /// Where a word is being read, which decides what expands inside it.
@@ -801,6 +802,10 @@ impl<'t> Parser<'t> {
             self.at += 2;
             return Ok(Some(CommandKind::If(self.conditional()?)));
         }
+        if self.at_keyword("[[") {
+            self.at += 2;
+            return Ok(Some(CommandKind::Test(self.test_expression()?)));
+        }
         if self.at_keyword("case") {
             self.at += 4;
             return Ok(Some(CommandKind::Case(self.case_command()?)));
@@ -1102,6 +1107,155 @@ impl<'t> Parser<'t> {
             return self.refuse(Reason::EmptyOperand, 1);
         }
         Ok(items)
+    }
+
+    /// `[[ expr ]]`, with `[[` already taken.
+    ///
+    /// ⚠ **Its own grammar, and its own precedence** — `&&` binds tighter than
+    /// `||`, and the printer rebuilds the parens from that rather than recording
+    /// where they were, exactly as it does for arithmetic.
+    fn test_expression(&mut self) -> Result<TestExpr, Refusal> {
+        let expr = self.test_or()?;
+        self.skip_blanks_and_newlines()?;
+        if !self.take_keyword("]]") {
+            return self.refuse(Reason::TestExpression, 1);
+        }
+        Ok(expr)
+    }
+
+    fn test_or(&mut self) -> Result<TestExpr, Refusal> {
+        let mut left = self.test_and()?;
+        loop {
+            self.skip_blanks_and_newlines()?;
+            if self.peek() != Some(b'|') || self.peek_at(1) != Some(b'|') {
+                return Ok(left);
+            }
+            self.at += 2;
+            left = TestExpr::Or(Box::new(left), Box::new(self.test_and()?));
+        }
+    }
+
+    fn test_and(&mut self) -> Result<TestExpr, Refusal> {
+        let mut left = self.test_not()?;
+        loop {
+            self.skip_blanks_and_newlines()?;
+            if self.peek() != Some(b'&') || self.peek_at(1) != Some(b'&') {
+                return Ok(left);
+            }
+            self.at += 2;
+            left = TestExpr::And(Box::new(left), Box::new(self.test_not()?));
+        }
+    }
+
+    /// ⚠ **A toggle, because bash prints `[[ ! ! a ]]` back as `[[ -n a ]]`.**
+    /// A tree that stacked them would make one command two trees.
+    fn test_not(&mut self) -> Result<TestExpr, Refusal> {
+        let mut negated = false;
+        loop {
+            self.skip_blanks_and_newlines()?;
+            if self.peek() != Some(b'!') || self.peek_at(1) == Some(b'=') {
+                break;
+            }
+            self.at += 1;
+            negated = !negated;
+        }
+        let expr = self.test_primary()?;
+        Ok(if negated {
+            TestExpr::Not(Box::new(expr))
+        } else {
+            expr
+        })
+    }
+
+    fn test_primary(&mut self) -> Result<TestExpr, Refusal> {
+        self.skip_blanks_and_newlines()?;
+        if self.peek() == Some(b'(') {
+            self.at += 1;
+            let inner = self.test_or()?;
+            self.skip_blanks_and_newlines()?;
+            if self.peek() != Some(b')') {
+                return self.refuse(Reason::TestExpression, 1);
+            }
+            self.at += 1;
+            return Ok(inner);
+        }
+        if self.at_test_close() {
+            // `[[ ]]` is a syntax error to bash too.
+            return self.refuse(Reason::TestExpression, 1);
+        }
+        // ⚠ A unary operator is decided from the RAW text, before the word
+        // reader runs: `-f` is an operator here and an ordinary argument
+        // everywhere else, and only its position says which.
+        if let Some(op) = self.test_operator().and_then(|text| UnaryTest::of(&text)) {
+            self.at += 2;
+            self.skip_blanks_and_newlines()?;
+            if self.at_test_close() {
+                return self.refuse(Reason::TestExpression, 1);
+            }
+            let operand = self.word(false, WordKind::Value)?;
+            return Ok(TestExpr::Unary { op, operand });
+        }
+        // ⚠ **No pathname expansion in here** — `[[ -f *.txt ]]` tests a file
+        // literally named `*.txt`, measured — so every operand is read as a
+        // value. The one exception is below.
+        let left = self.word(false, WordKind::Value)?;
+        self.skip_blanks();
+        let Some((text, op)) = self
+            .test_operator()
+            .and_then(|text| BinaryTest::of(&text).map(|op| (text, op)))
+        else {
+            // ⚠ **A bare word desugars to `-n word`**, which is bash's own
+            // rendering: `[[ a && b ]]` comes back as `[[ -n a && -n b ]]`.
+            return Ok(TestExpr::Unary {
+                op: UnaryTest::NonEmpty,
+                operand: left,
+            });
+        };
+        // ⚠ The token's OWN length, not the node's spelling: `=` and `==` are
+        // one operator and two widths.
+        self.at += text.len();
+        self.skip_blanks_and_newlines()?;
+        // ⚠ **`=~` is refused, and all three gates would have passed a wrong
+        // tree for it.** Its right-hand side is a regular expression where
+        // QUOTING IS SEMANTIC — measured: `[[ abc =~ ^a.*c$ ]]` matches and
+        // `[[ abc =~ '^a.*c$' ]]` does not, because quoting any part of it makes
+        // that part literal. A word in this tree collapses quoting by design, so
+        // it cannot hold the distinction; the printer quoted the regex, the law
+        // still held because we read our own quotes back the same way, `bash -n`
+        // accepted valid shell, and bash's own print of the ORIGINAL parses to
+        // the tree we had. A construct that cannot be modelled is named, not
+        // guessed at.
+        if op == BinaryTest::Matches {
+            return self.refuse(Reason::TestExpression, 1);
+        }
+        // The right-hand side of `==` and `!=` is a PATTERN and globs; every
+        // other operand is a value, because there is no pathname expansion in
+        // here at all.
+        let kind = if op.right_is_a_pattern() {
+            WordKind::Argument
+        } else {
+            WordKind::Value
+        };
+        let right = self.word(false, kind)?;
+        Ok(TestExpr::Binary { op, left, right })
+    }
+
+    /// The operator token under the cursor, if the text spells one — a run of
+    /// non-blank characters that stops where a word would.
+    fn test_operator(&self) -> Option<String> {
+        let mut at = self.at;
+        while self
+            .bytes
+            .get(at)
+            .is_some_and(|byte| !matches!(byte, b' ' | b'\t' | b'\r' | b'\n'))
+        {
+            at += 1;
+        }
+        self.text.get(self.at..at).map(str::to_string)
+    }
+
+    fn at_test_close(&self) -> bool {
+        self.text.get(self.at..self.at + 2) == Some("]]")
     }
 
     /// `case word in [pattern) body ;;]… esac`, with `case` already taken.
@@ -2382,6 +2536,15 @@ impl<'t> Parser<'t> {
             };
             return Ok(Some(ParameterOp::Substring { offset, length }));
         }
+        // ⚠ A transformation, whose whole content is one letter. Checked before
+        // the pattern operators because `@` is none of them.
+        if self.peek() == Some(b'@') {
+            let Some(transform) = self.peek_at(1).and_then(Transform::of) else {
+                return self.refuse(Reason::ParameterOperator, 1);
+            };
+            self.at += 2;
+            return Ok(Some(ParameterOp::Transform(transform)));
+        }
         match self.peek() {
             Some(byte @ (b'#' | b'%')) => {
                 self.at += 1;
@@ -3317,6 +3480,12 @@ fn braced_parameter(bytes: &[u8], from: usize) -> Reason {
         // `:` opens five operators — the four substitutions and the substring —
         // and all five are modelled.
         Some(b':') => Reason::Parameter,
+        // `@` opens a transformation, and only the ten letters bash names are
+        // modelled — an eleventh is refused rather than stored.
+        Some(b'@') => match bytes.get(at + 1).copied().and_then(Transform::of) {
+            Some(_) => Reason::Parameter,
+            None => Reason::ParameterOperator,
+        },
         Some(b'-' | b'=' | b'?' | b'+' | b'#' | b'%' | b'/' | b'^' | b',') => Reason::Parameter,
         // ⚠ The text ran out before the brace closed, and that is a claim about
         // the INPUT rather than about what is modelled: bash refuses `${x` too.
@@ -3422,9 +3591,9 @@ fn fill_pipeline(pipeline: &mut Pipeline, bodies: &mut impl Iterator<Item = Here
             }
             CommandKind::Function(function) => fill_items(&mut function.body, bodies),
             CommandKind::ForArith(loop_) => fill_items(&mut loop_.body, bodies),
-            // An arithmetic command carries no list, so no heredoc can open in
-            // one.
-            CommandKind::Arithmetic(_) => {}
+            // Neither an arithmetic command nor a test carries a list, so no
+            // heredoc can open in one.
+            CommandKind::Arithmetic(_) | CommandKind::Test(_) => {}
         }
         for redirect in &mut command.redirects {
             if let RedirectTarget::Here(here) = &mut redirect.target
