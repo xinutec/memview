@@ -7,8 +7,8 @@
 //! split and the reserved words are all of that kind.
 
 use reader::syntax::ast::{
-    Connector, Glob, Item, RedirectOp, RedirectTarget, Segment, SegmentKind, Span, Tilde, Timed,
-    Word,
+    ArmEnd, Connector, Glob, Item, RedirectOp, RedirectTarget, Segment, SegmentKind, Span, Tilde,
+    Timed, Word,
 };
 use reader::syntax::{Outcome, Reason, check, parse, print, survey};
 use std::collections::BTreeSet;
@@ -124,7 +124,7 @@ fn a_glob_is_not_the_character_that_spells_it() {
 
 #[test]
 fn a_reserved_word_is_refused_and_a_quoted_one_is_a_command() {
-    assert_eq!(refusal("case $x in a) b;; esac"), Reason::Case);
+    assert_eq!(refusal("[[ -f x ]]"), Reason::TestExpression);
     // `time` is no longer refused — the pipeline models it. What still matters
     // is that the QUOTED one stays a program: `'time' ./x.sh` runs
     // /usr/bin/time, so its tree holds a word, not a flag.
@@ -257,8 +257,10 @@ fn an_argument_is_not_a_command_name() {
     assert!(survey("ssh -o BatchMode=yes host").is_empty());
     assert!(survey("git add in do done").is_empty());
     assert!(survey("FOO=bar cmd").is_empty());
-    // A keyword at the head of a command still is one.
-    assert!(survey("case x in a) b;; esac").contains(&Reason::Case));
+    // A keyword at the head of a command still is one — `[[` here, since `case`
+    // is modelled and a well-formed one needs nothing.
+    assert!(survey("[[ -f x ]]").contains(&Reason::TestExpression));
+    assert!(survey("case x in a) b;; esac").is_empty());
 }
 
 #[test]
@@ -274,10 +276,7 @@ fn the_survey_reports_the_construct_and_not_its_punctuation() {
     // constructs" and took both — the top two of the queue — off the "build one
     // construct" list entirely, which is the list the next build is chosen from.
     assert!(survey("diff <(sort a) <(sort b)").is_empty());
-    assert_eq!(
-        survey("case $x in a) b;; c) d;; esac"),
-        BTreeSet::from([Reason::Case])
-    );
+    assert!(survey("case $x in a) b;; c) d;; esac").is_empty());
     // What is genuinely in there is still reported: a process substitution's
     // interior is a command list the parser reads.
     assert_eq!(
@@ -1291,7 +1290,7 @@ fn each_reserved_word_belongs_to_the_construct_it_opens() {
     // list until the conditional was built, and the split is what said it was
     // worth 50 commands where the loops were worth 4,573.
     assert!(parse("if a; then b; fi").is_ok());
-    assert_eq!(refusal("case $x in a) b;; esac"), Reason::Case);
+    assert!(parse("case $x in a) b;; esac").is_ok());
     assert_eq!(refusal("[[ -f x ]]"), Reason::TestExpression);
     // ⚠ `function NAME` is bash's own spelling — `declare -f` prints every
     // definition that way — so the parser must READ it, or it cannot read back
@@ -1306,6 +1305,158 @@ fn each_reserved_word_belongs_to_the_construct_it_opens() {
     assert!(parse("! a").is_ok());
     // `[[` is a language; `[` is the test builtin and stays a command.
     assert!(parse("[ -f x ]").is_ok());
+}
+
+// ---- case ----
+
+fn case_of(text: &str) -> reader::syntax::ast::Case {
+    match &list(text).first.commands[..] {
+        [command] => match &command.kind {
+            reader::syntax::ast::CommandKind::Case(case) => case.clone(),
+            other => panic!("{text:?} is not a case: {other:?}"),
+        },
+        other => panic!("{text:?} is not one command: {other:?}"),
+    }
+}
+
+#[test]
+fn a_pattern_is_a_word_and_quoting_it_changes_what_it_matches() {
+    // ⚠ **The second gate has no opinion here.** Bash prints a pattern back
+    // verbatim — `'*')` stays `'*')` — so a tree that absorbed the quotes into a
+    // literal, or dropped them, would print and re-read as itself and bash would
+    // agree with both. Construction is the only thing deciding it, and the
+    // difference is what the arm MATCHES: `*` is every string, `'*'` is one
+    // asterisk.
+    let globbed = case_of("case $x in *) a;; esac");
+    let quoted = case_of("case $x in '*') a;; esac");
+    assert_ne!(globbed.arms[0].patterns, quoted.arms[0].patterns);
+    assert_eq!(
+        quoted.arms[0].patterns[0].as_literal().as_deref(),
+        Some("*")
+    );
+    assert!(globbed.arms[0].patterns[0].as_literal().is_none());
+    // A `)` that does not end the pattern, three ways bash accepts.
+    for text in [
+        "case $x in 'a)b') c;; esac",
+        "case $x in \"a)b\") c;; esac",
+        "case $x in a\\)b) c;; esac",
+    ] {
+        assert_eq!(
+            case_of(text).arms[0].patterns[0].as_literal().as_deref(),
+            Some("a)b"),
+            "{text:?}"
+        );
+    }
+}
+
+#[test]
+fn the_three_arm_terminators_are_three_programs() {
+    // Measured by running them in `reader/probes/case.sh`: on `ab` against `a*`
+    // then `*b`, `;;` runs one body and the other two run both.
+    let arms = case_of("case $x in a) b;; c) d;& e) f;;& esac").arms;
+    assert_eq!(arms[0].end, ArmEnd::Stop);
+    assert_eq!(arms[1].end, ArmEnd::FallThrough);
+    assert_eq!(arms[2].end, ArmEnd::KeepTesting);
+    // ⚠ A missing terminator on the last arm is not recorded, because bash
+    // writes `;;` in when it prints — so the two spellings are one tree. It
+    // needs the newline: on one line `b esac` glues into an argument and bash
+    // refuses the whole command.
+    assert_eq!(
+        case_of("case $x in a) b;; esac"),
+        case_of("case $x in a) b\nesac")
+    );
+}
+
+#[test]
+fn what_a_case_collapses_and_what_it_keeps() {
+    // ⚠ A leading `(` is not recorded: bash prints `(a)` back as `a)`, so a tree
+    // holding it would make one command two trees.
+    assert_eq!(
+        case_of("case $x in (a) b;; esac"),
+        case_of("case $x in a) b;; esac")
+    );
+    // Several patterns per arm, and an arm that runs nothing.
+    assert_eq!(
+        case_of("case $x in a|b|c) d;; esac").arms[0].patterns.len(),
+        3
+    );
+    assert!(case_of("case $x in a) ;; esac").arms[0].body.is_empty());
+    // ⚠ `esac` right after `in` is a case with no arms, and legal.
+    assert!(case_of("case $x in esac").arms.is_empty());
+    // A pattern is not a command position, so a keyword there is an ordinary
+    // pattern — except `esac`, which bash takes as the terminator, so only a
+    // QUOTED one can be a pattern and the printer has to quote it back.
+    assert_eq!(case_of("case $x in in) a;; do) b;; esac").arms.len(), 2);
+    assert_eq!(
+        print(&tree("case $x in 'esac') a;; esac")),
+        "case $x in 'esac') a ;; esac"
+    );
+    assert!(check("case $x in 'esac') a;; esac").holds());
+}
+
+#[test]
+fn what_a_case_cannot_be_is_named() {
+    // Each of these bash refuses too — `reader/probes/case.sh` puts all five to
+    // `bash -n`.
+    assert_eq!(refusal("case $x in a) b;;"), Reason::Case);
+    assert_eq!(refusal("case $x a) b;; esac"), Reason::Case);
+    assert_eq!(refusal("case $x in a b) c;; esac"), Reason::Case);
+    assert_eq!(refusal("case $x in ) b;; esac"), Reason::EmptyOperand);
+    assert_eq!(refusal("case"), Reason::EmptyOperand);
+    // A comment has nowhere to go in a one-line print, as in a loop body.
+    assert_eq!(
+        refusal("case $x in a) b # note\n;; esac"),
+        Reason::CommentInList
+    );
+}
+
+#[test]
+fn the_law_holds_across_the_case_shapes() {
+    for text in [
+        "case $x in a) b;; esac",
+        "case $x in a) b;; c) d;; esac",
+        "case \"$x\" in a) b;; esac",
+        "case $(f) in a) b;; esac",
+        "case ${x:-d} in a) b;; esac",
+        "case $x in a|b|c) d;; esac",
+        "case $x in (a) b;; (c|d) e;; esac",
+        "case $x in *.txt) a;; ?) b;; esac",
+        "case $x in \"a b\") c;; 'lit') d;; esac",
+        "case $x in a\\ b) c;; esac",
+        "case $x in 'a)b') c;; esac",
+        "case $x in $y) a;; esac",
+        "case $x in in) a;; do) b;; esac",
+        "case $x in 'esac') a;; esac",
+        "case $x in a) ;; *) b;; esac",
+        "case $x in a) esac",
+        "case $x in esac",
+        "case $x in a) b; c;; esac",
+        "case $x in a) if y; then z; fi;; esac",
+        "case $x in a) for f in 1; do g; done;; esac",
+        "case $x in a) case $y in b) c;; esac;; esac",
+        "case $x in a) b;; esac > out",
+        "case $x in a) b > out;; esac",
+        "case $x in a) b & ;; esac",
+        "case $x in a) b;& esac",
+        "case $x in a) cat <<X\nbody\nX\n;; esac",
+        // Written across lines, which is how a script spells it.
+        "case $x in\n  a)\n    b\n    ;;\n  *)\n    c\n    ;;\nesac",
+        // Inside the constructs that carry lists, and beside them.
+        "for f in a; do case $f in b) c;; esac; done",
+        "x=$(case $y in a) echo b;; esac)",
+        "case $x in a) b;; esac | wc -l",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+        assert!(
+            survey(text).is_empty(),
+            "{text:?} should need nothing: {:?}",
+            survey(text)
+        );
+    }
 }
 
 // ---- loops ----

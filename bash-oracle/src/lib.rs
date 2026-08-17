@@ -244,6 +244,11 @@ fn strip_pipeline(pipeline: &mut Pipeline) {
                 conditional.then = strip(&conditional.then);
                 conditional.otherwise = conditional.otherwise.as_deref().map(strip);
             }
+            CommandKind::Case(case) => {
+                for arm in &mut case.arms {
+                    arm.body = strip(&arm.body);
+                }
+            }
             CommandKind::Subshell(items) | CommandKind::Group(items) => *items = strip(items),
             CommandKind::Function(function) => function.body = strip(&function.body),
             CommandKind::ForArith(loop_) => loop_.body = strip(&loop_.body),

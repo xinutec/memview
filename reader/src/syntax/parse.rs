@@ -23,11 +23,11 @@
 //! at a special character always lands on a character boundary.
 
 use super::ast::{
-    Anchor, AndOr, Arith, Assignment, BinaryOp, Brace, Command, CommandKind, Comment, Conditional,
-    Connector, Direction, ForArith, ForLoop, Function, Glob, Heredoc, Item, Link, Parameter,
-    ParameterOp, Pipeline, ProcessSubstitution, Redirect, RedirectOp, RedirectTarget, Replace,
-    Script, Segment, SegmentKind, Simple, Span, Step, Subscript, Substitution, Tilde, Timed,
-    UnaryOp, WhileLoop, Word,
+    Anchor, AndOr, Arith, Arm, ArmEnd, Assignment, BinaryOp, Brace, Case, Command, CommandKind,
+    Comment, Conditional, Connector, Direction, ForArith, ForLoop, Function, Glob, Heredoc, Item,
+    Link, Parameter, ParameterOp, Pipeline, ProcessSubstitution, Redirect, RedirectOp,
+    RedirectTarget, Replace, Script, Segment, SegmentKind, Simple, Span, Step, Subscript,
+    Substitution, Tilde, Timed, UnaryOp, WhileLoop, Word,
 };
 
 /// Where a word is being read, which decides what expands inside it.
@@ -222,6 +222,8 @@ pub fn parse(text: &str) -> Result<Script, Refusal> {
         pending: Vec::new(),
         bodies: Vec::new(),
         parens: 0,
+        arm_depth: 0,
+        in_pattern: false,
     };
     let mut script = parser.script()?;
     let mut bodies = parser.bodies.into_iter();
@@ -251,6 +253,12 @@ struct Parser<'t> {
     bodies: Vec<Heredoc>,
     /// How many `$(` are open. A `)` closes a command list only inside one.
     parens: usize,
+    /// How many `case` arm bodies are being read. Inside one, `;;`, `;&` and
+    /// `;;&` end the list rather than separating commands in it.
+    arm_depth: usize,
+    /// Is a `case` PATTERN being read? An unquoted `)` ends one, wherever the
+    /// enclosing text would otherwise take it for something else.
+    in_pattern: bool,
 }
 
 /// A heredoc's opener, held until the line it was written on ends.
@@ -313,6 +321,14 @@ impl<'t> Parser<'t> {
             }
             match self.peek() {
                 None => break,
+                // ⚠ Inside a `case` arm, `;;`, `;&` and `;;&` END the body. Read
+                // as separators they would be eaten as two empty steps, and the
+                // arm would swallow the rest of the case.
+                Some(b';')
+                    if self.arm_depth > 0 && matches!(self.peek_at(1), Some(b';' | b'&')) =>
+                {
+                    break;
+                }
                 // A separator with no command in front of it: `;` after a
                 // command already ended, or a blank line. Nothing to record —
                 // the tree holds sequence, and an empty step is not one.
@@ -722,6 +738,10 @@ impl<'t> Parser<'t> {
             self.at += 2;
             return Ok(Some(CommandKind::If(self.conditional()?)));
         }
+        if self.at_keyword("case") {
+            self.at += 4;
+            return Ok(Some(CommandKind::Case(self.case_command()?)));
+        }
         let select = self.at_keyword("select");
         if select || self.at_keyword("for") {
             self.at += if select { 6 } else { 3 };
@@ -1051,6 +1071,120 @@ impl<'t> Parser<'t> {
             return self.refuse(Reason::EmptyOperand, 1);
         }
         Ok(items)
+    }
+
+    /// `case word in [pattern) body ;;]… esac`, with `case` already taken.
+    ///
+    /// ⚠ **`esac` right after `in` is a case with NO ARMS**, and legal — bash
+    /// accepts `case $x in esac`. It is also why `esac` cannot be a bare
+    /// pattern: bash reads the keyword first and calls the `)` a syntax error.
+    /// A *quoted* `esac` is an ordinary pattern, which is why the printer has to
+    /// quote one.
+    fn case_command(&mut self) -> Result<Case, Refusal> {
+        self.skip_blanks();
+        if self.at_end_of_command() {
+            return self.refuse(Reason::EmptyOperand, 1);
+        }
+        let word = self.word(false, WordKind::Argument)?;
+        self.skip_blanks_and_newlines()?;
+        if !self.take_keyword("in") {
+            return self.refuse(Reason::Case, 1);
+        }
+        let mut arms = Vec::new();
+        loop {
+            self.skip_blanks_and_newlines()?;
+            if self.take_keyword("esac") {
+                return Ok(Case { word, arms });
+            }
+            // A comment here has nowhere to go in a one-line print, exactly as
+            // one in a loop body has.
+            if self.peek() == Some(b'#') {
+                return self.refuse(Reason::CommentInList, 1);
+            }
+            if self.peek().is_none() {
+                return self.refuse(Reason::Case, 1);
+            }
+            arms.push(self.case_arm()?);
+        }
+    }
+
+    /// `[(] pattern [| pattern]… ) body [;;|;&|;;&]`.
+    fn case_arm(&mut self) -> Result<Arm, Refusal> {
+        // ⚠ **A leading `(` is stepped over and NOT recorded.** Bash prints
+        // `(a)` back as `a)`, so a tree holding the paren would make one command
+        // two trees and the second gate could never object.
+        if self.peek() == Some(b'(') {
+            self.at += 1;
+        }
+        let mut patterns = Vec::new();
+        loop {
+            self.skip_blanks_and_newlines()?;
+            let pattern = self.pattern()?;
+            if pattern.segments.is_empty() {
+                return self.refuse(Reason::EmptyOperand, 1);
+            }
+            patterns.push(pattern);
+            self.skip_blanks();
+            match self.peek() {
+                Some(b'|') => self.at += 1,
+                Some(b')') => {
+                    self.at += 1;
+                    break;
+                }
+                // `a b)` is two words where one pattern belongs, which bash
+                // refuses outright.
+                _ => return self.refuse(Reason::Case, 1),
+            }
+        }
+        self.arm_depth += 1;
+        let body = self.items(&["esac"]);
+        self.arm_depth -= 1;
+        let body = body?;
+        if body.iter().any(|item| matches!(item, Item::Comment(_))) {
+            return self.refuse(Reason::CommentInList, 1);
+        }
+        // ⚠ **Three terminators, and they are three different programs** — `;;`
+        // stops, `;&` runs the next arm's body without testing it, `;;&` goes on
+        // testing. Measured by running them; see `reader/probes/case.sh`.
+        let end = match (self.peek(), self.peek_at(1), self.peek_at(2)) {
+            (Some(b';'), Some(b';'), Some(b'&')) => {
+                self.at += 3;
+                ArmEnd::KeepTesting
+            }
+            (Some(b';'), Some(b';'), _) => {
+                self.at += 2;
+                ArmEnd::Stop
+            }
+            (Some(b';'), Some(b'&'), _) => {
+                self.at += 2;
+                ArmEnd::FallThrough
+            }
+            // ⚠ The last arm may leave it out, and bash writes `;;` in when it
+            // prints — so the omission is not recorded and the two spellings are
+            // one tree. Anything else here is a case that never closes, which
+            // the caller names.
+            _ => ArmEnd::Stop,
+        };
+        Ok(Arm {
+            patterns,
+            body,
+            end,
+        })
+    }
+
+    /// One pattern: a word, read where `)` and `|` end it.
+    ///
+    /// ⚠ **A word, not a string.** Bash prints a pattern back verbatim, so the
+    /// second gate has no opinion about what is in one — the same blind spot it
+    /// has about a word, and the same answer. `'*'` is a literal asterisk and
+    /// `*` is a glob, which is a difference in what the arm MATCHES, and only
+    /// construction can get it right.
+    fn pattern(&mut self) -> Result<Word, Refusal> {
+        let was = self.in_pattern;
+        self.in_pattern = true;
+        let word = self.word(false, WordKind::Argument);
+        self.in_pattern = was;
+        word
     }
 
     /// `NAME=value` or `NAME+=value`, with the value read as a value.
@@ -1387,8 +1521,11 @@ impl<'t> Parser<'t> {
                     return self.refuse(reason, 1);
                 }
                 // Inside a substitution a `)` closes it rather than opening a
-                // group, so it ends the word instead of being refused.
-                b')' if self.parens > 0 => break,
+                // group, and inside a `case` pattern it ends the pattern — so
+                // either way it ends the word instead of being refused. A quoted
+                // or escaped one never reaches here, which is what makes
+                // `'a)b')` a pattern holding a paren.
+                b')' if self.parens > 0 || self.in_pattern => break,
                 // ⚠ **A brace INSIDE a word is expansion, not grouping.**
                 // `echo {a,b}.txt` is one word that expands to two, which is a
                 // glob-level construct and a different build from `{ a; }`.
@@ -1718,6 +1855,11 @@ impl<'t> Parser<'t> {
     ///   the outer line opened.
     fn parenthesised_list(&mut self) -> Result<Vec<Item>, Refusal> {
         let outer = std::mem::take(&mut self.pending);
+        // A whole script starts here, so neither the `case` arm nor the pattern
+        // around it reaches inside: `$( )` is its own context, and `self.parens`
+        // is what ends a word in there.
+        let in_pattern = std::mem::replace(&mut self.in_pattern, false);
+        let arm_depth = std::mem::replace(&mut self.arm_depth, 0);
         let bodies_before = self.bodies.len();
         self.parens += 1;
         let items = self.items(&[]);
@@ -1744,6 +1886,8 @@ impl<'t> Parser<'t> {
         );
         drop(inner);
         self.pending = outer;
+        self.in_pattern = in_pattern;
+        self.arm_depth = arm_depth;
         if items.iter().any(|item| matches!(item, Item::Comment(_))) {
             return self.refuse(Reason::CommentInList, 1);
         }
@@ -2827,6 +2971,14 @@ fn fill_pipeline(pipeline: &mut Pipeline, bodies: &mut impl Iterator<Item = Here
                 fill_items(&mut conditional.then, bodies);
                 if let Some(otherwise) = &mut conditional.otherwise {
                     fill_items(otherwise, bodies);
+                }
+            }
+            // The subject and the patterns are words, which carry no opener the
+            // outer walk can reach — one inside a `$( )` there was paired at its
+            // own closing paren.
+            CommandKind::Case(case) => {
+                for arm in &mut case.arms {
+                    fill_items(&mut arm.body, bodies);
                 }
             }
             CommandKind::Subshell(items) | CommandKind::Group(items) => {

@@ -19,10 +19,10 @@
 //! heredoc still prints on one line.
 
 use super::ast::{
-    Anchor, AndOr, Arith, Assignment, BinaryOp, Brace, Command, CommandKind, Conditional,
-    Connector, Direction, ForLoop, Glob, Heredoc, Item, Parameter, ParameterOp, Pipeline, Redirect,
-    RedirectOp, RedirectTarget, Script, Segment, SegmentKind, Simple, Step, Subscript, Tilde,
-    Timed, UnaryOp, WhileLoop, Word,
+    Anchor, AndOr, Arith, ArmEnd, Assignment, BinaryOp, Brace, Case, Command, CommandKind,
+    Conditional, Connector, Direction, ForLoop, Glob, Heredoc, Item, Parameter, ParameterOp,
+    Pipeline, Redirect, RedirectOp, RedirectTarget, Script, Segment, SegmentKind, Simple, Step,
+    Subscript, Tilde, Timed, UnaryOp, WhileLoop, Word,
 };
 use super::parse::{is_assignment, is_reserved};
 
@@ -102,6 +102,7 @@ fn print_command(command: &Command, head: bool, bodies: &mut Vec<String>) -> Str
         CommandKind::For(loop_) => vec![print_for(loop_, bodies)],
         CommandKind::While(loop_) => vec![print_while(loop_, bodies)],
         CommandKind::If(conditional) => vec![print_if(conditional, bodies)],
+        CommandKind::Case(case) => vec![print_case(case, bodies)],
         // ⚠ A subshell needs no terminator before its `)`, and a brace group
         // REQUIRES one before its `}` — `{ a }` is a syntax error where `( a )`
         // is not. Measured; `follow` supplies the right separator, including
@@ -212,6 +213,48 @@ fn print_if(conditional: &Conditional, bodies: &mut Vec<String>) -> String {
         out = format!("{} {}", follow(&out, "else"), print_body(otherwise, bodies));
     }
     follow(&out, "fi")
+}
+
+/// `case x in a) b;; *) c;; esac` — on one line, like the loops.
+///
+/// ⚠ **No separator before a terminator.** `case x in a) b & ;; esac` is legal
+/// where `{ a & ; }` is not — measured — so unlike every other compound here,
+/// this one needs no [`follow`].
+fn print_case(case: &Case, bodies: &mut Vec<String>) -> String {
+    let mut out = format!("case {} in", print_word(&case.word, false));
+    for arm in &case.arms {
+        let patterns: Vec<String> = arm.patterns.iter().map(print_pattern).collect();
+        let body = print_body(&arm.body, bodies);
+        let end = match arm.end {
+            ArmEnd::Stop => ";;",
+            ArmEnd::FallThrough => ";&",
+            ArmEnd::KeepTesting => ";;&",
+        };
+        // An arm that runs nothing is written `a) ;;`, which is what the corpus
+        // spells "match this and do nothing" and what bash reads back.
+        if body.is_empty() {
+            out.push_str(&format!(" {}) {end}", patterns.join("|")));
+        } else {
+            out.push_str(&format!(" {}) {body} {end}", patterns.join("|")));
+        }
+    }
+    out.push_str(" esac");
+    out
+}
+
+/// One pattern, which is a word read for matching.
+///
+/// ⚠ **A pattern spelling `esac` has to be quoted.** Bash reads the bare keyword
+/// as the end of the case and calls the `)` after it a syntax error, so a tree
+/// holding the literal `esac` — which `case $x in 'esac') a;; esac` puts there —
+/// would print as a case with no arms at all. The only reserved word this
+/// applies to: a pattern is not a command position, so `in)` and `do)` go out
+/// bare, as bash prints them.
+fn print_pattern(pattern: &Word) -> String {
+    match pattern.as_literal() {
+        Some(text) if text == "esac" => quote(&text),
+        _ => print_word(pattern, false),
+    }
 }
 
 /// Put a keyword after a command list, with the separator the list has earned.

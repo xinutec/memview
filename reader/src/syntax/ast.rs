@@ -188,6 +188,8 @@ pub enum CommandKind {
     While(WhileLoop),
     /// `if cond; then … [else …] fi`.
     If(Conditional),
+    /// `case word in pattern) … ;; esac`.
+    Case(Case),
     /// `( list )` — a command list in a subshell, so what it changes it keeps.
     Subshell(Vec<Item>),
     /// `{ list; }` — a command list in THIS shell, grouped for a redirection or
@@ -202,6 +204,53 @@ pub enum CommandKind {
     Arithmetic(Arith),
     /// `for ((i=0; i<3; i++)); do … done`.
     ForArith(ForArith),
+}
+
+/// `case word in pattern) body ;; esac` — one arm at most, chosen by a pattern.
+///
+/// ⚠ **The first construct whose interior is not a command list.** An arm is a
+/// list of *patterns*, and a pattern is a word read for matching rather than for
+/// naming — so it is a [`Word`], with the same quoting collapse, and `'*'` is a
+/// literal asterisk where `*` is a [`Glob`]. Bash prints a pattern back verbatim
+/// (measured in `reader/probes/case.sh`), so the second gate has no opinion at
+/// all about what is inside one, exactly as it has none about a word.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Case {
+    /// The subject, which is an ordinary word — `case "$x" in`, `case $(f) in`.
+    pub word: Word,
+    /// ⚠ **May be empty.** `case $x in esac` is legal and matches nothing.
+    pub arms: Vec<Arm>,
+}
+
+/// One arm: the patterns that select it, what it runs, and how it ends.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Arm {
+    /// ⚠ **At least one, and a leading `(` is NOT recorded.** Bash prints `(a)`
+    /// back as `a)`, so keeping the paren would be a distinction bash collapsed
+    /// and the second gate could never object to.
+    pub patterns: Vec<Word>,
+    /// ⚠ **May be empty**, which the corpus writes for "match this and do
+    /// nothing". Bash renders it as a blank line and reads it back the same.
+    pub body: Vec<Item>,
+    pub end: ArmEnd,
+}
+
+/// What the shell does after an arm's body — three different programs.
+///
+/// ⚠ **Recorded because they are not the same command.** Measured by running
+/// them: on the subject `ab` against arms `a*` then `*b`, `;;` prints one thing
+/// and the other two print both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArmEnd {
+    /// `;;` — the case is done.
+    ///
+    /// ⚠ Also what a missing terminator on the last arm becomes: bash supplies
+    /// it, so `case $x in a) esac` and `case $x in a) ;; esac` are one tree.
+    Stop,
+    /// `;&` — run the next arm's body without testing its pattern.
+    FallThrough,
+    /// `;;&` — go on testing, starting at the next arm's pattern.
+    KeepTesting,
 }
 
 /// `name() { body }` — a definition, which runs none of its body.

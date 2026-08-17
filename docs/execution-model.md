@@ -271,6 +271,12 @@ and `coproc` block nothing at all in 131,246 commands — this corpus is
 interactive commands, not scripts. Building the obvious "simplest compound"
 first would have bought fifty commands.
 
+⚠ **That `case` figure aged out, and the denominator is why.** In the 134,622-command
+union it blocks 135 — from nothing at all to the top of the queue, with no
+change to the construct and none to the parser. The union grows nightly, so a
+"blocks nothing" reading is a statement about a corpus and a date, not about a
+construct.
+
 ⚠ **What a construct is worth is a function of what is already built, so it is
 re-measured rather than remembered.** That same `if` was worth 50 when it was
 measured beside the loops and **846** when it was actually built, four
@@ -410,7 +416,7 @@ Two corollaries, both learned the hard way:
   not be read, and since redirections are modelled the survey went looking for
   something that could not be there. Only the invariant caught it.
 
-Five properties are load-bearing and each has a test that fails without it:
+Six properties are load-bearing and each has a test that fails without it:
 
 - **`Span` compares equal to every other `Span`.** Position-blindness lives in
   the one type rather than in each node's `PartialEq`, so a node added later
@@ -424,6 +430,14 @@ Five properties are load-bearing and each has a test that fails without it:
 - **No quote may touch a tilde prefix.** `~'/x'` is the literal `~/x` to bash, so
   the closing `/` goes through bare and quoting resumes after it. Found by the
   law on 319 commands.
+- **A `case` pattern is a word, and quoting one changes what it matches.** `*`
+  is every string and `'*'` is one asterisk. Bash prints a pattern back verbatim,
+  so a tree that dropped the quotes, or absorbed them into a literal, would print
+  and re-read as itself and bash would agree with both. The same blind spot it
+  has about a word, and the same answer: construction. Two spellings it *does*
+  collapse are collapsed here too — a leading `(` (`(a)` prints as `a)`) and a
+  missing terminator on the last arm (supplied as `;;`) — because recording
+  either would make one command two trees.
 - **A heredoc inside `$( )` is paired inside it.** Bash reads a body when the
   line holding its opener ends, and a line inside a substitution ends before the
   one around it — so `cat <<A "$(cat <<X⏎i⏎X⏎)"` hands the ARGUMENT `X`'s body

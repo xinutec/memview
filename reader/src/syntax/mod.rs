@@ -3,7 +3,8 @@
 //!
 //! `docs/execution-model.md` is the design. What it reads today: and-or lists of
 //! pipelines, whose commands are either simple — a binding prefix, words and
-//! redirections — or a `for`/`while`/`until`/`select` loop carrying a body.
+//! redirections — or a compound carrying a list: a loop, an `if`, a `case`, a
+//! subshell, a brace group, a function definition.
 //! Words are typed segments: literal text, globs, tilde prefixes, parameters,
 //! and the two forms that hold a whole script and are where this parser recurses
 //! into itself — `$( )` substitutions and `<( )` process substitutions. Heredocs

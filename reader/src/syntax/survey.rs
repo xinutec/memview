@@ -14,14 +14,16 @@
 //! to answer a question about text this parser cannot read, so it cannot be
 //! built out of that parser. It shares the quoting rules and nothing else.
 //!
-//! Two things are looked past rather than into, and both are stated as findings
-//! rather than descended into:
+//! One thing is looked past rather than into: **a heredoc body.** It is data — a
+//! commit message, Python, YAML — and scanning prose as shell invents constructs
+//! nobody wrote. Everything else is descended into, including a substitution's
+//! interior and a process substitution's, because the parser reads those and
+//! what it refuses in there is a construct this command genuinely needs.
 //!
-//! - **a substitution's interior.** `$(git log | head)` reports `Expansion`, not
-//!   `Expansion` and `Pipe`. At this layer the substitution is what blocks the
-//!   read; what is inside it is a question for the layer that gets one.
-//! - **a heredoc body.** It is data — a commit message, Python, YAML — and
-//!   scanning prose as shell invents constructs nobody wrote.
+//! ⚠ **An EXTRA finding is as wrong as a missing one, and only the extras
+//! hide** — the invariant below pins one direction, so an over-report on a
+//! command that was refused anyway passes silently. It cost the survey's only
+//! product once already: see the `)` in [`Survey::process_substitution`].
 //!
 //! ⚠ The survey can only ever be *approximately* right, so it is pinned to the
 //! parser by an invariant rather than trusted: whatever [`parse`] refuses must
@@ -105,9 +107,10 @@ impl Survey<'_> {
         // makes and nothing else here can see.
         let mut parens = 0usize;
         let mut braces = 0usize;
-        // How many `case … esac` are open, which is the only thing that can tell
-        // an arm's `)` apart from an unmatched one.
-        let mut case_depth = 0usize;
+        // ⚠ Where each open `case` stands, innermost last — see [`CaseStage`].
+        // It is the only thing that can tell an arm's `)` apart from an
+        // unmatched one, and the `(` in front of a pattern from a subshell.
+        let mut cases: Vec<CaseStage> = Vec::new();
         // How far through a `for NAME in` header the scan is: 1 after `for`,
         // 2 after the name. A word other than `in` at 2 is a header bash refuses
         // — `for p /style.css; do …` — and the parser refuses it as a loop.
@@ -153,6 +156,22 @@ impl Survey<'_> {
                         _ => {}
                     }
                     word_opens_list = false;
+                    // ⚠ `case x in` — the same shape as a `for` header, and
+                    // outside the `at_command_start` guard for the same reason:
+                    // the subject and the `in` are not at a command start. After
+                    // it, the arms are — which is what lets a bare
+                    // `case $x in esac` find its own closing keyword.
+                    match cases.last_mut() {
+                        Some(stage @ CaseStage::Subject) => *stage = CaseStage::In,
+                        Some(stage @ CaseStage::In) => {
+                            if word != "in" {
+                                self.found.insert(Reason::Case);
+                            }
+                            *stage = CaseStage::Pattern;
+                            word_opens_list = true;
+                        }
+                        _ => {}
+                    }
                     if at_command_start && !word_quoted {
                         if let Some(branch) = branch(&word) {
                             conditional_keyword(&mut if_stack, &mut self.found, branch);
@@ -184,12 +203,24 @@ impl Survey<'_> {
                                 loop_header = false;
                                 word_opens_list = true;
                             }
-                            // ⚠ Tracked only so the `)` that ends an ARM is not
-                            // read as an unmatched paren. `case` is refused
-                            // either way, and the over-report cost it its place
-                            // on the "build one construct" list.
-                            "case" => case_depth += 1,
-                            "esac" => case_depth = case_depth.saturating_sub(1),
+                            // Modelled now. What is still reported is a header
+                            // that never says `in`, an `esac` closing nothing,
+                            // and — at the end of the run — a `case` that never
+                            // closes.
+                            "case" => {
+                                loop_header = false;
+                                cases.push(CaseStage::Subject);
+                            }
+                            // An `esac` closing nothing, or closing a header
+                            // that never reached its arms.
+                            "esac"
+                                if !matches!(
+                                    cases.pop(),
+                                    Some(CaseStage::Pattern | CaseStage::Body)
+                                ) =>
+                            {
+                                self.found.insert(Reason::Case);
+                            }
                             _ => {}
                         }
                     }
@@ -297,6 +328,15 @@ impl Survey<'_> {
                 }
                 b';' => {
                     separator!();
+                    // `;;`, `;&` and `;;&` end an arm's body, so what follows is
+                    // the next arm's PATTERN — where a `(` opens nothing and a
+                    // keyword is an ordinary word. Seen twice for `;;`, which is
+                    // why the second visit finds the stage already moved.
+                    if matches!(self.peek_at(1), Some(b';' | b'&'))
+                        && let Some(stage @ CaseStage::Body) = cases.last_mut()
+                    {
+                        *stage = CaseStage::Pattern;
+                    }
                     self.at += 1;
                 }
                 b'#' if !in_word => {
@@ -419,6 +459,13 @@ impl Survey<'_> {
                 // the flag that says which `(` this is — "not inside a word" is
                 // not the same test, and using it read every parenthesis in a
                 // prose argument as a subshell.
+                // ⚠ **The `(` in front of a case PATTERN opens nothing.** Bash
+                // allows `(a) b;;` and prints it back as `a) b;;`, so counting
+                // it as a subshell left the group unbalanced and reported a
+                // grouping refusal on every case written that way.
+                b'(' if !in_word && cases.last() == Some(&CaseStage::Pattern) => {
+                    self.at += 1;
+                }
                 b'(' => {
                     // ⚠ `((…))` is arithmetic, not two subshells — `((a))`
                     // evaluates where `( (a) )` runs a command called `a`.
@@ -454,13 +501,25 @@ impl Survey<'_> {
                         self.at += 1;
                     }
                 }
+                b')' if cases.last() == Some(&CaseStage::Pattern) => {
+                    // ⚠ **A pattern is not a command position.** `in)` and `do)`
+                    // are ordinary patterns to bash, so the word ending here
+                    // must not be read as a command name — which is what would
+                    // report a construct for one that spells a keyword.
+                    at_command_start = false;
+                    separator!();
+                    // This closes an arm's pattern, which is the case grammar
+                    // rather than a paren with a partner or without one.
+                    if let Some(stage) = cases.last_mut() {
+                        *stage = CaseStage::Body;
+                    }
+                    self.at += 1;
+                }
                 b')' => {
                     separator!();
                     if parens > 0 {
                         parens -= 1;
-                    } else if case_depth == 0 {
-                        // Inside a `case` this closes an arm's pattern, which is
-                        // the case grammar rather than a paren with no partner.
+                    } else {
                         self.found.insert(Reason::Grouping);
                     }
                     self.at += 1;
@@ -614,6 +673,29 @@ impl Survey<'_> {
             {
                 conditional_keyword(&mut if_stack, &mut self.found, branch);
             }
+            // ⚠ And the same for a `case`, whose closing keyword is the LAST
+            // word of every command that holds one: `case $x in a) b;; esac`
+            // ends on it, so skipping the bookkeeping here reported an unclosed
+            // case for every well-formed one.
+            let closes = at_command_start && !word_quoted && word == "esac";
+            match cases.last_mut() {
+                Some(stage @ CaseStage::Subject) => *stage = CaseStage::In,
+                Some(stage @ CaseStage::In) => {
+                    if word != "in" {
+                        self.found.insert(Reason::Case);
+                    }
+                    *stage = CaseStage::Pattern;
+                }
+                // Whatever is left here is an open case's arms, which this
+                // closes; an `esac` with nothing open closes nothing.
+                Some(_) if closes => {
+                    cases.pop();
+                }
+                None if closes => {
+                    self.found.insert(Reason::Case);
+                }
+                _ => {}
+            }
             finish_word(
                 &mut self.found,
                 &word,
@@ -630,6 +712,11 @@ impl Survey<'_> {
         // a `fi` and refuses the conditional, so the set has to hold one.
         if !if_stack.is_empty() {
             self.found.insert(Reason::Conditional);
+        }
+        // A `case` the text never closed, for the same reason — and a header
+        // that ran out before its `in`.
+        if !cases.is_empty() {
+            self.found.insert(Reason::Case);
         }
         self
     }
@@ -834,6 +921,16 @@ impl Survey<'_> {
         }
     }
 
+    /// Is `word` sitting at the cursor, with a shell boundary on both sides?
+    fn at_word(&self, word: &str) -> bool {
+        if self.at > 0 && !is_stop(self.bytes[self.at - 1]) {
+            return false;
+        }
+        let end = self.at + word.len();
+        self.text.get(self.at..end) == Some(word)
+            && self.bytes.get(end).is_none_or(|byte| is_stop(*byte))
+    }
+
     fn skip_expansion(&mut self) {
         match (self.peek(), self.peek_at(1)) {
             (Some(b'`'), _) => {
@@ -873,16 +970,33 @@ impl Survey<'_> {
     /// one. Without that, `$(git commit -m "$(cat <<'EOF' … EOF)")` ended at the
     /// first `)` a commit message happened to hold, and the rest of the message
     /// was scanned as shell — 182 commands reporting constructs nobody wrote.
+    ///
+    /// And `case`-aware for a third: an arm's `)` closes nothing, so
+    /// `$(case $y in a) echo b;; esac)` ends at the LAST paren rather than the
+    /// first. Only the keywords are tracked here — where the arm boundaries are
+    /// is [`Survey::run`]'s business, and this only needs to know not to stop.
     fn skip_balanced(&mut self, open: u8, close: u8) -> bool {
         let mut depth = 0usize;
         // Openers waiting for the newline that starts their bodies.
         let mut heredocs: Vec<(String, bool)> = Vec::new();
+        let mut cases = 0usize;
         while let Some(byte) = self.peek() {
             match byte {
+                b'c' if self.at_word("case") => {
+                    cases += 1;
+                    self.at += 4;
+                }
+                b'e' if self.at_word("esac") => {
+                    cases = cases.saturating_sub(1);
+                    self.at += 4;
+                }
                 b if b == open => {
                     depth += 1;
                     self.at += 1;
                 }
+                // A pattern's terminator, not this run's: an arm leaves its `)`
+                // unmatched, so the one that would close here is that instead.
+                b if b == close && cases > 0 && depth == 1 => self.at += 1,
                 b if b == close => {
                     depth -= 1;
                     self.at += 1;
@@ -963,6 +1077,26 @@ impl Survey<'_> {
         }
         false
     }
+}
+
+/// How far through `case word in` an open case has got.
+///
+/// ⚠ **Three words, and two of them can be wrong** — a case with no subject and
+/// one that never says `in` are both syntax errors bash refuses, and the parser
+/// names each of them `Case`. Nothing else in this scan can see either.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CaseStage {
+    /// After `case`, waiting for the word to match on.
+    Subject,
+    /// After the subject, waiting for `in`.
+    In,
+    /// Where an arm's patterns are read — after `in`, and after every arm
+    /// terminator. A `(` here is the optional one bash allows in front of a
+    /// pattern rather than a subshell, and the `)` after it closes no group.
+    Pattern,
+    /// An arm's body, which is an ordinary command list: a `(` in here really
+    /// does open a subshell.
+    Body,
 }
 
 /// A keyword of an `if` chain — a closed set, so not a string.
@@ -1047,11 +1181,11 @@ fn finish_word(
     if at_command_start
         && !quoted
         && let Some(reason) = reserved_word(word)
-        // ⚠ The loop and conditional keywords are modelled now, so they are not
-        // findings on their own — the caller reports the shapes of those two the
-        // parser still refuses. They stay in `reserved_word`, because the
+        // ⚠ The loop, conditional and case keywords are modelled now, so they
+        // are not findings on their own — the caller reports the shapes of those
+        // the parser still refuses. They stay in `reserved_word`, because the
         // printer has to quote a word that spells one to keep it a value.
-        && !matches!(reason, Reason::Loop | Reason::Conditional)
+        && !matches!(reason, Reason::Loop | Reason::Conditional | Reason::Case)
     {
         found.insert(reason);
     }
