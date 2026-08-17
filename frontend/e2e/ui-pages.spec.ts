@@ -256,6 +256,17 @@ const DOING = {
       effects: 0,
     },
     {
+      // ⚠ A turn that was a TOOL call, not a shell command — the timeline took
+      // those on 2026-08-17 and `delegate` is the longest of the new kinds.
+      at: 29_412_560,
+      agent: 'memview',
+      project: 'memview',
+      kind: 'delegate',
+      n: 1,
+      verdict: 'ok',
+      effects: 0,
+    },
+    {
       // Work on another machine, and a verdict that is neither ok nor failed.
       at: 29_412_540,
       agent: 'fleet',
@@ -267,14 +278,24 @@ const DOING = {
       effects: 7,
     },
   ],
+  // ⚠ **The real strip, at the real magnitude.** This was four short chips and
+  // a five-digit total, and the page draws eight — one of them `version
+  // control`, fifteen characters and the only two-word kind there is — beside a
+  // six-digit count. A fixture narrower than reality cannot fail the width
+  // checks below, which is the one thing it is here to do. Measured
+  // 2026-08-17, after tool calls joined the shell in the timeline.
   summary: [
-    ['test', 8021],
-    ['build', 4310],
-    ['edit', 299],
-    ['deploy', 140],
+    ['inspect', 269_190],
+    ['edit', 174_491],
+    ['search', 122_078],
+    ['run', 74_287],
+    ['version control', 41_525],
+    ['observe', 31_715],
+    ['build', 17_941],
+    ['test', 13_025],
   ],
-  total: 15_570,
-  failed: 412,
+  total: 769_652,
+  failed: 19_517,
 };
 
 /** What one turn did — including the two things a summary would drop. */
@@ -417,14 +438,17 @@ test('timeline — seven facts on a row, and a turn opened @ phone width', async
   await page.goto('/doing');
 
   // The shape of the WHOLE filtered range, which the rows cannot show.
-  await page.getByText('15570 moments').waitFor();
+  await page.getByText('769652 moments').waitFor();
   await page.locator('.moments > li').first().waitFor();
   // A session that was never named renders 36 characters of id.
   await page.getByText('6f7c2f11-0000-4000-8000-000000000002').waitFor();
   // ⚠ What opening a row would show, BEFORE it is opened — including the 0.
   // Both branches on screen at once, or the empty one is never rendered here.
   await page.getByText('936 effects').waitFor();
-  await page.getByText('no evidence').waitFor();
+  // ⚠ **Two of them now, and that is the assertion.** A delegated turn has no
+  // file effects either, so the empty branch has two shapes reaching it — and a
+  // `.first()` here would pass just as well if one of them stopped rendering.
+  await expect(page.getByText('no evidence')).toHaveCount(2);
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 
