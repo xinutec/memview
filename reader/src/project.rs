@@ -1,17 +1,9 @@
-//! The flat command list, read off the faithful tree instead of the grammar.
+//! The flat command list, read off the faithful tree.
 //!
-//! [`crate::shell`] and [`crate::syntax`] answer the same first question — *which
-//! commands does this script run* — from two grammars that share no code. That is
-//! how the tree was built: an independent second reader is what makes a
-//! disagreement mean something. But two answers with nothing between them is also
-//! how a repository comes to hold two truths, and `docs/reader.md` says so in as
-//! many words: **a coverage figure from one says nothing about the other.**
-//!
-//! This module is the thing between them. It projects a [`Script`] onto the
-//! [`Simple`] list the rest of the chain consumes, so the two readers can be run
-//! over one corpus and *compared* — `cargo run -p reader --bin projection` is the
-//! instrument, and what it prints is the size of the port that would replace one
-//! with the other.
+//! [`read`] is what the chain parses with. This module projects a [`Script`] onto
+//! the [`Simple`] list the rest of the chain consumes, which is also what lets
+//! [`crate::shell`] — the same question answered from a grammar sharing no code —
+//! be diffed against it over a whole corpus: `--bin projection`.
 //!
 //! ## What a projection is allowed to lose
 //!
@@ -33,6 +25,12 @@
 //! of `*/package.json` rather than as nothing at all. So the head is emitted and
 //! the closers are not. `shell_files::ran` draws the same line for the same
 //! reason. The `projection` report subtracts the rest before counting.
+//!
+//! ⚠ **A nested script must be read by the reader that read its parent.**
+//! [`crate::shell`] hides a heredoc body inside its own delimiter so a re-parse
+//! can still find it, and only that reader decodes the marker — so a flat outer
+//! parse feeding a tree inner one loses every `bash -c 'python3 - <<PY … PY'`,
+//! silently, which is a third of the corpus's wrapper commands.
 //!
 //! ## What it must not lose
 //!

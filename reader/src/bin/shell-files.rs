@@ -153,14 +153,12 @@ fn main() -> anyhow::Result<()> {
                 .with_context(|| format!("unreadable outcome in the corpus: {outcome}"))?,
         };
         calls += 1;
-        // ⚠ **The tree, which is what the chain reads through as of 43ae9fe.**
-        // This ran both ways behind a `--tree` flag for exactly as long as it
-        // took to decide the port, and the flag is gone because a half-switched
-        // mode misleads: `shell_files` reads a nested `bash -c` through the tree
-        // whichever reader opened the outer script, so a "grammar" column here
-        // would not have been one. The standing comparison is `--bin
-        // projection`, which asks both readers the same question a layer earlier
-        // and needs neither of them switched.
+        // ⚠ **The same reader the chain uses, and there is no flag for the
+        // other one.** `shell_files` reads a nested `bash -c` through the tree
+        // whichever reader opened the outer script, so a second column here
+        // would measure a mixture rather than a reader. Both readers are
+        // compared a layer earlier, by `--bin projection`, where neither has to
+        // be switched to do it.
         let Ok(parsed) = reader::project::read(cmd) else {
             unparsed += 1;
             continue;

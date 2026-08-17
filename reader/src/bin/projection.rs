@@ -3,18 +3,17 @@
 //!     cargo run --release -p reader --bin projection -- <corpus.jsonl> [--show <n>] [--only <bucket>]
 //!
 //! `reader/src/shell.rs` and `reader/src/syntax/` read the same text from two
-//! grammars that share no code, and until now nothing compared them: the syntax
-//! tree is gated against bash and against itself, the flat reader against a
-//! handful of oracle fixtures, and **the two were never asked the same question.**
-//! This asks it, over the whole corpus, by projecting the tree onto the flat
-//! reader's own shape with [`reader::project`] and diffing the result.
+//! grammars that share no code, and each is gated only against itself — the tree
+//! against bash and the round-trip law, the flat reader against a handful of
+//! oracle fixtures. **A gate cannot see what its own design is blind to**, so
+//! this asks them the same question instead, over the whole corpus, by projecting
+//! the tree onto the flat reader's own shape and diffing the result. Run once, it
+//! found six defects and five were live.
 //!
-//! What comes out is the size of the port that would replace one with the other,
-//! grouped so that each bucket is a decision rather than a list. A disagreement is
-//! not automatically a defect on either side — the tree has structure the flat
-//! reader never had, and the flat reader has words the tree refuses to invent —
-//! so the buckets are named for the difference, and reading the samples is what
-//! says which side was wrong.
+//! A disagreement is not automatically a defect on either side — the tree has
+//! structure the flat reader never had, and the flat reader has words the tree
+//! refuses to invent — so the buckets are named for the difference, and reading
+//! the samples is what says which side was wrong.
 //!
 //! ⚠ **A bucket with a big count is not the biggest problem.** One systematic
 //! spelling difference can outnumber every real misreading in the corpus, which

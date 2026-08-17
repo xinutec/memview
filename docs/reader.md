@@ -178,88 +178,52 @@ reports the `cat`'s exit code.
 
 ## Two readers
 
+**The chain reads through the tree; the pest grammar is kept as a second answer.**
 `shell.rs` and `syntax/` answer the same first question — *which commands does
-this script run* — from grammars that share no code, and for months nothing asked
-them the same question. `project.rs` projects the tree onto `Simple`, the flat
-reader's own shape, so `--bin projection` can diff them command by command.
+this script run* — from grammars that share no code, so each is an oracle for the
+other. `project.rs` puts the tree into `Simple`, the flat reader's own shape, and
+`--bin projection` diffs them command by command over one corpus.
 
-⚠ **The differences were not evenly distributed, and neither reader owned them.**
-Measured 2026-08-17 over `union.jsonl`:
+⚠ **Keep both, and keep them apart.** The moment the flat grammar becomes a call
+to the tree, nothing checks either of them again — which is why the switch was
+made at the chain's entry points and not by redefining `shell::parse`. The
+comparison is worth its keep: run once, it found six defects and five of them
+were live, taking agreement from 79.3% to 96.3% of 134,622 distinct commands.
+`grep -E "\s+"` had been read as `grep -E "s+"` in 21,481 of them. Each rule is
+written at the code that carries it; the report ranks what is left.
 
-| what disagreed | commands | who was wrong |
-| --- | --- | --- |
-| a backslash inside `" "` | 21,481 | flat reader — **fixed**, `unquote` |
-| an argument before a redirection | 1,649 | flat reader — **fixed**, `shell.pest` |
-| `do if x; then …` — the branch never opened | 621 | flat reader — **fixed**, `leading_keywords` |
-| `a &&⏎b` — the newline ended the list | 86 | flat reader — **fixed**, `walk` |
-| `cmd &>file` — the `&` was a separator | 18 | flat reader — **fixed**, `shell.pest` |
-| `${n}_v4` printed as `$n_v4` | 8 | the projection — **fixed**, `print_value` |
-| the condition on a loop body | 1,048 | flat reader, and **structurally**: see below |
-| `<(cmd)` as an argument | 154 | flat reader: it is a redirection there |
-| how an expansion is spelled back | ~2,600 | neither — see below |
+**How to read a bucket.** A disagreement is not a defect until you look, and it
+can belong to either side:
 
-Five of the six fixed ones were live defects nothing else could see. `grep -E
-"\s+"` was read as `grep -E "s+"`; `nc -w3 host 25 2>&1` named no port; a
-`rm -rf "$p"` inside `do if …; then` was recorded as having certainly run.
-Agreement went **79.3% → 96.3%**.
+- **A spelling difference is not a reading difference.** An argv string holding
+  `$(a|b)` is one reader's source text and the other's reprint of a parsed tree,
+  so `2>/dev/null` comes back as `2> /dev/null` and `${x}` as `$x`. Nothing reads
+  inside an expansion — its value is undetermined either way. Roughly 2,600
+  commands, and `reader/tests/projection.rs` asserts they stay spellings.
+- **One systematic spelling difference outnumbers every real misreading**, which
+  is why the buckets are named apart and why `--only` exists.
+- **The largest real one is structural**: 1,048 loop bodies whose `&&` condition
+  the flat grammar cannot carry across the `;` before `do`, because `do` is a
+  word to it. That gap is not fixable there — having the loop is what the tree is
+  for.
 
-⚠ **The 1,048 that are left are the argument for the port.** `a && for f in x;
-do b; done` runs `b` only if `a` worked, and to this grammar `do` is a word after
-a `;`, so the condition resets. Carrying it across would mean rebuilding the loop
-structure the tree already has — which is what porting to the tree *is*.
+⚠ **`project` is what a script *says*; `run_out` is what it *did*.** One command
+per command written, against loops the text determines run out into their
+iterations with a zero-times body demoted. The evaluation is the whole of the
+difference. **Do not move the zero-times rule into `project`**: it is a statement
+about running, the flat chain draws the line in the same place, and putting it
+earlier reports a disagreement that is only a difference of stage.
 
-### The whole chain, both ways
+⚠ **The tree refuses by name where the grammar guessed, and inside a `bash -c '…'`
+payload it refuses four times as often** — 405 scripts whose file uses are lost,
+against 98 before. Every other figure improved on the switch, which is why it
+happened; **what those 405 are has not been measured**, so "the tree reads more"
+is true of the whole and unproven of that part. memview#1028.
 
-**The chain reads through the tree as of `43ae9fe`** — `project::read` at every
-entry point that builds an artefact, including the nested `bash -c` payloads.
-Before switching, the same corpus was run through the same semantics table both
-ways behind a `--tree` flag; that flag is gone, because with nested scripts on
-the tree a "grammar" column would no longer have been one. The standing
-comparison is `--bin projection`, which asks both readers the same question a
-layer earlier and needs neither of them switched.
-
-The grammar column below was measured at `dc2fe2a`, the commit before the
-switch. Measured 2026-08-17:
-
-| | grammar | tree |
-| --- | --- | --- |
-| calls unparsed | 101 | **51** |
-| commands understood | 97.8% | **97.9%** |
-| file uses | 176,164 r · 30,583 w | **190,588 r · 32,039 w** |
-| distinct paths | 34,523 | **34,635** |
-| uses the outcome confirms | 185,235 | **194,702** |
-| subjects a glob loop bounded | 407 | **427** |
-| subjects not named | 4.3% | 4.3% |
-| **nested scripts unread** | **98** | **405** |
-
-**The tree reads more of the same corpus, and reads it as more certain.** More
-loops are run out — the grammar had to find the `done` by counting keywords and
-lost the ones it mis-parsed — so more bodies are real commands rather than a
-`$f`, and a loop that certainly ran contributes uses the outcome can confirm.
-With the nested payloads on the tree as well (`43ae9fe`), writes rise again to
-33,179 and the table reads 98.0%.
-
-⚠ **One figure moved the wrong way, and it is the last row.** The tree refuses
-by name where the grammar guessed, and inside a `bash -c '…'` payload it refuses
-four times as often — 405 scripts whose file uses are lost, against the 98 the
-grammar lost. Every other column is better, which is why the switch happened
-anyway; **what those 405 are has not been measured**, and until it is, "the tree
-reads more" is true of the whole and unproven of that part. memview#1028.
-
-⚠ **Two entry points, and the difference between them is the whole of the
-evaluation.** `project` is what the script *says*: one command per command
-written, comparable with `shell::parse`. `run_out` is what it *did*: loops the
-text determines run out into their iterations, and a body that may have run zero
-times demoted. Putting the zero-times rule in `project` cost two points of
-agreement in the table above and was a false disagreement — it compared one
-layer's decision against another's stage.
-
-⚠ **A spelling difference is not a reading difference.** An argv string holding
-`$(a|b)` is one reader's source text and the other's reprint of a parsed tree, so
-`2>/dev/null` comes back as `2> /dev/null` and `${x}` as `$x`. Nothing reads
-inside an expansion — its value is undetermined either way — so those buckets are
-named apart rather than counted as defects, and `reader/tests/projection.rs`
-asserts they stay spellings.
+⚠ **A flat outer parse cannot feed a tree nested one.** `shell.rs` hides a
+heredoc body inside its own delimiter so a nested re-parse can still see it, and
+only that reader decodes the marker — mixing the two silently loses every nested
+`python3 - <<PY`. Read the outer and inner scripts with the same reader.
 
 ## Correctness
 
