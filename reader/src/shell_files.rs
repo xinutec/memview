@@ -938,7 +938,7 @@ fn extract_nested(
 /// turning one body into a thousand commands, not a limit anything real meets:
 /// the corpus's longest literal list is well inside it. A loop over the cap is
 /// left folded, exactly as every loop was before.
-const MAX_UNROLL: usize = 256;
+pub(crate) const MAX_UNROLL: usize = 256;
 
 /// Run the loops the text already determines out into the commands they ran.
 ///
@@ -1213,7 +1213,7 @@ fn bounded_by(
 ///
 /// An empty range is a real answer, not a failure: `seq 3 1` prints nothing, so
 /// the body ran zero times, and running it out to nothing is exactly right.
-fn counted(word: &str) -> Option<Vec<String>> {
+pub(crate) fn counted(word: &str) -> Option<Vec<String>> {
     let inner = word.strip_prefix("$(")?.strip_suffix(')')?.trim();
     let mut words = inner.split_whitespace();
     if words.next()? != "seq" {

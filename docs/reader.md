@@ -204,6 +204,35 @@ do b; done` runs `b` only if `a` worked, and to this grammar `do` is a word afte
 a `;`, so the condition resets. Carrying it across would mean rebuilding the loop
 structure the tree already has — which is what porting to the tree *is*.
 
+### The whole chain, both ways
+
+`shell-files --tree` runs the same corpus through the same semantics table from
+the tree instead of the grammar — `project::run_out` in place of
+`shell::parse` + the unrolling. Measured 2026-08-17:
+
+| | grammar | tree |
+| --- | --- | --- |
+| calls unparsed | 101 | **51** |
+| commands understood | 97.8% | **97.9%** |
+| file uses | 176,164 r · 30,583 w | **190,588 r · 32,039 w** |
+| distinct paths | 34,523 | **34,635** |
+| uses the outcome confirms | 185,235 | **194,702** |
+| subjects a glob loop bounded | 407 | **427** |
+| subjects not named | 4.3% | 4.3% |
+
+**The tree reads more of the same corpus, and reads it as more certain.** More
+loops are run out — the grammar had to find the `done` by counting keywords and
+lost the ones it mis-parsed — so more bodies are real commands rather than a
+`$f`, and a loop that certainly ran contributes uses the outcome can confirm.
+
+⚠ **Two entry points, and the difference between them is the whole of the
+evaluation.** `project` is what the script *says*: one command per command
+written, comparable with `shell::parse`. `run_out` is what it *did*: loops the
+text determines run out into their iterations, and a body that may have run zero
+times demoted. Putting the zero-times rule in `project` cost two points of
+agreement in the table above and was a false disagreement — it compared one
+layer's decision against another's stage.
+
 ⚠ **A spelling difference is not a reading difference.** An argv string holding
 `$(a|b)` is one reader's source text and the other's reprint of a parsed tree, so
 `2>/dev/null` comes back as `2> /dev/null` and `${x}` as `$x`. Nothing reads

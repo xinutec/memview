@@ -256,3 +256,127 @@ fn a_heredoc_body_lands_on_its_own_command() {
 fn a_pipeline_prefix_is_not_a_command() {
     assert_eq!(argv("time ! ls -l"), [["ls", "-l"]]);
 }
+
+/// The loops the text determines, run out into what they ran.
+///
+/// ⚠ **This is where the reader stops looking commands up and starts evaluating
+/// them**, so each rule below is bash's and each is asserted rather than
+/// described. `project` is what the script SAYS and `run_out` is what it DID;
+/// the two differ only here.
+#[test]
+fn a_loop_the_text_determines_is_run_out() {
+    let ran = |script: &str| -> Vec<Vec<String>> {
+        reader::project::run_out(&syntax::parse(script).expect("the fixture must parse"))
+            .into_iter()
+            .map(|cmd| cmd.argv)
+            .collect()
+    };
+
+    // The body once per value, with the variable standing for it — and the head
+    // kept, because it holds the list the body no longer shows.
+    assert_eq!(
+        ran("for f in a.log b.log; do wc -l \"$f\"; done"),
+        [
+            vec!["for", "f", "in", "a.log", "b.log"],
+            vec!["wc", "-l", "a.log"],
+            vec!["wc", "-l", "b.log"]
+        ]
+    );
+    // ⚠ `${f}x` needs no special case: the tree holds one node for both
+    // spellings, so substituting it is exact where rewriting text was not.
+    assert_eq!(ran("for f in a; do echo ${f}x; done")[1], ["echo", "ax"]);
+    // An operator is a transduction this reader does not perform, so the value
+    // is not put in underneath one.
+    assert_eq!(
+        ran("for f in a.txt; do echo ${f%.txt}; done")[1],
+        ["echo", "${f%.txt}"]
+    );
+
+    // `$(seq …)` is arithmetic on numbers already written down, not a question
+    // for anybody — the one program this reader runs in its head.
+    // Five, not four: the `seq` in the head really does run, and is emitted
+    // before the loop it feeds.
+    assert_eq!(
+        ran("for i in $(seq 1 3); do echo $i; done"),
+        [
+            vec!["seq", "1", "3"],
+            vec!["for", "i", "in", "$(seq 1 3)"],
+            vec!["echo", "1"],
+            vec!["echo", "2"],
+            vec!["echo", "3"]
+        ]
+    );
+    // And an empty range is an answer: the body ran no times.
+    assert_eq!(
+        ran("for i in $(seq 3 1); do echo $i; done"),
+        [vec!["seq", "3", "1"], vec!["for", "i", "in", "$(seq 3 1)"]]
+    );
+
+    // A glob is answered by a filesystem that is gone, so the loop stays folded
+    // — but its head keeps the pattern, which is the only place it appears.
+    assert_eq!(
+        ran("for f in */; do ls $f; done"),
+        [vec!["for", "f", "in", "*/"], vec!["ls", "$f"]]
+    );
+
+    // Loops nest, and the inner one is walked once per outer value.
+    // The inner head is emitted once per outer value, because that is when it
+    // was reached.
+    assert_eq!(
+        ran("for a in 1 2; do for b in x; do echo $a$b; done; done"),
+        [
+            vec!["for", "a", "in", "1", "2"],
+            vec!["for", "b", "in", "x"],
+            vec!["echo", "1x"],
+            vec!["for", "b", "in", "x"],
+            vec!["echo", "2x"]
+        ]
+    );
+}
+
+/// ⚠ **A body that may have run zero times must not be recorded as certainly
+/// run** — the same over-claim as both arms of an `if`, and a much larger one.
+/// The rule is bash's: `while` and `until` test first, a `for` over words that
+/// are all written out runs once per word, and a glob counts as written out
+/// because with `nullglob` off a pattern matching nothing expands to itself.
+#[test]
+fn a_loop_body_is_certain_only_if_the_loop_certainly_ran_it() {
+    // Through `run_out`, because "it may have run no times" is a statement
+    // about running: `project` says what the text holds and leaves it alone,
+    // exactly as `shell::parse` does.
+    let body = |script: &str| -> Reached {
+        reader::project::run_out(&syntax::parse(script).expect("the fixture must parse"))
+            .into_iter()
+            .find(|cmd| {
+                unwrap_command(&cmd.argv)
+                    .first()
+                    .is_some_and(|w| w == "touch")
+            })
+            .expect("the body is there")
+            .reached
+    };
+    assert_eq!(body("for f in a b; do touch $f; done"), Reached::Always);
+    assert_eq!(body("for f in *.log; do touch $f; done"), Reached::Always);
+    assert_eq!(
+        body("for i in $(seq 1 3); do touch $i; done"),
+        Reached::Always
+    );
+    assert_eq!(
+        body("for f in $(ls); do touch $f; done"),
+        Reached::Sometimes
+    );
+    assert_eq!(
+        body("for f in $EVERY; do touch $f; done"),
+        Reached::Sometimes
+    );
+    assert_eq!(body("while read f; do touch $f; done"), Reached::Sometimes);
+    assert_eq!(body("until done_yet; do touch x; done"), Reached::Sometimes);
+    assert_eq!(
+        body("select f in a b; do touch $f; done"),
+        Reached::Sometimes
+    );
+    assert_eq!(
+        body("for ((i=0;i<3;i++)); do touch $i; done"),
+        Reached::Sometimes
+    );
+}

@@ -20,14 +20,19 @@
 //! reader loses those because its grammar never had them; this one loses them on
 //! purpose, at one place, with a name.
 //!
-//! ⚠ **It does not invent the words the old grammar left behind.** `done`, `fi`,
-//! `esac`, `do` and the `for f in …` header reach [`crate::shell_ops`] as ordinary
-//! commands today, and three separate tables downstream exist to take them back
-//! out again — [`crate::shell_ops::unwrap_command`]'s keyword arm, the `NoFiles`
-//! verbs, and the depth counting in [`crate::shell_files`]. A tree has the
-//! structure those tables are reconstructing, so this emits none of them. That is
-//! the one difference the comparison cannot call a defect on either side, and the
-//! `projection` report subtracts it before counting.
+//! ⚠ **It does not invent the words the old grammar left behind — with one
+//! exception, and the exception is the rule.** `done`, `fi`, `esac` and `do`
+//! reach [`crate::shell_ops`] as ordinary commands today, and three tables
+//! downstream exist to take them back out again. They are not emitted here: a
+//! tree has the structure those tables are reconstructing, and none of those
+//! words carries anything.
+//!
+//! A loop HEAD does. `for f in */` is not a command either, but it holds the
+//! list the variable ranged over — and for a glob that is the only place the
+//! pattern appears, which is what lets `$f/package.json` be recorded as a subset
+//! of `*/package.json` rather than as nothing at all. So the head is emitted and
+//! the closers are not. `shell_files::ran` draws the same line for the same
+//! reason. The `projection` report subtracts the rest before counting.
 //!
 //! ## What it must not lose
 //!
@@ -35,19 +40,46 @@
 //! attributed to the wrong subshell resolves against the wrong directory, and a
 //! branch recorded as certain claims a file use that never happened.
 
+use std::collections::BTreeMap;
+
 use crate::shell::{Reached, Redirect, Simple};
 use crate::syntax::ast::{
-    Arith, ArrayElement, Assignment, Brace, Command, CommandKind, Connector, Item, Parameter,
-    ParameterOp, RedirectOp, RedirectTarget, Script, Segment, SegmentKind, Subscript, TestExpr,
-    Word,
+    Arith, ArrayElement, Assignment, Brace, Command, CommandKind, Connector, ForLoop, Item,
+    Parameter, ParameterOp, RedirectOp, RedirectTarget, Script, Segment, SegmentKind, Subscript,
+    TestExpr, Word,
 };
 use crate::syntax::print::print_value as value;
 
-/// Every simple command the script runs, in running order.
+/// Every simple command the script *says*, in running order.
+///
+/// One command per command written, which is what makes this comparable with
+/// [`crate::shell::parse`] — see `--bin projection`.
 pub fn project(script: &Script) -> Vec<Simple> {
+    walk(script, false)
+}
+
+/// Every simple command the script *ran*: as [`project`], with the loops the
+/// text already determines run out into their iterations.
+///
+/// ⚠ **This is where the reader stops looking commands up and starts evaluating
+/// them**, and it is the same step [`crate::shell_files`] takes on the flat list
+/// — moved here because the tree has the loop, where that one had to find the
+/// `done` by counting keywords. A `for` over a literal word list says exactly
+/// what happened, and reading it as a header plus a body full of `$f` throws
+/// away the largest single class of unnamed subject there is.
+///
+/// The two entry points are the same distinction the flat chain draws between
+/// `shell::parse` and its `unrolled`: what the text says, and what it did.
+pub fn run_out(script: &Script) -> Vec<Simple> {
+    walk(script, true)
+}
+
+fn walk(script: &Script, unroll: bool) -> Vec<Simple> {
     let mut walk = Walk {
         out: Vec::new(),
         next: 0,
+        unroll,
+        bound: BTreeMap::new(),
     };
     walk.items(&script.items, &[], Reached::Always);
     let mut out = walk.out;
@@ -61,6 +93,15 @@ pub fn project(script: &Script) -> Vec<Simple> {
 struct Walk {
     out: Vec<Simple>,
     next: usize,
+    unroll: bool,
+    /// What each loop variable holds on the iteration being walked. Empty
+    /// except inside a loop [`run_out`] is running out.
+    ///
+    /// ⚠ **A map rather than one binding, because loops nest** — and the inner
+    /// one is walked once per outer value, so both are standing at the same
+    /// time. Restored on the way out rather than cleared: `for f` inside
+    /// `for f` shadows and then gives the name back.
+    bound: BTreeMap<String, String>,
 }
 
 impl Walk {
@@ -113,7 +154,7 @@ impl Walk {
                     self.expansions(word, scope, reached);
                     if !matches!(redirect.op, RedirectOp::HereString) {
                         flat.redirects.push(Redirect {
-                            target: value(word),
+                            target: self.word(word),
                             // Only `<` reads. `<>` opens for both and can create
                             // the file, so it counts as a write — the direction
                             // this reader errs in everywhere else.
@@ -130,11 +171,11 @@ impl Walk {
             CommandKind::Simple(simple) => {
                 for assignment in &simple.assignments {
                     self.expansions(&assignment.value, scope, reached);
-                    flat.argv.push(binding(assignment));
+                    flat.argv.push(self.binding(assignment));
                 }
                 for word in &simple.words {
                     self.expansions(word, scope, reached);
-                    flat.argv.push(value(word));
+                    flat.argv.push(self.word(word));
                 }
             }
             // ⚠ **`[[ … ]]` is grammar, and it is projected back to the words it
@@ -165,22 +206,61 @@ impl Walk {
                     self.items(otherwise, scope, branch);
                 }
             }
-            // ⚠ **A loop body keeps the condition of the loop itself**, which is
-            // not the same as saying it ran. Whether an iteration is certain
-            // depends on the loop's kind and on what it iterates over, and that
-            // decision lives in [`crate::shell_files`] — one layer up, where the
-            // words have been resolved. Demoting here would take it away from the
-            // only place that can make it and answer `Sometimes` for a `for` over
-            // a literal list, which certainly runs.
+            // ⚠ **A loop body is certain only if the loop certainly ran it**,
+            // and the rule is bash's: a `while` or `until` tests before the
+            // first iteration, so empty input runs the body no times; a `for`
+            // over words that are all written out runs once per word — including
+            // a glob, because with `nullglob` off a pattern matching nothing
+            // expands to itself and the body runs once with the pattern as the
+            // value. A `for` over a `$(…)` or a variable can have an empty list.
+            //
+            // ⚠ **`select` is uncertain whatever it ranges over**: it reads from
+            // the terminal, and end-of-file runs the body no times at all.
             CommandKind::For(loop_) => {
                 for word in &loop_.words {
                     self.expansions(word, scope, reached);
                 }
-                self.items(&loop_.body, scope, reached);
+                // ⚠ **A loop HEAD is emitted where a `done` is not, and the
+                // difference is what each carries.** `done` is not a command and
+                // holds nothing; `for f in */` is not a command either, but it
+                // holds the one thing the body cannot — the list the variable
+                // ranged over. For a glob that is the only place the pattern
+                // appears, and it is what lets `$f/package.json` be recorded as
+                // a subset of `*/package.json` instead of as nothing at all.
+                // `shell_files::ran` draws the same line for the same reason.
+                let head = std::iter::once(if loop_.select { "select" } else { "for" }.to_string())
+                    .chain([loop_.name.clone(), "in".to_string()])
+                    .chain(loop_.words.iter().map(|word| self.word(word)));
+                self.out.push(Simple {
+                    argv: head.collect(),
+                    ..flat.clone()
+                });
+                // The redirections belong to the head now, and `flat` keeps an
+                // empty argv so the push at the end of this function skips it.
+                flat.redirects.clear();
+                flat.heredocs.clear();
+                // ⚠ **Asked before the unrolling and not after, so both entry
+                // points answer the same.** A list the text determines says the
+                // body ran, whether or not this walk is the one running it out —
+                // `for i in $(seq 1 3)` holds an expansion and is still certain,
+                // because nothing outside the text decides what it prints.
+                let values = self.values(loop_);
+                let certain = values.as_ref().is_some_and(|values| !values.is_empty())
+                    || (!loop_.select && !loop_.words.iter().any(has_expansion));
+                let body = self.iterated(certain, reached);
+                match values.filter(|_| self.unroll) {
+                    // ⚠ **An empty list is an answer, not a failure.** `seq 3 1`
+                    // prints nothing, so the body ran no times and none of it is
+                    // emitted — which is why this arm is taken on a `Some` that
+                    // is empty rather than treated as "could not tell".
+                    Some(values) => self.iterations(loop_, &values, scope, body),
+                    None => self.items(&loop_.body, scope, body),
+                }
             }
             CommandKind::While(loop_) => {
                 self.items(&loop_.condition, scope, reached);
-                self.items(&loop_.body, scope, reached);
+                let body = self.iterated(false, reached);
+                self.items(&loop_.body, scope, body);
             }
             CommandKind::ForArith(loop_) => {
                 for part in [&loop_.init, &loop_.condition, &loop_.step]
@@ -189,7 +269,10 @@ impl Walk {
                 {
                     self.arithmetic(part, scope, reached);
                 }
-                self.items(&loop_.body, scope, reached);
+                // The condition is arithmetic on values nothing here evaluates,
+                // so whether it held even once is not knowable from the text.
+                let body = self.iterated(false, reached);
+                self.items(&loop_.body, scope, body);
             }
             // ⚠ **The subject is not an arm.** `case $(readlink -f "$p") in`
             // really does run `readlink`, whichever way the match goes. The arms
@@ -227,7 +310,7 @@ impl Walk {
             TestExpr::Binary { left, right, .. } => {
                 for word in [left, right] {
                     self.expansions(word, scope, reached);
-                    flat.argv.push(value(word));
+                    flat.argv.push(self.word(word));
                 }
             }
             TestExpr::Not(inner) => self.test(inner, flat, scope, reached),
@@ -368,6 +451,139 @@ impl Walk {
         }
     }
 
+    /// What a loop body's condition becomes, given whether the loop certainly
+    /// ran it at least once.
+    ///
+    /// ⚠ **A statement about RUNNING, so [`project`] does not make it.** That
+    /// entry point says what the text holds, one command per command written,
+    /// and a body that may run zero times is a fact about execution rather than
+    /// about the text — the flat chain draws the line in exactly the same place,
+    /// leaving its bodies unconditional until `shell_files` runs the loops out.
+    /// Making it here too would put a decision from one layer into the
+    /// comparison of another, and `--bin projection` would report a
+    /// disagreement that is only a difference of stage.
+    fn iterated(&self, certain: bool, reached: Reached) -> Reached {
+        if certain || !self.unroll {
+            reached
+        } else {
+            reached.and(Reached::Sometimes)
+        }
+    }
+
+    /// The body once per value, with the loop's own variable standing for it.
+    ///
+    /// The name is restored afterwards rather than removed, so a `for f` nested
+    /// inside another `for f` gives the outer one its value back — and so a
+    /// command *after* the loop still sees nothing bound, which is the truthful
+    /// answer: the name holds the last value, and this walk has no way to say
+    /// "the last one" except by naming it, which would be a claim about a value
+    /// rather than about the text.
+    fn iterations(&mut self, loop_: &ForLoop, values: &[String], scope: &[usize], body: Reached) {
+        let shadowed = self.bound.remove(&loop_.name);
+        for value in values {
+            self.bound.insert(loop_.name.clone(), value.clone());
+            self.items(&loop_.body, scope, body);
+        }
+        self.bound.remove(&loop_.name);
+        if let Some(outer) = shadowed {
+            self.bound.insert(loop_.name.clone(), outer);
+        }
+    }
+
+    /// The values a `for` ranges over, when the text determines every one of
+    /// them — and `None` the moment it does not.
+    ///
+    /// A glob is answered by the filesystem of the day, which is gone, and a
+    /// `$(…)` by running something, which never happens here. The **one**
+    /// exception is `$(seq …)`, which is arithmetic on numbers already written
+    /// down rather than a question for anybody: 1,029 corpus loops, the largest
+    /// unrun class there was and larger than every glob put together.
+    fn values(&self, loop_: &ForLoop) -> Option<Vec<String>> {
+        if loop_.select {
+            return None;
+        }
+        // `$(seq 1 18)` is one word, so it is asked about before the general
+        // rule — which would refuse it, and correctly, as an expansion.
+        if let [only] = &loop_.words[..]
+            && let Some(numbers) = crate::shell_files::counted(&self.word(only))
+        {
+            return Some(numbers);
+        }
+        let values: Option<Vec<String>> = loop_
+            .words
+            .iter()
+            .map(|word| {
+                word.segments
+                    .iter()
+                    .all(|segment| {
+                        matches!(
+                            segment.kind,
+                            SegmentKind::Literal(_) | SegmentKind::Tilde(_)
+                        )
+                    })
+                    .then(|| self.word(word))
+                    .filter(|value| !value.is_empty())
+            })
+            .collect();
+        // A word list is never empty — bash prints a bare `for f` back as
+        // `for f in "$@"`, which holds an expansion and never reaches here — so
+        // the only empty answer comes from `seq`, above, and is a real one.
+        let values = values?;
+        // ⚠ Two caps, because they bound different things: this one is on the
+        // commands produced, and [`crate::shell_files::counted`]'s is on the
+        // list itself, so `seq 1 100000000` is never built at all.
+        let body = count(&loop_.body);
+        (values.len().checked_mul(body)? <= crate::shell_files::MAX_UNROLL).then_some(values)
+    }
+
+    /// A word as `argv` holds it, with whatever a loop has bound standing in.
+    ///
+    /// ⚠ **Substitution happens on the TREE, not on the printed string.** The
+    /// flat chain expanded `$f` by rewriting text, which meant knowing every
+    /// spelling of a parameter and getting `${f}` right by hand. Here the two
+    /// spellings are one node, so replacing it is exact and `${f}x` needs no
+    /// special case at all.
+    ///
+    /// A parameter carrying an operator is left alone: `${f%.txt}` is a
+    /// transduction this reader does not perform, and putting the value in
+    /// without applying it would be worse than leaving the question open.
+    fn word(&self, word: &Word) -> String {
+        if self.bound.is_empty() {
+            return value(word);
+        }
+        value(&Word {
+            segments: word
+                .segments
+                .iter()
+                .map(|segment| match &segment.kind {
+                    SegmentKind::Parameter(parameter)
+                        if parameter.op.is_none()
+                            && parameter.subscript.is_none()
+                            && self.bound.contains_key(&parameter.name) =>
+                    {
+                        Segment {
+                            kind: SegmentKind::Literal(self.bound[&parameter.name].clone()),
+                            span: segment.span,
+                        }
+                    }
+                    _ => segment.clone(),
+                })
+                .collect(),
+            span: word.span,
+        })
+    }
+
+    /// `FOO=bar`, as the flat reader's grammar leaves it: one argv word,
+    /// stripped back off by [`crate::shell_ops::unwrap_command`] a layer later.
+    fn binding(&self, assignment: &Assignment) -> String {
+        format!(
+            "{}{}={}",
+            assignment.name,
+            if assignment.append { "+" } else { "" },
+            self.word(&assignment.value)
+        )
+    }
+
     /// A fresh scope one level inside `outer`.
     ///
     /// Ids rather than a depth, because depth alone cannot tell
@@ -380,13 +596,55 @@ impl Walk {
     }
 }
 
-/// `FOO=bar`, as the flat reader's grammar leaves it: one argv word, stripped
-/// back off by [`crate::shell_ops::unwrap_command`] a layer later.
-fn binding(assignment: &Assignment) -> String {
-    format!(
-        "{}{}={}",
-        assignment.name,
-        if assignment.append { "+" } else { "" },
-        value(&assignment.value)
-    )
+/// Whether a word holds anything only running something could answer.
+///
+/// ⚠ **A glob is not one of them.** With `nullglob` off a pattern matching
+/// nothing expands to itself, so `for f in *.log` runs its body at least once
+/// whatever the directory held — which is why a glob loop is certain where a
+/// `$(…)` one is not.
+fn has_expansion(word: &Word) -> bool {
+    word.segments.iter().any(|segment| {
+        matches!(
+            segment.kind,
+            SegmentKind::Parameter(_)
+                | SegmentKind::Substitution(_)
+                | SegmentKind::ProcessSubstitution(_)
+                | SegmentKind::Arithmetic(_)
+                | SegmentKind::Brace(_)
+                | SegmentKind::Array(_)
+        )
+    })
+}
+
+/// How many commands a list holds, counting into everything that carries one.
+///
+/// The multiplicand of the unrolling cap, so it has to count what the walk will
+/// actually emit: an inner loop's body is walked once per outer value, and a
+/// count that stopped at the top level would let a nested pair through.
+fn count(items: &[Item]) -> usize {
+    items
+        .iter()
+        .filter_map(|item| match item {
+            Item::List(list) => Some(list),
+            Item::Comment(_) => None,
+        })
+        .flat_map(|list| {
+            std::iter::once(&list.first).chain(list.rest.iter().map(|link| &link.pipeline))
+        })
+        .flat_map(|pipeline| &pipeline.commands)
+        .map(|command| match &command.kind {
+            CommandKind::Simple(_) | CommandKind::Test(_) | CommandKind::Arithmetic(_) => 1,
+            CommandKind::Subshell(items) | CommandKind::Group(items) => count(items),
+            CommandKind::If(conditional) => {
+                count(&conditional.condition)
+                    + count(&conditional.then)
+                    + conditional.otherwise.as_deref().map_or(0, count)
+            }
+            CommandKind::For(loop_) => count(&loop_.body).max(1),
+            CommandKind::While(loop_) => count(&loop_.condition) + count(&loop_.body),
+            CommandKind::ForArith(loop_) => count(&loop_.body).max(1),
+            CommandKind::Case(case) => case.arms.iter().map(|arm| count(&arm.body)).sum(),
+            CommandKind::Function(function) => count(&function.body),
+        })
+        .sum()
 }
