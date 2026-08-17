@@ -1874,12 +1874,22 @@ impl<'t> Parser<'t> {
                 b'<' | b'>' if self.peek_at(1) == Some(b'(') => {
                     segments.push(self.process_substitution()?);
                 }
-                // ⚠ **Whatever reaches this reader is GLUED to the end of a
-                // word** — `foo<<EOF`, `a<<<b`, `NF>10` — which bash reads as a
-                // word followed by a redirection and this parser does not split.
-                // So what is unmodelled here is the gluing, not the operator,
-                // and naming the operator sent the survey looking for a
-                // construct that is built.
+                // ⚠ **A redirection GLUED to a word ends the word** — bash's own
+                // tokenising rule, since `>` and `<` are operators and need no
+                // whitespace around them. `pgrep -f "x">/dev/null` is one word
+                // and one redirect, and the caller retries `redirect()` the
+                // moment this returns, so ending here is all it takes.
+                //
+                // This used to refuse, and the refusal was expensive out of
+                // proportion to the construct: a nested script that will not
+                // parse loses *every* file its commands named. `foo<<EOF` and
+                // `a<<<b` come back the same way.
+                //
+                // Only with something already read, though. An operator at the
+                // head of a word is the caller's business — it tried
+                // `redirect()` first and declined — so refusing there still says
+                // something true rather than looping on an empty word.
+                b'<' | b'>' if !segments.is_empty() => break,
                 b'<' | b'>' => return self.refuse(Reason::Redirection, 1),
                 // Inside a substitution a `)` closes it rather than opening a
                 // group, and inside a `case` pattern it ends the pattern — so

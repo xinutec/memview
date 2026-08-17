@@ -709,12 +709,15 @@ fn a_descriptor_must_touch_its_operator() {
 #[test]
 fn what_is_still_refused_is_named() {
     assert_eq!(refusal("cat >"), Reason::EmptyOperand);
-    // ⚠ **A redirection GLUED to a word is the refusal, not the operator.**
-    // `awk 'NF>10'` unquoted and `a<<<b` are both a word bash splits and this
-    // parser does not, so naming the operator would send the survey looking for
-    // a construct that is built.
-    assert_eq!(refusal("awk NF>10 f"), Reason::Redirection);
-    assert_eq!(refusal("echo a<<<b"), Reason::Redirection);
+    // ⚠ **A glued redirection is now SPLIT, as bash splits it** — this pair used
+    // to be refused. `awk NF>10 f` is `awk NF f` with stdout on a file called
+    // `10`, however little anybody meant that, and `echo a<<<b` is a here-string.
+    // Refusing them cost every nested script that contained one, which is a
+    // whole script's file uses for a construct bash reads without hesitating.
+    assert_eq!(words("awk NF>10 f").len(), 3);
+    assert_eq!(words("echo a<<<b").len(), 2);
+    // An operator with no word before it is still nobody's redirection.
+    assert_eq!(refusal("echo >|"), Reason::EmptyOperand);
 }
 
 #[test]
@@ -2936,4 +2939,44 @@ fn the_law_holds_across_the_arithmetic_shapes() {
             survey(text)
         );
     }
+}
+
+/// A redirection glued to the end of a word, which bash splits and this reader
+/// did not.
+///
+/// ⚠ **Refusing cost a whole nested script each time.** `$(pgrep -f "…">/dev/null
+/// && echo RUNNING)` is the corpus shape: the operator abuts a closing quote, so
+/// nothing separates the word from the redirect but bash's own tokenising rule.
+#[test]
+fn a_redirection_glued_to_a_word_still_redirects() {
+    // The word ends at the operator, so `echo` keeps exactly its own argument.
+    assert_eq!(words("echo \"a\">/tmp/x").len(), 2);
+    assert_eq!(words("echo a>/tmp/x").len(), 2);
+    assert_eq!(words("pgrep -f \"x\">/dev/null").len(), 3);
+    // ...and the redirect really is read, rather than the word merely ending.
+    let command = simple("echo \"a\">/tmp/x");
+    assert_eq!(
+        command.words.last().and_then(Word::as_literal).as_deref(),
+        Some("a")
+    );
+}
+
+/// A substring whose length is not arithmetic is refused, and should be.
+///
+/// ⚠ **`bash -n` accepting something is not evidence that it runs.** `-n` parses
+/// without evaluating, and a substring's length is an arithmetic expression
+/// evaluated at *runtime* — so `${x:0:12:-0}` passes `bash -n` and then dies with
+/// `arithmetic syntax error in expression (error token is ":-0")`. Measured
+/// 2026-08-17, when two corpus scripts carrying that typo were briefly counted as
+/// a gap in this parser on the strength of `bash -n` alone. Backticks defer the
+/// same way; see execution-model.md.
+#[test]
+fn a_substring_length_that_is_not_arithmetic_is_refused() {
+    assert!(reader::syntax::parse("echo ${x:0:12}").is_ok());
+    assert!(reader::syntax::parse("echo ${x:0}").is_ok());
+    assert_eq!(
+        refusal("echo ${x:0:12:-0}"),
+        Reason::UnterminatedExpansion,
+        "bash refuses this too, at runtime"
+    );
 }

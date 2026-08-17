@@ -426,13 +426,12 @@ impl Survey<'_> {
                     if loop_header && !opens_process {
                         self.found.insert(Reason::Loop);
                     }
-                    // ⚠ **Glued into a word, it is not a redirection at all.**
-                    // `awk 'NF>10'` unquoted puts a `>` in the middle of a word,
-                    // which the parser refuses by that name; a descriptor is the
-                    // one thing that may precede the operator, and it is digits.
-                    if in_word && !opens_process && !word.chars().all(|c| c.is_ascii_digit()) {
-                        self.found.insert(Reason::Redirection);
-                    }
+                    // ⚠ **Glued into a word it IS a redirection, since 2026-08-17
+                    // — the word simply ends there, as bash ends it.** This used
+                    // to record `Reason::Redirection` to match a parser that
+                    // refused, and leaving it behind made the second gate report
+                    // drift on the first `pgrep -f "x">/dev/null` it met: parser
+                    // accepted, survey still calling the construct unmodelled.
                     end_word!();
                     // ⚠ Four different constructs share these two characters,
                     // and only one of them is "a redirection to a file". Counted
