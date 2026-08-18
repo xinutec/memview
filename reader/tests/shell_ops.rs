@@ -232,3 +232,36 @@ fn a_nixpkgs_attribute_is_not_an_interpreter() {
     assert!(reader::shell_ops::is_python("python3"));
     assert!(reader::shell_ops::is_python("python3.12"));
 }
+
+#[test]
+fn a_flag_cluster_still_names_the_script() {
+    // ⚠ `-lc` is `-l` and `-c`, not a flag called `lc`. Testing the token for
+    // equality with "-c" missed 120 of the corpus's 10,053 shell `-c`
+    // invocations, and missed them silently — see `shell_c_value`.
+    assert_eq!(
+        one("bash -lc 'echo hi'"),
+        Op::Nested {
+            script: "echo hi".to_string(),
+        }
+    );
+    assert_eq!(
+        one("sh -lic 'echo hi'"),
+        Op::Nested {
+            script: "echo hi".to_string(),
+        }
+    );
+}
+
+#[test]
+fn a_clustered_flag_is_not_glued_onto_a_remote_payload() {
+    // The shape that exposed it: `kubectl exec … -- sh -lc '…'` handed on
+    // `-lc NUM=…` AS the script, so the refusal that followed named the
+    // script's own text and never the flag that was really wrong.
+    assert_eq!(
+        one("kubectl -n signal exec deploy/api -- sh -lc 'curl -s localhost:8080'"),
+        Op::Remote {
+            host: "deploy/api".to_string(),
+            script: "curl -s localhost:8080".to_string(),
+        }
+    );
+}

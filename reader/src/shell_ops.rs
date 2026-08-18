@@ -438,6 +438,34 @@ fn flag_values<'a>(argv: &'a [String], flags: &[&str]) -> Vec<&'a str> {
     out
 }
 
+/// The script a shell's `-c` carries, including when `c` closes a cluster of
+/// other short flags.
+///
+/// ⚠ **`-lc` is not `-c`, and testing the token for equality misses it
+/// silently.** Bash reads `-l`, `-i` and `-c` as separate one-letter options,
+/// so `sh -lc 'x'` is a login shell running `x`. 120 of the corpus's 10,053
+/// shell `-c` invocations spell it that way (118 `-lc`, 2 `-lic`), and every
+/// one was misread: the `kubectl exec` arm fell back to joining the tail, which
+/// handed on `-lc NUM=$(…)` AS the script. The reader then refused it with a
+/// reason about the script's own text, so the fabricated word never appeared as
+/// a flag error — see `feedback_no_masking_fallbacks`.
+///
+/// ⚠ **Only sound for the shell family, and only called there.** A cluster is
+/// read as letters, so `-exec` would qualify on shape alone; `find` never
+/// reaches this because a verb decides first who is being asked.
+pub fn shell_c_value(argv: &[String]) -> Option<&str> {
+    let mut rest = argv.iter().skip(1);
+    while let Some(word) = rest.next() {
+        let Some(letters) = word.strip_prefix('-') else {
+            continue;
+        };
+        if letters.ends_with('c') && letters.bytes().all(|b| b.is_ascii_lowercase()) {
+            return rest.next().map(String::as_str);
+        }
+    }
+    None
+}
+
 /// A command's name without the path it was invoked by: `./scripts/verify.sh`
 /// and `/usr/bin/sed` name `verify.sh` and `sed`.
 pub fn basename(word: &str) -> &str {
@@ -1067,12 +1095,14 @@ fn act(
                 },
             }
         }
-        Verb::Interpreter { inline, .. } if !flag_values(argv, inline).is_empty() => Op::Nested {
-            script: flag_values(argv, inline)
-                .first()
-                .map(|s| (*s).to_string())
-                .unwrap_or_default(),
-        },
+        // `inline` is empty for `node`, whose `-e` is JavaScript; a non-empty
+        // one means the shell family, which is where a flag cluster is a shape
+        // the reader has to know about.
+        Verb::Interpreter { inline, .. } if !inline.is_empty() && shell_c_value(argv).is_some() => {
+            Op::Nested {
+                script: shell_c_value(argv).unwrap_or_default().to_string(),
+            }
+        }
         Verb::Interpreter { .. } | Verb::Walk(_) => {
             let first = words.first().filter(|w| looks_like_path(w));
             match first.and_then(|w| resolve(w, cwd, home)) {
@@ -1266,17 +1296,14 @@ fn remote(kind: Remote, argv: &[String]) -> Op {
             // lose the rest. The `sh -c` shape is what the corpus writes.
             let script = match script.split_first() {
                 Some((program, rest))
-                    if matches!(basename(program), "sh" | "bash" | "zsh" | "dash") =>
+                    if matches!(basename(program), "sh" | "bash" | "zsh" | "dash" | "ksh") =>
                 {
-                    flag_values(
-                        &std::iter::once(program.clone())
-                            .chain(rest.iter().cloned())
-                            .collect::<Vec<_>>(),
-                        &["-c"],
-                    )
-                    .first()
-                    .map(|s| (*s).to_string())
-                    .unwrap_or_else(|| rest.join(" "))
+                    let argv: Vec<String> = std::iter::once(program.clone())
+                        .chain(rest.iter().cloned())
+                        .collect();
+                    shell_c_value(&argv)
+                        .map(str::to_string)
+                        .unwrap_or_else(|| rest.join(" "))
                 }
                 _ => script.join(" "),
             };
