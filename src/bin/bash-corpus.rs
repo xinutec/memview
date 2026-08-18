@@ -83,8 +83,11 @@ fn main() -> anyhow::Result<()> {
         for line in text.lines() {
             // The same reader the miner uses, so the corpus a coverage figure is
             // measured against cannot drift from the text the miner parses.
-            let Some(agents::BashLine { cwd, calls: found }) =
-                agents::bash_calls_with_ids(line.as_bytes())
+            let Some(agents::BashLine {
+                cwd,
+                at,
+                calls: found,
+            }) = agents::bash_calls_with_ids(line.as_bytes())
             else {
                 continue;
             };
@@ -99,6 +102,15 @@ fn main() -> anyhow::Result<()> {
                 // this is the only trace it leaves.
                 let ran = outcomes.get(&id).copied().unwrap_or(Verdict::Unknown);
                 let mut row = serde_json::json!({ "cmd": command, "cwd": cwd, "ran": ran });
+                // ⚠ **Carried so a command can be counted into a DAY.** Every
+                // question about whether something happens MORE or LESS than it
+                // used to needs this, and the union corpus cannot answer one:
+                // it is distinct commands, so a shape run a hundred times is one
+                // row with no time on it at all (memview #884's trap-incidence
+                // arm).
+                if let Some(at) = &at {
+                    row["at"] = serde_json::json!(at);
+                }
                 // Written only when there is one — 247 calls in the whole corpus
                 // carry a refusal, and an empty list on the other 880,000 rows is
                 // megabytes saying nothing.

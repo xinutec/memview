@@ -966,6 +966,15 @@ pub struct BashCall {
 #[derive(Debug, Clone)]
 pub struct BashLine {
     pub cwd: Option<String>,
+    /// When the line was written, as the transcript spells it (RFC 3339, UTC).
+    ///
+    /// ⚠ **The line's own stamp, so it is the time of the CALL and not of its
+    /// result** — the result arrives on a later line, and pairing the two would
+    /// measure how long the command took rather than when it was issued.
+    /// Absent on a line that carries none rather than defaulted to a date,
+    /// because a wrong date is worse here than a missing one: these rows are
+    /// counted into days.
+    pub at: Option<String>,
     pub calls: Vec<BashCall>,
 }
 
@@ -994,6 +1003,7 @@ pub fn bash_calls_with_ids(line: &[u8]) -> Option<BashLine> {
         .collect();
     Some(BashLine {
         cwd,
+        at: row["timestamp"].as_str().map(str::to_string),
         calls: commands,
     })
 }
@@ -1346,7 +1356,9 @@ fn scan_transcript(
             log.resolve(&call, verdict);
             effects.resolve(&call, verdict);
         }
-        if let Some(BashLine { cwd, calls }) = bash_calls_with_ids(line) {
+        // The miner takes its time from the row it is already walking, so the
+        // call's own stamp is not needed here.
+        if let Some(BashLine { cwd, calls, .. }) = bash_calls_with_ids(line) {
             for BashCall { id: call, command } in calls {
                 let Ok(parsed) = reader::project::read(&command) else {
                     continue;
