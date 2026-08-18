@@ -285,7 +285,81 @@ pub fn did_not_run(source: &str) -> Option<&'static str> {
             _ => i += 1,
         }
     }
-    None
+    never_closed(&chars)
+}
+
+/// A string or bracket that is opened and never closed.
+///
+/// **A closure check, not a syntax check.** It asks nothing about whether the
+/// statements mean anything — only whether every quote and bracket that opens
+/// has a partner. `python.pest` declines to validate Python by design, so that
+/// no program is ever rejected whole; this stays inside that rule, because an
+/// unclosed literal cannot be a program under ANY reading.
+///
+/// ⚠ **A pass of its own rather than a branch in [`string`], because the two
+/// disagree about a newline on purpose.** `string` stops a one-line literal at
+/// its line's end, mirroring the grammar so an unterminated quote cannot
+/// swallow the rest of the program. That recovery is right for reading and
+/// wrong for judging: here the quote must actually be found, so the scan runs
+/// to the end of the source.
+///
+/// Measured over all 12,240 distinct programs against CPython 3.12: catches
+/// **11**, every one of which CPython refuses, and **over-claims none** — the
+/// direction that costs, since flagging a program discards every file it named
+/// (memview #1033).
+fn never_closed(chars: &[char]) -> Option<&'static str> {
+    let mut i = 0;
+    let mut depth = 0i64;
+    while i < chars.len() {
+        match chars[i] {
+            '#' => {
+                while i < chars.len() && chars[i] != '\n' {
+                    i += 1;
+                }
+            }
+            '\\' => i += 2,
+            '(' | '[' | '{' => {
+                depth += 1;
+                i += 1;
+            }
+            ')' | ']' | '}' => {
+                depth -= 1;
+                i += 1;
+            }
+            quote @ ('"' | '\'') => {
+                let triple = chars.get(i + 1) == Some(&quote) && chars.get(i + 2) == Some(&quote);
+                let width = if triple { 3 } else { 1 };
+                i += width;
+                loop {
+                    if i >= chars.len() {
+                        return Some(if triple {
+                            "a triple-quoted string is never closed"
+                        } else {
+                            "a string is never closed"
+                        });
+                    }
+                    if chars[i] == '\\' {
+                        i += 2;
+                        continue;
+                    }
+                    if chars[i] == quote
+                        && (!triple
+                            || (chars.get(i + 1) == Some(&quote)
+                                && chars.get(i + 2) == Some(&quote)))
+                    {
+                        i += width;
+                        break;
+                    }
+                    i += 1;
+                }
+            }
+            _ => i += 1,
+        }
+    }
+    // ⚠ Only an unclosed OPEN counts. A surplus close is left alone: the
+    // corpus writes `python3 -c` fragments whose brackets were balanced by the
+    // shell around them, and a negative depth says nothing about the program.
+    (depth > 0).then_some("a bracket is never closed")
 }
 
 /// Consume one string literal, starting at its opening quote, and return where

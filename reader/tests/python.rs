@@ -248,11 +248,21 @@ with open('/tmp/report.json', 'w') as f:
 /// not swallow the program that follows it.
 #[test]
 fn an_unterminated_string_ends_at_its_line() {
+    // ⚠ **This assertion was REVERSED 2026-08-18, and deliberately.** It used to
+    // expect `src/x.ts` back: the grammar stops a one-line literal at its line's
+    // end, so reading continues and the write is found. Recovery is still right
+    // for READING — but CPython refuses this source outright, so the write never
+    // happened and counting it invented work (memview #1033).
+    //
+    // The grammar is unchanged; what is new is that `did_not_run` vetoes the
+    // program first. Measured over all 12,240 distinct programs, the rule that
+    // does this flags 11 and CPython refuses every one.
     let source = "\
 x = 'oops
 Path('src/x.ts').write_text(y)
 ";
-    assert_eq!(uses(source), [used("src/x.ts", true)]);
+    assert!(reader::python::did_not_run(source).is_some());
+    assert!(uses(source).is_empty());
 }
 
 #[test]
@@ -300,4 +310,34 @@ fn the_shapes_that_do_run_are_left_alone() {
         assert_eq!(program.did_not_run, None, "{source:?}");
         assert_eq!(program.uses.len(), 1, "{source:?}");
     }
+}
+
+#[test]
+fn an_unclosed_literal_is_a_program_that_never_ran() {
+    // Closure, not syntax: a quote that never finds its partner cannot be a
+    // program under any reading, so saying so stays inside `python.pest`'s rule
+    // that no program is rejected whole. The corpus's shape is a heredoc body
+    // cut short (memview #1033).
+    assert!(reader::python::did_not_run("x = '''unterminated\nmore text\n").is_some());
+    assert!(reader::python::did_not_run("open('a.txt").is_some());
+    assert!(reader::python::did_not_run("print(open('a.txt').read()").is_some());
+}
+
+#[test]
+fn a_closed_literal_is_left_alone() {
+    // ⚠ The direction that costs: flagging a program DISCARDS every file it
+    // named, so a false positive destroys knowledge. Measured over all 12,240
+    // distinct programs, this rule over-claims none.
+    assert_eq!(
+        reader::python::did_not_run("x = '''fine'''\nopen('a.txt').read()\n"),
+        None
+    );
+    assert_eq!(reader::python::did_not_run("s = \"a ' b\"\n"), None);
+    assert_eq!(
+        reader::python::did_not_run("# a ' in a comment\nopen('a').read()\n"),
+        None
+    );
+    assert_eq!(reader::python::did_not_run("s = 'it\\'s escaped'\n"), None);
+    // A surplus CLOSE says nothing — the shell balanced the fragment around it.
+    assert_eq!(reader::python::did_not_run("print('x'))\n"), None);
 }
