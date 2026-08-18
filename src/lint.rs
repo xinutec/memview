@@ -103,9 +103,21 @@ const RULES: &[(&str, Severity, &str)] = &[
         // route. A freshness rule wants mtime, which is a property of the
         // filesystem rather than the corpus, so it would misfire on any synced
         // or restored copy. That check belongs beside this one, as a warning.
+        //
+        // ⚠ **The message names a repair tool; do NOT let that become an
+        // auto-fix.** `memory-stamp` must stay a thing a person runs, because
+        // this rule failing is the only visible symptom of a write that skipped
+        // the stamping path, and the perishable half is the AUTHOR — recoverable
+        // from the transcripts only until Claude Code prunes them. Silence the
+        // rule and the authorship loss continues unseen; see
+        // `feedback_a_precondition_that_can_pass_wrongly`. What the pointer
+        // removes is the forensics, not the failure: the session that trips this
+        // is usually not the one that wrote the file (three authors in three
+        // hours, each invisible to itself and each blocking somebody else).
         "missing-modified",
         Severity::Error,
-        "no `modified` stamp — its age cannot be judged, so a stale claim reads as current",
+        "no `modified` stamp — its age cannot be judged, so a stale claim reads as current; \
+         `cargo run --bin memory-stamp` names the session that wrote it and repairs it",
     ),
     (
         // Introduced 2026-08-14 at ERROR; the corpus was already at zero. The
