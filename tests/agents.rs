@@ -1844,3 +1844,97 @@ mod is_prompt {
         assert!(!is_prompt(assistant));
     }
 }
+
+// --- memory-days must survive a pruned transcript (#884's outcome) -----------
+
+use memview::agents::{MemoryDays, carry_forward};
+
+fn days_file(dir: &std::path::Path, body: &str) -> std::path::PathBuf {
+    let p = dir.join("memory-days.json");
+    std::fs::write(&p, body).expect("write");
+    p
+}
+
+/// ⚠ The whole point: a day the previous file recorded survives a run whose
+/// transcripts no longer show it, and is COUNTED so the pruning is visible.
+#[test]
+fn a_day_whose_transcript_is_gone_is_carried_and_counted() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = days_file(
+        dir.path(),
+        r#"{"reference_a":{"reads":[100,101],"edits":[100]}}"#,
+    );
+    let mut now: std::collections::BTreeMap<String, MemoryDays> = std::collections::BTreeMap::new();
+    now.insert(
+        "reference_a".to_string(),
+        MemoryDays {
+            reads: vec![101],
+            edits: vec![],
+        },
+    );
+
+    let carried = carry_forward(&path, &mut now).expect("parses");
+
+    let got = &now["reference_a"];
+    assert_eq!(
+        got.reads,
+        vec![100, 101],
+        "day 100 was pruned away and must survive"
+    );
+    assert_eq!(got.edits, vec![100]);
+    assert_eq!(
+        carried, 2,
+        "one read and one edit were only in the earlier record"
+    );
+}
+
+/// A re-mine that sees everything carries nothing, so the count stays a real
+/// signal rather than noise on every run.
+#[test]
+fn a_complete_remine_carries_nothing() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = days_file(dir.path(), r#"{"reference_a":{"reads":[100,101]}}"#);
+    let mut now: std::collections::BTreeMap<String, MemoryDays> = std::collections::BTreeMap::new();
+    now.insert(
+        "reference_a".to_string(),
+        MemoryDays {
+            reads: vec![100, 101],
+            edits: vec![],
+        },
+    );
+    assert_eq!(carry_forward(&path, &mut now).expect("parses"), 0);
+    assert_eq!(now["reference_a"].reads, vec![100, 101]);
+}
+
+/// A memory that has left the corpus entirely still keeps its history — #884
+/// measures memories that were DEMOTED, so losing them would delete the study.
+#[test]
+fn a_memory_absent_from_this_run_keeps_its_days() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = days_file(dir.path(), r#"{"reference_gone":{"reads":[100]}}"#);
+    let mut now: std::collections::BTreeMap<String, MemoryDays> = std::collections::BTreeMap::new();
+    assert_eq!(carry_forward(&path, &mut now).expect("parses"), 1);
+    assert_eq!(now["reference_gone"].reads, vec![100]);
+}
+
+/// A first run has no previous file, and that is not an error.
+#[test]
+fn a_missing_previous_file_is_the_first_run() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut now: std::collections::BTreeMap<String, MemoryDays> = std::collections::BTreeMap::new();
+    assert_eq!(
+        carry_forward(&dir.path().join("absent.json"), &mut now).expect("first run"),
+        0
+    );
+}
+
+/// ⚠ A file that EXISTS but will not parse must FAIL the mine. Returning 0 would
+/// read as "nothing to carry" and the run would overwrite it, deleting the whole
+/// record silently — which is the failure this function was written to prevent.
+#[test]
+fn a_corrupt_previous_file_fails_rather_than_being_overwritten() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mut now: std::collections::BTreeMap<String, MemoryDays> = std::collections::BTreeMap::new();
+    let bad = days_file(dir.path(), "{not json");
+    assert!(carry_forward(&bad, &mut now).is_err());
+}

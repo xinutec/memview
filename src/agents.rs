@@ -614,6 +614,56 @@ pub struct MemoryDays {
     pub edits: Vec<i64>,
 }
 
+/// Fold an earlier `memory-days.json` into this run's, and report how many days
+/// only the earlier record still had.
+///
+/// ⚠ **This file used to be a fresh derivation from whichever transcripts still
+/// existed, and Claude Code prunes its own.** So a pruned transcript silently
+/// deleted every day it contributed and the file went on looking complete —
+/// invisible by construction, because nothing compared today's days with
+/// yesterday's. A day is a historical fact and cannot stop being true, so union
+/// is the correct merge and there is no case for dropping one.
+///
+/// Returns the number of `(memory, day)` pairs this run did not observe and the
+/// previous file did — the count of days whose evidence has left the disk. A
+/// A missing previous file returns 0 — the first run has none. A file that
+/// EXISTS but will not parse is an ERROR, because the only alternative is to
+/// overwrite it with this run's smaller view and lose the record silently.
+pub fn carry_forward(
+    path: &std::path::Path,
+    days: &mut BTreeMap<String, MemoryDays>,
+) -> Result<usize> {
+    // No file at all is the first run, and is fine.
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Ok(0);
+    };
+    // ⚠ **A file that EXISTS and will not parse is fatal, not zero.** Returning 0
+    // would be indistinguishable from "nothing to carry", and the mine would then
+    // overwrite the file with this run's smaller view — deleting the very history
+    // this function exists to protect, without a word.
+    // `feedback_a_precondition_that_can_pass_wrongly`; the first version of this
+    // function had exactly that bug.
+    let earlier: BTreeMap<String, MemoryDays> = serde_json::from_str(&text).with_context(|| {
+        format!(
+            "{} exists but will not parse — refusing to overwrite it, because that \
+             would delete every day it records",
+            path.display()
+        )
+    })?;
+    let mut carried = 0usize;
+    for (name, was) in earlier {
+        let now = days.entry(name).or_default();
+        for (mine, theirs) in [(&mut now.reads, was.reads), (&mut now.edits, was.edits)] {
+            let before = mine.len();
+            mine.extend(theirs);
+            mine.sort_unstable();
+            mine.dedup();
+            carried += mine.len() - before;
+        }
+    }
+    Ok(carried)
+}
+
 /// The days an agent was present in each project, kept apart from the counts
 /// because a day is not a tally — the same day seen twice is still one day.
 ///

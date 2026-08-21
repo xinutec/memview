@@ -135,8 +135,21 @@ fn main() -> Result<()> {
     // `effects.json` all went through `atomic::write` — so a `memory-rank` run
     // during the 00:30 mine could read a half-written file, and the mine takes
     // ~8 minutes. Write-then-rename or the reader sees half.
-    let days = std::mem::take(&mut found.memory_days);
+    let mut days = std::mem::take(&mut found.memory_days);
     let days_file = std::path::Path::new(&out).with_file_name("memory-days.json");
+    // ⚠ Union with what earlier runs saw — see [`memview::agents::carry_forward`].
+    // #884's outcome IS this file, over a pre-period of 2026-07-17..08-14 that has
+    // to survive to a harvest on 2026-09-11. Membership was already protected
+    // this way (`index-history.json`); the outcome variable never was.
+    let carried = memview::agents::carry_forward(&days_file, &mut days)?;
+    if carried > 0 {
+        // The only signal pruning ever gives. Said out loud rather than folded
+        // into a total: a silent carry reads exactly like a complete re-mine.
+        println!(
+            "carried {carried} memory-day(s) no surviving transcript still shows \
+             — transcripts have been pruned"
+        );
+    }
     memview::atomic::write(&days_file, serde_json::to_string(&days)?.as_bytes())
         .with_context(|| format!("writing {}", days_file.display()))?;
     println!(
