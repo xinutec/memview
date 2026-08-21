@@ -21,3 +21,4 @@ pub mod tasks;
 pub mod tls;
 pub mod trace;
 pub mod usage;
+pub mod zombies;

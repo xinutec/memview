@@ -131,6 +131,11 @@ async fn main() -> Result<()> {
             }
         });
     }
+    // A `<defunct>` under this console, recorded when it appears rather than
+    // counted long afterwards — see [`console::zombies`] and #797. It reads the
+    // process table and reaps nothing, so it cannot take an exit status
+    // `Session::reap` is waiting for.
+    tokio::spawn(console::zombies::watch());
     let carried = roster.inherit();
     if carried > 0 {
         tracing::info!("{carried} session(s) carried across an upgrade — none was restarted");

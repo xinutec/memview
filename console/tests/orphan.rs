@@ -131,3 +131,103 @@ async fn no_kill_on_drop_leaves_nothing_behind() {
     tokio::time::sleep(SETTLE).await;
     assert!(!is_a_zombie(pid), "a dropped wait left {pid} unreaped");
 }
+
+// ---------------------------------------------------------------------------
+// The recorder: what a sighting can carry, and that it carries it.
+// ---------------------------------------------------------------------------
+
+use console::zombies::{Watch, parse};
+
+/// `ps` rows as this Mac prints them: `pid ppid state lstart`.
+const TABLE: &str = "\
+  501   400 S    Fri Aug 21 12:16:20 2026
+  502   400 Z    Fri Aug 21 12:16:24 2026
+  503   999 Z    Fri Aug 21 12:16:25 2026
+  504   400 Z+   Fri Aug 21 12:16:26 2026
+";
+
+/// Only this parent's zombies, and the start time comes back whole.
+///
+/// `lstart` is five words, so a parser that took a fixed column count would cut
+/// it — the year is the part that goes missing, which is exactly the part that
+/// makes a sighting pair with a spawn line months later.
+#[test]
+fn a_sighting_is_this_parents_zombies_with_their_start_times() {
+    let found = parse(TABLE, 400);
+    let pids: Vec<u32> = found.iter().map(|z| z.pid).collect();
+    assert_eq!(
+        pids,
+        vec![502, 504],
+        "a running child and another parent's zombie are not ours"
+    );
+    assert_eq!(found[0].started, "Fri Aug 21 12:16:24 2026");
+}
+
+/// Reported once when it arrives, once when it goes, and not in between.
+#[test]
+fn a_zombie_is_reported_once_and_its_departure_once() {
+    let mut watch = Watch::default();
+    let (fresh, gone) = watch.sweep(TABLE, 400);
+    assert_eq!(fresh.len(), 2);
+    assert!(gone.is_empty());
+
+    let (fresh, gone) = watch.sweep(TABLE, 400);
+    assert!(
+        fresh.is_empty(),
+        "a zombie that is still there is not news every minute"
+    );
+    assert!(gone.is_empty());
+
+    let (fresh, gone) = watch.sweep("", 400);
+    assert!(fresh.is_empty());
+    assert_eq!(
+        gone.len(),
+        2,
+        "a departure distinguishes a late reap from a leak"
+    );
+}
+
+/// ⚠ The instrument, proved against the real `ps`: a zombie this process really
+/// owns is found by the real parser on the real table.
+///
+/// Same argument as [`the_detector_can_see_a_zombie`] above — a recorder that
+/// reports nothing passes just as well when it is reading the table wrongly.
+/// `std::process` again, so no tokio reaper takes the child first.
+#[test]
+fn the_recorder_finds_a_real_zombie_under_this_process() {
+    let child = std::process::Command::new("sleep")
+        .arg("0.2")
+        .stdout(Stdio::null())
+        .spawn()
+        .expect("sleep did not spawn");
+    let pid = child.id();
+    // Explicitly, as the control above does: dropping without `wait` is the
+    // whole point here, and clippy's `zombie_processes` reads an explicit drop
+    // as the deliberate act it is.
+    drop(child);
+    std::thread::sleep(SETTLE);
+    assert!(
+        is_a_zombie(pid),
+        "the control itself failed — nothing to find"
+    );
+
+    let table = std::process::Command::new("ps")
+        .args(["-ax", "-o", "pid=,ppid=,state=,lstart="])
+        .output()
+        .expect("ps did not run");
+    let table = String::from_utf8_lossy(&table.stdout);
+    let found = parse(&table, std::process::id());
+
+    let mine = found
+        .iter()
+        .find(|z| z.pid == pid)
+        .expect("the recorder missed a real zombie");
+    assert!(
+        !mine.started.is_empty(),
+        "a sighting with no start time cannot be paired"
+    );
+    assert!(
+        !mine.started.contains("defunct"),
+        "the start time must survive, unlike the command"
+    );
+}
