@@ -20,3 +20,4 @@ pub mod session;
 pub mod share;
 pub mod state;
 pub mod store;
+pub mod study;
