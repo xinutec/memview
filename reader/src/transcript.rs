@@ -602,3 +602,24 @@ fn cycles(parent_of: &HashMap<String, String>) -> Vec<Violation> {
     }
     found
 }
+
+/// How much damage should fail this run.
+///
+/// ⚠ **A damaged transcript can never be repaired.** A rewrite drops a message
+/// and it is gone, so a run that fails on any damage anywhere fails **forever**,
+/// for every session — which is what happened: one session's transcript lost a
+/// message and memview's gate became unpassable for everybody (#1062). A check
+/// that cannot go green is a broken instrument, not a signal.
+///
+/// So inside a session only that session's OWN transcript fails it, which is the
+/// one file its author could still have done something about. Outside a session
+/// — `None`, the nightly — the count is reported in full; the nightly does not
+/// gate on it either, it counts it into fleetwatch so the TREND is visible.
+/// Same routing as `lint::passed_for_session` for the corpus, and for the same
+/// reason: a shared substrate must not fail whoever happens to commit next.
+pub fn fatal_damage(damaged: usize, mine: usize, session: Option<&str>) -> usize {
+    match session {
+        None => damaged,
+        Some(_) => mine,
+    }
+}

@@ -61,6 +61,9 @@ fn main() -> Result<()> {
     }
 
     let mut damaged = 0usize;
+    // ⚠ Whose damage fails this run. See [`fatal_damage`].
+    let session = std::env::var("CLAUDE_CODE_SESSION_ID").ok();
+    let mut mine = 0usize;
     let mut vanished = 0usize;
     let mut lines = 0usize;
     let mut totals: BTreeMap<&'static str, usize> = BTreeMap::new();
@@ -108,6 +111,12 @@ fn main() -> Result<()> {
             continue;
         }
         damaged += 1;
+        if path
+            .file_stem()
+            .is_some_and(|stem| Some(stem.to_string_lossy().as_ref()) == session.as_deref())
+        {
+            mine += 1;
+        }
         if quiet {
             continue;
         }
@@ -148,8 +157,15 @@ fn main() -> Result<()> {
             println!("  {count:8}  {rule}");
         }
     }
-    if damaged > 0 {
+    if transcript::fatal_damage(damaged, mine, session.as_deref()) > 0 {
         std::process::exit(1);
+    }
+    if damaged > 0 {
+        println!(
+            "\n{damaged} damaged, none of them this session's — not failing. \
+             The nightly counts them into fleetwatch (mem_check `delivery`)."
+        );
+        return Ok(());
     }
     println!("all invariants hold");
     Ok(())

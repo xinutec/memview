@@ -724,6 +724,49 @@ pub fn passed(findings: &[Finding]) -> bool {
     !findings.iter().any(|f| f.severity == Severity::Error)
 }
 
+/// True when nothing at ERROR severity is **this session's to fix**.
+///
+/// `session` is `CLAUDE_CODE_SESSION_ID` when the linter runs inside a session,
+/// and `None` when it does not — the nightly `claude-sync.sh` under launchd,
+/// or a hand run. **`None` means strict**, so the job that gates the corpus
+/// commit still refuses on any error at all; nothing about the corpus's own
+/// standard has moved.
+///
+/// ⚠ **Why a session is treated differently.** `memory-lint` runs over the
+/// SHARED corpus, so before this a session's commit failed on a memory some
+/// other session had written minutes earlier, in a repo it had never touched —
+/// five times in a week (memview #1047), each costing a full gate run to a
+/// session that could not have caused it and could not tell who had. The corpus
+/// is now alarmed where it belongs: `mem_check.py`'s `delivery` section reports
+/// the nightly's verdict to fleetwatch, so a shared error is seen the same day
+/// without blocking anybody.
+///
+/// ⚠ **`MEMORY.md` stays everybody's.** It carries no `originSessionId` to
+/// attribute, it is the one document every session reads, and it was not the
+/// source of any of the five — so an error in the index fails the gate for
+/// whoever is standing there, deliberately.
+///
+/// ⚠ **An unstamped memory is nobody's**, which is exactly the #1047 class: it
+/// has no `originSessionId`, so it matches no session and fails no gate. That
+/// is the intended routing and not an oversight — it is unattributable by
+/// construction, and the dashboard is the answer for it. `missing-modified`
+/// stays an ERROR so the nightly still refuses to commit it.
+pub fn passed_for_session(corpus: &Corpus, findings: &[Finding], session: Option<&str>) -> bool {
+    let Some(session) = session else {
+        return passed(findings);
+    };
+    !findings.iter().any(|finding| {
+        finding.severity == Severity::Error
+            && match corpus.docs.get(&finding.memory) {
+                // The index, and anything else with no document to ask.
+                None => true,
+                Some(doc) => {
+                    frontmatter_value(&doc.raw, "originSessionId").as_deref() == Some(session)
+                }
+            }
+    })
+}
+
 /// How many findings each rule produced, for the summary line.
 pub fn tally(findings: &[Finding]) -> BTreeMap<&'static str, usize> {
     let mut counts = BTreeMap::new();

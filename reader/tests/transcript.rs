@@ -109,3 +109,28 @@ fn the_cli_s_own_description_is_not_a_name() {
         );
     }
 }
+
+// --- whose damage fails a run (memview #1062) --------------------------------
+
+use reader::transcript::fatal_damage;
+
+/// Outside a session — the nightly — every damaged file counts. Nothing about
+/// the standard moved.
+#[test]
+fn without_a_session_all_damage_counts() {
+    assert_eq!(fatal_damage(3, 0, None), 3);
+}
+
+/// ⚠ The point: another session's damaged transcript does not fail this run.
+/// Damage cannot be repaired, so failing on it failed forever, for everybody.
+#[test]
+fn another_sessions_damage_does_not_fail_this_run() {
+    assert_eq!(fatal_damage(3, 0, Some("session-1")), 0);
+}
+
+/// A session still fails on its own transcript — the one file its author could
+/// have done something about.
+#[test]
+fn a_session_still_fails_on_its_own_transcript() {
+    assert_eq!(fatal_damage(3, 1, Some("session-1")), 1);
+}

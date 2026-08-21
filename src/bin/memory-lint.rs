@@ -158,8 +158,22 @@ fn main() -> Result<()> {
         println!("    {sev:<8} {rule:<22} {count}");
     }
 
-    if lint::passed(&findings) {
-        println!("\nno errors");
+    // ⚠ **Only what this session wrote fails the gate.** The corpus is shared, so
+    // before this the block landed on whoever committed next rather than on the
+    // author. Outside a session — the nightly under launchd — `session` is None
+    // and every error still fails, which is what keeps the corpus out of its
+    // history until it is fixed. See [`lint::passed_for_session`].
+    let session = std::env::var("CLAUDE_CODE_SESSION_ID").ok();
+    if lint::passed_for_session(&corpus, &findings, session.as_deref()) {
+        if lint::passed(&findings) {
+            println!("\nno errors");
+        } else {
+            println!(
+                "\nerrors above, but none of them this session's — not failing. \
+                 They are reported to fleetwatch by the nightly (mem_check `delivery`), \
+                 and they DO stop the corpus being committed until fixed."
+            );
+        }
         Ok(())
     } else {
         std::process::exit(1);

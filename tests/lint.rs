@@ -1,6 +1,6 @@
 //! The document-graph rules: whether the corpus is navigable at all.
 
-use memview::lint::{Severity, check};
+use memview::lint::{Severity, check, passed_for_session};
 use memview::store::Corpus;
 
 /// A corpus of an index plus `(name, body)` memories.
@@ -184,4 +184,95 @@ fn delegation_is_one_hop_and_only_through_part_of() {
         reported(&found, "governs-unreciprocated"),
         ["project_hub", "project_hub"]
     );
+}
+
+// --- whose error fails the gate (memview #1047) ------------------------------
+
+/// One memory, optionally stamped with the session that wrote it.
+fn stamped(dir: &std::path::Path, name: &str, origin: Option<&str>) -> Corpus {
+    std::fs::write(
+        dir.join("MEMORY.md"),
+        format!("# Memory index\n- [x]({name}.md)\n"),
+    )
+    .expect("write index");
+    let origin = origin
+        .map(|s| format!("  originSessionId: {s}\n"))
+        .unwrap_or_default();
+    std::fs::write(
+        dir.join(format!("{name}.md")),
+        format!(
+            "---\nname: {name}\ndescription: d\nmetadata:\n  type: project\n{origin}---\n\nbody\n"
+        ),
+    )
+    .expect("write memory");
+    Corpus::load(dir).expect("loads")
+}
+
+fn an_error(memory: &str) -> memview::lint::Finding {
+    memview::lint::Finding {
+        severity: Severity::Error,
+        rule: "missing-modified",
+        memory: memory.to_string(),
+        detail: "d".to_string(),
+    }
+}
+
+/// Outside a session — the nightly, which gates the corpus commit — every error
+/// still fails. This is what keeps the corpus's own standard where it was.
+#[test]
+fn without_a_session_any_error_still_fails() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let corpus = stamped(dir.path(), "project_a", Some("session-2"));
+    assert!(!passed_for_session(&corpus, &[an_error("project_a")], None));
+}
+
+/// A session still fails on what it wrote itself.
+#[test]
+fn a_session_still_fails_on_its_own_memory() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let corpus = stamped(dir.path(), "project_a", Some("session-1"));
+    assert!(!passed_for_session(
+        &corpus,
+        &[an_error("project_a")],
+        Some("session-1")
+    ));
+}
+
+/// ⚠ The whole point: another session's memory does not fail this one's commit.
+#[test]
+fn another_sessions_memory_does_not_fail_this_one() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let corpus = stamped(dir.path(), "project_a", Some("session-2"));
+    assert!(passed_for_session(
+        &corpus,
+        &[an_error("project_a")],
+        Some("session-1")
+    ));
+}
+
+/// An unstamped memory belongs to nobody, so it fails no session's gate — the
+/// #1047 class itself, routed to the dashboard rather than to a bystander. The
+/// nightly above is what still refuses to commit it.
+#[test]
+fn an_unstamped_memory_fails_no_session() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let corpus = stamped(dir.path(), "project_a", None);
+    assert!(passed_for_session(
+        &corpus,
+        &[an_error("project_a")],
+        Some("session-1")
+    ));
+}
+
+/// The index cannot be attributed and every session reads it, so an error there
+/// fails whoever is standing in front of it.
+#[test]
+fn an_error_in_the_index_still_fails_a_session() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let corpus = stamped(dir.path(), "project_a", Some("session-2"));
+    assert!(!passed_for_session(
+        &corpus,
+        &[an_error("MEMORY.md")],
+        Some("session-1")
+    ));
 }

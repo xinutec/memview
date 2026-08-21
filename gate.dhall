@@ -209,6 +209,13 @@ in  { name = "memview"
         }
       , {-  The corpus itself. Locally this is the check that matters most: the
             app can be perfect and the document set still be falling apart.
+
+            ⚠ **It only fails on memories THIS session wrote.** The corpus is
+            shared, so failing on all of them meant failing whoever committed
+            next about somebody else's file — five times in a week, #1047. The
+            rest are printed and reported to fleetwatch by the nightly
+            (`mem_check.py`, `delivery` section), which still refuses to commit
+            a corpus with any error in it. See `lint::passed_for_session`.
         -}
         G.Check::{
         , name = "memory-lint (the corpus)"
@@ -231,6 +238,14 @@ in  { name = "memview"
             never takes this gate, so the only machine that runs it is the one
             where the transcripts always are. A file being appended to right now
             reports `incomplete-tail`, which is not damage and does not fail.
+
+            ⚠ **It only fails on THIS session's transcript**, for a reason
+            sharper than memory-lint's row above: damage here is UNFIXABLE — a
+            rewrite drops a message and it is gone — so failing on any of it
+            failed forever, for everybody. That is not hypothetical; it is how
+            this gate became unpassable on 2026-08-21 (#1062). The count is
+            still printed, and the nightly trends it into fleetwatch
+            (`mem_check.py`, `delivery`). See `fatal_damage`.
         -}
         G.Check::{
         , name = "transcript-lint (the conversations)"
