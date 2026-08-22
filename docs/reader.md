@@ -180,6 +180,9 @@ cargo run --release -p reader --example nested-why           -- <corpus> [--reas
 cargo run --release -p reader --example remote-argv-check    -- <corpus>
 # is there Python we never noticed was Python? — and does what we found parse?
 cargo run --release -p reader --example python-calls          -- <corpus>
+# does a real runtime agree about what never ran? (both readers)
+cargo run --release -p reader --example python-raised         -- <corpus> [--all]
+cargo run --release -p reader --example javascript-raised     -- <corpus> [--all]
 cargo run --release -p reader --example tree-sitter-python-probe -- <corpus>
 
 # the syntax tree: coverage, the ranked refusals, and all three gates
@@ -381,6 +384,17 @@ compiler")` has a slash in it, so it passes any "looks like a path" test ever
 written — and it names nothing on disk. Node's own rule is used: a specifier is
 a path when it starts with `./`, `../`, `/` or `~`. Before that rule, 1,126 of
 the recorded uses were the string `fs`.
+
+**Did it run?** The same question the Python reader answers, checked the same
+way. `javascript::did_not_run` refuses text whose quotes, template or brackets
+never close — a heredoc cut short — and the reader keeps nothing from it, so a
+false positive destroys knowledge while a false negative merely fails to gain
+any. `--example javascript-raised` hands the programs to this repository's
+pinned node: **the reader discards 2 and node refuses both**, and of the 1,025
+it keeps node accepts 1,016. Seven of the nine refusals are TypeScript run by
+`tsx`, which node cannot check and which the grammar handles by design; one
+holds an unexpanded shell variable and therefore ran perfectly well; one is
+genuinely broken.
 
 ## The loop between them
 
