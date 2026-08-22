@@ -253,6 +253,56 @@ fn a_flag_cluster_still_names_the_script() {
 }
 
 #[test]
+fn a_container_payload_that_is_not_a_shell_stays_an_argv() {
+    // ⚠ **memview#1028, and it was 700 of the 769 nested refusals.** `kubectl
+    // exec` hands its words to `exec()`; no shell re-splits them and no shell
+    // removes a quote. Joining them back into one string and parsing THAT as
+    // shell put SQL in front of the shell grammar, where `ROW_COUNT()` reads as
+    // unmatched grouping and the whole payload was refused.
+    assert_eq!(
+        one(
+            r#"kubectl -n nextcloud exec deploy/db -- mariadb nc -e "DELETE FROM t WHERE id = 1; SELECT ROW_COUNT() AS deleted""#
+        ),
+        Op::RemoteRun {
+            host: "deploy/db".to_string(),
+            argv: vec![
+                "mariadb".to_string(),
+                "nc".to_string(),
+                "-e".to_string(),
+                "DELETE FROM t WHERE id = 1; SELECT ROW_COUNT() AS deleted".to_string(),
+            ],
+        }
+    );
+}
+
+#[test]
+fn a_container_payload_keeps_the_word_boundaries_a_shell_would_have_lost() {
+    // The property the argv has and the joined string does not: an argument
+    // with spaces in it is ONE argument, still, on the far side.
+    let Op::RemoteRun { argv, .. } = one("docker exec c grep -n 'a b c' /etc/hosts") else {
+        panic!("not a remote run");
+    };
+    assert_eq!(argv[2], "a b c");
+}
+
+#[test]
+fn a_container_payload_in_another_language_reaches_that_language_s_reader() {
+    // The point of keeping it an argv: the payload is classified, so a Python
+    // one arrives at the Python reader instead of at the shell grammar.
+    let Op::RemoteRun { argv, .. } =
+        one(r#"kubectl exec pod -- python3 -c 'open("/data/x").read()'"#)
+    else {
+        panic!("not a remote run");
+    };
+    assert_eq!(
+        reader::shell_ops::classify(&argv, &[], None, "/home/example"),
+        Op::Python {
+            source: r#"open("/data/x").read()"#.to_string(),
+        }
+    );
+}
+
+#[test]
 fn a_clustered_flag_is_not_glued_onto_a_remote_payload() {
     // The shape that exposed it: `kubectl exec … -- sh -lc '…'` handed on
     // `-lc NUM=…` AS the script, so the refusal that followed named the

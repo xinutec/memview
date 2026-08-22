@@ -4,7 +4,7 @@
 //! matter more than the successes: a missed write is an undercount, and an
 //! invented path is a claim that somebody changed a file they never opened.
 
-use reader::python::{Use, read};
+use reader::python::{Ran, Use, read};
 
 /// The uses a program made, as `(path, write)` pairs in the order they happened.
 fn uses(source: &str) -> Vec<(String, bool)> {
@@ -176,9 +176,47 @@ fn changing_directory_is_reported() {
 }
 
 #[test]
+fn a_command_the_program_ran_is_kept_for_the_shell_reader() {
+    // ⚠ **`subprocess.run` was the top of this reader's worklist** — 443 calls,
+    // twice the next entry — and every one of them was a whole command whose
+    // files nothing could see. The list form is what the corpus writes, and it
+    // reaches `exec()` with no shell, so it stays an argv.
+    assert_eq!(
+        read("subprocess.run(['ffmpeg', '-i', 'a b.wav', 'out.wav'])").ran,
+        [Ran::Argv(vec![
+            "ffmpeg".to_string(),
+            "-i".to_string(),
+            "a b.wav".to_string(),
+            "out.wav".to_string(),
+        ])]
+    );
+    // `os.system` always has a shell, so its argument really is a script.
+    assert_eq!(
+        read("os.system('cd app && cat x.ts')").ran,
+        [Ran::Script("cd app && cat x.ts".to_string())]
+    );
+    // ⚠ **A string without `shell=True` is NOT a script.** Python looks for a
+    // program of that whole name and fails; reading it as shell would credit
+    // the program with work it did not do.
+    assert_eq!(
+        read("subprocess.run('ls -la')").ran,
+        [Ran::Argv(vec!["ls -la".to_string()])]
+    );
+    assert_eq!(
+        read("subprocess.run('cd app && ls', shell=True)").ran,
+        [Ran::Script("cd app && ls".to_string())]
+    );
+    // One unknown word makes the whole argv unusable: a hole in the middle
+    // turns the next flag into a filename.
+    let computed = read("subprocess.run(['ffmpeg', '-i', f])");
+    assert!(computed.ran.is_empty());
+    assert_eq!(computed.unresolved.get("subprocess.run"), Some(&1));
+}
+
+#[test]
 fn what_it_cannot_read_is_counted_by_name() {
-    let program = read("subprocess.run(['ls'])\nET.parse('doc.xml')\nd.frobnicate()");
-    assert_eq!(program.unknown["subprocess.run"], 1);
+    let program = read("os.sync()\nET.parse('doc.xml')\nd.frobnicate()");
+    assert_eq!(program.unknown["os.sync"], 1);
     // A module nobody named is indistinguishable from a variable, so its calls
     // land on the worklist as methods. Still the name to teach next.
     assert_eq!(program.unknown[".parse"], 1);

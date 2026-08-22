@@ -26,11 +26,46 @@ struct Found {
     occurrences: BTreeMap<(String, usize), usize>,
     /// Distinct refused payloads per reason, so a repeat does not inflate it.
     distinct: BTreeMap<String, BTreeSet<String>>,
+    /// Occurrences of each (reason, carrier) — the command that HANDED the
+    /// payload over. A reason names the construct that would not parse; this
+    /// names who produced the text, which is the half that says whether the
+    /// fix is a grammar rule or a wrong model of the carrier.
+    carriers: BTreeMap<(String, String), usize>,
     /// Deepest payload reached, refused or not.
     deepest: usize,
     /// Distinct payloads of the reason asked for, in the order first met.
     wanted: Vec<String>,
     seen: BTreeSet<String>,
+}
+
+/// Who handed the payload over: the carrier command, named the way the corpus
+/// spells it. `kubectl exec` and `docker exec` are told apart from their other
+/// subcommands because only those two carry a payload, and whether that payload
+/// went through a SHELL is the whole question for them.
+fn carrier_of(argv: &[String]) -> String {
+    let name = argv
+        .first()
+        .map(|w| w.rsplit('/').next().unwrap_or(w).to_string())
+        .unwrap_or_default();
+    match name.as_str() {
+        "kubectl" | "docker" => {
+            let payload_is_a_shell = argv
+                .iter()
+                .skip_while(|w| w.as_str() != "--")
+                .nth(1)
+                .map(|w| w.rsplit('/').next().unwrap_or(w))
+                .is_some_and(|w| matches!(w, "sh" | "bash" | "zsh" | "dash" | "ksh"));
+            format!(
+                "{name} exec -- {}",
+                if payload_is_a_shell {
+                    "sh -c"
+                } else {
+                    "a program"
+                }
+            )
+        }
+        _ => name,
+    }
 }
 
 /// Read `script`, and walk into every nested or remote payload it carries.
@@ -44,8 +79,9 @@ fn walk(script: &str, depth: usize, want: &str, found: &mut Found) {
     };
     for simple in &ran.commands {
         let op = reader::shell_ops::classify(&simple.argv, &simple.heredocs, None, "/home/example");
-        let payload = match &op {
-            Op::Nested { script } | Op::Remote { script, .. } => script.clone(),
+        let (payload, carrier) = match &op {
+            Op::Nested { script } => (script.clone(), carrier_of(&simple.argv)),
+            Op::Remote { script, .. } => (script.clone(), carrier_of(&simple.argv)),
             _ => continue,
         };
         match reader::project::read(&payload) {
@@ -56,6 +92,7 @@ fn walk(script: &str, depth: usize, want: &str, found: &mut Found) {
                     .occurrences
                     .entry((reason.clone(), depth + 1))
                     .or_default() += 1;
+                *found.carriers.entry((reason.clone(), carrier)).or_default() += 1;
                 found
                     .distinct
                     .entry(reason.clone())
@@ -115,6 +152,15 @@ fn main() -> anyhow::Result<()> {
             "{reason:<22} {occ:>6} {distinct:>9}  {}",
             by_depth.join(" ")
         );
+    }
+
+    // Who handed over the text that would not read. A reason ranks the
+    // construct; this ranks the CARRIER, and the two disagree on purpose.
+    eprintln!("\nby carrier — who handed the refused payload over:");
+    let mut by_carrier: Vec<(&(String, String), &usize)> = found.carriers.iter().collect();
+    by_carrier.sort_by(|a, b| b.1.cmp(a.1));
+    for ((reason, carrier), n) in by_carrier.iter().take(20) {
+        eprintln!("{n:>6}  {reason:<22} {carrier}");
     }
 
     // ⚠ **"We refuse it" and "it is not shell" are different facts**, and only

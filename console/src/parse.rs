@@ -258,7 +258,11 @@ fn described(op: Option<&Op>) -> (&'static str, String) {
         // this one, which is a better answer than the text they came from.
         Op::Nested { .. } => ("shell", String::new()),
         Op::Python { .. } => ("python", String::new()),
-        Op::Remote { host, .. } => ("remote", host.clone()),
+        Op::JavaScript { .. } => ("javascript", String::new()),
+        // The same line for both payload shapes: a reader watching a step wants
+        // the machine, and whether the far side had a shell is a fact about how
+        // the payload was READ, not about what happened.
+        Op::Remote { host, .. } | Op::RemoteRun { host, .. } => ("remote", host.clone()),
         Op::ChangeDir { to } => (
             "cd",
             to.clone()

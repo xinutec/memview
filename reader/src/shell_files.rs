@@ -92,6 +92,8 @@ pub struct Extract {
     /// `files`; this is what could not be read, and is the worklist for
     /// [`crate::python`] exactly as `unhandled` is for the table above.
     pub python: crate::python::Tally,
+    /// The same, for the JavaScript inside the shell.
+    pub javascript: crate::program::Tally,
     /// Commands that exist because a determinate loop was run out — the
     /// difference between the commands a script *wrote* and the ones it *ran*.
     ///
@@ -321,6 +323,7 @@ impl Extract {
             *self.nested_unparsed.entry(reason).or_insert(0) += n;
         }
         self.python.merge(inner.python);
+        self.javascript.merge(inner.javascript);
         for (name, n) in inner.unhandled {
             *self.unhandled.entry(name).or_insert(0) += n;
         }
@@ -355,6 +358,8 @@ impl Extract {
             + self.bounded.values().sum::<usize>()
             + self.python.unresolved.values().sum::<usize>()
             + self.python.refused.total()
+            + self.javascript.unresolved.values().sum::<usize>()
+            + self.javascript.refused.total()
     }
 }
 
@@ -465,7 +470,11 @@ pub fn files_of(op: &Op, reached: crate::shell::Reached) -> Vec<FileUse> {
         // is one command's operands, and a script is not one. Python is read the
         // same way, in [`extract_nested`], because resolving what it names needs
         // the working directory this function does not have.
-        Op::Nested { .. } | Op::Remote { .. } | Op::Python { .. } => Vec::new(),
+        Op::Nested { .. }
+        | Op::Remote { .. }
+        | Op::RemoteRun { .. }
+        | Op::Python { .. }
+        | Op::JavaScript { .. } => Vec::new(),
         Op::Run { script } => vec![FileUse {
             path: script.clone(),
             write: false,
@@ -597,6 +606,93 @@ pub fn trace(ran: &Ran, cwd: Option<&str>, home: &str) -> Extract {
 
 /// As [`extract`], tracking how deep inside `bash -c` this script sits and which
 /// machine it is running on (`None` for this one).
+/// Resolve one carried program's file uses against the shell's directory.
+///
+/// ⚠ **The rules here belong to the SHELL, not to the language**: which
+/// directory a relative path is read against, and whether a word may be a path
+/// at all. Both readers go through this one function so that the two languages
+/// cannot drift apart on either question — the same argument `program.rs` makes
+/// for their shared types, and `gate.dhall`'s header makes in general.
+#[allow(clippy::too_many_arguments)]
+fn carried(
+    program: &crate::program::Program,
+    label: &str,
+    host: Option<&str>,
+    here: Option<&str>,
+    home: &str,
+    reached: crate::shell::Reached,
+    depth: usize,
+    trace: bool,
+    out: &mut Extract,
+) -> (usize, crate::program::Refused) {
+    let mut kept = 0;
+    let mut refused = crate::program::Refused::default();
+    // ⚠ **The loop closes here.** A program that ran a command ran a shell's
+    // worth of work, and until this the whole of it was invisible:
+    // `subprocess.run` alone was 443 calls, the largest single thing either
+    // carried reader could not read. Followed at the shell's own directory,
+    // because that is where the program was started — and what comes back may
+    // be another Python program, or another JavaScript one, which is how
+    // `bash -c 'python3 -c "os.system(...)"'` reads all the way down.
+    for ran in &program.ran {
+        if depth >= MAX_NESTING {
+            break;
+        }
+        match ran {
+            crate::program::Ran::Script(script) => match crate::project::read(script) {
+                Ok(inner) => {
+                    let found = extract_nested(&inner, here, home, host, depth + 1, trace, &[]);
+                    out.absorb(found);
+                }
+                Err(refusal) => {
+                    *out.nested_unparsed
+                        .entry(format!("{:?}", refusal.reason))
+                        .or_insert(0) += 1;
+                }
+            },
+            // An argv, classified rather than parsed — the same treatment
+            // `Op::RemoteRun` gets, and for the same reason.
+            crate::program::Ran::Argv(argv) => {
+                let inner = crate::project::Ran {
+                    commands: vec![crate::shell::Simple {
+                        argv: argv.clone(),
+                        reached,
+                        scope: Vec::new(),
+                        redirects: Vec::new(),
+                        heredocs: Vec::new(),
+                    }],
+                    unrolled: 0,
+                };
+                let found = extract_nested(&inner, here, home, host, depth + 1, trace, &[]);
+                out.absorb(found);
+            }
+        }
+    }
+    for used in &program.uses {
+        // A program that moved its own directory makes every relative path in it
+        // a guess, so only the paths that need no directory survive. `os.chdir`
+        // and `process.chdir` cannot be followed — the argument is usually
+        // computed — and a wrong directory is how a real path becomes an
+        // invented one.
+        let anchored = used.path.starts_with('/') || used.path.starts_with('~');
+        // ⚠ **Each refusal is recorded, not dropped.** A use turned away here
+        // left no trace at all until memview#824, so a program that named a file
+        // this layer would not resolve counted exactly as a program that named
+        // none — and the corpus read as more completely understood than it is.
+        if !anchored && program.chdir {
+            refused.moved += 1;
+        } else if !looks_like_path(&used.path) {
+            refused.not_a_path += 1;
+        } else if let Some(path) = resolve(&used.path, here, home) {
+            out.push(host, label, path, used.write, reached);
+            kept += 1;
+        } else {
+            refused.no_directory += 1;
+        }
+    }
+    (kept, refused)
+}
+
 fn extract_nested(
     ran: &Ran,
     cwd: Option<&str>,
@@ -866,40 +962,72 @@ fn extract_nested(
                     }
                 }
             }
+            // A program on another machine with no shell between: the payload
+            // is an argv, so it is CLASSIFIED, never parsed. Wrapped as a
+            // one-command script so it meets exactly the rules a command here
+            // meets — which is what makes `kubectl exec -- python3 -c '…'` read
+            // as Python rather than as text that would not parse as shell.
+            //
+            // No working directory: the far side's is unknown, so only absolute
+            // paths survive, the same rule [`Op::Remote`] is held to.
+            Op::RemoteRun { host: there, argv } => {
+                out.handled += 1;
+                if depth < MAX_NESTING {
+                    let inner = crate::project::Ran {
+                        commands: vec![crate::shell::Simple {
+                            argv: argv.clone(),
+                            reached: cmd.reached,
+                            scope: cmd.scope.clone(),
+                            redirects: Vec::new(),
+                            heredocs: Vec::new(),
+                        }],
+                        unrolled: 0,
+                    };
+                    let found =
+                        extract_nested(&inner, None, home, Some(there), depth + 1, trace, &[]);
+                    out.absorb(found);
+                }
+            }
             // A program in another language, read by another reader — and
             // resolved here, where the working directory is, by exactly the
             // rules a shell operand goes through.
             Op::Python { source } => {
                 out.handled += 1;
                 let program = crate::python::read(source);
-                let mut kept = 0;
-                let mut refused = crate::python::Refused::default();
-                for used in &program.uses {
-                    // A program that moved its own directory makes every
-                    // relative path in it a guess, so only the paths that need
-                    // no directory survive. `os.chdir` cannot be followed —
-                    // its argument is usually computed — and a wrong directory
-                    // is how a real path becomes an invented one.
-                    let anchored = used.path.starts_with('/') || used.path.starts_with('~');
-                    // ⚠ **Each refusal is recorded, not dropped.** A use turned
-                    // away here left no trace at all until memview#824, so a
-                    // program that named a file this layer would not resolve
-                    // counted exactly as a program that named none — and the
-                    // corpus read as more completely understood than it is.
-                    if !anchored && program.chdir {
-                        refused.moved += 1;
-                    } else if !looks_like_path(&used.path) {
-                        refused.not_a_path += 1;
-                    } else if let Some(path) = resolve(&used.path, here.as_deref(), home) {
-                        out.push(host, "python", path, used.write, cmd.reached);
-                        kept += 1;
-                    } else {
-                        refused.no_directory += 1;
-                    }
-                }
+                let (kept, refused) = carried(
+                    &program,
+                    "python",
+                    host,
+                    here.as_deref(),
+                    home,
+                    cmd.reached,
+                    depth,
+                    trace,
+                    &mut out,
+                );
                 out.python.kept += kept;
                 out.python.refused.merge(&refused);
                 out.python.absorb(program);
+            }
+            // The third language, read the same way and resolved by the same
+            // rules — see [`carried`], which is the one place those rules are.
+            Op::JavaScript { source } => {
+                out.handled += 1;
+                let program = crate::javascript::read(source);
+                let (kept, refused) = carried(
+                    &program,
+                    "javascript",
+                    host,
+                    here.as_deref(),
+                    home,
+                    cmd.reached,
+                    depth,
+                    trace,
+                    &mut out,
+                );
+                out.javascript.kept += kept;
+                out.javascript.refused.merge(&refused);
+                out.javascript.absorb(program);
             }
             _ => {
                 out.handled += 1;
@@ -915,7 +1043,7 @@ fn extract_nested(
             // would show one write twice, once against `nix develop -c …` and
             // once against the `cp` that actually did it.
             let (files_to, away_to) = match op {
-                Op::Nested { .. } | Op::Remote { .. } => redirected,
+                Op::Nested { .. } | Op::Remote { .. } | Op::RemoteRun { .. } => redirected,
                 _ => (out.files.len(), out.remote.len()),
             };
             out.attribute(at, files_from..files_to, away_from..away_to);

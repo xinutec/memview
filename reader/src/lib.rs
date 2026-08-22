@@ -49,6 +49,8 @@
 pub mod activity;
 pub mod doing;
 pub mod effects;
+pub mod javascript;
+pub mod program;
 pub mod project;
 pub mod python;
 pub mod shell;

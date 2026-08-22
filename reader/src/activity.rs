@@ -125,10 +125,10 @@ pub fn of(op: &Op, cmd: &Simple) -> Activity {
         Op::Read { paths } if !paths.is_empty() => Activity::Inspect,
         Op::Transform { .. } => Activity::Inspect,
         Op::Run { .. } => Activity::Run,
-        Op::Python { .. } | Op::Nested { .. } => Activity::Run,
+        Op::Python { .. } | Op::JavaScript { .. } | Op::Nested { .. } => Activity::Run,
         Op::Git(_) => Activity::Vcs,
         Op::ChangeDir { .. } => Activity::Navigate,
-        Op::Remote { .. } => Activity::Observe,
+        Op::Remote { .. } | Op::RemoteRun { .. } => Activity::Observe,
         Op::Unknown { name } => Activity::Other { name: name.clone() },
         _ => Activity::Other {
             name: name.to_string(),

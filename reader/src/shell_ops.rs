@@ -95,6 +95,17 @@ pub enum Op {
     /// about the shell. `node -e` is still refused — nobody has measured a
     /// reason to read it.
     Python { source: String },
+    /// Runs JavaScript: `node -e '…'`, `node --input-type=module -e '…'`, or a
+    /// program fed in on stdin by a heredoc.
+    ///
+    /// **The third language this reads**, added 2026-08-22 on numbers that had
+    /// not been taken before: 11,748 Bash calls mention a JavaScript runtime and
+    /// 3,824 carry a program in a flag, holding 1,790 `readFileSync`, 1,909
+    /// `require`, 670 `import` and 214 `writeFileSync`. The older ranking —
+    /// "`node -e` is a query tool, not an editor", on 724 calls and 23 writes —
+    /// counted `node -e` alone, by distinct payload, and counted no reads.
+    /// Read by [`crate::javascript`].
+    JavaScript { source: String },
     /// A command run on another machine: `ssh host '…'`, `kubectl exec … -- …`,
     /// `docker exec …`.
     ///
@@ -108,6 +119,24 @@ pub enum Op {
     /// The remote working directory is unknown, so only absolute paths survive
     /// unless the script `cd`s somewhere first — which many do.
     Remote { host: String, script: String },
+    /// A program run on another machine **with no shell anywhere**:
+    /// `kubectl exec pod -- mariadb -e 'SELECT …'`, `docker exec c ls /etc`.
+    ///
+    /// ⚠ **The distinction [`Op::Remote`] cannot express, and getting it wrong
+    /// was 700 of the 769 nested refusals** (memview#1028, measured 2026-08-22
+    /// by `reader/examples/nested-why.rs --by carrier`). `kubectl exec` and
+    /// `docker exec` hand their words to `exec()`; nothing re-splits them and
+    /// nothing removes a quote, because no shell is involved. Joining them back
+    /// into one string and parsing that as shell put SQL and JavaScript in front
+    /// of the shell grammar — `SELECT ROW_COUNT() AS deleted` reads as unmatched
+    /// grouping, and so does every `node -e` body with a `{` in it.
+    ///
+    /// So the payload stays an **argv to classify**, never text to parse — the
+    /// same choice [`Verb::Carries`] makes, and for the same reason: it costs no
+    /// second parse and therefore cannot fail one. `-- sh -c '…'` is still
+    /// [`Op::Remote`]: there the shell is real and its argument really is a
+    /// script.
+    RemoteRun { host: String, argv: Vec<String> },
     /// Changes the working directory. `None` is `cd` with no argument (home),
     /// and an unresolvable target is [`Op::Unknown`] rather than a guess.
     ChangeDir { to: Option<String> },
@@ -616,6 +645,12 @@ enum Verb {
         flags: Flags,
         inline: &'static [&'static str],
     },
+    /// Runs JavaScript — from `-e`, from a heredoc, or from a script file.
+    ///
+    /// Its own verb rather than an [`Verb::Interpreter`], for the same reason
+    /// [`Verb::Python`] is: what it does with a file is decided by reading the
+    /// *program*.
+    JavaScript,
     /// Runs Python — from `-c`, from a heredoc, or from a script file.
     ///
     /// Its own verb rather than an [`Verb::Interpreter`] with a flag, because
@@ -762,8 +797,14 @@ fn verb(name: &str) -> Option<Verb> {
         // the population), and invisible by construction, which is the reason to
         // match the shape rather than the spellings anyone thought to list.
         name if is_python(name) => Verb::Python,
-        // An interpreter's flags carry code or a module name, never a path.
-        "node" | "deno" | "bun" => Verb::Interpreter {
+        // ⚠ **`deno` and `bun` stay [`Verb::Interpreter`]** — their `-e` is
+        // JavaScript too, but between them they are a handful of calls in this
+        // corpus and neither spells its flags the way node does (`deno eval`,
+        // `deno run --allow-read`). Reading them as node would be a guess about
+        // a population nobody has measured; they are named here so that the
+        // absence is a decision and not an oversight.
+        "node" => Verb::JavaScript,
+        "deno" | "bun" => Verb::Interpreter {
             flags: Flags::valued(&["-e", "-p", "--eval"]),
             inline: &[],
         },
@@ -830,10 +871,11 @@ fn verb(name: &str) -> Option<Verb> {
         // interpreter rather than a checker: its operand is a program, not a
         // subject, and what that program does to files is beyond this reader —
         // the same refusal `node` gets, for the same reason.
-        "tsx" => Verb::Interpreter {
-            flags: Flags::valued(&["-e", "--eval", "--tsconfig"]),
-            inline: &[],
-        },
+        // Runs TypeScript the way `node` runs JavaScript, so it gets the same
+        // reader: the type annotations this grammar has no rule for land in
+        // `stray`, which is what `stray` is for, and the file operations around
+        // them read the same either way.
+        "tsx" | "ts-node" => Verb::JavaScript,
         "cd" => Verb::ChangeDir,
         "git" => Verb::Git,
 
@@ -996,6 +1038,17 @@ fn act(
         // `-c` is the program, `-m` a module, `-W` a warning filter: none of
         // them is an operand, and the first is the whole point.
         Verb::Python => Flags::valued(&["-c", "-m", "-W"]),
+        // `-e`/`--eval`/`-p` carry the program; `--input-type` and `-r` carry a
+        // mode and a module, and neither is an operand.
+        Verb::JavaScript => Flags::valued(&[
+            "-e",
+            "--eval",
+            "-p",
+            "--print",
+            "--input-type",
+            "-r",
+            "--require",
+        ]),
         _ => Flags::NONE,
     };
     let from_flag = has_flag(argv, flags.script);
@@ -1070,6 +1123,28 @@ fn act(
             Some(rest) if !rest.is_empty() => classify_naming(unnamed, rest, heredocs, cwd, home),
             _ => Op::Nothing,
         },
+        Verb::JavaScript => {
+            // The program comes from a flag, from a script file, or from stdin —
+            // the same three places Python's does, and in the same order.
+            if let Some(code) = flag_values(argv, &["-e", "--eval", "-p", "--print"]).first() {
+                return Op::JavaScript {
+                    source: (*code).to_string(),
+                };
+            }
+            match words
+                .first()
+                .filter(|word| looks_like_path(word))
+                .and_then(|word| resolve(word, cwd, home))
+            {
+                Some(script) => Op::Run { script },
+                None => match heredocs.first() {
+                    Some(source) => Op::JavaScript {
+                        source: source.clone(),
+                    },
+                    None => Op::Nothing,
+                },
+            }
+        }
         Verb::Python => {
             // A script file is the program, and a heredoc alongside it is that
             // program's *input* — reading it as source would attribute the
@@ -1244,7 +1319,14 @@ const SSH_VALUED: &[&str] = &[
 /// Returns [`Op::Nothing`] when there is no script — `ssh host` alone opens a
 /// session nobody scripted, and `kubectl get pods` reaches no shell at all.
 fn remote(kind: Remote, argv: &[String]) -> Op {
-    let (host, script) = match kind {
+    /// What the far side receives: text a shell will parse, or an argv it will
+    /// not. Local to `remote`, because it exists only to carry the difference
+    /// the few lines to the `match` below.
+    enum Payload {
+        Script(String),
+        Argv(Vec<String>),
+    }
+    let (host, payload) = match kind {
         Remote::Ssh => {
             let mut rest = argv.iter().skip(1);
             let mut host = None;
@@ -1259,7 +1341,7 @@ fn remote(kind: Remote, argv: &[String]) -> Op {
             // ssh joins its remaining arguments with spaces and gives them to
             // the remote shell, so joining them here is not an approximation.
             let script = rest.cloned().collect::<Vec<_>>().join(" ");
-            (host, script)
+            (host, Payload::Script(script))
         }
         Remote::Kubectl | Remote::Docker => {
             let mut words = argv.iter().skip(1).peekable();
@@ -1294,30 +1376,59 @@ fn remote(kind: Remote, argv: &[String]) -> Op {
             // it, so `sh -c 'cat a b'` is three words and the third keeps its
             // spaces. Joining would hand `cat` alone to the inner shell and
             // lose the rest. The `sh -c` shape is what the corpus writes.
-            let script = match script.split_first() {
+            //
+            // ⚠ And when the program is NOT a shell, there is nothing to parse
+            // at all — see [`Op::RemoteRun`]. Joining the words and reading the
+            // result as shell was where 700 of the nested refusals came from.
+            let payload = match script.split_first() {
+                // `su - irssi -s /bin/sh -c '…'` names the shell in a flag and
+                // the script in another, so the program word is not one of the
+                // shells — but a shell is exactly what runs the payload, and
+                // reading it as an argv loses the `&&` inside. One payload in
+                // the corpus, found by `examples/remote-argv-check.rs` as the
+                // single subject the older join-and-parse reading found that
+                // this one did not; kept because it is right, not because it is
+                // large.
+                Some((program, rest)) if matches!(basename(program), "su" | "runuser") => {
+                    match rest
+                        .iter()
+                        .position(|w| w == "-c")
+                        .and_then(|i| rest.get(i + 1))
+                    {
+                        Some(script) => Payload::Script(script.clone()),
+                        None => Payload::Argv(script.to_vec()),
+                    }
+                }
                 Some((program, rest))
                     if matches!(basename(program), "sh" | "bash" | "zsh" | "dash" | "ksh") =>
                 {
                     let argv: Vec<String> = std::iter::once(program.clone())
                         .chain(rest.iter().cloned())
                         .collect();
-                    shell_c_value(&argv)
-                        .map(str::to_string)
-                        .unwrap_or_else(|| rest.join(" "))
+                    match shell_c_value(&argv) {
+                        Some(script) => Payload::Script(script.to_string()),
+                        // `sh script.sh` — a shell with no `-c`, so its words
+                        // are still an argv and the first of them is a file.
+                        None => Payload::Argv(argv),
+                    }
                 }
-                _ => script.join(" "),
+                _ => Payload::Argv(script),
             };
-            (target, script)
+            (target, payload)
         }
     };
-    match (host, script) {
+    match (host, payload) {
         // A host named by a variable — `ssh "$h" '…'` — cannot be resolved to a
         // machine, and a use filed against `$h` is filed against nothing. The
         // command is dropped rather than attributed to a name that is not one.
         (Some(host), _) if host.contains('$') => Op::Nothing,
-        (Some(host), script) if !script.trim().is_empty() => Op::Remote {
+        (Some(host), Payload::Script(script)) if !script.trim().is_empty() => Op::Remote {
             host: machine(&host),
             script,
+        },
+        (Some(host), Payload::Argv(argv)) if !argv.is_empty() => Op::RemoteRun {
+            host: machine(&host),
+            argv,
         },
         _ => Op::Nothing,
     }

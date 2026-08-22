@@ -794,14 +794,41 @@ fn a_cd_inside_a_nested_shell_does_not_escape_it() {
 #[test]
 fn only_a_shells_inline_flag_is_shell() {
     // `python -c` carries Python and `node -e` carries JavaScript. Read as
-    // *shell* either would invent commands nobody ran. Python is read as
-    // Python, by a reader that knows it; JavaScript is not read at all, and
-    // says so by contributing nothing rather than by contributing nonsense.
+    // *shell* either would invent commands nobody ran. Each is read by the
+    // reader that knows it, and resolved here — where the working directory is.
     assert_eq!(
         uses("python3 -c 'import os; os.remove(\"src/a.py\")'"),
         [("/home/example/Code/health/src/a.py".to_string(), true)]
     );
-    assert!(uses("node -e 'require(\"fs\").readFileSync(\"src/a.ts\")'").is_empty());
+    // ⚠ **This asserted `is_empty()` until 2026-08-22**, when `node -e` was
+    // ranked as a query tool on a count of its writes alone. Its READS are
+    // 1,790 `readFileSync` calls across the corpus, and a projection is mostly
+    // about reads — so the decision moved when the denominator did.
+    assert_eq!(
+        uses("node -e 'require(\"fs\").readFileSync(\"src/a.ts\")'"),
+        [("/home/example/Code/health/src/a.ts".to_string(), false)]
+    );
+}
+
+#[test]
+fn a_command_run_from_inside_a_carried_program_is_followed_home() {
+    // The loop the three readers close between them: a shell that runs Python
+    // that runs a shell. Until this, everything past the `os.system` was
+    // invisible — and `subprocess.run` alone was 443 calls of it.
+    assert_eq!(
+        uses("python3 -c 'import os; os.system(\"cat src/a.py\")'"),
+        [("/home/example/Code/health/src/a.py".to_string(), false)]
+    );
+    // And a JavaScript one, whose `execSync` really does go through a shell.
+    assert_eq!(
+        uses("node -e 'require(\"child_process\").execSync(\"cat src/a.ts\")'"),
+        [("/home/example/Code/health/src/a.ts".to_string(), false)]
+    );
+    // ⚠ The `cd` inside stays inside, exactly as it does for `bash -c`.
+    assert_eq!(
+        uses("python3 -c 'import os; os.system(\"cd frontend && cat a.ts\")'"),
+        [("/home/example/Code/health/frontend/a.ts".to_string(), false)]
+    );
 }
 
 #[test]

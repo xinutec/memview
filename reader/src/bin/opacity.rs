@@ -162,9 +162,12 @@ fn main() -> anyhow::Result<()> {
             .ops
             .iter()
             .filter_map(|op| match op {
-                Op::Python { source } => Some(source.as_str()),
+                Op::Python { source } | Op::JavaScript { source } => Some(source.as_str()),
                 Op::Nested { script } => Some(script.as_str()),
                 Op::Remote { script, .. } => Some(script.as_str()),
+                // Its words went to a reader too — as an argv, which carries no
+                // heredoc, so there is no body of its own to exempt here.
+                Op::RemoteRun { .. } => None,
                 _ => None,
             })
             .collect();

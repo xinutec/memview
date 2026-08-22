@@ -36,6 +36,8 @@ Each stage's authoritative explanation is its module doc-comment.
 | `reader/src/shell.rs` + `shell.pest` | the same question, second answer — the check on the first |
 | `reader/src/shell_ops.rs` | what does one command do, to which paths? |
 | `reader/src/python.rs` + `python.pest` | same, for inline Python |
+| `reader/src/javascript.rs` + `javascript.pest` | same, for inline JavaScript |
+| `reader/src/program.rs` | the types both carried readers answer in |
 | `reader/src/shell_files.rs` | resolved against a cwd, which files? |
 | `reader/src/activity.rs` | what kind of work — test, build, edit, deploy? |
 | `reader/src/doing.rs` | timeline: agent · minute · repo · kind · count · verdict |
@@ -165,12 +167,17 @@ cargo run --release -p reader --bin shell-report     -- <corpus>  # grammar
 cargo run --release -p reader --bin shell-files      -- <corpus>  # semantics
 cargo run --release -p reader --bin activity-report  -- <corpus> [--sample KIND]
 cargo run --release -p reader --bin python-report    -- <corpus> [--why|--sample]
+cargo run --release -p reader --bin javascript-report -- <corpus> [--why|--sample]
 cargo run --release -p reader --bin opacity          -- <corpus> [--why|--dump <label>]
 # do the two readers agree about what ran? — and where they do not
 cargo run --release -p reader --bin projection -- <corpus> [--show <n>] [--only <bucket>]
 
 cargo run --release -p reader --example roundtrip-probe -- <corpus>
 cargo run --release -p reader --example unparsed-probe  -- <corpus>
+# which nested scripts will not read, by construct AND by who handed them over
+cargo run --release -p reader --example nested-why           -- <corpus> [--reason NAME]
+# what changed when a container payload stopped being joined into a script
+cargo run --release -p reader --example remote-argv-check    -- <corpus>
 # is there Python we never noticed was Python? — and does what we found parse?
 cargo run --release -p reader --example python-calls          -- <corpus>
 cargo run --release -p reader --example tree-sitter-python-probe -- <corpus>
@@ -227,16 +234,39 @@ earlier reports a disagreement that is only a difference of stage.
 ⚠ **A nested script that will not read is a whole script's worth of file uses
 lost, so the count is ranked by the construct that stopped it** — `shell-files`
 prints the ranking. A bare number stood at 405 for a day naming nothing, which is
-how a figure hides: 405 *occurrences* turned out to be **20 distinct scripts, 14
-of which bash refuses too** (measured with `bash -n`, via
-`--example nested-why`). Broken quoting in a commit message, mostly: a `\'` inside
-single quotes does not escape, so the string ends early and the rest of the line
-becomes shell that was never meant to be. The grammar read them by guessing.
+how a figure hides: those *occurrences* were **20 distinct scripts, 14 of which
+bash refuses too** (measured with `bash -n`, via `--example nested-why`). Broken
+quoting in a commit message, mostly: a `\'` inside single quotes does not escape,
+so the string ends early and the rest of the line becomes shell that was never
+meant to be. The grammar read them by guessing.
 
-Of the six bash accepts, one is a `node -e` payload whose JavaScript sits inside
-a **backtick** — where `bash -n` defers and has no opinion at all, so its
-acceptance says nothing (see execution-model.md). The rest are ordinary
-construct gaps, ranked with everything else. memview#1028.
+⚠ **And then the ranking by *construct* hid the cause, which was a wrong model of
+the carrier.** At 813 occurrences, 766 were `Grouping` — unmatched `( )` — which
+reads as a grammar gap and is not one. `nested-why` grew a second table, by the
+command that HANDED the payload over, and **686 of them came from one shape:
+`kubectl exec … -- <a program that is not a shell>`**. Those words go to
+`exec()`; no shell re-splits them and none removes a quote. Joining them back
+into a string and parsing that as shell put SQL and JavaScript in front of the
+shell grammar, where `SELECT ROW_COUNT() AS deleted` is unmatched grouping and so
+is every `node -e` body with a `{` in it. The payload is now kept as an argv and
+**classified** — `Op::RemoteRun`, the same choice `Verb::Carries` makes — which
+costs no second parse and so cannot fail one. **813 → 73.**
+
+The exchange was measured rather than assumed, because "fewer refusals" and
+"fewer findings" can be one change seen twice: `--example remote-argv-check`
+computes both readings of all 3,034 container payloads and prints where they
+disagree. They name the same subjects for 3,026. The new reading finds **four**
+paths the old one lost inside refused payloads, and drops **one** the old one
+invented — `/p`, which is the tail of a `sed` address range that the join split
+at a `;`. The one real subject the old reading found and this did not was
+`su -s /bin/sh -c '…'`, which names its shell in a flag; that is now read as the
+shell it is. memview#1028.
+
+Two rules generalise out of it. **A refusal names the construct that stopped the
+parse, never the reason the text was there** — rank by carrier as well as by
+construct. And **a payload is text only when a shell is on the far side**;
+`ssh` joins and re-parses because ssh really does, `kubectl exec` and
+`docker exec` do not.
 
 ⚠ **A flat outer parse cannot feed a tree nested one.** `shell.rs` hides a
 heredoc body inside its own delimiter so a nested re-parse can still see it, and
@@ -283,6 +313,71 @@ question it could never find a spelling the table has not been taught. Which is
 also why `python313` — a nixpkgs attribute in `nix-shell -p python313`, 68 of
 them — is matched and then shown to run nothing, rather than filtered out early.
 
+## The JavaScript inside it
+
+The third language, added 2026-08-22, and it is `python.rs` with the nouns
+changed: a grammar for the syntax, a module for the meaning, a report ranking
+what it could not read. The types both readers answer in are shared
+(`program.rs`) so a figure from one can be read against a figure from the other.
+
+**It is here because the ranking that kept it out was measured on the wrong
+denominator.** The "not done" row said `node -e` is a query tool, not an editor,
+on 724 calls with 23 writes. Counted again over the whole corpus: **11,748 Bash
+calls name a JavaScript runtime, 3,824 carry a program in a flag**, and inside
+them are 1,790 `readFileSync`, 1,909 `require`, 670 `import` and 214
+`writeFileSync`. A projection is mostly about reads, and reads had not been
+counted at all. Standing now: 2,306 programs read, 4,347 file operations, 86.0%
+of them naming a file, 1,907 uses kept as paths.
+
+Three things Python does not have had to be answered.
+
+⚠ **A regex literal and a division are the same character**, and position is
+what tells them apart: a `/` where an atom is expected cannot be division,
+because division needs a left operand. The grammar gets this for free by trying
+`regex` only in atom position. `did_not_run` does not, and its first version
+read the `'` inside `.replace(/['"]/g, "")` as an opening quote, declared the
+string unterminated, and **threw the whole program away** — the direction that
+destroys knowledge. It now tracks the last significant character and applies the
+same rule. Caught by a test, not by the corpus.
+
+⚠ **An expression may cross a newline**, which in Python it may not. This corpus
+writes `raw.filter(…)⏎  .map(…)`, and a grammar that ends the statement at the
+line break turns `.map` into a new one — which is how `map`, `filter` and `then`
+appeared on the worklist. Newlines are allowed before a `.` and inside brackets,
+and **nowhere else**: at statement level `p = 'a'` and `q = 'b'` on two lines
+would otherwise read as one value of two operands, and a value of two operands
+is computed, so every constant in the program would quietly stop being one.
+
+⚠ **A bare module specifier is a package, not a file.** `require("@angular/
+compiler")` has a slash in it, so it passes any "looks like a path" test ever
+written — and it names nothing on disk. Node's own rule is used: a specifier is
+a path when it starts with `./`, `../`, `/` or `~`. Before that rule, 1,126 of
+the recorded uses were the string `fs`.
+
+## The loop between them
+
+A carried program that runs a command runs a shell's worth of work, and until
+2026-08-22 all of it was invisible. **`subprocess.run` was the largest single
+thing either carried reader could not read** — 443 calls, twice the next entry
+on the Python worklist. `Program::ran` now carries what a program handed to the
+system, and `shell_files::carried` follows it at the shell's own directory, so
+`bash -c 'python3 -c "os.system(…)"'` reads all the way down and what comes back
+may be another Python or JavaScript program in turn.
+
+⚠ **Whether a shell is on the other side is decided by the call, never by the
+shape of the argument** — the same distinction `Op::RemoteRun` draws one layer
+up. `os.system` and `execSync` go through `/bin/sh`; `subprocess.run([…])`,
+`spawnSync` and `execFileSync` reach `exec()` with no shell, so their words stay
+an argv. `subprocess.run("ls -la")` *without* `shell=True` is neither: Python
+looks for a program of that whole name and fails, so reading it as a script
+would credit the program with work it did not do.
+
+⚠ **One unknown word makes a whole argv unusable.** `["ffmpeg", "-i", f]` with
+`f` computed would otherwise read as an ffmpeg call over a file named `-i`.
+
+What it bought, measured across the corpus: file uses 408,348 → 410,063 reads
+and 71,359 → 71,497 writes, and 95 paths nothing had named before.
+
 ## Correctness
 
 `reader/tests/oracle.rs` is the only test that catches a *wrong* reading rather
@@ -309,7 +404,7 @@ Each decided from a measurement kept with the thing it decided.
 | a third-party parser | swapping loses more than it gains | `reader/examples/tree-sitter-probe.rs` |
 | parsing regexes | biggest by volume; a regex names no file | `reader/src/bin/opacity.rs` |
 | opening scripts on disk | what `deploy.sh` held *then* is unrecoverable | — |
-| reading `node -e` | a query tool, not an editor | `reader/src/shell_ops.rs` |
+| `deno` and `bun` inline code | a handful of calls, and neither spells its flags as node does | `reader/src/shell_ops.rs` |
 | a policy-refusal channel | the refused bucket had one member | memview#820 |
 | confirming `\|\|` from a non-zero exit | reachable by arithmetic, and tiny | `reader/src/shell.rs` |
 

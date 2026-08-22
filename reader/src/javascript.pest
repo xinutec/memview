@@ -1,0 +1,150 @@
+//! The JavaScript Claude has actually written — expressions, not a language.
+//!
+//! Built to the shape `python.pest` settled on, and for the same reasons: it is
+//! restrictive where meaning is taken and generous where it is not, `stray`
+//! accepts punctuation it has no reading for so a program is never rejected
+//! whole, and the measure of coverage is not "does it parse" but "was the call
+//! understood" — `javascript-report` ranks what this could not read, and that
+//! list is what grows the reader.
+//!
+//! Three things Python does not have had to be answered here.
+//!
+//! **A regex literal and a division are the same character.** `/x/` is decided
+//! by *position*: a `/` where an atom is expected can only open a regex, since
+//! division needs a left operand, and pest tries `regex` exactly there. The
+//! alternative — a lexer that tracks the previous token — is what a general JS
+//! parser needs and this does not, because `atom` position is already the
+//! distinction. A `//` is taken by `COMMENT` first, which is why `regex`
+//! requires at least one character.
+//!
+//! **A template literal is atomic and its `${…}` is not read.** ``` `a${b}c` ```
+//! is a computed value like an f-string, and the reader says so; a template with
+//! no substitution is an ordinary string.
+//!
+//! **A declaration can sit inside brackets**: `for (const f of files)` binds `f`
+//! where Python would have written a `for` statement. `arg` accepts a `declare`
+//! for that reason — without it the name looks unbound, and a name that is
+//! secretly rebound is the one way a constant can become a wrong path.
+
+program = { SOI ~ element* ~ EOI }
+
+element = _{ NEWLINE | ";" | import_stmt | declare | assign | augmented | binder | expr | stray }
+
+// `import { a } from "./x.js"`, `import "./x.js"`, `import("./x.js")`.
+//
+// One rule for all three: whatever stands between the keyword and the first
+// string is a binding list this does not read, and the string is the module —
+// which, when it looks like a path, is a file the program read.
+// ⚠ **Not `import(…)`.** A dynamic import is a CALL, and letting this rule take
+// it consumed `import('x'` and left `).then(…)` behind as a new statement —
+// which is how `then`, `map` and `filter` got into the worklist. The call goes
+// through `expr` and reaches the same reading by `callable`.
+import_stmt  = { kw_import ~ !"(" ~ import_names? ~ string }
+kw_import    = @{ "import" ~ !name_char }
+import_names = @{ (!string ~ !NEWLINE ~ ANY)+ }
+
+// `const p = 'src/x.ts'`, `let a, b`, `const { a } = require('x')`.
+declare    = { decl_kw ~ declarator ~ ("," ~ declarator)* }
+decl_kw    = @{ ("const" | "let" | "var") ~ !name_char }
+declarator = _{ assign | destructure | target }
+
+// Every name inside a pattern is bound to a part of something computed, so none
+// of them is a constant — the same rule `for p in files` gets in Python.
+destructure = { pattern ~ ("=" ~ !"=" ~ value)? }
+pattern     = { "{" ~ args ~ "}" | "[" ~ args ~ "]" }
+
+// The lookahead is what makes it an assignment rather than a comparison, and
+// `value` is the WHOLE right-hand side: a statement that goes on past its
+// literal is not a constant, and the only way to know is to read to the end.
+assign = { name ~ "=" ~ !"=" ~ value ~ &end }
+end    = _{ NEWLINE | ";" | "," | EOI }
+
+// `p += x` — a name being built up is not a constant, whatever it started as.
+augmented = { name ~ augment }
+augment   = @{ ("**" | ">>>" | ">>" | "<<" | "??" | "||" | "&&" | "+" | "-" | "*" | "/" | "%" | "|" | "&" | "^") ~ "=" ~ !"=" }
+
+// `function f`, `class C`, `catch e` — bound to something unknowable.
+binder    = { binder_kw ~ target }
+binder_kw = @{ ("function" | "class" | "catch") ~ !name_char }
+target    = { name ~ ("," ~ name)* }
+
+// ---- expressions ----
+
+expr    = { atom ~ trailer* }
+atom    = _{ string | template | regex | number | name | paren | array | object }
+trailer = _{ call | subscript | attr }
+
+call      = { "(" ~ nl ~ args ~ nl ~ ")" }
+subscript = { "[" ~ nl ~ args ~ nl ~ "]" }
+// `?.` is the same reach as `.` for the purpose of naming a file.
+//
+// ⚠ **A newline may come first, and that is not cosmetic.** This corpus writes
+// `raw.filter(…)⏎  .map(…)`, and without the `nl` the chain ends at the line
+// break: `.map` starts a new statement, `map` becomes a bare name with a call
+// after it, and the worklist fills up with `map`, `filter`, `then` and `at` —
+// which is exactly what the first run of `javascript-report` showed.
+attr      = { nl ~ ("?." | ".") ~ name }
+
+paren  = { "(" ~ nl ~ args ~ nl ~ ")" }
+array  = { "[" ~ nl ~ args ~ nl ~ "]" }
+object = { "{" ~ nl ~ args ~ nl ~ "}" }
+
+args    = { arg? ~ (nl ~ "," ~ nl ~ arg?)* }
+arg     = { keyword? ~ (declare | open_value) }
+// An object key, which is `name:` where Python's keyword argument is `name=`.
+keyword = { (name | string | number) ~ ":" ~ !":" }
+
+// **More than one operand means the value is computed**, and a computed value
+// names no file. Juxtaposition is allowed (`binop?`) so the shapes this has no
+// syntax for still parse — they are computed either way, and a grammar that
+// failed on them would lose the calls around them too.
+value   = { operand ~ (binop? ~ operand)* }
+operand = { unary* ~ expr }
+
+// ⚠ **The same rule, and the newlines are the whole difference.** Inside
+// brackets a value may run over lines, because that is how an argument list or
+// an object literal is written; at statement level it may NOT, because
+// `p = 'a'` on one line and `q = 'b'` on the next would otherwise read as ONE
+// value of two operands — and a value of two operands is computed, so every
+// constant in the program would quietly stop being one. Two rules rather than a
+// flag, because pest has no way to say "the same rule, in a different context".
+open_value = { operand ~ (nl ~ binop? ~ nl ~ operand)* }
+
+// Newlines that carry no meaning here. `WHITESPACE` deliberately excludes them,
+// so every place one is allowed says so.
+nl = _{ NEWLINE* }
+unary   = @{ "..." | "!" | "~" | "-" | "+" | (("new" | "await" | "typeof" | "void" | "delete" | "async" | "yield") ~ !name_char) }
+
+binop   = @{ "===" | "!==" | "==" | "!=" | "<=" | ">=" | "&&" | "||" | "??" | "=>" | "**" | ">>>" | ">>" | "<<" | "+" | "-" | "*" | "/" | "%" | "<" | ">" | "|" | "&" | "^" | "?" | ":" | word_op }
+word_op = @{ ("instanceof" | "in" | "of") ~ !name_char }
+
+// ---- atoms ----
+
+name      = @{ (ASCII_ALPHA | "_" | "$") ~ name_char* }
+name_char = _{ ASCII_ALPHANUMERIC | "_" | "$" }
+number    = @{ ASCII_DIGIT ~ (ASCII_ALPHANUMERIC | "." | "_")* }
+
+// ATOMIC, the lesson `shell.pest` paid for twice: left open, pest's implicit
+// whitespace and comment skipping runs *inside* the literal, and the first `//`
+// in a URL starts a comment that eats the closing quote.
+string   = ${ single | double }
+// A one-line literal stops at the line's end: a heredoc cut short by a missing
+// terminator must not swallow the rest of the program as a string.
+single   = @{ "'" ~ (escape | !("'" | NEWLINE) ~ ANY)* ~ "'" }
+double   = @{ "\"" ~ (escape | !("\"" | NEWLINE) ~ ANY)* ~ "\"" }
+// A template MAY span lines — that is what it is for — and its `${…}` is left
+// unread inside it.
+template = @{ "`" ~ (escape | !"`" ~ ANY)* ~ "`" }
+escape   = _{ "\\" ~ ANY }
+
+// Tried only where an atom is expected, which is the whole of how a regex is
+// told from a division. A character class may hold an unescaped `/`.
+regex       = @{ "/" ~ !("/" | "*") ~ (regex_class | escape | !("/" | NEWLINE) ~ ANY)+ ~ "/" ~ name_char* }
+regex_class = _{ "[" ~ (escape | !("]" | NEWLINE) ~ ANY)* ~ "]" }
+
+// Punctuation with no reading — an `@` decorator, a stray `#`. Matched so that
+// nothing is ever rejected whole.
+stray = @{ !NEWLINE ~ ANY }
+
+WHITESPACE = _{ " " | "\t" | "\r" }
+COMMENT    = _{ "//" ~ (!NEWLINE ~ ANY)* | "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
