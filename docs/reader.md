@@ -336,10 +336,25 @@ a path, so neither becomes a write. An archive's members are the mirror image �
 every path test ever written and is not a file on this machine.
 
 ⚠ **Checked one at a time, and `screen` is why.** It sits in the same part of
-that list, and 74 of its 604 calls are `-X hardcopy /tmp/…` — a real file,
-written. Sweeping the neighbourhood would have deleted them silently, since
-`Op::Nothing` is a claim nothing downstream re-examines. `journalctl` earned its
-place the same way: `--file` exists, and this corpus never uses it.
+that list, and 222 of its calls are `-X hardcopy /tmp/…` — a real file, written.
+Sweeping the neighbourhood would have deleted them silently, since `Op::Nothing`
+is a claim nothing downstream re-examines. `journalctl` earned its place the same
+way: `--file` exists, and this corpus never uses it. `screen` has since been
+given the shape it was owed — it writes what `hardcopy` and `-Logfile` name, and
+nothing else it is asked to do touches a file.
+
+`dhall-to-json` (444) and `lean` (377) went with it, and between the three the
+unread list lost another 1,429 executions. The converter is the shape worth
+naming: **both of its ends are flag values**, so unlike ffmpeg it has no operand
+at all, and this repository's own gate is one of its callers — `gate.dhall` is
+the source and `gate.json` is generated from it, a dependency that until now
+appeared in no projection.
+
+⚠ **The unread list is a moving target, and three tests had pinned a command
+from it as their example of one.** `ffmpeg` was that example until it was taught,
+then `dhall-to-json`, both within an hour. They now say so in a comment: what is
+under test is the naming, and the command naming it is a placeholder by
+construction.
 
 ## A wrong reading costs more than a missing one
 

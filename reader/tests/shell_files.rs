@@ -497,12 +497,13 @@ fn a_glob_is_recorded_as_written() {
 
 #[test]
 fn an_unknown_command_contributes_nothing_and_is_counted() {
-    // ⚠ The example was `ffmpeg` until 2026-08-22, when ffmpeg was taught. The
-    // property under test is the unread command's, not this command's.
-    assert!(uses("dhall-to-json --file gate.dhall --output gate.json").is_empty());
+    // ⚠ The example was `ffmpeg`, then `dhall-to-json`, and both were taught
+    // within the hour. The property under test belongs to whatever is still
+    // unread; the command naming it is a placeholder by construction.
+    assert!(uses("verified_cli --session 2026-06-21").is_empty());
     assert_eq!(
-        unread("dhall-to-json --file gate.dhall --output gate.json"),
-        ["dhall-to-json"]
+        unread("verified_cli --session 2026-06-21"),
+        ["verified_cli"]
     );
 }
 

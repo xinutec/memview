@@ -657,7 +657,14 @@ enum Verb {
     /// output is positional and the inputs are not. The path guard is what makes
     /// "the last operand" safe: `-`, `pipe:1` and a bare `5` left over from an
     /// undeclared flag are not paths, so they name no write.
-    Convert { input: &'static [&'static str] },
+    Convert {
+        input: &'static [&'static str],
+        /// Flags naming the output. **Empty means the output is the LAST
+        /// OPERAND**, which is how ffmpeg spells it and how nothing else here
+        /// does — `dhall-to-json --file x --output y` names both ends in flags
+        /// and has no operand at all.
+        output: &'static [&'static str],
+    },
     /// Reads the archive named first. Everything after it is a member pattern
     /// INSIDE the archive — `unzip x.zip 'FS/data/**' -d out` — which is not a
     /// file on this machine however much it looks like a path, and `-d` names a
@@ -850,6 +857,12 @@ fn verb(name: &str) -> Option<Verb> {
             flags: Flags::valued(&["-e", "-E", "-I"]),
             inline: &[],
         },
+        // Runs the `.lean` file it is given — 177 of its calls name one. The
+        // rest are flags and `lake env lean`, where the operand is a target.
+        "lean" => Verb::Interpreter {
+            flags: Flags::valued(&["--run", "-o", "--o", "-i"]),
+            inline: &[],
+        },
         "source" | "." | "sqlite3" => Verb::Interpreter {
             flags: Flags::NONE,
             inline: &[],
@@ -864,12 +877,31 @@ fn verb(name: &str) -> Option<Verb> {
         // audio, the heatcam captures. `-i` may be given more than once, and a
         // synthetic input (`-f lavfi -i anoisesrc=duration=2`) is not a path, so
         // the guard drops it without a special case.
-        "ffmpeg" => Verb::Convert { input: &["-i"] },
+        "ffmpeg" => Verb::Convert {
+            input: &["-i"],
+            output: &[],
+        },
+        // 444 calls, and this repository's own gate is one of them: the Dhall
+        // table is the source and `gate.json` is generated from it. 16 of them
+        // write by shell redirect instead, which is counted where it stands.
+        "dhall-to-json" | "dhall-to-yaml" | "json-to-dhall" | "yaml-to-dhall" => Verb::Convert {
+            input: &["--file"],
+            output: &["--output"],
+        },
         // Reads what it is asked about and writes nothing. Its flag values are
         // `error`, `format=duration`, `csv=p=0` — none of them shaped like a
         // path, so the guard leaves only the file.
         "ffprobe" => Verb::Read,
         "unzip" => Verb::Archive,
+        // ⚠ **222 of its calls write a real file** — `-X hardcopy /tmp/…` dumps
+        // a window's contents, and `-L -Logfile x` logs a session. The rest
+        // (`-X stuff`, `-X quit`, attaching) touch nothing. It was left unread
+        // on purpose while the other terminal commands were swept into
+        // `NoFiles`, because sweeping it would have deleted those writes
+        // silently; this is the shape that was owed.
+        "screen" => Verb::Fetch {
+            writes: &["hardcopy", "-Logfile"],
+        },
         // ⚠ **Read-only because that is all this corpus does with it**: every
         // call is `zstd -dc <file>`, decompressing to stdout. `zstd <file>` in
         // place would create one and delete the other, and would need its own
@@ -1111,6 +1143,11 @@ fn act(
         // them is an operand, and the first is the whole point.
         // Declared so their values do not become operands — which matters here
         // because the LAST operand is the output.
+        // Both ends are flag values here, so both consume the word after them
+        // and neither leaves an operand behind.
+        Verb::Convert { output, .. } if !output.is_empty() => {
+            Flags::valued(&["--file", "--output"])
+        }
         Verb::Convert { .. } => Flags::valued(&[
             "-i",
             "-f",
@@ -1207,7 +1244,14 @@ fn act(
                 .any(|a| a.starts_with('-') && !a.starts_with("--") && a.contains('r'))
                 || has_flag(argv, &["--recursive"]),
         },
-        Verb::Convert { input } => {
+        Verb::Convert { input, output } if !output.is_empty() => Op::Copy {
+            from: paths(unnamed, &flag_values(argv, input), cwd, home),
+            to: paths(unnamed, &flag_values(argv, output), cwd, home)
+                .into_iter()
+                .next()
+                .unwrap_or_default(),
+        },
+        Verb::Convert { input, .. } => {
             let mut from = paths(unnamed, &flag_values(argv, input), cwd, home);
             // Everything positional except the last is another input; ffmpeg
             // accepts none that way, but a file named there is still read.

@@ -144,9 +144,9 @@ fn an_unknown_command_names_itself_so_the_gap_can_be_counted() {
     // placeholder for the next thing to teach, and that is the point of the
     // variant: a gap that names itself can be counted and worked down.
     assert_eq!(
-        one("dhall-to-json --file gate.dhall --output gate.json"),
+        one("verified_cli --session 2026-06-21"),
         Op::Unknown {
-            name: "dhall-to-json".to_string(),
+            name: "verified_cli".to_string(),
         }
     );
     // ...and a command that is understood to do nothing is not the same thing.
@@ -326,15 +326,35 @@ fn an_archives_members_are_not_files_on_this_machine() {
 }
 
 #[test]
-fn screen_is_not_swept_in_with_them_because_it_writes() {
-    // ⚠ The reason that list is checked command by command rather than swept:
-    // 74 of `screen`'s 604 calls are `-X hardcopy /tmp/…`, which writes a real
+fn screen_writes_when_it_is_asked_to_and_not_otherwise() {
+    // ⚠ The reason that list was checked command by command rather than swept:
+    // 222 of `screen`'s calls are `-X hardcopy /tmp/…`, which writes a real
     // file. Filing it under "touches no file" would have deleted those, and
     // nothing downstream could have noticed.
-    assert!(matches!(
+    assert_eq!(
         one("screen -S claude -X hardcopy /tmp/screen.txt"),
-        Op::Unknown { .. }
-    ));
+        Op::Write {
+            paths: vec!["/tmp/screen.txt".to_string()],
+        }
+    );
+    // Everything else it is asked to do touches nothing.
+    assert_eq!(
+        one("screen -S claude -p 0 -X stuff hello"),
+        Op::Write { paths: Vec::new() }
+    );
+}
+
+#[test]
+fn a_converter_that_names_both_ends_in_flags_has_no_operand() {
+    // This repository's own gate: the Dhall table is the source, `gate.json` is
+    // generated from it, and neither is an operand.
+    assert_eq!(
+        one("dhall-to-json --file gate.dhall --output gate.json"),
+        Op::Copy {
+            from: vec!["/home/example/Code/health/gate.dhall".to_string()],
+            to: "/home/example/Code/health/gate.json".to_string(),
+        }
+    );
 }
 
 #[test]

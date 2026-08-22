@@ -160,9 +160,12 @@ fn a_command_that_will_not_parse_says_so() {
 fn an_unread_command_is_named_rather_than_left_blank() {
     // On one command, "what is not in the table" is usually the whole answer to
     // "why did this attribute nothing".
-    let answer = asked("dhall-to-json --file plan/x.dhall", Some(true));
+    // ⚠ The example moves as the table grows — `dhall-to-json` stood here until
+    // 2026-08-22, when it was taught. What is under test is the naming, not the
+    // command.
+    let answer = asked("verified_cli --session 2026-06-21", Some(true));
     assert_eq!(answer.unread.len(), 1);
-    assert_eq!(answer.unread[0].name, "dhall-to-json");
+    assert_eq!(answer.unread[0].name, "verified_cli");
 }
 
 #[test]
