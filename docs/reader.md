@@ -434,10 +434,15 @@ does not appear, which is where this would go wrong quietly. **Understood stands
 at 99.2%, and the unread list tops out at 1,215.**
 
 ⚠ **`md5` was the macOS spelling of something already in the table**, and adding
-"the family" duplicated five entries the `Verb::Read` list has always had. The
-gate said so under `-D warnings`; a local `cargo clippy` did not, because the
-crate was already built and **cargo does not re-emit a warning it has emitted
-before**. Touch the file, or trust the gate.
+"the family" duplicated five entries the `Verb::Read` list has always had —
+`md5sum`, `shasum`, `sha1sum`, `sha256sum`, `cksum`. **Read the list before
+extending it**; `rustc` will say so, but only if something asks it.
+
+The gate said so under `-D warnings` and the pre-commit clippy in that session
+did not. The obvious explanation — that cargo had cached the crate and skipped
+the diagnostic — was tested and is **false**: the same pipeline reports it on a
+fresh crate and on a stale one alike. The miss is unexplained, which is worth
+more than a plausible story about it. Trust the gate.
 
 What is left there is a different kind of thing and is not guessable from the
 corpus: `k3s` (1,215) carries a command, and `replay`, `probe`, `lares` and
