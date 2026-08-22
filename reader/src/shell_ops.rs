@@ -651,6 +651,18 @@ enum Verb {
     /// [`Verb::Python`] is: what it does with a file is decided by reading the
     /// *program*.
     JavaScript,
+    /// Reads what its input flags name and writes its LAST operand.
+    ///
+    /// `ffmpeg -i in.wav out.wav`, and it is the only shape here where the
+    /// output is positional and the inputs are not. The path guard is what makes
+    /// "the last operand" safe: `-`, `pipe:1` and a bare `5` left over from an
+    /// undeclared flag are not paths, so they name no write.
+    Convert { input: &'static [&'static str] },
+    /// Reads the archive named first. Everything after it is a member pattern
+    /// INSIDE the archive — `unzip x.zip 'FS/data/**' -d out` — which is not a
+    /// file on this machine however much it looks like a path, and `-d` names a
+    /// directory, which this table does not attribute.
+    Archive,
     /// Runs Python — from `-c`, from a heredoc, or from a script file.
     ///
     /// Its own verb rather than an [`Verb::Interpreter`] with a flag, because
@@ -847,6 +859,22 @@ fn verb(name: &str) -> Option<Verb> {
         // where the operands are stdin and no path is named — but the day one is
         // a file, it is a read, and the path guard already drops the dashes.
         "paste" => Verb::Read,
+
+        // 368 calls, and every one of them real media: the recall pipeline's
+        // audio, the heatcam captures. `-i` may be given more than once, and a
+        // synthetic input (`-f lavfi -i anoisesrc=duration=2`) is not a path, so
+        // the guard drops it without a special case.
+        "ffmpeg" => Verb::Convert { input: &["-i"] },
+        // Reads what it is asked about and writes nothing. Its flag values are
+        // `error`, `format=duration`, `csv=p=0` — none of them shaped like a
+        // path, so the guard leaves only the file.
+        "ffprobe" => Verb::Read,
+        "unzip" => Verb::Archive,
+        // ⚠ **Read-only because that is all this corpus does with it**: every
+        // call is `zstd -dc <file>`, decompressing to stdout. `zstd <file>` in
+        // place would create one and delete the other, and would need its own
+        // reading — an undercount if it ever appears, which is the safe side.
+        "zstd" | "unzstd" | "zstdcat" => Verb::Read,
 
         "find" | "fd" => Verb::Walk(Flags::valued(&[
             "-name", "-iname", "-path", "-type", "-exec",
@@ -1081,6 +1109,33 @@ fn act(
         Verb::Copy(flags) | Verb::Move(flags) => flags,
         // `-c` is the program, `-m` a module, `-W` a warning filter: none of
         // them is an operand, and the first is the whole point.
+        // Declared so their values do not become operands — which matters here
+        // because the LAST operand is the output.
+        Verb::Convert { .. } => Flags::valued(&[
+            "-i",
+            "-f",
+            "-t",
+            "-ss",
+            "-to",
+            "-ar",
+            "-ac",
+            "-af",
+            "-vf",
+            "-b:a",
+            "-b:v",
+            "-c:a",
+            "-c:v",
+            "-acodec",
+            "-vcodec",
+            "-map",
+            "-filter_complex",
+            "-loglevel",
+            "-v",
+            "-r",
+            "-s",
+            "-pix_fmt",
+            "-frames:v",
+        ]),
         Verb::Python => Flags::valued(&["-c", "-m", "-W"]),
         // `-e`/`--eval`/`-p` carry the program; `--input-type` and `-r` carry a
         // mode and a module, and neither is an operand.
@@ -1151,6 +1206,28 @@ fn act(
                 .iter()
                 .any(|a| a.starts_with('-') && !a.starts_with("--") && a.contains('r'))
                 || has_flag(argv, &["--recursive"]),
+        },
+        Verb::Convert { input } => {
+            let mut from = paths(unnamed, &flag_values(argv, input), cwd, home);
+            // Everything positional except the last is another input; ffmpeg
+            // accepts none that way, but a file named there is still read.
+            let (last, earlier) = match words.split_last() {
+                Some((last, earlier)) => (Some(*last), earlier),
+                None => (None, &[][..]),
+            };
+            from.extend(paths(unnamed, earlier, cwd, home));
+            match last
+                .map(|word| paths(unnamed, &[word], cwd, home))
+                .and_then(|found| found.into_iter().next())
+            {
+                Some(to) => Op::Copy { from, to },
+                // No output that is a file — `-f null -`, or a probe. What it
+                // read is still what it read.
+                None => Op::Read { paths: from },
+            }
+        }
+        Verb::Archive => Op::Read {
+            paths: paths(unnamed, &words[..words.len().min(1)], cwd, home),
         },
         Verb::Overwrite => Op::Write {
             paths: paths(unnamed, &words, cwd, home),

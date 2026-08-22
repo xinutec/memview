@@ -325,6 +325,16 @@ seven others (`ping`, `dig`, `nc`, `journalctl`, `dmesg`, `nixos-version`,
 them and moved to `Verb::NoFiles`: **understood 98.0% → 99.0%, and 24,490
 executions off the unread list**, which is the sum of those commands' own counts.
 
+The same pass taught four commands that do real file work and were contributing
+nothing: `ffmpeg` (368 calls of the recall pipeline's audio), `ffprobe`, `unzip`
+and `zstd` — **+524 reads, +110 writes, 88 paths nothing had named**. `ffmpeg` is
+the one shape here where the output is positional and the inputs are not, and
+**the path guard is what makes "the last operand" safe**: `-f null -` ends in a
+dash, a probe ends in a number left over from an undeclared flag, and neither is
+a path, so neither becomes a write. An archive's members are the mirror image —
+`unzip x.zip 'FS/data/**' -d out` names something *inside* the zip, which passes
+every path test ever written and is not a file on this machine.
+
 ⚠ **Checked one at a time, and `screen` is why.** It sits in the same part of
 that list, and 74 of its 604 calls are `-X hardcopy /tmp/…` — a real file,
 written. Sweeping the neighbourhood would have deleted them silently, since

@@ -139,10 +139,14 @@ fn staging_is_named_rather_than_dropped() {
 
 #[test]
 fn an_unknown_command_names_itself_so_the_gap_can_be_counted() {
+    // ⚠ This was `ffmpeg` until 2026-08-22, when ffmpeg was taught — so the
+    // example is now one still on the worklist. Whatever stands here is a
+    // placeholder for the next thing to teach, and that is the point of the
+    // variant: a gap that names itself can be counted and worked down.
     assert_eq!(
-        one("ffmpeg -i in.mp4 out.mp4"),
+        one("dhall-to-json --file gate.dhall --output gate.json"),
         Op::Unknown {
-            name: "ffmpeg".to_string(),
+            name: "dhall-to-json".to_string(),
         }
     );
     // ...and a command that is understood to do nothing is not the same thing.
@@ -275,6 +279,48 @@ fn the_commands_that_name_no_file_say_so_rather_than_going_unread() {
                 "/home/example/Code/health/a.txt".to_string(),
                 "/home/example/Code/health/b.txt".to_string(),
             ],
+        }
+    );
+}
+
+#[test]
+fn ffmpeg_reads_its_inputs_and_writes_its_last_operand() {
+    assert_eq!(
+        one("ffmpeg -hide_banner -i noisy.wav -af afftdn enhanced.wav"),
+        Op::Copy {
+            from: vec!["/home/example/Code/health/noisy.wav".to_string()],
+            to: "/home/example/Code/health/enhanced.wav".to_string(),
+        }
+    );
+    // ⚠ **`-f null -` writes no file, and the guard is what says so** — a
+    // reading that took "the last operand" literally would record a write to a
+    // file called `-`.
+    assert_eq!(
+        one("ffmpeg -hide_banner -i in.wav -af volumedetect -f null -"),
+        Op::Read {
+            paths: vec!["/home/example/Code/health/in.wav".to_string()],
+        }
+    );
+    // A synthetic input is not a file either.
+    assert_eq!(
+        one("ffmpeg -f lavfi -i anoisesrc=duration=2:amplitude=0.05 sil.wav"),
+        Op::Copy {
+            from: Vec::new(),
+            to: "/home/example/Code/health/sil.wav".to_string(),
+        }
+    );
+}
+
+#[test]
+fn an_archives_members_are_not_files_on_this_machine() {
+    // ⚠ `FS/data/misc/bluetooth/logs/*` has slashes, so every path test passes
+    // it — and it names something INSIDE the zip. Only the archive is a file
+    // here, and `-d extracted` is a directory, which this table does not
+    // attribute.
+    assert_eq!(
+        one("unzip -o -q bugreport.zip 'FS/data/misc/bluetooth/logs/*' -d extracted"),
+        Op::Read {
+            paths: vec!["/home/example/Code/health/bugreport.zip".to_string()],
         }
     );
 }

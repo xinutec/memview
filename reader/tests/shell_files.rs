@@ -497,8 +497,26 @@ fn a_glob_is_recorded_as_written() {
 
 #[test]
 fn an_unknown_command_contributes_nothing_and_is_counted() {
-    assert!(uses("ffmpeg -i in.mp4 out.mp4").is_empty());
-    assert_eq!(unread("ffmpeg -i in.mp4 out.mp4"), ["ffmpeg"]);
+    // ⚠ The example was `ffmpeg` until 2026-08-22, when ffmpeg was taught. The
+    // property under test is the unread command's, not this command's.
+    assert!(uses("dhall-to-json --file gate.dhall --output gate.json").is_empty());
+    assert_eq!(
+        unread("dhall-to-json --file gate.dhall --output gate.json"),
+        ["dhall-to-json"]
+    );
+}
+
+#[test]
+fn ffmpeg_puts_its_output_where_a_projection_can_see_it() {
+    // 368 calls of real media — the recall pipeline's audio, and every one of
+    // them was a file changed that nothing downstream could see.
+    assert_eq!(
+        uses("ffmpeg -hide_banner -i noisy.wav enhanced.wav"),
+        [
+            ("/home/example/Code/health/noisy.wav".to_string(), false),
+            ("/home/example/Code/health/enhanced.wav".to_string(), true),
+        ]
+    );
 }
 
 #[test]
