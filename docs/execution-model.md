@@ -540,7 +540,7 @@ purpose, because a gate that cannot fail is not a gate.
 
 ⚠ **Only a reader that is not ours can object to a consistently wrong tree.** The
 round-trip law is satisfied by *any* wrong answer that prints and re-reads as
-itself, and the survey only knows what is refused. Gate 2 has caught four such —
+itself, and the survey only knows what is refused. Gate 2 has caught five such —
 a descriptor normalisation, a word split at a line continuation, `3<&-` recorded
 as a different operation from `3>&-`, and `$'\x00'` held as a character bash
 drops — each written up at the node it corrected. It found nothing while it was
@@ -556,6 +556,29 @@ The `3<&-` one is the clearest example of the shape: our print of the wrong tree
 (`3<&- 3>&-`) read back as the same wrong tree, so the law held; it is valid
 shell, so gate 3 held; and construction cannot see it because both spellings are
 modelled. One command in 129,329.
+
+⚠ **A fifth, left unfixed on its own measurement: we read text bash refuses.**
+One command in 146,175 — a nested `ssh` whose inner double-quoted string carries
+an `awk '…'` program. The awk quotes do not nest; they *close* the outer single
+quote and reopen it, leaving the awk body unquoted, so `(NF>10 && …)` reaches
+bash as bare metacharacters and it reports a syntax error. We build a tree for it
+instead.
+
+Two things follow, and only the second is worth acting on.
+
+The parse could be tightened to match bash, and is not. Rejecting this needs
+unquoted `(` in word position to become an error generally, an unmeasured change
+in the direction that *deletes* readings — the asymmetry `javascript::did_not_run`
+is written around. The gain is bounded above by one command, which extracts **0
+reads and 0 writes**: its payload is refused for an unterminated quote, so
+nothing downstream ever consults the tree.
+
+The rule underneath outlives the instance. A syntax error started *nothing*, and
+[`Verdict::admits`](../reader/src/doing.rs) cannot tell it from a command that
+ran and returned non-zero — the distinction `Rejected` exists for, which bash
+declining does not reach. It costs nothing at one command and is a trap at two,
+and **only gate 2 can see that count move**: such a tree parses, round-trips, and
+prints as valid shell. memview#1074.
 
 ⚠ **It does not look inside a backtick, and that is a hole in the adjudication
 below.** `echo $(rglob("k"))` is refused and `` echo `rglob("k")` `` is accepted

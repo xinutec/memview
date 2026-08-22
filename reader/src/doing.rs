@@ -88,6 +88,27 @@ impl Verdict {
         matches!(self, Verdict::Ok | Verdict::Unknown)
     }
 
+    /// Whether a file use in a command reached this way may be attributed.
+    ///
+    /// ⚠ **`Failed` cannot distinguish "ran and returned non-zero" from "bash
+    /// refused the text", and those are opposite facts.** A runtime failure
+    /// started and attempted its reads — `cat missing.txt` really did try. A
+    /// *syntax* error started nothing: bash parses its whole input before
+    /// running any of it, so one bad token means not a single command in the
+    /// script ran. That is the shape [`Verdict::Rejected`] is written for, but
+    /// `Rejected` means the harness declined, and bash declining arrives here
+    /// as an ordinary `Failed`.
+    ///
+    /// Left alone deliberately, on a measurement: gate 2 puts the whole corpus
+    /// to bash, and **one command in 146,175 is text bash will not parse** —
+    /// which extracts 0 reads and 0 writes anyway, because its payload is
+    /// refused for an unterminated quote. Nothing downstream depends on it.
+    /// Detecting the case at all needs bash in the mining path, which is minutes
+    /// a run to protect zero uses. memview#1074 has the command and the repro.
+    ///
+    /// What would change the answer is that count moving, and only gate 2 can
+    /// see it move — no reasoning from here will, because such a tree parses,
+    /// round-trips and prints as valid shell.
     pub fn admits(self, reached: crate::shell::Reached) -> bool {
         use crate::shell::Reached;
         match (self, reached) {
