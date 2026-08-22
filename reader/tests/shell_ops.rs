@@ -253,6 +253,45 @@ fn a_flag_cluster_still_names_the_script() {
 }
 
 #[test]
+fn the_commands_that_name_no_file_say_so_rather_than_going_unread() {
+    // ⚠ **`Op::Nothing` and `Op::Unknown` are different claims**, and the whole
+    // worklist depends on the difference: one says "understood, touches no
+    // file", the other says "not read yet". `task` was 12,761 calls at the top
+    // of the unread list, three times the next entry, and it is a work queue
+    // behind a server with no flag that names a file.
+    assert_eq!(one("task edit 1028 --append hello"), Op::Nothing);
+    assert_eq!(one("ping -c 2 -W 2 amun.vpn"), Op::Nothing);
+    assert_eq!(
+        one("journalctl -u restic-backups-cluster.service --no-pager"),
+        Op::Nothing
+    );
+    // Reads every operand, like `cat` — and the corpus's `paste - -` names no
+    // path, because a bare dash is not one.
+    assert_eq!(one("paste - -"), Op::Read { paths: Vec::new() });
+    assert_eq!(
+        one("paste a.txt b.txt"),
+        Op::Read {
+            paths: vec![
+                "/home/example/Code/health/a.txt".to_string(),
+                "/home/example/Code/health/b.txt".to_string(),
+            ],
+        }
+    );
+}
+
+#[test]
+fn screen_is_not_swept_in_with_them_because_it_writes() {
+    // ⚠ The reason that list is checked command by command rather than swept:
+    // 74 of `screen`'s 604 calls are `-X hardcopy /tmp/…`, which writes a real
+    // file. Filing it under "touches no file" would have deleted those, and
+    // nothing downstream could have noticed.
+    assert!(matches!(
+        one("screen -S claude -X hardcopy /tmp/screen.txt"),
+        Op::Unknown { .. }
+    ));
+}
+
+#[test]
 fn perl_with_an_in_place_flag_rewrites_its_operands() {
     // ⚠ **3,300 of the corpus's perl calls are this**, and reading `perl` as an
     // interpreter recorded the file it rewrites as a script it RAN — a read,

@@ -316,6 +316,21 @@ question it could never find a spelling the table has not been taught. Which is
 also why `python313` — a nixpkgs attribute in `nix-shell -p python313`, 68 of
 them — is matched and then shown to run nothing, rather than filtered out early.
 
+⚠ **"Not understood" and "touches no file" are different claims, and the
+worklist is only as good as the difference.** On 2026-08-22 the unread list was
+headed by `task` at 12,761 calls — three times the next entry — which is the work
+queue's own CLI, a store behind a server with no flag that names a file. It and
+seven others (`ping`, `dig`, `nc`, `journalctl`, `dmesg`, `nixos-version`,
+`mariadb-admin`) were checked one at a time against how the corpus actually calls
+them and moved to `Verb::NoFiles`: **understood 98.0% → 99.0%, and 24,490
+executions off the unread list**, which is the sum of those commands' own counts.
+
+⚠ **Checked one at a time, and `screen` is why.** It sits in the same part of
+that list, and 74 of its 604 calls are `-X hardcopy /tmp/…` — a real file,
+written. Sweeping the neighbourhood would have deleted them silently, since
+`Op::Nothing` is a claim nothing downstream re-examines. `journalctl` earned its
+place the same way: `--file` exists, and this corpus never uses it.
+
 ## A wrong reading costs more than a missing one
 
 ⚠ **`perl -pi -e` was read as an interpreter running a script, and it is a

@@ -843,6 +843,11 @@ fn verb(name: &str) -> Option<Verb> {
             inline: &[],
         },
 
+        // Reads every operand, like `cat`. This corpus writes it as `paste - -`,
+        // where the operands are stdin and no path is named — but the day one is
+        // a file, it is a read, and the path guard already drops the dashes.
+        "paste" => Verb::Read,
+
         "find" | "fd" => Verb::Walk(Flags::valued(&[
             "-name", "-iname", "-path", "-type", "-exec",
         ])),
@@ -945,6 +950,24 @@ fn verb(name: &str) -> Option<Verb> {
         | "flutter" | "dart" | "swift" | "javac" | "kotlinc"
         // Build tools that take targets rather than paths, like cargo.
         | "lake" | "mariadb" | "mysql" | "psql"
+        // The top of the unread list, and every one of them checked against how
+        // this corpus actually calls it (2026-08-22, `shell-files --show`):
+        //
+        //   task 12,761 — the work queue's own CLI. `list`, `show <id>`,
+        //     `edit <id> --append`: a store behind a server, and no flag it
+        //     has names a file. Three times the next entry on the list.
+        //   ping 4,312 (`-c 2 -W 2 host`), dig 1,891 (`+short A name`),
+        //     nc 2,462 (`-z 127.0.0.1 3307`), mariadb-admin 374 (`ping`,
+        //     `shutdown`) — network and process, no operand is a path.
+        //   journalctl 1,266 — reads the JOURNAL. `--file` exists and this
+        //     corpus never uses it: every call is `-u`, `-b` or `--since`.
+        //   dmesg 460, nixos-version 589 — no operands at all.
+        //
+        // ⚠ **`screen` is NOT here, and it is the reason to check rather than
+        // sweep**: 74 of its 604 calls are `-X hardcopy /tmp/…`, which writes a
+        // real file. Filing it under this list would have deleted those.
+        | "task" | "ping" | "dig" | "nc" | "journalctl" | "dmesg" | "nixos-version"
+        | "mariadb-admin"
         // Loop and conditional keywords, which the grammar leaves as ordinary
         // words on purpose (`echo done` must not end a loop).
         | "for" | "done" | "fi" | "esac" | "case" | "in" | "break" | "continue" | "return"
