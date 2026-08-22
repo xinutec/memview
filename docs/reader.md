@@ -438,11 +438,16 @@ at 99.2%, and the unread list tops out at 1,215.**
 `md5sum`, `shasum`, `sha1sum`, `sha256sum`, `cksum`. **Read the list before
 extending it**; `rustc` will say so, but only if something asks it.
 
-The gate said so under `-D warnings` and the pre-commit clippy in that session
-did not. The obvious explanation — that cargo had cached the crate and skipped
-the diagnostic — was tested and is **false**: the same pipeline reports it on a
-fresh crate and on a stale one alike. The miss is unexplained, which is worth
-more than a plausible story about it. Trust the gate.
+The gate said so under `-D warnings` and the pre-commit check in that session did
+not. ⚠ **Run clippy the way the gate does — `-- -D warnings` — and read its exit
+status.** Grepping its output for the word `warning` cannot tell "clean" from
+"did not run", and without `-D warnings` it exits 0 either way, so no exit-code
+test bolted onto that form would help.
+
+The tidy explanation for the miss — that cargo had cached the diagnostic — was
+tested and is **false**: the same pipeline reports it on a fresh crate and a
+stale one alike. The miss itself stays unreproduced, which is worth more than a
+plausible story about it.
 
 What is left there is a different kind of thing and is not guessable from the
 corpus: `k3s` (1,215) carries a command, and `replay`, `probe`, `lares` and
