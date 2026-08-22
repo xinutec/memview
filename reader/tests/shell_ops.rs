@@ -326,6 +326,30 @@ fn an_archives_members_are_not_files_on_this_machine() {
 }
 
 #[test]
+fn a_digest_reads_what_it_is_given_and_a_subcommand_is_not_a_path() {
+    assert_eq!(
+        one("md5 -q dist/console-build/browser/index.html"),
+        Op::Read {
+            paths: vec![
+                "/home/example/Code/health/dist/console-build/browser/index.html".to_string(),
+            ],
+        }
+    );
+    // ⚠ `openssl x509 -noout -enddate` reads its certificate from a PIPE, and
+    // the guard is what keeps `x509` and `-enddate` from becoming filenames.
+    assert_eq!(
+        one("openssl x509 -noout -enddate"),
+        Op::Read { paths: Vec::new() }
+    );
+    assert_eq!(
+        one("openssl x509 -noout -in cert.pem"),
+        Op::Read {
+            paths: vec!["/home/example/Code/health/cert.pem".to_string()],
+        }
+    );
+}
+
+#[test]
 fn screen_writes_when_it_is_asked_to_and_not_otherwise() {
     // ⚠ The reason that list was checked command by command rather than swept:
     // 222 of `screen`'s calls are `-X hardcopy /tmp/…`, which writes a real

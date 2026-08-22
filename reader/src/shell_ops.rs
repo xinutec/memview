@@ -868,6 +868,24 @@ fn verb(name: &str) -> Option<Verb> {
             inline: &[],
         },
 
+        // ⚠ **`md5` is the macOS spelling, and the only one that was missing** —
+        // `md5sum`, `shasum`, `sha1sum`, `sha256sum` and `cksum` have been in
+        // the `Verb::Read` list above since it was written. Adding "the family"
+        // duplicated five of them; the gate's `-D warnings` said so and a local
+        // `cargo clippy` did not, because the crate was already built and cargo
+        // does not re-emit a warning it has emitted before. 323 calls, comparing
+        // two builds: `md5 dist/a/index.html dist/b/index.html`.
+        "md5" | "sha512sum"
+        // `openssl x509 -in cert.pem` reads it; this corpus pipes instead
+        // (`openssl x509 -noout -enddate`), where the subcommand and its flags
+        // are not paths and the guard leaves nothing. Both readings are right.
+        | "openssl" => Verb::Read,
+        // `wg show wg0 latest-handshakes` — an interface, not a file, in every
+        // one of its 371 calls. ⚠ `wg setconf <file>` and `wg-quick` DO read
+        // one, and neither appears here; if either starts to, this is where it
+        // would go wrong quietly.
+        "wg" => Verb::NoFiles,
+
         // Reads every operand, like `cat`. This corpus writes it as `paste - -`,
         // where the operands are stdin and no path is named — but the day one is
         // a file, it is a read, and the path guard already drops the dashes.

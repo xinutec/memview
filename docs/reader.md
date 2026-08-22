@@ -424,7 +424,25 @@ name and nothing else. `journalctl` went the other way for the same reason:
 worth naming: **both of its ends are flag values**, so unlike ffmpeg it has no
 operand at all — and this repository's own gate is a caller, `gate.dhall` the
 source and `gate.json` generated from it, a dependency that appeared in no
-projection until now. Understood stands at **99.1%**.
+projection until now.
+
+`md5` (323 calls), `openssl` and `wg` closed the same pass: the first two read
+what they are given, and `openssl x509 -noout -enddate` reads
+from a *pipe*, where the guard is what stops `x509` becoming a filename. `wg` is
+an interface in all 371 of its calls — ⚠ `wg setconf <file>` would read one and
+does not appear, which is where this would go wrong quietly. **Understood stands
+at 99.2%, and the unread list tops out at 1,215.**
+
+⚠ **`md5` was the macOS spelling of something already in the table**, and adding
+"the family" duplicated five entries the `Verb::Read` list has always had. The
+gate said so under `-D warnings`; a local `cargo clippy` did not, because the
+crate was already built and **cargo does not re-emit a warning it has emitted
+before**. Touch the file, or trust the gate.
+
+What is left there is a different kind of thing and is not guessable from the
+corpus: `k3s` (1,215) carries a command, and `replay`, `probe`, `lares` and
+`verified_cli` (2,208 between them) are this fleet's own binaries, whose file
+behaviour is in their sources rather than in how they are called.
 
 ⚠ **A wrong reading costs more than a missing one, and `perl -pi -e` was both.**
 It was read as an interpreter running a script, and it is a rewriter changing a
