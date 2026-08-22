@@ -253,6 +253,45 @@ fn a_flag_cluster_still_names_the_script() {
 }
 
 #[test]
+fn perl_with_an_in_place_flag_rewrites_its_operands() {
+    // ⚠ **3,300 of the corpus's perl calls are this**, and reading `perl` as an
+    // interpreter recorded the file it rewrites as a script it RAN — a read,
+    // against a file that was being written. The flag is spelled `-0pi` 2,114
+    // times and `-pi` 1,028, so a `starts_with("-i")` test sees none of them.
+    assert_eq!(
+        one(r#"perl -0pi -e 's/a/b/g' src/x.ts"#),
+        Op::Transform {
+            program: "s/a/b/g".to_string(),
+            program_file: None,
+            paths: vec!["/home/example/Code/health/src/x.ts".to_string()],
+            in_place: true,
+        }
+    );
+    let Op::Transform {
+        paths, in_place, ..
+    } = one(r#"perl -i -pe 's/a/b/' a.rs b.rs"#)
+    else {
+        panic!("not a transform");
+    };
+    assert!(in_place);
+    assert_eq!(paths.len(), 2);
+}
+
+#[test]
+fn perl_without_the_flag_only_reads() {
+    // `-ne` carries no `i`, so nothing was rewritten — and the operand is still
+    // a file this command opened.
+    let Op::Transform {
+        paths, in_place, ..
+    } = one(r#"perl -ne 'print if /x/' log.txt"#)
+    else {
+        panic!("not a transform");
+    };
+    assert!(!in_place);
+    assert_eq!(paths, ["/home/example/Code/health/log.txt"]);
+}
+
+#[test]
 fn a_container_payload_that_is_not_a_shell_stays_an_argv() {
     // ⚠ **memview#1028, and it was 700 of the 769 nested refusals.** `kubectl
     // exec` hands its words to `exec()`; no shell re-splits them and no shell

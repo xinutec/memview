@@ -313,6 +313,34 @@ question it could never find a spelling the table has not been taught. Which is
 also why `python313` — a nixpkgs attribute in `nix-shell -p python313`, 68 of
 them — is matched and then shown to run nothing, rather than filtered out early.
 
+## A wrong reading costs more than a missing one
+
+⚠ **`perl -pi -e` was read as an interpreter running a script, and it is a
+rewriter changing a file.** Both halves were wrong at once: the direction (a read
+recorded against a file that was being written) and the kind (a script *run*,
+where the operand is a source file being *edited*). It is the corpus's fourth
+commonest command shape — `-0pi -e` 2,114 calls, `-pi -e` 1,028, `-i -pe` 38 —
+and correcting it moved **4,044 uses from read to write**, "run a script" 53,621
+→ 49,663 and "transform (in place)" 1,729 → 5,473.
+
+Two things it turned on, both of which read as details until they were not:
+
+- **`-i` is written in a cluster.** `-0pi` is `-0`, `-p` and `-i`, and the test
+  was `starts_with("-i")`, which matches none of the 3,142 calls that spell it
+  that way. The cluster test `Verb::Remove` already used for `-r` is the one
+  that was needed.
+- **A program in a flag is still a program.** With the text in `-e`, the
+  `Op::Transform` was built with an empty `program`, so the opacity census —
+  which decides what to read next — held no perl at all. "transform program,
+  rewriting" went 137 kB → 751 kB when that was fixed, without a single new
+  call being read.
+
+⚠ **`ruby`, `deno` and `bun` were checked at the same time and left alone**, and
+that is a measurement rather than a shrug: `ruby -e` appears **zero** times in
+this corpus, `deno eval`/`deno run` zero, `bun -e`/`bun run` zero. `perl script.pl`
+is zero too — the 288 apparent cases are all `nix-shell -p perl …`, where the
+word is a package name.
+
 ## The JavaScript inside it
 
 The third language, added 2026-08-22, and it is `python.rs` with the nouns

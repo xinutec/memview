@@ -813,7 +813,28 @@ fn verb(name: &str) -> Option<Verb> {
             flags: Flags::valued(&["-c", "-o"]),
             inline: &["-c"],
         },
-        "ruby" | "perl" => Verb::Interpreter {
+        // ⚠ **`perl -pi -e` is a REWRITER, and reading it as an interpreter got
+        // both halves wrong**: the file it rewrites was recorded as a script it
+        // ran, which is a read of the wrong direction against a use of the wrong
+        // kind. 3,300 of the corpus's 3,973 perl calls are that one shape —
+        // `-0pi -e` 2,114, `-pi -e` 1,028, `-i -pe` 38 — every one of them an
+        // edit to a real file that the projection was crediting to nobody.
+        //
+        // Named beside `sed`, which it is: a program in a flag, files as
+        // operands, `-i` deciding whether they are read or rewritten.
+        "perl" => Verb::Stream {
+            flags: Flags {
+                valued: &["-e", "-E", "-I", "-M", "-F"],
+                script: &["-e", "-E"],
+                script_file: &[],
+            },
+            honours_i: true,
+        },
+        // ⚠ **`ruby` stays an interpreter, and that is measured**: `ruby -e`
+        // appears ZERO times in this corpus, and 16 mentions of `ruby` at all.
+        // Giving it perl's treatment would be a guess about a population that
+        // does not exist.
+        "ruby" => Verb::Interpreter {
             flags: Flags::valued(&["-e", "-E", "-I"]),
             inline: &[],
         },
@@ -1074,14 +1095,32 @@ fn act(
                 paths: found,
             }
         }
-        Verb::Stream { honours_i, .. } => Op::Transform {
-            program: leading,
+        Verb::Stream { honours_i, flags } => Op::Transform {
+            // ⚠ **A program given by `-e` is still the program.** With the text
+            // in a flag, `leading` is empty by construction, so this read as a
+            // transform with no program at all — every `perl -pi -e` and every
+            // `sed -e`, which is 2,664 and 1,410 of them, absent from the
+            // opacity census that decides what to read next.
+            program: match from_flag {
+                true => inline_program(argv, &flags).unwrap_or_default(),
+                false => leading,
+            },
             program_file: script_files.into_iter().next(),
             paths: paths(unnamed, rest, cwd, home),
+            // ⚠ **A cluster, not a prefix.** `-i` is written `-pi`, `-0pi` and
+            // `-ne -i` as often as it is written alone — 2,114 of the corpus's
+            // perl calls spell it `-0pi` — and a `starts_with("-i")` test reads
+            // every one of them as a command that changed nothing. The same
+            // shape `Verb::Remove` already uses for `-r`, and for the same
+            // reason: a flag cluster is one word carrying several flags.
+            //
+            // Safe for both commands that reach here: `i` in a single-dash
+            // cluster means in-place for `sed` and for `perl`, and no other
+            // flag either of them takes is spelled with it.
             in_place: honours_i
                 && argv
                     .iter()
-                    .any(|a| a.starts_with("-i") && !a.starts_with("--")),
+                    .any(|a| a.starts_with('-') && !a.starts_with("--") && a.contains('i')),
         },
         Verb::Remove => Op::Remove {
             paths: paths(unnamed, &words, cwd, home),
@@ -1313,6 +1352,23 @@ const SSH_VALUED: &[&str] = &[
     "-o", "-p", "-i", "-l", "-F", "-L", "-R", "-D", "-J", "-E", "-b", "-c", "-m", "-O", "-Q", "-S",
     "-W", "-w",
 ];
+
+/// The program text a `-e`-style flag carried, if one did.
+///
+/// A script flag that names a FILE is not this: that file is read, and
+/// `script_file` already carries it. Only the flags that hold the program
+/// itself.
+fn inline_program(argv: &[String], flags: &Flags) -> Option<String> {
+    let inline: Vec<&str> = flags
+        .script
+        .iter()
+        .copied()
+        .filter(|flag| !flags.script_file.contains(flag))
+        .collect();
+    flag_values(argv, &inline)
+        .first()
+        .map(|program| (*program).to_string())
+}
 
 /// The machine a command reaches, and the script it hands over.
 ///
