@@ -22,7 +22,7 @@ is built from.
 
 `shell.rs` and its pest grammar are still here, and are not dead: they are the
 *second* answer that makes a disagreement mean something. `--bin projection` asks
-both readers the same question over one corpus — **96.3% of 134,622 distinct
+both readers the same question over one corpus — **96.3% of 145,219 distinct
 commands read identically**, and the 3.7% that do not are ranked. That comparison
 is what found six defects nothing else could see; see *Two readers*, below.
 
@@ -208,7 +208,8 @@ other. `project.rs` puts the tree into `Simple`, the flat reader's own shape, an
 to the tree, nothing checks either of them again — which is why the switch was
 made at the chain's entry points and not by redefining `shell::parse`. The
 comparison is worth its keep: run once, it found six defects and five of them
-were live, taking agreement from 79.3% to 96.3% of 134,622 distinct commands.
+were live, taking agreement from 79.3% to 96.3% — of 134,622 distinct commands
+then, and the rate has held as the corpus grew past 145,000.
 `grep -E "\s+"` had been read as `grep -E "s+"` in 21,481 of them. Each rule is
 written at the code that carries it; the report ranks what is left.
 
@@ -234,47 +235,47 @@ difference. **Do not move the zero-times rule into `project`**: it is a statemen
 about running, the flat chain draws the line in the same place, and putting it
 earlier reports a disagreement that is only a difference of stage.
 
-⚠ **A nested script that will not read is a whole script's worth of file uses
-lost, so the count is ranked by the construct that stopped it** — `shell-files`
-prints the ranking. A bare number stood at 405 for a day naming nothing, which is
-how a figure hides: those *occurrences* were **20 distinct scripts, 14 of which
-bash refuses too** (measured with `bash -n`, via `--example nested-why`). Broken
-quoting in a commit message, mostly: a `\'` inside single quotes does not escape,
-so the string ends early and the rest of the line becomes shell that was never
-meant to be. The grammar read them by guessing.
-
-⚠ **And then the ranking by *construct* hid the cause, which was a wrong model of
-the carrier.** At 813 occurrences, 766 were `Grouping` — unmatched `( )` — which
-reads as a grammar gap and is not one. `nested-why` grew a second table, by the
-command that HANDED the payload over, and **686 of them came from one shape:
-`kubectl exec … -- <a program that is not a shell>`**. Those words go to
-`exec()`; no shell re-splits them and none removes a quote. Joining them back
-into a string and parsing that as shell put SQL and JavaScript in front of the
-shell grammar, where `SELECT ROW_COUNT() AS deleted` is unmatched grouping and so
-is every `node -e` body with a `{` in it. The payload is now kept as an argv and
-**classified** — `Op::RemoteRun`, the same choice `Verb::Carries` makes — which
-costs no second parse and so cannot fail one. **813 → 73.**
-
-The exchange was measured rather than assumed, because "fewer refusals" and
-"fewer findings" can be one change seen twice: `--example remote-argv-check`
-computes both readings of all 3,034 container payloads and prints where they
-disagree. They name the same subjects for 3,026. The new reading finds **four**
-paths the old one lost inside refused payloads, and drops **one** the old one
-invented — `/p`, which is the tail of a `sed` address range that the join split
-at a `;`. The one real subject the old reading found and this did not was
-`su -s /bin/sh -c '…'`, which names its shell in a flag; that is now read as the
-shell it is. memview#1028.
-
-Two rules generalise out of it. **A refusal names the construct that stopped the
-parse, never the reason the text was there** — rank by carrier as well as by
-construct. And **a payload is text only when a shell is on the far side**;
-`ssh` joins and re-parses because ssh really does, `kubectl exec` and
-`docker exec` do not.
-
 ⚠ **A flat outer parse cannot feed a tree nested one.** `shell.rs` hides a
 heredoc body inside its own delimiter so a nested re-parse can still see it, and
 only that reader decodes the marker — mixing the two silently loses every nested
 `python3 - <<PY`. Read the outer and inner scripts with the same reader.
+
+## What a payload is
+
+**A payload is text only when a shell is on the far side.** `ssh host '…'` joins
+its words and hands them over, because ssh really does; `bash -c` and
+`nix-shell --run` take a script. `kubectl exec -- prog`, `docker exec`,
+`subprocess.run([…])`, `spawnSync` and `execFileSync` reach `exec()` with no
+shell — nothing re-splits their words and nothing removes a quote — so their
+payload stays an **argv to classify**, never text to parse. That costs no second
+parse and therefore cannot fail one, which is the same reason `Verb::Carries`
+exists.
+
+⚠ **Getting that wrong was 700 of the 769 nested refusals, and it looked like a
+grammar gap for as long as nobody asked who carried the text.** The count is
+ranked by the construct that stopped the parse, and at 813 occurrences 766 of
+them were `Grouping` — unmatched `( )`. `nested-why` grew a second table, by the
+command that HANDED the payload over, and **686 came from one shape:
+`kubectl exec … -- <a program that is not a shell>`**. Joining those words back
+into a string put SQL and JavaScript in front of the shell grammar, where
+`SELECT ROW_COUNT() AS deleted` is unmatched grouping and so is every `node -e`
+body with a `{` in it. Kept as an argv and classified: **813 → 73**.
+
+**The rule that generalises: a refusal names the construct that stopped the
+parse, never the reason the text was there.** Rank by carrier as well as by
+construct.
+
+The exchange was measured rather than assumed, because "fewer refusals" and
+"fewer findings" can be one change seen twice. `--example remote-argv-check`
+computes both readings of all 3,034 container payloads: same subjects for 3,026,
+**four** paths gained that the old reading lost inside refused payloads, **one**
+dropped that it had invented (`/p`, the tail of a `sed` address range the join
+split at a `;`), and one recovered by teaching it that `su -s /bin/sh -c` names
+its shell in a flag. memview#1028.
+
+What is left refusing is 73, ranked as before; an earlier reading of that list —
+when it stood at 405 — found 20 distinct scripts, 14 of which `bash -n` refuses
+too, mostly a `\'` inside single quotes that ends the string early.
 
 ## The Python inside it
 
@@ -315,74 +316,6 @@ instrument and the table is what it measures; if it asked the table's own
 question it could never find a spelling the table has not been taught. Which is
 also why `python313` — a nixpkgs attribute in `nix-shell -p python313`, 68 of
 them — is matched and then shown to run nothing, rather than filtered out early.
-
-⚠ **"Not understood" and "touches no file" are different claims, and the
-worklist is only as good as the difference.** On 2026-08-22 the unread list was
-headed by `task` at 12,761 calls — three times the next entry — which is the work
-queue's own CLI, a store behind a server with no flag that names a file. It and
-seven others (`ping`, `dig`, `nc`, `journalctl`, `dmesg`, `nixos-version`,
-`mariadb-admin`) were checked one at a time against how the corpus actually calls
-them and moved to `Verb::NoFiles`: **understood 98.0% → 99.0%, and 24,490
-executions off the unread list**, which is the sum of those commands' own counts.
-
-The same pass taught four commands that do real file work and were contributing
-nothing: `ffmpeg` (368 calls of the recall pipeline's audio), `ffprobe`, `unzip`
-and `zstd` — **+524 reads, +110 writes, 88 paths nothing had named**. `ffmpeg` is
-the one shape here where the output is positional and the inputs are not, and
-**the path guard is what makes "the last operand" safe**: `-f null -` ends in a
-dash, a probe ends in a number left over from an undeclared flag, and neither is
-a path, so neither becomes a write. An archive's members are the mirror image —
-`unzip x.zip 'FS/data/**' -d out` names something *inside* the zip, which passes
-every path test ever written and is not a file on this machine.
-
-⚠ **Checked one at a time, and `screen` is why.** It sits in the same part of
-that list, and 222 of its calls are `-X hardcopy /tmp/…` — a real file, written.
-Sweeping the neighbourhood would have deleted them silently, since `Op::Nothing`
-is a claim nothing downstream re-examines. `journalctl` earned its place the same
-way: `--file` exists, and this corpus never uses it. `screen` has since been
-given the shape it was owed — it writes what `hardcopy` and `-Logfile` name, and
-nothing else it is asked to do touches a file.
-
-`dhall-to-json` (444) and `lean` (377) went with it, and between the three the
-unread list lost another 1,429 executions. The converter is the shape worth
-naming: **both of its ends are flag values**, so unlike ffmpeg it has no operand
-at all, and this repository's own gate is one of its callers — `gate.dhall` is
-the source and `gate.json` is generated from it, a dependency that until now
-appeared in no projection.
-
-⚠ **The unread list is a moving target, and three tests had pinned a command
-from it as their example of one.** `ffmpeg` was that example until it was taught,
-then `dhall-to-json`, both within an hour. They now say so in a comment: what is
-under test is the naming, and the command naming it is a placeholder by
-construction.
-
-## A wrong reading costs more than a missing one
-
-⚠ **`perl -pi -e` was read as an interpreter running a script, and it is a
-rewriter changing a file.** Both halves were wrong at once: the direction (a read
-recorded against a file that was being written) and the kind (a script *run*,
-where the operand is a source file being *edited*). It is the corpus's fourth
-commonest command shape — `-0pi -e` 2,114 calls, `-pi -e` 1,028, `-i -pe` 38 —
-and correcting it moved **4,044 uses from read to write**, "run a script" 53,621
-→ 49,663 and "transform (in place)" 1,729 → 5,473.
-
-Two things it turned on, both of which read as details until they were not:
-
-- **`-i` is written in a cluster.** `-0pi` is `-0`, `-p` and `-i`, and the test
-  was `starts_with("-i")`, which matches none of the 3,142 calls that spell it
-  that way. The cluster test `Verb::Remove` already used for `-r` is the one
-  that was needed.
-- **A program in a flag is still a program.** With the text in `-e`, the
-  `Op::Transform` was built with an empty `program`, so the opacity census —
-  which decides what to read next — held no perl at all. "transform program,
-  rewriting" went 137 kB → 751 kB when that was fixed, without a single new
-  call being read.
-
-⚠ **`ruby`, `deno` and `bun` were checked at the same time and left alone**, and
-that is a measurement rather than a shrug: `ruby -e` appears **zero** times in
-this corpus, `deno eval`/`deno run` zero, `bun -e`/`bun run` zero. `perl script.pl`
-is zero too — the 288 apparent cases are all `nix-shell -p perl …`, where the
-word is a package name.
 
 ## The JavaScript inside it
 
@@ -446,19 +379,79 @@ system, and `shell_files::carried` follows it at the shell's own directory, so
 `bash -c 'python3 -c "os.system(…)"'` reads all the way down and what comes back
 may be another Python or JavaScript program in turn.
 
-⚠ **Whether a shell is on the other side is decided by the call, never by the
-shape of the argument** — the same distinction `Op::RemoteRun` draws one layer
-up. `os.system` and `execSync` go through `/bin/sh`; `subprocess.run([…])`,
-`spawnSync` and `execFileSync` reach `exec()` with no shell, so their words stay
-an argv. `subprocess.run("ls -la")` *without* `shell=True` is neither: Python
-looks for a program of that whole name and fails, so reading it as a script
-would credit the program with work it did not do.
+Which of the two a call hands over is decided the way *What a payload is* says —
+by the call, never by the shape of the argument. One case only this side has:
+**`subprocess.run("ls -la")` without `shell=True` is neither script nor argv.**
+Python looks for a program of that whole name and fails, so reading it as a
+script would credit the program with work it did not do.
 
 ⚠ **One unknown word makes a whole argv unusable.** `["ffmpeg", "-i", f]` with
 `f` computed would otherwise read as an ffmpeg call over a file named `-i`.
 
 What it bought, measured across the corpus: file uses 408,348 → 410,063 reads
 and 71,359 → 71,497 writes, and 95 paths nothing had named before.
+
+## Growing the table
+
+⚠ **"Not understood" and "touches no file" are different claims, and the
+worklist is only as good as the difference.** On 2026-08-22 the unread list was
+headed by `task` at 12,761 calls — three times the next entry — which is the work
+queue's own CLI, a store behind a server with no flag that names a file. It and
+seven others (`ping`, `dig`, `nc`, `journalctl`, `dmesg`, `nixos-version`,
+`mariadb-admin`) were checked one at a time against how the corpus actually calls
+them and moved to `Verb::NoFiles`: **24,490 executions off the unread list**,
+which is the sum of those commands' own counts — the check that the drop is what
+was classified and not something else moving underneath.
+
+The same pass taught four commands that do real file work and were contributing
+nothing: `ffmpeg` (368 calls of the recall pipeline's audio), `ffprobe`, `unzip`
+and `zstd` — **+524 reads, +110 writes, 88 paths nothing had named**. `ffmpeg` is
+the one shape here where the output is positional and the inputs are not, and
+**the path guard is what makes "the last operand" safe**: `-f null -` ends in a
+dash, a probe ends in a number left over from an undeclared flag, and neither is
+a path, so neither becomes a write. An archive's members are the mirror image —
+`unzip x.zip 'FS/data/**' -d out` names something *inside* the zip, which passes
+every path test ever written and is not a file on this machine.
+
+⚠ **Checked one at a time, and `screen` is why.** It sits in the same part of
+that list and 222 of its calls are `-X hardcopy /tmp/…`, a real file written, so
+sweeping the neighbourhood would have deleted them silently — `Op::Nothing` is a
+claim nothing downstream re-examines. It writes what `hardcopy` and `-Logfile`
+name and nothing else. `journalctl` went the other way for the same reason:
+`--file` exists, and this corpus never uses it.
+
+`dhall-to-json` (444) and `lean` (377) came with it. The converter is the shape
+worth naming: **both of its ends are flag values**, so unlike ffmpeg it has no
+operand at all — and this repository's own gate is a caller, `gate.dhall` the
+source and `gate.json` generated from it, a dependency that appeared in no
+projection until now. Understood stands at **99.1%**.
+
+⚠ **A wrong reading costs more than a missing one, and `perl -pi -e` was both.**
+It was read as an interpreter running a script, and it is a rewriter changing a
+file. Both halves were wrong at once: the direction (a read recorded against a
+file being written) and the kind (a script *run*, where the operand is a source
+file being *edited*). It is the corpus's fourth
+commonest command shape — `-0pi -e` 2,114 calls, `-pi -e` 1,028, `-i -pe` 38 —
+and correcting it moved **4,044 uses from read to write**, "run a script" 53,621
+→ 49,663 and "transform (in place)" 1,729 → 5,473.
+
+Two things it turned on, both of which read as details until they were not:
+
+- **`-i` is written in a cluster.** `-0pi` is `-0`, `-p` and `-i`, and the test
+  was `starts_with("-i")`, which matches none of the 3,142 calls that spell it
+  that way. The cluster test `Verb::Remove` already used for `-r` is the one
+  that was needed.
+- **A program in a flag is still a program.** With the text in `-e`, the
+  `Op::Transform` was built with an empty `program`, so the opacity census —
+  which decides what to read next — held no perl at all. "transform program,
+  rewriting" went 137 kB → 751 kB when that was fixed, without a single new
+  call being read.
+
+⚠ **`ruby`, `deno` and `bun` were checked at the same time and left alone**, and
+that is a measurement rather than a shrug: `ruby -e` appears **zero** times in
+this corpus, `deno eval`/`deno run` zero, `bun -e`/`bun run` zero. `perl script.pl`
+is zero too — the 288 apparent cases are all `nix-shell -p perl …`, where the
+word is a package name.
 
 ## Correctness
 
