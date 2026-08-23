@@ -1,4 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
+
+// The golden the Rust test writes — see the note on PARSED below.
+import PARSED_GOLDEN from './parsed.fixture.json';
 // The fleet-shared harness, published as @xinutec/ui-harness (source repo
 // ~/Code/ui-harness). Ships compiled JS, so it loads straight from node_modules.
 import {
@@ -3839,64 +3842,23 @@ test('a seed that arrives in pieces still ends at the end @ phone width', async 
 /**
  * The runner's real answer for the transcript fixture's own failed command.
  *
- * ⚠ **Not invented.** Produced by `console::parse::parsed` for exactly that
- * command line, in exactly that session's directory, with `ok: false` — and
- * pinned from the Rust side by `the_shape_the_phone_is_drawn_from` in
- * `console/tests/parse.rs`, so a change in the reader breaks a test instead of
- * leaving this file quietly drawing something the runner would never send.
+ * ⚠ **Read from a golden the RUST test writes, never copied.** This was a
+ * hand-written object with a comment claiming `the_shape_the_phone_is_drawn_from`
+ * pinned it — a convention, not a mechanism. It failed exactly as you would
+ * expect: the chip labels changed, the Rust test was updated, this copy was not,
+ * and the layout check went on drawing `nothing` and `run` — strings the runner
+ * no longer sends. Nothing failed, because a stub agrees with whatever it was
+ * last told.
  *
- * It is the interesting case rather than a tidy one: the call failed, so
- * everything after the `&&` parses, classifies, names a real path — and none of
- * it is certain. That is the whole reason the sheet exists.
+ * `console/tests/parse.rs` now compares its own output against
+ * `parsed.fixture.json` and fails with instructions; `BLESS=1` updates it, and
+ * the change lands in the same commit as the reader change that caused it.
  *
- * ⚠ **`kind` is the CHIP and `key` is the style handle**, and they are two
- * fields because one was doing both jobs: the colour selected on the display
- * string, so improving a label silently dropped it. Both come from one table,
- * `reader::reading::naming`.
- *
- * ⚠ **The pinning above is a CONVENTION, not a mechanism, and it has already
- * failed once.** The Rust test was updated when the labels changed and this copy
- * was not, so the sheet's layout check went on drawing `nothing` and `run` —
- * strings the runner no longer sends. Nothing failed, because a stub agrees with
- * whatever it was last told.
+ * The command is the transcript fixture's own, and it FAILED — which is why it
+ * is worth drawing: everything after the `&&` parses, classifies and names a
+ * real file, and none of it is certain.
  */
-const PARSED = {
-  steps: [
-    {
-      depth: 0,
-      argv: ['nix', 'develop', '-c', 'lake', 'build'],
-      reached: 'always',
-      cwd: '/home/example/Code/health/packages/health-sync-backend/src/decode',
-      kind: 'no files',
-      key: 'nothing',
-    },
-    {
-      depth: 0,
-      argv: ['./verified_cli', 'match', '--serve', '--timeout', '30000ms'],
-      reached: 'on-success',
-      cwd: '/home/example/Code/health/packages/health-sync-backend/src/decode',
-      kind: 'run a script',
-      key: 'run',
-      uses: [
-        {
-          path: '/home/example/Code/health/packages/health-sync-backend/src/decode/verified_cli',
-          write: false,
-          reached: 'on-success',
-          certain: false,
-        },
-      ],
-    },
-    {
-      depth: 0,
-      argv: ['tee', '/tmp/lean-gate.log'],
-      reached: 'on-success',
-      cwd: '/home/example/Code/health/packages/health-sync-backend/src/decode',
-      kind: 'write',
-      key: 'write',
-      uses: [{ path: '/tmp/lean-gate.log', write: true, reached: 'on-success', certain: false }],
-    },
-  ],
-};
+const PARSED: unknown = PARSED_GOLDEN;
 
 /** As [[mockRunner]], and answering the parse the sheet asks for. */
 async function mockParse(page: Page, answer: unknown = PARSED): Promise<void> {

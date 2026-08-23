@@ -18,7 +18,12 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "noEmit": true
+    "noEmit": true,
+    // ⚠ **So a golden fixture can be IMPORTED rather than read.** The parse
+    // sheet's expected answer is written by `console/tests/parse.rs` and read
+    // here; importing the JSON keeps the types resolved, where `node:fs` is not
+    // in this config's scope and resolves as `error`.
+    "resolveJsonModule": true
   },
   "include": [
     "playwright.config.ts",

@@ -213,10 +213,13 @@ fn what_a_script_runs_is_not_said_twice() {
 
 #[test]
 fn the_shape_the_phone_is_drawn_from() {
-    // ⚠ **Pinned because a render fixture is a copy.** `ui-pages.spec.ts` draws
-    // the parse sheet from a hand-written answer for this exact command; if the
-    // reader's verdict on it ever moves, this fails rather than leaving the
-    // phone check quietly rendering something the runner would never send.
+    // ⚠ **The phone check reads the file this test writes, so a copy cannot
+    // drift.** It used to be a hand-written answer in `ui-pages.spec.ts` with a
+    // comment claiming this test pinned it — a convention, not a mechanism, and
+    // it failed exactly as you would expect: the labels changed, this test was
+    // updated, its TypeScript copy was not, and the layout check went on drawing
+    // `nothing` and `run` for hours. A stub agrees with whatever it was last
+    // told.
     //
     // The command is the transcript fixture's own, and it FAILED — which is why
     // it is worth drawing: everything after the `&&` parses, classifies and
@@ -237,6 +240,23 @@ fn the_shape_the_phone_is_drawn_from() {
             )
         })
         .collect();
+    // The whole answer, as the sheet receives it. Compared against the committed
+    // golden rather than written every run: a test that silently rewrites its own
+    // expectation cannot fail.
+    let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../frontend/projects/console-web/e2e/parsed.fixture.json");
+    let fresh = serde_json::to_string_pretty(&answer).expect("the answer serialises") + "\n";
+    if std::env::var("BLESS").is_ok() {
+        std::fs::write(&golden, &fresh).expect("golden is writable");
+    } else {
+        let held = std::fs::read_to_string(&golden).unwrap_or_default();
+        assert_eq!(
+            held, fresh,
+            "the sheet's fixture no longer matches what the runner sends — \
+             re-run with BLESS=1 to update it, and commit the change with this one"
+        );
+    }
+
     assert_eq!(
         shape,
         [

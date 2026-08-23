@@ -1,0 +1,59 @@
+{
+  "steps": [
+    {
+      "depth": 0,
+      "argv": [
+        "nix",
+        "develop",
+        "-c",
+        "lake",
+        "build"
+      ],
+      "reached": "always",
+      "cwd": "/home/example/Code/health",
+      "kind": "no files",
+      "key": "nothing"
+    },
+    {
+      "depth": 0,
+      "argv": [
+        "./verified_cli",
+        "match",
+        "--serve",
+        "--timeout",
+        "30000ms"
+      ],
+      "reached": "on-success",
+      "cwd": "/home/example/Code/health",
+      "kind": "run a script",
+      "key": "run",
+      "uses": [
+        {
+          "path": "/home/example/Code/health/verified_cli",
+          "write": false,
+          "reached": "on-success",
+          "certain": false
+        }
+      ]
+    },
+    {
+      "depth": 0,
+      "argv": [
+        "tee",
+        "/tmp/lean-gate.log"
+      ],
+      "reached": "on-success",
+      "cwd": "/home/example/Code/health",
+      "kind": "write",
+      "key": "write",
+      "uses": [
+        {
+          "path": "/tmp/lean-gate.log",
+          "write": true,
+          "reached": "on-success",
+          "certain": false
+        }
+      ]
+    }
+  ]
+}
