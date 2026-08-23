@@ -8,6 +8,7 @@ import {
   Landmark,
   Overview,
   Parsed,
+  CorpusRead,
   SessionEvent,
   Summary,
   Task,
@@ -22,6 +23,17 @@ export class ConsoleApi {
 
   state(): Observable<Overview> {
     return this.http.get<Overview>('/api/state');
+  }
+
+  /**
+   * What the reader makes of the fleet's shell — the nightly survey.
+   *
+   * One request, ~7 kB, no parameters. A 404 means nothing has been mined, which
+   * the strip answers by drawing nothing at all: this is not what anybody opened
+   * the console for.
+   */
+  reading(): Observable<CorpusRead> {
+    return this.http.get<CorpusRead>('/api/reading');
   }
 
   /** The page of conversation before the one the caller holds. */

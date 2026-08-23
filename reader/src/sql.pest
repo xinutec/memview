@@ -1,0 +1,127 @@
+//! The SQL Claude has actually run against the fleet's databases.
+//!
+//! Like `python.pest` and `javascript.pest`, this describes what has to be told
+//! apart and nothing else. What a query *computes* is never asked; the only
+//! question is **which tables it read and which it changed**, so joins, window
+//! functions, CTEs and expressions are all just text between the clauses that
+//! name a table.
+//!
+//! ⚠ **A table name and a function call are the same shape**, and telling them
+//! apart is the whole reason this is a grammar rather than a regular expression.
+//! `FROM datetime(ts, 'unixepoch')` names no table; a regex for `FROM (\w+)`
+//! answers `datetime`, and a fabricated subject is worse than a missing one —
+//! it corrupts every count downstream. `table_ref` therefore REFUSES a name
+//! followed by `(`, which is a decision a scanner cannot make.
+//!
+//! ⚠ **Measured before it was written: no statement in this corpus names a
+//! file.** No `INTO OUTFILE`, no `LOAD DATA INFILE`, no sqlite `.read`/`.output`
+//! over 5,727 commands. The forms are in the grammar anyway, because the cost of
+//! carrying them is a rule apiece and the cost of missing one is a silent write.
+
+script = { SOI ~ (statement | dot_command | stray)* ~ EOI }
+
+// One statement, up to its terminator. The terminator is not required: an `-e`
+// payload is routinely a single statement with no `;` at all.
+statement = _{ targeted | general }
+
+// A verb whose target follows it directly, with no clause to introduce it.
+targeted    = { target_verb ~ if_exists? ~ table_list ~ (!";" ~ (clause | token))* ~ ";"? }
+target_verb = { update | truncate | create_table | drop_table | alter_table }
+if_exists   = @{ ^"if" ~ WHITESPACE+ ~ ^"exists" ~ !ident_char }
+
+// Everything else: the tables are named by clauses.
+general = { verb ~ (!";" ~ (clause | token))* ~ ";"? }
+
+// What the statement DOES, which decides the direction of every table it goes
+// on to name.
+verb = { select | insert | delete | replace | show | describe }
+
+select   = @{ ^"select" ~ !ident_char }
+insert   = @{ ^"insert" ~ !ident_char }
+replace  = @{ ^"replace" ~ ^" into" ~ !ident_char }
+update   = @{ ^"update" ~ !ident_char }
+delete   = @{ ^"delete" ~ !ident_char }
+truncate = @{ ^"truncate" ~ (WHITESPACE+ ~ ^"table")? ~ !ident_char }
+show     = @{ ^"show" ~ !ident_char }
+describe = @{ (^"describe" | ^"desc" | ^"explain") ~ !ident_char }
+
+create_table = @{ ^"create" ~ WHITESPACE+ ~ (^"temporary" ~ WHITESPACE+)? ~ (^"table" | ^"index" | ^"view" | ^"database" | ^"schema") ~ !ident_char }
+drop_table   = @{ ^"drop" ~ WHITESPACE+ ~ (^"table" | ^"index" | ^"view" | ^"database" | ^"schema") ~ !ident_char }
+alter_table  = @{ ^"alter" ~ WHITESPACE+ ~ (^"table" | ^"database" | ^"schema") ~ !ident_char }
+
+// The clauses that introduce a table, and the two that name a FILE.
+//
+// Order matters: `into_outfile` must be tried before `into_table`, or `INTO
+// OUTFILE '/tmp/x'` reads as a table called `OUTFILE`.
+clause = _{ into_outfile | load_infile | from | join | into_table }
+
+// ⚠ **Every keyword is its own ATOMIC rule.** Written inline as
+// `^"from" ~ !ident_char`, pest inserts implicit whitespace between the two in
+// a non-atomic rule: the lookahead then lands on the table name rather than on
+// the character after `from`, the negation fails, and the clause never matches
+// at all. Nine tests failed this way and four passed — the four that assert
+// something is NOT named, which a reader naming nothing satisfies perfectly.
+kw_from   = @{ ^"from" ~ !ident_char }
+kw_join   = @{ ^"join" ~ !ident_char }
+kw_into   = @{ ^"into" ~ !ident_char }
+kw_prefix = @{ (^"inner" | ^"left" | ^"right" | ^"full" | ^"cross" | ^"outer" | ^"natural") ~ !ident_char }
+
+from       = { kw_from ~ table_list }
+join       = { kw_prefix* ~ kw_join ~ table_ref }
+into_table = { kw_into ~ table_ref }
+
+kw_outfile   = @{ ^"into" ~ WHITESPACE+ ~ (^"outfile" | ^"dumpfile") ~ !ident_char }
+kw_infile    = @{ ^"infile" ~ !ident_char }
+into_outfile = { kw_outfile ~ string }
+load_infile  = { kw_infile ~ string }
+
+table_list = { table_ref ~ ("," ~ table_ref)* }
+
+// ⚠ **A name followed by `(` is a function, not a table.** This negative
+// lookahead is the rule that keeps `FROM datetime(ts)` out of the table list;
+// see the module note. A subquery — `FROM (SELECT …)` — has no name at all and
+// so matches nothing here, which is correct: the tables inside it are named by
+// its own `FROM`.
+table_ref = { qualified ~ alias? }
+// The `!"("` is INSIDE the atomic rule, so no whitespace may creep in front of
+// it — this is what tells a table from a function call.
+qualified = @{ name ~ ("." ~ name)? ~ !"(" }
+name      = @{ ("`" ~ (!"`" ~ ANY)+ ~ "`") | ("\"" ~ (!"\"" ~ ANY)+ ~ "\"") | (ident_char+) }
+
+// `AS t`, or a bare alias. Consumed so it is not mistaken for another table in a
+// comma list.
+alias      = _{ (^"as" ~ !ident_char ~ ident) | (!keyword ~ ident) }
+ident      = @{ ident_char+ }
+ident_char =  { ASCII_ALPHANUMERIC | "_" | "$" }
+
+// Words that may follow a table and are never an alias.
+keyword = @{
+    (^"where" | ^"group" | ^"order" | ^"limit" | ^"having" | ^"union" | ^"on"
+   | ^"inner" | ^"left" | ^"right" | ^"full" | ^"cross" | ^"natural" | ^"join"
+   | ^"set" | ^"values" | ^"select" | ^"using" | ^"and" | ^"or" | ^"into") ~ !ident_char
+}
+
+// sqlite3's own commands. `.read` and `.output` name files; the rest do not.
+//
+// ⚠ **No explicit `WHITESPACE+` between the name and its arguments.** pest
+// inserts implicit whitespace between every pair of expressions in a non-atomic
+// rule, so it has already been consumed by the time an explicit one is tried —
+// which then matches nothing and fails the whole rule. Third instance of this
+// trap in this grammar; the other two were `^"from" ~ !ident_char` and
+// `qualified ~ !"("`.
+dot_command = { "." ~ dot_name ~ (string | dot_arg)* }
+dot_name    = @{ ident_char+ }
+dot_arg     = @{ (!(WHITESPACE | NEWLINE) ~ ANY)+ }
+
+// Anything with no reading, one token at a time — so a statement is never
+// rejected whole and the parse cannot fail. Coverage is measured by what was
+// UNDERSTOOD, never by whether it parsed.
+token = _{ string | number | punctuation | ident }
+stray = _{ punctuation | ident | number | string | ";" }
+
+string      = @{ ("'" ~ ("''" | !"'" ~ ANY)* ~ "'") | ("\"" ~ ("\"\"" | !"\"" ~ ANY)* ~ "\"") }
+number      = @{ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT*)? }
+punctuation = @{ !(";") ~ (PUNCTUATION | SYMBOL) }
+
+WHITESPACE = _{ " " | "\t" | NEWLINE }
+COMMENT    = _{ ("--" ~ (!NEWLINE ~ ANY)*) | ("#" ~ (!NEWLINE ~ ANY)*) | ("/*" ~ (!"*/" ~ ANY)* ~ "*/") }

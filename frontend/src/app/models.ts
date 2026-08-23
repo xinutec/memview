@@ -450,3 +450,74 @@ export interface Evidence {
    */
   unnamed: number;
 }
+
+/** One row of a ranked table in the corpus survey. */
+export interface Ranked {
+  name: string;
+  n: number;
+}
+
+/** A path, command or host with both directions. */
+export interface Both {
+  name: string;
+  reads: number;
+  writes: number;
+}
+
+/**
+ * What the reader makes of every shell command the fleet has run.
+ *
+ * ⚠ **Mined nightly, not computed on request.** The survey takes 13 seconds over
+ * 146k commands, so `corpus_at` is the age of the answer and the page says so —
+ * a figure here and a figure from `--bin shell-files` can differ by a night and
+ * by nothing else.
+ *
+ * ⚠ **Every list is truncated; no total is.** The counts above each list are
+ * over everything, and the lists are the top of it. A summary whose total was
+ * the length of its own list is the failure this shape is built to avoid.
+ */
+export interface CorpusRead {
+  /** When the corpus was last written, epoch seconds. */
+  corpus_at: number | null;
+  calls: number;
+  unparsed: number;
+  /** Commands *run* — a determinate loop is unrolled before this counts it. */
+  commands: number;
+  unrolled: number;
+  handled: number;
+  unhandled: number;
+  /** `handled` over `commands`, computed server-side so two clients cannot
+   *  round it two ways. */
+  understood: number;
+  reads: number;
+  writes: number;
+  distinct_paths: number;
+  /** File uses by what had to hold for the command naming them to run. */
+  always: number;
+  on_success: number;
+  sometimes: number;
+  /** Those an outcome confirms actually happened. */
+  certain: number;
+  /**
+   * Uses whose subject the text does not determine — `$f` bound by a loop the
+   * transcript never shows.
+   *
+   * ⚠ **This is the honest ceiling, and it is drawn beside the coverage rather
+   * than below it.** It is a property of the corpus, not of the reader: a name
+   * fed in at runtime has no answer in the text, and inventing one would be
+   * worse than counting it unknown.
+   */
+  unnamed: number;
+  opaque: number;
+  unnamed_by_word: number;
+  unnamed_bounded: number;
+  unnamed_computed: number;
+  refused_here: number;
+  doing: Ranked[];
+  renames: number;
+  busiest: Both[];
+  writers: Both[];
+  hosts: Both[];
+  unread: Ranked[];
+  opaque_words: Ranked[];
+}

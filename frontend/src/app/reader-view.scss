@@ -1,0 +1,197 @@
+.title {
+  font: var(--mat-sys-headline-small);
+  margin: 0;
+}
+
+.lede,
+.note,
+.stamp {
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.lede {
+  margin: 8px 0 0;
+}
+
+.stamp {
+  margin-top: 28px;
+}
+
+.empty {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font: var(--mat-sys-body-medium);
+  color: var(--mat-sys-on-surface-variant);
+  margin-top: 20px;
+}
+
+section {
+  margin-top: 28px;
+}
+
+h2 {
+  font: var(--mat-sys-title-small);
+  margin: 0 0 8px;
+}
+
+// The headline pair. A column at phone width and a row once there is room for
+// two figures side by side without either wrapping mid-number.
+.coverage {
+  display: grid;
+  gap: 16px;
+  margin-top: 20px;
+
+  @media (min-width: 560px) {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.figure {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 12px;
+  border-left: 3px solid var(--mat-sys-primary);
+
+  .big {
+    font: var(--mat-sys-headline-medium);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .what {
+    font: var(--mat-sys-body-medium);
+  }
+
+  .aside {
+    font: var(--mat-sys-body-small);
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  // ⚠ **The ceiling is toned, not coloured red.** It is not an error — it is
+  // the honest limit of what the text can say — and an alarm colour would read
+  // as something being wrong rather than something being unknowable.
+  &.gap {
+    border-left-color: var(--mat-sys-outline);
+
+    .big {
+      color: var(--mat-sys-on-surface-variant);
+    }
+  }
+}
+
+// One row per shape: label, count, bar. The grid is what keeps the counts in a
+// column — a flex row would let each bar start wherever its label ended.
+.chart {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  > li {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      'label count'
+      'bar   bar';
+    gap: 2px 8px;
+    padding: 6px 0;
+  }
+}
+
+.label {
+  grid-area: label;
+  font: var(--mat-sys-body-medium);
+  // Shape names are prose ("reach another machine (ssh, kubectl exec)") and the
+  // longest is wider than a phone; wrapping beats an ellipsis because the tail
+  // is where the distinguishing word usually is.
+  overflow-wrap: anywhere;
+}
+
+.count {
+  grid-area: count;
+  font: var(--mat-sys-body-medium);
+  font-variant-numeric: tabular-nums;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.bar {
+  grid-area: bar;
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--mat-sys-surface-container-highest);
+  overflow: hidden;
+
+  // Scaled with a transform rather than a width so the whole chart is one
+  // composited layer; the bars are set from a computed share in the component.
+  > i {
+    display: block;
+    height: 100%;
+    background: var(--mat-sys-primary);
+    transform-origin: left;
+  }
+}
+
+.chart > li.gap .bar > i {
+  background: var(--mat-sys-outline);
+}
+
+.figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin: 0 0 8px;
+  font: var(--mat-sys-body-medium);
+
+  b {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.rows {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+
+  > li {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    padding: 5px 0;
+    border-top: 1px solid var(--mat-sys-outline-variant);
+  }
+}
+
+.pair {
+  font: var(--mat-sys-body-small);
+  font-variant-numeric: tabular-nums;
+  color: var(--mat-sys-on-surface-variant);
+  // A fixed column so the paths beside them line up, and wide enough for six
+  // digits either side — the busiest path in the corpus is read 5,414 times.
+  flex: 0 0 auto;
+  min-width: 92px;
+
+  b {
+    color: var(--mat-sys-on-surface);
+  }
+}
+
+.path {
+  font: var(--mat-sys-body-small);
+  font-family: ui-monospace, monospace;
+  // Paths are long and absolute; wrapping anywhere keeps them off the right
+  // edge without a horizontal scroller inside the page.
+  overflow-wrap: anywhere;
+}
+
+// ⚠ **The global `code` rule is scoped to `.md-content`**, which is rendered
+// markdown — this page is not, so a code span here inherits body type unless it
+// is styled. Setting it to the PLAIN font, as this first did, makes `&&` and
+// `if` render identically to the prose around them and quietly spends the only
+// reason for marking them up.
+code {
+  font-family: ui-monospace, monospace;
+  // dev-lint: allow-font-size optical match to the enclosing text
+  font-size: 0.9em;
+}

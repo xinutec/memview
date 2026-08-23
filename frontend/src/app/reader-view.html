@@ -1,0 +1,159 @@
+<h1 class="title">What the reader makes of the shell</h1>
+
+@if (missing()) {
+  <p class="empty">
+    <mat-icon>report</mat-icon>
+    <span>
+      No survey has been mined here. It comes from
+      <code>reader --bin reading-json</code>, which the nightly runs — a
+      deployment without the transcripts has nothing to read.
+    </span>
+  </p>
+} @else if (reading(); as got) {
+  <p class="lede">
+    Every shell command the fleet has run, read without running any of it. What
+    the text does not determine is counted as undetermined, so the gap below is a
+    number rather than a silence.
+  </p>
+
+  <!-- ⚠ **The headline and its ceiling are one block.** Two figures over two
+       different denominators — commands, and file uses — and showing the first
+       alone is the overstatement the second exists to end. -->
+  <section class="coverage">
+    <div class="figure">
+      <span class="big">{{ got.understood | number: '1.1-1' }}%</span>
+      <span class="what">of {{ got.commands | number }} commands understood</span>
+      <span class="aside">
+        {{ got.unhandled | number }} not in the table ·
+        {{ got.unrolled | number }} of the total came from unrolling loops
+      </span>
+    </div>
+    <div class="figure gap">
+      <span class="big">{{ got.opaque | number: '1.1-1' }}%</span>
+      <span class="what">of file uses name a subject the text cannot determine</span>
+      <span class="aside">
+        {{ got.unnamed_by_word | number }} a shell word ·
+        {{ got.unnamed_computed | number }} a computed path ·
+        {{ got.unnamed_bounded | number }} bounded by a glob
+      </span>
+    </div>
+  </section>
+
+  <section>
+    <h2>What the shell was doing</h2>
+    <ul class="chart">
+      @for (shape of shapes(); track shape.name) {
+        <li [class.gap]="shape.gap">
+          <span class="label">{{ shape.name }}</span>
+          <span class="count">{{ shape.n | number }}</span>
+          <span class="bar"><i [style.transform]="'scaleX(' + shape.share + ')'"></i></span>
+        </li>
+      }
+    </ul>
+    <p class="note">
+      {{ got.renames | number }} of the moves were renames, which no read/write
+      count can express.
+    </p>
+  </section>
+
+  <section>
+    <h2>Files</h2>
+    <p class="figures">
+      <span><b>{{ got.reads | number }}</b> read</span>
+      <span><b>{{ got.writes | number }}</b> written</span>
+      <span><b>{{ got.distinct_paths | number }}</b> distinct paths</span>
+    </p>
+    <!-- Certainty is its own sentence, not a fourth figure: it is a claim about
+         the other three rather than a number beside them. -->
+    <p class="note">
+      {{ got.certain | number }} of those uses are confirmed by an outcome.
+      {{ unconfirmable() | number }} are not — a command after
+      <code>&amp;&amp;</code> or inside an <code>if</code>, where one exit status
+      cannot say which way it went.
+    </p>
+    <ul class="rows">
+      @for (path of got.busiest; track path.name) {
+        <li>
+          <span class="pair">
+            <b>{{ path.reads | number }}</b>r <b>{{ path.writes | number }}</b>w
+          </span>
+          <code class="path">{{ path.name }}</code>
+        </li>
+      }
+    </ul>
+  </section>
+
+  <section>
+    <h2>Commands that change files</h2>
+    <ul class="rows">
+      @for (cmd of got.writers; track cmd.name) {
+        <li>
+          <span class="pair">
+            <b>{{ cmd.writes | number }}</b>w <b>{{ cmd.reads | number }}</b>r
+          </span>
+          <code class="path">{{ cmd.name }}</code>
+        </li>
+      }
+    </ul>
+  </section>
+
+  <section>
+    <h2>The rest of the fleet</h2>
+    <p class="note">
+      Read out of the same scripts and never counted as local work.
+    </p>
+    <ul class="rows">
+      @for (host of got.hosts; track host.name) {
+        <li>
+          <span class="pair">
+            <b>{{ host.reads | number }}</b>r <b>{{ host.writes | number }}</b>w
+          </span>
+          <code class="path">{{ host.name }}</code>
+        </li>
+      }
+    </ul>
+  </section>
+
+  <section>
+    <h2>What it does not know</h2>
+    <p class="note">
+      Commands with no entry in the table, biggest first. This is the work queue,
+      not a failure — each is a name somebody could teach it.
+    </p>
+    <ul class="chart">
+      @for (row of got.unread; track row.name) {
+        <li class="gap">
+          <span class="label">{{ row.name }}</span>
+          <span class="count">{{ row.n | number }}</span>
+          <span class="bar">
+            <i [style.transform]="'scaleX(' + row.n / topOf(got.unread) + ')'"></i>
+          </span>
+        </li>
+      }
+    </ul>
+    <p class="note">
+      And the subjects the text simply does not fix — a loop variable bound by
+      something the transcript never shows:
+    </p>
+    <ul class="rows">
+      @for (word of got.opaque_words; track word.name) {
+        <li>
+          <span class="pair"><b>{{ word.n | number }}</b></span>
+          <code class="path">{{ word.name }}</code>
+        </li>
+      }
+    </ul>
+  </section>
+
+  <!-- The age of the answer, said plainly. The survey is mined nightly because
+       it takes 13 seconds, so "now" would be a lie. -->
+  <p class="stamp">
+    {{ got.calls | number }} calls surveyed, {{ got.unparsed | number }} of which
+    would not parse.
+    @if (corpusAt(); as at) {
+      Corpus last written {{ at | date: 'medium' }}.
+    }
+  </p>
+} @else {
+  <mat-progress-bar mode="indeterminate" />
+}

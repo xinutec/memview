@@ -43,6 +43,12 @@
             <mat-icon>timeline</mat-icon>
             <span>Timeline</span>
           </a>
+          <!-- Owner-only with the other two: it names paths and command names
+               from the fleet's own filesystems. -->
+          <a mat-menu-item routerLink="/reader">
+            <mat-icon>data_object</mat-icon>
+            <span>Reader</span>
+          </a>
         }
         @if (!user.shared && user.auth_enabled) {
           <a mat-menu-item routerLink="/sharing">

@@ -40,6 +40,10 @@ pub struct Config {
     /// The evidence under the timeline. Optional for the same reason, and the
     /// largest of them — a deployment may deliberately not carry it.
     pub effects_file: Option<String>,
+    /// The corpus survey: how much of the fleet's shell the reader understands,
+    /// and what it did. Optional like the rest, and the SMALLEST of them at
+    /// ~7 kB — mined rather than computed because the survey takes 13 seconds.
+    pub reading_file: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -111,6 +115,7 @@ impl Config {
             agents_file: std::env::var("AGENTS_FILE").ok(),
             doing_file: std::env::var("DOING_FILE").ok(),
             effects_file: std::env::var("EFFECTS_FILE").ok(),
+            reading_file: std::env::var("READING_FILE").ok(),
         })
     }
 

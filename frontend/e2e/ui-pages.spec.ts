@@ -354,6 +354,67 @@ const EFFECTS = {
 
 /** Mock every backend call. Catch-all FIRST — Playwright runs handlers
  *  last-registered-first. */
+
+/**
+ * The corpus survey, at the real widths that stress this page.
+ *
+ * ⚠ **Taken from the real artefact and then de-identified**, not invented. The
+ * three things that can break the layout are all length: a shape label that is a
+ * prose phrase ("run a program on another machine (no shell)"), an absolute path
+ * deeper than a phone is wide, and an opaque subject that is a whole command
+ * substitution. Shorter stand-ins would pass and prove nothing.
+ */
+const READING = {
+  corpus_at: 1787441804,
+  calls: 294504,
+  unparsed: 102,
+  commands: 2446441,
+  unrolled: 969629,
+  handled: 2426368,
+  unhandled: 20073,
+  understood: 99.17950197858849,
+  reads: 411961,
+  writes: 76766,
+  distinct_paths: 37747,
+  always: 354612,
+  on_success: 73664,
+  sometimes: 60451,
+  certain: 425085,
+  unnamed: 23455,
+  opaque: 4.579426844363917,
+  unnamed_by_word: 9475,
+  unnamed_bounded: 942,
+  unnamed_computed: 11139,
+  refused_here: 921,
+  doing: [
+    { name: 'nothing with files', n: 1072884 },
+    { name: 'read', n: 432923 },
+    { name: 'reach another machine (ssh, kubectl exec)', n: 54780 },
+    { name: 'run a program on another machine (no shell)', n: 3096 },
+    { name: 'not understood', n: 20073 },
+    { name: 'move', n: 578 },
+  ],
+  renames: 578,
+  busiest: [
+    {
+      name: '/home/example/Code/memview/frontend/projects/console-web/e2e/ui-pages.spec.ts',
+      reads: 5414,
+      writes: 33,
+    },
+    { name: 'MEMORY.md', reads: 381, writes: 262 },
+  ],
+  writers: [{ name: 'python', reads: 21276, writes: 12772 }],
+  hosts: [{ name: 'odin', reads: 14863, writes: 974 }],
+  unread: [
+    { name: 'k3s', n: 1215 },
+    { name: 'verified_cli', n: 336 },
+  ],
+  opaque_words: [
+    { name: '$f', n: 2378 },
+    { name: '$(find InstantUpload -name "$f" | head -1)', n: 96 },
+  ],
+};
+
 async function mockApi(page: Page): Promise<void> {
   await page.route('**/api/**', (r) =>
     r.request().method() === 'GET' ? r.fulfill({ json: [] }) : r.fulfill({ status: 204, body: '' }),
@@ -367,6 +428,7 @@ async function mockApi(page: Page): Promise<void> {
   await page.route('**/api/agents', (r) => r.fulfill({ json: AGENTS }));
   await page.route('**/api/doing**', (r) => r.fulfill({ json: DOING }));
   await page.route('**/api/effects**', (r) => r.fulfill({ json: EFFECTS }));
+  await page.route('**/api/reading', (r) => r.fulfill({ json: READING }));
 }
 
 // The checker-checker: fail loudly here if the device preset is ever lost and
@@ -609,6 +671,56 @@ test('memory — a 404 still reads as not yet written @ phone width', async ({ p
   await page.route('**/api/memory/**', (r) => r.fulfill({ status: 404, body: 'no such memory' }));
   await page.goto('/m/project_never_written');
   await page.getByText('marks something worth writing', { exact: false }).waitFor();
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+});
+
+test('reader — prose bar labels, deep paths and a `$( )` subject @ phone width', async ({
+  page,
+}, testInfo) => {
+  await mockApi(page);
+  await page.goto('/reader');
+
+  // ⚠ **Both headline figures, or the page is advertising.** 99.2% understood
+  // is the claim and 4.6% unnameable is its ceiling; a render that dropped the
+  // second would still look correct in isolation, which is exactly why the
+  // assertion names both.
+  await page.getByText('99.2%').waitFor();
+  await page.getByText('4.6%').waitFor();
+  await page.getByText('of file uses name a subject the text cannot determine').waitFor();
+
+  // The widest shape label in the real artefact, wrapping rather than spilling.
+  await page.getByText('run a program on another machine (no shell)').waitFor();
+  // The admission is IN the chart, not under it.
+  await page.getByText('not understood').waitFor();
+
+  // A path deeper than the viewport, and a subject that is a whole command
+  // substitution — the two strings with no break opportunity in them.
+  await page
+    .getByText('/home/example/Code/memview/frontend/projects/console-web/e2e/ui-pages.spec.ts')
+    .waitFor();
+  await page.getByText('$(find InstantUpload -name "$f" | head -1)').waitFor();
+
+  // The subtraction the page makes rather than the server: 63,642 unconfirmable.
+  await page.getByText('63,642', { exact: false }).waitFor();
+
+  await expectIconFontLoaded(page);
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+});
+
+test('reader — an unmined artefact says so, rather than drawing zeroes @ phone width', async ({
+  page,
+}, testInfo) => {
+  await mockApi(page);
+  // ⚠ **404, not an empty body.** "Nothing has been mined" and "the survey found
+  // nothing" are different claims, and a page that rendered 0.0% for the first
+  // would be stating the second.
+  await page.route('**/api/reading', (r) => r.fulfill({ status: 404, body: '' }));
+  await page.goto('/reader');
+
+  await page.getByText('No survey has been mined here').waitFor();
+  await expect(page.getByText('0.0%')).toHaveCount(0);
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 });

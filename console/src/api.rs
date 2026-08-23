@@ -59,8 +59,30 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/sessions/{id}/parse", post(parse))
         .route("/api/sessions/{id}/tasks", get(tasks))
         .route("/api/sessions/{id}/tasks/{task}", get(task))
+        .route("/api/reading", get(reading))
         .route("/api/telemetry", post(trace::record))
         .with_state(roster)
+}
+
+/// GET /api/reading — the corpus survey, as the nightly mined it.
+///
+/// ⚠ **Read per request rather than cached, and that is not an oversight.** The
+/// artefact is 7 kB: a cache would save a file read that costs less than the
+/// lock it would need. memview holds one because it holds two much larger
+/// artefacts the same way and consistency there is worth more than the bytes.
+///
+/// The survey itself is NOT computed here — it takes 13 seconds over 146k
+/// commands, which is a mining job, not a request. `reader --bin reading-json`
+/// writes the file and the nightly runs it.
+async fn reading() -> Result<Json<reader::reading::CorpusRead>, StatusCode> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let path = std::env::var("READING_FILE").unwrap_or(format!("{home}/.claude/reading.json"));
+    // A missing artefact is a 404 the view can say "not mined yet" about, never
+    // a `CorpusRead` of zeroes — those are different claims and the second is false.
+    let text = std::fs::read_to_string(&path).map_err(|_| StatusCode::NOT_FOUND)?;
+    serde_json::from_str(&text)
+        .map(Json)
+        .map_err(|_| StatusCode::NOT_FOUND)
 }
 
 /// How large a request carrying an image may be.

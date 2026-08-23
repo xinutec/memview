@@ -18,6 +18,24 @@ fn load_corpus(app: &AppState) -> Result<Corpus, AppError> {
     Ok(Corpus::load(&app.cfg.memory_dir)?)
 }
 
+/// GET /api/reading — the corpus survey: what the reader makes of the fleet's
+/// shell, and what it admits it cannot.
+///
+/// ⚠ **Owner-only, like the timeline and the evidence.** It names paths and
+/// command names from Pippijn's machines; a share-token holder gets memories,
+/// not a map of the fleet's filesystem.
+///
+/// 404 rather than an empty body when nothing has been mined: the view must be
+/// able to say "not mined yet" and mean it, which it cannot do from a `CorpusRead`
+/// full of zeroes.
+pub async fn reading(
+    State(app): State<AppState>,
+    OwnerOnly(_): OwnerOnly,
+) -> Result<Json<reader::reading::CorpusRead>, AppError> {
+    let summary = app.reading().ok_or(AppError::NotFound)?;
+    Ok(Json((*summary).clone()))
+}
+
 /// GET /api/me
 pub async fn me(State(app): State<AppState>, ReadAccess(viewer): ReadAccess) -> Json<Value> {
     let auth_enabled = app.cfg.auth.is_some();

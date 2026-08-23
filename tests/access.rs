@@ -22,6 +22,7 @@ fn app(dir: &std::path::Path) -> (AppState, String) {
     let cfg = Config {
         doing_file: None,
         effects_file: None,
+        reading_file: None,
         memory_dir: dir.join("corpus").to_string_lossy().into_owned(),
         bind_addr: "127.0.0.1:0".into(),
         share_state_file: dir.join("share-state.json").to_string_lossy().into_owned(),

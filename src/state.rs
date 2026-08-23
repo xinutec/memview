@@ -11,6 +11,7 @@ use crate::config::Config;
 use crate::share::ShareStore;
 use reader::doing::Doing;
 use reader::effects::Effects;
+use reader::reading::CorpusRead;
 
 const OAUTH_TTL: Duration = Duration::from_secs(600); // 10 minutes
 
@@ -57,6 +58,18 @@ struct CachedEffects {
     counts: EffectCounts,
 }
 
+/// The corpus survey, held the same way and for a weaker reason than the other
+/// two: it is 7 kB, so re-reading it per request would cost almost nothing.
+///
+/// Cached anyway because the mtime check is the part that matters — it is what
+/// makes "the artefact changed" the only way a served number can change, so a
+/// figure on a page and a figure in `--bin shell-files` can only disagree by
+/// being from different nights, never by one of them having recomputed.
+struct CachedReading {
+    at: Option<std::time::SystemTime>,
+    reading: Option<Arc<CorpusRead>>,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub cfg: Arc<Config>,
@@ -65,6 +78,7 @@ pub struct AppState {
     oauth: Arc<Mutex<HashMap<String, PendingOauth>>>,
     timeline: Arc<Mutex<Option<Cached>>>,
     effects: Arc<Mutex<Option<CachedEffects>>>,
+    reading: Arc<Mutex<Option<CachedReading>>>,
 }
 
 impl AppState {
@@ -76,6 +90,7 @@ impl AppState {
             oauth: Arc::new(Mutex::new(HashMap::new())),
             timeline: Arc::new(Mutex::new(None)),
             effects: Arc::new(Mutex::new(None)),
+            reading: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -138,6 +153,34 @@ impl AppState {
             doing: doing.clone(),
         });
         doing
+    }
+
+    /// The corpus survey, from memory unless the file has changed since.
+    ///
+    /// ⚠ **`None` is a real answer and is not an error.** A deployment that has
+    /// never mined one — a fresh checkout, or isis before the first sync — must
+    /// say "not mined yet" on the page rather than 500 it. The distinction the
+    /// view needs is between "no artefact" and "an artefact saying zero", and a
+    /// default-filled `CorpusRead` would erase exactly that.
+    pub fn reading(&self) -> Option<Arc<CorpusRead>> {
+        let path = self.cfg.reading_file.as_deref()?;
+        let path = std::path::Path::new(path);
+        let at = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+        let mut held = self.reading.lock().expect("reading poisoned");
+        if let Some(cached) = held.as_ref()
+            && cached.at == at
+        {
+            return cached.reading.clone();
+        }
+        let reading = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|text| serde_json::from_str::<CorpusRead>(&text).ok())
+            .map(Arc::new);
+        *held = Some(CachedReading {
+            at,
+            reading: reading.clone(),
+        });
+        reading
     }
 
     pub fn create_oauth_state(&self, return_to: Option<String>) -> String {

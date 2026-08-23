@@ -35,6 +35,18 @@ body {
   color: var(--mat-sys-on-surface);
 }
 
+// ⚠ **An icon has one correct size, so it never shrinks.** Material gives
+// `mat-icon` `overflow: hidden`, and a flex or grid item whose overflow is not
+// `visible` loses the `min-width: auto` floor that would stop it collapsing
+// below its own content — so its floor is 0. When the line it sits on has to
+// shrink, the icon gives up its box, and because that box hides its overflow the
+// glyph is CLIPPED rather than scaled: it renders as a fragment. The trigger is
+// the length of the text beside it, which is why both review and a passing
+// layout suite can miss it. Stated once here rather than per component.
+mat-icon {
+  flex-shrink: 0;
+}
+
 // Rendered-markdown content (innerHTML, so unscoped by view encapsulation).
 .md-content {
   line-height: 1.55;

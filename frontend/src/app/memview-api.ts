@@ -9,6 +9,7 @@ import {
   MemoryMeta,
   MemoryPage,
   AgentsResult,
+  CorpusRead,
   Evidence,
   SearchResult,
   ShareInfo,
@@ -99,6 +100,17 @@ export class MemviewApi {
     return this.http.get<Evidence>('/api/effects', {
       params: new HttpParams().set('agent', agent).set('at', String(at)),
     });
+  }
+
+  /**
+   * What the reader makes of every shell command the fleet has run.
+   *
+   * One request, ~7 kB, and no parameters: the artefact is already the summary.
+   * A 404 means nothing has been mined yet, which the view says out loud rather
+   * than drawing as zeroes.
+   */
+  reading(): Observable<CorpusRead> {
+    return this.http.get<CorpusRead>('/api/reading');
   }
 
   shareRevoke(): Observable<ShareInfo> {

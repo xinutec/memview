@@ -647,3 +647,34 @@ export interface Used {
   /** The machine it is on, for a use that is not local. */
   readonly host?: string;
 }
+
+/** One row of a ranked table in the corpus survey. */
+export interface Ranked {
+  readonly name: string;
+  readonly n: number;
+}
+
+/**
+ * What the reader makes of every shell command the fleet has run.
+ *
+ * The strip draws the head of this; the viewer's `/reader` page draws all of it;
+ * `--bin shell-files` prints it. One survey — `reader/src/reading.rs` — so the
+ * three can only disagree by being from different nights.
+ *
+ * Only the fields the strip uses are declared. The wire carries more, and adding
+ * a field here is how it becomes drawable.
+ */
+export interface CorpusRead {
+  readonly commands: number;
+  /** `handled` over `commands`, computed server-side. */
+  readonly understood: number;
+  /**
+   * The share of file uses whose subject the text does not determine.
+   *
+   * ⚠ **Drawn beside `understood`, never without it.** They run over different
+   * denominators — commands against uses — so the coverage figure alone reads as
+   * a completeness claim it cannot support.
+   */
+  readonly opaque: number;
+  readonly doing: readonly Ranked[];
+}

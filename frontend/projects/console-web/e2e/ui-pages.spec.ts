@@ -484,11 +484,32 @@ async function openTools(page: Page): Promise<void> {
   await page.locator('.entry.tools .run').first().click();
 }
 
+/**
+ * The corpus survey, at the widths that stress a 412px strip.
+ *
+ * ⚠ **The longest real shape label is here on purpose.** "run a program on
+ * another machine (no shell)" is 42 characters of prose beside a right-aligned
+ * seven-digit count, which is the one row in this strip that can collide.
+ */
+const READING = {
+  commands: 2446441,
+  understood: 99.17950197858849,
+  opaque: 4.579426844363917,
+  doing: [
+    { name: 'nothing with files', n: 1072884 },
+    { name: 'read', n: 432923 },
+    { name: 'reach another machine (ssh, kubectl exec)', n: 54780 },
+    { name: 'run a program on another machine (no shell)', n: 3096 },
+    { name: 'not understood', n: 20073 },
+  ],
+};
+
 async function mockRunner(page: Page): Promise<void> {
   await page.route('**/api/**', (r) =>
     r.request().method() === 'GET' ? r.fulfill({ json: [] }) : r.fulfill({ status: 204, body: '' }),
   );
   await page.route('**/api/state', (r) => r.fulfill({ json: STATE }));
+  await page.route('**/api/reading', (r) => r.fulfill({ json: READING }));
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
       contentType: 'text/event-stream',
@@ -4476,5 +4497,45 @@ test('a session that has ended dates its background work @ phone width', async (
     '2 background tasks running when the session ended',
   );
   await expect(page.locator('.update.running')).toHaveCount(0);
+  await expectNoHorizontalOverflow(page, testInfo);
+});
+
+test('reader strip — a prose label beside a seven-digit count @ phone width', async ({
+  page,
+}, testInfo) => {
+  await mockRunner(page);
+  await page.goto('/');
+
+  // The claim and its ceiling, both on the line. Either alone overstates.
+  await page.getByText('99.2%').waitFor();
+  await page.getByText('4.6% unnameable').waitFor();
+  await page.getByText('of 2,446,441 commands read').waitFor();
+
+  // The widest label in the real artefact, and the admission that must stay in
+  // the chart rather than under it.
+  await page.getByText('run a program on another machine (no shell)').waitFor();
+  await page.getByText('not understood').waitFor();
+
+  await expectIconFontLoaded(page);
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+});
+
+test('reader strip — an unmined survey says so in one line @ phone width', async ({
+  page,
+}, testInfo) => {
+  await mockRunner(page);
+  // ⚠ **Quiet, but not absent.** A strip that vanished on failure was
+  // indistinguishable from one that had been removed, so the failure gets one
+  // muted line — and no chart, which is what keeps it out of the way.
+  await page.route('**/api/reading', (r) => r.fulfill({ status: 404, body: '' }));
+  await page.goto('/');
+
+  await page.getByText('reader survey unavailable').waitFor();
+  await expect(page.locator('.chart')).toHaveCount(0);
+  // The sessions themselves are unaffected — the strip failing is not the page
+  // failing, and this is what says so.
+  await page.locator('.session').first().waitFor();
+  await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 });
