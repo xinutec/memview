@@ -97,6 +97,35 @@
     </ul>
   </section>
 
+  @if (got.distinct_tables) {
+    <section>
+      <h2>Databases</h2>
+      <!-- ⚠ Stated as its own kind, not as more files. The sentence says so
+           because the numbers alone would read as a subset of the section
+           above. -->
+      <p class="note">
+        What the SQL touched. These are <b>tables, not files</b> — nothing here
+        is counted in the figures above, and no statement in this corpus names a
+        file at all.
+      </p>
+      <p class="figures">
+        <span><b>{{ got.table_reads | number }}</b> table reads</span>
+        <span><b>{{ got.table_writes | number }}</b> changes</span>
+        <span><b>{{ got.distinct_tables | number }}</b> distinct tables</span>
+      </p>
+      <ul class="rows">
+        @for (table of got.tables; track table.name) {
+          <li>
+            <span class="pair">
+              <b>{{ table.reads | number }}</b>r <b>{{ table.writes | number }}</b>w
+            </span>
+            <code class="path">{{ table.name }}</code>
+          </li>
+        }
+      </ul>
+    </section>
+  }
+
   <section>
     <h2>The rest of the fleet</h2>
     <p class="note">

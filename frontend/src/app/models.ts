@@ -513,6 +513,19 @@ export interface CorpusRead {
   unnamed_bounded: number;
   unnamed_computed: number;
   refused_here: number;
+  /**
+   * Tables the fleet's SQL read and changed.
+   *
+   * ⚠ **Never added to `reads`/`writes`.** A table is not a file, and measured
+   * over this corpus SQL names a file exactly never — no `INTO OUTFILE`, no
+   * `LOAD DATA INFILE`, no sqlite `.read`. Folding them together would inflate
+   * the file figure with subjects that have no path.
+   */
+  table_reads: number;
+  table_writes: number;
+  distinct_tables: number;
+  tables: Both[];
+  sql: Ranked[];
   doing: Ranked[];
   renames: number;
   busiest: Both[];

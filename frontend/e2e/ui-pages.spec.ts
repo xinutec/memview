@@ -386,6 +386,20 @@ const READING = {
   unnamed_bounded: 942,
   unnamed_computed: 11139,
   refused_here: 921,
+  table_reads: 2747,
+  table_writes: 264,
+  distinct_tables: 151,
+  tables: [
+    { name: 'report', reads: 331, writes: 0 },
+    // A qualified name is a distinct subject from its bare form, and both are
+    // real — `health.hrv_intraday` and `hrv_intraday` are counted apart.
+    { name: 'health.hrv_intraday', reads: 64, writes: 0 },
+    { name: 'location_equipment_option', reads: 0, writes: 14 },
+  ],
+  sql: [
+    { name: 'select', n: 2432 },
+    { name: 'drop', n: 76 },
+  ],
   doing: [
     { name: 'nothing with files', n: 1072884 },
     { name: 'read', n: 432923 },
@@ -703,6 +717,14 @@ test('reader — prose bar labels, deep paths and a `$( )` subject @ phone width
 
   // The subtraction the page makes rather than the server: 63,642 unconfirmable.
   await page.getByText('63,642', { exact: false }).waitFor();
+
+  // ⚠ **Tables are drawn as their own kind, and the page SAYS so.** The figures
+  // alone would read as a subset of the file counts above them, which is the
+  // one misreading this whole separation exists to prevent.
+  await page.getByText('tables, not files').waitFor();
+  await page.getByText('2,747').waitFor();
+  await page.getByText('151').first().waitFor();
+  await page.getByText('location_equipment_option').waitFor();
 
   await expectIconFontLoaded(page);
   await expectNoTextOverlaps(page, testInfo);

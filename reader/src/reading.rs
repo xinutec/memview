@@ -100,6 +100,9 @@ pub struct Reading {
     pub computed: BTreeMap<String, usize>,
     /// And the uses Python DID name that this layer's own rules turned away.
     pub turned_away: crate::python::Refused,
+    /// What the SQL touched — **tables, never files**. See
+    /// [`crate::shell_files::Extract::tables`] for why the two are kept apart.
+    pub tables: crate::sql::Queried,
     pub reads: usize,
     pub writes: usize,
     /// Distinct paths, so the size of what this produces is visible rather than
@@ -209,6 +212,7 @@ impl Reading {
             *self.computed.entry(call.clone()).or_insert(0) += n;
         }
         self.turned_away.merge(&found.python.refused);
+        self.tables.merge(&found.tables);
         for file in found.files {
             if let Some((why, limit)) = &self.watch
                 && file.path.contains(why.as_str())
@@ -369,6 +373,18 @@ pub struct CorpusRead {
     pub unnamed_bounded: usize,
     pub unnamed_computed: usize,
     pub refused_here: usize,
+    /// Table reads and changes, and how many distinct tables that is.
+    ///
+    /// ⚠ **Beside the file counts and never inside them.** A table is not a
+    /// file: 2,747 table reads added to `reads` would be 2,747 files that do not
+    /// exist. Measured — no statement in this corpus names a file at all.
+    pub table_reads: usize,
+    pub table_writes: usize,
+    pub distinct_tables: usize,
+    /// The busiest tables, read and changed.
+    pub tables: Vec<Both>,
+    /// What the SQL was doing, by verb.
+    pub sql: Vec<Ranked>,
     /// What the shell was doing, biggest first. Not truncated: there are
     /// twenty-two shapes in total and the tail is the interesting part.
     pub doing: Vec<Ranked>,
@@ -395,6 +411,31 @@ fn rank(map: &BTreeMap<String, usize>) -> Vec<Ranked> {
         .map(|(name, n)| Ranked {
             name: name.clone(),
             n: *n,
+        })
+        .collect()
+}
+
+/// The busiest tables, folding the two directions into one row each.
+///
+/// Ranked by total traffic rather than by writes: a table read three hundred
+/// times is the centre of the work whether or not anything changed it, and a
+/// list ordered by writes would put a table touched twice above it.
+fn busiest_tables(queried: &crate::sql::Queried) -> Vec<Both> {
+    let mut merged: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+    for (name, n) in &queried.reads {
+        merged.entry(name).or_default().0 += n;
+    }
+    for (name, n) in &queried.writes {
+        merged.entry(name).or_default().1 += n;
+    }
+    let mut all: Vec<_> = merged.into_iter().collect();
+    all.sort_by_key(|(name, (r, w))| (std::cmp::Reverse(r + w), *name));
+    all.into_iter()
+        .take(DEEP)
+        .map(|(name, (r, w))| Both {
+            name: name.to_string(),
+            reads: r,
+            writes: w,
         })
         .collect()
 }
@@ -451,6 +492,11 @@ impl Reading {
             unnamed_bounded: self.by_pattern.values().sum(),
             unnamed_computed: self.computed.values().sum(),
             refused_here: self.turned_away.total(),
+            table_reads: self.tables.reads.values().sum(),
+            table_writes: self.tables.writes.values().sum(),
+            distinct_tables: self.tables.tables(),
+            tables: busiest_tables(&self.tables),
+            sql: rank(&self.tables.verbs),
             doing,
             renames: self.renames,
             busiest: rank_both(&self.distinct, false),

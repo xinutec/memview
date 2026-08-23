@@ -154,6 +154,29 @@ fn main() -> anyhow::Result<()> {
         read.renames
     );
 
+    // Tables, printed apart from every file figure above — the whole point of
+    // the separation is that a reader can see both without either being folded
+    // into the other.
+    if !read.tables.verbs.is_empty() {
+        println!(
+            "\ndatabases: {} table reads, {} changes  ({} distinct tables)",
+            read.tables.reads.values().sum::<usize>(),
+            read.tables.writes.values().sum::<usize>(),
+            read.tables.tables()
+        );
+        let mut verbs: Vec<_> = read.tables.verbs.iter().collect();
+        verbs.sort_by_key(|(v, n)| (std::cmp::Reverse(**n), (*v).clone()));
+        for (v, n) in verbs.into_iter().take(8) {
+            println!("  {n:>7}  {v}");
+        }
+        if !read.tables.uses.is_empty() {
+            println!(
+                "  {:>7}  files named by a statement (INTO OUTFILE, .read, .output)",
+                read.tables.uses.len()
+            );
+        }
+    }
+
     println!("\nmost searched-for terms:");
     let mut terms: Vec<_> = read.searched.iter().collect();
     terms.sort_by_key(|(term, n)| (std::cmp::Reverse(**n), (*term).clone()));
