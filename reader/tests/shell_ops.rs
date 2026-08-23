@@ -483,3 +483,72 @@ fn a_clustered_flag_is_not_glued_onto_a_remote_payload() {
         }
     );
 }
+
+/// ⚠ **`jq --arg NAME VALUE` consumes TWO words, and skipping one shifted every
+/// operand after it.** The value became the first operand and was recorded as
+/// the jq program — `2026-01-01` and `5` appear in the corpus census that way —
+/// while the real filter fell through to the path list, where its `$name` made
+/// it an unnamed file subject. 146 phantom subjects across the corpus, and a
+/// program census naming a date.
+#[test]
+fn a_flag_taking_a_name_and_a_value_eats_both() {
+    let argv: Vec<String> = [
+        "jq",
+        "--arg",
+        "dt",
+        "2026-01-01",
+        ".[] | select(.date==$dt)",
+        "d.json",
+    ]
+    .iter()
+    .map(|w| w.to_string())
+    .collect();
+    let mut unnamed = Vec::new();
+    let op = reader::shell_ops::classify_naming(
+        &mut unnamed,
+        &argv,
+        &[],
+        Some("/home/example"),
+        "/home/example",
+    );
+    match op {
+        reader::shell_ops::Op::Transform { program, paths, .. } => {
+            assert_eq!(
+                program, ".[] | select(.date==$dt)",
+                "the VALUE became the program"
+            );
+            assert_eq!(paths, ["/home/example/d.json"]);
+        }
+        other => panic!("not a transform: {other:?}"),
+    }
+    assert!(
+        unnamed.is_empty(),
+        "a jq filter was offered as a file subject: {unnamed:?}"
+    );
+}
+
+/// The plain form must keep working — the fix must not eat a word that is not
+/// there.
+#[test]
+fn a_flag_taking_one_value_still_eats_one() {
+    let argv: Vec<String> = ["jq", "-r", ".name", "d.json"]
+        .iter()
+        .map(|w| w.to_string())
+        .collect();
+    let mut unnamed = Vec::new();
+    let op = reader::shell_ops::classify_naming(
+        &mut unnamed,
+        &argv,
+        &[],
+        Some("/home/example"),
+        "/home/example",
+    );
+    match op {
+        reader::shell_ops::Op::Transform { program, paths, .. } => {
+            assert_eq!(program, ".name");
+            assert_eq!(paths, ["/home/example/d.json"]);
+        }
+        other => panic!("not a transform: {other:?}"),
+    }
+    assert!(unnamed.is_empty());
+}

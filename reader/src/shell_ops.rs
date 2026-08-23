@@ -431,7 +431,7 @@ fn undetermined(word: &str) -> bool {
 /// in `valued` eats the word after it. An empty word is dropped — kept, BSD
 /// `sed -i '' 's/a/b/' f` offers `''` as the script to skip and the real script
 /// is then recorded as a path, since it is full of slashes.
-fn operands<'a>(argv: &'a [String], valued: &[&str]) -> Vec<&'a str> {
+fn operands<'a>(argv: &'a [String], valued: &[&str], pair: &[&str]) -> Vec<&'a str> {
     let mut out = Vec::new();
     let mut rest = argv.iter().skip(1);
     let mut flags = true;
@@ -439,7 +439,11 @@ fn operands<'a>(argv: &'a [String], valued: &[&str]) -> Vec<&'a str> {
         if flags && word == "--" {
             flags = false;
         } else if flags && word.starts_with('-') && word.len() > 1 {
-            if valued.contains(&word.as_str()) {
+            // A pair flag eats two words; a valued one eats a single word.
+            if pair.contains(&word.as_str()) {
+                rest.next();
+                rest.next();
+            } else if valued.contains(&word.as_str()) {
                 rest.next();
             }
         } else if !word.is_empty() {
@@ -608,6 +612,16 @@ const SEARCH_FLAGS: &[&str] = &[
 struct Flags {
     /// Flags that consume the following word, which is therefore not an operand.
     valued: &'static [&'static str],
+    /// Flags that consume the following **two** words — a name and a value.
+    ///
+    /// ⚠ **`jq --arg dt 2026-01-01 '.filter' data.json` was read with the
+    /// operand list shifted by one.** Skipping a single word left the VALUE as
+    /// the first operand, so `2026-01-01` was recorded as the jq program and the
+    /// real filter fell through to the path list — where its `$dt` made it an
+    /// unnamed file subject. Two wrong facts from one missing word: a program
+    /// census that named a date, and an opacity figure inflated by programs that
+    /// were never paths.
+    pair: &'static [&'static str],
     /// Flags that supply the pattern or program.
     script: &'static [&'static str],
     /// Those among them naming a *file* of patterns, itself a read.
@@ -617,12 +631,14 @@ struct Flags {
 impl Flags {
     const NONE: Flags = Flags {
         valued: &[],
+        pair: &[],
         script: &[],
         script_file: &[],
     };
     const fn valued(valued: &'static [&'static str]) -> Flags {
         Flags {
             valued,
+            pair: &[],
             script: &[],
             script_file: &[],
         }
@@ -785,6 +801,7 @@ pub fn is_python(name: &str) -> bool {
 /// [`Op::Unknown`] — never a silent success.
 fn verb(name: &str) -> Option<Verb> {
     const SEARCH: Flags = Flags {
+        pair: &[],
         valued: SEARCH_FLAGS,
         script: &["-e", "--regexp", "-f", "--file"],
         script_file: &["-f", "--file"],
@@ -801,6 +818,7 @@ fn verb(name: &str) -> Option<Verb> {
         // `honours_i` is a property of the command and the match is by prefix.
         "sed" => Verb::Stream {
             flags: Flags {
+                pair: &[],
                 valued: &["-e", "-f", "--expression"],
                 script: &["-e", "--expression", "-f", "--file"],
                 script_file: &["-f", "--file"],
@@ -809,6 +827,7 @@ fn verb(name: &str) -> Option<Verb> {
         },
         "awk" | "gawk" => Verb::Stream {
             flags: Flags {
+                pair: &[],
                 valued: &["-F", "-v", "-f", "--file"],
                 script: &["-f", "--file"],
                 script_file: &["-f", "--file"],
@@ -817,7 +836,9 @@ fn verb(name: &str) -> Option<Verb> {
         },
         "jq" | "yq" => Verb::Stream {
             flags: Flags {
-                valued: &["--arg", "--argjson", "-f", "--from-file"],
+                // ⚠ `--arg`/`--argjson` are NAME VALUE — two words, see `Flags::pair`.
+                pair: &["--arg", "--argjson"],
+                valued: &["-f", "--from-file"],
                 script: &["-f", "--from-file"],
                 script_file: &["-f", "--from-file"],
             },
@@ -868,6 +889,7 @@ fn verb(name: &str) -> Option<Verb> {
         // operands, `-i` deciding whether they are read or rewritten.
         "perl" => Verb::Stream {
             flags: Flags {
+                pair: &[],
                 valued: &["-e", "-E", "-I", "-M", "-F"],
                 script: &["-e", "-E"],
                 script_file: &[],
@@ -1249,7 +1271,7 @@ fn act(
     };
     let from_flag = has_flag(argv, flags.script);
     let script_files = paths(unnamed, &flag_values(argv, flags.script_file), cwd, home);
-    let words = operands(argv, flags.valued);
+    let words = operands(argv, flags.valued, flags.pair);
     // With the program supplied by a flag there is no leading operand to skip.
     let (leading, rest) = match (from_flag, words.split_first()) {
         (false, Some((first, rest))) => ((*first).to_string(), rest),
