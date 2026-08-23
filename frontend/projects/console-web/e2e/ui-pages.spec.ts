@@ -3848,6 +3848,17 @@ test('a seed that arrives in pieces still ends at the end @ phone width', async 
  * It is the interesting case rather than a tidy one: the call failed, so
  * everything after the `&&` parses, classifies, names a real path — and none of
  * it is certain. That is the whole reason the sheet exists.
+ *
+ * ⚠ **`kind` is the CHIP and `key` is the style handle**, and they are two
+ * fields because one was doing both jobs: the colour selected on the display
+ * string, so improving a label silently dropped it. Both come from one table,
+ * `reader::reading::naming`.
+ *
+ * ⚠ **The pinning above is a CONVENTION, not a mechanism, and it has already
+ * failed once.** The Rust test was updated when the labels changed and this copy
+ * was not, so the sheet's layout check went on drawing `nothing` and `run` —
+ * strings the runner no longer sends. Nothing failed, because a stub agrees with
+ * whatever it was last told.
  */
 const PARSED = {
   steps: [
@@ -3856,14 +3867,16 @@ const PARSED = {
       argv: ['nix', 'develop', '-c', 'lake', 'build'],
       reached: 'always',
       cwd: '/home/example/Code/health/packages/health-sync-backend/src/decode',
-      kind: 'nothing',
+      kind: 'no files',
+      key: 'nothing',
     },
     {
       depth: 0,
       argv: ['./verified_cli', 'match', '--serve', '--timeout', '30000ms'],
       reached: 'on-success',
       cwd: '/home/example/Code/health/packages/health-sync-backend/src/decode',
-      kind: 'run',
+      kind: 'run a script',
+      key: 'run',
       uses: [
         {
           path: '/home/example/Code/health/packages/health-sync-backend/src/decode/verified_cli',
@@ -3879,6 +3892,7 @@ const PARSED = {
       reached: 'on-success',
       cwd: '/home/example/Code/health/packages/health-sync-backend/src/decode',
       kind: 'write',
+      key: 'write',
       uses: [{ path: '/tmp/lean-gate.log', write: true, reached: 'on-success', certain: false }],
     },
   ],
