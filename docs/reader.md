@@ -585,6 +585,57 @@ summary states the second. The console's strip says it in one muted line, which
 is the correction to a first version that drew nothing at all — a component that
 vanishes is indistinguishable from one that was deleted.
 
+## The space a subject lives in
+
+What the text fixes about a value it cannot name. **A located language** — a
+language `L` paired with a locus `D`, the directory the answer must live in —
+which is one object with two halves, and the shapes below differ only in which
+half is precise.
+
+```text
+⟦*.log⟧  =  some S  ⊆  L(*.log) ∩ Files(dir, t)
+```
+
+An unknown finite subset of a **known** language: cardinality unknown, possibly
+empty under `nullglob`, possibly the pattern itself where nothing matched.
+`bounded_by()` resolves the pattern against the cwd, so what is recorded is
+`/abs/dir/*.log` and not `*.log` — **`*`, `../*` and `/*` are three different
+spaces, not one shrug.**
+
+Measured by `--example opaque-shapes` over the union corpus, 2026-08-23, of the
+9,329 subjects the reader could not name:
+
+| uses | shape | `L` | `D` |
+| ---: | --- | :-: | :-: |
+| 4,886 | a bare name, bound outside the text | — | — |
+| 1,007 | locus known, leaf unknown — `Verified/Geo/${s%%:*}` | — | ✓ |
+| 737 | derived — `${f%.ts}.js`, `$(basename …)` | ✓* | * |
+| 665 | an environment directory — `$TMPDIR` | — | ~ |
+| 652 | unclassified, **largely single-line jq** | — | — |
+| 544 | a located finite set — `$(find $d -name '*.ts')` | ✓ | ✓ |
+| 458 | **arithmetic — never a path** | | |
+| 259 | a substitution with no locus | — | — |
+| 67 | **a program body, offered as a subject** | | |
+| 54 | a positional parameter | — | — |
+
+Plus the 942 already bounded, which have both. Of the 8,888 that are genuinely
+path subjects: **a locus is known for 17.6%, a language for 26.0%.**
+
+⚠ **Regular is the right lattice because the class is closed under what shells
+do to paths.** `dirname`, `basename`, `${f%.ts}.js`, `${f%%:*}` each map a
+regular language to a regular language, so a derived value keeps a describable
+space instead of collapsing. That closure is what makes `S ⊆ L` compose, and
+composition is what makes it checkable.
+
+⚠ **Past and future are the same object with a different `t`.** For history `L`
+and `D` are exact and only `t` is gone — so the honest output was always the
+*space*, and we print it for globs alone. For a command about to run, `t` is now,
+so `S = L ∩ Files(D, now)` is one directory read: ~2,500 uses would go from
+opaque to concrete. That is the *prediction* half
+[execution-model.md](execution-model.md) names, and it must live above this
+library — `reader` touches no filesystem, and that property is worth more than
+the convenience. memview#1080.
+
 ## Correctness
 
 `reader/tests/oracle.rs` is the only test that catches a *wrong* reading rather
@@ -601,6 +652,44 @@ Two properties:
 
 ⚠ It runs only the fixtures in that file, in a scratch directory it removes. **No
 corpus command is ever re-executed.**
+
+### Why this is not sound abstract interpretation
+
+Asked and settled twice — Pippijn 2026-08-13, and again 2026-08-23. **Do not
+"fix" the reader into soundness.**
+
+Sound AI over-approximates so a property holds for *all* inputs: γ(abstract) ⊇
+concrete, joins at merge points, widening at loops, and every undetermined value
+becomes ⊤. Applied here, `rm "$f"` with `$f` undetermined has exactly one sound
+answer: **may have deleted any file.**
+
+⚠ **The accurate statement is not "the reader is unsound".** It is sound where it
+speaks — `S ⊆ L` *is* an over-approximation — and it refuses to say ⊤ where
+soundness would require it. The artefact is therefore **three parts, not one
+bound**: a **lower bound** (what was named), a **described middle** (`S ⊆ L`,
+sound and falsifiable), and a **counted remainder** (23,309, printed rather than
+hidden). That is strictly more informative than either bound alone.
+
+Four reasons, in increasing order of force:
+
+1. **The question is about one trace, not all traces.** Over-approximation exists
+   for "for every possible input". Exactly one execution happened and its inputs
+   are mostly *in the text*, so γ is a singleton nearly everywhere; widening
+   discards information that is present.
+2. **⊤ absorbs, and aggregation is the product.** Every artefact joins over
+   commands — what a session touched, what an agent changed in July. Join
+   anything with ⊤ and the result is ⊤. With 20,073 commands not in the table
+   and 102 unparsed calls, one anywhere in a turn makes that turn's answer *may
+   have touched any file*, and the timeline becomes rows of identical nothing.
+3. **The error would run in the expensive direction.** An undercount fails to
+   gain; a fabrication corrupts every count downstream. ⊤ is the maximal wrong
+   reading — it asserts files that were never touched.
+4. **It would be unfalsifiable, which is disqualifying here.** `S ⊆ L` is
+   checkable, and `oracle.rs` above checks it: run the fixture for real, every
+   path touched must match the pattern. **A sound over-approximation contains
+   every observed run by construction, so no oracle can ever disagree with it.**
+   A claim no observation can refute is not evidence — the same principle as a
+   gate that cannot fail not being a gate.
 
 ## Not done
 
