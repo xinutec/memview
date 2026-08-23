@@ -422,7 +422,58 @@ fn paths(unnamed: &mut Vec<String>, words: &[&str], cwd: Option<&str>, home: &st
 /// *and* no admission that a subject had been refused. Measured 2026-08-13, the
 /// day the counter shipped.
 fn undetermined(word: &str) -> bool {
-    word.contains(['$', '`'])
+    word.contains(['$', '`']) && !only_arithmetic(word)
+}
+
+/// Whether a word is arithmetic and nothing a path could be made of.
+///
+/// ⚠ **An arithmetic expansion evaluates to a NUMBER, so it was never a
+/// candidate for being a file** — and 458 of them sat in the count of subjects
+/// the reader could not name, which is the figure both apps print as the honest
+/// limit of what it knows. `$((now - before))` alone accounts for 60.
+///
+/// ⚠ **Narrow on purpose: `/tmp/$((n)).txt` IS a path** and must stay a subject.
+/// The test is not "contains arithmetic" but "is arithmetic, with nothing
+/// path-shaped around it" — erring wide here would delete real subjects to make
+/// a number look better, which is the trade this exists to avoid. A `/` or a `~`
+/// anywhere in the word is enough to keep it.
+fn only_arithmetic(word: &str) -> bool {
+    if !word.contains("$((") || word.contains(['/', '~']) {
+        return false;
+    }
+    // What is left once every `$(( … ))` is removed. A path would still have
+    // something of its own here; an arithmetic operand has punctuation at most.
+    let mut rest = String::new();
+    let bytes = word.as_bytes();
+    let mut i = 0;
+    while i < word.len() {
+        if word[i..].starts_with("$((") {
+            // Walk to the parenthesis that closes the one after the `$`, so a
+            // nested `$(( (a+b) * c ))` is skipped whole rather than truncated.
+            let mut depth = 0usize;
+            let mut j = i + 1;
+            while j < word.len() {
+                match bytes[j] {
+                    b'(' => depth += 1,
+                    b')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+                j += 1;
+            }
+            i = j.saturating_add(1).min(word.len());
+            continue;
+        }
+        let c = word[i..].chars().next().expect("in bounds");
+        rest.push(c);
+        i += c.len_utf8();
+    }
+    rest.chars()
+        .all(|c| c.is_ascii_digit() || matches!(c, '+' | '-' | '*' | ' ' | '.' | ',' | ':' | '='))
 }
 
 /// The operands of a command: its words with the program and its flags removed.
@@ -431,23 +482,39 @@ fn undetermined(word: &str) -> bool {
 /// in `valued` eats the word after it. An empty word is dropped — kept, BSD
 /// `sed -i '' 's/a/b/' f` offers `''` as the script to skip and the real script
 /// is then recorded as a path, since it is full of slashes.
-fn operands<'a>(argv: &'a [String], valued: &[&str], pair: &[&str]) -> Vec<&'a str> {
+fn operands<'a>(argv: &'a [String], flags: &Flags) -> Vec<&'a str> {
     let mut out = Vec::new();
     let mut rest = argv.iter().skip(1);
-    let mut flags = true;
+    let mut reading_flags = true;
     while let Some(word) = rest.next() {
-        if flags && word == "--" {
-            flags = false;
-        } else if flags && word.starts_with('-') && word.len() > 1 {
+        if reading_flags && word == "--" {
+            reading_flags = false;
+        } else if reading_flags && word.starts_with('-') && word.len() > 1 {
             // A pair flag eats two words; a valued one eats a single word.
-            if pair.contains(&word.as_str()) {
+            if flags.pair.contains(&word.as_str()) || flags.pair_file.contains(&word.as_str()) {
                 rest.next();
                 rest.next();
-            } else if valued.contains(&word.as_str()) {
+            } else if flags.valued.contains(&word.as_str()) {
                 rest.next();
             }
         } else if !word.is_empty() {
             out.push(word.as_str());
+        }
+    }
+    out
+}
+
+/// The files named by a `pair_file` flag — the second word of each pair.
+fn paired_files<'a>(argv: &'a [String], pair_file: &[&str]) -> Vec<&'a str> {
+    let mut out = Vec::new();
+    let mut rest = argv.iter().skip(1);
+    while let Some(word) = rest.next() {
+        if pair_file.contains(&word.as_str()) {
+            // Step over the NAME; the word after it is the file.
+            rest.next();
+            if let Some(file) = rest.next() {
+                out.push(file.as_str());
+            }
         }
     }
     out
@@ -612,6 +679,15 @@ const SEARCH_FLAGS: &[&str] = &[
 struct Flags {
     /// Flags that consume the following word, which is therefore not an operand.
     valued: &'static [&'static str],
+    /// Flags that consume the following two words, where the SECOND is a file
+    /// the command reads.
+    ///
+    /// ⚠ **Skipping both would delete a real read.** `jq --slurpfile a data.json
+    /// '.filter'` loads `data.json`; today it survives only by accident, as a
+    /// stray operand left over from the same shift `pair` fixes — so filing
+    /// these under `pair` would tidy the operand list and lose 32 genuine reads
+    /// with it. Measured over the corpus: `--slurpfile` 28, `--rawfile` 4.
+    pair_file: &'static [&'static str],
     /// Flags that consume the following **two** words — a name and a value.
     ///
     /// ⚠ **`jq --arg dt 2026-01-01 '.filter' data.json` was read with the
@@ -631,6 +707,7 @@ struct Flags {
 impl Flags {
     const NONE: Flags = Flags {
         valued: &[],
+        pair_file: &[],
         pair: &[],
         script: &[],
         script_file: &[],
@@ -638,6 +715,7 @@ impl Flags {
     const fn valued(valued: &'static [&'static str]) -> Flags {
         Flags {
             valued,
+            pair_file: &[],
             pair: &[],
             script: &[],
             script_file: &[],
@@ -802,6 +880,7 @@ pub fn is_python(name: &str) -> bool {
 fn verb(name: &str) -> Option<Verb> {
     const SEARCH: Flags = Flags {
         pair: &[],
+        pair_file: &[],
         valued: SEARCH_FLAGS,
         script: &["-e", "--regexp", "-f", "--file"],
         script_file: &["-f", "--file"],
@@ -819,6 +898,7 @@ fn verb(name: &str) -> Option<Verb> {
         "sed" => Verb::Stream {
             flags: Flags {
                 pair: &[],
+                pair_file: &[],
                 valued: &["-e", "-f", "--expression"],
                 script: &["-e", "--expression", "-f", "--file"],
                 script_file: &["-f", "--file"],
@@ -828,6 +908,7 @@ fn verb(name: &str) -> Option<Verb> {
         "awk" | "gawk" => Verb::Stream {
             flags: Flags {
                 pair: &[],
+                pair_file: &[],
                 valued: &["-F", "-v", "-f", "--file"],
                 script: &["-f", "--file"],
                 script_file: &["-f", "--file"],
@@ -838,6 +919,8 @@ fn verb(name: &str) -> Option<Verb> {
             flags: Flags {
                 // ⚠ `--arg`/`--argjson` are NAME VALUE — two words, see `Flags::pair`.
                 pair: &["--arg", "--argjson"],
+                // NAME FILE, and the file is loaded — see `Flags::pair_file`.
+                pair_file: &["--slurpfile", "--rawfile", "--argfile"],
                 valued: &["-f", "--from-file"],
                 script: &["-f", "--from-file"],
                 script_file: &["-f", "--from-file"],
@@ -890,6 +973,7 @@ fn verb(name: &str) -> Option<Verb> {
         "perl" => Verb::Stream {
             flags: Flags {
                 pair: &[],
+                pair_file: &[],
                 valued: &["-e", "-E", "-I", "-M", "-F"],
                 script: &["-e", "-E"],
                 script_file: &[],
@@ -1271,7 +1355,7 @@ fn act(
     };
     let from_flag = has_flag(argv, flags.script);
     let script_files = paths(unnamed, &flag_values(argv, flags.script_file), cwd, home);
-    let words = operands(argv, flags.valued, flags.pair);
+    let words = operands(argv, &flags);
     // With the program supplied by a flag there is no leading operand to skip.
     let (leading, rest) = match (from_flag, words.split_first()) {
         (false, Some((first, rest))) => ((*first).to_string(), rest),
@@ -1303,7 +1387,17 @@ fn act(
                 false => leading,
             },
             program_file: script_files.into_iter().next(),
-            paths: paths(unnamed, rest, cwd, home),
+            // ⚠ **The operands, PLUS the files a `pair_file` flag loaded.**
+            // `jq --slurpfile a data.json '.f'` reads `data.json`, and it is not
+            // an operand — it belongs to the flag. Before `pair_file` existed it
+            // survived only because the flag was unmodelled and its two words
+            // fell through as operands, which got the file right by accident and
+            // the PROGRAM wrong: `a` was recorded as the jq filter.
+            paths: {
+                let mut all: Vec<&str> = paired_files(argv, flags.pair_file);
+                all.extend(rest.iter().copied());
+                paths(unnamed, &all, cwd, home)
+            },
             // ⚠ **A cluster, not a prefix.** `-i` is written `-pi`, `-0pi` and
             // `-ne -i` as often as it is written alone — 2,114 of the corpus's
             // perl calls spell it `-0pi` — and a `starts_with("-i")` test reads

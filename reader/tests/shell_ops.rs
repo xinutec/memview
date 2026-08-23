@@ -552,3 +552,122 @@ fn a_flag_taking_one_value_still_eats_one() {
     }
     assert!(unnamed.is_empty());
 }
+
+/// ⚠ **`--slurpfile NAME FILE` loads that file, and the fix must not lose it.**
+/// Before `Flags::pair_file`, the flag was unmodelled: its two words fell
+/// through as operands, which put the file in the read set BY ACCIDENT and
+/// recorded the NAME as jq's program. Skipping both words would have tidied the
+/// operands and deleted 32 real reads with them.
+#[test]
+fn a_pair_flag_whose_second_word_is_a_file_keeps_the_read() {
+    let argv: Vec<String> = ["jq", "--slurpfile", "a", "data.json", ".x", "in.json"]
+        .iter()
+        .map(|w| w.to_string())
+        .collect();
+    let mut unnamed = Vec::new();
+    let op = reader::shell_ops::classify_naming(
+        &mut unnamed,
+        &argv,
+        &[],
+        Some("/home/example"),
+        "/home/example",
+    );
+    match op {
+        reader::shell_ops::Op::Transform { program, paths, .. } => {
+            assert_eq!(program, ".x", "the pair's NAME became the program");
+            assert!(
+                paths.contains(&"/home/example/data.json".to_string()),
+                "the loaded file was dropped: {paths:?}"
+            );
+            assert!(paths.contains(&"/home/example/in.json".to_string()));
+        }
+        other => panic!("not a transform: {other:?}"),
+    }
+}
+
+/// Arithmetic evaluates to a number, so it was never a file subject.
+#[test]
+fn arithmetic_is_not_a_subject_the_reader_could_not_name() {
+    let argv: Vec<String> = ["sed", "-n", "+$((BASE + 1))p", "notes.txt"]
+        .iter()
+        .map(|w| w.to_string())
+        .collect();
+    let mut unnamed = Vec::new();
+    reader::shell_ops::classify_naming(
+        &mut unnamed,
+        &argv,
+        &[],
+        Some("/home/example"),
+        "/home/example",
+    );
+    assert!(
+        unnamed.is_empty(),
+        "arithmetic counted as a file nobody could name: {unnamed:?}"
+    );
+}
+
+/// ⚠ **The boundary, and the reason the test is narrow.** A path CONTAINING
+/// arithmetic is still a path, and dropping it would delete a real subject to
+/// make the opacity figure look better — the trade this whole change exists to
+/// avoid.
+#[test]
+fn a_path_containing_arithmetic_is_still_a_subject() {
+    let argv: Vec<String> = ["cat", "/tmp/part-$((n + 1)).txt"]
+        .iter()
+        .map(|w| w.to_string())
+        .collect();
+    let mut unnamed = Vec::new();
+    reader::shell_ops::classify_naming(
+        &mut unnamed,
+        &argv,
+        &[],
+        Some("/home/example"),
+        "/home/example",
+    );
+    assert_eq!(
+        unnamed,
+        ["/tmp/part-$((n + 1)).txt"],
+        "a path with arithmetic in it stopped being a subject"
+    );
+}
+
+/// A positional parameter genuinely could be a path — whatever the caller
+/// passed. It stays counted; only things that could NEVER be a file leave.
+#[test]
+fn a_positional_parameter_is_still_a_subject() {
+    let argv: Vec<String> = ["cat", "$1"].iter().map(|w| w.to_string()).collect();
+    let mut unnamed = Vec::new();
+    reader::shell_ops::classify_naming(
+        &mut unnamed,
+        &argv,
+        &[],
+        Some("/home/example"),
+        "/home/example",
+    );
+    assert_eq!(unnamed, ["$1"]);
+}
+
+/// ⚠ **A nested `$(( … ))` must be skipped WHOLE.** Stopping at the first `)`
+/// leaves `* c ))` behind, and a stray paren is not in the set of characters an
+/// arithmetic operand may leave — so the word would read as a path again. Found
+/// while rewriting the scan for a clippy lint: the lint was about style and the
+/// version it replaced had this hole.
+#[test]
+fn nested_arithmetic_is_skipped_whole() {
+    let argv: Vec<String> = ["sed", "-n", "$(( (a + b) * c ))p", "notes.txt"]
+        .iter()
+        .map(|w| w.to_string())
+        .collect();
+    let mut unnamed = Vec::new();
+    reader::shell_ops::classify_naming(
+        &mut unnamed,
+        &argv,
+        &[],
+        Some("/home/example"),
+        "/home/example",
+    );
+    assert!(
+        unnamed.is_empty(),
+        "nested arithmetic read as a file subject: {unnamed:?}"
+    );
+}
