@@ -492,12 +492,36 @@ async function openTools(page: Page): Promise<void> {
  *
  * ⚠ **The longest real shape label is here on purpose.** "run a program on
  * another machine (no shell)" is 42 characters of prose beside a right-aligned
- * seven-digit count, which is the one row in this strip that can collide.
+ * seven-digit count, which is the one row that can collide.
+ *
+ * ⚠ **Every field the page draws, not only the ones it asserts.** This carried
+ * four while it fed a five-bar strip; the page reads a dozen more, and Angular's
+ * `| number` renders `undefined` as EMPTY rather than failing — so the Files
+ * figures, the work queue and the stamp were all blank while every assertion
+ * passed. Caught by looking at the render. A missing field here is invisible
+ * unless something asserts the number it produces, which is why the walk below
+ * now names one from each section.
  */
 const READING = {
   commands: 2446441,
   understood: 99.17950197858849,
   opaque: 4.579426844363917,
+  reads: 411965,
+  writes: 76770,
+  distinct_paths: 37747,
+  always: 354612,
+  on_success: 73664,
+  sometimes: 60451,
+  certain: 425085,
+  table_reads: 2747,
+  table_writes: 264,
+  distinct_tables: 151,
+  calls: 294504,
+  unparsed: 102,
+  unread: [
+    { name: 'k3s', n: 1215 },
+    { name: 'verified_cli', n: 336 },
+  ],
   doing: [
     { name: 'nothing with files', n: 1072884 },
     { name: 'read', n: 432923 },
@@ -1245,7 +1269,7 @@ test('what is being written survives leaving the conversation @ phone width', as
 
   // Up to the list, which destroys the view — the actual reported action, and
   // not `goto`, which would reload the page and prove something else.
-  await page.locator('.leave').click();
+  await page.locator('[aria-label="all sessions"]').click();
   await expect(page.locator('.composer')).toHaveCount(0);
 
   // ⚠ Through the OTHER conversation on the way back, because a draft that was
@@ -2972,7 +2996,7 @@ test('the bar is a session bar before the runner has answered @ phone width', as
   await page.goto(`/s/${STATE.sessions[0].id}`);
 
   // Nothing has answered yet, and the way out is already on screen.
-  await expect(page.locator('.bar .leave'), 'the bar is still the list’s').toBeVisible();
+  await expect(page.locator('.bar [aria-label="all sessions"]'), 'the bar is still the list’s').toBeVisible();
   await expect(page.locator('.bar .title'), 'the root headline flashed up').toHaveCount(0);
 
   answer?.();
@@ -3000,17 +3024,27 @@ test('the list says nothing about which machine it is @ phone width', async ({ p
   // replaced it is nothing about a session: everything the ⋮ menu offers acts on
   // one, and on the list there is no session on screen.
   //
-  // ⚠ **This used to assert the bar held no button at all**, which was a
-  // stronger claim than the reason above supports and it stopped being true.
-  // Keeping the screen on is about the screen, not about a session, so it is
-  // offered here as well — see the test below. What must stay absent is anything
-  // aimed at a session that has not been chosen yet.
+  // ⚠ **Narrowed TWICE now, and each time for the same reason: the assertion
+  // was stronger than the sentence above it.** First it said the bar held no
+  // button at all, which stopped being true when keeping the screen on was
+  // offered here. Then it said the bar held no MENU, which stopped being true
+  // when a screen arrived that is about the whole corpus rather than any
+  // session. The invariant is the sentence — *nothing aimed at a session that
+  // has not been chosen yet* — so that is what this now checks, item by item.
   await mockRunner(page);
   await page.goto('/');
   await page.getByText('decode').first().waitFor();
   await expect(page.locator('.bar')).not.toContainText('Mac');
-  await expect(page.locator('.bar button[aria-haspopup="menu"]')).toHaveCount(0);
-  await expect(page.locator('.bar .leave')).toHaveCount(0);
+  // Nowhere above the list, so nothing to go up to.
+  await expect(page.locator('.bar [aria-label="all sessions"]')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Menu' }).click();
+  for (const aimed of ['Details', 'Go to…', 'Tasks', 'Rename', 'Stop']) {
+    await expect(
+      page.getByRole('menuitem', { name: aimed }),
+      `${aimed} acts on a session, and none is chosen here`,
+    ).toHaveCount(0);
+  }
 });
 
 /**
@@ -3107,7 +3141,7 @@ test('the toolbar starts in the same place on both screens @ phone width', async
   await page.locator('.bar mat-icon').first().waitFor();
   const list = await leadingGlyph(page);
   await page.goto(`/s/${STATE.sessions[0].id}`);
-  await page.locator('.bar .leave').waitFor();
+  await page.locator('.bar [aria-label="all sessions"]').waitFor();
   const session = await leadingGlyph(page);
   expect(list, 'the list has no leading glyph to measure').toBeGreaterThan(0);
   expect(
@@ -3161,7 +3195,7 @@ test('a name too long for the bar gives way rather than pushing @ phone width', 
     const menu = document
       .querySelector('.bar button[aria-haspopup="menu"]')!
       .getBoundingClientRect();
-    const leave = document.querySelector('.bar .leave')!.getBoundingClientRect();
+    const leave = document.querySelector('.bar [aria-label="all sessions"]')!.getBoundingClientRect();
     return {
       wanted: name.scrollWidth,
       given: name.clientWidth,
@@ -3575,7 +3609,7 @@ test('leaving a session leaves its name behind @ phone width', async ({ page }) 
   await page.goto(`/s/${STATE.sessions[0].id}`);
   await page.locator('.transcript').waitFor();
   // Away before the runner has answered.
-  await page.locator('.bar .leave').click();
+  await page.locator('.bar [aria-label="all sessions"]').click();
   await page.locator('.session').first().waitFor();
   answer?.();
   // Long enough for the held response to land and be acted on.
@@ -3584,16 +3618,17 @@ test('leaving a session leaves its name behind @ phone width', async ({ page }) 
     page.locator('.bar .name'),
     'the list is titled with the session just left',
   ).toHaveCount(0);
-  // ⚠ **Narrowed from "no buttons at all" once the screen-awake control arrived.**
-  // What this test is about is a session that is no longer on screen still being
-  // actionable — so the assertion is about the controls that act on ONE, not
-  // about the toolbar being empty. Keeping the screen on acts on the screen and
-  // is offered on the list by design; see the test that covers it.
+  // ⚠ **Narrowed TWICE, each time because the assertion outran its own reason.**
+  // First from "no buttons at all", when the screen-awake control arrived. Then
+  // from "no menu at all", when the list gained one that goes to a screen about
+  // the whole corpus. What this test is about is a session no longer on screen
+  // still being ACTIONABLE, so it names the control that acts on one: the ⋮
+  // labels itself with the conversation it belongs to.
   await expect(
-    page.locator('.bar button[aria-haspopup="menu"]'),
+    page.locator('.bar button[aria-label^="what to do with"]'),
     'the ⋮ still acts on the session just left',
   ).toHaveCount(0);
-  await expect(page.locator('.bar .leave')).toHaveCount(0);
+  await expect(page.locator('.bar [aria-label="all sessions"]')).toHaveCount(0);
 });
 
 test('a run of tool calls is folded into one row @ phone width', async ({ page }) => {
@@ -4476,42 +4511,57 @@ test('a session that has ended dates its background work @ phone width', async (
   await expectNoHorizontalOverflow(page, testInfo);
 });
 
-test('reader strip — a prose label beside a seven-digit count @ phone width', async ({
+test('reader — the survey is a screen you go to, not a strip in the way @ phone width', async ({
   page,
 }, testInfo) => {
   await mockRunner(page);
   await page.goto('/');
 
-  // The claim and its ceiling, both on the line. Either alone overstates.
-  await page.getByText('99.2%').waitFor();
-  await page.getByText('4.6% unnameable').waitFor();
-  await page.getByText('of 2,446,441 commands read').waitFor();
+  // ⚠ **Absent from the list, and that is the assertion.** It was a strip above
+  // the sessions; the list answers *what should I do now* and this answers
+  // *what has been done, ever*, which is a question you go looking for.
+  await expect(page.locator('app-reading-view')).toHaveCount(0);
 
-  // The widest label in the real artefact, and the admission that must stay in
-  // the chart rather than under it.
+  await page.getByRole('button', { name: 'Menu' }).click();
+  await page.getByRole('menuitem', { name: 'Reader' }).click();
+
+  // The claim and its ceiling, both drawn.
+  await page.getByText('99.2%').waitFor();
+  await page.getByText('4.6%').waitFor();
+
+  // ⚠ **Every shape, not the head of them.** The strip showed five, which was
+  // right on the way past and wrong on a page somebody navigated to — the tail
+  // is where `not understood` lives, and it qualifies everything above it.
   await page.getByText('run a program on another machine (no shell)').waitFor();
   await page.getByText('not understood').waitFor();
+
+  // ⚠ **One number from each section**, because a missing field renders as
+  // nothing and asserting only on prose passes over a blank page.
+  await page.getByText('411,965').waitFor();
+  await page.getByText('37,747').waitFor();
+  await page.getByText('2,747').waitFor();
+  await page.getByText('k3s').waitFor();
+  await page.getByText('294,504', { exact: false }).waitFor();
+
+  // Its own bar, with a way back.
+  await expect(page.getByRole('heading', { name: 'Reader' })).toBeVisible();
+  await page.getByRole('button', { name: 'all sessions' }).click();
+  await page.locator('.session').first().waitFor();
 
   await expectIconFontLoaded(page);
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 });
 
-test('reader strip — an unmined survey says so in one line @ phone width', async ({
+test('reader — an unmined survey says so on its own screen @ phone width', async ({
   page,
 }, testInfo) => {
   await mockRunner(page);
-  // ⚠ **Quiet, but not absent.** A strip that vanished on failure was
-  // indistinguishable from one that had been removed, so the failure gets one
-  // muted line — and no chart, which is what keeps it out of the way.
   await page.route('**/api/reading', (r) => r.fulfill({ status: 404, body: '' }));
-  await page.goto('/');
+  await page.goto('/reader');
 
-  await page.getByText('reader survey unavailable').waitFor();
+  await page.getByText('No survey has been mined here').waitFor();
   await expect(page.locator('.chart')).toHaveCount(0);
-  // The sessions themselves are unaffected — the strip failing is not the page
-  // failing, and this is what says so.
-  await page.locator('.session').first().waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 });

@@ -12,7 +12,8 @@
   flex: 1;
 }
 
-// Up, to the list.
+// The bar's LEADING icon button, whichever it is — the back arrow on a session,
+// the menu on the list.
 //
 // ⚠ **Pulled back into the toolbar's own padding, so the two screens start in
 // the same place.** A bare `mat-icon` begins at the toolbar's 16px; a glyph in
@@ -25,7 +26,16 @@
 // gave 8 and left 4px of jump; the harness measured what was left, and that is
 // where this number comes from. The touch target keeps its full 48px: only the
 // box moves.
-.leave {
+//
+// ⚠ **Structural, and it did not used to be.** This was keyed to `.leave`, the
+// back arrow's own class, which worked only while the list had a bare
+// `<mat-icon>` and no button at all; the moment the list gained a leading button
+// it started 12px in, and the jump this comment describes came back on the
+// screen it was written for. The invariant is about POSITION — first control in
+// the bar — so the selector says that, and the class is gone: it had no style
+// left and existed only for the layout checks, which now key on the accessible
+// name instead.
+.bar > button:first-of-type {
   margin-left: -0.75rem;
 }
 

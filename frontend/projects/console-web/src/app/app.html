@@ -21,12 +21,42 @@
        launch reopens straight inside a conversation, so for that round trip the
        shell drew the LIST's bar and then swapped the whole row. Visible as a
        flash of `console` on entering the app. See `here.ts`. -->
-  @if (here.at()) {
+  @if (!here.at() && !here.page()) {
+    <!-- The root. ⚠ **A leading menu now, where the note here used to say there
+         was nothing to put in one**: "a menu of things to do to no session is a
+         menu of nothing" was true while every screen was a session. It stopped
+         being true when a screen arrived that is about the whole corpus instead
+         — and that is exactly the kind of thing that belongs behind a menu
+         rather than on the list, which answers *what should I do now*.
+
+         Before the name was here this said "this Mac", which was true of every
+         session on the list and news to nobody. -->
+    <!-- ⚠ **`Menu`, and NOT a word containing another test's locator.** This was
+         `elsewhere`, which reads well and broke an unrelated check: Playwright's
+         `getByLabel` matches on a SUBSTRING, so `getByLabel('where')` — the
+         start-a-session form's field — found this button instead. An aria-label
+         is a locator namespace, not only an accessibility string. `Menu` is also
+         what the viewer calls its own. -->
+    <button matIconButton [matMenuTriggerFor]="elsewhere" aria-label="Menu">
+      <mat-icon>menu</mat-icon>
+    </button>
+    <mat-menu #elsewhere="matMenu">
+      <!-- Named as the viewer names it. One thing should not have two names
+           across two apps. -->
+      <a mat-menu-item routerLink="/reader">
+        <mat-icon>data_object</mat-icon>
+        <span>Reader</span>
+      </a>
+    </mat-menu>
+    <h1 class="title">console</h1>
+    <span class="spacer"></span>
+    <ng-container [ngTemplateOutlet]="keepAwake" />
+  } @else if (here.at()) {
     <!-- Up, to the list. ⚠ **A `button`, not an `a`** — the app-wide rule that
          centres a glyph in its circle is `button[matIconButton]`, an element
          selector, so an anchor would take the directive and miss the fix. The
          router does the navigating either way. -->
-    <button matIconButton class="leave" routerLink="/" aria-label="all sessions">
+    <button matIconButton routerLink="/" aria-label="all sessions">
       <mat-icon>arrow_back</mat-icon>
     </button>
     <h1 class="name" [class.anonymous]="anonymous()">{{ title() }}</h1>
@@ -136,13 +166,15 @@
         }
       </mat-menu>
     }
-  } @else {
-    <!-- The root. No navigation icon, because there is nowhere above it, and no
-         actions: a menu of things to do to no session is a menu of nothing.
-         Before the name was here this said "this Mac", which was true of every
-         session on the list and news to nobody. -->
-    <mat-icon>terminal</mat-icon>
-    <h1 class="title">console</h1>
+  } @else if (here.page(); as page) {
+    <!-- A screen that is neither the list nor a session. Up goes to the list,
+         and the headline is the screen's own name — the same shape as a
+         session's bar, because it is the same kind of place: somewhere you
+         went. -->
+    <button matIconButton routerLink="/" aria-label="all sessions">
+      <mat-icon>arrow_back</mat-icon>
+    </button>
+    <h1 class="name">{{ page }}</h1>
     <span class="spacer"></span>
     <ng-container [ngTemplateOutlet]="keepAwake" />
   }

@@ -37,6 +37,17 @@ export class Here {
   readonly at = signal<string | undefined>(undefined);
 
   /**
+   * A screen that is neither the list nor a session, by the name its bar should
+   * carry.
+   *
+   * ⚠ **From the route, like [at], and for the same reason.** The toolbar has to
+   * know which of three bars to draw before anything has been fetched; asking
+   * the runner would flash the wrong one, which is the bug [at] exists to
+   * prevent. Set by the view from its own construction and cleared when it goes.
+   */
+  readonly page = signal<string | undefined>(undefined);
+
+  /**
    * What this conversation is about, when a sentence has been written for it.
    *
    * ⚠ **Carried beside the summary rather than on it.** The sentences arrive

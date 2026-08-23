@@ -1,0 +1,88 @@
+@if (failed()) {
+  <p class="empty">
+    <mat-icon>report</mat-icon>
+    <span>
+      No survey has been mined here. It comes from
+      <code>reader --bin reading-json</code>, which the nightly runs.
+    </span>
+  </p>
+} @else if (reading(); as got) {
+  <p class="lede">
+    Every shell command the fleet has run, read without running any of it. What
+    the text does not determine is counted as undetermined, so the gap below is a
+    number rather than a silence.
+  </p>
+
+  <!-- ⚠ **The claim and its ceiling are one block.** Two figures over two
+       different denominators — commands, and file uses — and the first alone
+       reads as a completeness claim it cannot support. -->
+  <section class="figures">
+    <div class="figure">
+      <span class="big">{{ got.understood | number: '1.1-1' }}%</span>
+      <span class="what">of {{ got.commands | number }} commands understood</span>
+    </div>
+    <div class="figure gap">
+      <span class="big">{{ got.opaque | number: '1.1-1' }}%</span>
+      <span class="what">of file uses name a subject the text cannot fix</span>
+    </div>
+  </section>
+
+  <h2>What the shell was doing</h2>
+  <ul class="chart">
+    @for (shape of shapes(); track shape.name) {
+      <li [class.gap]="shape.gap">
+        <span class="label">{{ shape.name }}</span>
+        <span class="count">{{ shape.n | number }}</span>
+        <span class="share"><i [style.transform]="'scaleX(' + shape.share + ')'"></i></span>
+      </li>
+    }
+  </ul>
+
+  <h2>Files</h2>
+  <p class="line">
+    <b>{{ got.reads | number }}</b> read · <b>{{ got.writes | number }}</b> written ·
+    <b>{{ got.distinct_paths | number }}</b> distinct paths
+  </p>
+  <p class="note">
+    {{ got.certain | number }} of those uses are confirmed by an outcome.
+    {{ unconfirmable() | number }} are not — a command after <code>&amp;&amp;</code> or
+    inside an <code>if</code>, where one exit status cannot say which way it went.
+  </p>
+
+  @if (got.distinct_tables) {
+    <h2>Databases</h2>
+    <!-- Said in words, because the figures alone would read as a subset of the
+         ones above them. -->
+    <p class="note">
+      <b>Tables, not files</b> — none of this is counted above, and no statement
+      in this corpus names a file at all.
+    </p>
+    <p class="line">
+      <b>{{ got.table_reads | number }}</b> table reads ·
+      <b>{{ got.table_writes | number }}</b> changes ·
+      <b>{{ got.distinct_tables | number }}</b> distinct tables
+    </p>
+  }
+
+  <h2>What it does not know</h2>
+  <p class="note">
+    Commands with no entry in the table. The work queue, not a failure — each is
+    a name somebody could teach it.
+  </p>
+  <ul class="rows">
+    @for (row of got.unread; track row.name) {
+      <li>
+        <span class="pair"><b>{{ row.n | number }}</b></span>
+        <code class="name">{{ row.name }}</code>
+      </li>
+    }
+  </ul>
+
+  <p class="stamp">
+    {{ got.calls | number }} calls surveyed, {{ got.unparsed | number }} of which
+    would not parse. Mined nightly — the survey takes 13 seconds, so it is not
+    computed when this page opens.
+  </p>
+} @else {
+  <mat-progress-bar mode="indeterminate" />
+}

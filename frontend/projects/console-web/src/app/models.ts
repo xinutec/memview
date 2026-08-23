@@ -669,8 +669,8 @@ export interface Ranked {
  * `--bin shell-files` prints it. One survey — `reader/src/reading.rs` — so the
  * three can only disagree by being from different nights.
  *
- * Only the fields the strip uses are declared. The wire carries more, and adding
- * a field here is how it becomes drawable.
+ * The wire carries more than this; adding a field here is how it becomes
+ * drawable, and `DL-WIRE-MIRROR-DRIFT` checks each one against the Rust type.
  */
 export interface CorpusRead {
   readonly commands: number;
@@ -685,4 +685,26 @@ export interface CorpusRead {
    */
   readonly opaque: number;
   readonly doing: readonly Ranked[];
+  readonly reads: number;
+  readonly writes: number;
+  readonly distinct_paths: number;
+  /** File uses by what had to hold for the command naming them to run. */
+  readonly always: number;
+  readonly on_success: number;
+  readonly sometimes: number;
+  /** Those an outcome confirms actually happened. */
+  readonly certain: number;
+  /**
+   * Tables the SQL read and changed.
+   *
+   * ⚠ **Never added to `reads`/`writes`.** A table is not a file, and measured
+   * over this corpus SQL names a file exactly never.
+   */
+  readonly table_reads: number;
+  readonly table_writes: number;
+  readonly distinct_tables: number;
+  /** Commands with no entry in the table — the work queue. */
+  readonly unread: readonly Ranked[];
+  readonly calls: number;
+  readonly unparsed: number;
 }

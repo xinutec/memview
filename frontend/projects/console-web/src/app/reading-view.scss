@@ -1,0 +1,172 @@
+:host {
+  display: block;
+  padding: 0.75rem;
+}
+
+.lede,
+.note,
+.stamp {
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.lede {
+  margin: 0;
+}
+
+.stamp {
+  margin-top: 1.5rem;
+}
+
+.empty {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  font: var(--mat-sys-body-medium);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+h2 {
+  font: var(--mat-sys-title-small);
+  margin: 1.5rem 0 0.5rem;
+}
+
+// The headline pair. A column on a phone; side by side once two figures fit
+// without either wrapping mid-number.
+.figures {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+
+  @media (min-width: 560px) {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.figure {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-left: 0.6rem;
+  border-left: 3px solid var(--mat-sys-primary);
+
+  .big {
+    font: var(--mat-sys-headline-small);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .what {
+    font: var(--mat-sys-body-small);
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  // ⚠ **Toned, never an alarm colour.** It is not an error — it is the limit of
+  // what the text can say — and red would read as something being wrong rather
+  // than something being unknowable.
+  &.gap {
+    border-left-color: var(--mat-sys-outline);
+
+    .big {
+      color: var(--mat-sys-on-surface-variant);
+    }
+  }
+}
+
+.line {
+  margin: 0;
+  font: var(--mat-sys-body-medium);
+
+  b {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.chart {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+// Label and count on one line, bar under it — the same shape the viewer's chart
+// uses, so the two are read the same way.
+.chart > li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    'label count'
+    'bar   bar';
+  gap: 1px 0.5rem;
+  padding: 0.2rem 0;
+}
+
+.label {
+  grid-area: label;
+  font: var(--mat-sys-body-small);
+  // Shape names are prose and the longest is wider than a phone. Wrapping beats
+  // an ellipsis: the distinguishing word is usually at the end.
+  overflow-wrap: anywhere;
+}
+
+.count {
+  grid-area: count;
+  font: var(--mat-sys-body-small);
+  font-variant-numeric: tabular-nums;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.share {
+  grid-area: bar;
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--mat-sys-surface-container-highest);
+  overflow: hidden;
+
+  > i {
+    display: block;
+    height: 100%;
+    background: var(--mat-sys-primary);
+    transform-origin: left;
+  }
+}
+
+// The admission is in the chart, drawn in the outline colour rather than an
+// alarm one: it is a hole, not a fault.
+.chart > li.gap .share > i {
+  background: var(--mat-sys-outline);
+}
+
+.rows {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+
+  > li {
+    display: flex;
+    gap: 0.6rem;
+    align-items: baseline;
+    padding: 0.3rem 0;
+    border-top: 1px solid var(--mat-sys-outline-variant);
+  }
+}
+
+.pair {
+  font: var(--mat-sys-body-small);
+  font-variant-numeric: tabular-nums;
+  color: var(--mat-sys-on-surface-variant);
+  flex: 0 0 auto;
+  min-width: 3.5rem;
+  text-align: right;
+
+  b {
+    color: var(--mat-sys-on-surface);
+  }
+}
+
+.name,
+code {
+  font-family: ui-monospace, monospace;
+  // dev-lint: allow-font-size optical match to the enclosing text
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}

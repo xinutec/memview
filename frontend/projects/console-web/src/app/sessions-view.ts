@@ -18,7 +18,6 @@ import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { placeOf, titleOf } from './naming';
 import { fullness, tokens } from './tokens';
 import { Updates } from './updates';
-import { ReadingStrip } from './reading-strip';
 import { UsageStrip } from './usage-strip';
 import { PastStore } from './past-store';
 import { StartSheet } from './start-sheet';
@@ -116,7 +115,6 @@ const RANK = { working: 0, waiting: 1, background: 2, idle: 3, off: 4 } as const
     MatIconModule,
     MatProgressBarModule,
     UsageStrip,
-    ReadingStrip,
   ],
 })
 export class SessionsView {
