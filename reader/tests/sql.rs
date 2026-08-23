@@ -125,3 +125,33 @@ fn nonsense_is_read_as_nothing_rather_than_refused() {
     let got = read("!!! not sql at all ###");
     assert!(got.is_empty());
 }
+
+/// `CREATE TABLE IF NOT EXISTS x` names `x`, never `IF`.
+#[test]
+fn if_not_exists_is_a_guard_not_a_table() {
+    let got = read("CREATE TABLE IF NOT EXISTS scratch (id INT)");
+    assert_eq!(got.writes.get("scratch"), Some(&1));
+    assert_eq!(
+        got.writes.get("IF"),
+        None,
+        "invented a table: {:?}",
+        got.writes
+    );
+}
+
+/// A dot command ends at its line — the statement after it is still a statement.
+///
+/// ⚠ **This was 50 corpus scripts read as nothing.** `.mode column` consumed the
+/// query on the next line, so a script that opened with any sqlite directive
+/// contributed no tables at all.
+#[test]
+fn a_dot_command_does_not_swallow_the_next_line() {
+    let got = read(".mode column\nSELECT n FROM corrections");
+    assert_eq!(got.reads.get("corrections"), Some(&1));
+}
+
+#[test]
+fn several_directives_then_a_query() {
+    let got = read(".headers on\n.mode column\nselect provenance from report");
+    assert_eq!(got.reads.get("report"), Some(&1));
+}

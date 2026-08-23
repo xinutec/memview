@@ -42,6 +42,7 @@ pub fn op_name(op: &Op) -> &'static str {
         Op::Nested { .. } => "open a shell (bash -c, nix --run)",
         Op::Python { .. } => "run python (-c, or a heredoc)",
         Op::JavaScript { .. } => "run javascript (-e, or a heredoc)",
+        Op::Sql { .. } => "query a database",
         Op::Remote { .. } => "reach another machine (ssh, kubectl exec)",
         Op::RemoteRun { .. } => "run a program on another machine (no shell)",
         Op::ChangeDir { .. } => "cd",

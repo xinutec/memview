@@ -12,17 +12,27 @@ struct P;
 
 fn show(p: Pair<Rule>, depth: usize) {
     let text = p.as_str().replace('\n', "⏎");
-    let text = if text.len() > 48 { format!("{}…", &text[..48]) } else { text };
-    println!("{:indent$}{:?}  {}", "", p.as_rule(), text, indent = depth * 2);
+    let text = if text.len() > 48 {
+        format!("{}…", &text[..48])
+    } else {
+        text
+    };
+    println!(
+        "{:indent$}{:?}  {}",
+        "",
+        p.as_rule(),
+        text,
+        indent = depth * 2
+    );
     for kid in p.into_inner() {
         show(kid, depth + 1);
     }
 }
 
 fn main() {
-    let src = std::env::args().nth(1).unwrap_or_else(|| {
-        "SELECT * FROM report INTO OUTFILE '/tmp/report.tsv'".to_string()
-    });
+    let src = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "SELECT * FROM report INTO OUTFILE '/tmp/report.tsv'".to_string());
     match P::parse(Rule::script, &src) {
         Ok(mut got) => show(got.next().expect("one script"), 0),
         Err(e) => println!("refused: {e}"),

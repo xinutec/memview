@@ -94,6 +94,18 @@ pub struct Extract {
     pub python: crate::python::Tally,
     /// The same, for the JavaScript inside the shell.
     pub javascript: crate::program::Tally,
+    /// What the SQL inside the shell touched — **tables, not files**.
+    ///
+    /// ⚠ **Kept apart from `files` on a measurement, not on taste.** Over 5,727
+    /// corpus commands carrying a SQL client there is no `INTO OUTFILE`, no
+    /// `LOAD DATA INFILE` and no sqlite `.read`/`.output`: SQL in this corpus
+    /// names a file exactly never. Folding 2,747 table reads into the file
+    /// counts would have inflated the figure the whole reader is judged on with
+    /// subjects that are not files at all.
+    ///
+    /// The database FILE a sqlite3 call names *is* in `files`, with its
+    /// direction taken from these statements.
+    pub tables: crate::sql::Queried,
     /// Commands that exist because a determinate loop was run out — the
     /// difference between the commands a script *wrote* and the ones it *ran*.
     ///
@@ -324,6 +336,7 @@ impl Extract {
         }
         self.python.merge(inner.python);
         self.javascript.merge(inner.javascript);
+        self.tables.merge(&inner.tables);
         for (name, n) in inner.unhandled {
             *self.unhandled.entry(name).or_insert(0) += n;
         }
@@ -475,6 +488,25 @@ pub fn files_of(op: &Op, reached: crate::shell::Reached) -> Vec<FileUse> {
         | Op::RemoteRun { .. }
         | Op::Python { .. }
         | Op::JavaScript { .. } => Vec::new(),
+        // ⚠ **The direction of the database file comes from the STATEMENTS.**
+        // `sqlite3 x.db 'SELECT …'` and `sqlite3 x.db 'DELETE …'` are the same
+        // argv shape, and calling both a read would credit every deletion in the
+        // corpus as a lookup. Reading the payload is the only way to tell, which
+        // is why this arm parses rather than pattern-matching the operand.
+        //
+        // The TABLES the statements name are not files and are collected
+        // elsewhere; only the database file itself belongs in this list.
+        Op::Sql { source, database } => {
+            let changed = !crate::sql::read(source).writes.is_empty();
+            database
+                .iter()
+                .map(|path| FileUse {
+                    path: path.clone(),
+                    write: changed,
+                    reached,
+                })
+                .collect()
+        }
         Op::Run { script } => vec![FileUse {
             path: script.clone(),
             write: false,
@@ -1028,6 +1060,18 @@ fn extract_nested(
                 out.javascript.kept += kept;
                 out.javascript.refused.merge(&refused);
                 out.javascript.absorb(program);
+            }
+            // ⚠ **Read here as well as in `files_of`, and that is not a double
+            // count.** `files_of` asks one question of these statements — is the
+            // database file read or changed — and answers in FILES. This asks
+            // what tables they named, and answers in tables. The two land in
+            // different fields and neither is derivable from the other.
+            Op::Sql { source, .. } => {
+                out.handled += 1;
+                out.tables.merge(&crate::sql::read(source));
+                for used in files_of(&op, cmd.reached) {
+                    out.push(host, &name, used.path, used.write, used.reached);
+                }
             }
             _ => {
                 out.handled += 1;

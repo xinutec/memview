@@ -106,6 +106,22 @@ pub enum Op {
     /// counted `node -e` alone, by distinct payload, and counted no reads.
     /// Read by [`crate::javascript`].
     JavaScript { source: String },
+    /// Statements sent to a database: `mariadb -e '…'`, `sqlite3 x.db '…'`, or
+    /// a heredoc on stdin. Read by [`crate::sql`].
+    ///
+    /// ⚠ **`database` is a FILE only for sqlite3.** `mariadb health` names a
+    /// database on a server — a name in a catalogue, not a path — and resolving
+    /// it against the working directory would invent a file that has never
+    /// existed. Measured: no `mariadb`/`mysql`/`psql` call in this corpus names
+    /// a path as its operand.
+    ///
+    /// ⚠ **Whether that file is read or written is decided by the STATEMENTS**,
+    /// not by the command: `sqlite3 x.db 'SELECT …'` reads it and
+    /// `sqlite3 x.db 'DELETE …'` changes it, and the argv is identical in shape.
+    Sql {
+        source: String,
+        database: Vec<String>,
+    },
     /// A command run on another machine: `ssh host '…'`, `kubectl exec … -- …`,
     /// `docker exec …`.
     ///
@@ -645,6 +661,15 @@ enum Verb {
         flags: Flags,
         inline: &'static [&'static str],
     },
+    /// A database client. Its own verb rather than an [`Verb::Interpreter`]
+    /// because its operand is not a program: for a server client it is a
+    /// database NAME, and for sqlite3 it is the database file itself.
+    Sql {
+        /// Flags whose value is the statements to run.
+        program: &'static [&'static str],
+        /// Whether the first operand is a local database FILE.
+        file_operand: bool,
+    },
     /// Runs JavaScript — from `-e`, from a heredoc, or from a script file.
     ///
     /// Its own verb rather than an [`Verb::Interpreter`], for the same reason
@@ -863,9 +888,16 @@ fn verb(name: &str) -> Option<Verb> {
             flags: Flags::valued(&["--run", "-o", "--o", "-i"]),
             inline: &[],
         },
-        "source" | "." | "sqlite3" => Verb::Interpreter {
+        "source" | "." => Verb::Interpreter {
             flags: Flags::NONE,
             inline: &[],
+        },
+        // ⚠ **`sqlite3` was an `Interpreter`, which read its DATABASE as a
+        // script it ran** — the right file, recorded as the wrong kind of use,
+        // and its statements never read at all.
+        "sqlite3" => Verb::Sql {
+            program: &["-cmd", "-init"],
+            file_operand: true,
         },
 
         // ⚠ **`md5` is the macOS spelling, and the only one that was missing** —
@@ -980,6 +1012,15 @@ fn verb(name: &str) -> Option<Verb> {
         // `stray`, which is what `stray` is for, and the file operations around
         // them read the same either way.
         "tsx" | "ts-node" => Verb::JavaScript,
+        // ⚠ **These were `NoFiles`, filed under "build tools that take
+        // targets".** True of the operand — `mariadb health` is a database name
+        // on a server, not a path — and false of everything the command
+        // carries: 5,727 corpus commands run a SQL client, and what their
+        // statements touched was invisible.
+        "mariadb" | "mysql" | "psql" => Verb::Sql {
+            program: &["-e", "--execute", "-c", "--command"],
+            file_operand: false,
+        },
         "cd" => Verb::ChangeDir,
         "git" => Verb::Git,
 
@@ -1027,7 +1068,7 @@ fn verb(name: &str) -> Option<Verb> {
         | "nix-build" | "nix-env" | "nixos-rebuild" | "direnv" | "brew"
         | "flutter" | "dart" | "swift" | "javac" | "kotlinc"
         // Build tools that take targets rather than paths, like cargo.
-        | "lake" | "mariadb" | "mysql" | "psql"
+        | "lake"
         // The top of the unread list, and every one of them checked against how
         // this corpus actually calls it (2026-08-22, `shell-files --show`):
         //
@@ -1203,6 +1244,7 @@ fn act(
             "-r",
             "--require",
         ]),
+        Verb::Sql { program, .. } => Flags::valued(program),
         _ => Flags::NONE,
     };
     let from_flag = has_flag(argv, flags.script);
@@ -1345,6 +1387,34 @@ fn act(
                     None => Op::Nothing,
                 },
             }
+        }
+        Verb::Sql {
+            program,
+            file_operand,
+        } => {
+            let source = flag_values(argv, program)
+                .first()
+                .map(|code| (*code).to_string())
+                // `mariadb health < dump.sql` and `sqlite3 x.db <<'SQL'` — with
+                // no flag carrying them, the statements arrive on stdin.
+                .or_else(|| heredocs.first().cloned())
+                .unwrap_or_default();
+            // Only sqlite3's operand is a path. `looks_like_path` is what keeps
+            // `sqlite3 :memory:` and a bare name out of the index.
+            let database = if file_operand {
+                words
+                    .first()
+                    .filter(|word| looks_like_path(word))
+                    .and_then(|word| resolve(word, cwd, home))
+                    .into_iter()
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            if source.is_empty() && database.is_empty() {
+                return Op::Nothing;
+            }
+            Op::Sql { source, database }
         }
         Verb::Python => {
             // A script file is the program, and a heredoc alongside it is that

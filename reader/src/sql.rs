@@ -58,6 +58,25 @@ impl Queried {
             && self.verbs.is_empty()
     }
 
+    /// Fold another script's tables into this one.
+    ///
+    /// Needed because a nested shell — `ssh host 'mariadb -e …'` — produces its
+    /// own `Queried`, and the outer extract has to carry it up the same way the
+    /// Python and JavaScript tallies are carried.
+    pub fn merge(&mut self, other: &Queried) {
+        for (t, n) in &other.reads {
+            *self.reads.entry(t.clone()).or_insert(0) += n;
+        }
+        for (t, n) in &other.writes {
+            *self.writes.entry(t.clone()).or_insert(0) += n;
+        }
+        for (v, n) in &other.verbs {
+            *self.verbs.entry(v.clone()).or_insert(0) += n;
+        }
+        self.uses.extend(other.uses.iter().cloned());
+        self.unknown += other.unknown;
+    }
+
     /// Distinct tables touched either way.
     pub fn tables(&self) -> usize {
         self.reads

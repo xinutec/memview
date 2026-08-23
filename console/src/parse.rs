@@ -259,6 +259,22 @@ fn described(op: Option<&Op>) -> (&'static str, String) {
         Op::Nested { .. } => ("shell", String::new()),
         Op::Python { .. } => ("python", String::new()),
         Op::JavaScript { .. } => ("javascript", String::new()),
+        // ⚠ **Names the TABLES, not the statements.** The step's subject line is
+        // what the command acted on, and for every other verb that is a path;
+        // for this one it is a table, which is the only place in this sheet a
+        // subject is not a file. Saying "sql" and nothing else would leave the
+        // one interesting fact — which table — off the screen.
+        Op::Sql { source, .. } => {
+            let queried = reader::sql::read(source);
+            let mut named: Vec<&str> = queried
+                .writes
+                .keys()
+                .chain(queried.reads.keys())
+                .map(String::as_str)
+                .collect();
+            named.dedup();
+            ("sql", named.join(", "))
+        }
         // The same line for both payload shapes: a reader watching a step wants
         // the machine, and whether the far side had a shell is a fact about how
         // the payload was READ, not about what happened.

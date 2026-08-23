@@ -27,7 +27,10 @@ statement = _{ targeted | general }
 // A verb whose target follows it directly, with no clause to introduce it.
 targeted    = { target_verb ~ if_exists? ~ table_list ~ (!";" ~ (clause | token))* ~ ";"? }
 target_verb = { update | truncate | create_table | drop_table | alter_table }
-if_exists   = @{ ^"if" ~ WHITESPACE+ ~ ^"exists" ~ !ident_char }
+// ⚠ **`IF NOT EXISTS` as well as `IF EXISTS`.** Covering only the second let
+// `CREATE TABLE IF NOT EXISTS x` name a table called `IF` — 16 of them in the
+// corpus, every one an invented subject.
+if_exists   = @{ ^"if" ~ WHITESPACE+ ~ (^"not" ~ WHITESPACE+)? ~ ^"exists" ~ !ident_char }
 
 // Everything else: the tables are named by clauses.
 general = { verb ~ (!";" ~ (clause | token))* ~ ";"? }
@@ -109,7 +112,12 @@ keyword = @{
 // which then matches nothing and fails the whole rule. Third instance of this
 // trap in this grammar; the other two were `^"from" ~ !ident_char` and
 // `qualified ~ !"("`.
-dot_command = { "." ~ dot_name ~ (string | dot_arg)* }
+// ⚠ **Compound-atomic (`$`), so implicit whitespace is OFF and the command ends
+// at its line.** As an ordinary rule, `dot_arg` skipped the newline and kept
+// eating words: `.mode column⏎SELECT …` swallowed the query after it, and 50
+// corpus scripts were read as one dot command and no statements at all.
+dot_command = ${ "." ~ dot_name ~ (dot_space+ ~ (string | dot_arg))* }
+dot_space   = _{ " " | "\t" }
 dot_name    = @{ ident_char+ }
 dot_arg     = @{ (!(WHITESPACE | NEWLINE) ~ ANY)+ }
 
