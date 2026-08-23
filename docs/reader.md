@@ -570,10 +570,10 @@ output before and against after: **byte-identical across all 209 lines.**
 | --- | --- | --- |
 | the report | `--bin shell-files` | everything, ranked, for somebody reading a terminal |
 | `/reader` | the viewer | coverage, the verb histogram, files, databases, the fleet, the work queue |
-| the strip | the console's front page | the headline pair and five bars, above the sessions |
+| `/reader` | the console, behind the burger menu | the headline pair and every shape, on its own screen |
 
 ⚠ **Coverage and its ceiling are drawn together, on both.** 99.2% of commands
-understood beside 4.6% of file uses whose subject the text cannot determine —
+understood beside 4.5% of file uses whose subject the text cannot determine —
 different denominators, commands against uses, which is exactly why neither can
 stand in for the other. A page showing the first alone is advertising. For the
 same reason `not understood` is a bar INSIDE the histogram rather than a note
@@ -581,9 +581,14 @@ under it: it is the size of the hole in that very chart.
 
 ⚠ **A 404 says "not mined here" rather than drawing zeroes.** "Nothing has been
 mined" and "the survey found nothing" are different claims, and a default-filled
-summary states the second. The console's strip says it in one muted line, which
+summary states the second. The console's screen says it in one muted line, which
 is the correction to a first version that drew nothing at all — a component that
 vanishes is indistinguishable from one that was deleted.
+
+⚠ **It is a screen you go to, not a strip in the way.** The survey sat above the
+session list, where it was the first thing read and the least often needed; it
+moved behind the burger menu on 2026-08-23. Given its own screen it stopped
+having to fit, so it shows every shape rather than the five that fitted.
 
 ## The space a subject lives in
 
@@ -603,23 +608,39 @@ empty under `nullglob`, possibly the pattern itself where nothing matched.
 spaces, not one shrug.**
 
 Measured by `--example opaque-shapes` over the union corpus, 2026-08-23, of the
-9,329 subjects the reader could not name:
+8,796 subjects the reader could not name:
 
 | uses | shape | `L` | `D` |
 | ---: | --- | :-: | :-: |
 | 4,886 | a bare name, bound outside the text | — | — |
-| 1,007 | locus known, leaf unknown — `Verified/Geo/${s%%:*}` | — | ✓ |
-| 737 | derived — `${f%.ts}.js`, `$(basename …)` | ✓* | * |
+| 1,128 | locus known, leaf unknown — `Verified/Geo/${s%%:*}` | — | ✓ |
+| 671 | derived — `${f%.ts}.js`, `$(basename …)` | ✓* | * |
 | 665 | an environment directory — `$TMPDIR` | — | ~ |
-| 652 | unclassified, **largely single-line jq** | — | — |
+| 577 | unclassified | — | — |
 | 544 | a located finite set — `$(find $d -name '*.ts')` | ✓ | ✓ |
-| 458 | **arithmetic — never a path** | | |
 | 259 | a substitution with no locus | — | — |
-| 67 | **a program body, offered as a subject** | | |
 | 54 | a positional parameter | — | — |
+| 12 | **arithmetic — never a path** | | |
 
-Plus the 942 already bounded, which have both. Of the 8,888 that are genuinely
-path subjects: **a locus is known for 17.6%, a language for 26.0%.**
+Plus the 942 already bounded, which have both. Of the 8,784 that are genuinely
+path subjects: **a locus is known for 19.0%, a language for 26.7%.**
+
+⚠ **Two of those rows moved for opposite reasons on 2026-08-23, and telling them
+apart is the whole discipline** ([[feedback_a_threshold_carries_its_denominator]],
+memview#1079). The arithmetic row fell 458 → 12 and a row of 67 program bodies
+went to zero because the READER stopped offering non-paths as subjects — the
+denominator was wrong. The locus rate rose 17.7% → 19.0% because the CENSUS
+learned to read a locus it already had — the numerator was wrong. Only the second
+is more understood; the first is less overstated. Neither is progress on the
+reader's actual limit, which is the 4,886.
+
+The census had required the variable to be in the **leaf** — split at the last
+`/`, and the directory literal throughout — so `Code/$p/node_modules` (56 uses,
+the largest single shape in the unclassified bucket) counted as having no locus,
+though `Code` is exactly where the answer must live. It now takes the literal
+text ahead of the first `$`. Guarded on whitespace, because a one-line jq filter
+carries a `/` and a `$` too, and widening without that would move a program
+fragment into `locus known` — the direction that flatters the census.
 
 ⚠ **Regular is the right lattice because the class is closed under what shells
 do to paths.** `dirname`, `basename`, `${f%.ts}.js`, `${f%%:*}` each map a

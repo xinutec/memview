@@ -121,11 +121,29 @@ fn classify(word: &str) -> Shape {
         };
     }
 
-    // A path with a directory written out and a variable only in the leaf:
-    // `Verified/Geo/${s%%:*}`, `/tmp/${f%%:*}.txt`.
-    if let Some(cut) = word.rfind('/') {
-        let (dir, leaf) = word.split_at(cut);
-        if !dir.is_empty() && !dir.contains('$') && leaf.contains('$') {
+    // A path with directory written out ahead of the first variable:
+    // `Verified/Geo/${s%%:*}`, `/tmp/${f%%:*}.txt`, `/Users/me/Code/$p/node_modules`.
+    //
+    // ⚠ **The variable does not have to be in the LEAF.** The first version of
+    // this rule split at the last `/` and required the whole directory to be
+    // literal, so `Code/$p/node_modules` — 56 uses, and the largest single shape
+    // in the unclassified bucket — was filed as having no locus at all, though
+    // `Code` is exactly the directory the answer must live under. Measured
+    // 2026-08-23: the leaf-only rule undercounted the locus rate.
+    //
+    // A word with whitespace in it is not a path here: a one-line jq filter or a
+    // template literal can carry both a `/` and a `$`, and widening the rule
+    // without this guard would move a program fragment into "locus known" —
+    // the direction that flatters the census.
+    // ⚠ What the guard costs, so nobody reads the unclassified bucket as a
+    // mystery: `/Users/me/Code/scanner/data/$(ls -t …)` has a locus AND a
+    // located set, and is refused here for the space inside its `$( )`. Reading
+    // that shape properly is the resolver's job, not this census's.
+    if !word.contains(char::is_whitespace) {
+        let literal = &word[..word.find('$').unwrap_or(word.len())];
+        // `cut > 0` keeps the bare root out: `/$p/x` says only that the answer
+        // is somewhere on the filesystem, which is not a locus.
+        if literal.rfind('/').is_some_and(|cut| cut > 0) {
             return Shape::LocusKnown;
         }
     }

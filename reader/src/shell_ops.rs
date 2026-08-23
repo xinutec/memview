@@ -421,8 +421,19 @@ fn paths(unnamed: &mut Vec<String>, words: &[&str], cwd: Option<&str>, home: &st
 /// claude` `` carries no `$`, and `cat `which claude`` therefore recorded no read
 /// *and* no admission that a subject had been refused. Measured 2026-08-13, the
 /// day the counter shipped.
+/// ⚠ **A word that spans lines is a program body, not a path.** Nothing in this
+/// corpus names a file with a newline in it, and 58 uses across 27 distinct
+/// words were sitting in the count of subjects the reader could not name — 56
+/// of them `perl /tmp/wire.pl <file> '<TypeScript body>'`, measured 2026-08-23
+/// by `--example body-subjects`. A template literal carries `${…}`, which is
+/// the very marker this function reads as "an expansion the text did not make",
+/// so source text arrives here wearing the costume of an unnameable subject.
+///
+/// Dropped rather than counted, for the reason in the note above: the refusal is
+/// correct and there is nothing to act on. The file beside it is unaffected —
+/// `paths` decides word by word.
 fn undetermined(word: &str) -> bool {
-    word.contains(['$', '`']) && !only_arithmetic(word)
+    word.contains(['$', '`']) && !only_arithmetic(word) && !word.contains('\n')
 }
 
 /// Whether a word is arithmetic and nothing a path could be made of.

@@ -671,3 +671,63 @@ fn nested_arithmetic_is_skipped_whole() {
         "nested arithmetic read as a file subject: {unnamed:?}"
     );
 }
+
+/// A word that spans lines is a program body, not a file subject.
+///
+/// ⚠ **The population is real and it is one command shape.** Measured
+/// 2026-08-23 by `--example body-subjects` over the union corpus: 58 uses, 27
+/// distinct, and 56 of them are `perl /tmp/wire.pl <file> '<TypeScript body>'`
+/// — a local script whose second argument is source text. It reaches `unnamed`
+/// because it carries a `${…}`, which is how a subject the text does not
+/// determine is recognised, and a template literal has one for a reason that
+/// has nothing to do with the shell.
+#[test]
+fn a_program_body_spanning_lines_is_not_a_file_subject() {
+    let argv: Vec<String> = [
+        "perl",
+        "/tmp/wire.pl",
+        "transcript.ts",
+        "  text: `${event.turns ?? 0} turn(s)`,\n  cost: money(event.cost_usd),",
+    ]
+    .iter()
+    .map(|w| w.to_string())
+    .collect();
+    let mut unnamed = Vec::new();
+    let op = reader::shell_ops::classify_naming(
+        &mut unnamed,
+        &argv,
+        &[],
+        Some("/home/example"),
+        "/home/example",
+    );
+    assert!(
+        unnamed.is_empty(),
+        "a program body counted as a file nobody could name: {unnamed:?}"
+    );
+    // ⚠ **And the file it edits is still credited.** Dropping the body must not
+    // cost the operand beside it, which is the only way this fix could pay for
+    // a better number with a real read.
+    match op {
+        reader::shell_ops::Op::Transform { paths, .. } => assert_eq!(
+            paths,
+            ["/home/example/transcript.ts"],
+            "the edited file was lost with the body"
+        ),
+        other => panic!("not a transform: {other:?}"),
+    }
+}
+
+/// The boundary: one line with a `$` in it is exactly what this count is for.
+#[test]
+fn a_single_line_subject_with_a_variable_stays_counted() {
+    let argv: Vec<String> = ["cat", "$f"].iter().map(|w| w.to_string()).collect();
+    let mut unnamed = Vec::new();
+    reader::shell_ops::classify_naming(
+        &mut unnamed,
+        &argv,
+        &[],
+        Some("/home/example"),
+        "/home/example",
+    );
+    assert_eq!(unnamed, ["$f"], "the honest floor stopped being counted");
+}
