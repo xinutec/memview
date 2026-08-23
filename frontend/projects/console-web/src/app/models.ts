@@ -627,6 +627,14 @@ export interface Step {
   readonly cwd?: string;
   /** The operation in one word. */
   readonly kind: string;
+  /**
+   * The stable key behind the chip, for styling only.
+   *
+   * ⚠ **Never displayed.** It is separate from `kind` so the wording is free to
+   * change: while the two were one field, `[data-kind='…']` selected on the
+   * display string and improving a label silently dropped its colour.
+   */
+  readonly key: string;
   /** What the operation says that its paths cannot — a search's pattern, a
    *  transform's program, the name of a command nobody has taught this yet. */
   readonly says?: string;

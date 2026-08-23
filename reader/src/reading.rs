@@ -24,35 +24,88 @@ use serde::{Deserialize, Serialize};
 use crate::shell_files;
 use crate::shell_ops::{GitOp, Op};
 
-/// The shape of an operation, for the distribution.
+/// How one operation is named, in the three registers the views need.
 ///
-/// Deliberately prose rather than a variant name: this string is read by
-/// somebody asking what the fleet *does*, not by somebody holding the enum.
-pub fn op_name(op: &Op) -> &'static str {
+/// ⚠ **One definition, because two drifted.** The console labelled a chip and
+/// the viewer labelled a histogram row, each from its own exhaustive `match`.
+/// Both compile when an `Op` variant is added — the compiler forces a value,
+/// not a consistent one — so the same command could be called two different
+/// things in two places, and was: `Op::Nothing` was `nothing` on the phone and
+/// `nothing with files` in the viewer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Naming {
+    /// A stable key for styling and data attributes.
+    ///
+    /// ⚠ **Never displayed, so wording can change without breaking CSS.** The
+    /// console's chip colours select on this — `[data-kind='unknown']` — and
+    /// when the key WAS the display string, improving a label silently dropped
+    /// its colour.
+    pub key: &'static str,
+    /// One or two words, for a chip. A phone is 412px and the chip shares its
+    /// line with a host and a depth note.
+    pub chip: &'static str,
+    /// A phrase, for a row in a distribution, read by somebody asking what the
+    /// fleet *does* rather than by somebody holding the enum.
+    pub phrase: &'static str,
+}
+
+const fn name(key: &'static str, chip: &'static str, phrase: &'static str) -> Naming {
+    Naming { key, chip, phrase }
+}
+
+/// What to call an operation.
+pub fn naming(op: &Op) -> Naming {
     match op {
-        Op::Read { .. } => "read",
-        Op::Write { .. } => "write",
-        Op::Remove { .. } => "remove",
-        Op::Copy { .. } => "copy",
-        Op::Move { .. } => "move",
-        Op::Search { .. } => "search",
-        Op::Transform { in_place: true, .. } => "transform (in place)",
-        Op::Transform { .. } => "transform",
-        Op::Run { .. } => "run a script",
-        Op::Nested { .. } => "open a shell (bash -c, nix --run)",
-        Op::Python { .. } => "run python (-c, or a heredoc)",
-        Op::JavaScript { .. } => "run javascript (-e, or a heredoc)",
-        Op::Sql { .. } => "query a database",
-        Op::Remote { .. } => "reach another machine (ssh, kubectl exec)",
-        Op::RemoteRun { .. } => "run a program on another machine (no shell)",
-        Op::ChangeDir { .. } => "cd",
-        Op::Git(GitOp::Stage { .. }) => "git stage",
-        Op::Git(GitOp::Alter { .. }) => "git alter",
-        Op::Git(GitOp::Inspect { .. }) => "git inspect",
-        Op::Git(GitOp::Other { .. }) => "git (other)",
-        Op::Nothing => "nothing with files",
-        Op::Unknown { .. } => "not understood",
+        Op::Read { .. } => name("read", "read", "read"),
+        Op::Write { .. } => name("write", "write", "write"),
+        Op::Remove { .. } => name("remove", "remove", "remove"),
+        Op::Copy { .. } => name("copy", "copy", "copy"),
+        Op::Move { .. } => name("move", "move", "move"),
+        Op::Search { .. } => name("search", "search", "search"),
+        Op::Transform { in_place: true, .. } => {
+            name("transform", "rewrite", "transform (in place)")
+        }
+        Op::Transform { .. } => name("transform", "transform", "transform"),
+        Op::Run { .. } => name("run", "run a script", "run a script"),
+        Op::Nested { .. } => name(
+            "shell",
+            "opens a shell",
+            "open a shell (bash -c, nix --run)",
+        ),
+        Op::Python { .. } => name("python", "python", "run python (-c, or a heredoc)"),
+        Op::JavaScript { .. } => name(
+            "javascript",
+            "javascript",
+            "run javascript (-e, or a heredoc)",
+        ),
+        Op::Sql { .. } => name("sql", "sql", "query a database"),
+        Op::Remote { .. } => name(
+            "remote",
+            "elsewhere",
+            "reach another machine (ssh, kubectl exec)",
+        ),
+        Op::RemoteRun { .. } => name(
+            "remote",
+            "elsewhere",
+            "run a program on another machine (no shell)",
+        ),
+        Op::ChangeDir { .. } => name("cd", "cd", "cd"),
+        Op::Git(GitOp::Stage { .. }) => name("git", "git", "git stage"),
+        Op::Git(GitOp::Alter { .. }) => name("git", "git", "git alter"),
+        Op::Git(GitOp::Inspect { .. }) => name("git", "git", "git inspect"),
+        Op::Git(GitOp::Other { .. }) => name("git", "git", "git (other)"),
+        // ⚠ **"nothing" alone is FALSE and was on screen.** It means the command
+        // touched no files; on a chip beside `ping`, `task list` or
+        // `ssh host uptime` it reads as "this command did nothing". The word
+        // that carries the meaning is the one the chip had dropped.
+        Op::Nothing => name("nothing", "no files", "nothing with files"),
+        Op::Unknown { .. } => name("unknown", "not read", "not understood"),
     }
+}
+
+/// The shape of an operation, for the distribution.
+pub fn op_name(op: &Op) -> &'static str {
+    naming(op).phrase
 }
 
 /// One corpus row, as much of it as the survey needs.

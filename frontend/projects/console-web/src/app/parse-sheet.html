@@ -52,7 +52,10 @@
     @for (row of steps(); track $index) {
       <li class="step" [attr.data-indent]="row.indent">
         <div class="head">
-          <span class="kind" [attr.data-kind]="row.step.kind">{{ row.step.kind }}</span>
+          <!-- ⚠ **Styled by `key`, labelled by `kind`.** They were one field, so
+               the chip's colour selected on its display string and improving a
+               label silently dropped its colour. -->
+          <span class="kind" [attr.data-kind]="row.step.key">{{ row.step.kind }}</span>
           @if (row.step.host; as host) {
             <!-- The machine, said on the step and again on every path it named.
                  Twice on purpose: a reader scrolling fast sees paths, and a path

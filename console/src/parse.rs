@@ -94,8 +94,14 @@ pub struct Line {
     pub scope: Vec<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
-    /// The operation in one word, for a label.
+    /// The operation, in one or two words, for the chip.
     pub kind: &'static str,
+    /// The stable key behind that chip, for styling.
+    ///
+    /// ⚠ **Separate from `kind` so the wording is free to change.** The chip's
+    /// colour selects on this; while the two were one field, improving a label
+    /// silently dropped its colour.
+    pub key: &'static str,
     /// What that operation says that its paths do not — the pattern a search
     /// looked for, the program a transform applied, the name of a command
     /// nobody has taught this yet. Empty when the paths are the whole story.
@@ -170,7 +176,7 @@ pub fn parsed(asked: &Asked, cwd: Option<&str>, home: &str) -> Parsed {
 }
 
 fn line(step: &Step, verdict: Verdict) -> Line {
-    let (kind, says) = described(step.op.as_ref());
+    let (naming, says) = described(step.op.as_ref());
     let local = step.files.iter().map(|use_| local_use(use_, verdict));
     let away = step.away.iter().map(away_use);
     Line {
@@ -180,7 +186,8 @@ fn line(step: &Step, verdict: Verdict) -> Line {
         reached: condition(step.reached),
         scope: step.scope.clone(),
         cwd: step.cwd.clone(),
-        kind,
+        kind: naming.chip,
+        key: naming.key,
         says,
         uses: local.chain(away).collect(),
     }
@@ -225,40 +232,42 @@ fn condition(reached: Reached) -> &'static str {
 /// `cat src/x.ts` project to the same single read, and the difference between
 /// them — that one was looking for something — is the whole reason
 /// [`reader::shell_ops`] is a typed operation rather than a path table.
-fn described(op: Option<&Op>) -> (&'static str, String) {
+fn described(op: Option<&Op>) -> (reader::reading::Naming, String) {
     let Some(op) = op else {
-        return ("redirect", String::new());
+        return (
+            reader::reading::Naming {
+                key: "redirect",
+                chip: "redirect",
+                phrase: "redirect",
+            },
+            String::new(),
+        );
     };
-    match op {
-        Op::Read { .. } => ("read", String::new()),
-        Op::Write { .. } => ("write", String::new()),
-        Op::Remove { recursive, .. } => (
-            "remove",
-            if *recursive { "recursive" } else { "" }.to_string(),
-        ),
-        Op::Copy { .. } => ("copy", String::new()),
-        Op::Move { .. } => ("move", String::new()),
-        Op::Search { pattern, .. } => ("search", pattern.clone()),
+    // ⚠ **The words come from `reader::reading::naming`, not from here.** This
+    // function decides only what a step SAYS beyond its paths; what the
+    // operation is CALLED is one table shared with the viewer, because two
+    // exhaustive matches over one enum both compile and can still disagree.
+    let naming = reader::reading::naming(op);
+    let says = match op {
+        Op::Remove { recursive, .. } => if *recursive { "recursive" } else { "" }.to_string(),
+        Op::Search { pattern, .. } => pattern.clone(),
         Op::Transform {
             program, in_place, ..
-        } => (
-            "transform",
+        } => {
             if *in_place {
                 format!("{program} — in place")
             } else {
                 program.clone()
-            },
-        ),
+            }
+        }
         // ⚠ **The script is not repeated as a phrase.** It is already the one
         // file a `Run` projects to, so saying it twice costs two lines of a
         // 412px screen to tell a reader the same absolute path they are looking
         // at. Found by reading the runner's own output for a real command.
-        Op::Run { .. } => ("run", String::new()),
+        Op::Run { .. } => String::new(),
         // The script itself is not repeated: its commands are the steps below
         // this one, which is a better answer than the text they came from.
-        Op::Nested { .. } => ("shell", String::new()),
-        Op::Python { .. } => ("python", String::new()),
-        Op::JavaScript { .. } => ("javascript", String::new()),
+        Op::Nested { .. } | Op::Python { .. } | Op::JavaScript { .. } => String::new(),
         // ⚠ **Names the TABLES, not the statements.** The step's subject line is
         // what the command acted on, and for every other verb that is a path;
         // for this one it is a table, which is the only place in this sheet a
@@ -273,27 +282,27 @@ fn described(op: Option<&Op>) -> (&'static str, String) {
                 .map(String::as_str)
                 .collect();
             named.dedup();
-            ("sql", named.join(", "))
+            named.join(", ")
         }
         // The same line for both payload shapes: a reader watching a step wants
         // the machine, and whether the far side had a shell is a fact about how
         // the payload was READ, not about what happened.
-        Op::Remote { host, .. } | Op::RemoteRun { host, .. } => ("remote", host.clone()),
-        Op::ChangeDir { to } => (
-            "cd",
-            to.clone()
-                .unwrap_or_else(|| "somewhere this reader cannot follow".to_string()),
-        ),
-        Op::Git(git) => (
-            "git",
-            match git {
-                GitOp::Stage { .. } => "stage — changes no file".to_string(),
-                GitOp::Alter { .. } => "alter".to_string(),
-                GitOp::Inspect { .. } => "inspect".to_string(),
-                GitOp::Other { subcommand } => subcommand.clone(),
-            },
-        ),
-        Op::Nothing => ("nothing", String::new()),
-        Op::Unknown { name } => ("unknown", name.clone()),
-    }
+        Op::Remote { host, .. } | Op::RemoteRun { host, .. } => host.clone(),
+        Op::ChangeDir { to } => to
+            .clone()
+            .unwrap_or_else(|| "somewhere this reader cannot follow".to_string()),
+        Op::Git(git) => match git {
+            GitOp::Stage { .. } => "stage — changes no file".to_string(),
+            GitOp::Alter { .. } => "alter".to_string(),
+            GitOp::Inspect { .. } => "inspect".to_string(),
+            GitOp::Other { subcommand } => subcommand.clone(),
+        },
+        // The command's own name is the whole of what is known about it, and it
+        // is what somebody would teach the table next.
+        Op::Unknown { name } => name.clone(),
+        Op::Read { .. } | Op::Write { .. } | Op::Copy { .. } | Op::Move { .. } | Op::Nothing => {
+            String::new()
+        }
+    };
+    (naming, says)
 }

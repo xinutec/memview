@@ -119,7 +119,9 @@ fn a_nested_shell_opens_into_its_own_commands() {
     // is to show that the wrapper is not the thing that touched the file.
     let steps = asked("nix develop -c bash -c 'cp a.ts b.ts'", Some(true)).steps;
     let shape: Vec<(usize, &str)> = steps.iter().map(|step| (step.depth, step.kind)).collect();
-    assert_eq!(shape, [(0, "shell"), (1, "copy")]);
+    // ⚠ The CHIP, not the style key: `opens a shell` is what the phone shows,
+    // and `shell` is what its colour selects on.
+    assert_eq!(shape, [(0, "opens a shell"), (1, "copy")]);
     assert!(steps[0].uses.is_empty(), "the wrapper touched nothing");
     assert_eq!(steps[1].uses.len(), 2);
 }
@@ -201,7 +203,7 @@ fn what_a_script_runs_is_not_said_twice() {
     // step's phrase spends two lines of a 412px screen repeating an absolute
     // path the reader is already looking at.
     let steps = asked("./scripts/deploy.sh --dry-run", Some(true)).steps;
-    assert_eq!(steps[0].kind, "run");
+    assert_eq!(steps[0].kind, "run a script");
     assert_eq!(steps[0].says, "");
     assert_eq!(
         steps[0].uses[0].path,
@@ -240,8 +242,11 @@ fn the_shape_the_phone_is_drawn_from() {
         [
             // The devshell wrapper is unwrapped to `lake build`, which touches
             // no file — so there is nothing to be uncertain about.
-            ("nothing", "always", true),
-            ("run", "on-success", false),
+            // ⚠ **"no files", never "nothing".** The bare word was on screen and
+            // was false: it means the command touched no files, and beside
+            // `ping` or `task list` it read as "this command did nothing".
+            ("no files", "always", true),
+            ("run a script", "on-success", false),
             ("write", "on-success", false),
         ]
     );
