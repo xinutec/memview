@@ -4539,3 +4539,36 @@ test('reader strip — an unmined survey says so in one line @ phone width', asy
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 });
+
+test('usage — the week bar marks the days and where the clock is @ phone width', async ({
+  page,
+}, testInfo) => {
+  await mockRunner(page);
+  await page.goto('/');
+
+  const week = page.locator('.window', { hasText: 'Week' }).locator('.level');
+  await week.waitFor();
+
+  // ⚠ **Six ticks, not seven.** They are the boundaries INSIDE a seven-day
+  // window; the bar's own two ends already mark the outer ones, and a seventh
+  // drawn at 100% would sit under the edge and read as a rendering fault.
+  await expect(week.locator('.day')).toHaveCount(6);
+
+  // The clock, placed from the same reading as the fill. The fixture is 66%
+  // spent with 54h left of 168 — so 67.9% elapsed, and the two marks land
+  // within two points of each other. That IS the message: on pace.
+  const clock = week.locator('.clock');
+  await expect(clock).toHaveCount(1);
+  const at = await clock.evaluate((el: HTMLElement) => el.style.left);
+  expect(Number.parseFloat(at)).toBeGreaterThan(66);
+  expect(Number.parseFloat(at)).toBeLessThan(70);
+
+  // ⚠ **The five-hour row gets no day ticks**, and asserting that is the point:
+  // a window with no unit a person tracks would gain noise, not information.
+  const short = page.locator('.window', { hasText: '5 hours' }).locator('.level');
+  await expect(short.locator('.day')).toHaveCount(0);
+
+  await expectIconFontLoaded(page);
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+});

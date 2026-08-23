@@ -5,13 +5,33 @@
         <span class="label">{{ bar.label }}</span>
         @if (bar.left; as left) {
           <span class="pct" [class.high]="bar.high">{{ bar.pct }}%</span>
-          <mat-progress-bar
-            class="level"
-            [class.high]="bar.high"
-            mode="determinate"
-            [value]="bar.pct"
-            [attr.aria-label]="bar.label + ' used'"
-          />
+          <!-- The bar and its markers share one box: the ticks and the clock
+               are positions ON the level, not siblings beside it. -->
+          <span class="level">
+            <mat-progress-bar
+              [class.high]="bar.high"
+              mode="determinate"
+              [value]="bar.pct"
+              [attr.aria-label]="bar.label + ' used'"
+            />
+            @for (at of bar.days; track at) {
+              <i class="day" [style.left.%]="at" aria-hidden="true"></i>
+            }
+            @if (bar.elapsed; as at) {
+              <!-- ⚠ **Where the CLOCK is, against where the spend is.** The two
+                   readings are from one instant, so their distance apart is the
+                   whole message: fill behind the mark is room to spare, fill
+                   past it is going faster than the week does. Titled rather than
+                   labelled — a phone has no hover, and a word here would cost
+                   the row its height. -->
+              <i
+                class="clock"
+                [style.left.%]="at"
+                [attr.title]="at.toFixed(0) + '% of the window has passed'"
+                aria-hidden="true"
+              ></i>
+            }
+          </span>
           <span class="left">{{ left }}</span>
         } @else {
           <!-- ⚠ **Not the last figure, and not zero either.** The window this
