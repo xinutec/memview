@@ -74,6 +74,14 @@ fn main() -> anyhow::Result<()> {
         read.understood()
     );
     println!("  not in the table  {}", read.unhandled);
+    // ⚠ **Beside it, because the difference is what the list below is FOR.**
+    // "Not in the table" is work; a call to a function the script declares is
+    // not, and cannot be made into any. See `--example defined-here`.
+    println!(
+        "  a local function  {}  ({} distinct names)",
+        read.local,
+        read.local_by_name.len()
+    );
     // A wrapper whose inner shell will not parse is a hole in exactly the third
     // of the corpus that runs through one, so it is counted rather than shrugged
     // at — the same rule as every other refusal here.
@@ -215,6 +223,15 @@ fn main() -> anyhow::Result<()> {
     words.sort_by_key(|(word, n)| (std::cmp::Reverse(**n), (*word).clone()));
     for (word, n) in words.iter().take(show.max(10)) {
         println!("  {n:>7}  {}", truncate(word, 68));
+    }
+
+    if !read.local_by_name.is_empty() {
+        println!("\nlocal functions, declared by the scripts that call them:");
+        let mut ranked: Vec<_> = read.local_by_name.iter().collect();
+        ranked.sort_by_key(|(name, n)| (std::cmp::Reverse(**n), (*name).clone()));
+        for (name, n) in ranked.into_iter().take(8) {
+            println!("  {n:>7}  {name}");
+        }
     }
 
     println!("\nunread commands, biggest first:");

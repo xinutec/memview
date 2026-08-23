@@ -160,6 +160,24 @@
         </li>
       }
     </ul>
+    @if (got.local > 0) {
+      <p class="note">
+        And <b>{{ got.local | number }}</b> calls that are not on that queue and
+        never can be — a function the calling script declares itself.
+        <code>probe</code> is a different function in every script that writes
+        one, so no table entry could name it. The body's own file uses are
+        recorded where it is declared, not here.
+      </p>
+      <ul class="rows">
+        @for (row of got.local_names; track row.name) {
+          <li>
+            <span class="pair"><b>{{ row.n | number }}</b></span>
+            <code class="name">{{ row.name }}</code>
+          </li>
+        }
+      </ul>
+    }
+
     <p class="note">
       And the subjects the text simply does not fix — a loop variable bound by
       something the transcript never shows:

@@ -64,7 +64,23 @@ pub struct Extract {
     pub files: Vec<FileUse>,
     /// Commands whose operation is not known, by name. Not an error — the
     /// honest size of what this does not yet read.
+    ///
+    /// ⚠ **This is the WORKLIST**, and everything on it must be work somebody
+    /// could do. See [`Extract::local`] for the 13.8% that was not.
     pub unhandled: BTreeMap<String, usize>,
+    /// Calls to a function the same script declares, by name.
+    ///
+    /// A third outcome, and neither of the other two. Not `unhandled`: there is
+    /// no table entry to write, because the name means something different in
+    /// every script that declares it. Not `handled`: what the call passes as
+    /// arguments goes unread, and the body's own file uses are recorded at the
+    /// declaration rather than here.
+    ///
+    /// ⚠ **Kept as a count rather than absorbed, because both neighbours are a
+    /// claim.** Adding it to `handled` says the reader followed the call; adding
+    /// it to nothing says there was nothing to follow. Neither is true, and the
+    /// number is 2,493 calls across 78 names — too large to state wrongly.
+    pub local: BTreeMap<String, usize>,
     /// Commands that were classified, whether or not they named a file.
     pub handled: usize,
     /// Reads and writes by the command that produced them.
@@ -337,6 +353,9 @@ impl Extract {
         self.python.merge(inner.python);
         self.javascript.merge(inner.javascript);
         self.tables.merge(&inner.tables);
+        for (name, n) in inner.local {
+            *self.local.entry(name).or_insert(0) += n;
+        }
         for (name, n) in inner.unhandled {
             *self.unhandled.entry(name).or_insert(0) += n;
         }
@@ -694,6 +713,8 @@ fn carried(
                         heredocs: Vec::new(),
                     }],
                     unrolled: 0,
+                    // An argv is not a text, so it declares nothing.
+                    defines: Default::default(),
                 };
                 let found = extract_nested(&inner, here, home, host, depth + 1, trace, &[]);
                 out.absorb(found);
@@ -943,6 +964,26 @@ fn extract_nested(
                 if name == "cd" {
                     dirs.insert(cmd.scope.clone(), None);
                 }
+                // ⚠ **A call to a function THIS TEXT declares is not a command
+                // nobody taught the table** — it is one nobody ever could, since
+                // `probe` is a different function in every script that declares
+                // one. `unhandled` is the worklist, and the list built from it
+                // says what to read next; 2,493 of 18,083 unread calls (13.8%,
+                // 78 names) were this, the largest single category on it, and
+                // every one of them work that cannot be done. Measured
+                // 2026-08-23 by `--example defined-here`. memview#1124.
+                //
+                // ⚠ **Counted, never dropped.** Its own field, because the file
+                // work in the body IS recorded — at the definition, under
+                // `Reached::Sometimes`, which `project.rs` does precisely
+                // because the call site names nothing — but what the CALL passes
+                // as arguments is still unread. Folding these into `handled`
+                // would claim that gap closed; folding them into nothing would
+                // hide that it exists.
+                else if ran.defines.contains(name) {
+                    *out.local.entry(name.clone()).or_insert(0) += 1;
+                    continue;
+                }
                 *out.unhandled.entry(name.clone()).or_insert(0) += 1;
             }
             // A shell inside a shell: `bash -c '…'`, `nix-shell --run '…'`.
@@ -1014,6 +1055,8 @@ fn extract_nested(
                             heredocs: Vec::new(),
                         }],
                         unrolled: 0,
+                        // An argv is not a text, so it declares nothing.
+                        defines: Default::default(),
                     };
                     let found =
                         extract_nested(&inner, None, home, Some(there), depth + 1, trace, &[]);

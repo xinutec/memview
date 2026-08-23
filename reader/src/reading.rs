@@ -140,6 +140,15 @@ pub struct Reading {
     pub unrolled: usize,
     /// Commands the table has no entry for, by name — the work queue.
     pub by_name: BTreeMap<String, usize>,
+    /// Calls to a function the calling script declares, and their names.
+    ///
+    /// ⚠ **Its own line on every view, and it is NOT in `understood()`.** These
+    /// are not commands anybody can teach the table — see
+    /// [`crate::shell_files::Extract::local`] — but the reader did not follow
+    /// the call either, so a rate that counted them would say it understands
+    /// something it has not read.
+    pub local: usize,
+    pub local_by_name: BTreeMap<String, usize>,
     /// Subjects the text does not determine. Counted beside the commands not
     /// read at all, because they are the same kind of admission: the size of
     /// what this does not know, stated by the thing that does not know it.
@@ -250,6 +259,10 @@ impl Reading {
             self.unhandled += n;
             *self.by_name.entry(name.clone()).or_insert(0) += n;
         }
+        for (name, n) in &found.local {
+            self.local += n;
+            *self.local_by_name.entry(name.clone()).or_insert(0) += n;
+        }
         // ⚠ The total comes from `subjects_not_named`, which folds in the Python
         // and JavaScript readers' accounts too — the map below is the shell's
         // words alone, and reading a total off it is the undercount memview#824
@@ -296,10 +309,18 @@ impl Reading {
     /// Commands *run*, not commands written: a determinate loop is run out into
     /// its iterations before this counts them.
     pub fn commands(&self) -> usize {
-        self.handled + self.unhandled
+        self.handled + self.unhandled + self.local
     }
 
     /// How much of what ran the table has an entry for.
+    ///
+    /// ⚠ **`local` is in the DENOMINATOR and not in the numerator, and that is
+    /// the whole point of splitting it out.** Moving 2,493 calls from
+    /// `unhandled` into their own bucket must not raise this rate: nothing more
+    /// was read, and a coverage figure that improves because calls left the
+    /// denominator is a different fact from one that improves because the reader
+    /// learned something ([[feedback_a_threshold_carries_its_denominator]]).
+    /// Measured across the union corpus, this refactor left it at 99.3%.
     pub fn understood(&self) -> f64 {
         100.0 * self.handled as f64 / self.commands().max(1) as f64
     }
@@ -409,6 +430,11 @@ pub struct CorpusRead {
     pub unrolled: usize,
     pub handled: usize,
     pub unhandled: usize,
+    /// Calls to a function the calling script declares.
+    ///
+    /// ⚠ **In `commands` and not in `handled`**, so `understood` is unmoved by
+    /// splitting this out — nothing more was read. See [`Reading::understood`].
+    pub local: usize,
     /// `handled` as a percentage of `commands`, computed once so two clients
     /// cannot round it two ways.
     pub understood: f64,
@@ -446,6 +472,10 @@ pub struct CorpusRead {
     pub writers: Vec<Both>,
     pub hosts: Vec<Both>,
     pub unread: Vec<Ranked>,
+    /// The local functions, biggest first — the same shape as `unread` and
+    /// deliberately a separate list, because one is a worklist and the other
+    /// can never be worked.
+    pub local_names: Vec<Ranked>,
     pub opaque_words: Vec<Ranked>,
 }
 
@@ -531,6 +561,7 @@ impl Reading {
             unrolled: self.unrolled,
             handled: self.handled,
             unhandled: self.unhandled,
+            local: self.local,
             understood: self.understood(),
             reads: self.reads,
             writes: self.writes,
@@ -556,6 +587,7 @@ impl Reading {
             writers: rank_both(&self.by_command, true),
             hosts: rank_both(&self.remote, false),
             unread: rank(&self.by_name),
+            local_names: rank(&self.local_by_name),
             opaque_words: rank(&self.by_word),
         }
     }

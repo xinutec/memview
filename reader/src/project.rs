@@ -38,7 +38,7 @@
 //! attributed to the wrong subshell resolves against the wrong directory, and a
 //! branch recorded as certain claims a file use that never happened.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::shell::{Reached, Redirect, Simple};
 use crate::syntax::ast::{
@@ -125,6 +125,19 @@ pub fn project(script: &Script) -> Vec<Simple> {
 pub struct Ran {
     pub commands: Vec<Simple>,
     pub unrolled: usize,
+    /// Every function name this script DECLARES.
+    ///
+    /// ⚠ **A property of the script, which is why it is not on a command.**
+    /// Whether `probe` is a program nobody has taught this reader or a helper
+    /// declared three lines up is not decidable from the call — the same word,
+    /// the same argv — so `shell_ops::classify` correctly cannot answer it and
+    /// does not try. The answer lives here, where the whole text is.
+    ///
+    /// ⚠ **And it is not a name list.** `check` is a real program in `~/Code`
+    /// AND a local helper: 112 of its 114 unread calls are declared in their own
+    /// text and 2 are not (2026-08-23, `--example defined-here`). Asked of the
+    /// name it would be wrong twice; asked of the text it is right both times.
+    pub defines: BTreeSet<String>,
 }
 
 /// Every simple command the script *ran*: as [`project`], with the loops the
@@ -164,6 +177,7 @@ fn walk(script: &Script, unroll: bool) -> Ran {
         out: Vec::new(),
         next: 0,
         unroll,
+        defines: BTreeSet::new(),
         bound: BTreeMap::new(),
         unrolled: 0,
     };
@@ -176,6 +190,7 @@ fn walk(script: &Script, unroll: bool) -> Ran {
     Ran {
         commands: out,
         unrolled: walk.unrolled,
+        defines: walk.defines,
     }
 }
 
@@ -186,6 +201,8 @@ struct Walk {
     out: Vec<Simple>,
     next: usize,
     unroll: bool,
+    /// Names declared as functions, for [`Ran::defines`].
+    defines: BTreeSet<String>,
     /// What each loop variable holds on the iteration being walked. Empty
     /// except inside a loop [`run_out`] is running out.
     ///
@@ -388,6 +405,10 @@ impl Walk {
             // anyway because a call site names no files at all. So it lands in
             // "runs sometimes and the text cannot say when".
             CommandKind::Function(function) => {
+                // The NAME, which the walk used to drop. Without it a call to
+                // this function is indistinguishable from a program the table
+                // has never heard of — see [`Ran::defines`].
+                self.defines.insert(function.name.clone());
                 self.items(&function.body, scope, reached.and(Reached::Sometimes));
             }
             CommandKind::Arithmetic(arith) => self.arithmetic(arith, scope, reached),

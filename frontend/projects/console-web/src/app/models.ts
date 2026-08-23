@@ -705,6 +705,17 @@ export interface CorpusRead {
   readonly distinct_tables: number;
   /** Commands with no entry in the table — the work queue. */
   readonly unread: readonly Ranked[];
+  /**
+   * Calls to a function the calling script declares.
+   *
+   * ⚠ **Counted apart from `unread` because it is not work.** `probe` is a
+   * different function in every script that declares one, so no table entry
+   * could ever be written for it — and it was the largest single name on the
+   * worklist until it was split out. It is in `commands` and not in `handled`,
+   * so `understood` is unmoved by the split.
+   */
+  readonly local: number;
+  readonly local_names: readonly Ranked[];
   readonly calls: number;
   readonly unparsed: number;
 }

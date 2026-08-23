@@ -550,9 +550,51 @@ Mac-side rust/python/web"); the calls are real history, but the evidence is now
 git archaeology on a tool that no longer exists.
 
 ⚠ **`probe` (418) is not a binary at all — it is a shell function**, and all four
-of its distinct spellings are `probe() {`. The reader is counting a function
-*defined in the text it is reading* as a command it has never heard of, which is
-a different defect with a different fix: the body is right there. memview#1124.
+of its distinct spellings are `probe() {`. See below: it was one of seventy-eight.
+
+### A call is not a gap when the script declares the function (memview#1124)
+
+`probe` was not the case, it was the *symptom*. Measured the same day by
+`--example defined-here`, then again by the reader itself: **2,475 calls across
+77 names**, which was the largest single category on the worklist — bigger than
+`k3s`. Every one of them work nobody could do: `r`, `p`, `A`, `maxid`, `render`
+mean something different in every script that declares them.
+
+⚠ **It cannot be a name list, and the numbers say so.** `check` is a real program
+in `~/Code/check` AND a local helper — 112 of its 114 calls are declared in their
+own text and 2 are not. `run` splits 185/10 the same way. The question has to be
+asked of each command text, which is why `Ran::defines` is a property of the
+SCRIPT and `shell_ops::classify` is not asked at all: from the call alone —
+same word, same argv — it is not decidable.
+
+**A third outcome, not a reclassification into either existing one.**
+`Extract::local` is neither `unhandled` (there is no entry to write) nor
+`handled` (the reader did not follow the call, and what it passes as arguments
+goes unread). Both neighbours would have been a claim.
+
+| | before | after |
+| --- | ---: | ---: |
+| not in the table | 20,073 | **15,608** |
+| a local function | — | **2,475** (77 names) |
+| understood | 99.3% | **99.3%** |
+
+⚠ **The rate is unchanged, and that is the check.** `local` is in the
+denominator of `understood()` and not in the numerator, so moving 2,475 calls out
+of `unhandled` cannot raise it — nothing more was read. Verified by diffing the
+report: `understood 2428358 (99.3%)` is byte-identical across the change, and
+only the two lines below it moved. A coverage figure that improves because calls
+left the denominator is a different fact from one that improves because the
+reader learned something.
+
+**What it bought is a worklist that is true.** With 2,475 phantom entries gone,
+`arp` (167), `claude` (164) and `magick` (160) surface — real commands that were
+buried under helpers nobody can teach.
+
+⚠ **Still unread, and named rather than hidden: what the CALL passes.**
+`render "$src" out.svg` binds `$1` and `$2` in the body, and the body's file uses
+are recorded at the *declaration* under `Reached::Sometimes` — with the arguments
+unbound. Reading them needs argument binding, which is why this pass stops at
+making the number true.
 
 ⚠ **`md5` was the macOS spelling of something already in the table**, and adding
 "the family" duplicated five entries the `Verb::Read` list has always had —

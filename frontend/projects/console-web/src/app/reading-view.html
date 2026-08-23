@@ -78,6 +78,24 @@
     }
   </ul>
 
+  @if (got.local > 0) {
+    <h2>What it can never be taught</h2>
+    <p class="note">
+      <b>{{ got.local | number }}</b> calls to a function the same script
+      declares. Not on the queue above: <code>probe</code> means something
+      different in every script that writes one, so no entry could be written
+      for it. What the body does is recorded where it is declared.
+    </p>
+    <ul class="rows">
+      @for (row of got.local_names; track row.name) {
+        <li>
+          <span class="pair"><b>{{ row.n | number }}</b></span>
+          <code class="name">{{ row.name }}</code>
+        </li>
+      }
+    </ul>
+  }
+
   <p class="stamp">
     {{ got.calls | number }} calls surveyed, {{ got.unparsed | number }} of which
     would not parse. Mined nightly — the survey takes 13 seconds, so it is not

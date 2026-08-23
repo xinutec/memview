@@ -520,7 +520,12 @@ const READING = {
   unparsed: 102,
   unread: [
     { name: 'k3s', n: 1215 },
-    { name: 'verified_cli', n: 336 },
+    { name: 'arp', n: 167 },
+  ],
+  local: 2475,
+  local_names: [
+    { name: 'probe', n: 418 },
+    { name: 'render', n: 162 },
   ],
   doing: [
     { name: 'nothing with files', n: 1072884 },
@@ -4542,6 +4547,17 @@ test('reader — the survey is a screen you go to, not a strip in the way @ phon
   await page.getByText('2,747').waitFor();
   await page.getByText('k3s').waitFor();
   await page.getByText('294,504', { exact: false }).waitFor();
+
+  // ⚠ **The section that can never be worked, and a number from it.** It was
+  // the biggest name on the queue above until it was split out, and drawing it
+  // without a figure would leave the split invisible — `| number` renders an
+  // absent field as empty rather than as an error, which is how the first
+  // version of this page shipped half-blank with every assertion green.
+  await page.getByText('2,475', { exact: false }).waitFor();
+  // ⚠ **The ROW, not the word.** `probe` is named in the prose above the list
+  // as well, so a bare text locator resolves to two elements and fails strict
+  // mode — which is the locator being right, not the page being wrong.
+  await page.getByRole('listitem').filter({ hasText: '418probe' }).waitFor();
 
   // Its own bar, with a way back.
   await expect(page.getByRole('heading', { name: 'Reader' })).toBeVisible();

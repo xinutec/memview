@@ -486,6 +486,15 @@ export interface CorpusRead {
   unrolled: number;
   handled: number;
   unhandled: number;
+  /**
+   * Calls to a function the calling script declares.
+   *
+   * ⚠ **In `commands` and not in `handled`.** Splitting these out of `unhandled`
+   * must not raise `understood` — nothing more was read, and a rate that rose
+   * because calls left the denominator is a different fact from one that rose
+   * because the reader learned something.
+   */
+  local: number;
   /** `handled` over `commands`, computed server-side so two clients cannot
    *  round it two ways. */
   understood: number;
@@ -532,5 +541,8 @@ export interface CorpusRead {
   writers: Both[];
   hosts: Both[];
   unread: Ranked[];
+  /** The local functions — the same shape as `unread`, and deliberately not the
+   *  same list: one is a worklist, the other can never be worked. */
+  local_names: Ranked[];
   opaque_words: Ranked[];
 }

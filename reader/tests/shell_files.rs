@@ -1528,3 +1528,45 @@ fn a_script_in_the_work_is_still_recorded_when_it_is_run() {
         )]
     );
 }
+
+/// A call to a function the SAME TEXT defines is not an unread command.
+///
+/// ⚠ **The worklist is what this protects.** `unhandled` means *the table has
+/// no entry for that name*, and the list built from it says what to teach next.
+/// A local helper can never be taught — `probe` is a different function in every
+/// script that declares one — so counting it there is work that cannot be done.
+/// Measured 2026-08-23 by `--example defined-here`: **2,493 of 18,083 unread
+/// calls, 13.8%, across 78 names**, which was the largest single category on
+/// that list. memview#1124.
+#[test]
+fn a_function_this_text_defines_is_not_an_unread_command() {
+    let script = "probe() { echo hi; }\nprobe one\nprobe two";
+    assert!(
+        unread(script).is_empty(),
+        "a local function counted as a command to teach: {:?}",
+        unread(script)
+    );
+}
+
+/// ⚠ **The boundary, and it is not a name list.** `check` is a real program in
+/// `~/Code/check` AND a local helper: measured 112 of its 114 unread calls are
+/// declared in their own text, and 2 are not. So the question has to be asked of
+/// each command text, never of the name.
+#[test]
+fn the_same_name_undefined_here_is_still_unread() {
+    assert_eq!(unread("check --all"), ["check"]);
+}
+
+/// ⚠ **The body's file work is recorded at the DEFINITION, and this must not
+/// change that.** `project.rs` walks a function body under `Reached::Sometimes`
+/// precisely because the call site names no files — so if the call stops being
+/// counted as unread, the write must still be there, or this fix would hide one.
+#[test]
+fn the_body_of_a_defined_function_still_writes() {
+    let uses = uses("save() { echo x > /tmp/out.txt; }\nsave");
+    assert_eq!(
+        uses,
+        [("/tmp/out.txt".to_string(), true)],
+        "the body's write was lost with the call"
+    );
+}
