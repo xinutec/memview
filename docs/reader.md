@@ -37,8 +37,10 @@ Each stage's authoritative explanation is its module doc-comment.
 | `reader/src/shell_ops.rs` | what does one command do, to which paths? |
 | `reader/src/python.rs` + `python.pest` | same, for inline Python |
 | `reader/src/javascript.rs` + `javascript.pest` | same, for inline JavaScript |
+| `reader/src/sql.rs` + `sql.pest` | same, for inline SQL — but in TABLES, not files |
 | `reader/src/program.rs` | the types both carried readers answer in |
 | `reader/src/shell_files.rs` | resolved against a cwd, which files? |
+| `reader/src/reading.rs` | the whole corpus surveyed, as a value the report and both apps draw |
 | `reader/src/activity.rs` | what kind of work — test, build, edit, deploy? |
 | `reader/src/doing.rs` | timeline: agent · minute · repo · kind · count · verdict |
 | `src/commits.rs` | what the repositories recorded, renames followed |
@@ -154,7 +156,19 @@ Mining is offline; `scripts/sync.sh` pushes the artefacts to the pod.
 cargo run --release --bin agents        # → ~/.claude/agents.json + doing.json
 cargo run --release --bin couse         # → ~/.claude/couse.json
 cargo run --release --bin bash-corpus > /tmp/bash-corpus.jsonl   # what is current
+cargo run --release -p reader --bin reading-json   # → ~/.claude/reading.json
 ```
+
+**`reading-json` is the survey, mined rather than computed on request.** It
+takes ~13 seconds over 146k commands — fine for a report somebody waits on,
+wrong for a page — and the artefact is 8 kB, so both servers hold it in memory
+and answer instantly. `claude-sync.sh` runs it in the nightly, **after the
+corpus snapshot**, because it reads what that step writes: running it first
+would describe last night's corpus and stamp it with tonight's mtime, a
+staleness nothing downstream could detect.
+
+It carries counts and command NAMES, never a command line — `effects.json` is
+where verbatim text lives, and this file is small enough to embed in a page.
 
 The reports take any corpus file, so `~/.claude/corpus/union.jsonl` is the one to
 pass when a figure has to be comparable with an earlier one.
@@ -169,6 +183,10 @@ cargo run --release -p reader --bin activity-report  -- <corpus> [--sample KIND]
 cargo run --release -p reader --bin python-report    -- <corpus> [--why|--sample]
 cargo run --release -p reader --bin javascript-report -- <corpus> [--why|--sample]
 cargo run --release -p reader --bin opacity          -- <corpus> [--why|--dump <label>]
+# what the SQL touched, and what it still cannot read
+cargo run --release -p reader --example sql-corpus   -- <corpus>
+# the parse tree for one SQL script, when a clause silently fails to match
+cargo run --release -p reader --example sql-probe    -- "SELECT 1 FROM t"
 # do the two readers agree about what ran? — and where they do not
 cargo run --release -p reader --bin projection -- <corpus> [--show <n>] [--only <bucket>]
 
@@ -369,6 +387,61 @@ it keeps node accepts 1,016. Seven of the nine refusals are TypeScript run by
 holds an unexpanded shell variable and therefore ran perfectly well; one is
 genuinely broken.
 
+## The SQL inside it
+
+The fourth language, added 2026-08-23, and **the first that names something
+other than a file**. `python.rs` and `javascript.rs` answer *which paths did this
+touch*; this answers *which tables did it read, and which did it change*.
+
+⚠ **It contributes nothing to any file count, and that is a measurement.** Over
+5,727 corpus commands carrying a SQL client there is no `INTO OUTFILE`, no
+`LOAD DATA INFILE` and no sqlite `.read`/`.output` — SQL in this corpus names a
+file exactly never. Those forms are read anyway, a rule apiece, because the cost
+of missing one is a write nobody sees. But a table is not a file, and folding
+2,747 table reads into `reads` would be 2,747 files that do not exist.
+
+Standing: **2,434 commands carried statements, 2,747 table reads, 264 changes,
+151 distinct tables.** The 28 that carried statements and yielded nothing all
+hold `$1` — passed in at runtime, so unknowable rather than unread.
+
+Two entries in the table were wrong before this existed, and neither was
+visible as wrong:
+
+- **`sqlite3` was an `Interpreter`**, so it read its DATABASE as a script it
+  ran: the right file, recorded as the wrong kind of use, and its statements
+  never read.
+- **`mariadb`/`mysql`/`psql` were `NoFiles`**, filed under "build tools that
+  take targets". True of the operand — `mariadb health` is a database name on a
+  server, not a path — and false of everything they carry.
+
+⚠ **The direction of a table is decided by the VERB, never by the clause.**
+`SELECT … FROM x` reads `x`; `DELETE FROM x` empties it. A reader mapping `FROM`
+to "read" would report every deletion in the corpus as a lookup. The same rule
+settles the sqlite database file: `sqlite3 x.db 'SELECT …'` and
+`sqlite3 x.db 'DELETE …'` are identical in argv shape, so the file's direction
+comes from parsing the payload.
+
+⚠ **A table name and a function call are the same shape**, which is why this is
+a grammar and not a regular expression. `FROM datetime(ts, 'unixepoch')` names
+no table; a regex for `FROM (\w+)` answers `datetime`. Measured against a real
+one: the regex reported **291 distinct tables where the grammar finds 151** —
+about half its answer was fabricated. `qualified` refuses a name followed by
+`(`, which is a decision a scanner cannot make.
+
+⚠ **Four separate rules were written wrong the same way**, and the corpus caught
+what tests did not. In a NON-atomic pest rule, implicit whitespace is inserted
+between every pair of expressions — so `^"from" ~ !ident_char` skipped the space
+and tested the table name, and no clause matched at all. Then `qualified ~ !"("`,
+then an explicit `WHITESPACE+` that had nothing left to match, then a
+`dot_command` that ate across the newline and swallowed 50 scripts whole. **Any
+rule whose meaning depends on adjacency has to be atomic.**
+
+⚠ **Nine tests failed and four passed, and the four were the tell.** All four
+were negative assertions — *a function is not a table*, *a stream is not a file*
+— which a reader recognising nothing satisfies perfectly. Had the suite held
+only the guards against fabricated subjects, which is what the module is *for*,
+it would have been entirely green over a reader that did nothing.
+
 ## The loop between them
 
 A carried program that runs a command runs a shell's worth of work, and until
@@ -480,6 +553,37 @@ that is a measurement rather than a shrug: `ruby -e` appears **zero** times in
 this corpus, `deno eval`/`deno run` zero, `bun -e`/`bun run` zero. `perl script.pl`
 is zero too — the 288 apparent cases are all `nix-shell -p perl …`, where the
 word is a package name.
+
+## One survey, three views
+
+`reader/src/reading.rs` holds the accumulation; `--bin shell-files` prints it,
+`/api/reading` serves it to both apps, and the two views draw it.
+
+⚠ **The extraction exists because a SECOND consumer is where a duplicated
+calculation stops being free.** The survey was thirty mutable locals inside the
+report's `main`, which is fine while nothing else asks — and the moment the API
+asks, the alternative is two answers to *how much is understood* that drift
+apart with nothing to say so. The refactor was checked by diffing the report's
+output before and against after: **byte-identical across all 209 lines.**
+
+| view | where | shows |
+| --- | --- | --- |
+| the report | `--bin shell-files` | everything, ranked, for somebody reading a terminal |
+| `/reader` | the viewer | coverage, the verb histogram, files, databases, the fleet, the work queue |
+| the strip | the console's front page | the headline pair and five bars, above the sessions |
+
+⚠ **Coverage and its ceiling are drawn together, on both.** 99.2% of commands
+understood beside 4.6% of file uses whose subject the text cannot determine —
+different denominators, commands against uses, which is exactly why neither can
+stand in for the other. A page showing the first alone is advertising. For the
+same reason `not understood` is a bar INSIDE the histogram rather than a note
+under it: it is the size of the hole in that very chart.
+
+⚠ **A 404 says "not mined here" rather than drawing zeroes.** "Nothing has been
+mined" and "the survey found nothing" are different claims, and a default-filled
+summary states the second. The console's strip says it in one muted line, which
+is the correction to a first version that drew nothing at all — a component that
+vanishes is indistinguishable from one that was deleted.
 
 ## Correctness
 
