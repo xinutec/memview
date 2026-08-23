@@ -503,8 +503,56 @@ projection until now.
 what they are given, and `openssl x509 -noout -enddate` reads
 from a *pipe*, where the guard is what stops `x509` becoming a filename. `wg` is
 an interface in all 371 of its calls — ⚠ `wg setconf <file>` would read one and
-does not appear, which is where this would go wrong quietly. **Understood stands
-at 99.2%, and the unread list tops out at 1,215.**
+does not appear, which is where this would go wrong quietly. **Understood stood
+at 99.2%, and the unread list topped out at 1,215.**
+
+### The four the corpus could not answer, 2026-08-23 (memview#1070)
+
+That pass stopped where the corpus stopped: what was left was a container runtime
+and four of this fleet's own binaries, and the ticket recorded that their file
+behaviour lives *in their sources* rather than in how they are called. **That
+turned out to be false for three of the four, and the fourth is not a binary.**
+
+`--example unread-shapes` was written to settle it — the population comes from
+`Extract::unhandled`, the same field the rank is built from, and only the TEXT is
+printed. ⚠ **A hand-rolled `grep '^lares'` was tried first and disagreed with the
+reader by 2x in BOTH directions**: it counted the name inside grep patterns and
+inside pasted Rust, and missed calls inside `bash -c` payloads. A worklist read
+off the wrong instrument sends the work to the wrong place.
+
+| | calls | what settled it |
+| --- | ---: | --- |
+| `ss` | 294 | 20 spellings, all flags over a socket table. `Verb::NoFiles`, beside `wg`. |
+| `mysqladmin` | 284 | 5 spellings, all `ping`. `mariadb-admin` under its old name. |
+| `verified_cli` | 336 | its **source**: every arg is a subcommand, data via stdin |
+| `replay` | 1,076 | its **source**, which CORRECTED the call shapes |
+
+⚠ **`replay` is the case for reading a source, and the case against reading only
+calls.** `replay --words <dir>` reads as a valued flag; it is not one.
+`scanner/server/src/bin/replay.rs` shows `--words`, `--slots`, `--tables`,
+`--pdf`, `--paper` and `--bands` are bare mode tests and the session directory is
+the only positional — with `--page N` the single valued flag, whose `2` would
+otherwise have resolved into a file that nothing touched. So a binary's own
+source **does** count as evidence here, and the reason is not convenience: it is
+the only evidence that disagreed with the guess.
+
+**What it bought:** understood 99.2% → **99.3%**, unread 20,073 → 18,083 — a drop
+of exactly 1,990, which is the sum of the four commands' own counts. **+721
+reads** and 28 paths nothing had named, all of them `replay`'s session
+directories; `replay` had 411 writes recorded against it from redirections and
+zero reads, which is the shape of a tool the table half-knew.
+
+**Two were declined, with the measurement.** `k3s` (1,215) carries
+`crictl exec "$C"`, whose target is a variable — an entry would move calls from
+*unread* to *read nothing*, which is not progress. `lares` (378) was a Mac-side
+Rust CLI **deleted** in its own repo (`~/Archive/lares`, commit `4a7968d`, "delete
+Mac-side rust/python/web"); the calls are real history, but the evidence is now
+git archaeology on a tool that no longer exists.
+
+⚠ **`probe` (418) is not a binary at all — it is a shell function**, and all four
+of its distinct spellings are `probe() {`. The reader is counting a function
+*defined in the text it is reading* as a command it has never heard of, which is
+a different defect with a different fix: the body is right there. memview#1124.
 
 ⚠ **`md5` was the macOS spelling of something already in the table**, and adding
 "the family" duplicated five entries the `Verb::Read` list has always had —

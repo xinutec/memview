@@ -163,11 +163,17 @@ fn an_unread_command_is_named_rather_than_left_blank() {
     // On one command, "what is not in the table" is usually the whole answer to
     // "why did this attribute nothing".
     // ⚠ The example moves as the table grows — `dhall-to-json` stood here until
-    // 2026-08-22, when it was taught. What is under test is the naming, not the
-    // command.
-    let answer = asked("verified_cli --session 2026-06-21", Some(true));
+    // 2026-08-22 and `verified_cli` until 2026-08-23, each taught within a day.
+    // What is under test is the naming, not the command.
+    //
+    // ⚠ **THREE tests hold this placeholder and they are in three crates**:
+    // here, `reader/tests/shell_ops.rs` and `reader/tests/shell_files.rs`.
+    // Teaching a command turns all three red, and `cargo test -p reader` shows
+    // only two of them — this one costs a whole gate run to find. Change them
+    // together.
+    let answer = asked("home-manager switch --flake .#mac", Some(true));
     assert_eq!(answer.unread.len(), 1);
-    assert_eq!(answer.unread[0].name, "verified_cli");
+    assert_eq!(answer.unread[0].name, "home-manager");
 }
 
 #[test]

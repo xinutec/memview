@@ -1033,7 +1033,15 @@ fn verb(name: &str) -> Option<Verb> {
         // one of its 371 calls. ⚠ `wg setconf <file>` and `wg-quick` DO read
         // one, and neither appears here; if either starts to, this is where it
         // would go wrong quietly.
-        "wg" => Verb::NoFiles,
+        "wg"
+        // ⚠ **`ss` is the same shape and was left out only because nothing had
+        // measured it.** 294 calls, 20 distinct spellings, and every one is
+        // flags over a socket table: `-tlnp`, `-lnt`, `-ltn`, `-tlnH`, and one
+        // `ss -tn state established "( sport = :8097 )"` whose quoted filter is
+        // a socket expression, not a path. Measured 2026-08-23 by
+        // `--example unread-shapes`. Nearly all of them arrive through `ssh`,
+        // which is why they are the fleet's sockets and never this Mac's.
+        | "ss" => Verb::NoFiles,
 
         // Reads every operand, like `cat`. This corpus writes it as `paste - -`,
         // where the operands are stdin and no path is named — but the day one is
@@ -1075,6 +1083,20 @@ fn verb(name: &str) -> Option<Verb> {
         // reading — an undercount if it ever appears, which is the safe side.
         "zstd" | "unzstd" | "zstdcat" => Verb::Read,
 
+        // ⚠ **This fleet's own binary, and its SOURCE is the evidence** — the
+        // first entry in this table written that way, and it was written that
+        // way because the call shapes got it wrong. 1,076 calls spelled
+        // `replay --words <dir>`, `--paper <dir>`, `--bands <dir>`, which reads
+        // as six valued flags; `scanner/server/src/bin/replay.rs` shows they are
+        // bare `flag("--x")` mode tests and the session directory is the only
+        // positional. `--page N` is the one flag that takes a value, and left
+        // undeclared its `2` resolves against the cwd into a file nothing
+        // touched.
+        //
+        // `Walk` and not `Read` because it is the same shape as `find`: one
+        // directory operand, looked *in*. `--pdf` writes, but to stdout, which
+        // the shell's own redirection already carries.
+        "replay" => Verb::Walk(Flags::valued(&["--page"])),
         "find" | "fd" => Verb::Walk(Flags::valued(&[
             "-name", "-iname", "-path", "-type", "-exec",
         ])),
@@ -1204,6 +1226,20 @@ fn verb(name: &str) -> Option<Verb> {
         // real file. Filing it under this list would have deleted those.
         | "task" | "ping" | "dig" | "nc" | "journalctl" | "dmesg" | "nixos-version"
         | "mariadb-admin"
+        // Added 2026-08-23, both measured by `--example unread-shapes`:
+        //
+        //   mysqladmin 284 — `mariadb-admin` under its old name, 5 distinct
+        //     spellings and every one a `ping` with connection flags. ⚠ One is
+        //     `--socket=/…/mysqld.sock`, a real path this reading discards; it
+        //     is safe only because the flag is GLUED, so no operand is left
+        //     behind. Written `--socket /path` it would go wrong quietly.
+        //   verified_cli 336 — settled from `health/lean/ServeEntry.lean`
+        //     rather than from its calls: `cliMain` matches every argument with
+        //     `args.contains` against a subcommand name or `--timing`, takes its
+        //     data from `IO.getStdin` and returns it on stdout. It opens no file
+        //     at all, so the `< legs.json` beside it belongs to the shell, which
+        //     this layer reads separately.
+        | "mysqladmin" | "verified_cli"
         // Loop and conditional keywords, which the grammar leaves as ordinary
         // words on purpose (`echo done` must not end a loop).
         | "for" | "done" | "fi" | "esac" | "case" | "in" | "break" | "continue" | "return"

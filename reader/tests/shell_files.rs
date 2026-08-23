@@ -497,13 +497,15 @@ fn a_glob_is_recorded_as_written() {
 
 #[test]
 fn an_unknown_command_contributes_nothing_and_is_counted() {
-    // ⚠ The example was `ffmpeg`, then `dhall-to-json`, and both were taught
-    // within the hour. The property under test belongs to whatever is still
-    // unread; the command naming it is a placeholder by construction.
-    assert!(uses("verified_cli --session 2026-06-21").is_empty());
+    // ⚠ The example was `ffmpeg`, then `dhall-to-json`, then `verified_cli`, and
+    // each was taught within a day of standing here. The property under test
+    // belongs to whatever is still unread; the command naming it is a
+    // placeholder by construction, and this test failing means the worklist
+    // moved rather than that the property did.
+    assert!(uses("home-manager switch --flake .#mac").is_empty());
     assert_eq!(
-        unread("verified_cli --session 2026-06-21"),
-        ["verified_cli"]
+        unread("home-manager switch --flake .#mac"),
+        ["home-manager"]
     );
 }
 

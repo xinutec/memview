@@ -139,14 +139,15 @@ fn staging_is_named_rather_than_dropped() {
 
 #[test]
 fn an_unknown_command_names_itself_so_the_gap_can_be_counted() {
-    // ⚠ This was `ffmpeg` until 2026-08-22, when ffmpeg was taught — so the
-    // example is now one still on the worklist. Whatever stands here is a
+    // ⚠ This was `ffmpeg` until 2026-08-22 and `verified_cli` until 2026-08-23,
+    // each time because the example got taught. Whatever stands here is a
     // placeholder for the next thing to teach, and that is the point of the
-    // variant: a gap that names itself can be counted and worked down.
+    // variant: a gap that names itself can be counted and worked down. This
+    // test failing is the worklist shrinking, not a regression.
     assert_eq!(
-        one("verified_cli --session 2026-06-21"),
+        one("home-manager switch --flake .#mac"),
         Op::Unknown {
-            name: "verified_cli".to_string(),
+            name: "home-manager".to_string(),
         }
     );
     // ...and a command that is understood to do nothing is not the same thing.
@@ -730,4 +731,93 @@ fn a_single_line_subject_with_a_variable_stays_counted() {
         "/home/example",
     );
     assert_eq!(unnamed, ["$f"], "the honest floor stopped being counted");
+}
+
+/// Helper for the entries below: what one call does, with nothing refused.
+fn op_of(words: &[&str]) -> reader::shell_ops::Op {
+    let argv: Vec<String> = words.iter().map(|w| w.to_string()).collect();
+    reader::shell_ops::classify(&argv, &[], Some("/home/example"), "/home/example")
+}
+
+/// `ss` is an interface like `wg`: 294 calls, 20 distinct spellings, and every
+/// one is flags — `-tlnp`, `-lnt`, `-ltn`, and one `-tn state established`.
+/// Measured 2026-08-23 by `--example unread-shapes`.
+#[test]
+fn ss_names_no_file() {
+    assert!(matches!(
+        op_of(&["ss", "-tlnp"]),
+        reader::shell_ops::Op::Nothing
+    ));
+    assert!(matches!(
+        op_of(&["ss", "-tn", "state", "established"]),
+        reader::shell_ops::Op::Nothing
+    ));
+}
+
+/// `mysqladmin` is `mariadb-admin` under its old name — 284 calls, 5 distinct
+/// spellings, every one a `ping` with connection flags.
+///
+/// ⚠ **`--socket=/…/mysqld.sock` IS a path**, and it is a path this reading
+/// throws away. It survives only because the flag is glued (`--socket=…`), so no
+/// operand is left behind; the day one is written `--socket /path`, this entry
+/// is where it goes wrong quietly. Same shape as the `wg setconf` note above.
+#[test]
+fn mysqladmin_names_no_file() {
+    assert!(matches!(
+        op_of(&["mysqladmin", "ping", "-h", "localhost", "--silent"]),
+        reader::shell_ops::Op::Nothing
+    ));
+}
+
+/// `verified_cli` takes subcommands and reads STDIN — settled from its source
+/// (`health/lean/ServeEntry.lean`, `cliMain`), not from how it is called.
+/// Every argument is matched by `args.contains` against a verb name or
+/// `--timing`; the data arrives through `IO.getStdin` and leaves through
+/// stdout. The `< file` in `verified_cli match < legs.json` is the SHELL's
+/// redirection, which this layer already reads separately.
+#[test]
+fn verified_cli_names_no_file() {
+    assert!(matches!(
+        op_of(&["verified_cli", "match"]),
+        reader::shell_ops::Op::Nothing
+    ));
+    assert!(matches!(
+        op_of(&["verified_cli", "--timing", "day"]),
+        reader::shell_ops::Op::Nothing
+    ));
+}
+
+/// `replay` reads one session directory, named positionally.
+///
+/// ⚠ **The mode flags take NO value, and guessing from their names got this
+/// backwards.** `--words <dir>` reads as though `--words` were valued; the
+/// source (`scanner/server/src/bin/replay.rs`) shows `--words`, `--slots`,
+/// `--tables`, `--pdf`, `--paper`, `--bands` are bare `flag("--x")` tests and
+/// the directory is the only positional. Reading the source did not confirm the
+/// call-shape reading — it corrected it.
+#[test]
+fn replay_reads_the_session_directory() {
+    match op_of(&["replay", "--words", "/home/example/scan3d_20260716"]) {
+        reader::shell_ops::Op::Read { paths } => assert_eq!(
+            paths,
+            ["/home/example/scan3d_20260716"],
+            "the session directory was not read"
+        ),
+        other => panic!("not a read: {other:?}"),
+    }
+}
+
+/// ⚠ **The boundary: `--page N` is the one flag that DOES take a value**, and a
+/// bare `2` left as an operand would resolve against the cwd into a file called
+/// `2` that nothing ever touched.
+#[test]
+fn replays_page_number_is_not_a_file() {
+    match op_of(&["replay", "--page", "2", "/home/example/scan3d_20260716"]) {
+        reader::shell_ops::Op::Read { paths } => assert_eq!(
+            paths,
+            ["/home/example/scan3d_20260716"],
+            "the page number was read as a file"
+        ),
+        other => panic!("not a read: {other:?}"),
+    }
 }
