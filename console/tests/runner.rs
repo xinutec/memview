@@ -838,11 +838,13 @@ async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
         started: 1_754_000_000,
         model: Some("claude-opus-5".into()),
         mode: Some("auto".into()),
+        asked: Some("the first thing it was ever asked".into()),
         cost_usd: 1.25,
         window: Some(1_000_000),
         limit: Some("allowed_warning".into()),
         busy: None,
         pending: Default::default(),
+        background: Default::default(),
         spent: Default::default(),
         counted: Default::default(),
     };
@@ -868,6 +870,15 @@ async fn an_adopted_session_carries_the_numbers_no_transcript_holds() {
     let summary = session.summary();
     assert_eq!(summary.started, 1_754_000_000, "the session looks newborn");
     assert_eq!(summary.mode.as_deref(), Some("auto"), "the mode restarted");
+    // ⚠ **The label, which the transcript DOES record and cannot give back.**
+    // A re-seed replays one page, so `asked` bound to whatever prompt started it
+    // and moved on every upgrade — see the note on `Tally::asked` (memview
+    // #1146).
+    assert_eq!(
+        summary.asked.as_deref(),
+        Some("the first thing it was ever asked"),
+        "the session lost its name across the handover"
+    );
     assert_eq!(summary.model.as_deref(), Some("claude-opus-5"));
     assert_eq!(summary.window, Some(1_000_000), "no window to be full of");
     assert_eq!(summary.limit.as_deref(), Some("allowed_warning"));
@@ -950,11 +961,13 @@ async fn an_upgrade_keeps_the_question_a_session_is_blocked_on() {
         started: 1_754_000_000,
         model: Some("claude-opus-5".into()),
         mode: Some("auto".into()),
+        asked: Some("the first thing it was ever asked".into()),
         cost_usd: 0.0,
         window: None,
         limit: None,
         busy: None,
         pending: std::collections::BTreeMap::from([("ask-1".to_string(), asked)]),
+        background: Default::default(),
         spent: Default::default(),
         counted: Default::default(),
     };

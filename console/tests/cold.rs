@@ -104,6 +104,15 @@ async fn opening(addr: std::net::SocketAddr, path: &str) -> String {
     String::from_utf8_lossy(&seen).into_owned()
 }
 
+/// A pipe whose far end this test keeps open — an adopted session reads end of
+/// file at once otherwise and calls itself over.
+fn carried_pipe() -> (std::os::fd::RawFd, std::os::fd::RawFd) {
+    let mut ends = [0 as libc::c_int; 2];
+    // SAFETY: pipe(2) writes two descriptors into an array this test owns.
+    assert_eq!(unsafe { libc::pipe(ends.as_mut_ptr()) }, 0, "pipe");
+    (ends[0], ends[1])
+}
+
 /// A transcript of `turns` exchanges, each numbered so a page can be recognised
 /// by which end of the file it came from.
 fn transcript(root: &std::path::Path, id: &str, turns: usize) -> PathBuf {
@@ -369,5 +378,86 @@ async fn a_question_still_standing_is_put_to_a_reader_who_arrives_cold() {
     assert!(
         cold.contains("which way"),
         "the question arrived without what it asked"
+    );
+}
+
+#[tokio::test]
+async fn the_name_a_session_was_given_survives_the_page_that_replaces_its_log() {
+    // ⚠ **The ordering is the whole test.** `asked` binds to the first `Prompt`
+    // seen while nothing is bound, and `adopt` seeds from the transcript right
+    // after building its state — so a label restored AFTER the seed, or not at
+    // all, is taken by whatever prompt happens to start the last page. Measured
+    // on the phone 2026-08-24: `hardware`'s subtitle changed across two upgrades
+    // an hour apart with nobody touching it (memview #1146).
+    let scratch = projects();
+    let id = "a-session-with-a-page-full-of-prompts";
+    let folder = scratch.join("project");
+    std::fs::create_dir_all(&folder).expect("project dir");
+    let lines: Vec<String> = (0..20)
+        .map(|n| {
+            format!(
+                r#"{{"type":"user","timestamp":"2026-08-24T11:00:{n:02}Z","message":{{"role":"user","content":[{{"type":"text","text":"a later prompt {n}"}}]}}}}"#
+            )
+        })
+        .collect();
+    std::fs::write(
+        folder.join(format!("{id}.jsonl")),
+        format!("{}\n", lines.join("\n")),
+    )
+    .expect("transcript");
+
+    let (_stdin_read, stdin) = carried_pipe();
+    let (stdout, _stdout_write) = carried_pipe();
+    let (stderr, _stderr_write) = carried_pipe();
+    let session = console::session::Session::adopt(
+        id.to_string(),
+        std::env::temp_dir(),
+        std::process::id(),
+        console::session::Fds {
+            stdin,
+            stdout,
+            stderr,
+        },
+        console::session::Tally {
+            started: 1_754_000_000,
+            model: None,
+            mode: None,
+            asked: Some("look at the fleet's disks".into()),
+            cost_usd: 0.0,
+            window: None,
+            limit: None,
+            busy: None,
+            pending: Default::default(),
+            background: [(
+                "toolu_long_runner".to_string(),
+                console::protocol::Called {
+                    tool: "Monitor".into(),
+                    label: Some("errors in deploy.log".into()),
+                    task: Some("bq1abc".into()),
+                },
+            )]
+            .into_iter()
+            .collect(),
+            spent: Default::default(),
+            counted: Default::default(),
+        },
+    )
+    .expect("adopt");
+
+    // ⚠ **Started before the page, and still running.** `execve` leaves the
+    // children alone, so a monitor armed an hour ago is still armed — but its
+    // `tool` event is long out of the replayed page, so a re-seed forgets it and
+    // the card says nothing is in flight. Carried, like the question and the
+    // name, because it is a fact about the present.
+    assert_eq!(
+        session.summary().background,
+        1,
+        "a background task older than one page was lost across the handover"
+    );
+
+    assert_eq!(
+        session.summary().asked.as_deref(),
+        Some("look at the fleet's disks"),
+        "the replayed page took the session's name"
     );
 }

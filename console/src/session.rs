@@ -76,6 +76,24 @@ pub struct Tally {
     /// See [`Summary::mode`]. Carried because the console is the only thing
     /// that knows it — no file records it in a way that can be trusted.
     pub mode: Option<String>,
+    /// The first thing this session was asked to do — see [`Summary::asked`].
+    ///
+    /// ⚠ **Carried for the opposite reason to the rest of this struct.** The
+    /// transcript records it perfectly well; what it does not do is give it back,
+    /// because a re-seed replays only the LAST page. `asked` binds to the first
+    /// `Prompt` it sees with nothing already bound, so after an upgrade it took
+    /// whatever prompt happened to start the last 400 events — and moved again
+    /// on the next upgrade. Measured 2026-08-24 across two upgrades an hour
+    /// apart: `hardware`'s subtitle went from *"all memories correct now so I
+    /// can /compact?"* to *"what are you going to focus on in the next
+    /// session?"*, neither of them the first thing it was ever asked, with
+    /// nobody touching anything (memview #1146).
+    ///
+    /// The rule the rest of the tally follows — carry only what nothing on disk
+    /// records — holds for facts that depend on RECENT events. This one depends
+    /// on the whole history, and one page is not the history.
+    #[serde(default)]
+    pub asked: Option<String>,
     /// What the session is doing, if anything. See [`Summary::busy`].
     ///
     /// ⚠ **A re-seed cannot recover this**, for the same reason it cannot
@@ -97,6 +115,21 @@ pub struct Tally {
     /// session that lost an hour that way.
     #[serde(default)]
     pub pending: BTreeMap<String, Pending>,
+    /// Background tasks still running — see [`Summary::background`].
+    ///
+    /// ⚠ **Same shape as [`Self::asked`], found looking for more of it.** A
+    /// task's start is a `tool` event, which the transcript does record, so a
+    /// re-seed appears to recover this — but only for a task started inside the
+    /// last page. One that has been running longer is silently forgotten while
+    /// the process it belongs to is still going, and the card then claims
+    /// nothing is in flight. `execve` does not touch the children, so they
+    /// really are still running: this is the console losing sight of them, not
+    /// them stopping.
+    ///
+    /// Carried rather than re-derived because "what is running right now" is a
+    /// fact about the present, and the transcript is a record of the past.
+    #[serde(default)]
+    pub background: BTreeMap<String, crate::protocol::Called>,
     /// What the API last said about each rate-limit window, keyed by the CLI's
     /// own name for it (`five_hour`, `seven_day`, …).
     ///
@@ -1172,6 +1205,9 @@ impl Session {
         mut tally: Tally,
     ) -> Result<Arc<Self>> {
         let pending = std::mem::take(&mut tally.pending);
+        // Taken out for the same reason as `pending`, and put back at the same
+        // moment — see below. Both are undone by the seed if set before it.
+        let background = std::mem::take(&mut tally.background);
         // ⚠ The scrollback did NOT survive the exec, and a client reconnecting
         // to an empty log is told its page is unresumable and starts blank. So
         // an adopted session reseeds from the transcript exactly as a resumed
@@ -1210,6 +1246,12 @@ impl Session {
                 alive: true,
                 model: tally.model,
                 mode: tally.mode,
+                // ⚠ **Before the seed runs, so the replay cannot overwrite it.**
+                // `asked` is only ever set when it is `None`, which is exactly
+                // what makes restoring it here sufficient: the page about to be
+                // replayed is full of prompts and the first would otherwise take
+                // the name. See the field's note in [`Tally`].
+                asked: tally.asked,
                 cost_usd: tally.cost_usd,
                 window: tally.window,
                 limit: tally.limit,
@@ -1248,6 +1290,25 @@ impl Session {
                 input: question.input,
             });
         }
+        // ⚠ **After the seed, because the seed deliberately clears this.**
+        // `seed` ends with a `Joined`, and `protocol::running` reads a `Joined`
+        // as `Running::Gone` — right for a session being picked up, whose
+        // replayed tool calls belong to a process that is long gone, and wrong
+        // for one being adopted, whose children `execve` did not touch and which
+        // are still running. Set before the seed it was silently wiped, which is
+        // what the test in `tests/cold.rs` caught. See [`Tally::background`].
+        if !background.is_empty() {
+            tracing::info!(
+                "{}: {} background task(s) carried across the upgrade",
+                session.id,
+                background.len()
+            );
+            session
+                .state
+                .lock()
+                .expect("session state poisoned")
+                .background = background;
+        }
         session.clone().read_from(Some(stdout), Some(stderr), true);
         reap_adopted(pid);
         Ok(session)
@@ -1268,8 +1329,10 @@ impl Session {
             limit: state.limit.clone(),
             spent: state.spent.clone(),
             mode: state.mode.clone(),
+            asked: state.asked.clone(),
             busy: state.busy.clone(),
             pending: state.pending.clone(),
+            background: state.background.clone(),
             counted: state.counted,
         }
     }
