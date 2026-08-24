@@ -106,7 +106,14 @@ fn main() -> anyhow::Result<()> {
 
     let recognised: usize = tally.calls.values().sum();
     let unresolved: usize = tally.unresolved.values().sum();
+    // ⚠ **Subtracted from the named, not added to them.** These operations know
+    // every path they could have used and not which one ran, so counting them
+    // as named would move this rate without anything more being known — the
+    // first version of this line read 87.2% while `file uses` had risen by
+    // three. A bound is a better answer than a shrug; it is not a name.
+    let bounded: usize = tally.bounded.values().sum();
     let unknown: usize = tally.unknown.values().sum();
+    let named = recognised - unresolved - bounded;
     println!("Bash calls            {calls}");
     println!("python programs       {}", tally.programs);
     println!(
@@ -115,9 +122,12 @@ fn main() -> anyhow::Result<()> {
     );
     println!("file operations       {recognised}");
     println!(
-        "  named a file        {}  ({:.1}%)",
-        recognised - unresolved,
-        100.0 * (recognised - unresolved) as f64 / recognised.max(1) as f64
+        "  named a file        {named}  ({:.1}%)",
+        100.0 * named as f64 / recognised.max(1) as f64
+    );
+    println!(
+        "  one of a known set  {bounded}  ({} of them under one directory)",
+        tally.located.values().sum::<usize>()
     );
     println!("  named none          {unresolved}  (computed, f-string, loop variable)");
     println!("file uses             {}", tally.uses);

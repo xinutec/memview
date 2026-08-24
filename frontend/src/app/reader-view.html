@@ -31,11 +31,17 @@
     <div class="figure gap">
       <span class="big">{{ got.opaque | number: '1.1-1' }}%</span>
       <span class="what">of file uses name a subject the text cannot determine</span>
+      <!-- ⚠ **Each figure is its own span so a phrase cannot be split.** Six
+           of them wrap to three lines at 412px, and without this the break
+           landed inside "one of a known set" — a figure and its label read as
+           one word and have to move as one. -->
       <span class="aside">
-        {{ got.unnamed_by_word | number }} a shell word ·
-        {{ got.unnamed_computed | number }} a computed path ·
-        {{ got.unnamed_bounded | number }} bounded by a glob ·
-        {{ got.unnamed_located | number }} located but unnamed
+        <span class="fact">{{ got.unnamed_by_word | number }} a shell word</span> ·
+        <span class="fact">{{ got.unnamed_computed | number }} a computed path</span> ·
+        <span class="fact">{{ got.unnamed_python_set | number }} one of a known set</span> ·
+        <span class="fact">{{ got.unnamed_bounded | number }} bounded by a glob</span> ·
+        <span class="fact">{{ got.unnamed_located | number }} located but unnamed</span> ·
+        <span class="fact">{{ got.unnamed_javascript | number }} in javascript</span>
       </span>
     </div>
   </section>

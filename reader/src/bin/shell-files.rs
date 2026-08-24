@@ -150,6 +150,14 @@ fn main() -> anyhow::Result<()> {
         read.computed.values().sum::<usize>(),
         read.computed.len()
     );
+    // The set is known and which of it ran is not — the Python twin of
+    // `shell, bounded` above.
+    println!(
+        "  python, a set of  {}  ({} distinct sets)",
+        read.python_bounded.values().sum::<usize>(),
+        read.python_bounded.len()
+    );
+    println!("  javascript        {}", read.javascript_unnamed);
     println!(
         "  refused here      {}   moved {}   no directory {}   not a path {}",
         read.turned_away.total(),

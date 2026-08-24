@@ -530,6 +530,17 @@ export interface CorpusRead {
    */
   unnamed_located: number;
   unnamed_computed: number;
+  /**
+   * Python operations whose path is one of a known finite set of literals.
+   *
+   * ⚠ **These moved OUT of `unnamed_computed`**, which fell from 5,953 to 3,231
+   * when the reader learned to keep a name's several literal bindings. Showing
+   * one without the other would read as 2,719 subjects becoming known, and
+   * nothing became known: one of the set ran, and which is still not knowable.
+   */
+  unnamed_python_set: number;
+  /** The JavaScript reader's share of the same total, never shown before. */
+  unnamed_javascript: number;
   refused_here: number;
   /**
    * Tables the fleet's SQL read and changed.

@@ -164,6 +164,21 @@ pub struct Reading {
     /// The same admission from the Python reader: the call that wanted a path,
     /// where the path was computed and no text of it survives.
     pub computed: BTreeMap<String, usize>,
+    /// Python operations whose path is one of a known finite set, by the set.
+    ///
+    /// ⚠ **Counted by `subjects_not_named`, exactly as `computed` is.** These
+    /// moved out of `computed` when the reader learned to keep a name's several
+    /// literal bindings, and if the total had fallen by that many it would have
+    /// been reporting a denominator change as knowledge.
+    pub python_bounded: BTreeMap<String, usize>,
+    /// The JavaScript reader's share of the same admission.
+    ///
+    /// ⚠ **`subjects_not_named` has always counted these and this breakdown has
+    /// never shown them**, so the lines under the headline summed to 489 less
+    /// than the headline and a reader adding them up would find the table
+    /// short. Listed rather than folded into another line: it is a different
+    /// reader, and merging it would hide which one the work is in.
+    pub javascript_unnamed: usize,
     /// And the uses Python DID name that this layer's own rules turned away.
     pub turned_away: crate::python::Refused,
     /// What the SQL touched — **tables, never files**. See
@@ -272,6 +287,8 @@ impl Reading {
         // words alone, and reading a total off it is the undercount memview#824
         // was about.
         self.unnamed += found.subjects_not_named();
+        self.javascript_unnamed +=
+            found.javascript.unresolved.values().sum::<usize>() + found.javascript.refused.total();
         for (word, n) in &found.unnamed {
             *self.by_word.entry(word.clone()).or_insert(0) += n;
         }
@@ -283,6 +300,9 @@ impl Reading {
         }
         for (call, n) in &found.python.unresolved {
             *self.computed.entry(call.clone()).or_insert(0) += n;
+        }
+        for (set, n) in &found.python.bounded {
+            *self.python_bounded.entry(set.clone()).or_insert(0) += n;
         }
         self.turned_away.merge(&found.python.refused);
         self.tables.merge(&found.tables);
@@ -460,6 +480,14 @@ pub struct CorpusRead {
     /// Subjects with a locus but no language — see `Extract::located`.
     pub unnamed_located: usize,
     pub unnamed_computed: usize,
+    /// Python operations whose path is one of a known finite set — see
+    /// `Reading::python_bounded`. Its own field because it moved OUT of
+    /// `unnamed_computed`, and a client showing only the old one would report a
+    /// fall of 2,719 that was a reclassification rather than a naming.
+    pub unnamed_python_set: usize,
+    /// The JavaScript reader's share, which `unnamed` has always included and
+    /// no client has ever shown.
+    pub unnamed_javascript: usize,
     pub refused_here: usize,
     /// Table reads and changes, and how many distinct tables that is.
     ///
@@ -585,6 +613,8 @@ impl Reading {
             unnamed_bounded: self.by_pattern.values().sum(),
             unnamed_located: self.by_locus.values().sum(),
             unnamed_computed: self.computed.values().sum(),
+            unnamed_python_set: self.python_bounded.values().sum(),
+            unnamed_javascript: self.javascript_unnamed,
             refused_here: self.turned_away.total(),
             table_reads: self.tables.reads.values().sum(),
             table_writes: self.tables.writes.values().sum(),

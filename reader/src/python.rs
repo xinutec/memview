@@ -81,6 +81,7 @@ pub fn read(source: &str) -> Program {
     let scope = scope(&elements);
     let mut reader = Reader {
         consts: scope.consts,
+        candidates: scope.candidates,
         defined: scope.defined,
         out: Program::default(),
     };
@@ -289,6 +290,14 @@ struct Scope {
     /// Names bound exactly once, to a path literal — the only variables this
     /// trusts.
     consts: BTreeMap<String, String>,
+    /// Names the program bound to SEVERAL literals and nothing else, by the
+    /// candidates in order. One of them was the path; which one is not knowable
+    /// without running it — see [`crate::program::Program::bounded`].
+    ///
+    /// ⚠ **Every binding has to be a literal.** One `p = compute()` among them
+    /// and the set has a hole, so it bounds nothing and the name goes back to
+    /// being opaque. A set with a hole in it is not a set.
+    candidates: BTreeMap<String, Vec<String>>,
     /// Every name the program bound itself, however it bound it. **A call on
     /// one of these is not a gap in this reader**: `def ri()` two lines up — or
     /// `ri = lambda: …`, which is how the corpus writes it as often — is not a
@@ -331,15 +340,39 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
             _ => {}
         }
     }
+    let defined = bound.keys().cloned().collect();
+    let mut consts = BTreeMap::new();
+    let mut candidates = BTreeMap::new();
+    for (name, values) in bound {
+        match values.as_slice() {
+            [Some(value)] => {
+                consts.insert(name, value.clone());
+            }
+            // ⚠ **Was `_ => None`, and that one line was the largest unnamed
+            // shape in the corpus.** A name bound twice to two literals had BOTH
+            // thrown away, so `p = 'a'; p = 'b'; open(p)` named nothing while the
+            // reader held every path it could be.
+            many if many.len() > 1 && many.iter().all(Option::is_some) => {
+                let mut paths: Vec<String> = many.iter().flatten().cloned().collect();
+                paths.sort();
+                paths.dedup();
+                // Bound to the same literal twice is one path, not a choice.
+                match paths.len() {
+                    1 => {
+                        consts.insert(name, paths.remove(0));
+                    }
+                    _ => {
+                        candidates.insert(name, paths);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
     Scope {
-        defined: bound.keys().cloned().collect(),
-        consts: bound
-            .into_iter()
-            .filter_map(|(name, values)| match values.as_slice() {
-                [Some(value)] => Some((name, value.clone())),
-                _ => None,
-            })
-            .collect(),
+        defined,
+        consts,
+        candidates,
     }
 }
 
@@ -382,8 +415,11 @@ fn literal(value: &Pair<Rule>) -> Option<String> {
     }
     match single_argument(&call)? {
         Value::Text(path) => Some(path),
-        // A list is not a path, which is the same answer `Unknown` gets.
-        Value::List(_) | Value::Unknown => None,
+        // Neither a list nor a choice is a path, which is the same answer
+        // `Unknown` gets. A set here would make the CONSTANTS pass bind a name
+        // to one of its own candidates, which is how a set becomes a wrong
+        // certainty.
+        Value::List(_) | Value::OneOf(_) | Value::Unknown => None,
     }
 }
 
@@ -462,6 +498,13 @@ enum Value {
     /// only reason this exists. Every other reader of a `Value` treats it as
     /// unknown, which is what it is: a list is not a path.
     List(Vec<Value>),
+    /// One of a known finite set of literals — a name the program bound more
+    /// than once, every binding a literal.
+    ///
+    /// ⚠ **Treated as unknown by everything except [`Reader::record`].** A set
+    /// is not a path: joining onto it, or handing it to a command as a word,
+    /// would need the choice this deliberately does not make.
+    OneOf(Vec<String>),
     Unknown,
 }
 
@@ -891,6 +934,7 @@ fn method_of(name: &str) -> Option<Method> {
 }
 
 struct Reader {
+    candidates: BTreeMap<String, Vec<String>>,
     consts: BTreeMap<String, String>,
     defined: BTreeSet<String>,
     out: Program,
@@ -937,7 +981,12 @@ impl Reader {
                         Value::Text(part) => {
                             joined = format!("{}/{part}", joined.trim_end_matches('/'));
                         }
-                        Value::List(_) | Value::Unknown => return Value::Unknown,
+                        // Joining onto a choice needs the choice made.
+                        // `Path(p) / 'x.ts'` where `p` is one of two is one of
+                        // two paths, and this reader does not multiply sets.
+                        Value::List(_) | Value::OneOf(_) | Value::Unknown => {
+                            return Value::Unknown;
+                        }
                     }
                 }
                 Value::Text(joined)
@@ -1006,10 +1055,15 @@ impl Reader {
                     // A module is not a value, and neither is an attribute of
                     // one: only a name bound to a literal is.
                     None if name.contains('.') => Value::Unknown,
-                    None => self
-                        .consts
-                        .get(&name)
-                        .map_or(Value::Unknown, |path| Value::Text(path.clone())),
+                    None => match self.consts.get(&name) {
+                        Some(path) => Value::Text(path.clone()),
+                        // Bound to several literals: the set, which `record`
+                        // reports as a bound rather than resolving.
+                        None => self
+                            .candidates
+                            .get(&name)
+                            .map_or(Value::Unknown, |set| Value::OneOf(set.clone())),
+                    },
                 }
             }
             _ => Value::Unknown,
@@ -1241,6 +1295,15 @@ impl Reader {
             Some(Value::Text(path)) if !path.is_empty() => {
                 self.out.uses.push(Use { path, write });
             }
+            // One of a known set. Reported as the set and, when they agree on
+            // one, as the directory — never as a use, because only one of them
+            // happened. See [`crate::program::Program::bounded`].
+            Some(Value::OneOf(set)) if set.len() > 1 => {
+                if let Some(dir) = shared_directory(&set) {
+                    *self.out.located.entry(dir).or_insert(0) += 1;
+                }
+                *self.out.bounded.entry(render(&set)).or_insert(0) += 1;
+            }
             _ => *self.out.unresolved.entry(call.to_string()).or_insert(0) += 1,
         }
     }
@@ -1278,11 +1341,41 @@ fn join(args: &[Arg]) -> Value {
     for arg in args.iter().filter(|arg| arg.keyword.is_none()) {
         match &arg.value {
             Value::Text(part) => parts.push(part.trim_end_matches('/').to_string()),
-            Value::List(_) | Value::Unknown => return Value::Unknown,
+            // As in the `/` operator above: a set is not a part.
+            Value::List(_) | Value::OneOf(_) | Value::Unknown => return Value::Unknown,
         }
     }
     match parts.is_empty() {
         true => Value::Unknown,
         false => Value::Text(parts.join("/")),
     }
+}
+
+/// The set as one word, so a report can print what a path could have been.
+///
+/// Sorted at the point the set is built, so this is stable across runs and two
+/// programs writing the same choice in the other order produce one key.
+fn render(set: &[String]) -> String {
+    format!("{{{}}}", set.join(","))
+}
+
+/// The directory every candidate is rooted at, when there is one.
+///
+/// ⚠ **Every candidate, not the first.** A set whose members live in different
+/// places has no locus, and picking one would name a directory the program may
+/// never have touched. Relative and absolute are compared as written: they are
+/// resolved against the shell's working directory one layer up, exactly as
+/// `uses` are.
+fn shared_directory(set: &[String]) -> Option<String> {
+    let first = set.first()?;
+    let dir = first.rsplit_once('/')?.0;
+    // A leading `/` alone is the root and `rsplit_once` leaves it empty.
+    let dir = if dir.is_empty() { "/" } else { dir };
+    set.iter()
+        .all(|path| {
+            path.rsplit_once('/')
+                .map(|(d, _)| if d.is_empty() { "/" } else { d })
+                == Some(dir)
+        })
+        .then(|| dir.to_string())
 }

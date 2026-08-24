@@ -195,3 +195,9 @@ code {
   // dev-lint: allow-font-size optical match to the enclosing text
   font-size: 0.9em;
 }
+
+// A figure and the words naming it are one thing and wrap as one — see the note
+// in `reader-view.html`. The row breaks BETWEEN facts, never inside one.
+.aside .fact {
+  white-space: nowrap;
+}

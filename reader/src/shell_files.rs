@@ -430,6 +430,14 @@ impl Extract {
             + self.bounded.values().sum::<usize>()
             + self.located.values().sum::<usize>()
             + self.python.unresolved.values().sum::<usize>()
+            // ⚠ **Bounded, but NOT located, and they are not two accounts
+            // here.** Python records both for the same operation when the
+            // candidates share a directory — the set IS the language and the
+            // directory is a fact about it — where the shell's two maps are
+            // exclusive, a word being in one or the other. Adding both would
+            // count such an operation twice and make this figure fall by more
+            // than moved.
+            + self.python.bounded.values().sum::<usize>()
             + self.python.refused.total()
             + self.javascript.unresolved.values().sum::<usize>()
             + self.javascript.refused.total()

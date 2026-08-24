@@ -61,6 +61,32 @@ pub struct Program {
     /// variable, a computed join. Counted rather than guessed at, because the
     /// size of what is being dropped is the only honest way to read the rest.
     pub unresolved: BTreeMap<String, usize>,
+    /// Operations whose path is one of a **known finite set** — a name the
+    /// program bound to several literals — by the set, written `{a,b}`.
+    ///
+    /// ⚠ **One of them ran, not all of them.** Recording a use per candidate
+    /// would claim a file was changed that never was, which is the one thing
+    /// this reader promises never to do. Measured 2026-08-24, this is the
+    /// commonest unnamed shape in the corpus at 37.9% of unresolved file
+    /// operations, so the wrong version would have been wrong thousands of
+    /// times.
+    ///
+    /// The same object as [`crate::shell_files::Extract::bounded`]: a language
+    /// without a choice. `⟦p⟧ = some element of {out/a.txt, out/b.txt}`.
+    ///
+    /// ⚠ Still **not named**, and `subjects_not_named` counts these.
+    pub bounded: BTreeMap<String, usize>,
+    /// Those among [`Program::bounded`] whose candidates share a directory, by
+    /// that directory — the locus is certain even though the leaf is not.
+    ///
+    /// ⚠ **An annotation, not a second account — the opposite of the shell.**
+    /// `shell_files` puts a word in `bounded` OR `located`, so summing both is
+    /// right there. Here every entry is ALSO in [`Program::bounded`], because a
+    /// finite set of literals is a language and the shared directory is a fact
+    /// about that same language rather than a weaker answer to it. So
+    /// `subjects_not_named` counts `bounded` alone; adding this would count one
+    /// operation twice.
+    pub located: BTreeMap<String, usize>,
     /// Every other call, by name. **The worklist**: what tops this is what the
     /// reader should learn next, exactly as the grammar was grown.
     pub unknown: BTreeMap<String, usize>,
@@ -99,6 +125,11 @@ pub struct Tally {
     pub refused: Refused,
     pub calls: BTreeMap<String, usize>,
     pub unresolved: BTreeMap<String, usize>,
+    /// See [`Program::bounded`]. Counted by `subjects_not_named`.
+    pub bounded: BTreeMap<String, usize>,
+    /// See [`Program::located`] — an annotation on `bounded`, NOT a second
+    /// account, so nothing sums it.
+    pub located: BTreeMap<String, usize>,
     pub unknown: BTreeMap<String, usize>,
     /// Programs that moved their own working directory, whose relative paths
     /// are therefore not trusted.
@@ -148,6 +179,8 @@ impl Tally {
         self.ran += program.ran.len();
         merge(&mut self.calls, program.calls);
         merge(&mut self.unresolved, program.unresolved);
+        merge(&mut self.bounded, program.bounded);
+        merge(&mut self.located, program.located);
         merge(&mut self.unknown, program.unknown);
     }
 
@@ -161,6 +194,8 @@ impl Tally {
         self.ran += other.ran;
         merge(&mut self.calls, other.calls);
         merge(&mut self.unresolved, other.unresolved);
+        merge(&mut self.bounded, other.bounded);
+        merge(&mut self.located, other.located);
         merge(&mut self.unknown, other.unknown);
     }
 }

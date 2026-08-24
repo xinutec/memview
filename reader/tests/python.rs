@@ -67,14 +67,22 @@ p.write_text(s.replace('a', 'b'))
 }
 
 #[test]
-fn a_name_bound_twice_is_not_a_constant() {
+fn a_name_bound_twice_is_not_a_constant_but_it_is_a_set() {
     let source = "\
 p = 'src/a.ts'
 p = 'src/b.ts'
 Path(p).write_text(x)
 ";
+    // The soundness half, unchanged: one of them was written, so neither may be
+    // recorded as written.
     assert!(uses(source).is_empty());
-    assert_eq!(read(source).unresolved["write_text"], 1);
+    // ⚠ **It is no longer `unresolved`, and that is the change.** Both paths
+    // are known and the directory they share is certain; what is unknown is
+    // which one ran. Counted by `subjects_not_named` exactly as before, so the
+    // headline cannot fall without something being named.
+    assert!(!read(source).unresolved.contains_key("write_text"));
+    assert_eq!(read(source).bounded["{src/a.ts,src/b.ts}"], 1);
+    assert_eq!(read(source).located["src"], 1);
 }
 
 /// `for p in files:` names every file and therefore none.
@@ -378,4 +386,65 @@ fn a_closed_literal_is_left_alone() {
     assert_eq!(reader::python::did_not_run("s = 'it\\'s escaped'\n"), None);
     // A surplus CLOSE says nothing — the shell balanced the fragment around it.
     assert_eq!(reader::python::did_not_run("print('x'))\n"), None);
+}
+
+/// The candidate set a name bound to several literals stands for, and the
+/// directory they share when they share one.
+fn bounded(source: &str) -> Vec<(String, usize)> {
+    read(source).bounded.into_iter().collect()
+}
+
+fn located(source: &str) -> Vec<(String, usize)> {
+    read(source).located.into_iter().collect()
+}
+
+#[test]
+fn a_name_bound_to_two_literals_is_a_set_and_never_two_uses() {
+    // ⚠ **The whole soundness question in one test.** The program opened ONE of
+    // these. Recording both would claim a file was written that never was —
+    // and it is the commonest unnamed shape in the corpus (37.9%), so getting
+    // it wrong would be wrong thousands of times.
+    let source = "p = 'out/a.txt'\np = 'out/b.txt'\nopen(p, 'w')";
+    assert_eq!(uses(source), []);
+    assert_eq!(
+        bounded(source),
+        [("{out/a.txt,out/b.txt}".to_string(), 1)],
+        "both paths are known; which one ran is not"
+    );
+}
+
+#[test]
+fn literals_under_one_directory_give_a_locus_even_though_the_leaf_is_open() {
+    // The same object as the shell's `located`: the language is a finite set,
+    // and here the locus is certain because every candidate is rooted at it.
+    let source = "p = 'docs/a.md'\np = 'docs/b.md'\nopen(p)";
+    assert_eq!(located(source), [("docs".to_string(), 1)]);
+}
+
+#[test]
+fn candidates_that_share_no_directory_are_bounded_but_not_located() {
+    let source = "p = 'src/a.rs'\np = 'docs/b.md'\nopen(p)";
+    assert_eq!(bounded(source), [("{docs/b.md,src/a.rs}".to_string(), 1)]);
+    assert_eq!(located(source), []);
+}
+
+#[test]
+fn one_binding_that_is_not_a_literal_refuses_the_whole_set() {
+    // ⚠ **A set with a hole in it is not a set.** `p = compute()` may be any
+    // path at all, so the two literals beside it bound nothing — and claiming
+    // the locus would be claiming a directory the program may never have
+    // touched.
+    let source = "p = 'docs/a.md'\np = choose()\np = 'docs/b.md'\nopen(p)";
+    assert_eq!(bounded(source), []);
+    assert_eq!(located(source), []);
+    assert_eq!(uses(source), []);
+}
+
+#[test]
+fn a_single_literal_binding_still_names_the_file_outright() {
+    // Unchanged behaviour, asserted so the new rule cannot swallow it: one
+    // binding is an answer, not a set of one.
+    let source = "p = 'out/a.txt'\nopen(p, 'w')";
+    assert_eq!(uses(source), [used("out/a.txt", true)]);
+    assert_eq!(bounded(source), []);
 }

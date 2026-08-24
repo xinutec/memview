@@ -386,6 +386,8 @@ const READING = {
   unnamed_bounded: 942,
   unnamed_located: 611,
   unnamed_computed: 11139,
+  unnamed_python_set: 2719,
+  unnamed_javascript: 489,
   refused_here: 921,
   table_reads: 2747,
   table_writes: 264,
