@@ -1274,6 +1274,25 @@ impl Session {
         }
     }
 
+    /// Questions this session is still waiting on an answer to.
+    ///
+    /// ⚠ **A cold reader has to be offered these again, and nothing else will
+    /// do it.** An `Ask` is the console's own word — the CLI sends it as a
+    /// control request and no transcript records it — so a seed read from the
+    /// file cannot contain one. [`Session::adopt`] already re-pushes them after
+    /// its seed for exactly this reason; `crate::api::cold` needs the same, and
+    /// without it the list says *waiting for you* while the session shows
+    /// nothing to answer.
+    pub fn asking(&self) -> Vec<(String, Pending)> {
+        self.state
+            .lock()
+            .expect("session state poisoned")
+            .pending
+            .iter()
+            .map(|(id, question)| (id.clone(), question.clone()))
+            .collect()
+    }
+
     /// The pipes to this session's process, for an upgrade to hand on.
     pub fn fds(&self) -> Fds {
         self.fds

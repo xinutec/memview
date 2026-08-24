@@ -337,3 +337,37 @@ async fn a_live_event_is_not_held_back_by_the_compressor() {
         "the stream closed instead of carrying the event"
     );
 }
+
+#[tokio::test]
+async fn a_question_still_standing_is_put_to_a_reader_who_arrives_cold() {
+    let scratch = projects();
+    let dir = std::env::temp_dir();
+    let roster = roster(&dir);
+    let session = roster.start(&dir.display().to_string()).expect("start");
+    session.send("ask me").await.expect("send");
+    until(&session, |seen| {
+        seen.iter().any(|e| matches!(e, Event::Ask { .. }))
+    })
+    .await;
+    // A transcript with no question in it, which is every transcript: an `Ask`
+    // is a control request the CLI made and the file records none.
+    transcript(&scratch, &session.id, 600);
+
+    let addr = serve(roster).await;
+    let cold = opening(addr, &format!("/api/sessions/{}/events", session.id)).await;
+
+    // ⚠ **The list and the conversation have to agree.** `Summary::asked` is
+    // computed from the session's own state and says *waiting for you* whatever
+    // the stream carried, so a seed that dropped the question left the front
+    // page asking and the session showing nothing to answer — seen on
+    // `hardware`, 2026-08-24.
+    assert!(
+        cold.contains("\"kind\":\"ask\""),
+        "the pending question was not put to a cold reader: {}",
+        &cold[cold.len().saturating_sub(600)..]
+    );
+    assert!(
+        cold.contains("which way"),
+        "the question arrived without what it asked"
+    );
+}

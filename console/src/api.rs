@@ -789,11 +789,7 @@ fn cold(id: &str, session: &crate::session::Session) -> Option<(Vec<Sse>, u64)> 
     let mut held: Vec<Sse> = page
         .events
         .into_iter()
-        .map(|timed| {
-            Sse::default().json_data(timed).unwrap_or_else(|err| {
-                Sse::default().data(format!("{{\"kind\":\"trouble\",\"detail\":\"{err}\"}}"))
-            })
-        })
+        .map(|timed| unnumbered(timed.at, timed.event))
         .collect();
     held.push(wire(Stamped {
         seq: through,
@@ -803,7 +799,43 @@ fn cold(id: &str, session: &crate::session::Session) -> Option<(Vec<Sse>, u64)> 
             from: page.from,
         },
     }));
+    // ⚠ **After the marker, and this is not optional.** A question is a control
+    // request the CLI made and no transcript holds one, so a seed read from the
+    // file cannot carry it — while `Summary::asked` is computed from the
+    // session's own state and says *waiting for you* regardless. Without this
+    // the list asks and the conversation shows nothing to answer, which is what
+    // Pippijn hit on `hardware` the day this was written.
+    //
+    // The same shape [`crate::session::Session::adopt`] uses after ITS seed, and
+    // for the same reason: one mechanism, so a client is offered the decision
+    // again and the session is recorded as waiting for it from a single event.
+    //
+    // Unnumbered — the real `Ask` is already at or below `through`, so the live
+    // stream will not send it a second time.
+    for (id, question) in session.asking() {
+        held.push(unnumbered(
+            ends,
+            Event::Ask {
+                id,
+                call: question.call,
+                tool: question.tool,
+                title: question.title,
+                detail: question.detail,
+                input: question.input,
+            },
+        ));
+    }
     Some((held, through))
+}
+
+/// One event with no `id:`, so the browser keeps quoting the last number it can
+/// vouch for — see the note in [`cold`].
+fn unnumbered(at: Option<i64>, event: Event) -> Sse {
+    Sse::default()
+        .json_data(console_protocol::Timed { at, event })
+        .unwrap_or_else(|err| {
+            Sse::default().data(format!("{{\"kind\":\"trouble\",\"detail\":\"{err}\"}}"))
+        })
 }
 
 async fn events(
