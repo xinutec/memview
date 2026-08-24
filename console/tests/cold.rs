@@ -382,7 +382,7 @@ async fn a_question_still_standing_is_put_to_a_reader_who_arrives_cold() {
 }
 
 #[tokio::test]
-async fn the_name_a_session_was_given_survives_the_page_that_replaces_its_log() {
+async fn a_sessions_name_comes_from_the_head_of_its_transcript_not_the_last_page() {
     // ⚠ **The ordering is the whole test.** `asked` binds to the first `Prompt`
     // seen while nothing is bound, and `adopt` seeds from the transcript right
     // after building its state — so a label restored AFTER the seed, or not at
@@ -393,13 +393,19 @@ async fn the_name_a_session_was_given_survives_the_page_that_replaces_its_log() 
     let id = "a-session-with-a-page-full-of-prompts";
     let folder = scratch.join("project");
     std::fs::create_dir_all(&folder).expect("project dir");
-    let lines: Vec<String> = (0..20)
-        .map(|n| {
-            format!(
-                r#"{{"type":"user","timestamp":"2026-08-24T11:00:{n:02}Z","message":{{"role":"user","content":[{{"type":"text","text":"a later prompt {n}"}}]}}}}"#
-            )
-        })
-        .collect();
+    // ⚠ **Opens with plumbing, as real transcripts do.** A `<local-command-caveat>`
+    // is not something anybody asked, and `read_recorded` already declines to
+    // make it a prompt — so a reader that took the first LINE would name the
+    // session after a caveat block.
+    let mut lines = vec![
+        r#"{"type":"user","timestamp":"2026-08-24T10:59:00Z","message":{"role":"user","content":[{"type":"text","text":"<local-command-caveat>ignore me</local-command-caveat>"}]}}"#.to_string(),
+        r#"{"type":"user","timestamp":"2026-08-24T10:59:30Z","message":{"role":"user","content":[{"type":"text","text":"look at the fleet's disks"}]}}"#.to_string(),
+    ];
+    lines.extend((0..20).map(|n| {
+        format!(
+            r#"{{"type":"user","timestamp":"2026-08-24T11:00:{n:02}Z","message":{{"role":"user","content":[{{"type":"text","text":"a later prompt {n}"}}]}}}}"#
+        )
+    }));
     std::fs::write(
         folder.join(format!("{id}.jsonl")),
         format!("{}\n", lines.join("\n")),
@@ -422,7 +428,10 @@ async fn the_name_a_session_was_given_survives_the_page_that_replaces_its_log() 
             started: 1_754_000_000,
             model: None,
             mode: None,
-            asked: Some("look at the fleet's disks".into()),
+            // Deliberately WRONG, as an earlier image's value would be: the
+            // head of the file has to win, or a subtitle once corrupted stays
+            // corrupted for ever.
+            asked: Some("a later prompt 7".into()),
             cost_usd: 0.0,
             window: None,
             limit: None,
@@ -458,6 +467,6 @@ async fn the_name_a_session_was_given_survives_the_page_that_replaces_its_log() 
     assert_eq!(
         session.summary().asked.as_deref(),
         Some("look at the fleet's disks"),
-        "the replayed page took the session's name"
+        "the name came from the last page or a stale tally, not the head of the file"
     );
 }

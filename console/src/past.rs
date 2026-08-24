@@ -1110,6 +1110,44 @@ struct Tail {
 /// chunk taken from an arbitrary byte offset starts mid-line and possibly
 /// mid-character, so the first line is expected to be rubbish and unparseable
 /// lines are skipped rather than treated as the end of the file.
+/// The first thing this session was asked to do, from the head of its transcript.
+///
+/// ⚠ **Derived, never carried, because the head of an append-only file does not
+/// move.** `asked` used to be whatever prompt the state machine saw first, which
+/// after a re-seed meant the first prompt in the LAST page — so a session's
+/// subtitle changed on every console upgrade, with nobody touching it. Carrying
+/// it across the handover stops the drift but preserves whatever wrong value was
+/// already there; reading it from the front repairs it, and cannot drift again
+/// (memview #1146).
+///
+/// ⚠ **The first prompt, not the first line.** A transcript commonly opens with
+/// plumbing — a `<local-command-caveat>`, a command wrapper, a caveat block —
+/// which `protocol::read_recorded` already declines to turn into a `Prompt`. So
+/// this asks for events and takes the first prompt among them rather than
+/// reading text out of the file itself.
+///
+/// Cheap on a file of any size: the head is read, not the file.
+pub fn opening(path: &Path) -> Option<String> {
+    use std::io::{BufRead, BufReader, Read};
+
+    let file = std::fs::File::open(path).ok()?;
+    // Enough for the opening exchange without reading a conversation. A session
+    // whose first prompt is further in than this has said a great deal before
+    // being asked anything, and no answer is better than a wrong one.
+    let head = BufReader::new(file.take(OPENING_BYTES));
+    for line in head.lines().map_while(Result::ok) {
+        for event in crate::protocol::read_recorded(&line) {
+            if let crate::protocol::Event::Prompt { text } = event {
+                return Some(text);
+            }
+        }
+    }
+    None
+}
+
+/// How much of a transcript's head to read looking for its first prompt.
+const OPENING_BYTES: u64 = 256 * 1024;
+
 fn tail_of(path: &Path, len: u64) -> Tail {
     use std::io::{Read, Seek, SeekFrom};
 

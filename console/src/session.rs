@@ -1050,6 +1050,16 @@ impl Session {
             earlier: count,
             from: seed.from,
         });
+        // ⚠ **From the head of the file, overriding whatever the page set.** The
+        // replay above is the LAST page and it is full of prompts, the first of
+        // which would otherwise become this session's name — which is how a
+        // subtitle came to change on every upgrade. The front of an append-only
+        // file does not move, so this is both correct and stable, and it repairs
+        // a value an earlier image already got wrong. See
+        // [`crate::past::opening`] and memview #1146.
+        if let Some(first) = crate::past::opening(&path) {
+            self.state.lock().expect("session state poisoned").asked = Some(first);
+        }
         self.recount();
     }
 
