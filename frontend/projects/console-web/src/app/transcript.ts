@@ -241,8 +241,18 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
       // Marked rather than resolved, because from here a dead call and one
       // genuinely in flight are the same shape. `tool_result` clears the mark,
       // so the live one corrects itself the moment its answer lands.
-      for (const entry of entries) {
-        if (entry.kind === 'tool' && entry.ok === undefined) entry.unrecorded = true;
+      //
+      // ⚠ **Only when the conversation was picked up by a NEW process.** This
+      // used to mark unconditionally, which was right while `joined` was pushed
+      // only where the console started watching. It is now also emitted at the
+      // end of a seed read from the transcript — for a session that is ALIVE,
+      // whose last unfinished call is the one running this second. Marking that
+      // one *no result recorded* says the opposite of the truth, and says it
+      // about the row a person is watching. See `Event::Joined::restarted`.
+      if (event.restarted) {
+        for (const entry of entries) {
+          if (entry.kind === 'tool' && entry.ok === undefined) entry.unrecorded = true;
+        }
       }
       add(entries, {
         kind: 'note',

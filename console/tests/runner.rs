@@ -1647,7 +1647,8 @@ mod whether_it_is_working {
                     mid_turn,
                     &Event::Joined {
                         earlier: 12,
-                        from: 0
+                        from: 0,
+                        restarted: true
                     }
                 ),
                 "a process that has only just started is not in that turn"

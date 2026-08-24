@@ -73,6 +73,22 @@ pub enum Event {
         /// for asking what came before it. Zero means the seed reached the start
         /// of the file and there is nothing older.
         from: u64,
+        /// Whether the conversation was picked up by a **new process**, so a
+        /// tool call above this line that never finished never will.
+        ///
+        /// ⚠ **The client marks those calls dead, and it must not do it
+        /// blindly.** `Joined` used to be pushed only where the console started
+        /// watching, and everything above it really had been written by a
+        /// process that was gone. It is now also emitted per reader, at the end
+        /// of a seed read from the file — where the session is alive and the last
+        /// call in the page is the one running RIGHT NOW. Marking that one *no
+        /// result recorded* is the opposite of the truth.
+        ///
+        /// `true` for [`crate::session::Session::resume`], which starts a fresh
+        /// `claude` on an old conversation. `false` for an upgrade, which keeps
+        /// the same child, and for a reader joining a live session.
+        #[serde(default)]
+        restarted: bool,
     },
     /// The session is up, with what it was given to work with.
     Started {

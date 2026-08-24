@@ -283,6 +283,15 @@ export interface SessionEvent {
   /** `joined` only: the byte offset the seed began at, and the cursor for asking
    *  what came before it. Zero means the seed reached the start of the file. */
   readonly from?: number;
+  /**
+   * Whether the conversation was picked up by a NEW process — see
+   * `Event::Joined` in `protocol.rs`.
+   *
+   * ⚠ **Only then may a call above the line be called dead.** The marker is
+   * also emitted at the end of a seed read from the file, for a session that is
+   * alive and whose last call is the one running right now.
+   */
+  readonly restarted?: boolean;
   model?: string;
   cwd?: string;
   tools?: number;

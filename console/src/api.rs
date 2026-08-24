@@ -797,6 +797,10 @@ fn cold(id: &str, session: &crate::session::Session) -> Option<(Vec<Sse>, u64)> 
         event: Event::Joined {
             earlier,
             from: page.from,
+            // A reader joined; the session did not restart. The last call in
+            // this page is very likely the one running right now, and marking it
+            // dead is what this flag exists to stop.
+            restarted: false,
         },
     }));
     // ⚠ **After the marker, and this is not optional.** A question is a control

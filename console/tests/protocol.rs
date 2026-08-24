@@ -808,6 +808,10 @@ fn the_seed_boundary_forgets_what_the_transcript_replayed() {
         console::protocol::running(&Event::Joined {
             earlier: 400,
             from: 12_345,
+            // A pickup, which is the only thing that pushes a `Joined` into the
+            // log — a reader's copy is synthesised on the wire and never reaches
+            // this. See `Event::Joined::restarted`.
+            restarted: true,
         }),
         console::protocol::Running::Gone
     );

@@ -1015,7 +1015,9 @@ impl Session {
         // `just now`. The date now comes out of the conversation itself; see
         // [`crate::past::last_moved`].
         let session = Self::spawn(id, dir, spawn, true)?;
-        session.seed();
+        // A NEW `claude` on an old conversation: whatever the transcript shows
+        // still running was written by a process that is gone.
+        session.seed(true);
         Ok(session)
     }
 
@@ -1034,7 +1036,7 @@ impl Session {
     /// Silent when there is nothing to find. A conversation with no transcript we
     /// can locate still resumes — the CLI has its own copy — and an empty view is
     /// what it was before this existed.
-    fn seed(self: &Arc<Self>) {
+    fn seed(self: &Arc<Self>, restarted: bool) {
         let root = crate::past::projects_root();
         let Some(path) = crate::past::transcript_of(&root, &self.id) else {
             tracing::info!(
@@ -1061,6 +1063,7 @@ impl Session {
         self.push(Event::Joined {
             earlier: count,
             from: seed.from,
+            restarted,
         });
         // ⚠ **From the head of the file, overriding whatever the page set.** The
         // replay above is the LAST page and it is full of prompts, the first of
@@ -1302,7 +1305,9 @@ impl Session {
             kill: Mutex::new(Some(kill_tx)),
             tx,
         });
-        session.seed();
+        // The SAME child across the exec, so nothing above the boundary is dead
+        // on account of the upgrade — see [`crate::protocol::Event::Joined`].
+        session.seed(false);
         // **After the seed, so the question lands where it happened: at the end
         // of the conversation, which is where it is still standing.** Pushed as
         // an ordinary `Ask` rather than restored into `pending` directly,

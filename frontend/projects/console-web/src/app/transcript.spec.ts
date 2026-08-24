@@ -625,7 +625,7 @@ describe('a call whose result was never written', () => {
     // timestamp that can be weeks old.
     const seen = transcript(
       { kind: 'tool', id: 'dead', name: 'Bash', input: { command: 'home-manager switch' } },
-      { kind: 'joined', earlier: 2 },
+      { kind: 'joined', earlier: 2, restarted: true },
     );
     const call = seen.find((e) => e.kind === 'tool');
     expect(call?.unrecorded).toBe(true);
@@ -641,12 +641,34 @@ describe('a call whose result was never written', () => {
     // upgrade.
     const seen = transcript(
       { kind: 'tool', id: 'live', name: 'Bash', input: { command: 'sleep 60' } },
-      { kind: 'joined', earlier: 1 },
+      { kind: 'joined', earlier: 1, restarted: true },
       { kind: 'tool_result', id: 'live', ok: true, detail: 'done' },
     );
     const call = seen.find((e) => e.kind === 'tool');
     expect(call?.unrecorded).toBeUndefined();
     expect(call?.ok).toBe(true);
+  });
+
+  it('does not call a running task lost when a reader merely joined', () => {
+    // ⚠ **The boundary now has two meanings and only one of them kills.** A
+    // `joined` ends every seed read from the transcript, including one sent to a
+    // reader opening a session that is ALIVE — where the last unfinished call is
+    // the one running this second. Marking it *no result recorded* is the
+    // opposite of the truth, on the row somebody is watching. Only a new
+    // process, which is what `restarted` says, makes the work above it dead.
+    const seen = transcript(
+      { kind: 'tool', id: 'live', name: 'Bash', input: { command: 'sleep 600' } },
+      { kind: 'joined', earlier: 1, restarted: false },
+    );
+    const call = seen.find((e) => e.kind === 'tool');
+    expect(call?.unrecorded).toBeUndefined();
+    expect(call?.ok).toBeUndefined();
+    expect(ran(seen.filter((e) => e.kind === 'tool'))).toEqual({
+      calls: 1,
+      failed: 0,
+      running: 1,
+      unrecorded: 0,
+    });
   });
 
   it('leaves calls made after the boundary alone', () => {
@@ -668,7 +690,7 @@ describe('a call whose result was never written', () => {
     const seen = transcript(
       { kind: 'tool', id: 'dead', name: 'Bash', input: { command: 'x' } },
       { kind: 'tool', id: 'ok', name: 'Read', input: { file_path: '/tmp/a' } },
-      { kind: 'joined', earlier: 2 },
+      { kind: 'joined', earlier: 2, restarted: true },
       { kind: 'tool_result', id: 'ok', ok: true },
     );
     const tools = seen.filter((e) => e.kind === 'tool');
