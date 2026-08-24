@@ -112,8 +112,15 @@ fn transcript(root: &std::path::Path, id: &str, turns: usize) -> PathBuf {
     let path = folder.join(format!("{id}.jsonl"));
     let mut lines = vec!["{\"type\":\"system\",\"cwd\":\"/home/example/Code\"}".to_string()];
     for turn in 0..turns {
+        // ⚠ **Stamped, and the test is empty without it.** With no `timestamp`
+        // the marker and the last line both carry `None`, and an assertion that
+        // they match passes by both being absent — a check that cannot fail.
+        // Times are a fixed minute apart from a fixed start, so nothing here
+        // reads the clock.
+        let minute = 30 + turn / 60;
+        let second = turn % 60;
         lines.push(format!(
-            r#"{{"type":"assistant","message":{{"role":"assistant","content":[{{"type":"text","text":"answer {turn}"}}]}}}}"#
+            r#"{{"type":"assistant","timestamp":"2026-08-24T10:{minute:02}:{second:02}Z","message":{{"role":"assistant","content":[{{"type":"text","text":"answer {turn}"}}]}}}}"#
         ));
     }
     std::fs::write(&path, format!("{}\n", lines.join("\n"))).expect("transcript");
@@ -186,6 +193,30 @@ async fn a_reader_holding_nothing_is_sent_the_end_of_the_transcript_and_no_more(
         "expected a page and its marker out of 600 turns, got {} events",
         events(&cold)
     );
+    // ⚠ **Dated where the page ends, not when this reader arrived.** Stamped
+    // with the clock it sat at the foot of the transcript as the newest thing
+    // in it, and moved every time the session was opened — a fact about the
+    // connection wearing the clothes of a fact about the conversation.
+    let marker = cold
+        .lines()
+        .find(|line| line.contains("\"kind\":\"joined\""))
+        .expect("no marker between the file and now");
+    let last_page_line = cold
+        .lines()
+        .rfind(|line| line.starts_with("data:") && line.contains("\"kind\":\"text\""))
+        .expect("the page carried no text at all");
+    let at_of = |line: &str| {
+        line.split("\"at\":")
+            .nth(1)
+            .and_then(|rest| rest.split(&[',', '}'][..]).next())
+            .map(str::to_string)
+    };
+    assert_eq!(
+        at_of(marker),
+        at_of(last_page_line),
+        "the marker is dated on its own clock rather than on the page it ends"
+    );
+
     // The cursor for what came before, which is the only thing that knows the
     // conversation is longer than the page.
     assert!(

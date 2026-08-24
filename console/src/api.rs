@@ -771,6 +771,17 @@ fn cold(id: &str, session: &crate::session::Session) -> Option<(Vec<Sse>, u64)> 
     }
     let through = session.issued();
     let earlier = page.events.len();
+    // ⚠ **The end of the page, NOT the clock.** This marker says where the
+    // file's record stops, which is a fact about the conversation; stamped
+    // `now()` it became a fact about the connection instead — it landed at the
+    // bottom of the transcript dated this instant, read as the latest thing
+    // that had happened, and re-dated on every open. `Session::seed` may use
+    // the clock because there the console really did join just then; a reader
+    // arriving cold did not make the session do anything.
+    //
+    // `None` when the last line carried no time, which is the honest answer and
+    // draws the note without one.
+    let ends = page.events.last().and_then(|timed| timed.at);
     // Unnumbered, so a connection dropped part-way through leaves the browser
     // quoting nothing and asking for the seed again — a partial page is not a
     // place anybody holds. The number arrives once, on the `joined` that ends
@@ -786,7 +797,7 @@ fn cold(id: &str, session: &crate::session::Session) -> Option<(Vec<Sse>, u64)> 
         .collect();
     held.push(wire(Stamped {
         seq: through,
-        at: Some(crate::session::now()),
+        at: ends,
         event: Event::Joined {
             earlier,
             from: page.from,
