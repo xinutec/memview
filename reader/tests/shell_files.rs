@@ -1704,3 +1704,71 @@ fn git_diff_is_not_rooted_at_the_cwd_and_must_not_be_claimed() {
     assert!(located("wc -l $(git diff --name-only)").is_empty());
     assert!(located("wc -l $(git status --porcelain)").is_empty());
 }
+
+#[test]
+fn stripping_a_suffix_the_pattern_ends_with_keeps_the_bound() {
+    // ⚠ **`for d in */; do … "${d%/}/gate.json"` is 27 of the corpus's 30
+    // derived-from-a-bound-name subjects.** The pattern ends in the very text
+    // the expansion strips, so the truncation is syntactic — no automaton, and
+    // the result is a whole pattern rather than a bare locus.
+    assert_eq!(
+        bounded("for d in */; do cat \"${d%/}/gate.json\"; done"),
+        ["/home/example/Code/health/*/gate.json"]
+    );
+    // The corpus writes the slash escaped, and it is the same suffix.
+    assert_eq!(
+        bounded("for d in */; do cat \"${d%\\/}/flake.nix\"; done"),
+        ["/home/example/Code/health/*/flake.nix"]
+    );
+}
+
+#[test]
+fn a_longer_literal_suffix_truncates_the_same_way() {
+    // `${d%/Cargo.toml}/target` over `*/Cargo.toml` — the whole tail is literal.
+    assert_eq!(
+        bounded("for d in */Cargo.toml; do ls \"${d%/Cargo.toml}/target\"; done"),
+        ["/home/example/Code/health/*/target"]
+    );
+    // And the classic extension swap, which is the same rule.
+    assert_eq!(
+        bounded("for f in src/*.ts; do cat \"${f%.ts}.js\"; done"),
+        ["/home/example/Code/health/src/*.js"]
+    );
+}
+
+#[test]
+fn double_percent_is_the_same_when_the_suffix_is_literal() {
+    // Longest and shortest match coincide when there is no wildcard to be
+    // greedy with, so `%%` needs no separate rule — and gets no separate claim.
+    assert_eq!(
+        bounded("for d in */; do cat \"${d%%/}/x\"; done"),
+        ["/home/example/Code/health/*/x"]
+    );
+}
+
+#[test]
+fn a_suffix_the_pattern_does_not_end_with_is_refused() {
+    // ⚠ Nothing says a `*.log` ends in `.txt`, so stripping one is not a
+    // truncation of this language — it is a guess about strings not in it.
+    assert_eq!(
+        unnamed("for f in *.log; do wc -l \"${f%.txt}\"; done"),
+        ["${f%.txt}"]
+    );
+}
+
+#[test]
+fn a_suffix_holding_a_glob_is_still_a_transduction_and_still_refused() {
+    // ⚠ **This is the guard the whole rule rests on.** `${f%*}` strips the
+    // SHORTEST match of `*`, which is the empty string — so a pattern ending in
+    // `*` would be truncated to something the shell never produces. Only a
+    // literal suffix removes exactly the text it names.
+    assert_eq!(
+        unnamed("for f in foo*; do wc -l \"${f%*}\"; done"),
+        ["${f%*}"]
+    );
+    // And the shape the old comment names, which must not regress.
+    assert_eq!(
+        unnamed("for f in *.log; do wc -l \"${f%%:*}\"; done"),
+        ["${f%%:*}"]
+    );
+}

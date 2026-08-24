@@ -1251,14 +1251,65 @@ fn ranging(
     over
 }
 
+/// `${name%SUFFIX}` against a pattern that literally ends in `SUFFIX`, as the
+/// text it leaves behind.
+///
+/// ⚠ **This is the one transduction that needs no automaton, which is why it is
+/// the only one taken.** [`bounded_by`] refuses `${f%%:*}` because honouring a
+/// rational function of a language needs machinery this reader does not build.
+/// But when the SUFFIX is literal and the pattern ends in exactly that text,
+/// removing it is not reasoning about the language at all — it is deleting a
+/// known tail from a known string, and every member of `L(P·S)` maps into `L(P)`
+/// by construction.
+///
+/// ⚠ **A suffix holding a glob metacharacter is refused, and that guard is what
+/// the soundness rests on.** `${f%*}` strips the SHORTEST match of `*`, which is
+/// the empty string — so a pattern ending in `*` would be "truncated" to
+/// something the shell never produces. Only a literal suffix removes exactly the
+/// text it names.
+///
+/// ⚠ **`%%` needs no separate rule.** Longest and shortest match coincide when
+/// there is no wildcard to be greedy with, so it is the same truncation and gets
+/// the same claim, not a wider one.
+///
+/// Worth 27 of the 30 subjects in the corpus that derive from a name a glob
+/// actually bound, measured 2026-08-24 — nearly all of them `for d in */` with
+/// `"${d%/}/…"` after it.
+fn truncation(word: &str, name: &str, pattern: &str) -> Option<(String, String)> {
+    let open = format!("${{{name}%");
+    let at = word.find(&open)?;
+    let after = at + open.len();
+    // `${name%%SUF}`: step over the second `%`, which changes nothing here.
+    let from = after + usize::from(word[after..].starts_with('%'));
+    let close = from + word[from..].find('}')?;
+    // The shell's own escaping — the corpus writes `${d%\/}` for a bare slash.
+    let mut suffix = String::with_capacity(close - from);
+    let mut chars = word[from..close].chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => suffix.extend(chars.next()),
+            _ => suffix.push(c),
+        }
+    }
+    if suffix.is_empty() || suffix.contains(['*', '?', '[']) {
+        return None;
+    }
+    let base = pattern.strip_suffix(suffix.as_str())?;
+    Some((word[at..=close].to_string(), base.to_string()))
+}
+
 /// The pattern a refused word is a subset of, if a glob loop bound its name.
 ///
-/// ⚠ **Only a plain substitution keeps the bound.** `$f` and `$f/package.json`
-/// are the pattern and the pattern concatenated with a literal — both regular,
-/// both honestly stateable. `${f%%:*}` is a *rational transduction* of it, which
-/// needs the automaton this deliberately does not build, so it stays opaque. The
-/// test for that is what follows the name: `}` keeps the bound, an operator does
-/// not.
+/// ⚠ **A plain substitution keeps the bound, and so does exactly one operator.**
+/// `$f` and `$f/package.json` are the pattern and the pattern concatenated with
+/// a literal — both regular, both honestly stateable. `${f%%:*}` is a *rational
+/// transduction* of it, which needs the automaton this deliberately does not
+/// build, so it stays opaque.
+///
+/// The exception is [`truncation`]: `${f%SUFFIX}` where SUFFIX is literal and
+/// the pattern ends in exactly that text. That is not reasoning about the
+/// language — it is deleting a known tail from a known string. Every other
+/// operator still loses the bound.
 fn bounded_by(
     word: &str,
     patterns: &BTreeMap<String, String>,
@@ -1266,6 +1317,14 @@ fn bounded_by(
     home: &str,
 ) -> Option<String> {
     for (name, pattern) in patterns {
+        // ⚠ **The one transduction that needs no automaton.** See [`truncation`].
+        if let Some((whole, base)) = truncation(word, name, pattern) {
+            let put = word.replace(&whole, &base);
+            if put.contains('$') {
+                continue;
+            }
+            return resolve(&put, cwd, home);
+        }
         let plain = format!("${name}");
         let braced = format!("${{{name}}}");
         let put = if word.contains(&braced) {

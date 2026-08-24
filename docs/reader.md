@@ -840,6 +840,41 @@ path whose directory is on another machine — and 23 `located finite set`, bein
 three shapes have a test, because they are what somebody reading those rows will
 try to "fix", and each fix would name a directory the command never walked.
 
+### The one transduction that needs no automaton (memview#1080)
+
+`derived` is 338 uses, and the obvious reading is that it is the third of this
+domain still owed. **It is not, and the measurement is the whole finding: only
+30 of the 338 rest on a name a glob actually bound.** The rest derive from a bare
+name, and a transform of something with no space has no space either — there is
+nothing there to win.
+
+Of those 30, **27 are one idiom**:
+
+```sh
+for d in */; do  cat "${d%/}/gate.json";  done
+```
+
+The pattern is `*/` and the expansion strips the very `/` it ends with, so the
+truncation is **syntactic**: deleting a known tail from a known string, not
+reasoning about a language. `${d%/}/gate.json` over `*/` is `*/gate.json` — a
+whole pattern, both halves, so these become `bounded` rather than merely located.
+
+    shell, by word   3,705 → 3,676
+    shell, bounded     490 →   519
+
+⚠ **The guard the rule rests on: a suffix holding a glob metacharacter is
+refused.** `${f%*}` strips the SHORTEST match of `*`, which is the empty string —
+so a pattern ending in `*` would be "truncated" to something the shell never
+produces. Only a literal suffix removes exactly the text it names. `${f%%:*}`
+stays opaque for that reason and has kept its test since before this rule.
+
+⚠ **`%%` gets no separate rule and no wider claim.** Longest and shortest match
+coincide when there is no wildcard to be greedy with.
+
+**What is deliberately left:** `$(basename $f)` over `archive/*.md`, one use. A
+leaf-only transform needs its own rule about where the result is then resolved,
+and one use does not pay for it.
+
 ## Correctness
 
 `reader/tests/oracle.rs` is the only test that catches a *wrong* reading rather
