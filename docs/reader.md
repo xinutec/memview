@@ -130,8 +130,12 @@ itself, so even a glob loop runs its body once. The rule is bash's.
    ratios and on before/after diffs of the same corpus, where the duplication
    cancels on both sides. The counts do not: they are inflated, and any
    "biggest first" ranking taken then was weighted toward whatever spanned the
-   transition. Re-take a count before quoting it forward; do not re-derive a
-   conclusion that was already ablated.
+   transition.
+
+   The STANDING figures here — the opaque-shapes table and the current
+   coverage — were re-taken on 2026-08-24. The dated before/after tables were
+   deliberately NOT: an ablation is a record of what was run, and its two halves
+   are only comparable to each other.
 2. Change the table or the grammar.
 3. Re-run the report. The number that matters is the one that *moved*; the
    failure list is the next thing to build.
@@ -599,6 +603,13 @@ reader learned something.
 `arp` (167), `claude` (164) and `magick` (160) surface — real commands that were
 buried under helpers nobody can teach.
 
+⚠ **That table is an ABLATION and its counts are over the pre-#1130 corpus**,
+which held one era twice. It is left as measured, because a before/after diff of
+the same corpus is exactly where the duplication cancels — rewriting the numbers
+would falsify the record of what was run. The standing figure today is **1,261
+local calls across 78 names**, and `understood` is still 99.3%: the change
+survived the corpus being halved under it, which is what a ratio is for.
+
 ⚠ **Still unread, and named rather than hidden: what the CALL passes.**
 `render "$src" out.svg` binds `$1` and `$2` in the body, and the body's file uses
 are recorded at the *declaration* under `Reached::Sometimes` — with the arguments
@@ -706,23 +717,32 @@ empty under `nullglob`, possibly the pattern itself where nothing matched.
 `/abs/dir/*.log` and not `*.log` — **`*`, `../*` and `/*` are three different
 spaces, not one shrug.**
 
-Measured by `--example opaque-shapes` over the union corpus, 2026-08-23, of the
-8,796 subjects the reader could not name:
+Measured by `--example opaque-shapes` over the union corpus, 2026-08-24 — the
+first reading after memview#1130 collapsed the duplicated era — of the 4,566
+subjects the reader could not name:
 
 | uses | shape | `L` | `D` |
 | ---: | --- | :-: | :-: |
-| 4,886 | a bare name, bound outside the text | — | — |
-| 1,128 | locus known, leaf unknown — `Verified/Geo/${s%%:*}` | — | ✓ |
-| 671 | derived — `${f%.ts}.js`, `$(basename …)` | ✓* | * |
-| 665 | an environment directory — `$TMPDIR` | — | ~ |
-| 577 | unclassified | — | — |
-| 544 | a located finite set — `$(find $d -name '*.ts')` | ✓ | ✓ |
-| 259 | a substitution with no locus | — | — |
-| 54 | a positional parameter | — | — |
-| 12 | **arithmetic — never a path** | | |
+| 2,513 | a bare name, bound outside the text | — | — |
+| 612 | locus known, leaf unknown — `Verified/Geo/${s%%:*}` | — | ✓ |
+| 338 | derived — `${f%.ts}.js`, `$(basename …)` | ✓* | * |
+| 338 | an environment directory — `$TMPDIR` | — | ~ |
+| 314 | unclassified | — | — |
+| 273 | a located finite set — `$(find $d -name '*.ts')` | ✓ | ✓ |
+| 143 | a substitution with no locus | — | — |
+| 29 | a positional parameter | — | — |
+| 6 | **arithmetic — never a path** | | |
 
-Plus the 942 already bounded, which have both. Of the 8,784 that are genuinely
-path subjects: **a locus is known for 19.0%, a language for 26.7%.**
+Plus the 490 already bounded, which have both. Of the 4,560 that are genuinely
+path subjects: **a locus is known for 19.4%, a language for 26.8%.**
+
+⚠ **Every count in that table roughly halved on 2026-08-24 and the two RATES
+did not move** — 19.0% → 19.4% and 26.7% → 26.8%, against counts that fell 48%.
+Nothing was learned between those readings: the corpus stopped holding one era
+twice, so there was less to count and no more known. It is the cleanest
+demonstration in this file of why a moved rate has to say which half moved, and
+the reason the shape of the table is the durable part of it and the counts
+are not.
 
 ⚠ **Two of those rows moved for opposite reasons on 2026-08-23, and telling them
 apart is the whole discipline** ([[feedback_a_threshold_carries_its_denominator]],
@@ -731,7 +751,9 @@ went to zero because the READER stopped offering non-paths as subjects — the
 denominator was wrong. The locus rate rose 17.7% → 19.0% because the CENSUS
 learned to read a locus it already had — the numerator was wrong. Only the second
 is more understood; the first is less overstated. Neither is progress on the
-reader's actual limit, which is the 4,886.
+reader's actual limit, which is the bare-name row — 4,886 when this was written,
+2,513 over the corpus of 2026-08-24, and the same fraction of the whole either
+way.
 
 The census had required the variable to be in the **leaf** — split at the last
 `/`, and the directory literal throughout — so `Code/$p/node_modules` (56 uses,
