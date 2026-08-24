@@ -78,16 +78,18 @@ pub struct Tally {
     pub mode: Option<String>,
     /// The first thing this session was asked to do — see [`Summary::asked`].
     ///
-    /// ⚠ **Carried for the opposite reason to the rest of this struct.** The
-    /// transcript records it perfectly well; what it does not do is give it back,
-    /// because a re-seed replays only the LAST page. `asked` binds to the first
-    /// `Prompt` it sees with nothing already bound, so after an upgrade it took
-    /// whatever prompt happened to start the last 400 events — and moved again
-    /// on the next upgrade. Measured 2026-08-24 across two upgrades an hour
-    /// apart: `hardware`'s subtitle went from *"all memories correct now so I
-    /// can /compact?"* to *"what are you going to focus on in the next
-    /// session?"*, neither of them the first thing it was ever asked, with
-    /// nobody touching anything (memview #1146).
+    /// ⚠ **A fallback. The source is [`crate::past::opening`]**, which reads the
+    /// name from the HEAD of the transcript and overwrites whatever is carried
+    /// here. This field is used only for a session with no transcript to read.
+    ///
+    /// ⚠ **Do not make the carried value authoritative.** It is only as good as
+    /// the image that computed it, and every image before this one computed it
+    /// wrongly: `asked` binds to the first `Prompt` seen with nothing bound, and
+    /// a re-seed replays one page, so it took whatever prompt began the last 400
+    /// events and moved again on the next upgrade. Trusting the carry preserves
+    /// those values instead of repairing them. Only the head of the file, which
+    /// cannot move, gives an answer that is both right and stable (memview
+    /// #1146).
     ///
     /// The rule the rest of the tally follows — carry only what nothing on disk
     /// records — holds for facts that depend on RECENT events. This one depends

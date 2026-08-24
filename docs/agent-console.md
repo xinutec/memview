@@ -727,6 +727,33 @@ process says anything, ending with a `joined` marker: above it is what the file
 says, below it is what this console watched. Measured on utterance's 38 MB
 transcript — 122 events recovered, in about a second.
 
+⚠ **A reader who holds nothing is seeded the same way, and that is not the same
+as replaying the log.** `SCROLLBACK` is 5,000 events, which on a session watched
+all day is hours of it; sent to somebody opening a session that was 7.9 MB across
+the fleet, 1.4 MB for the largest, with the newest message arriving last. A cold
+connection gets the transcript's last page instead — 524 kB in total, 48 kB for
+that largest one. The log stays 5,000 for *resumes*, which is what it is for.
+See `api::cold`.
+
+**What the tally carries, in two directions.** Carry what nothing on disk
+records — a status, a question, the rate-limit reading. But *also* carry, or
+re-derive, anything whose value depends on the WHOLE history rather than on
+recent events, because the replay is one page. Two things sit on that second
+side: the session's name, which binds to the first prompt in the page and so
+follows the page, and its running background tasks, which a page older than they
+are does not mention. `past::opening` takes the name from the head of the file,
+which cannot move.
+
+⚠ **A question is the one console-only event a reader is sent.** `Ask` is a
+control request and no transcript holds one, so a seed read from the file cannot
+contain it — and `Summary::asked` says *waiting for you* regardless. Without it
+the list asks and the conversation shows nothing to answer, which on a blocked
+session is the whole of what that session is waiting for; measured at ninety
+minutes before it was noticed.
+`console/tests/provenance.rs` now makes that decision once for every event kind:
+each is either something a transcript can produce or something the console alone
+knows, and an unclassified variant does not compile.
+
 Two traps, both hit:
 
 - ⚠ **A transcript has no deltas.** The live reader takes assistant text from
@@ -1292,6 +1319,14 @@ field that reads like a measurement and is actually an aggregate.**
   Found by asking a straight question of `health`, which said five tasks were
   running: all five were started that afternoon, the newest nine hours gone, and
   the session had no child processes at all.
+- ⚠ **Except across an upgrade, where the children are the same children.**
+  `execve` does not touch them, so a monitor armed an hour ago is still armed —
+  and clearing on `joined` forgot it while it ran. `Session::adopt` puts the
+  carried set back AFTER its seed, because the seed's own `joined` is what wipes
+  it. The client draws the same distinction for a call with no result:
+  `Event::Joined::restarted` says whether a NEW process wrote what is above the
+  line, and only then is that work dead. Without it, opening a live session
+  marked the tool call running right then as *no result recorded*.
 
 ### Showing a session a picture
 

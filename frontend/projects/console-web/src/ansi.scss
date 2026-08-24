@@ -27,9 +27,10 @@
 // `light-dark()` carries a pair for each, measured at rgb(179,38,30) light and
 // rgb(255,138,128) dark.
 //
-// The waiver is repeated on every declaration rather than written once here,
-// because the marker silences the line that follows it — and dev-lint reports a
-// waiver that suppressed nothing, which is how this comment lost its own.
+// The waiver is repeated on every declaration because the marker silences only
+// the line that follows it. One at the top of the block silences the `.ansi {`
+// line, which holds no colour — and dev-lint reports a waiver that suppressed
+// nothing, so the mistake is caught rather than merely useless.
 .ansi {
   // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
   --fg0: light-dark(#2b2b2b, #6b6b6b);

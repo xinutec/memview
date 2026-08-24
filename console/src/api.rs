@@ -743,9 +743,17 @@ pub fn resume_from(headers: &HeaderMap, asked: Option<&str>) -> Option<u64> {
 /// is a thing no client can undo. This way it is missed instead, which the next
 /// event repairs and which nobody can see.
 ///
-/// ⚠ **Console-only events are not replayed here.** `busy`, `accepted`,
-/// `started` are this console's own words and are in no transcript, so a cold
-/// reader no longer sees the recent ones. What is doing the work of `busy` for
+/// ⚠ **Most console-only events are not replayed here — but a question is.**
+/// `busy`, `accepted`, `started` are this console's own words and are in no
+/// transcript, so a cold reader no longer sees the recent ones. `Ask` is the
+/// exception and is put back below: a session blocked on a question that nothing
+/// draws is stopped, where the others are merely a display.
+///
+/// ⚠ **Adding an event kind means deciding which of those it is.** This list is
+/// prose, and prose under-fills: it named three kinds while a fourth, `Ask`,
+/// went missing, and a genuinely blocked session showed nothing to answer for
+/// ninety minutes. `console/tests/provenance.rs` makes that decision for every
+/// variant, and an unclassified one does not compile. What is doing the work of `busy` for
 /// such a reader is already there and is what it was built for: nothing on this
 /// stream is evidence about the present until `caught-up`, and until then the
 /// page reads the session's own `busy` off the summary — see `Held.spoken` in
@@ -807,8 +815,8 @@ fn cold(id: &str, session: &crate::session::Session) -> Option<(Vec<Sse>, u64)> 
     // request the CLI made and no transcript holds one, so a seed read from the
     // file cannot carry it — while `Summary::asked` is computed from the
     // session's own state and says *waiting for you* regardless. Without this
-    // the list asks and the conversation shows nothing to answer, which is what
-    // Pippijn hit on `hardware` the day this was written.
+    // the list asks and the conversation shows nothing to answer — measured at
+    // ninety minutes, on a session that was genuinely blocked.
     //
     // The same shape [`crate::session::Session::adopt`] uses after ITS seed, and
     // for the same reason: one mechanism, so a client is offered the decision

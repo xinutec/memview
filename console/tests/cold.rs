@@ -10,10 +10,15 @@
 //! stream carries the transcript's last page and stops there, rather than the
 //! whole scrollback the console has been keeping for its own resumes — that is
 //! the megabyte a phone on a bad connection was waiting through. What it costs
-//! is the console's own recent words: `started`, `busy`, `sent` are in no
+//! is the console's own recent words: `started`, `busy` and `accepted` are in no
 //! transcript, and a reader arriving cold no longer gets them. Both are asserted,
 //! because a change that quietly stopped doing the second would look exactly like
 //! this one passing.
+//!
+//! ⚠ **`Ask` is the one console-only event that IS put back**, and it has its own
+//! test here. A display that goes missing is a display; a question that goes
+//! missing stops the session. `tests/provenance.rs` is where that distinction is
+//! made once for every event kind, rather than remembered.
 
 use std::path::PathBuf;
 use std::sync::Arc;

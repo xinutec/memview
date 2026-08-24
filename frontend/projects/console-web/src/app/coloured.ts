@@ -135,10 +135,10 @@ function restyled(active: string[], parameters: string): string[] {
 /**
  * One SGR code against the classes in force.
  *
- * The classes are numbered as the palette is — `fg0` black through `fg7` white,
- * `fg8`-`fg15` the bright set — so the arithmetic below is `code - 30` and not
- * `code - 29`. It was the latter first, which put red in green's slot; the spec
- * caught it before it reached a screen.
+ * ⚠ **The classes are numbered as the palette is** — 0 black through 7 white,
+ * 8-15 the bright set — so the arithmetic is `code - 30`, not `code - 29`. An
+ * off-by-one here does not fail: it silently draws every colour as its
+ * neighbour, and red reads as green.
  */
 function applied(active: string[], code: number): string[] {
   const without = (...classes: string[]) => active.filter((it) => !classes.includes(it));
