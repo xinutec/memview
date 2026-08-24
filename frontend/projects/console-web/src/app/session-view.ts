@@ -38,6 +38,7 @@ import { Drafts } from './drafts';
 import { Following, measure } from './following';
 import { Here } from './here';
 import { Updates } from './updates';
+import { Coloured } from './coloured';
 import { Rendered } from './rendered';
 import { Picture, shrink, weight } from './picture';
 import { Answers, Notes, Question, choiceOf, complete } from './questions';
@@ -62,6 +63,7 @@ import { fullness } from './tokens';
     MatFormFieldModule,
     MatInputModule,
     MatProgressBarModule,
+    Coloured,
     Rendered,
     TextFieldModule,
   ],
@@ -554,7 +556,6 @@ export class SessionView implements OnDestroy {
     this.following.released(measure(box));
     this.follow();
   }
-
 
   /**
    * The view moved; the engine decides what it meant. See [[Following.moved]],

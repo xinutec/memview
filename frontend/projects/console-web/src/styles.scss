@@ -1,4 +1,8 @@
 @use '@angular/material' as mat;
+// The palette `coloured.ts` writes its spans against. Global because those spans
+// are built at runtime and carry no component scoping attribute — see the note
+// in the file itself.
+@use 'ansi';
 
 // Teal rather than memview's violet, and that is not decoration: these two apps
 // have different privileges and are open side by side. The colour is how you

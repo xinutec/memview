@@ -1,0 +1,110 @@
+// The sixteen ANSI colours, as the terminal palettes name them.
+//
+// These classes are `coloured.ts`'s contract, not any one view's, which is why
+// they live beside the pipe rather than inside the component that first used it.
+// Anything that shows captured output adds `class="ansi"` and gets the same
+// reading of the same codes.
+//
+// ⚠ **Global on purpose, and it has to be.** A component stylesheet is scoped by
+// an attribute the compiler adds to elements in ITS template — and these spans
+// are built by a pipe at runtime, so they carry no such attribute and a scoped
+// rule never matches them. Written into `session-view.scss` first, where it also
+// pushed that sheet past its 10 kB budget: two signals saying the same thing.
+//
+// ⚠ **Two palettes, because one is unreadable on the other ground.** The
+// ordinary eight are picked for a light background and the bright eight for a
+// dark one; swapped, yellow on white and blue on black both disappear.
+// `light-dark()` takes the pair and the `color-scheme` on `html` chooses, so
+// this follows the phone's own setting with nothing to toggle.
+//
+// Chosen against the surface rather than lifted from a stock terminal theme:
+// these sit inside a Material card, not an 80x24.
+// ⚠ **Why sixteen hardcoded pairs, against the rule that forbids them.** The
+// ANSI palette is defined by the terminal, not by this theme: there is no
+// `--mat-sys-` token for "colour 1", and mapping sixteen named colours onto one
+// Material ramp would make red and magenta the same grey. The harm the rule
+// names — "it won't adapt to dark/light" — is the one thing this does do:
+// `light-dark()` carries a pair for each, measured at rgb(179,38,30) light and
+// rgb(255,138,128) dark.
+//
+// The waiver is repeated on every declaration rather than written once here,
+// because the marker silences the line that follows it — and dev-lint reports a
+// waiver that suppressed nothing, which is how this comment lost its own.
+.ansi {
+  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
+  --fg0: light-dark(#2b2b2b, #6b6b6b);
+  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
+  --fg1: light-dark(#b3261e, #ff8a80);
+  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
+  --fg2: light-dark(#1b6b3a, #7ee2a8);
+  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
+  --fg3: light-dark(#8a6100, #ffd479);
+  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
+  --fg4: light-dark(#1b4f9b, #82b1ff);
+  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
+  --fg5: light-dark(#8b3a8b, #f4a6f4);
+  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
+  --fg6: light-dark(#0e6f77, #7fe3ea);
+  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
+  --fg7: light-dark(#4a4a4a, #e8e8e8);
+  // The bright set. `fg8` is the grey a build log dims its own noise with, so it
+  // has to stay legible rather than fade into the card.
+  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
+  --fg8: light-dark(#6b6b6b, #9a9a9a);
+  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
+  --fg9: light-dark(#d13b30, #ffb4ab);
+  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
+  --fg10: light-dark(#1f8a4a, #a6f0c6);
+  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
+  --fg11: light-dark(#a67800, #ffe4a3);
+  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
+  --fg12: light-dark(#2a67c4, #a8c8ff);
+  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
+  --fg13: light-dark(#a94ca9, #f8c4f8);
+  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
+  --fg14: light-dark(#158a94, #a6eff4);
+  // dev-lint: allow-hardcoded-color the terminal\'s own palette, not this theme — see above
+  --fg15: light-dark(#1a1a1a, #ffffff);
+
+  // One rule for the colour and one for the tint, with the shade named per
+  // class. Sixteen rules each way was most of a kilobyte for nothing.
+  @for $i from 0 through 15 {
+    .ansi-fg-#{$i} {
+      --shade: var(--fg#{$i});
+    }
+    .ansi-bg-#{$i} {
+      --tint: var(--fg#{$i});
+    }
+  }
+
+  [class*='ansi-fg-'] {
+    color: var(--shade);
+  }
+
+  // A background is rare in captured output and loud when it appears, so it is
+  // drawn as a tint of the same hue rather than a block of it.
+  [class*='ansi-bg-'] {
+    background: color-mix(in srgb, var(--tint) 22%, transparent);
+    border-radius: 2px;
+    padding: 0 0.1rem;
+  }
+
+  .ansi-b {
+    font-weight: 700;
+  }
+
+  // ⚠ **Dim is most of a build log** — `vitest` and `cargo` write their framing
+  // in it — so this is a real reduction rather than a near-invisible one: too
+  // faint and the line it frames loses its structure.
+  .ansi-d {
+    opacity: 0.65;
+  }
+
+  .ansi-i {
+    font-style: italic;
+  }
+
+  .ansi-u {
+    text-decoration: underline;
+  }
+}

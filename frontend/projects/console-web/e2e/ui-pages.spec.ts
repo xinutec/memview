@@ -393,7 +393,16 @@ const TRANSCRIPT = [
     kind: 'tool_result',
     id: 'toolu_02',
     ok: false,
-    detail: 'error: unknown flag --serve\nnote: run with --help for a list\nexit status 2',
+    // ⚠ **In colour, because that is how it arrives.** `cargo`, `vitest` and
+    // `eslint` all write SGR, and with nothing reading it the ESC byte is
+    // invisible while the codes are not — the phone showed `[2m…[32m22 passed`.
+    // The fixture carries the escapes so the harness renders what a real result
+    // renders.
+    detail:
+      '\x1b[1;31merror\x1b[0m: unknown flag \x1b[33m--serve\x1b[39m\n' +
+      '\x1b[2mnote: run with --help for a list\x1b[22m\n' +
+      '\x1b[90m Test Files \x1b[39m \x1b[1m\x1b[32m22 passed\x1b[39m\x1b[22m\x1b[90m (22)\x1b[39m\n' +
+      'exit status 2',
   },
   {
     kind: 'text',
@@ -901,11 +910,7 @@ async function distanceFromTheEnd(page: Page): Promise<number> {
  * platform's business, which is why the tests assert on the view's movement
  * rather than on this number.
  */
-async function thumb(
-  page: Page,
-  by: number,
-  during?: () => Promise<void>,
-): Promise<void> {
+async function thumb(page: Page, by: number, during?: () => Promise<void>): Promise<void> {
   const box = (await page.locator('.transcript').boundingBox())!;
   const x = Math.round(box.x + box.width / 2);
   const y = Math.round(box.y + box.height / 2);
@@ -1044,6 +1049,15 @@ test('transcript — tool arguments and a fixed composer @ phone width', async (
   // than for the first paint, or the checks run against half a transcript.
   await openTools(page);
   await page.getByText('verified_cli').first().waitFor();
+
+  // ⚠ **The codes, not the colour.** A great deal of what the fleet runs writes
+  // SGR — `cargo`, `vitest`, `eslint` — and with nothing reading it the ESC byte
+  // is invisible while the rest is not, so the row read
+  // `[1;31merror[0m: unknown flag`. Asserted on the escape sequence rather than
+  // on a colour: what went wrong was text nobody could read, and that it is now
+  // red is a matter for the render.
+  await expect(page.getByText('[1;31m')).toHaveCount(0);
+  await expect(page.locator('.returned.ansi .ansi-fg-1').first()).toBeVisible();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
   await expectNoPinnedOverlap(page);
@@ -1129,7 +1143,7 @@ test('go to — a long conversation is reachable by landmark @ phone width', asy
 
   await expectIconFontLoaded(page);
   await expectNoHorizontalOverflow(page, testInfo, 'mat-bottom-sheet-container');
-  await expectNoClippedText(page, testInfo, "mat-bottom-sheet-container");
+  await expectNoClippedText(page, testInfo, 'mat-bottom-sheet-container');
   // Scoped to the sheet: it sits OVER the transcript by design, so an unscoped
   // check reports the conversation behind it overlapping every row.
   await expectNoTextOverlaps(page, testInfo, 'mat-bottom-sheet-container');
@@ -2100,8 +2114,7 @@ test('the transcript keeps following through a thumb resting on it @ phone width
   // nothing — and "by nothing" would leave this test passing without ever having
   // exercised a hold. The synthesized gesture is atomic, so the furthest point
   // has to be collected as it happens.
-  const furthest = async () =>
-    page.evaluate(() => (window as unknown as { __min: number }).__min);
+  const furthest = async () => page.evaluate(() => (window as unknown as { __min: number }).__min);
   await page.evaluate(() => {
     const el = document.querySelector('.transcript')!;
     const w = window as unknown as { __min: number };
@@ -3001,7 +3014,10 @@ test('the bar is a session bar before the runner has answered @ phone width', as
   await page.goto(`/s/${STATE.sessions[0].id}`);
 
   // Nothing has answered yet, and the way out is already on screen.
-  await expect(page.locator('.bar [aria-label="all sessions"]'), 'the bar is still the list’s').toBeVisible();
+  await expect(
+    page.locator('.bar [aria-label="all sessions"]'),
+    'the bar is still the list’s',
+  ).toBeVisible();
   await expect(page.locator('.bar .title'), 'the root headline flashed up').toHaveCount(0);
 
   answer?.();
@@ -3200,7 +3216,9 @@ test('a name too long for the bar gives way rather than pushing @ phone width', 
     const menu = document
       .querySelector('.bar button[aria-haspopup="menu"]')!
       .getBoundingClientRect();
-    const leave = document.querySelector('.bar [aria-label="all sessions"]')!.getBoundingClientRect();
+    const leave = document
+      .querySelector('.bar [aria-label="all sessions"]')!
+      .getBoundingClientRect();
     return {
       wanted: name.scrollWidth,
       given: name.clientWidth,
@@ -3940,10 +3958,7 @@ async function openParse(page: Page): Promise<void> {
   // parse* (0.4% of the corpus, and its own test here), and the fetch having
   // failed. Waiting on `.step` instead hung that middle case for 30s — a parse
   // with no steps is exactly what it is about.
-  await page
-    .locator(`${SHEET} .summary, ${SHEET} .unread, ${SHEET} .trouble`)
-    .first()
-    .waitFor();
+  await page.locator(`${SHEET} .summary, ${SHEET} .unread, ${SHEET} .trouble`).first().waitFor();
   // ⚠ **`settleTransforms`, and the two earlier waits here were both wrong.**
   //
   // The first asked `sheet.getAnimations()` and got nothing, and the note left
@@ -4309,16 +4324,13 @@ test('a session opened with no answer from the Mac reads from the kept copy @ ph
   // looking at. Sending is untouched; a send that cannot reach the Mac keeps its
   // draft in the composer as it always did.
   const id = STATE.sessions[0].id;
-  await page.addInitScript(
-    ([key, copy]) => localStorage.setItem(key, copy),
-    [
-      `console.kept.${id}`,
-      JSON.stringify([
-        { kind: 'said', text: 'a line from before the tunnel dropped', at: 1785600000000 },
-        { kind: 'turn', text: '' },
-      ]),
-    ] as const,
-  );
+  await page.addInitScript(([key, copy]) => localStorage.setItem(key, copy), [
+    `console.kept.${id}`,
+    JSON.stringify([
+      { kind: 'said', text: 'a line from before the tunnel dropped', at: 1785600000000 },
+      { kind: 'turn', text: '' },
+    ]),
+  ] as const);
   await mockRunner(page);
   // The Mac does not answer: the transcript stream never opens, which is exactly
   // what a dropped tunnel looks like from here.
