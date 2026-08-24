@@ -470,3 +470,63 @@ async fn a_sessions_name_comes_from_the_head_of_its_transcript_not_the_last_page
         "the name came from the last page or a stale tally, not the head of the file"
     );
 }
+
+#[tokio::test]
+async fn a_conversation_continued_from_a_compacted_one_claims_no_origin() {
+    // ⚠ **`None` is the answer, not a fallback.** When a conversation runs out
+    // of context the CLI opens a fresh transcript with a summary and a
+    // `This session is being continued…` message — the harness talking, not
+    // Pippijn. Measured on `heatcam` 2026-08-24: its first user text is 447 kB
+    // in and is exactly that. Leaving a recent prompt in its place is the false
+    // claim this whole change repairs, so the honest answer is to say nothing
+    // and let the session's own name identify it.
+    let scratch = projects();
+    let id = "a-conversation-that-was-compacted";
+    let folder = scratch.join("project");
+    std::fs::create_dir_all(&folder).expect("project dir");
+    std::fs::write(
+        folder.join(format!("{id}.jsonl")),
+        format!(
+            "{}\n{}\n",
+            r#"{"type":"user","timestamp":"2026-08-24T10:00:00Z","message":{"role":"user","content":[{"type":"text","text":"This session is being continued from a previous conversation that ran out of context. The summary below covers..."}]}}"#,
+            r#"{"type":"user","timestamp":"2026-08-24T10:05:00Z","message":{"role":"user","content":[{"type":"text","text":"a much later prompt"}]}}"#,
+        ),
+    )
+    .expect("transcript");
+
+    let (_stdin_read, stdin) = carried_pipe();
+    let (stdout, _stdout_write) = carried_pipe();
+    let (stderr, _stderr_write) = carried_pipe();
+    let session = console::session::Session::adopt(
+        id.to_string(),
+        std::env::temp_dir(),
+        std::process::id(),
+        console::session::Fds {
+            stdin,
+            stdout,
+            stderr,
+        },
+        console::session::Tally {
+            started: 1_754_000_000,
+            model: None,
+            mode: None,
+            // What an earlier image had wrongly taken for the name.
+            asked: Some("a much later prompt".into()),
+            cost_usd: 0.0,
+            window: None,
+            limit: None,
+            busy: None,
+            pending: Default::default(),
+            background: Default::default(),
+            spent: Default::default(),
+            counted: Default::default(),
+        },
+    )
+    .expect("adopt");
+
+    assert_eq!(
+        session.summary().asked,
+        None,
+        "a continued conversation claimed an origin it does not have"
+    );
+}

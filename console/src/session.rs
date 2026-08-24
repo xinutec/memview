@@ -1057,9 +1057,11 @@ impl Session {
         // file does not move, so this is both correct and stable, and it repairs
         // a value an earlier image already got wrong. See
         // [`crate::past::opening`] and memview #1146.
-        if let Some(first) = crate::past::opening(&path) {
-            self.state.lock().expect("session state poisoned").asked = Some(first);
-        }
+        // Set unconditionally, including to `None`. A conversation continued
+        // from a compacted one has no origin in this file, and a recent prompt
+        // left standing in its place is the false claim being repaired — see
+        // [`crate::past::opening`].
+        self.state.lock().expect("session state poisoned").asked = crate::past::opening(&path);
         self.recount();
     }
 
