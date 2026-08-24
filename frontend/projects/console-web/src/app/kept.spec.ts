@@ -74,7 +74,11 @@ describe('Kept', () => {
     expect(kept().entries('s2')).toEqual([]);
 
     localStorage.setItem('console.kept.s3', '[{"text":"no kind"},{"kind":"said","text":"ok"}]');
-    expect(kept().entries('s3').map((e) => e.text)).toEqual(['ok']);
+    expect(
+      kept()
+        .entries('s3')
+        .map((e) => e.text),
+    ).toEqual(['ok']);
   });
 
   it('forgets a conversation on request', () => {

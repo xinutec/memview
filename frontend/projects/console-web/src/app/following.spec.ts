@@ -119,7 +119,10 @@ describe('while the reader holds the screen', () => {
 
     following.took(box(end(5000), 5000));
 
-    expect(following.wants(box(end(5000), 5400)), 'the answer grew; the view stays').toBeUndefined();
+    expect(
+      following.wants(box(end(5000), 5400)),
+      'the answer grew; the view stays',
+    ).toBeUndefined();
     expect(following.wants(box(end(5000), 6000)), 'and keeps staying').toBeUndefined();
   });
 

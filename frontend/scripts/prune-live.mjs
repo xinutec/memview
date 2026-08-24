@@ -94,7 +94,10 @@ export function prune({ live, built, gens, generations = GENERATIONS, now = new 
     writeFileSync(join(gens, '00000000T000000Z-legacy.txt'), seeded.join('\n') + '\n');
   }
 
-  const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+  const stamp = now
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d+Z$/, 'Z');
   writeFileSync(join(gens, `${stamp}.txt`), published.join('\n') + '\n');
 
   const all = manifests();

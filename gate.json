@@ -97,6 +97,21 @@
         "--command",
         "pnpm",
         "run",
+        "format:check"
+      ],
+      "cwd": "frontend",
+      "env": {},
+      "name": "frontend formatting",
+      "timeout_s": 900
+    },
+    {
+      "argv": [
+        "nix",
+        "develop",
+        "--no-warn-dirty",
+        "--command",
+        "pnpm",
+        "run",
         "typecheck"
       ],
       "cwd": "frontend",

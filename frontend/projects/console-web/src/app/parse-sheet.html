@@ -30,8 +30,7 @@
   </p>
 } @else {
   <p class="summary">
-    {{ counted().steps }} commands · {{ counted().reads }} read ·
-    {{ counted().writes }} written
+    {{ counted().steps }} commands · {{ counted().reads }} read · {{ counted().writes }} written
     @if (counted().unproven) {
       <!-- Said in the summary rather than left to be discovered row by row: it
            is the number a reader came for when a call failed. -->
@@ -43,8 +42,7 @@
     <!-- Otherwise a reader counts three steps against one line of text and
          assumes the view is broken. -->
     <p class="note">
-      {{ parsed()?.unrolled }} of these are a loop run out — one step per value it
-      actually took.
+      {{ parsed()?.unrolled }} of these are a loop run out — one step per value it actually took.
     </p>
   }
 
@@ -88,8 +86,7 @@
               <!-- A `cd` this reader cannot follow. Saying so is what keeps a
                    later relative path from being resolved somewhere it never
                    ran — the defect that invents a file out of nothing. -->
-              in a directory this reader cannot follow, so only absolute paths
-              survive
+              in a directory this reader cannot follow, so only absolute paths survive
             }
           </p>
         }
@@ -149,8 +146,8 @@
 
   @if (parsed()?.nested_unparsed) {
     <p class="note">
-      {{ parsed()?.nested_unparsed }} script(s) inside a wrapper could not be
-      read, so their commands are missing from the middle of this.
+      {{ parsed()?.nested_unparsed }} script(s) inside a wrapper could not be read, so their
+      commands are missing from the middle of this.
     </p>
   }
 }

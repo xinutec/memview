@@ -72,14 +72,16 @@
                on a screen whose whole job is the subject. The words are on the
                label, where a screen reader and a long-press find them. -->
           @if (dueLabel(task); as when) {
-            <mat-icon class="when" [class.late]="task.overdue" [attr.aria-label]="when" [title]="when"
+            <mat-icon
+              class="when"
+              [class.late]="task.overdue"
+              [attr.aria-label]="when"
+              [title]="when"
               >event</mat-icon
             >
           }
           @if (waitingOn(task); as blockers) {
-            <mat-icon class="held" [attr.aria-label]="blockers" [title]="blockers"
-              >block</mat-icon
-            >
+            <mat-icon class="held" [attr.aria-label]="blockers" [title]="blockers">block</mat-icon>
           }
           <span class="subject">{{ task.subject }}</span>
           @if (task.detailed) {

@@ -4,5 +4,9 @@ dist/
 node_modules/
 # Generated from the Rust types; formatting it would fight the generator.
 **/*.gen.ts
+# A golden, written by `serde_json::to_string_pretty` and compared byte for byte
+# by `console/tests/parse.rs`. Prettier reformatted it and the Rust test went red
+# — the generator owns this shape, and `BLESS=1` is how it changes.
+projects/console-web/e2e/parsed.fixture.json
 # Written by pnpm, not by anyone.
 pnpm-lock.yaml

@@ -175,9 +175,12 @@ describe('questions', () => {
     // One of the CLI's three `can_use_tool` call sites omits `tool_use_id` — read
     // out of 2.1.226. An ask nothing can be attached to must still be answerable,
     // or a session blocks for ever on a question nothing draws.
-    const seen = transcript(
-      { kind: 'ask', id: 'q1', tool: 'WebFetch', input: { host: 'example.com' } },
-    );
+    const seen = transcript({
+      kind: 'ask',
+      id: 'q1',
+      tool: 'WebFetch',
+      input: { host: 'example.com' },
+    });
     expect(seen.map((e) => e.kind)).toEqual(['ask']);
     expect(seen[0].ask).toBe('q1');
   });

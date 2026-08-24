@@ -38,11 +38,7 @@
 
   <div class="kinds">
     @for (kind of kinds(); track kind[0]) {
-      <button
-        class="chip"
-        [class.on]="filter().kind === kind[0]"
-        (click)="narrow('kind', kind[0])"
-      >
+      <button class="chip" [class.on]="filter().kind === kind[0]" (click)="narrow('kind', kind[0])">
         {{ kind[0] }} <span class="n">{{ kind[1] }}</span>
       </button>
     }
@@ -166,9 +162,7 @@
                   </p>
                 }
                 @if (ev.total > ev.effects.length) {
-                  <p class="capped-note">
-                    showing {{ ev.effects.length }} of {{ ev.total }}
-                  </p>
+                  <p class="capped-note">showing {{ ev.effects.length }} of {{ ev.total }}</p>
                 }
               }
             } @else {

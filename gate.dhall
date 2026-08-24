@@ -132,6 +132,23 @@ in  { name = "memview"
         , argv = G.inDevShell [ "pnpm", "run", "lint" ]
         , timeout_s = 900
         }
+      , {-  Prettier, which had a `format` script and a `format:check` script and
+            nothing running either — so sixteen files had drifted out of the
+            style the project declares for itself.
+
+            ⚠ **The cost of not gating this is not ugliness, it is other
+            people's diffs.** `pnpm run format` writes the whole project, so
+            anybody who ran it while doing something else swept those sixteen
+            files into their own change. That happened on 2026-08-24 and the
+            files had to be picked back out by hand before the commit could say
+            what it was.
+        -}
+        G.Check::{
+        , name = "frontend formatting"
+        , cwd = "frontend"
+        , argv = G.inDevShell [ "pnpm", "run", "format:check" ]
+        , timeout_s = 900
+        }
       , {-  The layout harnesses and the Playwright configs. `ng build` compiles
             only what `src/main.ts` imports and Playwright strips types with
             esbuild rather than checking them, so without this the code that

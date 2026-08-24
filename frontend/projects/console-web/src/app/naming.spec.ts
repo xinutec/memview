@@ -31,9 +31,9 @@ describe('an unnamed session', () => {
     // ⚠ Every session is started in `~/Code`, the parent of every repository, so
     // the folder answers `Code` for all of them and two new ones were
     // indistinguishable on the list.
-    expect(
-      titleOf({ dir: '/home/example/Code', id: '3f8a1c2b-0000-4000-8000-000000000001' }),
-    ).toBe('Code · 3f8a1c2b');
+    expect(titleOf({ dir: '/home/example/Code', id: '3f8a1c2b-0000-4000-8000-000000000001' })).toBe(
+      'Code · 3f8a1c2b',
+    );
   });
 
   it('keeps the name once it has one, id or no id', () => {

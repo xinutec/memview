@@ -8,9 +8,8 @@
   </p>
 } @else if (reading(); as got) {
   <p class="lede">
-    Every shell command the fleet has run, read without running any of it. What
-    the text does not determine is counted as undetermined, so the gap below is a
-    number rather than a silence.
+    Every shell command the fleet has run, read without running any of it. What the text does not
+    determine is counted as undetermined, so the gap below is a number rather than a silence.
   </p>
 
   <!-- ⚠ **The claim and its ceiling are one block.** Two figures over two
@@ -45,8 +44,8 @@
   </p>
   <p class="note">
     {{ got.certain | number }} of those uses are confirmed by an outcome.
-    {{ unconfirmable() | number }} are not — a command after <code>&amp;&amp;</code> or
-    inside an <code>if</code>, where one exit status cannot say which way it went.
+    {{ unconfirmable() | number }} are not — a command after <code>&amp;&amp;</code> or inside an
+    <code>if</code>, where one exit status cannot say which way it went.
   </p>
 
   @if (got.distinct_tables) {
@@ -54,8 +53,8 @@
     <!-- Said in words, because the figures alone would read as a subset of the
          ones above them. -->
     <p class="note">
-      <b>Tables, not files</b> — none of this is counted above, and no statement
-      in this corpus names a file at all.
+      <b>Tables, not files</b> — none of this is counted above, and no statement in this corpus
+      names a file at all.
     </p>
     <p class="line">
       <b>{{ got.table_reads | number }}</b> table reads ·
@@ -66,13 +65,15 @@
 
   <h2>What it does not know</h2>
   <p class="note">
-    Commands with no entry in the table. The work queue, not a failure — each is
-    a name somebody could teach it.
+    Commands with no entry in the table. The work queue, not a failure — each is a name somebody
+    could teach it.
   </p>
   <ul class="rows">
     @for (row of got.unread; track row.name) {
       <li>
-        <span class="pair"><b>{{ row.n | number }}</b></span>
+        <span class="pair"
+          ><b>{{ row.n | number }}</b></span
+        >
         <code class="name">{{ row.name }}</code>
       </li>
     }
@@ -81,15 +82,16 @@
   @if (got.local > 0) {
     <h2>What it can never be taught</h2>
     <p class="note">
-      <b>{{ got.local | number }}</b> calls to a function the same script
-      declares. Not on the queue above: <code>probe</code> means something
-      different in every script that writes one, so no entry could be written
-      for it. What the body does is recorded where it is declared.
+      <b>{{ got.local | number }}</b> calls to a function the same script declares. Not on the queue
+      above: <code>probe</code> means something different in every script that writes one, so no
+      entry could be written for it. What the body does is recorded where it is declared.
     </p>
     <ul class="rows">
       @for (row of got.local_names; track row.name) {
         <li>
-          <span class="pair"><b>{{ row.n | number }}</b></span>
+          <span class="pair"
+            ><b>{{ row.n | number }}</b></span
+          >
           <code class="name">{{ row.name }}</code>
         </li>
       }
@@ -97,9 +99,8 @@
   }
 
   <p class="stamp">
-    {{ got.calls | number }} calls surveyed, {{ got.unparsed | number }} of which
-    would not parse. Mined nightly — the survey takes 13 seconds, so it is not
-    computed when this page opens.
+    {{ got.calls | number }} calls surveyed, {{ got.unparsed | number }} of which would not parse.
+    Mined nightly — the survey takes 13 seconds, so it is not computed when this page opens.
   </p>
 } @else {
   <mat-progress-bar mode="indeterminate" />

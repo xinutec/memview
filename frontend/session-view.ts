@@ -496,9 +496,7 @@ export class SessionView implements OnDestroy {
     // travels screens, not a fifth of one — 609px is the viewport here — so
     // `AWAY` costs nothing real and puts the decision well clear of the noise.
     const AWAY = 300;
-    this.pinned = followed
-      ? this.wrote < 0 || this.wrote - box.scrollTop < AWAY
-      : gap < NEAR;
+    this.pinned = followed ? this.wrote < 0 || this.wrote - box.scrollTop < AWAY : gap < NEAR;
     // ⚠ **The moment following stops, with the numbers that stopped it.**
     // Reported from a phone as a conversation opening part-way up and coming
     // right on a second open — which the layout harness cannot reproduce,

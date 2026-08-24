@@ -29,7 +29,9 @@
                file changes never pass through Write or Edit, and unlabelled they
                would read as a jump in the counting rather than as what they are. -->
           @if (a.shellReads || a.shellWrites) {
-            <span class="via-shell">{{ a.shellReads }}r {{ a.shellWrites }}w through the shell</span>
+            <span class="via-shell"
+              >{{ a.shellReads }}r {{ a.shellWrites }}w through the shell</span
+            >
             <!-- Files a command may never have touched — a command after `&&`
                  runs only if what came before it worked, and one exit status for
                  a script often cannot say. In none of the counts beside it, and

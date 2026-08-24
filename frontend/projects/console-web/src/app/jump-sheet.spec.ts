@@ -19,10 +19,7 @@ describe('byDay', () => {
     // ⚠ The file is oldest first and the console draws it that way. This list is
     // the other direction on purpose: what somebody wants back is far more often
     // this afternoon's than March's.
-    const days = byDay(
-      [mark(10, NOW - 2 * DAY), mark(20, NOW - DAY), mark(30, NOW)],
-      NOW,
-    );
+    const days = byDay([mark(10, NOW - 2 * DAY), mark(20, NOW - DAY), mark(30, NOW)], NOW);
 
     expect(days.map((day) => day.title)).toEqual([
       'Today',

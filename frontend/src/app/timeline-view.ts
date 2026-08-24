@@ -137,10 +137,7 @@ export class TimelineView {
     if (!page) return [];
     return page.moments.map((m, at) => {
       const above = at === 0 ? undefined : page.moments[at - 1];
-      const heads =
-        m.episode !== undefined &&
-        m.episode !== null &&
-        above?.episode !== m.episode;
+      const heads = m.episode !== undefined && m.episode !== null && above?.episode !== m.episode;
       return { m, episode: heads ? page.episodes[m.episode!] : undefined };
     });
   });

@@ -9,7 +9,9 @@ describe('ANSI in tool output', () => {
     // ⚠ **The shape Pippijn actually sees.** vitest writes its summary in SGR,
     // and with nothing reading it the ESC byte is invisible while the bracket
     // codes are not — so the phone showed `[2m Test Files [22m [1m[32m22 passed`.
-    expect(colour(`${ESC}[32m22 passed${ESC}[39m`)).toBe('<span class="ansi-fg-2">22 passed</span>');
+    expect(colour(`${ESC}[32m22 passed${ESC}[39m`)).toBe(
+      '<span class="ansi-fg-2">22 passed</span>',
+    );
     expect(colour(`${ESC}[32m22 passed${ESC}[39m`)).not.toContain('[32m');
   });
 
@@ -33,7 +35,9 @@ describe('ANSI in tool output', () => {
     // threat model, but it is not ours either, and this is the one thing that
     // turns it into HTML.
     expect(colour('<script>alert(1)</script>')).toBe('&lt;script&gt;alert(1)&lt;/script&gt;');
-    expect(colour(`${ESC}[31m<b>x</b>`)).toBe('<span class="ansi-fg-1">&lt;b&gt;x&lt;/b&gt;</span>');
+    expect(colour(`${ESC}[31m<b>x</b>`)).toBe(
+      '<span class="ansi-fg-1">&lt;b&gt;x&lt;/b&gt;</span>',
+    );
   });
 
   it('drops an escape it does not draw rather than printing it', () => {
@@ -70,6 +74,8 @@ describe('ANSI in tool output', () => {
   });
 
   it('carries a background colour separately from a foreground one', () => {
-    expect(colour(`${ESC}[41mred behind${ESC}[49m`)).toBe('<span class="ansi-bg-1">red behind</span>');
+    expect(colour(`${ESC}[41mred behind${ESC}[49m`)).toBe(
+      '<span class="ansi-bg-1">red behind</span>',
+    );
   });
 });
