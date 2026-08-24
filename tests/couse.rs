@@ -5,7 +5,7 @@
 //! is shaped rather than facts about the memory, and none would have been
 //! noticed by reading the ranking.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use memview::couse::{MIN_SESSIONS, scan};
@@ -216,15 +216,54 @@ fn a_name_the_corpus_does_not_have_is_ignored() {
     assert!(found.pairs.is_empty(), "{:?}", found.pairs);
 }
 
+/// Adjacency from unordered pairs, the shape `lint::check` builds.
+fn adjacency(edges: &[(&str, &str)]) -> BTreeMap<String, BTreeSet<String>> {
+    let mut adj: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for (a, b) in edges {
+        adj.entry(a.to_string()).or_default().insert(b.to_string());
+        adj.entry(b.to_string()).or_default().insert(a.to_string());
+    }
+    adj
+}
+
 #[test]
 fn unlinked_leaves_out_pairs_the_corpus_already_links() {
     let found = mine(&met_in_three(), &["project_alpha", "reference_beta"]);
-    let linked: BTreeSet<(String, String)> =
-        [("project_alpha".to_string(), "reference_beta".to_string())]
-            .into_iter()
-            .collect();
-    assert!(found.unlinked(&linked).is_empty());
-    assert_eq!(found.unlinked(&BTreeSet::new()).len(), 1);
+    let (missing, connected) = found.unlinked(&adjacency(&[("project_alpha", "reference_beta")]));
+    assert!(missing.is_empty());
+    assert_eq!(connected, 1);
+
+    let (missing, connected) = found.unlinked(&BTreeMap::new());
+    assert_eq!(missing.len(), 1);
+    assert_eq!(connected, 0);
+}
+
+/// A hub linking both is a connection, so its children are not a missing link.
+///
+/// The case this was written for: four memories split out of one roadmap on
+/// 2026-08-22 co-occur at npmi 1.00 and link only their parent. Demanding a link
+/// between them would ask a well-formed hub to become a clique.
+#[test]
+fn unlinked_leaves_out_two_children_of_one_hub() {
+    let found = mine(&met_in_three(), &["project_alpha", "reference_beta"]);
+    let (missing, connected) = found.unlinked(&adjacency(&[
+        ("project_hub", "project_alpha"),
+        ("project_hub", "reference_beta"),
+    ]));
+    assert!(missing.is_empty(), "{missing:?}");
+    assert_eq!(connected, 1);
+}
+
+/// One shared neighbour, not connectivity: a two-hop chain is still a finding.
+#[test]
+fn unlinked_still_reports_a_pair_joined_only_by_a_chain() {
+    let found = mine(&met_in_three(), &["project_alpha", "reference_beta"]);
+    let (missing, _) = found.unlinked(&adjacency(&[
+        ("project_alpha", "project_middle_one"),
+        ("project_middle_one", "project_middle_two"),
+        ("project_middle_two", "reference_beta"),
+    ]));
+    assert_eq!(missing.len(), 1);
 }
 
 // -- project attribution ---------------------------------------------------

@@ -158,20 +158,42 @@ impl CoUse {
             .with_context(|| format!("writing {}", path.display()))
     }
 
-    /// Pairs that are used together but that neither memory links, strongest
-    /// first — the corpus being told what it is missing.
-    pub fn unlinked<'a>(&'a self, linked: &BTreeSet<(String, String)>) -> Vec<&'a Pair> {
-        self.pairs
-            .iter()
-            .filter(|p| {
-                let key = if p.a < p.b {
-                    (p.a.clone(), p.b.clone())
-                } else {
-                    (p.b.clone(), p.a.clone())
-                };
-                !linked.contains(&key)
-            })
-            .collect()
+    /// Pairs that are used together and that the corpus connects nowhere —
+    /// neither directly nor through a memory that links both. Strongest first.
+    ///
+    /// Returns the worklist and the count held back as already-connected, so the
+    /// caller can report the split rather than quietly shrink the list.
+    ///
+    /// ⚠ **A shared neighbour is a connection, and treating it as one removes
+    /// 59% of what this used to report.** Measured 2026-08-24: of 1222 pairs
+    /// seen in >= 3 sessions with no direct link, 723 already had some memory
+    /// linking both — overwhelmingly a hub and its own children, which co-occur
+    /// *because* the hub sent the reader to each in turn. The four memories
+    /// split out of `project_health_lean_port_roadmap` on 2026-08-22 are the
+    /// clean case: pairwise npmi 1.00, no link between any two of them, and the
+    /// roadmap lists all four with a line each. Reporting that as a missing link
+    /// asks a well-formed hub to become a clique, and the corpus was right.
+    ///
+    /// ⚠ **One hop only.** Two memories reachable from each other in five hops
+    /// are not "near each other" in any sense a reader benefits from, so this
+    /// asks for a common neighbour and not for connectivity.
+    pub fn unlinked<'a>(
+        &'a self,
+        adjacency: &BTreeMap<String, BTreeSet<String>>,
+    ) -> (Vec<&'a Pair>, usize) {
+        let empty = BTreeSet::new();
+        let neighbours = |n: &str| adjacency.get(n).unwrap_or(&empty);
+        let mut worklist = Vec::new();
+        let mut connected = 0usize;
+        for p in &self.pairs {
+            let (a, b) = (neighbours(&p.a), neighbours(&p.b));
+            if a.contains(&p.b) || b.contains(&p.a) || a.intersection(b).next().is_some() {
+                connected += 1;
+            } else {
+                worklist.push(p);
+            }
+        }
+        (worklist, connected)
     }
 }
 

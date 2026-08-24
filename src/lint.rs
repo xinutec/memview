@@ -191,6 +191,36 @@ const RULES: &[(&str, Severity, &str)] = &[
         "a feedback memory needs a bold **How to apply…** section — a rule you cannot act on is a note",
     ),
     (
+        // Introduced 2026-08-24 at ERROR with the corpus at zero — the point of
+        // it is to be armed before the cliff, not to describe a fall.
+        //
+        // The Read tool returns the first 2,000 lines by default. Past that a
+        // memory still opens, still looks whole, and its tail is silently not
+        // there — the one failure mode a reader cannot detect from the output.
+        // The corpus has hit it twice and both times found out afterwards:
+        // `project_health_lean_port_roadmap` reached 2,403 lines (split
+        // 2026-08-14, its last 403 lines outside an ordinary read), and the log
+        // that came out of it was pushed to 2,233 by appending (split again
+        // 2026-08-22).
+        "past-read-limit",
+        Severity::Error,
+        "over 2,000 lines: the Read tool's default stops there, so the tail is silently unread",
+    ),
+    (
+        // The same cliff with room to act. 1,000 lines is 2.4x the corpus's p99
+        // (415) and half the hard limit, so it marks a genuine outlier while
+        // leaving a full thousand lines of headroom — at the log's observed
+        // ~138 lines/day that is about a week to split deliberately rather than
+        // in a panic.
+        //
+        // ⚠ **Both previous splits were reactive**, which is why the warning
+        // exists at all: a rule that only fires once the tail is already
+        // invisible reports a loss instead of preventing one.
+        "nearing-read-limit",
+        Severity::Warning,
+        "over 1,000 lines and growing toward the Read tool's 2,000-line default — split it deliberately, before the tail goes quiet",
+    ),
+    (
         "unlinked-co-use",
         // Advisory, and never promoted. This is evidence, not a rule: two
         // memories used together may still have nothing to say about each
@@ -332,6 +362,19 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
                 "name-mismatch",
                 name,
                 format!("frontmatter says `{declared}`"),
+            );
+        }
+
+        // Counted on `raw`, because the Read tool's limit applies to the file
+        // on disk — frontmatter included — and not to the parsed body.
+        let lines = doc.raw.lines().count();
+        if lines > 2000 {
+            push("past-read-limit", name, format!("{lines} lines"));
+        } else if lines > 1000 {
+            push(
+                "nearing-read-limit",
+                name,
+                format!("{lines} lines, {} from the limit", 2000 - lines),
             );
         }
 
@@ -480,7 +523,15 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
 
     // What the transcripts say belongs together and the corpus does not.
     if let Some(couse) = couse {
-        let missing = couse.unlinked(&pairs);
+        // Undirected, and built from the linked pairs rather than `outbound`, so
+        // "some memory links both of these" is asked in the direction a reader
+        // actually travels — a backlink walks as well as a link.
+        let mut adjacency: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for (a, b) in &pairs {
+            adjacency.entry(a.clone()).or_default().insert(b.clone());
+            adjacency.entry(b.clone()).or_default().insert(a.clone());
+        }
+        let (missing, connected) = couse.unlinked(&adjacency);
         // Capped, and the cap is reported rather than silently applied: 500
         // suggestions is a wall, not a worklist, and a list that quietly stops
         // reads as "that is all of them".
@@ -500,7 +551,8 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
                 "unlinked-co-use",
                 "(corpus)",
                 format!(
-                    "{} more unlinked pairs seen in >= {} sessions; showing the {SHOWN} strongest",
+                    "{} more unlinked pairs seen in >= {} sessions; showing the {SHOWN} strongest \
+                     ({connected} further pairs are held back: some memory already links both)",
                     missing.len() - SHOWN,
                     crate::couse::MIN_SESSIONS
                 ),

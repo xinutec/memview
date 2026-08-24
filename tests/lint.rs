@@ -276,3 +276,62 @@ fn an_error_in_the_index_still_fails_a_session() {
         Some("session-1")
     ));
 }
+
+/// Any finding of a rule, whatever its severity — `findings` keeps only errors.
+fn of_rule(corpus: &Corpus, rule: &str) -> Vec<String> {
+    check(corpus, None)
+        .into_iter()
+        .filter(|f| f.rule == rule)
+        .map(|f| f.detail)
+        .collect()
+}
+
+/// The Read tool stops at 2,000 lines and says nothing about it, so the warning
+/// has to arrive while there is still room to act.
+///
+/// Both of the corpus's splits were reactive — the roadmap was found at 2,403
+/// lines and the log it produced was pushed to 2,233 by appending. A rule that
+/// only fires past the limit reports a loss rather than preventing one.
+#[test]
+fn a_memory_growing_toward_the_read_limit_warns_with_headroom() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let long = "a line\n".repeat(1100);
+    let found = corpus(
+        dir.path(),
+        "# Memory index\n- [hub](project_hub.md)\n",
+        &[("project_hub", long.as_str())],
+    );
+    let warned = of_rule(&found, "nearing-read-limit");
+    assert_eq!(warned.len(), 1, "{warned:?}");
+    assert!(warned[0].contains("from the limit"), "{warned:?}");
+    assert!(of_rule(&found, "past-read-limit").is_empty());
+}
+
+/// Past 2,000 lines the tail is genuinely not returned, so this is an error and
+/// the warning stands down — one cliff, reported once.
+#[test]
+fn a_memory_past_the_read_limit_is_an_error_and_not_also_a_warning() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let long = "a line\n".repeat(2100);
+    let found = corpus(
+        dir.path(),
+        "# Memory index\n- [hub](project_hub.md)\n",
+        &[("project_hub", long.as_str())],
+    );
+    assert_eq!(findings(&found, "past-read-limit").len(), 1);
+    assert!(of_rule(&found, "nearing-read-limit").is_empty());
+}
+
+/// The median memory is 47 lines; the rule must be silent on all of them.
+#[test]
+fn an_ordinary_memory_says_nothing_about_its_length() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let body = "a line\n".repeat(47);
+    let found = corpus(
+        dir.path(),
+        "# Memory index\n- [hub](project_hub.md)\n",
+        &[("project_hub", body.as_str())],
+    );
+    assert!(of_rule(&found, "nearing-read-limit").is_empty());
+    assert!(of_rule(&found, "past-read-limit").is_empty());
+}
