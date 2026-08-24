@@ -209,6 +209,17 @@ fn main() -> anyhow::Result<()> {
         read.by_pattern.values().sum::<usize>(),
         read.by_pattern.len()
     );
+    // ⚠ **This census SIZED an opportunity the reader has since taken, and the
+    // row it sized has left the population above.** `locus known, leaf unknown`
+    // was 612 uses here until memview#1080 taught the walk to resolve them; they
+    // now arrive as `Extract::located` and never reach `by_word`. Printed from
+    // that map instead, so this table still adds up to the same object and
+    // nobody reads a shrunken row as a shrunken problem.
+    println!(
+        "  located already   {}   ({} distinct loci) — resolved by the reader",
+        read.by_locus.values().sum::<usize>(),
+        read.by_locus.len()
+    );
 
     println!("\nby what generated them:");
     let mut ranked: Vec<_> = by_shape.iter().collect();
@@ -222,21 +233,33 @@ fn main() -> anyhow::Result<()> {
     }
 
     // The three numbers the question was asked to settle.
-    let locus: usize = by_shape
-        .iter()
-        .filter(|(shape, _)| shape.has_locus())
-        .map(|(_, (uses, _))| uses)
-        .sum();
-    let language: usize = by_shape
-        .iter()
-        .filter(|(shape, _)| shape.has_language())
-        .map(|(_, (uses, _))| uses)
-        .sum();
+    //
+    // ⚠ **`read.by_locus` is added to the locus count and NOT to the total**,
+    // because those subjects left `by_word` when the reader learned to resolve
+    // them. Leaving it out would report the locus rate falling on the day it
+    // was acted on — the flattering direction inverted.
+    // ⚠ **Added to the NUMERATORS and to the DENOMINATOR both, or the rate
+    // moves for the wrong reason.** `LocusKnown` counted toward a locus and a
+    // language and toward `paths`; putting it back in only one of the three
+    // would make this report change on the day the subjects did not.
+    let resolved_locus: usize = read.by_locus.values().sum();
+    let locus: usize = resolved_locus
+        + by_shape
+            .iter()
+            .filter(|(shape, _)| shape.has_locus())
+            .map(|(_, (uses, _))| uses)
+            .sum::<usize>();
+    let language: usize = resolved_locus
+        + by_shape
+            .iter()
+            .filter(|(shape, _)| shape.has_language())
+            .map(|(_, (uses, _))| uses)
+            .sum::<usize>();
     let not_a_path: usize = [Shape::NotAPath, Shape::NotASubject]
         .iter()
         .filter_map(|shape| by_shape.get(shape).map(|(uses, _)| *uses))
         .sum();
-    let paths = total.saturating_sub(not_a_path);
+    let paths = (total + resolved_locus).saturating_sub(not_a_path);
 
     println!("\nof the {paths} that are actually a path subject:");
     println!(

@@ -138,6 +138,13 @@ fn main() -> anyhow::Result<()> {
         read.by_pattern.values().sum::<usize>(),
         read.by_pattern.len()
     );
+    // ⚠ Located, not bounded: the directory is written down and the language is
+    // not, so this says less than the line above and more than "some file".
+    println!(
+        "  shell, located    {}  ({} distinct loci)",
+        read.by_locus.values().sum::<usize>(),
+        read.by_locus.len()
+    );
     println!(
         "  python, computed  {}  ({} distinct calls)",
         read.computed.values().sum::<usize>(),

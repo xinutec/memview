@@ -520,6 +520,15 @@ export interface CorpusRead {
   opaque: number;
   unnamed_by_word: number;
   unnamed_bounded: number;
+  /**
+   * Subjects with a locus but no language — the directory is written out and
+   * only the leaf is unknown, `Verified/Geo/${s%%:*}`.
+   *
+   * ⚠ **Weaker than `unnamed_bounded` and stronger than nothing.** A glob gives
+   * the language too; this gives only the directory the answer is rooted at. It
+   * is still counted in `unnamed`, because a locus is not a name.
+   */
+  unnamed_located: number;
   unnamed_computed: number;
   refused_here: number;
   /**

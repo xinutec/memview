@@ -771,12 +771,56 @@ composition is what makes it checkable.
 
 ⚠ **Past and future are the same object with a different `t`.** For history `L`
 and `D` are exact and only `t` is gone — so the honest output was always the
-*space*, and we print it for globs alone. For a command about to run, `t` is now,
-so `S = L ∩ Files(D, now)` is one directory read: ~2,500 uses would go from
-opaque to concrete. That is the *prediction* half
+*space*. For a command about to run, `t` is now, so `S = L ∩ Files(D, now)` is one
+directory read. That is the *prediction* half
 [execution-model.md](execution-model.md) names, and it must live above this
 library — `reader` touches no filesystem, and that property is worth more than
-the convenience. memview#1080.
+the convenience.
+
+### The locus is printed now, not just the pattern (memview#1080)
+
+`Extract::located` records the directory a subject is rooted at when the text
+writes one out ahead of the first expansion. **611 uses over 89 distinct loci**,
+2026-08-24 — the census's `locus known, leaf unknown` row, moved out of the
+shrug and into an answer.
+
+```text
+⟦Verified/Geo/${s%%:*}⟧  =  some path rooted at /abs/Verified/Geo
+```
+
+**The same object as `bounded` with the language half missing.** A glob gives
+`L` and `D`; this gives `D` alone, because `${s%%:*}` is a transduction the
+reader will not build an automaton for. A glob bound is therefore tried FIRST
+and wins — filing a bounded subject as merely located would throw away the half
+that makes it falsifiable.
+
+⚠ **ROOTED AT, not contained in, and the difference is a `..` nobody can see.**
+The word resolves from that directory, so a real run touches something under it
+*unless the expansion climbs out*. An absolute-looking expansion does not escape
+— `a/b//c` is `a/b/c` — only `..` does. Stated that way it stays falsifiable in
+the direction that matters, exactly as `S ⊆ L` is for globs.
+
+| | before | after |
+| --- | ---: | ---: |
+| shell, by word | 4,566 | **3,955** |
+| shell, located | — | **611** (89 loci) |
+| subjects not named | 11,974 | **11,974** |
+
+⚠ **The not-named total is byte-identical, and that is the check.** Nothing more
+was *named*; the reader says more about the same subjects. A locus is a better
+answer than a shrug and is not an answer, so it stays in the denominator for the
+same reason `bounded` and `local` do.
+
+⚠ **The census's own row had to be repaired in the same commit.**
+`--example opaque-shapes` takes its population from `by_word`, so those 611 left
+it — its `locus known` row now reads 1, and its locus RATE would have fallen on
+the day the gap was closed had `by_locus` not been added back to both the
+numerators and the denominator. Verified by diffing the whole census: every
+summary line is byte-identical, `885 (19.4%)` and `1,223 (26.8%)` included.
+
+**What is left of the row:** one use, `amun:~/Photos/$f` — a remote path, whose
+directory is on another machine. It has a test of its own, because it is the
+shape most likely to be "fixed" by somebody reading that row.
 
 ## Correctness
 

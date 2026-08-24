@@ -1570,3 +1570,92 @@ fn the_body_of_a_defined_function_still_writes() {
         "the body's write was lost with the call"
     );
 }
+
+/// The loci a script's subjects were rooted at, with their counts.
+fn located(script: &str) -> Vec<String> {
+    extracted(script)
+        .located
+        .into_iter()
+        .flat_map(|(dir, count)| std::iter::repeat_n(dir, count))
+        .collect()
+}
+
+#[test]
+fn a_literal_directory_ahead_of_the_variable_is_a_locus() {
+    // ⚠ **`some file` and `some file under Verified/Geo` are different facts**,
+    // and the reader had both and reported the weaker one. The directory is
+    // written out; only the leaf is unknown (memview#1080).
+    assert_eq!(
+        located("cat Verified/Geo/${s%%:*}"),
+        ["/home/example/Code/health/Verified/Geo"]
+    );
+    // And it is off the unnamed list, because it is no longer that admission.
+    assert!(unnamed("cat Verified/Geo/${s%%:*}").is_empty());
+}
+
+#[test]
+fn the_variable_need_not_be_in_the_leaf() {
+    // `Code/$p/node_modules` — the answer is not IN `Code`, it is under it, and
+    // that is still a locus. Requiring the variable in the leaf undercounted.
+    assert_eq!(
+        located("cat Code/$p/node_modules/package.json"),
+        ["/home/example/Code/health/Code"]
+    );
+}
+
+#[test]
+fn an_absolute_directory_is_kept_as_written() {
+    assert_eq!(located("cat /tmp/build/$name.log"), ["/tmp/build"]);
+}
+
+#[test]
+fn a_bare_root_is_not_a_locus() {
+    // ⚠ `/$p/x` says only that the answer is somewhere on the filesystem. A
+    // locus that excludes nothing is not a locus, and claiming it would inflate
+    // the rate with the emptiest possible fact.
+    assert_eq!(unnamed("cat /$p/x"), ["/$p/x"]);
+    assert!(located("cat /$p/x").is_empty());
+}
+
+#[test]
+fn a_bare_name_has_no_locus_and_stays_unnamed() {
+    assert_eq!(unnamed("cat $f"), ["$f"]);
+    assert!(located("cat $f").is_empty());
+}
+
+#[test]
+fn a_glob_bound_beats_a_locus_because_it_says_more() {
+    // The pattern carries the locus AND the language, so a subject that is
+    // bounded must not also be counted as merely located.
+    assert_eq!(
+        bounded("for f in src/*.log; do wc -l \"$f\"; done"),
+        ["/home/example/Code/health/src/*.log"]
+    );
+    assert!(located("for f in src/*.log; do wc -l \"$f\"; done").is_empty());
+}
+
+#[test]
+fn arithmetic_is_not_a_located_path() {
+    // `$((` also contains `$`, and splitting on it would put a locus on a sum.
+    assert!(located("echo x/$((a + b))").is_empty());
+}
+
+#[test]
+fn a_located_subject_is_still_not_named() {
+    // ⚠ Located is a better answer than opaque; it is not an answer. It stays in
+    // the not-named count for the same reason `bounded` does.
+    let before = extracted("cat $f").subjects_not_named();
+    let after = extracted("cat Verified/Geo/$f").subjects_not_named();
+    assert_eq!(before, after, "still one subject nobody can name");
+}
+
+#[test]
+fn a_remote_path_gets_no_local_locus() {
+    // ⚠ `amun:~/Photos/$f` names a directory on ANOTHER machine. A locus taken
+    // from it would be a directory on this one — a fabricated path, which is the
+    // expensive direction and the one failure mode this table has.
+    // It is the single `locus known` the census still reports after #1080, so it
+    // is the shape most likely to be "fixed" by someone reading that row.
+    assert!(located("scp amun:~/Photos/$f .").is_empty());
+    assert!(located("rsync amun:~/Photos/$f/x .").is_empty());
+}

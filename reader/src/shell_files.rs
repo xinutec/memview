@@ -167,6 +167,35 @@ pub struct Extract {
     /// ⚠ These are still **not named**, and [`Extract::subjects_not_named`]
     /// counts them. Bounded is a better answer than opaque; it is not an answer.
     pub bounded: BTreeMap<String, usize>,
+    /// Subjects whose **locus** the text gives even though its language is
+    /// unknown, by the directory they are rooted at.
+    ///
+    /// ⚠ **The same object as [`Extract::bounded`] with the other half missing.**
+    /// A glob gives a language and a locus; `Verified/Geo/${s%%:*}` gives only
+    /// the locus, because a transduction of a name is not a pattern this reader
+    /// will build an automaton for. Both are `some S ⊆ L ∩ Files(D, t)` — here
+    /// `L` is everything.
+    ///
+    /// ```text
+    /// ⟦Verified/Geo/${s%%:*}⟧  =  some path rooted at /abs/Verified/Geo
+    /// ```
+    ///
+    /// ⚠ **ROOTED AT, not contained in, and the difference is a `..` nobody can
+    /// see.** The word as written resolves from that directory, so a run of the
+    /// script touches something under it — unless the expansion itself climbs
+    /// out. An absolute-looking expansion does NOT escape (`a/b//c` is `a/b/c`);
+    /// only `..` does. Stated this way it stays falsifiable in the one direction
+    /// that matters: run the script for real and every path it touches is under
+    /// `D` or the expansion contained `..`.
+    ///
+    /// ⚠ **The variable does not have to be in the leaf.** `Code/$p/node_modules`
+    /// is rooted at `Code`, and a first version of this rule that split at the
+    /// last `/` threw away the largest single shape it was built for.
+    ///
+    /// ⚠ These are still **not named**, and [`Extract::subjects_not_named`]
+    /// counts them, exactly as it counts `bounded`. A locus is a better answer
+    /// than a shrug; it is not an answer.
+    pub located: BTreeMap<String, usize>,
     /// Nested scripts the reader could not read, by the construct that stopped
     /// it. Reported rather than dropped: a devshell wrapper whose inner shell
     /// fails to parse is a silent hole in exactly the third of the corpus that
@@ -243,6 +272,13 @@ pub struct Step {
     pub unnamed: Vec<String>,
     /// And those a glob loop bounded, as the pattern they are a subset of.
     pub bounded: Vec<String>,
+    /// And those whose directory the text gave, as the locus they are rooted at.
+    ///
+    /// ⚠ **Here for the same reason as `bounded`, and it would be a silent hole
+    /// without it.** A located subject is off `unnamed`, so a step that did not
+    /// carry it would simply stop showing the word — a view would report the
+    /// command as naming nothing rather than as naming something it could locate.
+    pub located: Vec<String>,
 }
 
 impl Extract {
@@ -312,6 +348,7 @@ impl Extract {
             away: Vec::new(),
             unnamed: Vec::new(),
             bounded: Vec::new(),
+            located: Vec::new(),
         });
         Some(self.steps.len() - 1)
     }
@@ -365,6 +402,9 @@ impl Extract {
         for (pattern, n) in inner.bounded {
             *self.bounded.entry(pattern).or_insert(0) += n;
         }
+        for (dir, n) in inner.located {
+            *self.located.entry(dir).or_insert(0) += n;
+        }
         for (name, (r, w)) in inner.by_command {
             let entry = self.by_command.entry(name).or_default();
             entry.0 += r;
@@ -388,6 +428,7 @@ impl Extract {
     pub fn subjects_not_named(&self) -> usize {
         self.unnamed.values().sum::<usize>()
             + self.bounded.values().sum::<usize>()
+            + self.located.values().sum::<usize>()
             + self.python.unresolved.values().sum::<usize>()
             + self.python.refused.total()
             + self.javascript.unresolved.values().sum::<usize>()
@@ -904,16 +945,26 @@ fn extract_nested(
         // Kept beside the totals so the step can carry its own, which is what
         // lets a view show the command an admission came from.
         let (mut refused_here, mut bounded_here) = (Vec::new(), Vec::new());
+        let mut located_here = Vec::new();
         for word in unnamed {
+            // ⚠ **A glob bound is tried FIRST and wins**, because it carries the
+            // locus as well as the language — filing a bounded subject as merely
+            // located would throw away the half that makes it falsifiable.
             match bounded_by(&word, &over, here.as_deref(), home) {
                 Some(pattern) => {
                     *out.bounded.entry(pattern.clone()).or_insert(0) += 1;
                     bounded_here.push(pattern);
                 }
-                None => {
-                    *out.unnamed.entry(word.clone()).or_insert(0) += 1;
-                    refused_here.push(word);
-                }
+                None => match locus_of(&word, here.as_deref(), home) {
+                    Some(dir) => {
+                        *out.located.entry(dir.clone()).or_insert(0) += 1;
+                        located_here.push(dir);
+                    }
+                    None => {
+                        *out.unnamed.entry(word.clone()).or_insert(0) += 1;
+                        refused_here.push(word);
+                    }
+                },
             }
         }
         // ⚠ **Pushed before the operation is carried out**, so that a wrapper
@@ -928,6 +979,7 @@ fn extract_nested(
         {
             step.unnamed = refused_here;
             step.bounded = bounded_here;
+            step.located = located_here;
         }
         // The name to file this under is the real command's, not the wrapper's.
         let name = unwrap_command(&cmd.argv)
@@ -1237,6 +1289,34 @@ fn bounded_by(
         return resolve(&put, cwd, home);
     }
     None
+}
+
+/// The directory a subject is rooted at, when the text writes one out ahead of
+/// the first expansion.
+///
+/// ⚠ **This is the locus half of [`Extract::bounded`]'s object**, for the
+/// subjects that have no language: `Verified/Geo/${s%%:*}` is a transduction
+/// this reader will not model, but `Verified/Geo` is written down and is not a
+/// guess. See [`Extract::located`] for what the answer is allowed to claim.
+///
+/// Deliberately conservative in three places, each of which is a way the rate
+/// could be inflated with something that is not a path:
+///
+/// * **whitespace disqualifies the word.** A one-line `jq` filter or a template
+///   literal can carry both a `/` and a `$`, and without this a program fragment
+///   becomes a located file — the direction that flatters the reader.
+/// * **arithmetic disqualifies it.** `$((a + b))` contains a `$`, and splitting
+///   there would put a directory on a sum.
+/// * **the last `/` must not be at position 0.** `/$p/x` says only that the
+///   answer is somewhere on the filesystem. A locus that excludes nothing is
+///   not one, and counting it would be the emptiest possible fact.
+fn locus_of(word: &str, cwd: Option<&str>, home: &str) -> Option<String> {
+    if word.contains(char::is_whitespace) || word.contains("$((") {
+        return None;
+    }
+    let literal = &word[..word.find('$')?];
+    let cut = literal.rfind('/').filter(|cut| *cut > 0)?;
+    resolve(&literal[..cut], cwd, home)
 }
 
 /// Whether a value is worth keeping at all, as opposed to being kept as a

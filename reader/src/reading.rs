@@ -157,6 +157,10 @@ pub struct Reading {
     /// Subjects a glob loop BOUNDED — still unnamed, but a subset of a pattern
     /// rather than of anything at all.
     pub by_pattern: BTreeMap<String, usize>,
+    /// Subjects with a LOCUS but no language, by the directory they are rooted
+    /// at — the other half of the same object as `by_pattern`, for the words a
+    /// glob never bound.
+    pub by_locus: BTreeMap<String, usize>,
     /// The same admission from the Python reader: the call that wanted a path,
     /// where the path was computed and no text of it survives.
     pub computed: BTreeMap<String, usize>,
@@ -273,6 +277,9 @@ impl Reading {
         }
         for (pattern, n) in &found.bounded {
             *self.by_pattern.entry(pattern.clone()).or_insert(0) += n;
+        }
+        for (dir, n) in &found.located {
+            *self.by_locus.entry(dir.clone()).or_insert(0) += n;
         }
         for (call, n) in &found.python.unresolved {
             *self.computed.entry(call.clone()).or_insert(0) += n;
@@ -450,6 +457,8 @@ pub struct CorpusRead {
     pub opaque: f64,
     pub unnamed_by_word: usize,
     pub unnamed_bounded: usize,
+    /// Subjects with a locus but no language — see `Extract::located`.
+    pub unnamed_located: usize,
     pub unnamed_computed: usize,
     pub refused_here: usize,
     /// Table reads and changes, and how many distinct tables that is.
@@ -574,6 +583,7 @@ impl Reading {
             opaque: self.opaque(),
             unnamed_by_word: self.by_word.values().sum(),
             unnamed_bounded: self.by_pattern.values().sum(),
+            unnamed_located: self.by_locus.values().sum(),
             unnamed_computed: self.computed.values().sum(),
             refused_here: self.turned_away.total(),
             table_reads: self.tables.reads.values().sum(),
