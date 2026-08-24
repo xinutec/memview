@@ -24,6 +24,8 @@ use axum::routing::{delete, get, post};
 use serde::{Deserialize, Serialize};
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::{Stream, StreamExt};
+use tower_http::compression::CompressionLayer;
+use tower_http::compression::predicate::SizeAbove;
 
 use crate::protocol::Event;
 use crate::roster::Roster;
@@ -61,6 +63,19 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/sessions/{id}/tasks/{task}", get(task))
         .route("/api/reading", get(reading))
         .route("/api/telemetry", post(trace::record))
+        // ⚠ **The stream is compressed too, and that needed checking rather than
+        // assuming.** A compressor that waits for its buffer to fill would hold a
+        // live event until the next one pushed it out, which on a session that
+        // says one thing every few minutes is the console going silent. tower-http
+        // flushes the encoder when the body underneath it has nothing more to
+        // give, which is exactly the shape of an event stream — pinned by
+        // `a live event is not held back by the compressor` in `tests/cold.rs`.
+        //
+        // Applied here rather than in `main`, so the tests are exercising the
+        // same stack the phone talks to. The bundle is served by a fallback added
+        // after this and is not covered — it is fetched once per build and then
+        // held by the service worker, where a conversation is fetched all day.
+        .layer(CompressionLayer::new().compress_when(SizeAbove::new(SMALL)))
         .with_state(roster)
 }
 
@@ -91,6 +106,15 @@ async fn reading() -> Result<Json<reader::reading::CorpusRead>, StatusCode> {
 /// has to allow for base64's third again plus the JSON. Generous rather than
 /// exact: the useful refusal is the one that names the size in megabytes, and
 /// that one cannot be given if the framework has already dropped the body.
+/// Below this, compressing a reply costs more than it saves.
+///
+/// tower-http's own default is 32 bytes and it also refuses to compress an event
+/// stream at all — a sensible refusal in general, because a compressor that waits
+/// for a full buffer turns a live stream into a silent one. It is refused here
+/// instead by measurement: `a live event is not held back by the compressor`
+/// holds the socket open and watches one arrive.
+const SMALL: u64 = 1024;
+
 const BODY_LIMIT: usize = crate::images::LIMIT * 2;
 
 /// Everything a client needs to draw the front page in one request.
@@ -695,6 +719,73 @@ pub fn resume_from(headers: &HeaderMap, asked: Option<&str>) -> Option<u64> {
         .or_else(|| asked.and_then(|value| value.parse::<u64>().ok()))
 }
 
+/// What a client that holds nothing is sent: the end of the transcript.
+///
+/// ⚠ **Not the log, and that is the whole of this.** The log is the resume
+/// window — `SCROLLBACK` events, which on a session this console has watched all
+/// day is the last several hours of it. Replaying that to somebody who has just
+/// opened the session put 1.4 MB on the wire before the newest message could be
+/// drawn (measured 2026-08-24 over the nine sessions here: 7.5 MB between them,
+/// the largest 5,001 events). On a phone with a bad connection that is a minute
+/// of watching a conversation arrive oldest-first, with the part it was opened
+/// for arriving last.
+///
+/// The transcript's last page is the same thing [`crate::session::Session::seed`]
+/// already shows when the console picks a session up: one page, a `joined` to
+/// mark where the file stops and the watching starts, and a byte cursor for
+/// asking what came before. So this is not a second way of starting a
+/// conversation, it is the existing one applied at the moment a *reader* joins
+/// rather than the moment the console does.
+///
+/// ⚠ **The page is read before the number is taken, and the order is the
+/// safety.** Taking the number first would let an event pushed in between arrive
+/// twice — once in the page, once off the channel — and a duplicated paragraph
+/// is a thing no client can undo. This way it is missed instead, which the next
+/// event repairs and which nobody can see.
+///
+/// ⚠ **Console-only events are not replayed here.** `busy`, `sent`, `started`
+/// are this console's own words and are in no transcript, so a cold reader no
+/// longer sees the recent ones. What is doing the work of `busy` for such a
+/// reader is already there and is what it was built for: nothing on this stream
+/// is evidence about the present until `caught-up`, and until then the page
+/// reads the session's own `busy` off the summary — see `Held.spoken` in
+/// `session-store.ts`.
+///
+/// `None` when there is no transcript to read, which is a session started
+/// moments ago and whose log is a handful of events anyway.
+fn cold(id: &str, session: &crate::session::Session) -> Option<(Vec<Sse>, u64)> {
+    let root = crate::past::projects_root();
+    let path = crate::past::transcript_of(&root, id)?;
+    let page = crate::past::page(&path, None);
+    if page.events.is_empty() {
+        return None;
+    }
+    let through = session.issued();
+    let earlier = page.events.len();
+    // Unnumbered, so a connection dropped part-way through leaves the browser
+    // quoting nothing and asking for the seed again — a partial page is not a
+    // place anybody holds. The number arrives once, on the `joined` that ends
+    // the page, and it is what says the whole of it got here.
+    let mut held: Vec<Sse> = page
+        .events
+        .into_iter()
+        .map(|timed| {
+            Sse::default().json_data(timed).unwrap_or_else(|err| {
+                Sse::default().data(format!("{{\"kind\":\"trouble\",\"detail\":\"{err}\"}}"))
+            })
+        })
+        .collect();
+    held.push(wire(Stamped {
+        seq: through,
+        at: Some(crate::session::now()),
+        event: Event::Joined {
+            earlier,
+            from: page.from,
+        },
+    }));
+    Some((held, through))
+}
+
 async fn events(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
@@ -714,10 +805,24 @@ async fn events(
     // the second copy recognisable.
     let live = BroadcastStream::new(session.listen());
     let backlog = session.since(after);
-    let through = backlog.through;
+    // A client that holds nothing is seeded from the transcript, not from the
+    // log — see [`cold`]. Only when there is no transcript to read does the log
+    // stand in for one.
+    let (held, through) = match backlog.resumed {
+        true => (
+            backlog.events.into_iter().map(wire).collect(),
+            backlog.through,
+        ),
+        false => cold(&id, &session).unwrap_or_else(|| {
+            (
+                backlog.events.into_iter().map(wire).collect(),
+                backlog.through,
+            )
+        }),
+    };
     tracing::info!(
-        "{id}: {} events for a reader at {after:?} ({})",
-        backlog.events.len(),
+        "{id}: {} events for a reader at {after:?} ({}), holding through {through}",
+        held.len(),
         if backlog.resumed {
             "resumed"
         } else {
@@ -734,7 +839,7 @@ async fn events(
             .data("this stream starts again from the beginning")
     }));
 
-    let held = tokio_stream::iter(backlog.events).map(wire);
+    let held = tokio_stream::iter(held);
 
     // ⚠ **Where the past stops, said per connection rather than per session.**
     // Everything above is a replay; everything below is happening. A client

@@ -2127,6 +2127,17 @@ impl Session {
         }
     }
 
+    /// The last sequence number this session has issued.
+    ///
+    /// For a client being seeded from the transcript rather than from the log —
+    /// see [`crate::api`]. It is the number that client then holds through, and
+    /// the reason it can be: every event at or below it has already been
+    /// written, so the ones the file does not carry are the only thing lost, and
+    /// nothing after it has been sent twice.
+    pub fn issued(&self) -> u64 {
+        self.state.lock().expect("session state poisoned").issued
+    }
+
     pub fn listen(&self) -> broadcast::Receiver<Stamped> {
         self.tx.subscribe()
     }
