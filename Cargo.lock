@@ -597,6 +597,7 @@ dependencies = [
  "axum-server",
  "base64",
  "filetime",
+ "flate2",
  "libc",
  "rcgen",
  "reader",

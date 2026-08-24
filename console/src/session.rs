@@ -664,6 +664,18 @@ struct State {
     /// When the process last wrote a line, in epoch milliseconds. See
     /// [`Session::heard`]; zero for one that has never said anything.
     heard: i64,
+    /// Whether the transcript has been consulted for the session's origin.
+    ///
+    /// ⚠ **Distinguishes "there is no origin" from "we have not looked", which
+    /// `asked: None` alone cannot.** A conversation continued from a compacted
+    /// one has no origin in its own file and correctly reports none — and the
+    /// three places that fill `asked` in from a live prompt would then hand it
+    /// the next thing said, reinstating the very false claim
+    /// [`crate::past::opening`] exists to remove, minutes later and invisibly.
+    ///
+    /// Only a session with no transcript at all may be named by what it is told
+    /// next, because there the first prompt really is the beginning.
+    origin_read: bool,
     asked: Option<String>,
     stderr: String,
     /// Messages written to stdin that the CLI has not echoed back, oldest
@@ -1060,8 +1072,13 @@ impl Session {
         // Set unconditionally, including to `None`. A conversation continued
         // from a compacted one has no origin in this file, and a recent prompt
         // left standing in its place is the false claim being repaired — see
-        // [`crate::past::opening`].
-        self.state.lock().expect("session state poisoned").asked = crate::past::opening(&path);
+        // [`crate::past::opening`]. `origin_read` is what makes `None` stick:
+        // without it the next thing said would be taken for the beginning.
+        {
+            let mut state = self.state.lock().expect("session state poisoned");
+            state.asked = crate::past::opening(&path);
+            state.origin_read = true;
+        }
         self.recount();
     }
 
@@ -1575,7 +1592,7 @@ impl Session {
         // Held even if the CLI never echoes it, so the record of what was asked
         // does not depend on the CLI's replay behaviour.
         let mut state = self.state.lock().expect("session state poisoned");
-        if state.asked.is_none() {
+        if state.asked.is_none() && !state.origin_read {
             state.asked = Some(text.to_string());
         }
         Ok(())
@@ -1643,7 +1660,7 @@ impl Session {
         stdin.flush().await.context("flushing to the session")?;
         drop(held);
         let mut state = self.state.lock().expect("session state poisoned");
-        if state.asked.is_none() {
+        if state.asked.is_none() && !state.origin_read {
             // What it was opened for, when a picture is the first thing said. The
             // base64 is emphatically not this: it is a megabyte of characters, and
             // this is a line on the front page.
@@ -2065,7 +2082,7 @@ impl Session {
                         );
                     }
                 }
-                Event::Prompt { text } if state.asked.is_none() => {
+                Event::Prompt { text } if state.asked.is_none() && !state.origin_read => {
                     state.asked = Some(text.clone());
                 }
                 Event::Ask {

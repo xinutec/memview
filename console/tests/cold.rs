@@ -287,7 +287,7 @@ async fn the_number_the_seed_ends_on_resumes_without_sending_the_page_again() {
 /// The reply is read only as far as the seed, because what is being measured is
 /// what happens *after* it: whether a live event has to wait for a compressor's
 /// buffer to fill before any of it reaches the wire.
-async fn compressed(addr: std::net::SocketAddr, path: &str) -> (TcpStream, String) {
+async fn compressed(addr: std::net::SocketAddr, path: &str) -> (TcpStream, Vec<u8>) {
     let mut socket = TcpStream::connect(addr).await.expect("connect");
     socket
         .write_all(
@@ -306,7 +306,10 @@ async fn compressed(addr: std::net::SocketAddr, path: &str) -> (TcpStream, Strin
         }
         seen.extend_from_slice(&buffer[..read]);
     }
-    (socket, String::from_utf8_lossy(&seen).into_owned())
+    // ⚠ **Raw, not a lossy string.** These bytes are a gzip member, and
+    // `from_utf8_lossy` replaces every invalid sequence with U+FFFD — which
+    // decodes to nothing at all. Read back as text for the header check only.
+    (socket, seen)
 }
 
 #[tokio::test]
@@ -325,10 +328,11 @@ async fn a_live_event_is_not_held_back_by_the_compressor() {
     let addr = serve(roster).await;
     let (mut socket, head) =
         compressed(addr, &format!("/api/sessions/{}/events", session.id)).await;
+    let reply = String::from_utf8_lossy(&head).to_lowercase();
     assert!(
-        head.to_lowercase().contains("content-encoding: gzip"),
+        reply.contains("content-encoding: gzip"),
         "the stream was not compressed at all, so this proves nothing: {}",
-        &head[..head.len().min(400)]
+        &reply[..reply.len().min(400)]
     );
 
     // Now make the session say one thing, and see whether any of it reaches the
@@ -344,6 +348,27 @@ async fn a_live_event_is_not_held_back_by_the_compressor() {
     assert!(
         arrived > 0,
         "the stream closed instead of carrying the event"
+    );
+
+    // The whole gzip member so far: its header arrived with the seed, so the
+    // decoder is fed from the start of the body rather than from this read alone.
+    let mut whole = head;
+    whole.extend_from_slice(&buffer[..arrived]);
+    let body = whole
+        .windows(4)
+        .position(|four| four == b"\r\n\r\n")
+        .map(|at| whole.split_off(at + 4))
+        .expect("no end of headers in the reply");
+    let body = dechunked(&body);
+    let mut plain = Vec::new();
+    // Cut mid-member, which is the normal case here — the stream has not ended
+    // and will not — so a decode error AFTER real output is the expected ending.
+    let _ = std::io::copy(&mut flate2::read::GzDecoder::new(&body[..]), &mut plain);
+    let text = String::from_utf8_lossy(&plain);
+    assert!(
+        text.contains("second"),
+        "the compressor flushed something, but not the event: {:?}",
+        &text[text.len().saturating_sub(200)..]
     );
 }
 
@@ -529,4 +554,50 @@ async fn a_conversation_continued_from_a_compacted_one_claims_no_origin() {
         None,
         "a continued conversation claimed an origin it does not have"
     );
+
+    // ⚠ **And it has to STAY none.** Three places name a session after a prompt
+    // when it has no name — right for a session with no transcript, wrong here:
+    // the file was read and had no beginning to give. Without `origin_read` the
+    // blank lasts until the next message and the false claim comes straight
+    // back, an hour later and invisibly.
+    session.send("something said later").await.expect("send");
+    assert_eq!(
+        session.summary().asked,
+        None,
+        "the next thing said was taken for the beginning of the conversation"
+    );
+}
+
+/// The payload out of an HTTP chunked body, as far as it goes.
+///
+/// ⚠ **Needed before any decoding.** The stream is `Transfer-Encoding: chunked`,
+/// so the bytes on the socket are `size CRLF data CRLF` — feeding those to a gzip
+/// decoder hands it a hex length where a header should be and yields nothing at
+/// all, which reads exactly like a compressor that never flushed. Stops at the
+/// first incomplete chunk, because a live stream is always cut somewhere.
+fn dechunked(body: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut rest = body;
+    loop {
+        let Some(eol) = rest.windows(2).position(|two| two == b"\r\n") else {
+            return out;
+        };
+        let Ok(head) = std::str::from_utf8(&rest[..eol]) else {
+            return out;
+        };
+        // A chunk extension after `;` is legal and unused here.
+        let size = head.split(';').next().unwrap_or("").trim();
+        let Ok(size) = usize::from_str_radix(size, 16) else {
+            return out;
+        };
+        if size == 0 {
+            return out;
+        }
+        let from = eol + 2;
+        let Some(chunk) = rest.get(from..from + size) else {
+            return out;
+        };
+        out.extend_from_slice(chunk);
+        rest = &rest[(from + size + 2).min(rest.len())..];
+    }
 }

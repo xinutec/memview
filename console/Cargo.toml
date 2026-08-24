@@ -72,6 +72,10 @@ base64 = "0.22"
 # Test certificates, made in the test rather than committed: a keypair in the
 # repository is a keypair that outlives its purpose.
 rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"] }
+# Reading the event stream back through the compression the phone asks for. A
+# test that only checked bytes ARRIVED would pass on garbage; the claim is that a
+# live event reaches the wire whole and promptly.
+flate2 = "1"
 # Backdating a fixture's mtime. The freshness half of the in-use guard cannot be
 # tested by waiting two minutes.
 filetime = "0.2"
