@@ -8,6 +8,7 @@
 pub mod access;
 pub mod agents;
 pub mod atomic;
+pub mod bash_corpus;
 pub mod commits;
 pub mod config;
 pub mod couse;

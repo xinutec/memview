@@ -401,9 +401,32 @@ surface. This is the one job here whose silent failure destroys something: what
 it captures is being pruned from the live tree by design.
 
 **Union for the ratchet, snapshot for frequency.** A corpus row is
-`{cmd, cwd, ran}` with no call id, so `sort -u` collapses exact repeats the
-moment it merges. Distinctness survives and multiplicity does not, which is why
+`{cmd, cwd, ran}` with no call id, so the merge collapses exact repeats the
+moment it runs. Distinctness survives and multiplicity does not, which is why
 the dated snapshots are kept beside the union rather than replaced by it.
+
+⚠ **The merge is `corpus-merge`, and it is not `sort -u`, because `sort -u`
+dedups whole LINES.** `bash-corpus` writes `at` only when the transcript carried
+one and an older version wrote it never, so every command mined before `at`
+existed sat in the union twice — once bare, once stamped, two distinct lines.
+Measured 2026-08-24: **141,545 of 298,895 rows, 47% of the corpus, was one era
+counted twice** (memview#1130). It collapses on IDENTITY — the row without its
+`at` — so two stamped rows that agree otherwise are two days and both survive;
+only a bare row with a stamped twin goes.
+
+⚠ **And the ratchet moved from rows to SUBJECTS, which is the stronger check,
+not the weaker one.** The old guard refused to let the row count fall, which is
+also what made the duplication permanent: undoing it has to remove rows. What
+the union promises to keep is distinct `(cmd, cwd)`; rows are how it happens to
+store that. So a fall in rows beside an intact subject count is the shape of a
+collapsed duplicate, and a fall in subjects is refused and never written.
+
+⚠ **Absolute counts taken over the union before 2026-08-24 are inflated,
+and their rankings are skewed.** Ratios and same-corpus before/after diffs
+survive — the duplication cancels — but a command seen only in the legacy era
+counted once while one spanning the transition counted twice, so any
+"biggest first" worklist built before that date was weighted toward the
+transition. `docs/reader.md`'s figures from 2026-08-23 are in that window.
 
 **The first copy of a duplicated call wins.** Transcripts re-append stretches
 already written, and the later copy carries a shallower `cwd`.

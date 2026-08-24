@@ -123,6 +123,15 @@ itself, so even a glob loop runs its body once. The rule is bash's.
    commands leave. Rebuild from transcripts when the question is about what is
    current. See the corpus discipline in
    [execution-model.md](execution-model.md).
+
+   ⚠ **Absolute figures in this file dated on or before 2026-08-23 were taken
+   over a union that held one era TWICE** — 141,545 of 298,895 rows, collapsed
+   on 2026-08-24 by memview#1130. The conclusions stand, because they rest on
+   ratios and on before/after diffs of the same corpus, where the duplication
+   cancels on both sides. The counts do not: they are inflated, and any
+   "biggest first" ranking taken then was weighted toward whatever spanned the
+   transition. Re-take a count before quoting it forward; do not re-derive a
+   conclusion that was already ablated.
 2. Change the table or the grammar.
 3. Re-run the report. The number that matters is the one that *moved*; the
    failure list is the next thing to build.
