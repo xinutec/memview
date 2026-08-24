@@ -743,13 +743,22 @@ pub fn resume_from(headers: &HeaderMap, asked: Option<&str>) -> Option<u64> {
 /// is a thing no client can undo. This way it is missed instead, which the next
 /// event repairs and which nobody can see.
 ///
-/// ⚠ **Console-only events are not replayed here.** `busy`, `sent`, `started`
-/// are this console's own words and are in no transcript, so a cold reader no
-/// longer sees the recent ones. What is doing the work of `busy` for such a
-/// reader is already there and is what it was built for: nothing on this stream
-/// is evidence about the present until `caught-up`, and until then the page
-/// reads the session's own `busy` off the summary — see `Held.spoken` in
+/// ⚠ **Console-only events are not replayed here.** `busy`, `accepted`,
+/// `started` are this console's own words and are in no transcript, so a cold
+/// reader no longer sees the recent ones. What is doing the work of `busy` for
+/// such a reader is already there and is what it was built for: nothing on this
+/// stream is evidence about the present until `caught-up`, and until then the
+/// page reads the session's own `busy` off the summary — see `Held.spoken` in
 /// `session-store.ts`.
+///
+/// ⚠ **`Accepted` is the one with a visible cost, and it was weighed rather than
+/// missed.** It is what draws *waiting to be read* against a message the CLI has
+/// parked mid-turn, so opening such a session cold shows the message with no
+/// mark on it. Left out deliberately on 2026-08-24: the marker lives only
+/// between the write and the CLI's replay echo, which is a blink for an idle
+/// session, and Pippijn — who drives this from the phone daily — had never seen
+/// it. Restoring it means replaying the console's own events from behind the
+/// page, which is worth doing only if the chip is ever actually missed.
 ///
 /// `None` when there is no transcript to read, which is a session started
 /// moments ago and whose log is a handful of events anyway.
