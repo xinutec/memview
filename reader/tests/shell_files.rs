@@ -1659,3 +1659,48 @@ fn a_remote_path_gets_no_local_locus() {
     assert!(located("scp amun:~/Photos/$f .").is_empty());
     assert!(located("rsync amun:~/Photos/$f/x .").is_empty());
 }
+
+#[test]
+fn a_find_over_a_literal_directory_is_located() {
+    // ⚠ **`$(find . -name '*.ts')` walks a directory this text names.** 144 uses
+    // over the corpus, and the reader reported them as naming nothing at all.
+    assert_eq!(
+        located("wc -l $(find . -name '*.ts')"),
+        ["/home/example/Code/health"]
+    );
+    assert_eq!(
+        located("wc -l $(find src -name '*.ts')"),
+        ["/home/example/Code/health/src"]
+    );
+}
+
+#[test]
+fn a_find_over_a_computed_directory_is_not() {
+    // `$d` is a directory the text does not name. 22 uses, and claiming the cwd
+    // for them would put a locus on a walk that never happened there.
+    assert_eq!(
+        unnamed("wc -l $(find $d -name '*.ts')"),
+        ["$(find $d -name '*.ts')"]
+    );
+    assert!(located("wc -l $(find $d -name '*.ts')").is_empty());
+}
+
+#[test]
+fn git_ls_files_is_rooted_at_the_directory_it_ran_in() {
+    // `git ls-files` with no pathspec lists what is tracked at or below the CWD,
+    // printed relative to it. 101 uses of this exact word.
+    assert_eq!(
+        located("wc -l $(git ls-files)"),
+        ["/home/example/Code/health"]
+    );
+}
+
+#[test]
+fn git_diff_is_not_rooted_at_the_cwd_and_must_not_be_claimed() {
+    // ⚠ **`git diff --name-only` prints paths relative to the REPO ROOT**, not
+    // to the directory it ran in, so the cwd is the wrong locus for it and the
+    // repo root is not something this reader knows. `ls-files` and `diff` look
+    // alike and are not, which is why they are not one rule.
+    assert!(located("wc -l $(git diff --name-only)").is_empty());
+    assert!(located("wc -l $(git status --porcelain)").is_empty());
+}

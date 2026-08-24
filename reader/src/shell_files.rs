@@ -1291,6 +1291,35 @@ fn bounded_by(
     None
 }
 
+/// The directory a finite-set generator walks, when the text names it.
+///
+/// ⚠ **`git ls-files` and `git diff` look alike and are not one rule.**
+/// `ls-files` with no pathspec lists what is tracked at or below the working
+/// directory, printed relative to it — so the cwd is its locus. `git diff
+/// --name-only` and `git status` print relative to the REPOSITORY ROOT wherever
+/// they run, and this reader does not know where that is. Sharing a rule between
+/// them would root 1 use of the corpus at a directory it never walked, which is
+/// a fabricated path and the one failure mode this table has.
+///
+/// ⚠ **A directory holding a `$` is not one the text names.** `$(find $d …)` —
+/// 22 uses — walks somewhere this corpus does not contain, and claiming the cwd
+/// for it would put a locus on a walk that never happened there.
+fn generated_in(word: &str) -> Option<&str> {
+    let inner = word.strip_prefix("$(")?.strip_suffix(')')?.trim();
+    let mut words = inner.split_whitespace();
+    let head = words.next()?;
+    let second = words.next().unwrap_or("");
+    match (head, second) {
+        ("git", "ls-files") => Some("."),
+        ("find" | "ls", dir)
+            if !dir.starts_with('-') && !dir.contains('$') && !dir.contains('`') =>
+        {
+            Some(dir)
+        }
+        _ => None,
+    }
+}
+
 /// The directory a subject is rooted at, when the text writes one out ahead of
 /// the first expansion.
 ///
@@ -1311,6 +1340,14 @@ fn bounded_by(
 ///   answer is somewhere on the filesystem. A locus that excludes nothing is
 ///   not one, and counting it would be the emptiest possible fact.
 fn locus_of(word: &str, cwd: Option<&str>, home: &str) -> Option<String> {
+    // ⚠ **Before the whitespace guard, because a generator is nothing but
+    // whitespace.** `$(find . -name '*.ts')` is a walk over a directory the text
+    // names, and the guard below exists to keep jq filters out — it would throw
+    // this away with them. 251 of the corpus's 273 located sets, measured
+    // 2026-08-24 by `--example located-sets`.
+    if let Some(dir) = generated_in(word) {
+        return resolve(dir, cwd, home);
+    }
     if word.contains(char::is_whitespace) || word.contains("$((") {
         return None;
     }

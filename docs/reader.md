@@ -802,9 +802,25 @@ the direction that matters, exactly as `S ⊆ L` is for globs.
 
 | | before | after |
 | --- | ---: | ---: |
-| shell, by word | 4,566 | **3,955** |
-| shell, located | — | **611** (89 loci) |
+| shell, by word | 4,566 | **3,705** |
+| shell, located | — | **861** (128 loci) |
 | subjects not named | 11,974 | **11,974** |
+
+Two shapes reach it. A **written-out directory** ahead of the first expansion,
+611 uses; and a **finite-set generator** over a directory the text names —
+`$(find . -name '*.ts')`, `$(git ls-files)` — 250 more.
+
+⚠ **The generator is tested before the whitespace guard, because a generator is
+nothing but whitespace.** That guard exists to keep one-line jq filters out, and
+it would have thrown every `find` away with them.
+
+⚠ **`git ls-files` and `git diff` look alike and are not one rule.** `ls-files`
+with no pathspec lists what is tracked at or below the working directory,
+printed relative to it, so the cwd is its locus. `git diff --name-only` and
+`git status` print relative to the REPOSITORY ROOT wherever they run, and this
+reader does not know where that is. One rule for both would root a use at a
+directory it never walked. Measured: 251 located sets have a nameable
+directory, and this refuses one of them on purpose.
 
 ⚠ **The not-named total is byte-identical, and that is the check.** Nothing more
 was *named*; the reader says more about the same subjects. A locus is a better
@@ -818,9 +834,11 @@ the day the gap was closed had `by_locus` not been added back to both the
 numerators and the denominator. Verified by diffing the whole census: every
 summary line is byte-identical, `885 (19.4%)` and `1,223 (26.8%)` included.
 
-**What is left of the row:** one use, `amun:~/Photos/$f` — a remote path, whose
-directory is on another machine. It has a test of its own, because it is the
-shape most likely to be "fixed" by somebody reading that row.
+**What is left in the census:** one `locus known` — `amun:~/Photos/$f`, a remote
+path whose directory is on another machine — and 23 `located finite set`, being
+22 that walk a computed directory (`$(find $d …)`) and the one `git diff`. All
+three shapes have a test, because they are what somebody reading those rows will
+try to "fix", and each fix would name a directory the command never walked.
 
 ## Correctness
 
