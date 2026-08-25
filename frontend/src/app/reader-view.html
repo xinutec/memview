@@ -199,6 +199,23 @@
         }
       </ul>
     }
+    @if (got.from_a_variable > 0) {
+      <p class="note">
+        And <b>{{ got.from_a_variable | number }}</b> more that can never be on it either — the
+        command's name is a variable nobody bound. <code>$BIN</code> is a different program in every
+        script that sets it.
+      </p>
+      <ul class="rows">
+        @for (row of got.variable_names; track row.name) {
+          <li>
+            <span class="pair"
+              ><b>{{ row.n | number }}</b></span
+            >
+            <code class="name">{{ row.name }}</code>
+          </li>
+        }
+      </ul>
+    }
 
     <p class="note">
       And the subjects the text simply does not fix — a loop variable bound by something the

@@ -372,6 +372,8 @@ const READING = {
   unrolled: 969629,
   handled: 2426368,
   unhandled: 20073,
+  local: 2475,
+  from_a_variable: 307,
   understood: 99.17950197858849,
   reads: 411961,
   writes: 76766,
@@ -425,6 +427,18 @@ const READING = {
   unread: [
     { name: 'k3s', n: 1215 },
     { name: 'verified_cli', n: 336 },
+  ],
+  // ⚠ **Both of the lists that can never be worked, because the page draws
+  // them beside the worklist and the distinction is the whole point.** Without
+  // them in the fixture the blocks never render and a change to either passes
+  // unseen — which is how this test read for as long as `local` was absent.
+  local_names: [
+    { name: 'probe', n: 418 },
+    { name: 'render', n: 162 },
+  ],
+  variable_names: [
+    { name: '$ADB', n: 77 },
+    { name: '$BIN', n: 39 },
   ],
   opaque_words: [
     { name: '$f', n: 2378 },
@@ -728,6 +742,14 @@ test('reader — prose bar labels, deep paths and a `$( )` subject @ phone width
   await page.getByText('2,747').waitFor();
   await page.getByText('151').first().waitFor();
   await page.getByText('location_equipment_option').waitFor();
+
+  // ⚠ **The two lists that are NOT the worklist, and the page has to say which
+  // is which.** A call to a script's own function and a call named by a
+  // variable are both counted and neither can ever be taught, so drawing them
+  // as unread commands would put work on the queue that nobody can do.
+  await page.getByText('a function the calling script declares itself', { exact: false }).waitFor();
+  await page.getByText('is a variable nobody bound', { exact: false }).waitFor();
+  await page.getByText('$ADB').waitFor();
 
   await expectIconFontLoaded(page);
   await expectNoTextOverlaps(page, testInfo);

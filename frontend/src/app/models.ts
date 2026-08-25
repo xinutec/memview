@@ -495,6 +495,15 @@ export interface CorpusRead {
    * because the reader learned something.
    */
   local: number;
+  /**
+   * Calls whose command NAME is a variable nobody bound — `$BIN`, `${TOOL}`.
+   *
+   * ⚠ **The same standing as `local`, and for the same reason.** `$BIN` names a
+   * different program in every script that sets it, so no table entry could
+   * ever match it; and nothing was read either, so it is in `commands` and not
+   * in `handled`.
+   */
+  from_a_variable: number;
   /** `handled` over `commands`, computed server-side so two clients cannot
    *  round it two ways. */
   understood: number;
@@ -564,5 +573,8 @@ export interface CorpusRead {
   /** The local functions — the same shape as `unread`, and deliberately not the
    *  same list: one is a worklist, the other can never be worked. */
   local_names: Ranked[];
+  /** The variable-named calls, beside `local_names` and for the same reason:
+   *  neither list can ever be worked. */
+  variable_names: Ranked[];
   opaque_words: Ranked[];
 }

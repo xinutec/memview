@@ -707,8 +707,34 @@ fn a_value_that_must_be_run_binds_nothing() {
     // substitution becomes the command's own name, and the index grows an entry
     // for a tool called `$(which adb)`. 13 of 1,023 `$ADB` uses, so the cost of
     // refusing is 13 commands and the cost of guessing is a corrupt index.
-    assert_eq!(unread("ADB=$(which adb)\n$ADB shell ls"), ["$ADB"]);
-    assert_eq!(unread("ADB=`which adb`\n$ADB shell ls"), ["$ADB"]);
+    //
+    // ⚠ **That refusal stands; where the refused call is COUNTED has moved.**
+    // `$ADB` is not a name the table could ever hold, so it is filed with the
+    // other unnameable calls rather than on the worklist — memview#1158, and
+    // the same argument #1124 made for a script's own functions.
+    for script in [
+        "ADB=$(which adb)\n$ADB shell ls",
+        "ADB=`which adb`\n$ADB shell ls",
+    ] {
+        let cmds = parse(script).unwrap();
+        let found = extract(&cmds, Some(CWD), HOME);
+        assert!(
+            unread(script).is_empty(),
+            "still on the worklist: {:?}",
+            unread(script)
+        );
+        assert_eq!(found.from_a_variable.get("$ADB"), Some(&1));
+        // The original guarantee: no entry is ever invented from the
+        // substitution's own text.
+        assert!(
+            !found
+                .from_a_variable
+                .keys()
+                .any(|name| name.contains("which")),
+            "a name was invented from the substitution: {:?}",
+            found.from_a_variable
+        );
+    }
 }
 
 #[test]
@@ -1771,4 +1797,61 @@ fn a_suffix_holding_a_glob_is_still_a_transduction_and_still_refused() {
         unnamed("for f in *.log; do wc -l \"${f%%:*}\"; done"),
         ["${f%%:*}"]
     );
+}
+
+/// A command named by a variable nobody bound is not a command to teach.
+///
+/// ⚠ **The worklist is what this protects, the same as a local function.**
+/// `$BIN` is a different program in every script that sets it, so there is no
+/// entry anybody could write — and `unhandled` means precisely *the table has
+/// no entry for that name*. Measured 2026-08-25 over the union corpus: **27
+/// such names, 287 calls**, beside 8 more entries and 503 calls of the same
+/// cause with the variable resolved and then not word-split. memview#1158.
+#[test]
+fn a_command_named_by_a_variable_is_not_an_unread_command() {
+    for script in ["$BIN --version", "${TOOL} run", "$exe -c 'x'"] {
+        assert!(
+            unread(script).is_empty(),
+            "a variable counted as a command to teach: {:?}",
+            unread(script)
+        );
+    }
+}
+
+/// ⚠ **A variable this text DOES bind is a different case and must stay
+/// visible.** `A="adb …"; $A logcat` resolves, and what comes back is a command
+/// with its arguments glued into one word — a misreading of a knowable name,
+/// not a name nobody can know. Filing it beside `$BIN` would hide a defect
+/// behind an accounting fix; splitting it needs the quoting the flat model
+/// discards, which is `syntax/`'s job.
+#[test]
+fn a_variable_the_script_binds_is_not_filed_as_unnameable() {
+    let script = "A=\"frobnicate -s host\"; $A run";
+    assert_eq!(unread(script), ["frobnicate -s host"]);
+}
+
+/// ⚠ **What the call passes still goes unread, and the count must say so.**
+/// Dropping these calls entirely would claim there was nothing to follow.
+#[test]
+fn a_variable_named_command_is_counted_rather_than_dropped() {
+    let cmds = parse("$BIN one.txt").unwrap();
+    let found = extract(&cmds, Some(CWD), HOME);
+    assert_eq!(found.from_a_variable.values().sum::<usize>(), 1);
+    assert!(
+        found.files.is_empty(),
+        "no file may be claimed: {:?}",
+        found.files
+    );
+}
+
+/// ⚠ **A nested script's variable-named calls must survive the merge.**
+/// `Extract::merge` carries each account out of an inner shell by hand, and one
+/// left out is a silent loss: the calls are counted inside and dropped on the
+/// way out, so `commands()` shrinks and every rate over it moves for no reason.
+/// Caught by the corpus arithmetic — 307 left the worklist where 215 arrived.
+#[test]
+fn a_nested_scripts_variable_named_calls_are_not_lost() {
+    let cmds = parse("bash -c '$BIN one; $BIN two'").unwrap();
+    let found = extract(&cmds, Some(CWD), HOME);
+    assert_eq!(found.from_a_variable.get("$BIN"), Some(&2));
 }

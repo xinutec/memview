@@ -149,6 +149,15 @@ pub struct Reading {
     /// something it has not read.
     pub local: usize,
     pub local_by_name: BTreeMap<String, usize>,
+    /// Calls whose command NAME is a variable nobody bound, and their names.
+    ///
+    /// ⚠ **The same standing as `local`: in `commands()`, not in
+    /// `understood()`.** `$BIN` names a different program in every script, so
+    /// there is no entry to teach — and nothing was read either, so a rate that
+    /// counted it would claim an understanding it does not have. See
+    /// [`crate::shell_files::Extract::from_a_variable`].
+    pub from_a_variable: usize,
+    pub from_a_variable_by_name: BTreeMap<String, usize>,
     /// Subjects the text does not determine. Counted beside the commands not
     /// read at all, because they are the same kind of admission: the size of
     /// what this does not know, stated by the thing that does not know it.
@@ -282,6 +291,13 @@ impl Reading {
             self.local += n;
             *self.local_by_name.entry(name.clone()).or_insert(0) += n;
         }
+        for (name, n) in &found.from_a_variable {
+            self.from_a_variable += n;
+            *self
+                .from_a_variable_by_name
+                .entry(name.clone())
+                .or_insert(0) += n;
+        }
         // ⚠ The total comes from `subjects_not_named`, which folds in the Python
         // and JavaScript readers' accounts too — the map below is the shell's
         // words alone, and reading a total off it is the undercount memview#824
@@ -336,7 +352,7 @@ impl Reading {
     /// Commands *run*, not commands written: a determinate loop is run out into
     /// its iterations before this counts them.
     pub fn commands(&self) -> usize {
-        self.handled + self.unhandled + self.local
+        self.handled + self.unhandled + self.local + self.from_a_variable
     }
 
     /// How much of what ran the table has an entry for.
@@ -462,6 +478,11 @@ pub struct CorpusRead {
     /// ⚠ **In `commands` and not in `handled`**, so `understood` is unmoved by
     /// splitting this out — nothing more was read. See [`Reading::understood`].
     pub local: usize,
+    /// Calls whose command name is a variable nobody bound.
+    ///
+    /// ⚠ **In `commands` and not in `handled`**, exactly as `local` is, and for
+    /// the same reason: nothing more was read.
+    pub from_a_variable: usize,
     /// `handled` as a percentage of `commands`, computed once so two clients
     /// cannot round it two ways.
     pub understood: f64,
@@ -513,6 +534,9 @@ pub struct CorpusRead {
     /// deliberately a separate list, because one is a worklist and the other
     /// can never be worked.
     pub local_names: Vec<Ranked>,
+    /// The variable-named calls, biggest first. Beside `local_names` and for
+    /// the same reason: neither list can ever be worked.
+    pub variable_names: Vec<Ranked>,
     pub opaque_words: Vec<Ranked>,
 }
 
@@ -599,6 +623,7 @@ impl Reading {
             handled: self.handled,
             unhandled: self.unhandled,
             local: self.local,
+            from_a_variable: self.from_a_variable,
             understood: self.understood(),
             reads: self.reads,
             writes: self.writes,
@@ -628,6 +653,7 @@ impl Reading {
             hosts: rank_both(&self.remote, false),
             unread: rank(&self.by_name),
             local_names: rank(&self.local_by_name),
+            variable_names: rank(&self.from_a_variable_by_name),
             opaque_words: rank(&self.by_word),
         }
     }

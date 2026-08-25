@@ -82,6 +82,11 @@ fn main() -> anyhow::Result<()> {
         read.local,
         read.local_by_name.len()
     );
+    println!(
+        "  named by a variable {}  ({} distinct names)",
+        read.from_a_variable,
+        read.from_a_variable_by_name.len()
+    );
     // A wrapper whose inner shell will not parse is a hole in exactly the third
     // of the corpus that runs through one, so it is counted rather than shrugged
     // at — the same rule as every other refusal here.

@@ -81,6 +81,23 @@ pub struct Extract {
     /// it to nothing says there was nothing to follow. Neither is true, and the
     /// number is 2,493 calls across 78 names — too large to state wrongly.
     pub local: BTreeMap<String, usize>,
+    /// Calls whose command NAME is a variable nobody bound, by the word as
+    /// written — `$BIN`, `${TOOL}`.
+    ///
+    /// The same third outcome as [`Extract::local`] and for the same reason:
+    /// there is no entry anybody could write, because the name means a different
+    /// program in every script that sets it. Not `handled` either — nothing was
+    /// read, and what the call passes goes unread.
+    ///
+    /// ⚠ **Only a name still unresolved AFTER expansion.** A variable the script
+    /// itself binds does resolve, and what comes back is a command with its
+    /// arguments in one word, because [`crate::shell_ops::expand`] returns one
+    /// word where bash word-splits an unquoted expansion. That is a misreading
+    /// of a knowable name and it stays on the worklist: filing it here would
+    /// hide a defect behind an accounting fix. Telling `$A` from `"$A"` needs
+    /// the quoting `Simple` discards, so the split belongs in `syntax/`.
+    /// Measured 2026-08-25: 27 names and 287 calls here, 8 and 503 there.
+    pub from_a_variable: BTreeMap<String, usize>,
     /// Commands that were classified, whether or not they named a file.
     pub handled: usize,
     /// Reads and writes by the command that produced them.
@@ -392,6 +409,14 @@ impl Extract {
         self.tables.merge(&inner.tables);
         for (name, n) in inner.local {
             *self.local.entry(name).or_insert(0) += n;
+        }
+        // ⚠ **A field added here and not merged is a SILENT loss**, and the
+        // arithmetic is what shows it: `not in the table` fell by 307 while this
+        // held 215, so 92 calls in nested scripts left `commands()` altogether —
+        // a denominator shrinking, which is the one move a coverage figure must
+        // never make on its own.
+        for (name, n) in inner.from_a_variable {
+            *self.from_a_variable.entry(name).or_insert(0) += n;
         }
         for (name, n) in inner.unhandled {
             *self.unhandled.entry(name).or_insert(0) += n;
@@ -1044,7 +1069,20 @@ fn extract_nested(
                     *out.local.entry(name.clone()).or_insert(0) += 1;
                     continue;
                 }
-                *out.unhandled.entry(name.clone()).or_insert(0) += 1;
+                // ⚠ **A name that is STILL an expansion has already been through
+                // `expand`**, so nobody bound it in this text and no table entry
+                // could ever match it. See [`Extract::from_a_variable`].
+                //
+                // ⚠ **Recorded WITHOUT skipping the rest of the loop**, because
+                // the activity is pushed at the end of it: a call named by a
+                // variable is still work that ran, and `activity::of` answers
+                // with the variable's own name rather than guessing a category.
+                // Short-circuiting here dropped that row from the timeline.
+                if name.starts_with('$') {
+                    *out.from_a_variable.entry(name.clone()).or_insert(0) += 1;
+                } else {
+                    *out.unhandled.entry(name.clone()).or_insert(0) += 1;
+                }
             }
             // A shell inside a shell: `bash -c '…'`, `nix-shell --run '…'`.
             // Read with the *current* directory and its own scope, so a `cd`

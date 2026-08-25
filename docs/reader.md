@@ -688,6 +688,46 @@ git archaeology on a tool that no longer exists.
 ⚠ **`probe` (418) is not a binary at all — it is a shell function**, and all four
 of its distinct spellings are `probe() {`. See below: it was one of seventy-eight.
 
+### A command named by a variable is not one either (memview#1158)
+
+`$BIN --version` reaches the worklist as a command called `$BIN`, and no entry
+anybody writes could ever match it: it is a different program in every script
+that sets it. The same argument as #1124's local functions, and the same answer
+— a third outcome, in `commands()` and not in `handled`.
+
+| | before | after |
+| --- | ---: | ---: |
+| simple commands | 1,362,930 | **1,362,930** |
+| understood | 99.3% | **99.3%** |
+| not in the table | 8,457 | **8,150** |
+| named by a variable | — | **307** (47 names) |
+
+**307 out, 307 in, the total unmoved and the rate unmoved.** That equality is the
+check, and it failed the first time: the worklist fell by 307 while the new field
+held 215, because `Extract::merge` copies each account out of a nested shell by
+hand and a field added without a line there is a **silent loss**. The 92 missing
+were every `$BIN` inside a `bash -c`.
+
+⚠ **Nothing surfaced, and that is worth saying.** #1124 freed `arp`, `claude`
+and `magick` from under 2,475 phantoms; here the top 25 is identical before and
+after, because these 307 sat in the tail. The gain is that 307 calls across 47
+names have stopped being described as commands the table has no entry for.
+
+⚠ **The other 503 were deliberately NOT filed here.** `A="adb -s HOST"; $A logcat`
+resolves, and comes back as a command with its arguments glued into one word,
+because `shell_ops::expand` returns one word where bash word-splits an unquoted
+expansion. That is a misreading of a knowable name, and filing it beside `$BIN`
+would hide a defect behind an accounting fix. **Telling `$A` from `"$A"` needs
+the quoting `Simple` discards** — `"$A" logcat` genuinely makes bash look for a
+program of that whole name and fail — so the split belongs in `syntax/` and the
+503 stay visible until then.
+
+⚠ **`continue` there drops the timeline row.** The activity is pushed at the end
+of that loop, so short-circuiting after recording the count removed every
+variable-named call from `doing.rs` while every total still balanced. Caught by
+an existing test, not by the new ones. `local` still short-circuits, and whether
+#1124 lost its 1,261 calls from the timeline the same way is **unverified**.
+
 ### A call is not a gap when the script declares the function (memview#1124)
 
 `probe` was not the case, it was the *symptom*. Measured the same day by
