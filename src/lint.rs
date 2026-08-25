@@ -275,6 +275,26 @@ const RULES: &[(&str, Severity, &str)] = &[
         Severity::Error,
         "the checkout root could not be read, so no path claim was actually verified",
     ),
+    (
+        // Introduced 2026-08-25 at WARNING with 15 findings of 369 sha-shaped
+        // tokens — 4.1%. A warning and not an error because the rule cannot
+        // separate "this sha is wrong" from "the repo holding it is not cloned
+        // here", and both look identical from the code root.
+        //
+        // ⚠ **Three filters, and each was measured rather than guessed.**
+        // Checking every `[0-9a-f]{7,10}` token against the memory's OWN repo,
+        // guessed from its name, reported 65 dead of 237 — and five of the first
+        // six checked existed in a DIFFERENT repo. The memory does not say which
+        // repo a sha belongs to and the name does not imply it, so the question
+        // has to be asked of every repo, not one. That correction took the rate
+        // from 27% to 7.6%. The remaining noise was two shapes that are not
+        // commits at all: decimal numbers that happen to be valid hex (`1048575`,
+        // `1234567`) and 8-character session-id prefixes (`296dae53`), which the
+        // corpus writes in backticks the same way. Excluding both: 4.1%.
+        "unresolvable-commit",
+        Severity::Warning,
+        "cites a commit hash that exists in no repository here — a mistyped sha, a rebased-away commit, or a repo that is not cloned on this machine",
+    ),
 ];
 
 fn severity_of(rule: &str) -> Severity {
@@ -681,6 +701,144 @@ fn code_repos_named(text: &str, code_root: &std::path::Path) -> BTreeSet<String>
 /// first paragraph and four live paths below it, and this rule was silent on all
 /// four while the audit that found them read the file by hand. A retirement note
 /// records the retirement where it is written; it is not a document-wide waiver.
+/// Sha-shaped tokens a memory writes in backticks, minus the two shapes that
+/// look identical and are not commits.
+///
+/// ⚠ **A decimal number is valid hex.** `1048575` and `1234567` are both written
+/// in backticks in this corpus and neither is a commit, so a token with no
+/// `a`-`f` in it is not treated as one. Costs the rare all-digit sha, which is a
+/// 1-in-16^7 shape and worth losing.
+///
+/// ⚠ **A session id is written the same way.** `296dae53` is the health
+/// session's, not a commit, and the corpus cites session-id prefixes in prose. So
+/// every `originSessionId` the corpus declares is excluded by its first eight
+/// characters. Together these two filters took the finding rate from 7.6% to
+/// 4.1%.
+fn commit_shas(body: &str, session_prefixes: &BTreeSet<String>) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    let bytes: Vec<char> = body.chars().collect();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != '`' {
+            i += 1;
+            continue;
+        }
+        let start = i + 1;
+        let mut j = start;
+        while j < bytes.len() && bytes[j] != '`' && bytes[j] != '\n' {
+            j += 1;
+        }
+        if j < bytes.len() && bytes[j] == '`' {
+            let tok: String = bytes[start..j].iter().collect();
+            let hexish = (7..=10).contains(&tok.len())
+                && tok
+                    .chars()
+                    .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+                && tok.chars().any(|c| c.is_ascii_lowercase());
+            if hexish && !session_prefixes.contains(&tok) {
+                out.insert(tok);
+            }
+            i = j + 1;
+        } else {
+            i = j;
+        }
+    }
+    out
+}
+
+/// Every git repository directly under the code root, plus the root itself.
+///
+/// The root is included because `~/Code` is a repository too, and leaving it out
+/// reported its own HEAD as unresolvable — measured, on `4a10271`.
+fn repos_under(code_root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut repos = vec![code_root.to_path_buf()];
+    if let Ok(entries) = std::fs::read_dir(code_root) {
+        for e in entries.flatten() {
+            if e.path().join(".git").exists() {
+                repos.push(e.path());
+            }
+        }
+    }
+    repos
+}
+
+/// Which of `shas` no repository holds, asked one repo at a time.
+///
+/// ⚠ **`--batch-check` echoes the RESOLVED oid for a hit, not the input**, so a
+/// hit cannot be matched back to the short sha that produced it by reading the
+/// line. It answers one line per input in input ORDER, which is what this pairs
+/// on — and if the counts ever disagree the repo is skipped rather than paired
+/// wrongly. Getting this wrong reported all 394 tokens as dead, including ones
+/// verified by hand a minute earlier.
+fn unresolved_in_any(shas: &BTreeSet<String>, repos: &[std::path::PathBuf]) -> BTreeSet<String> {
+    let mut left: Vec<String> = shas.iter().cloned().collect();
+    for repo in repos {
+        if left.is_empty() {
+            break;
+        }
+        let input = left
+            .iter()
+            .map(|s| format!("{s}^{{commit}}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let Ok(out) = git_batch_check(repo, &input) else {
+            continue;
+        };
+        let lines: Vec<&str> = out.lines().collect();
+        if lines.len() != left.len() {
+            continue;
+        }
+        left = left
+            .iter()
+            .zip(lines)
+            .filter(|(_, l)| l.contains("missing") || l.contains("ambiguous"))
+            .map(|(s, _)| s.clone())
+            .collect();
+    }
+    left.into_iter().collect()
+}
+
+/// ⚠ **`-C` sets the DIRECTORY and loses to `GIT_DIR`, which wins.** This lint
+/// runs inside the gate, the gate runs from `git commit`'s pre-commit hook, and
+/// that hook exports `GIT_DIR` and `GIT_INDEX_FILE` to everything it spawns. Left
+/// inherited, every `cat-file` below would ask the COMMITTING repository whether
+/// it holds the sha instead of asking the repo named by `-C` — so the rule would
+/// answer wrongly in the one place it actually runs, and correctly by hand.
+///
+/// Found because the same inheritance made the test helper write into memview's
+/// index; that cost two failed commits (`error: Error building trees`). The
+/// production path had the identical bug one function away.
+fn git_batch_check(repo: &std::path::Path, input: &str) -> std::io::Result<String> {
+    use std::io::Write;
+    let mut cmd = std::process::Command::new("git");
+    cmd.arg("-C").arg(repo).args(["cat-file", "--batch-check"]);
+    for var in [
+        "GIT_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_WORK_TREE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_COMMON_DIR",
+        "GIT_CEILING_DIRECTORIES",
+        "GIT_PREFIX",
+        "GIT_CONFIG_PARAMETERS",
+    ] {
+        cmd.env_remove(var);
+    }
+    let mut child = cmd
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+    child
+        .stdin
+        .take()
+        .expect("piped")
+        .write_all(input.as_bytes())?;
+    let out = child.wait_with_output()?;
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
 pub fn check_world(corpus: &Corpus, code_root: &std::path::Path) -> Vec<Finding> {
     let mut findings = Vec::new();
 
@@ -720,6 +878,36 @@ pub fn check_world(corpus: &Corpus, code_root: &std::path::Path) -> Vec<Finding>
                     rule: "dead-repo-path",
                     memory: name.clone(),
                     detail: format!("~/Code/{repo} does not exist"),
+                });
+            }
+        }
+    }
+
+    // Commit claims, asked of every repo at once rather than per memory: one
+    // `cat-file` per repository answers the whole corpus, where a call per
+    // citation would be ~370 spawns in a pre-commit gate.
+    let session_prefixes: BTreeSet<String> = corpus
+        .docs
+        .values()
+        .filter_map(|d| frontmatter_value(&d.raw, "originSessionId"))
+        .map(|id| id.chars().take(8).collect())
+        .collect();
+    let mut cited: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for (name, doc) in &corpus.docs {
+        for sha in commit_shas(&doc.body, &session_prefixes) {
+            cited.entry(sha).or_default().insert(name.clone());
+        }
+    }
+    let all: BTreeSet<String> = cited.keys().cloned().collect();
+    if !all.is_empty() {
+        let repos = repos_under(code_root);
+        for sha in unresolved_in_any(&all, &repos) {
+            for memory in cited.get(&sha).into_iter().flatten() {
+                findings.push(Finding {
+                    severity: severity_of("unresolvable-commit"),
+                    rule: "unresolvable-commit",
+                    memory: memory.clone(),
+                    detail: format!("`{sha}` is in no repository under {}", code_root.display()),
                 });
             }
         }

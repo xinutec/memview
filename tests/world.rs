@@ -219,3 +219,186 @@ fn a_dead_path_named_only_in_the_description_is_caught() {
     assert_eq!(findings.len(), 1, "{findings:?}");
     assert!(findings[0].detail.contains("lares"), "{findings:?}");
 }
+
+/// A repo with one commit, so a sha claim has something real to resolve against.
+fn repo_with_a_commit(root: &std::path::Path, name: &str) -> String {
+    let repo = root.join(name);
+    std::fs::create_dir_all(&repo).expect("mkdir");
+    let git = |args: &[&str]| {
+        scrubbed_git(&repo).args(args).output().expect("git");
+    };
+    git(&["init", "-q"]);
+    git(&["config", "user.email", "t@example.com"]);
+    git(&["config", "user.name", "t"]);
+    std::fs::write(repo.join("f"), "x").expect("write");
+    git(&["add", "f"]);
+    git(&["commit", "-qm", "one"]);
+    let out = scrubbed_git(&repo)
+        .args(["rev-parse", "--short=8", "HEAD"])
+        .output()
+        .expect("git");
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// `git -C <dir>` with every inherited git variable removed.
+///
+/// ⚠ **`-C` sets the DIRECTORY and loses to `GIT_INDEX_FILE`, which wins.** These
+/// tests run under `cargo test`, `cargo test` runs under the gate, and the gate
+/// runs from `git commit`'s pre-commit hook — which exports `GIT_DIR` and
+/// `GIT_INDEX_FILE` to everything it spawns. So `git -C <tempdir> add f` wrote
+/// the entry into MEMVIEW'S index while the blob went to the tempdir's object
+/// store, leaving `100644 c1b0730e… for 'f'` pointing at an object the repo does
+/// not have. The commit then died on `error: Error building trees`.
+///
+/// It cost two failed commits and a wrong diagnosis: running the suite by hand
+/// leaves the index byte-identical, because a shell has none of these variables
+/// set. The bug only exists inside the hook, which is the one place it matters.
+fn scrubbed_git(repo: &std::path::Path) -> std::process::Command {
+    let mut c = std::process::Command::new("git");
+    c.arg("-C").arg(repo);
+    for var in [
+        "GIT_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_WORK_TREE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_COMMON_DIR",
+        "GIT_CEILING_DIRECTORIES",
+        "GIT_PREFIX",
+        "GIT_CONFIG_PARAMETERS",
+    ] {
+        c.env_remove(var);
+    }
+    c
+}
+
+#[test]
+fn a_commit_that_exists_is_not_a_finding() {
+    let corpus_dir = tempfile::tempdir().expect("tempdir");
+    let code = tempfile::tempdir().expect("tempdir");
+    let sha = repo_with_a_commit(code.path(), "observe");
+
+    let corpus = corpus_saying(corpus_dir.path(), &format!("Fixed in `{sha}`."));
+    let findings: Vec<_> = check_world(&corpus, code.path())
+        .into_iter()
+        .filter(|f| f.rule == "unresolvable-commit")
+        .collect();
+    assert!(findings.is_empty(), "{findings:?}");
+}
+
+/// ⚠ The memory does NOT say which repo a sha belongs to, and its name does not
+/// imply one. Resolving against the repo guessed from the name reported 65 dead
+/// of 237 — and five of the first six existed in a different repo. The question
+/// is asked of every repository, which is what this pins.
+#[test]
+fn a_commit_in_a_repo_the_memory_does_not_name_still_resolves() {
+    let corpus_dir = tempfile::tempdir().expect("tempdir");
+    let code = tempfile::tempdir().expect("tempdir");
+    repo_with_a_commit(code.path(), "observe");
+    let elsewhere = repo_with_a_commit(code.path(), "unrelated");
+
+    let corpus = corpus_saying(corpus_dir.path(), &format!("Fixed in `{elsewhere}`."));
+    let findings: Vec<_> = check_world(&corpus, code.path())
+        .into_iter()
+        .filter(|f| f.rule == "unresolvable-commit")
+        .collect();
+    assert!(findings.is_empty(), "{findings:?}");
+}
+
+#[test]
+fn a_commit_no_repository_holds_is_reported() {
+    let corpus_dir = tempfile::tempdir().expect("tempdir");
+    let code = tempfile::tempdir().expect("tempdir");
+    repo_with_a_commit(code.path(), "observe");
+
+    let corpus = corpus_saying(corpus_dir.path(), "Fixed in `deadbee`.");
+    let findings: Vec<_> = check_world(&corpus, code.path())
+        .into_iter()
+        .filter(|f| f.rule == "unresolvable-commit")
+        .collect();
+    assert_eq!(findings.len(), 1, "{findings:?}");
+    assert_eq!(findings[0].severity, Severity::Warning);
+}
+
+/// ⚠ A decimal number is valid hex and this corpus writes them in backticks —
+/// `1048575` and `1234567` both appear. Neither is a commit.
+#[test]
+fn an_all_digit_token_is_not_read_as_a_commit() {
+    let corpus_dir = tempfile::tempdir().expect("tempdir");
+    let code = tempfile::tempdir().expect("tempdir");
+    repo_with_a_commit(code.path(), "observe");
+
+    let corpus = corpus_saying(
+        corpus_dir.path(),
+        "The cap is `1048575` bytes, not `1234567`.",
+    );
+    let findings: Vec<_> = check_world(&corpus, code.path())
+        .into_iter()
+        .filter(|f| f.rule == "unresolvable-commit")
+        .collect();
+    assert!(findings.is_empty(), "{findings:?}");
+}
+
+/// ⚠ A session-id prefix is eight hex characters and the corpus cites them in
+/// backticks exactly as it cites shas.
+#[test]
+fn a_session_id_prefix_is_not_read_as_a_commit() {
+    let corpus_dir = tempfile::tempdir().expect("tempdir");
+    let code = tempfile::tempdir().expect("tempdir");
+    repo_with_a_commit(code.path(), "observe");
+
+    std::fs::write(
+        corpus_dir.path().join("MEMORY.md"),
+        "# Memory index\n- [p](project_thing.md)\n",
+    )
+    .expect("write index");
+    std::fs::write(
+        corpus_dir.path().join("project_thing.md"),
+        "---\nname: project_thing\ndescription: d\nmetadata:\n  type: project\n  \
+         originSessionId: 296dae53-3f84-4bd1-afbb-9ddcddedbdbb\n---\n\n\
+         Written by `296dae53`, which is a session and not a commit.\n",
+    )
+    .expect("write memory");
+    let corpus = Corpus::load(corpus_dir.path()).expect("loads");
+
+    let findings: Vec<_> = check_world(&corpus, code.path())
+        .into_iter()
+        .filter(|f| f.rule == "unresolvable-commit")
+        .collect();
+    assert!(findings.is_empty(), "{findings:?}");
+}
+
+/// ⚠ The bug that cost two failed commits: `-C` sets the directory, `GIT_DIR`
+/// wins.
+///
+/// `cargo test` runs under the gate, the gate runs from `git commit`'s
+/// pre-commit hook, and that hook exports `GIT_DIR`/`GIT_INDEX_FILE` to every
+/// child. Inherited, `git -C <tempdir> add f` wrote into the COMMITTING repo's
+/// index while the blob went to the tempdir — `100644 c1b0730e… for 'f'`, an
+/// entry pointing at an object that repo does not have, and the commit died on
+/// `error: Error building trees`. Reproduced against a copy of the index, then
+/// fixed.
+///
+/// ⚠ **Asserted on the command, not by setting the variables.** The obvious test
+/// exports `GIT_DIR` and checks nothing leaks — but `std::env::set_var` is
+/// process-global while cargo runs tests in parallel THREADS, so that test
+/// corrupts whichever neighbour happens to shell out at the same moment. A
+/// regression test for a contamination bug must not itself contaminate.
+#[test]
+fn the_test_helper_scrubs_every_inherited_git_variable() {
+    let repo = std::path::Path::new("/tmp/does-not-need-to-exist");
+    let cmd = scrubbed_git(repo);
+    let removed: Vec<&str> = cmd
+        .get_envs()
+        .filter(|(_, v)| v.is_none())
+        .filter_map(|(k, _)| k.to_str())
+        .collect();
+    for var in [
+        "GIT_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_WORK_TREE",
+        "GIT_OBJECT_DIRECTORY",
+    ] {
+        assert!(removed.contains(&var), "{var} still inherited: {removed:?}");
+    }
+}
