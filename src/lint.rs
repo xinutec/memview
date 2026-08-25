@@ -780,6 +780,18 @@ fn repos_under(code_root: &std::path::Path) -> Vec<std::path::PathBuf> {
     collect(code_root.to_path_buf());
     if let Some(parent) = code_root.parent() {
         collect(parent.join("Archive"));
+        // ⚠ **Not every repository the fleet uses lives under the code root.**
+        // `~/.config/home-manager` is one, cited by `project_mac_home_manager`
+        // and `reference_mac_agents_run_from_store` among others, and searching
+        // only `~/Code` reported five of its commits as existing nowhere — which
+        // the rule's own text would have read as "not cloned on this machine"
+        // about a repo that is right there.
+        //
+        // The whole directory rather than that one name: it is the same question
+        // for whatever else is checked out beside it, and a hard-coded repo name
+        // is a maintenance trap. Relative to the root's parent, like the archive
+        // above, so a test root reaches nothing real.
+        collect(parent.join(".config"));
     }
     repos
 }

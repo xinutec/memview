@@ -442,3 +442,26 @@ fn a_code_root_without_an_archive_beside_it_is_fine() {
         .collect();
     assert_eq!(findings.len(), 1, "{findings:?}");
 }
+
+/// ⚠ Not every repository the fleet uses lives under the code root.
+///
+/// `~/.config/home-manager` is one, and searching only `~/Code` reported five of
+/// its commits as existing nowhere — which this rule's own text would have read
+/// as "not cloned on this machine" about a repo that is right there.
+#[test]
+fn a_commit_in_a_config_repo_beside_the_code_root_still_resolves() {
+    let corpus_dir = tempfile::tempdir().expect("tempdir");
+    let home = tempfile::tempdir().expect("tempdir");
+    let code = home.path().join("Code");
+    std::fs::create_dir(&code).expect("mkdir");
+    std::fs::create_dir(home.path().join(".config")).expect("mkdir");
+
+    let sha = repo_with_a_commit(&home.path().join(".config"), "home-manager");
+    let corpus = corpus_saying(corpus_dir.path(), &format!("Deployed by `{sha}`."));
+
+    let findings: Vec<_> = check_world(&corpus, &code)
+        .into_iter()
+        .filter(|f| f.rule == "unresolvable-commit")
+        .collect();
+    assert!(findings.is_empty(), "{findings:?}");
+}
