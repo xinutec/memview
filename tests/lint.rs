@@ -335,3 +335,68 @@ fn an_ordinary_memory_says_nothing_about_its_length() {
     assert!(of_rule(&found, "nearing-read-limit").is_empty());
     assert!(of_rule(&found, "past-read-limit").is_empty());
 }
+
+/// A corpus where one memory declares a retracted figure.
+fn corpus_with_retraction(dir: &std::path::Path, quoting_body: &str) -> Corpus {
+    std::fs::write(
+        dir.join("MEMORY.md"),
+        "# Memory index\n- [d](project_declarer.md)\n- [q](project_quoter.md)\n",
+    )
+    .expect("write index");
+    std::fs::write(
+        dir.join("project_declarer.md"),
+        "---\nname: project_declarer\ndescription: d\nmetadata:\n  type: project\n  \
+         retracts:\n    - \"173/173\"\n---\n\nThe 173/173 figures are retracted.\n",
+    )
+    .expect("write declarer");
+    std::fs::write(
+        dir.join("project_quoter.md"),
+        format!(
+            "---\nname: project_quoter\ndescription: d\nmetadata:\n  type: project\n---\n\n{quoting_body}\n"
+        ),
+    )
+    .expect("write quoter");
+    Corpus::load(dir).expect("loads")
+}
+
+/// The failure this exists for: `project_health_verified_core_lean` retracted
+/// `compare-match 173/173` and went on quoting it about twelve times, including
+/// in its own description, defended only by a hand-written banner.
+#[test]
+fn quoting_a_retracted_figure_without_linking_the_retraction_is_an_error() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let found = corpus_with_retraction(dir.path(), "The gate reported 173/173 bit-exact.");
+    assert_eq!(
+        findings(&found, "quotes-a-retracted-figure"),
+        ["project_quoter"]
+    );
+}
+
+/// ⚠ The requirement is a LINK, never a phrasing. A grep for the correction
+/// banner in a file that has one returned nothing, because it reads "no 173/173
+/// figure IS comparable" rather than "not comparable".
+#[test]
+fn linking_the_retraction_settles_it_whatever_the_words() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let found = corpus_with_retraction(
+        dir.path(),
+        "The gate reported 173/173 — see [[project_declarer]], no such figure is comparable.",
+    );
+    assert!(findings(&found, "quotes-a-retracted-figure").is_empty());
+}
+
+/// The memory doing the retracting must be able to state the figure it retracts.
+#[test]
+fn the_memory_that_retracts_a_figure_may_quote_it() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let found = corpus_with_retraction(dir.path(), "Nothing to do with that number.");
+    assert!(findings(&found, "quotes-a-retracted-figure").is_empty());
+}
+
+/// A memory that never mentions the figure is not asked to link anything.
+#[test]
+fn a_memory_that_does_not_quote_the_figure_is_untouched() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let found = corpus_with_retraction(dir.path(), "An unrelated claim entirely.");
+    assert!(findings(&found, "quotes-a-retracted-figure").is_empty());
+}

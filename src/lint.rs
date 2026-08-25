@@ -221,6 +221,27 @@ const RULES: &[(&str, Severity, &str)] = &[
         "over 1,000 lines and growing toward the Read tool's 2,000-line default — split it deliberately, before the tail goes quiet",
     ),
     (
+        // Introduced 2026-08-25 at ERROR, with the corpus already at zero — the
+        // three memories holding `173/173` all link the retraction already.
+        //
+        // ⚠ **The failure it exists for is measured, not imagined.**
+        // `project_health_verified_core_lean` retracted `compare-match 173/173`
+        // and then went on quoting it about TWELVE times, including in its own
+        // description. Its defence was a hand-written CORRECTION banner, applied
+        // afterwards and checkable by nobody, because a retraction was prose.
+        //
+        // ⚠ **Linking the retraction is the whole requirement, and the reason is
+        // that prose cannot be read.** A grep for the banner in a file that HAS
+        // one returned nothing, because it reads "no 173/173 figure IS
+        // comparable" rather than "not comparable" — negation split across a
+        // sentence. `missing-why` made the same mistake with literal `**Why:**`
+        // bytes and 9 of its 19 findings were the check rather than the corpus.
+        // So this asks for a link, which is structure, and never for a phrasing.
+        "quotes-a-retracted-figure",
+        Severity::Error,
+        "quotes a figure another memory declares retracted, without linking the memory that retracted it",
+    ),
+    (
         "unlinked-co-use",
         // Advisory, and never promoted. This is evidence, not a rule: two
         // memories used together may still have nothing to say about each
@@ -539,6 +560,36 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
             "(corpus)",
             format!("{typed_links} of {total_links} links declare a relation"),
         );
+    }
+
+    // A figure somebody retracted, still being quoted by a memory that does not
+    // link the retraction. Asked after the whole corpus is walked, because the
+    // declaration can live in any memory and be quoted by any other.
+    let mut retracted: Vec<(String, String)> = Vec::new();
+    for (name, doc) in &corpus.docs {
+        for figure in retracted_figures(&doc.raw) {
+            retracted.push((figure, name.clone()));
+        }
+    }
+    for (figure, declarer) in &retracted {
+        for (name, doc) in &corpus.docs {
+            if name == declarer || !doc.body.contains(figure.as_str()) {
+                continue;
+            }
+            // The link is the requirement. A reader who lands on the figure is
+            // one hop from what retracts it, whatever words surround it.
+            if outbound
+                .get(name)
+                .is_some_and(|out| out.contains(declarer.as_str()))
+            {
+                continue;
+            }
+            push(
+                "quotes-a-retracted-figure",
+                name,
+                format!("quotes `{figure}` — retracted by {declarer}, which it does not link"),
+            );
+        }
     }
 
     // What the transcripts say belongs together and the corpus does not.
@@ -977,6 +1028,55 @@ fn frontmatter_value(raw: &str, key: &str) -> Option<String> {
         let value = value.trim().trim_matches(['"', '\'']);
         (!value.is_empty()).then(|| value.to_string())
     })
+}
+
+/// The figures a memory declares retracted, from a `retracts:` frontmatter list.
+///
+/// ⚠ **A frontmatter FIELD, not a typed link, and the difference is the target.**
+/// All six relations in `feedback_typed_memory_links` point memory-to-memory;
+/// a retraction is a claim about a TOKEN — `173/173` — which is not a document
+/// and cannot be the far end of a `[[link]]`. `supersedes` was the near miss and
+/// it says the wrong thing: the superseded memory is history, whereas the memory
+/// holding a retracted figure is usually current and correct apart from that
+/// number.
+///
+/// The token is chosen by whoever retracts it, so it can be made as specific as
+/// the case needs; a figure short enough to collide is a figure too short to
+/// retract usefully.
+///
+/// ```text
+/// retracts:
+///   - "compare-match 173/173"
+/// ```
+fn retracted_figures(raw: &str) -> Vec<String> {
+    let Some(rest) = raw.strip_prefix("---\n") else {
+        return Vec::new();
+    };
+    let Some(end) = rest.find("\n---") else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut inside = false;
+    for line in rest[..end].lines() {
+        if line.trim_start().starts_with("retracts:") {
+            inside = true;
+            continue;
+        }
+        if inside {
+            let t = line.trim_start();
+            // A list item belonging to `retracts:`; anything else ends the block,
+            // including the next key at any indentation.
+            if let Some(item) = t.strip_prefix("- ") {
+                let item = item.trim().trim_matches(['"', '\'']);
+                if !item.is_empty() {
+                    out.push(item.to_string());
+                }
+            } else {
+                inside = false;
+            }
+        }
+    }
+    out
 }
 
 fn frontmatter_name(raw: &str) -> Option<String> {
