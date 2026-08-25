@@ -348,6 +348,64 @@ question it could never find a spelling the table has not been taught. Which is
 also why `python313` — a nixpkgs attribute in `nix-shell -p python313`, 68 of
 them — is matched and then shown to run nothing, rather than filtered out early.
 
+### An imported name is not a path (memview#1142)
+
+`Image.open(p)`, `wave.open(p)` and `Store.open(p)` read exactly like `p.open()`
+and are the opposite shape: the receiver is a **library** and the argument is the
+file. The reader asked whether `Image` was a path, so **323 operations named
+nothing while the path sat resolved one slot away** — in 263 of them a literal,
+in the other 60 a loop variable that is unknowable either way.
+
+⚠ **The rule is three pairs the corpus writes, not "an imported name may be
+called".** `webbrowser.open` takes a URL, which has a `/` and an extension and
+so passes every path test ever written. The corpus was asked before the rule was
+written: it holds no `webbrowser` at all, and `window.open`, `MatDialog.open`
+and `caches.open` are the JavaScript side rather than import-bound Python.
+
+⚠ **A qualified name the table does not know keeps its old reading, and that is
+what protects the denominator.** Reading every call on an import as a library
+call would take `OUT.write_text(s)` out of the file-operation count entirely —
+a rate rising because operations stopped being counted, which is the trap this
+reader is judged on. So the qualification is one attribute deep and applies only
+when `callable` already answers for the pair.
+
+| | before | after |
+| --- | ---: | ---: |
+| file operations | 26,536 | **26,536** |
+| named a file | 20,304 (76.5%) | **20,567 (77.5%)** |
+| named none | 3,351 | **3,088** |
+| one of a known set | 2,881 | **2,881** |
+
+**The denominator did not move and `bounded` did not move**, so the rise is
+263 subjects newly named and nothing else — the check that says which half of
+the rate moved. `open` fell by exactly 323 as the three qualified names took
+their own rows.
+
+### The census behind that (2026-08-25)
+
+Of the 3,203 unresolved operations reaching `record`, **81% are a plain bare
+name**, so what is left is a question about what the reader knows about names
+rather than about syntax it cannot chew.
+
+     901  28.1%  a loop variable (`for`)
+     875  27.3%  assigned an expression
+     601  18.8%  not a bare name
+     335  10.5%  never bound in this program
+     323  10.1%  bound by `import`
+     168   5.2%  mixed bindings
+
+⚠ **Two censuses of this reader classify different things and their rows must
+not be read against each other.** The 2026-08-24 one classified how a name was
+BOUND; this one classifies the SUBJECT EXPRESSION the reader looked at. Reading
+the second's rows as the first's is what produced a hypothesis — that "not a
+bare name" and the library-call gap were one shape — which the measurement then
+refuted.
+
+**What the loop row iterates** is the next thing to build, and most of it needs
+no new analysis: 531 of the 901 loops range over a **glob**, whose locus is
+certain even though its leaf is not, and 130 over a **literal list**, which is a
+bounded set. Both are machinery that already exists.
+
 ## The JavaScript inside it
 
 The third language, added 2026-08-22, and it is `python.rs` with the nouns

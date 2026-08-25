@@ -448,3 +448,63 @@ fn a_single_literal_binding_still_names_the_file_outright() {
     assert_eq!(uses(source), [used("out/a.txt", true)]);
     assert_eq!(bounded(source), []);
 }
+
+/// An imported name is not a path, and three of this corpus's calls put the
+/// file where the reader was looking for a receiver.
+///
+/// `Image.open(p)`, `wave.open(p)` and `Store.open(p)` read like `p.open()` and
+/// are the opposite shape: the receiver is a library and the ARGUMENT is the
+/// file. Before this, the reader asked whether `Image` was a path, and 323
+/// operations named nothing while the path sat resolved one slot away.
+#[test]
+fn a_library_opens_the_file_it_is_given() {
+    assert_eq!(
+        uses("import wave\nw = wave.open('/tmp/c.wav')"),
+        [used("/tmp/c.wav", false)]
+    );
+    // The mode sits where `open`'s does, so a written wave is a write.
+    assert_eq!(
+        uses("import wave\nw = wave.open('/tmp/c.wav', 'wb')"),
+        [used("/tmp/c.wav", true)]
+    );
+    assert_eq!(
+        uses("from PIL import Image\nim = Image.open('rgb-1.jpg')"),
+        [used("rgb-1.jpg", false)]
+    );
+    // A database is read whatever it is later told to do — the same reason
+    // `sqlite3.connect` is, and the argument arrives through `Path()`.
+    assert_eq!(
+        uses(
+            "from recall.store import Store\ns = Store.open(Path('/Volumes/Backup/recall/recall.sqlite'))"
+        ),
+        [used("/Volumes/Backup/recall/recall.sqlite", false)]
+    );
+}
+
+/// ⚠ **The rule is the three pairs the corpus writes, not "an import may be
+/// called".** A qualified name the table does not know keeps its old reading,
+/// so nothing leaves the file-operation denominator — a rate that rises because
+/// operations stopped being counted is not a rate that rose.
+#[test]
+fn an_imported_name_the_table_does_not_know_is_left_where_it_was() {
+    // `OUT` is imported and is a path, which this reader cannot know. It stays
+    // a file operation that named nothing, exactly as before.
+    let program = read("from paths import OUT\nOUT.write_text(body)");
+    assert_eq!(program.uses, []);
+    assert_eq!(program.unresolved.get("write_text"), Some(&1));
+    // And a method nobody has taught it is still on the worklist by its own
+    // name, rather than becoming a call that names a file.
+    let program = read("import thing\nthing.frobnicate('a.txt')");
+    assert_eq!(program.uses, []);
+    assert!(program.unknown.contains_key(".frobnicate"));
+}
+
+/// The receiver reading is what the corpus mostly writes, and it must survive a
+/// change aimed at the other one.
+#[test]
+fn a_path_still_opens_itself() {
+    assert_eq!(
+        uses("p = Path('src/x.ts')\nwith p.open() as f:\n    pass"),
+        [used("src/x.ts", false)]
+    );
+}

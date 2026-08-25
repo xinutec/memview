@@ -28,19 +28,26 @@
 //!
 //! A name bound twice, bound to anything computed, or bound by a `for`, an `as`
 //! or an `import` is not a constant: `for p in files:` names every file and
-//! therefore none.
+//! therefore none. A name bound twice to two LITERALS is the exception, and it
+//! is not a constant either — it is a set, reported as a bound.
 //!
-//! ⚠ **That last rule is a limitation, not a principle, and the shape of its
-//! replacement is already decided.** "Bound exactly once to a literal" is
-//! constant propagation with a domain of two values, written by hand for one
-//! language. **`for p in ['a.ts', 'b.ts']:` is fully determined by the text** —
+//! ⚠ **An imported name is not a path at all**, which is a stronger statement
+//! than "not a constant" and a different one. `Image.open(p)` reads like
+//! `p.open()` and means the opposite: the receiver is a library and the
+//! argument is the file. See [`callable`] for why that is three named pairs and
+//! not a rule about imports.
+//!
+//! ⚠ **Trusting only a name bound once is a limitation, not a principle, and
+//! the shape of its replacement is already decided.** "Bound exactly once to a
+//! literal" is constant propagation with a domain of two values, written by
+//! hand for one language. **`for p in ['a.ts', 'b.ts']:` is fully determined by the text** —
 //! it names two files, not none — and the same is true of the shell's 3,078
 //! loops over a literal word list. What this cannot follow is a value that
 //! depends on the world: a loop over `Path('.').glob(…)`, a name assigned in
-//! both arms of an `if`, an argument built from `sys.argv`. Measured, the gap is
-//! **3,694 of 13,828 operations that name no file** — "computed, f-string, loop
-//! variable" — and the loop-variable share of that comes back with the value
-//! domain in the README's Roadmap.
+//! both arms of an `if`, an argument built from `sys.argv`. The gap stands at
+//! **3,088 of 26,536 operations that name no file**, 2026-08-25, and the census
+//! of what those 3,088 are is in `docs/reader.md`: a loop variable is 28% of
+//! them, and most of those loops range over a glob or a literal list.
 //!
 //! What stays, whatever replaces it: **an undetermined value is recorded as
 //! undetermined and never approximated.** An unread call is an undercount; an
@@ -82,6 +89,7 @@ pub fn read(source: &str) -> Program {
     let mut reader = Reader {
         consts: scope.consts,
         candidates: scope.candidates,
+        imported: scope.imported,
         defined: scope.defined,
         out: Program::default(),
     };
@@ -298,6 +306,10 @@ struct Scope {
     /// and the set has a hole, so it bounds nothing and the name goes back to
     /// being opaque. A set with a hole in it is not a set.
     candidates: BTreeMap<String, Vec<String>>,
+    /// Names the program imported. **Not paths**, whatever else they are —
+    /// which is what lets a call on one be read as the library call it is
+    /// rather than as a method on a value nobody can name.
+    imported: BTreeSet<String>,
     /// Every name the program bound itself, however it bound it. **A call on
     /// one of these is not a gap in this reader**: `def ri()` two lines up — or
     /// `ri = lambda: …`, which is how the corpus writes it as often — is not a
@@ -307,6 +319,7 @@ struct Scope {
 }
 
 fn scope(elements: &[Pair<Rule>]) -> Scope {
+    let mut imported = BTreeSet::new();
     let mut bound: BTreeMap<String, Vec<Option<String>>> = BTreeMap::new();
     for element in elements {
         let mut inner = element.clone().into_inner();
@@ -330,7 +343,15 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
             // `for p in files`, `with … as f`, `import json`: bound, and to
             // nothing this can name.
             Rule::binder => {
+                let importing = element
+                    .clone()
+                    .into_inner()
+                    .next()
+                    .is_some_and(|keyword| keyword.as_str() == "import");
                 for target in inner.skip(1).flat_map(Pair::into_inner) {
+                    if importing {
+                        imported.insert(target.as_str().to_string());
+                    }
                     bound
                         .entry(target.as_str().to_string())
                         .or_default()
@@ -371,6 +392,7 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
     }
     Scope {
         defined,
+        imported,
         consts,
         candidates,
     }
@@ -866,10 +888,18 @@ fn callable(name: &str) -> Option<Call> {
         "os.rename" | "os.replace" | "shutil.move" | "shutil.copy" | "shutil.copy2"
         | "shutil.copyfile" => Call::Transfer,
         "glob.glob" | "glob.iglob" | "os.listdir" | "os.scandir" | "os.walk" => Call::Walk,
+        // ⚠ **A library that opens the file it is GIVEN**, which is the
+        // opposite shape from `p.open()` and reads identically. `Image`, `wave`
+        // and `Store` are names the program imported, so they are not paths;
+        // qualifying them is what puts the argument where the reader looks.
+        // Only these three, because only these three are what the corpus
+        // writes — `webbrowser.open` takes a URL, and a rule about "any
+        // imported name with an `open`" would file one as a file.
+        "Image.open" | "wave.open" => Call::Open,
         // A database is a file, and connecting to one uses it. Read rather than
         // written: whether a statement later changed it is in the SQL, which
         // this does not read, and an undercount beats an invention.
-        "sqlite3.connect" => Call::Database,
+        "sqlite3.connect" | "Store.open" => Call::Database,
         "os.makedirs" | "os.mkdir" | "os.rmdir" => Call::Directory,
         "os.chdir" => Call::ChangeDir,
         // The top of this reader's worklist, 443 calls, and every one of them a
@@ -935,6 +965,7 @@ fn method_of(name: &str) -> Option<Method> {
 
 struct Reader {
     candidates: BTreeMap<String, Vec<String>>,
+    imported: BTreeSet<String>,
     consts: BTreeMap<String, String>,
     defined: BTreeSet<String>,
     out: Program,
@@ -1045,6 +1076,24 @@ impl Reader {
                     while let Some(attr) = parts.next_if(|p| p.as_rule() == Rule::attr) {
                         name.push('.');
                         name.push_str(attr.as_str().trim_start_matches('.'));
+                    }
+                } else if self.imported.contains(&name) {
+                    // ⚠ **One attribute, and only when the table knows the
+                    // pair.** An imported name is not a path, but reading every
+                    // call on one as a library call would take a shape like
+                    // `OUT.write_text(s)` out of the file-operation count
+                    // altogether — a rate rising because operations stopped
+                    // being counted, which is the trap this reader is judged
+                    // on. So an unknown pair keeps its old reading and stays in
+                    // the denominator, named nothing.
+                    let qualified = parts
+                        .peek()
+                        .filter(|part| part.as_rule() == Rule::attr)
+                        .map(|attr| format!("{name}.{}", attr.as_str().trim_start_matches('.')))
+                        .filter(|qualified| callable(qualified).is_some());
+                    if let Some(qualified) = qualified {
+                        parts.next();
+                        name = qualified;
                     }
                 }
                 match parts.next_if(|p| p.as_rule() == Rule::call) {
