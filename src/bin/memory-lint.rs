@@ -50,14 +50,9 @@ const SETTLE: std::time::Duration = std::time::Duration::from_secs(30);
 /// not indexed. Both rules are ERRORS, and the pre-commit gate runs this, so a
 /// concurrent session writing a memory could fail an unrelated commit for a
 /// reason that was never the committer's and that evaporates on retry.
-/// `governs-unreciprocated` joined them 2026-08-15 on the same reasoning: a new
-/// rule is written before the work it binds is edited to name it, so a corpus
-/// read between those two writes sees a violation that fixes itself.
-const RACY: [&str; 3] = [
-    "not-in-index",
-    "index-points-nowhere",
-    "governs-unreciprocated",
-];
+/// `governs-unreciprocated` was a third until 2026-08-25, when the typed-link
+/// requirement was retired — see `feedback_typed_memory_links`.
+const RACY: [&str; 2] = ["not-in-index", "index-points-nowhere"];
 
 /// Re-read once before reporting a racy rule, and believe the second answer.
 ///

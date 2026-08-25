@@ -251,42 +251,6 @@ const RULES: &[(&str, Severity, &str)] = &[
         "used together in separate turns but neither links the other — a link the corpus is missing",
     ),
     (
-        "untyped-links",
-        Severity::Warning,
-        "no link declares a relation, so the structure says only \"related\"",
-    ),
-    (
-        // Introduced 2026-08-15 at WARNING with 47 of 65 governs-edges in
-        // violation, worked down the same day and promoted at zero.
-        //
-        // ⚠ The 35 that were fixed by adding a `**What governs this:**` footer
-        // were fixed in bulk, by the session that wrote this rule, in memories
-        // it does not own. If a hub's owner wants the link somewhere better,
-        // MOVE it — the rule only asks that the governed work name its governor,
-        // not where. Demoting this back to a warning is the one-word edit below.
-        //
-        // The failure is specific and was measured, not imagined: a session
-        // rewrote `project_life_emotion_suggestions` without having read the two
-        // rules that declare `governs:project_life_app` and constrain that exact
-        // feature — because the hub named one governor out of five, and the
-        // cluster had been mapped by looking OUTWARD from the hub. Nothing in
-        // the corpus was dangling, unreachable or stale; every existing rule
-        // passed. Reachability says a reader CAN arrive; this says the reader
-        // who is working on X is TOLD which rules bind X.
-        //
-        // ⚠ Filed against the target, because the target is the file that has to
-        // change. The rule already did its part by declaring what it governs.
-        //
-        // Deliberately only `governs`. `part-of` and `because` point from the
-        // component to the whole and from a claim to its reason, and demanding
-        // the parent enumerate every child would turn a map into an index. A
-        // governs-edge is the one relation whose whole purpose is that the
-        // governed work knows about it.
-        "governs-unreciprocated",
-        Severity::Error,
-        "a rule declares it governs this, and this does not name the rule back — so the rule only fires for a reader who already knew it existed",
-    ),
-    (
         "dead-repo-path",
         Severity::Error,
         "names a `~/Code/<repo>` that does not exist, and does not say where it went",
@@ -354,8 +318,6 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
     // Unordered pairs, for the co-use comparison: a link in either direction
     // means the two memories already know about each other.
     let mut pairs: BTreeSet<(String, String)> = BTreeSet::new();
-    let mut typed_links = 0usize;
-    let mut total_links = 0usize;
     // Every resolved outbound target, per memory, and every governs-edge — both
     // collected here because the reciprocity question can only be asked once the
     // whole corpus has been walked.
@@ -429,10 +391,6 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
         }
 
         for link in wikilinks_of(&doc.body) {
-            total_links += 1;
-            if link.relation.is_some() {
-                typed_links += 1;
-            }
             if link.target == *name {
                 push("self-link", name, format!("[[{}]]", link.target));
                 continue;
@@ -486,47 +444,6 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
         }
     }
 
-    // A rule that says it governs some work, against work that never mentions
-    // the rule. Sorted so the report is stable and a hub's governors arrive
-    // together rather than scattered through the run.
-    //
-    // ⚠ A hub may DELEGATE its rule list to a memory that declares itself
-    // `part-of` it — `project_dicom_scan` keeps twelve rules in
-    // `project_dicom_scan_rules`, which the hub links twice. That is better
-    // organisation than an inline list, and the first draft of this rule
-    // reported all nine of them as violations: exactly the mistake `unreachable`
-    // made when it demanded an index line from a corpus that was perfectly
-    // navigable, and was corrected for. So a governor named by an acknowledged
-    // child counts as named.
-    //
-    // ONE hop, and only through `part-of`. A child's own children do not count:
-    // the claim being checked is "a reader who opens this work is told what
-    // binds it", and a page it explicitly hands off to is still that page's
-    // answer. Anything deeper is just reachability, which `unreachable` already
-    // owns.
-    let mut delegates: BTreeMap<&String, Vec<&String>> = BTreeMap::new();
-    for (child, parent) in &part_of {
-        delegates.entry(parent).or_default().push(child);
-    }
-    let names_it =
-        |holder: &String, rule: &String| outbound.get(holder).is_some_and(|out| out.contains(rule));
-    governs.sort();
-    for (rule, governed) in &governs {
-        if names_it(governed, rule) {
-            continue;
-        }
-        if let Some(children) = delegates.get(governed)
-            && children.iter().any(|c| names_it(c, rule))
-        {
-            continue;
-        }
-        push(
-            "governs-unreciprocated",
-            governed,
-            format!("governed by {rule}, which neither it nor any part-of child names"),
-        );
-    }
-
     if let Some(index) = corpus.index_md.as_deref() {
         let targets = index_links(index);
         for target in &targets {
@@ -549,17 +466,6 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
                 );
             }
         }
-    }
-
-    // A corpus-wide observation rather than a per-file one: it is about the
-    // shape of the whole link set, and reporting it against every memory would
-    // bury every other finding.
-    if total_links > 0 && typed_links * 20 < total_links {
-        push(
-            "untyped-links",
-            "(corpus)",
-            format!("{typed_links} of {total_links} links declare a relation"),
-        );
     }
 
     // A figure somebody retracted, still being quoted by a memory that does not
