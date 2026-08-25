@@ -733,7 +733,9 @@ movement.
 
 Left on the record rather than told as a story, and shipped because the movement
 runs in the direction this reader is built to fail in: it claims **fewer** local
-files, never more.
+files, never more. **Tracked as memview#1173**, which names the next
+measurement — the 213 have to be identified before this is either a correction
+or a lost file use.
 
 ### A command named by a variable is not one either (memview#1158)
 
