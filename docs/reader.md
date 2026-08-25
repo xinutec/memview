@@ -688,6 +688,53 @@ git archaeology on a tool that no longer exists.
 ⚠ **`probe` (418) is not a binary at all — it is a shell function**, and all four
 of its distinct spellings are `probe() {`. See below: it was one of seventy-eight.
 
+### An unquoted expansion is several words (memview#1158)
+
+`A="adb -s host"; $A logcat` runs `adb` with three arguments. The reader made it
+one command whose name was `adb -s host`, because [`shell_ops::expand`] returns
+one word where bash word-splits, and `Simple::argv` has already dropped the
+quotes that decide it. **The tree knows** — `Parameter::quoted` is a field on it
+for exactly this — so `project.rs` now records the answer per word in
+`Simple::split`, and `shell_files` splits on it.
+
+⚠ **`"$A" logcat` must NOT split**, and bash is the reason: it looks for a
+program whose whole name is `adb -s host` and fails. The old behaviour was
+already right for the quoted case and wrong only for the unquoted one, which is
+why this waited for the tree rather than being patched at the expansion.
+
+    simple commands   1,362,930 → 1,363,869   (+939)
+    understood        1,353,212 → 1,354,571   (+1,359, still 99.3%)
+    not in the table      8,150 →     7,730   (−420)
+    a local function      1,261 →     1,261
+    named by a variable     307 →       307
+
++1,359 − 420 = +939, and the two accounts that can never be worked did not move:
+the gain is commands that became readable, not commands that changed drawer.
+Nearly every verb rose with it — `cat` +6 reads, `chmod` +10 writes, `perl` +11,
+one more database and one more table.
+
+⚠ **The flat grammar cannot fill `split`, so it is empty there.** Read it with
+`get(i)`; a missing entry means "do not split", the answer that claims less. The
+projection builds its own `Key` from named fields and never compares `Simple` by
+equality, so the second reader is unaffected.
+
+#### What moved that is NOT yet explained
+
+**Local reads fell by 161**, `run a script` fell 213, `reach another machine`
+rose 215, and a host that had never appeared — `192.168.1.230` — arrived with
+225 reads and 36 writes.
+
+The shape is consistent with commands being recognised as remote and their files
+correctly leaving an index that should never have held them. **It is not
+established.** Two explanations were tested and refused: no corpus variable
+holds an `ssh` command, and `odin:/tmp/full-stage.log` did not change host — it
+fell below the top-N cut of a ranked list, which is a display artefact and not a
+movement.
+
+Left on the record rather than told as a story, and shipped because the movement
+runs in the direction this reader is built to fail in: it claims **fewer** local
+files, never more.
+
 ### A command named by a variable is not one either (memview#1158)
 
 `$BIN --version` reaches the worklist as a command called `$BIN`, and no entry

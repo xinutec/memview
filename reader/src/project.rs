@@ -261,6 +261,7 @@ impl Walk {
             scope: scope.to_vec(),
             redirects: Vec::new(),
             heredocs: Vec::new(),
+            split: Vec::new(),
         };
         // The redirections are read first because a `< <(ls)` runs its commands
         // before the one it feeds, and because a heredoc body belongs to the
@@ -289,10 +290,17 @@ impl Walk {
                 for assignment in &simple.assignments {
                     self.expansions(&assignment.value, scope, reached);
                     flat.argv.push(self.binding(assignment));
+                    flat.split.push(false);
                 }
                 for word in &simple.words {
                     self.expansions(word, scope, reached);
                     flat.argv.push(self.word(word));
+                    // ⚠ **The one thing this projection loses that a later
+                    // stage still needs.** `argv` drops the quotes, so `$x` and
+                    // `"$x"` arrive identical — and the shell splits the first
+                    // into words and not the second. Recorded here because this
+                    // is the last place that knows.
+                    flat.split.push(Self::splits(word));
                 }
             }
             // ⚠ **`[[ … ]]` is grammar, and it is projected back to the words it
@@ -676,6 +684,21 @@ impl Walk {
     /// A parameter carrying an operator is left alone: `${f%.txt}` is a
     /// transduction this reader does not perform, and putting the value in
     /// without applying it would be worse than leaving the question open.
+    /// Whether the shell would split this word into several once its
+    /// expansions are substituted.
+    ///
+    /// ⚠ **Any unquoted expansion is enough, wherever it sits in the word.**
+    /// `-x$flags` splits as readily as `$flags` does. A quoted one never
+    /// splits, whatever it holds, which is the whole of the difference between
+    /// `$@` and `"$@"`.
+    fn splits(word: &Word) -> bool {
+        word.segments.iter().any(|segment| match &segment.kind {
+            SegmentKind::Parameter(parameter) => !parameter.quoted,
+            SegmentKind::Substitution(substitution) => !substitution.quoted,
+            _ => false,
+        })
+    }
+
     fn word(&self, word: &Word) -> String {
         if self.bound.is_empty() {
             return value(word);

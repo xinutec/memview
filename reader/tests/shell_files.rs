@@ -1818,16 +1818,22 @@ fn a_command_named_by_a_variable_is_not_an_unread_command() {
     }
 }
 
-/// ⚠ **A variable this text DOES bind is a different case and must stay
-/// visible.** `A="adb …"; $A logcat` resolves, and what comes back is a command
-/// with its arguments glued into one word — a misreading of a knowable name,
-/// not a name nobody can know. Filing it beside `$BIN` would hide a defect
-/// behind an accounting fix; splitting it needs the quoting the flat model
-/// discards, which is `syntax/`'s job.
+/// ⚠ **A variable this text DOES bind is a different case, and it is a
+/// teachable name.** `A="frobnicate -s host"; $A run` resolves and splits, so
+/// what reaches the worklist is `frobnicate` — a command somebody could write
+/// an entry for. Filing it beside `$BIN` would have hidden a knowable name
+/// inside the account for unknowable ones.
 #[test]
 fn a_variable_the_script_binds_is_not_filed_as_unnameable() {
     let script = "A=\"frobnicate -s host\"; $A run";
-    assert_eq!(unread(script), ["frobnicate -s host"]);
+    let cmds = parse(script).unwrap();
+    let found = extract(&cmds, Some(CWD), HOME);
+    assert_eq!(unread(script), ["frobnicate"]);
+    assert!(
+        found.from_a_variable.is_empty(),
+        "a name the script binds was filed as unnameable: {:?}",
+        found.from_a_variable
+    );
 }
 
 /// ⚠ **What the call passes still goes unread, and the count must say so.**
@@ -1854,4 +1860,37 @@ fn a_nested_scripts_variable_named_calls_are_not_lost() {
     let cmds = parse("bash -c '$BIN one; $BIN two'").unwrap();
     let found = extract(&cmds, Some(CWD), HOME);
     assert_eq!(found.from_a_variable.get("$BIN"), Some(&2));
+}
+
+/// A variable holding a command and its flags is several words, not one name.
+///
+/// ⚠ **The shell splits an unquoted expansion and this reader did not**, so
+/// `A="adb -s host"; $A logcat` reached the table as a command literally called
+/// `adb -s host` — 503 calls over 8 spellings on the unread worklist, none of
+/// them a command anybody could teach. memview#1158.
+#[test]
+fn a_variable_holding_a_command_splits_into_its_words() {
+    assert_eq!(unread("A=\"frobnicate -s host\"; $A run"), ["frobnicate"]);
+}
+
+/// ⚠ **Quoted, it does NOT split, and bash agrees.** `"$A" run` looks for a
+/// program whose whole name is `frobnicate -s host` and fails — so splitting it
+/// would credit the fleet with a command that never ran, which is the one error
+/// this reader is built not to make.
+#[test]
+fn a_quoted_expansion_stays_one_word() {
+    assert_eq!(
+        unread("A=\"frobnicate -s host\"; \"$A\" run"),
+        ["frobnicate -s host"]
+    );
+}
+
+/// The words a split produces are ARGUMENTS, and the table reads them.
+#[test]
+fn the_words_a_split_produces_are_read_as_arguments() {
+    let uses = uses("C=\"cat -n\"; $C notes.txt");
+    assert_eq!(
+        uses,
+        [("/home/example/Code/health/notes.txt".to_string(), false)]
+    );
 }

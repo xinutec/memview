@@ -122,6 +122,20 @@ pub struct Simple {
     /// passed it — and because leaving it in argv makes `> /tmp/log` look like an
     /// argument, which is what the first version did.
     pub redirects: Vec<Redirect>,
+    /// Whether the shell would WORD-SPLIT each argv word's expansions, by
+    /// position. Empty from the flat grammar, which never had the distinction.
+    ///
+    /// ⚠ **`$x` and `"$x"` project to the same string and are different
+    /// programs.** `argv` holds a word with its quotes removed and its
+    /// expansions left alone, so the two are indistinguishable by the time
+    /// [`crate::shell_files`] substitutes a bound value — and a variable holding
+    /// `adb -s host` then becomes one command name three words long. The tree
+    /// knows: `Parameter::quoted` is a field on it for exactly this reason.
+    ///
+    /// ⚠ **Read it with `get(i)`, never by index.** The second grammar cannot
+    /// fill it, so it is short or empty on anything that reader produced, and a
+    /// missing entry means "do not split" — the answer that claims less.
+    pub split: Vec<bool>,
     /// The bodies of the heredocs this command opened, in order.
     ///
     /// Data rather than shell — a commit message, YAML, a SQL script — and never
@@ -412,6 +426,7 @@ fn walk(
     match pair.as_rule() {
         Rule::command => {
             let mut cmd = Simple {
+                split: Vec::new(),
                 argv: Vec::new(),
                 reached,
                 scope: scope.to_vec(),

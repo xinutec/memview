@@ -780,6 +780,7 @@ fn carried(
             crate::program::Ran::Argv(argv) => {
                 let inner = crate::project::Ran {
                     commands: vec![crate::shell::Simple {
+                        split: Vec::new(),
                         argv: argv.clone(),
                         reached,
                         scope: Vec::new(),
@@ -860,7 +861,32 @@ fn extract_nested(
         // sees the command the shell would have run. A name nobody bound is left
         // written as it was and refused later, exactly as before.
         let env = visible(&binds, &cmd.scope);
-        let argv: Vec<String> = cmd.argv.iter().map(|word| expand(word, &env)).collect();
+        // ⚠ **An unquoted expansion becomes SEVERAL words, and a quoted one
+        // never does.** `A="adb -s host"; $A logcat` runs `adb` with three
+        // arguments; `"$A" logcat` looks for a program whose whole name is
+        // `adb -s host` and fails. The two are one string by the time they get
+        // here, so [`crate::shell::Simple::split`] carries the difference down
+        // from the tree — the only layer that still knows.
+        //
+        // ⚠ **A word whose expansion is empty DISAPPEARS**, which is bash's
+        // rule rather than an accident of `split_whitespace`: `$EMPTY cmd` runs
+        // `cmd`. Splitting only ever removes words the shell removed too, so it
+        // cannot invent a command.
+        let argv: Vec<String> = cmd
+            .argv
+            .iter()
+            .enumerate()
+            .flat_map(|(at, word)| {
+                let expanded = expand(word, &env);
+                match cmd.split.get(at) {
+                    Some(true) if expanded != *word => expanded
+                        .split_whitespace()
+                        .map(str::to_string)
+                        .collect::<Vec<_>>(),
+                    _ => vec![expanded],
+                }
+            })
+            .collect();
         // A run of `NAME=value` words at the front. Alone they are the whole
         // command and bind the scope; in front of a command they bind for that
         // command only and are gone after it — which is why they are applied to
@@ -908,6 +934,7 @@ fn extract_nested(
             argv
         };
         let cmd = &Simple {
+            split: Vec::new(),
             argv,
             reached: cmd.reached,
             scope: cmd.scope.clone(),
@@ -1146,6 +1173,7 @@ fn extract_nested(
                 if depth < MAX_NESTING {
                     let inner = crate::project::Ran {
                         commands: vec![crate::shell::Simple {
+                            split: Vec::new(),
                             argv: argv.clone(),
                             reached: cmd.reached,
                             scope: cmd.scope.clone(),
