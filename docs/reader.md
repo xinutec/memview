@@ -725,8 +725,15 @@ program of that whole name and fail — so the split belongs in `syntax/` and th
 ⚠ **`continue` there drops the timeline row.** The activity is pushed at the end
 of that loop, so short-circuiting after recording the count removed every
 variable-named call from `doing.rs` while every total still balanced. Caught by
-an existing test, not by the new ones. `local` still short-circuits, and whether
-#1124 lost its 1,261 calls from the timeline the same way is **unverified**.
+an existing test, not by the new ones.
+
+⚠ **`local` short-circuits too and is RIGHT to** — measured rather than assumed.
+A declared function has a BODY, and its activities are already recorded at the
+declaration: `save() { echo x > /tmp/o.txt; }` then `save` yields one `edit` row,
+and letting the call through as well would make it two. A command named by a
+variable has no body, so the call is the whole of the work and dropping it loses
+all of it. **The two look identical at that line and are opposite**, which is
+why the fix went to one and not the other.
 
 ### A call is not a gap when the script declares the function (memview#1124)
 
