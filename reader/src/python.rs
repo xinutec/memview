@@ -45,9 +45,10 @@
 //! loops over a literal word list. What this cannot follow is a value that
 //! depends on the world: a loop over `Path('.').glob(…)`, a name assigned in
 //! both arms of an `if`, an argument built from `sys.argv`. The gap stands at
-//! **3,088 of 26,536 operations that name no file**, 2026-08-25, and the census
-//! of what those 3,088 are is in `docs/reader.md`: a loop variable is 28% of
-//! them, and most of those loops range over a glob or a literal list.
+//! **2,777 of 26,536 operations that name no file**, 2026-08-25, and the census
+//! of what it cannot name is in `docs/reader.md`. A loop over a glob or a
+//! literal list is read; a loop over a name the program was handed is not, and
+//! neither is a value built from `sys.argv`.
 //!
 //! What stays, whatever replaces it: **an undetermined value is recorded as
 //! undetermined and never approximated.** An unread call is an undercount; an
@@ -89,6 +90,7 @@ pub fn read(source: &str) -> Program {
     let mut reader = Reader {
         consts: scope.consts,
         candidates: scope.candidates,
+        ranging: scope.ranging,
         imported: scope.imported,
         defined: scope.defined,
         out: Program::default(),
@@ -306,6 +308,10 @@ struct Scope {
     /// and the set has a hole, so it bounds nothing and the name goes back to
     /// being opaque. A set with a hole in it is not a set.
     candidates: BTreeMap<String, Vec<String>>,
+    /// Names a `for` bound to a language — a glob's pattern, or a written-out
+    /// list. **Bound exactly once, and by that loop**: a name the program also
+    /// assigns is not ranging over anything by the time it is used.
+    ranging: BTreeMap<String, Value>,
     /// Names the program imported. **Not paths**, whatever else they are —
     /// which is what lets a call on one be read as the library call it is
     /// rather than as a method on a value nobody can name.
@@ -318,7 +324,105 @@ struct Scope {
     defined: BTreeSet<String>,
 }
 
+/// The language a `for` ranges over, when the text determines one.
+///
+/// Two shapes, and they are the two the corpus writes. A **glob** gives a
+/// pattern; a **literal list** gives a set. Both are languages, which is what
+/// separates them from `for p in files` — a name whose value came from
+/// somewhere this cannot see, and which therefore has no space at all.
+///
+/// ⚠ **`sorted`, `list`, `set`, `tuple` and `reversed` are transparent.** Order
+/// and duplicates are not part of a language, so the answer is the same
+/// underneath them — and 250 of the corpus's 531 glob loops are written
+/// `sorted(glob.glob(…))`.
+///
+/// ⚠ **`enumerate` is NOT**, and neither is `zip`: they yield tuples, so the
+/// loop's first name is an index and its second is the path. Reading through
+/// one would bind the wrong name to the language.
+fn ranges_over(iterable: &Pair<Rule>) -> Option<Value> {
+    let mut operands = iterable.clone().into_inner();
+    let only = operands.next()?;
+    // A second operand means an operator between them, and a computed value.
+    if operands.next().is_some() || only.as_rule() != Rule::operand {
+        return None;
+    }
+    let expr = only
+        .into_inner()
+        .next()
+        .filter(|p| p.as_rule() == Rule::expr)?;
+    let mut parts = expr.into_inner().peekable();
+    let head = parts.next()?;
+    match head.as_rule() {
+        // `['out/a.txt', 'out/b.txt']` — the language written out.
+        Rule::list => {
+            if parts.next().is_some() {
+                return None;
+            }
+            let args = head.into_inner().next()?;
+            let mut paths = Vec::new();
+            for arg in args.into_inner() {
+                let mut parts = arg.into_inner();
+                let value = parts.next().filter(|p| p.as_rule() == Rule::value)?;
+                // ⚠ One member that is not a literal and the set has a hole, so
+                // it bounds nothing — the rule `candidates` already keeps.
+                paths.push(literal(&value)?);
+            }
+            paths.sort();
+            paths.dedup();
+            (paths.len() > 1).then_some(Value::OneOf(paths))
+        }
+        Rule::name => {
+            let mut name = head.as_str().to_string();
+            if name == "glob"
+                && let Some(attr) = parts.next_if(|p| p.as_rule() == Rule::attr)
+            {
+                name = format!("glob.{}", attr.as_str().trim_start_matches('.'));
+            }
+            let call = parts.next().filter(|p| p.as_rule() == Rule::call)?;
+            if parts.next().is_some() {
+                return None;
+            }
+            match name.as_str() {
+                "glob.glob" | "glob.iglob" => match single_argument(&call)? {
+                    Value::Text(pattern) => Some(Value::Pattern(pattern)),
+                    _ => None,
+                },
+                "sorted" | "list" | "set" | "tuple" | "reversed" => {
+                    let args = call.into_inner().next()?;
+                    let mut args = args.into_inner();
+                    let arg = args.next()?;
+                    if args.next().is_some() {
+                        return None;
+                    }
+                    let inner = arg
+                        .into_inner()
+                        .next()
+                        .filter(|p| p.as_rule() == Rule::value)?;
+                    ranges_over(&inner)
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// The directory a pattern is rooted at — the text ahead of its first wildcard,
+/// cut at the last `/`.
+///
+/// ⚠ **Rooted at, not contained in**, exactly as the shell reader's locus is:
+/// the answer lies under this directory unless the pattern climbs out, and only
+/// `..` does that. `*.log` has no locus and gets none.
+fn locus(pattern: &str) -> Option<String> {
+    let fixed = pattern
+        .find(['*', '?', '['])
+        .map_or(pattern, |at| &pattern[..at]);
+    let dir = fixed.rsplit_once('/')?.0;
+    (!dir.is_empty()).then(|| dir.to_string())
+}
+
 fn scope(elements: &[Pair<Rule>]) -> Scope {
+    let mut ranging: BTreeMap<String, Value> = BTreeMap::new();
     let mut imported = BTreeSet::new();
     let mut bound: BTreeMap<String, Vec<Option<String>>> = BTreeMap::new();
     for element in elements {
@@ -348,7 +452,31 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
                     .into_inner()
                     .next()
                     .is_some_and(|keyword| keyword.as_str() == "import");
-                for target in inner.skip(1).flat_map(Pair::into_inner) {
+                // ⚠ **`target` by name, not "everything after the keyword".**
+                // The header now carries `ranges_over` too, and flattening that
+                // would bind the loop to the words of its own iterable.
+                // ⚠ **One name only.** `for k, v in d.items()` yields a pair,
+                // so a language over the sequence belongs to neither name and
+                // giving it to the first would bind a key to a set of paths.
+                let over = element
+                    .clone()
+                    .into_inner()
+                    .find(|part| part.as_rule() == Rule::ranges_over)
+                    .and_then(|over| over.into_inner().find(|p| p.as_rule() == Rule::iterable))
+                    .as_ref()
+                    .and_then(ranges_over);
+                let sole = element
+                    .clone()
+                    .into_inner()
+                    .find(|part| part.as_rule() == Rule::target)
+                    .filter(|target| target.clone().into_inner().count() == 1);
+                if let (Some(over), Some(target)) = (over, sole) {
+                    ranging.insert(target.as_str().trim().to_string(), over);
+                }
+                for target in inner
+                    .filter(|part| part.as_rule() == Rule::target)
+                    .flat_map(Pair::into_inner)
+                {
                     if importing {
                         imported.insert(target.as_str().to_string());
                     }
@@ -361,6 +489,10 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
             _ => {}
         }
     }
+    let bound_once: BTreeMap<String, usize> = bound
+        .iter()
+        .map(|(name, ways)| (name.clone(), ways.len()))
+        .collect();
     let defined = bound.keys().cloned().collect();
     let mut consts = BTreeMap::new();
     let mut candidates = BTreeMap::new();
@@ -390,8 +522,13 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
             _ => {}
         }
     }
+    // ⚠ **Bound once, by the loop that named the language.** A name the
+    // program also assigns has left the loop's space by the time it is used,
+    // and `bound` is where that shows: one entry means one binding.
+    ranging.retain(|name, _| bound_once.get(name).is_some_and(|ways| *ways == 1));
     Scope {
         defined,
+        ranging,
         imported,
         consts,
         candidates,
@@ -441,7 +578,7 @@ fn literal(value: &Pair<Rule>) -> Option<String> {
         // `Unknown` gets. A set here would make the CONSTANTS pass bind a name
         // to one of its own candidates, which is how a set becomes a wrong
         // certainty.
-        Value::List(_) | Value::OneOf(_) | Value::Unknown => None,
+        Value::List(_) | Value::OneOf(_) | Value::Pattern(_) | Value::Unknown => None,
     }
 }
 
@@ -520,6 +657,15 @@ enum Value {
     /// only reason this exists. Every other reader of a `Value` treats it as
     /// unknown, which is what it is: a list is not a path.
     List(Vec<Value>),
+    /// A language rather than a set: `⟦p⟧ ∈ L(captures/*.json)`. A glob's
+    /// members were decided by the filesystem of the day and are gone; the
+    /// pattern is not, and neither is the directory ahead of its first wildcard.
+    ///
+    /// ⚠ **Distinct from [`Value::OneOf`] on purpose.** Rendering a pattern as
+    /// a set would claim a finite membership nobody can enumerate, and every
+    /// other reader of a `Value` treats it as unknown for the same reason a set
+    /// is treated as unknown: it is not a path.
+    Pattern(String),
     /// One of a known finite set of literals — a name the program bound more
     /// than once, every binding a literal.
     ///
@@ -965,6 +1111,7 @@ fn method_of(name: &str) -> Option<Method> {
 
 struct Reader {
     candidates: BTreeMap<String, Vec<String>>,
+    ranging: BTreeMap<String, Value>,
     imported: BTreeSet<String>,
     consts: BTreeMap<String, String>,
     defined: BTreeSet<String>,
@@ -982,6 +1129,18 @@ impl Reader {
             Rule::assign => {
                 if let Some(value) = pair.into_inner().find(|p| p.as_rule() == Rule::value) {
                     self.value(value);
+                }
+            }
+            // ⚠ **A loop header is a statement too.** `for line in open(p)`
+            // opens a file whatever the body does, and now that the header
+            // holds its own iterable nothing else would read it.
+            Rule::binder => {
+                if let Some(iterable) = pair
+                    .into_inner()
+                    .find(|p| p.as_rule() == Rule::ranges_over)
+                    .and_then(|over| over.into_inner().find(|p| p.as_rule() == Rule::iterable))
+                {
+                    self.value(iterable);
                 }
             }
             _ => {}
@@ -1015,7 +1174,7 @@ impl Reader {
                         // Joining onto a choice needs the choice made.
                         // `Path(p) / 'x.ts'` where `p` is one of two is one of
                         // two paths, and this reader does not multiply sets.
-                        Value::List(_) | Value::OneOf(_) | Value::Unknown => {
+                        Value::List(_) | Value::OneOf(_) | Value::Pattern(_) | Value::Unknown => {
                             return Value::Unknown;
                         }
                     }
@@ -1111,7 +1270,11 @@ impl Reader {
                         None => self
                             .candidates
                             .get(&name)
-                            .map_or(Value::Unknown, |set| Value::OneOf(set.clone())),
+                            .map(|set| Value::OneOf(set.clone()))
+                            // A loop variable, where the loop said what it
+                            // ranged over: a pattern, or a written-out set.
+                            .or_else(|| self.ranging.get(&name).cloned())
+                            .unwrap_or(Value::Unknown),
                     },
                 }
             }
@@ -1347,6 +1510,15 @@ impl Reader {
             // One of a known set. Reported as the set and, when they agree on
             // one, as the directory — never as a use, because only one of them
             // happened. See [`crate::program::Program::bounded`].
+            // A language whose members the filesystem of the day decided.
+            // Bounded by the pattern and located at the directory ahead of its
+            // first wildcard — never a use, because no file is named.
+            Some(Value::Pattern(pattern)) => {
+                if let Some(dir) = locus(&pattern) {
+                    *self.out.located.entry(dir).or_insert(0) += 1;
+                }
+                *self.out.bounded.entry(pattern).or_insert(0) += 1;
+            }
             Some(Value::OneOf(set)) if set.len() > 1 => {
                 if let Some(dir) = shared_directory(&set) {
                     *self.out.located.entry(dir).or_insert(0) += 1;
@@ -1391,7 +1563,9 @@ fn join(args: &[Arg]) -> Value {
         match &arg.value {
             Value::Text(part) => parts.push(part.trim_end_matches('/').to_string()),
             // As in the `/` operator above: a set is not a part.
-            Value::List(_) | Value::OneOf(_) | Value::Unknown => return Value::Unknown,
+            Value::List(_) | Value::OneOf(_) | Value::Pattern(_) | Value::Unknown => {
+                return Value::Unknown;
+            }
         }
     }
     match parts.is_empty() {

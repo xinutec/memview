@@ -200,6 +200,8 @@ cargo run --release -p reader --bin opacity          -- <corpus> [--why|--dump <
 cargo run --release -p reader --example sql-corpus   -- <corpus>
 # the parse tree for one SQL script, when a clause silently fails to match
 cargo run --release -p reader --example sql-probe    -- "SELECT 1 FROM t"
+# the same for one Python program: which rule bailed, and what the reader made of it
+cargo run --release -p reader --example python-probe -- "for p in glob.glob('c/*.json'): open(p)"
 # do the two readers agree about what ran? — and where they do not
 cargo run --release -p reader --bin projection -- <corpus> [--show <n>] [--only <bucket>]
 
@@ -380,6 +382,69 @@ when `callable` already answers for the pair.
 263 subjects newly named and nothing else — the check that says which half of
 the rate moved. `open` fell by exactly 323 as the three qualified names took
 their own rows.
+
+### What a loop ranges over (memview#1142)
+
+A loop variable was the largest unnamed shape left, and most of those loops say
+what they range over. `for p in glob.glob('captures/*.json')` binds `p` to one
+of `captures/*.json` — a **language** whose members the filesystem of the day
+chose, with a locus that is certain even though the leaf is not. A literal list
+is the same object with the language written out.
+
+    file operations       26,536 → 26,536
+    named a file          20,567 → 20,573   (+6, and not from this rule — below)
+    one of a known set     2,881 → 3,186    (+305)
+      of them located      1,312 → 1,514    (+202)
+    named none             3,088 → 2,777    (−311)
+
+⚠ **The header has to hold the iterable, and until now the grammar threw it
+away.** `binder` stopped at the name, so `for p in xs` reached the reader as
+three unrelated statements and the only place the language appears was gone.
+`shell.pest` emits a loop head for the same reason, and `project.rs` says so.
+
+Four things that had to be right, each of which reads as a detail until it is a
+wrong answer:
+
+- **`:` is a `binop`** — it has to be, for dict entries, slices and `lambda` — so
+  an unguarded `value` reads `for p in xs: open(p)` as one value of two operands
+  and **swallows the loop body**, which then never reaches the reader as a
+  statement at all. The iterable stops at the colon.
+- **Once the header owns the iterable, nothing else reads it.**
+  `for line in open(p)` opens a file whatever the body does, and the first
+  version dropped that use — a shrinking denominator, the one direction a
+  coverage figure must never move on its own.
+- **`scope` took binder names as "everything after the keyword"**, which after
+  the change bound the loop variable to the words of its own iterable.
+- **One target name, bound exactly once.** `for k, v in d.items()` yields a pair,
+  so a language over the sequence belongs to neither name; and a name the program
+  also assigns has left the loop's space by the time it is used.
+
+`sorted`, `list`, `set`, `tuple` and `reversed` are transparent, because order
+and duplicates are not part of a language — and 250 of the 531 glob loops are
+written `sorted(glob.glob(…))`. ⚠ **`enumerate` and `zip` are not**: they yield
+tuples, so reading through one binds the wrong name to the language.
+
+**Deliberately left: a locus with no language.** `for f in os.listdir(BACKUP)`
+knows the directory and nothing about the leaf, and `Program::located` is an
+annotation on `bounded` rather than a second account — filing this there would
+count an operation that is in neither. 50 uses, and it needs the field to grow a
+meaning first.
+
+### The `in` that ate its own iterable
+
+⚠ **`trailer` includes `call`, so `in (…)` parsed as a call to a function named
+`in`.** In `for line in (base / 'g.log').read_text()` the reader saw a call to
+the keyword `in` — which the table answers "does nothing" — and `.read_text()`
+lost its receiver. Six reads over the corpus were discarded that way, and they
+are the whole of the `named a file` rise above: **the loop rule contributed no
+names at all**, which is what it was built to do.
+
+Found because the +6 did not match the prediction and was chased rather than
+accepted. ⚠ **Two comparison runs said the readers agreed and both were
+wrong**: a worktree at the old commit shares one cargo target directory with the
+checkout, so `cargo build` reported *Finished in 0.10s* and left the new binary
+in place. The reliable instrument was two binaries copied aside and checked
+against a fixture that exercises the change.
 
 ### The census behind that (2026-08-25)
 

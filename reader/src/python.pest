@@ -36,12 +36,31 @@ end    = _{ NEWLINE | ";" | EOI }
 augmented = { name ~ augment }
 augment   = @{ ("//" | "**" | "+" | "-" | "*" | "/" | "%" | "|" | "&" | "^") ~ "=" ~ !"=" }
 
-// `for p in files`, `with open(x) as f`, `import json`. Every name bound this
-// way is bound to something unknowable — `for p in files` names every file and
-// therefore none.
-binder    = { binder_kw ~ target }
-binder_kw = @{ ("for" | "as" | "def" | "class" | "lambda" | "global" | "nonlocal" | "import") ~ !name_char }
-target    = { name ~ ("," ~ name)* }
+// `for p in files`, `with open(x) as f`, `import json`.
+//
+// The header carries what a `for` ranges over, because that is the only place
+// the language appears: `for p in glob.glob('c/*.json')` binds `p` to one of
+// `c/*.json`, and read as three separate statements it binds it to nothing.
+// `shell.pest` emits a loop head for the same reason.
+//
+// ⚠ **`in_kw` is atomic and the `!name_char` is why.** In a non-atomic rule pest
+// inserts implicit whitespace between every pair of expressions, so the
+// lookahead would skip the space and test the character after it — which is how
+// four SQL rules were written wrong at once. `interval` must not read as `in`.
+binder      = { binder_kw ~ target ~ ranges_over? }
+binder_kw   = @{ ("for" | "as" | "def" | "class" | "lambda" | "global" | "nonlocal" | "import") ~ !name_char }
+ranges_over = { in_kw ~ iterable }
+in_kw       = @{ "in" ~ !name_char }
+target      = { name ~ ("," ~ name)* }
+
+// What a loop ranges over, which is a `value` that stops at the header's colon.
+//
+// ⚠ **`:` is a `binop` here** — it has to be, for dict entries, slices and
+// `lambda` — so an unguarded `value` reads `for p in xs: open(p)` as ONE value
+// of two operands and swallows the body. The body then never reaches
+// [`crate::python::Reader::element`] as a statement of its own. Same operands
+// and same operators as `value`, so everything that reads one reads this.
+iterable = { operand ~ (!":" ~ binop? ~ operand)* }
 
 // ---- expressions ----
 

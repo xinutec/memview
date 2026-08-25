@@ -508,3 +508,77 @@ fn a_path_still_opens_itself() {
         [used("src/x.ts", false)]
     );
 }
+
+/// What a loop ranges over decides what its variable stands for, and a glob
+/// determines both halves of that: the language is the pattern and the locus is
+/// the directory ahead of the first wildcard.
+///
+/// `for p in glob.glob('captures/*.json'): open(p)` opened one of the files
+/// `captures/*.json` matched. Which one is gone with the filesystem of the day;
+/// that it was under `captures` is not.
+#[test]
+fn a_loop_over_a_glob_bounds_what_it_opens() {
+    let source = "for p in glob.glob('captures/*.json'):\n    open(p)\n";
+    assert_eq!(bounded(source), [("captures/*.json".to_string(), 1)]);
+    assert_eq!(located(source), [("captures".to_string(), 1)]);
+}
+
+/// A literal list is the same object with the language written out — the shape
+/// `41407a9` already reads when a NAME is bound twice.
+#[test]
+fn a_loop_over_a_literal_list_bounds_what_it_opens() {
+    let source = "for p in ['out/a.txt', 'out/b.txt']:\n    open(p, 'w')\n";
+    assert_eq!(bounded(source), [("{out/a.txt,out/b.txt}".to_string(), 1)]);
+    assert_eq!(located(source), [("out".to_string(), 1)]);
+}
+
+/// ⚠ **A bound is not a name, and the loop must not gain one.** Recording the
+/// pattern — or its directory — as a file this program used would claim a use
+/// of a path nothing opened.
+#[test]
+fn a_bounded_loop_variable_never_becomes_a_use() {
+    let source = "for p in glob.glob('captures/*.json'):\n    open(p)\n";
+    // The glob call itself names its pattern, as it always has. The `open` adds
+    // nothing to that.
+    assert_eq!(uses(source), [used("captures/*.json", false)]);
+}
+
+/// ⚠ **The iterable is still evaluated.** Absorbing it into the loop header
+/// must not stop it being read: `open` here is a file operation whatever the
+/// loop then does with its lines, and a header that swallowed it would drop a
+/// use and shrink the denominator.
+#[test]
+fn the_thing_a_loop_ranges_over_is_still_read() {
+    assert_eq!(
+        uses("for line in open('log/a.txt'):\n    pass\n"),
+        [used("log/a.txt", false)]
+    );
+    // And the pattern of a glob stays a use of its own.
+    assert_eq!(
+        uses("for p in glob.glob('captures/*.json'):\n    pass\n"),
+        [used("captures/*.json", false)]
+    );
+}
+
+/// A loop over something with no language has no space, and saying otherwise
+/// would invent one.
+#[test]
+fn a_loop_over_a_name_is_still_a_shrug() {
+    let source = "for p in files:\n    open(p)\n";
+    assert_eq!(bounded(source), []);
+    assert_eq!(located(source), []);
+    assert_eq!(read(source).unresolved.get("open"), Some(&1));
+}
+
+/// ⚠ **`in` used to swallow a parenthesised iterable.** `trailer` includes
+/// `call`, so `for line in (base / 'g.log').read_text()` parsed as a call to a
+/// function named `in` — a keyword, which the table answers "does nothing" —
+/// and the read lost its receiver. Six reads in the corpus were being discarded
+/// that way, and the loop header is what stops it: `in` is consumed by
+/// `ranges_over`, so the bracket that follows is a value rather than an
+/// argument list.
+#[test]
+fn a_parenthesised_iterable_is_not_a_call_to_in() {
+    let source = "base = Path('/home/example/s')\nfor line in (base / 'g.log').read_text().splitlines():\n    pass\n";
+    assert_eq!(uses(source), [used("/home/example/s/g.log", false)]);
+}
