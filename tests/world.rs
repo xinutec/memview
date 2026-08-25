@@ -402,3 +402,43 @@ fn the_test_helper_scrubs_every_inherited_git_variable() {
         assert!(removed.contains(&var), "{var} still inherited: {removed:?}");
     }
 }
+
+/// ⚠ A retired repository still holds its commits.
+///
+/// `dead-repo-path` accepts `~/Archive/<repo>` as the retirement record, so a
+/// memory may legitimately cite a sha from a repo that has left `~/Code`.
+/// Searching only the code root reported two real commits as unresolvable —
+/// `lares` and `scanner-frozen` — the rule disagreeing with its neighbour about
+/// where a retired repo lives.
+#[test]
+fn a_commit_in_the_archive_beside_the_code_root_still_resolves() {
+    let corpus_dir = tempfile::tempdir().expect("tempdir");
+    let home = tempfile::tempdir().expect("tempdir");
+    let code = home.path().join("Code");
+    std::fs::create_dir(&code).expect("mkdir");
+    std::fs::create_dir(home.path().join("Archive")).expect("mkdir");
+
+    let sha = repo_with_a_commit(&home.path().join("Archive"), "lares");
+    let corpus = corpus_saying(corpus_dir.path(), &format!("Retired at `{sha}`."));
+
+    let findings: Vec<_> = check_world(&corpus, &code)
+        .into_iter()
+        .filter(|f| f.rule == "unresolvable-commit")
+        .collect();
+    assert!(findings.is_empty(), "{findings:?}");
+}
+
+/// A root with no sibling archive finds nothing extra and does not reach outside.
+#[test]
+fn a_code_root_without_an_archive_beside_it_is_fine() {
+    let corpus_dir = tempfile::tempdir().expect("tempdir");
+    let code = tempfile::tempdir().expect("tempdir");
+    repo_with_a_commit(code.path(), "observe");
+
+    let corpus = corpus_saying(corpus_dir.path(), "Fixed in `deadbee`.");
+    let findings: Vec<_> = check_world(&corpus, code.path())
+        .into_iter()
+        .filter(|f| f.rule == "unresolvable-commit")
+        .collect();
+    assert_eq!(findings.len(), 1, "{findings:?}");
+}

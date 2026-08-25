@@ -746,18 +746,40 @@ fn commit_shas(body: &str, session_prefixes: &BTreeSet<String>) -> BTreeSet<Stri
     out
 }
 
-/// Every git repository directly under the code root, plus the root itself.
+/// Every git repository directly under the code root, plus the root itself, plus
+/// the archive beside it.
 ///
 /// The root is included because `~/Code` is a repository too, and leaving it out
 /// reported its own HEAD as unresolvable — measured, on `4a10271`.
+///
+/// ⚠ **A retired repository still holds its commits, and `dead-repo-path`
+/// already says so.** That rule accepts `~/Archive/<repo>` as the retirement
+/// record, so a memory may legitimately cite a sha from a repo that has left
+/// `~/Code`. Searching only the code root reported two of those as unresolvable
+/// — `lares` and `scanner-frozen` — which is the rule contradicting its
+/// neighbour about where a retired repo lives.
+///
+/// The archive is found as a SIBLING of the code root rather than hard-coded, so
+/// a test pointing at a temporary root does not reach the real `~/Archive` and a
+/// root with no sibling archive simply finds nothing.
 fn repos_under(code_root: &std::path::Path) -> Vec<std::path::PathBuf> {
     let mut repos = vec![code_root.to_path_buf()];
-    if let Ok(entries) = std::fs::read_dir(code_root) {
-        for e in entries.flatten() {
-            if e.path().join(".git").exists() {
-                repos.push(e.path());
+    let mut collect = |dir: std::path::PathBuf| {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for e in entries.flatten() {
+                let p = e.path();
+                // `.git` for a working clone; a bare mirror is named `<name>.git`.
+                if p.join(".git").exists()
+                    || p.extension().is_some_and(|x| x == "git") && p.is_dir()
+                {
+                    repos.push(p);
+                }
             }
         }
+    };
+    collect(code_root.to_path_buf());
+    if let Some(parent) = code_root.parent() {
+        collect(parent.join("Archive"));
     }
     repos
 }
