@@ -628,3 +628,60 @@ fn a_parenthesised_iterable_is_not_a_call_to_in() {
     let source = "base = Path('/home/example/s')\nfor line in (base / 'g.log').read_text().splitlines():\n    pass\n";
     assert_eq!(uses(source), [used("/home/example/s/g.log", false)]);
 }
+
+/// ⚠ **One unknown part must not discard the known ones**, in any of the three
+/// spellings of a join. `os.path.join(BACKUP, name)` is `BACKUP/*` — a locus
+/// with an uncertain leaf — and before this the whole call was a shrug (#1142).
+#[test]
+fn a_join_with_one_unknown_part_keeps_the_known_ones() {
+    for source in [
+        "import os\nBACKUP = '/srv/backup'\nopen(os.path.join(BACKUP, name))",
+        "from pathlib import Path\nBACKUP = '/srv/backup'\nopen(Path(BACKUP) / name)",
+        "from pathlib import Path\nBACKUP = '/srv/backup'\nopen(Path(BACKUP).joinpath(name))",
+    ] {
+        let program = read(source);
+        assert!(program.uses.is_empty(), "no file may be claimed: {source}");
+        assert_eq!(program.bounded["/srv/backup/*"], 1, "{source}");
+        assert_eq!(program.located["/srv/backup"], 1, "{source}");
+    }
+}
+
+/// The other half: the directory is unknown and the NAME is certain.
+#[test]
+fn a_join_onto_an_unknown_directory_still_names_the_file() {
+    let program = read("import os\nopen(os.path.join(d, 'meta.json'))");
+    assert!(program.uses.is_empty(), "no file may be claimed");
+    assert_eq!(program.bounded["*/meta.json"], 1);
+    assert!(program.located.is_empty(), "no directory is certain");
+}
+
+/// ⚠ **Adjacent unknowns are one run.** `join(a, b, 'x.ts')` is `*/x.ts`;
+/// `*/*/x.ts` would claim a depth nobody wrote down.
+#[test]
+fn adjacent_unknown_parts_do_not_claim_a_depth() {
+    let program = read("import os\nopen(os.path.join(a, b, 'x.ts'))");
+    assert_eq!(program.bounded["*/x.ts"], 1);
+}
+
+/// A join that says nothing must stay a shrug rather than become `*`.
+#[test]
+fn a_join_of_nothing_known_is_still_unresolved() {
+    let program = read("import os\nopen(os.path.join(a, b))");
+    assert!(program.bounded.is_empty(), "{:?}", program.bounded);
+    assert_eq!(program.unresolved["open"], 1);
+}
+
+/// Every part known is still a path, not a language — the rule must not widen
+/// what it used to resolve exactly.
+#[test]
+fn a_join_of_known_parts_is_still_a_path() {
+    assert_eq!(
+        uses("import os\nopen(os.path.join('src', 'geo', 'x.ts'))"),
+        [used("src/geo/x.ts", false)]
+    );
+    assert!(
+        read("import os\nopen(os.path.join('src', 'geo', 'x.ts'))")
+            .bounded
+            .is_empty()
+    );
+}

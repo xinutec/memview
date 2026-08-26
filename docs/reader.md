@@ -506,6 +506,37 @@ show the implementation being wrong.
 only paths; returning a pattern from it would change every caller. The shape is
 tried only where a `Value` is being built, and reaches `record` as `Pattern`.
 
+### A join keeps the parts anybody knows (memview#1142)
+
+The same defect as the f-string, in all three spellings of a join — `os.path.join`,
+`Path(a) / b`, `a.joinpath(b)`. One unknown part returned `Unknown` and discarded
+every known one, so `os.path.join(BACKUP, name)` said nothing at all when it says
+`BACKUP/*`. `joined_shape` renders each part, an unknown one as `*`, and hands the
+result to the same `path_shaped` the f-string rule uses.
+
+    one of a known set  3,499 → 3,600   (+101, and 1,636 → 1,655 located)
+    named none          2,755 → 2,654   (−101)
+    named a file       22,154 → 22,154
+    file uses          22,317 → 22,317
+
+⚠ **Only 19 of the 101 gained a directory; 82 gained a filename.** The corpus's
+commonest join is `os.path.join(root, r)` — both parts a variable — which is
+refused, so what fires is `join(dir, 'meta.json')`: `*/meta.json`, a certain name
+under an uncertain directory. The opposite balance to the f-strings, and worth
+knowing before anyone sizes a locus-only rule from this number.
+
+⚠ **Adjacent unknowns collapse to one run.** `join(a, b, 'x.ts')` is `*/x.ts`,
+never `*/*/x.ts`, which would claim a depth nobody wrote down.
+
+⚠ **A set becomes `*` rather than being multiplied out.** Joining onto a choice
+needs the choice made and this reader does not multiply sets, so the part is
+widened — which claims less than the set did and more than the whole call being
+`Unknown`.
+
+Two of the five tests are guards rather than gains, and both still pass with the
+rule removed: a join of nothing known stays unresolved, and a join of entirely
+known parts is still an exact path, not a widened one.
+
 ## The JavaScript inside it
 
 The third language, added 2026-08-22, and it is `python.rs` with the nouns

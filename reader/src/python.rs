@@ -1263,17 +1263,16 @@ impl Reader {
             // arithmetic here that leaves a path behind.
             _ if operators.iter().all(|op| op == "/") => {
                 let mut joined = String::new();
-                for value in values {
+                for value in &values {
                     match value {
-                        Value::Text(part) if joined.is_empty() => joined = part,
+                        Value::Text(part) if joined.is_empty() => joined = part.clone(),
                         Value::Text(part) => {
                             joined = format!("{}/{part}", joined.trim_end_matches('/'));
                         }
-                        // Joining onto a choice needs the choice made.
-                        // `Path(p) / 'x.ts'` where `p` is one of two is one of
-                        // two paths, and this reader does not multiply sets.
+                        // A part nobody can name does not sink the parts anyone
+                        // can: what is left is a language. See `joined_shape`.
                         Value::List(_) | Value::OneOf(_) | Value::Pattern(_) | Value::Unknown => {
-                            return Value::Unknown;
+                            return joined_shape(&values);
                         }
                     }
                 }
@@ -1592,6 +1591,8 @@ impl Reader {
                 (Some(Value::Text(base)), Some(Value::Text(rest))) => {
                     Value::Text(format!("{}/{rest}", base.trim_end_matches('/')))
                 }
+                // One half known is a language, not a shrug.
+                (Some(base), Some(rest)) => joined_shape(&[base, rest.clone()]),
                 _ => Value::Unknown,
             },
             // The same path under another spelling.
@@ -1657,21 +1658,63 @@ fn writes(mode: Option<&Value>) -> bool {
     }
 }
 
+/// A join where only some parts are known, as a language.
+///
+/// ⚠ **One unknown part used to discard the known ones**, in all three spellings
+/// of a join — `os.path.join`, `Path(a) / b`, `a.joinpath(b)`. But
+/// `os.path.join(BACKUP, name)` is not unknowable: it is `BACKUP/*`, a locus
+/// with an uncertain leaf, and `os.path.join(d, 'meta.json')` is `*/meta.json`,
+/// a certain filename with an uncertain directory. The same object an
+/// interpolated f-string produces, judged by the same [`path_shaped`].
+///
+/// ⚠ **A set becomes `*` rather than being multiplied out.** Joining onto a
+/// choice needs the choice made, and this reader does not multiply sets — so the
+/// part is widened to "unknown", which claims less than the set did and more
+/// than the whole call being `Unknown`.
+fn joined_shape(parts: &[Value]) -> Value {
+    let mut rendered = String::new();
+    for part in parts {
+        let piece = match part {
+            Value::Text(text) => text.trim_end_matches('/'),
+            _ => "*",
+        };
+        // Adjacent unknowns are one run: `join(a, b, 'x.ts')` is `*/x.ts`, not
+        // `*/*/x.ts`, which would claim a depth nobody wrote down.
+        if rendered.ends_with('*') && piece == "*" {
+            continue;
+        }
+        if !rendered.is_empty() {
+            rendered.push('/');
+        }
+        rendered.push_str(piece);
+    }
+    match path_shaped(&rendered) {
+        true => Value::Pattern(rendered),
+        false => Value::Unknown,
+    }
+}
+
 /// `os.path.join('src', 'geo', 'x.ts')` — a path when every part is known.
 fn join(args: &[Arg]) -> Value {
-    let mut parts = Vec::new();
-    for arg in args.iter().filter(|arg| arg.keyword.is_none()) {
-        match &arg.value {
-            Value::Text(part) => parts.push(part.trim_end_matches('/').to_string()),
-            // As in the `/` operator above: a set is not a part.
-            Value::List(_) | Value::OneOf(_) | Value::Pattern(_) | Value::Unknown => {
-                return Value::Unknown;
-            }
-        }
+    let given: Vec<Value> = args
+        .iter()
+        .filter(|arg| arg.keyword.is_none())
+        .map(|arg| arg.value.clone())
+        .collect();
+    if given.is_empty() {
+        return Value::Unknown;
     }
-    match parts.is_empty() {
-        true => Value::Unknown,
-        false => Value::Text(parts.join("/")),
+    // Every part known is a path; some parts known is a language.
+    let parts: Option<Vec<String>> = given
+        .iter()
+        .map(|value| match value {
+            Value::Text(part) => Some(part.trim_end_matches('/').to_string()),
+            _ => None,
+        })
+        .collect();
+    match parts {
+        Some(parts) => Value::Text(parts.join("/")),
+        None => joined_shape(&given),
     }
 }
 
