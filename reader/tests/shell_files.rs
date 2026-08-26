@@ -1894,3 +1894,46 @@ fn the_words_a_split_produces_are_read_as_arguments() {
         [("/home/example/Code/health/notes.txt".to_string(), false)]
     );
 }
+
+/// ⚠ **A variable holding a whole `ssh` invocation is a remote command, not a
+/// local file named after it.** Without splitting, `$SSH cat /etc/hostname`
+/// expands to one word, and a word that is not a flag and not absolute gets
+/// resolved against the working directory — so `<cwd>/ssh -o … root@host`
+/// enters the corpus as a file this Mac read. It is the single biggest thing
+/// splitting corrected: 213 of the 230 reads it removed are four spellings of
+/// this one blob, produced by `GEB="ssh -o UserKnownHostsFile=… root@…"`, which
+/// occurs 59 times in the history (#1173).
+#[test]
+fn a_variable_holding_an_ssh_command_is_not_a_local_file() {
+    let script = "SSH=\"ssh -o StrictHostKeyChecking=no root@10.0.0.1\"; $SSH cat /etc/hostname";
+    let cmds = parse(script).unwrap();
+    let found = extract(&cmds, Some(CWD), HOME);
+    assert!(
+        !found.files.iter().any(|file| file.path.contains("ssh -o")),
+        "a command line was resolved into a local path: {:?}",
+        found.files
+    );
+    assert_eq!(found.remote.len(), 1);
+    assert_eq!(found.remote[0].host, "10.0.0.1");
+    assert_eq!(found.remote[0].path, "/etc/hostname");
+}
+
+/// ⚠ **Several files in one variable are several files, and each is countable.**
+/// The other half of what splitting corrected: `FILES="a.py b.py"` glued its
+/// members into one 26-word "path" that matched nothing, so every real file in
+/// it went uncounted. 59 of the reads splitting added land on paths that already
+/// existed — they were inside a blob, not absent (#1173).
+#[test]
+fn several_files_in_one_variable_are_counted_separately() {
+    let cmds = parse("FILES=\"one.py two.py\"; wc -l $FILES").unwrap();
+    let found = extract(&cmds, Some(CWD), HOME);
+    let mut paths: Vec<_> = found.files.iter().map(|file| file.path.clone()).collect();
+    paths.sort();
+    assert_eq!(
+        paths,
+        [
+            "/home/example/Code/health/one.py",
+            "/home/example/Code/health/two.py"
+        ]
+    );
+}

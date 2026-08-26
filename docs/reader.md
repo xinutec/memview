@@ -718,24 +718,55 @@ one more database and one more table.
 projection builds its own `Key` from named fields and never compares `Simple` by
 equality, so the second reader is unaffected.
 
-#### What moved that is NOT yet explained
+#### What moved, and why it was an overcount (memview#1173)
 
-**Local reads fell by 161**, `run a script` fell 213, `reach another machine`
-rose 215, and a host that had never appeared — `192.168.1.230` — arrived with
-225 reads and 36 writes.
+Splitting moved 161 reads off the local index, and the movement is now accounted
+for to the unit. Both binaries were run over the **same** corpus — the nightly
+rebuild changes the denominator, so an arm measured against yesterday's corpus
+would mix a code change with a data change — and the per-path counts diffed:
 
-The shape is consistent with commands being recognised as remote and their files
-correctly leaving an index that should never have held them. **It is not
-established.** Two explanations were tested and refused: no corpus variable
-holds an `ssh` command, and `odin:/tmp/full-stage.log` did not change host — it
-fell below the top-N cut of a ranked list, which is a display artefact and not a
-movement.
+    reads lost      230   across 9 paths, every one of them to zero
+    reads gained     59   across 38 paths that ALREADY existed
+    reads gained     10   across 7 paths that did not
+    net            −161
 
-Left on the record rather than told as a story, and shipped because the movement
-runs in the direction this reader is built to fail in: it claims **fewer** local
-files, never more. **Tracked as memview#1173**, which names the next
-measurement — the 213 have to be identified before this is either a correction
-or a lost file use.
+**No surviving path lost a single read.** All 230 come from nine "paths" that
+are not files: multi-word blobs of 2 to 26 words, produced by resolving an
+unsplit expansion against the working directory.
+
+**213 of the 230 are one variable**, in four spellings that differ only by the
+directory they were glued to:
+
+    GEB="ssh -o UserKnownHostsFile=/tmp/geb-known-hosts -o StrictHostKeyChecking=no root@…"
+
+`$GEB cat /etc/hostname` expanded to a single word, and a word that is neither a
+flag nor absolute is resolved against the cwd — so `<cwd>/ssh -o … root@…`
+entered the corpus as a file this Mac read. That is the whole of the `run a
+script` fall and the `reach another machine` rise, and why a host that had never
+appeared arrived with it: the reads were always remote, and were filed as local.
+
+**The +59 are the same correction seen from the other side.** A blob of 26
+memory filenames and one of 6 recall sources were each one unmatched path; split,
+every member is a real file that was already known, each gaining its own reads.
+Pinned by `several_files_in_one_variable_are_counted_separately`.
+
+⚠ **The +10 are a new overcount, and smaller than the one removed.** Seven paths
+made of `awk`/`sed` program text — `/^#`, `1\/{p=1;next}`, a `.pg"p}` fragment —
+carry 10 reads and 1 write. Splitting a word inside a program body produces
+them. Left on the record: an unread call is an undercount and an invented path
+is a lie, so this is the kind that matters, and 10 against 230 is the trade.
+**Tracked as memview#1195**, with where to look.
+
+⚠ **The refusal recorded here before was wrong, and the reason is mechanical.**
+"No corpus variable holds an `ssh` command" rested on
+`grep -oE '[A-Z_]+="ssh [^"]{0,60}"'` returning nothing. **The corpus is JSONL,
+so the shell's `"` is stored as `\"`** — `="ssh` cannot match, at any length
+bound. `GEB=\"ssh` matches 59 rows. A grep for shell quoting over a JSON corpus
+finds nothing and says so in the same voice as a true absence: the shape of the
+measurement, not the shape of the corpus.
+
+The other refusal stands: `odin:/tmp/full-stage.log` did not change host, it fell
+below a ranked list's top-N cut.
 
 ### A command named by a variable is not one either (memview#1158)
 
