@@ -1937,3 +1937,49 @@ fn several_files_in_one_variable_are_counted_separately() {
         ]
     );
 }
+
+/// ⚠ **Only what an expansion PRODUCED may word-split.** The corpus word that
+/// forced this is an `awk` program built from single-quoted literals with two
+/// expansions spliced in:
+///
+///     awk '/^# page 1\//{p=1;next} {print > "'$S'/'$v'.pg"}' $S/$v.words
+///
+/// `$S` and `$v` hold no whitespace, so bash runs one `awk` with one program.
+/// Splitting the whole word cut it at the spaces that were inside the single
+/// quotes and filed `/^#` and `1\//{p=1;next}` as files (#1195).
+#[test]
+fn quoted_whitespace_beside_an_expansion_does_not_split_the_word() {
+    let script =
+        "S=/home/example/out; awk '/^# page/{p=1;next} {print > \"'$S'/p.pg\"}' $S/in.words";
+    let cmds = parse(script).unwrap();
+    let found = extract(&cmds, Some(CWD), HOME);
+    assert!(
+        !found.files.iter().any(|file| file.path.contains("p=1")),
+        "a program body was cut into paths: {:?}",
+        found.files
+    );
+    assert_eq!(
+        found
+            .files
+            .iter()
+            .map(|file| file.path.clone())
+            .collect::<Vec<_>>(),
+        ["/home/example/out/in.words"]
+    );
+}
+
+/// ⚠ **A substitution's text is not its output, so none of it splits.**
+/// `du -sk $(cat list.txt)` runs on whatever the file holds, which this reader
+/// cannot know. Splitting the source text made `list.txt)` — closing paren and
+/// all — into a path that was never used (#1195).
+#[test]
+fn an_unevaluated_substitution_is_not_cut_into_paths() {
+    let script = "SC=/home/example/s; du -sk $(cat $SC/todelete.txt)";
+    let cmds = parse(script).unwrap();
+    let found = extract(&cmds, Some(CWD), HOME);
+    assert!(
+        !found.files.iter().any(|file| file.path.ends_with(')')),
+        "a substitution was cut into paths: {:?}",
+        found.files
+    );
+}

@@ -269,9 +269,32 @@ pub fn assignment(word: &str) -> Option<(&str, &str)> {
 /// the shell's expansion vocabulary — no `${NAME:-default}`, no `$*` — since a
 /// half-understood expansion is the way to invent a path.
 pub fn expand(word: &str, env: &BTreeMap<String, String>) -> String {
+    expand_marking(word, env).0
+}
+
+/// [`expand`], and where in the answer a value was actually substituted.
+///
+/// ⚠ **Only these spans may word-split, and that is bash's rule rather than a
+/// refinement of it.** Splitting happens to the characters an expansion
+/// *produced*, never to the literal text beside them in the same word:
+///
+/// ```text
+/// awk '/^# page 1/{p=1;next} {print > "'$S'/'$v'.pg"}' $S/$v.words
+/// ```
+///
+/// is ONE word — `$S` and `$v` hold no whitespace — and splitting the whole of
+/// it shredded a single-quoted `awk` program into `/^#`, `page`, `1/{p=1;next}`
+/// and filed the fragments as files (#1195). The spans are byte ranges into the
+/// returned string, in order and non-overlapping.
+///
+/// A substitution nobody could evaluate produces no span, so nothing inside
+/// `$(cat list.txt)` splits either: its text is not its output, and cutting it
+/// up made `list.txt)` — closing paren and all — into a path.
+pub fn expand_marking(word: &str, env: &BTreeMap<String, String>) -> (String, Vec<(usize, usize)>) {
     if !word.contains('$') || env.is_empty() {
-        return word.to_string();
+        return (word.to_string(), Vec::new());
     }
+    let mut produced: Vec<(usize, usize)> = Vec::new();
     let mut out = String::with_capacity(word.len());
     let mut rest = word;
     while let Some(at) = rest.find('$') {
@@ -289,7 +312,11 @@ pub fn expand(word: &str, env: &BTreeMap<String, String>) -> String {
             (&after[..end], &after[end..])
         };
         match env.get(name) {
-            Some(value) => out.push_str(value),
+            Some(value) => {
+                let from = out.len();
+                out.push_str(value);
+                produced.push((from, out.len()));
+            }
             // Put it back the way it was written, braces and all.
             None if after.starts_with('{') => {
                 out.push_str("${");
@@ -304,7 +331,7 @@ pub fn expand(word: &str, env: &BTreeMap<String, String>) -> String {
         rest = tail;
     }
     out.push_str(rest);
-    out
+    (out, produced)
 }
 
 /// Turn a word into an absolute path, or refuse it.

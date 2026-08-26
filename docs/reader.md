@@ -755,7 +755,7 @@ made of `awk`/`sed` program text — `/^#`, `1\/{p=1;next}`, a `.pg"p}` fragment
 carry 10 reads and 1 write. Splitting a word inside a program body produces
 them. Left on the record: an unread call is an undercount and an invented path
 is a lie, so this is the kind that matters, and 10 against 230 is the trade.
-**Tracked as memview#1195**, with where to look.
+**Fixed below.**
 
 ⚠ **The refusal recorded here before was wrong, and the reason is mechanical.**
 "No corpus variable holds an `ssh` command" rested on
@@ -767,6 +767,46 @@ measurement, not the shape of the corpus.
 
 The other refusal stands: `odin:/tmp/full-stage.log` did not change host, it fell
 below a ranked list's top-N cut.
+
+### Only what an expansion produced may split (memview#1195)
+
+The seven were not awk's fault, which is what filing them as "a word inside a
+program body" assumed. The word that made five of them is one shell word:
+
+    awk '/^# page 1\//{p=1;next} {print > "'$S'/'$v'.pg"}' $S/$v.words
+
+Single-quoted literals with two expansions spliced in. `splits()` is right that
+the word contains an unquoted expansion — but **bash word-splits the characters
+an expansion PRODUCED, never the literal text beside them.** `$S` and `$v` hold
+no whitespace, so bash runs one `awk` with one program; the reader cut the word
+at the spaces inside the single quotes and filed `/^#` and `1\//{p=1;next}` as
+files.
+
+The second cause is the same rule seen from the other end. In
+
+    du -ch $(sed 's/^/.\//' $S/list.txt | tr '\n' '\0' | xargs -0 echo)
+
+the substitution's *text* is not its output, and nothing here can evaluate it —
+so cutting it up produced `list.txt)`, closing paren and all.
+
+[`shell_ops::expand_marking`] now returns the byte ranges it substituted into,
+and `split_produced` cuts only inside them. A substitution nobody evaluated
+produces no span, so none of it splits.
+
+    distinct paths    40,998 → 40,990   (−8, every one invented)
+    file uses        238,840 → 238,827  (−13 reads, −1 write)
+
+⚠ **Three of those 13 are real paths, and losing them is the point.** HEAD
+found `…/inner_only_files.txt` and a `/nix/store` lean4 directory only by
+shredding a substitution it could not evaluate and finding a `$S`-shaped fragment
+inside — the same shredding, in the same word, that invented
+`/Volumes/Backup/cache/cache/'s/^/.\//'`. One accident was producing three right
+answers and eight wrong ones. Each of the three keeps its other reads, so no path
+left the index; what left is a reason to believe them.
+
+⚠ **Splitting inside a substitution is not a capability this gave up** — it
+was never one. Reading `$(sed … file)` means parsing the inner command, which
+the nested reader does elsewhere and does not do here.
 
 ### A command named by a variable is not one either (memview#1158)
 

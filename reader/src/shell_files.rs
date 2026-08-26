@@ -21,8 +21,8 @@ use std::collections::BTreeMap;
 use crate::project::Ran;
 use crate::shell::Simple;
 use crate::shell_ops::{
-    GitOp, Op, assignment, basename, classify_naming, expand, looks_like_path, resolve,
-    unwrap_command,
+    GitOp, Op, assignment, basename, classify_naming, expand, expand_marking, looks_like_path,
+    resolve, unwrap_command,
 };
 
 /// A file another machine's command used.
@@ -617,6 +617,31 @@ pub fn files_of(op: &Op, reached: crate::shell::Reached) -> Vec<FileUse> {
     }
 }
 
+/// Cut an expanded word into shell words, splitting ONLY inside `produced`.
+///
+/// ⚠ **Whitespace that was in the word all along does not split it.** It got
+/// there by being quoted — `'a b'` is one word in any shell — so cutting on it
+/// invents words the shell never ran. See [`expand_marking`] for what that cost
+/// (#1195).
+fn split_produced(expanded: &str, produced: &[(usize, usize)]) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    for (at, ch) in expanded.char_indices() {
+        let splittable = produced.iter().any(|(from, to)| at >= *from && at < *to);
+        if ch.is_whitespace() && splittable {
+            if !word.is_empty() {
+                words.push(std::mem::take(&mut word));
+            }
+        } else {
+            word.push(ch);
+        }
+    }
+    if !word.is_empty() {
+        words.push(word);
+    }
+    words
+}
+
 /// Every file the commands of one script used, resolved against `cwd`.
 ///
 /// `cwd` is the directory the `Bash` call ran in — the transcripts record it on
@@ -877,12 +902,9 @@ fn extract_nested(
             .iter()
             .enumerate()
             .flat_map(|(at, word)| {
-                let expanded = expand(word, &env);
+                let (expanded, produced) = expand_marking(word, &env);
                 match cmd.split.get(at) {
-                    Some(true) if expanded != *word => expanded
-                        .split_whitespace()
-                        .map(str::to_string)
-                        .collect::<Vec<_>>(),
+                    Some(true) if expanded != *word => split_produced(&expanded, &produced),
                     _ => vec![expanded],
                 }
             })
