@@ -124,12 +124,14 @@ in  { name = "memview"
         , name = "frontend deps match the lockfile"
         , cwd = "frontend"
         , argv = G.inDevShell [ "pnpm", "install", "--frozen-lockfile" ]
+        , env = G.nonInteractive
         , timeout_s = 900
         }
       , G.Check::{
         , name = "frontend lint"
         , cwd = "frontend"
         , argv = G.inDevShell [ "pnpm", "run", "lint" ]
+        , env = G.nonInteractive
         , timeout_s = 900
         }
       , {-  Prettier, which had a `format` script and a `format:check` script and
@@ -147,6 +149,7 @@ in  { name = "memview"
         , name = "frontend formatting"
         , cwd = "frontend"
         , argv = G.inDevShell [ "pnpm", "run", "format:check" ]
+        , env = G.nonInteractive
         , timeout_s = 900
         }
       , {-  The layout harnesses and the Playwright configs. `ng build` compiles
@@ -160,13 +163,14 @@ in  { name = "memview"
         , name = "frontend typecheck (e2e)"
         , cwd = "frontend"
         , argv = G.inDevShell [ "pnpm", "run", "typecheck" ]
+        , env = G.nonInteractive
         , timeout_s = 900
         }
       , G.Check::{
         , name = "frontend unit tests"
         , cwd = "frontend"
         , argv = G.inDevShell [ "pnpm", "test" ]
-        , env = G.oneAngularWorker
+        , env = G.oneAngularWorker # G.nonInteractive
         , timeout_s = 1800
         }
       , {-  A row of its own because it cannot be one of the above. The Angular
@@ -199,6 +203,7 @@ in  { name = "memview"
               "../../"
               [ "dist/memview-web/browser", "dist/console-build/browser" ]
               [ "pnpm", "run", "build" ]
+        , env = G.nonInteractive
         , timeout_s = 1800
         }
       , {-  Serves the freshly-built dist and asserts no overlap or overflow at
@@ -210,7 +215,7 @@ in  { name = "memview"
         , name = "frontend ui-check (phone-width layout harness)"
         , cwd = "frontend"
         , argv = G.inDevShell [ "pnpm", "run", "ui-check" ]
-        , env = G.oneAngularWorker
+        , env = G.oneAngularWorker # G.nonInteractive
         , timeout_s = 1800
         }
       , {-  The graph layout, measured rather than looked at. Every bug this view
