@@ -91,6 +91,12 @@ fn pattern(inner: &str) -> String {
 /// of the corpus's f-strings in the language bucket on the first run.** What
 /// was in there was `*=*`, `* *`, `Bearer *` — `print` format strings, whose
 /// literal characters are spaces and colons. A path shape has to be asked for.
+///
+/// ⚠ **This deliberately does NOT call `python::path_shaped`, which is the rule
+/// it sized.** Same argument as `python-calls::is_interpreter`: an instrument
+/// that asks the implementation's own question can never show a shape the
+/// implementation gets wrong. They agree today, and the buckets are printed with
+/// samples so a session can see when they stop agreeing.
 fn worth(pattern: &str) -> Worth {
     let literal: String = pattern.chars().filter(|c| *c != '*').collect();
     // A space or a tab says formatting, not a filename. So does a URL scheme,

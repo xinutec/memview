@@ -99,11 +99,57 @@ for p in files:
 #[test]
 fn a_computed_argument_names_nothing() {
     // The danger this guards: recording `/x.ts` as the file, when the file is
-    // whatever `root` was.
+    // whatever `root` was. It is the same danger for all three, and none of
+    // them may produce a use.
     assert!(uses("open(root + '/x.ts', 'w')").is_empty());
     assert!(uses("open(f'{root}/x.ts', 'w')").is_empty());
     assert!(uses("open('src/%s.ts' % name)").is_empty());
-    assert_eq!(read("open(f'{root}/x.ts', 'w')").unresolved["open"], 1);
+    // A concatenation and a `%` format say nothing about the shape.
+    assert_eq!(read("open(root + '/x.ts', 'w')").unresolved["open"], 1);
+    assert_eq!(read("open('src/%s.ts' % name)").unresolved["open"], 1);
+}
+
+/// ⚠ **An f-string is not a shrug, and calling it one lost the certain half.**
+/// `f'{root}/x.ts'` does not name a file, but it does say the file is called
+/// `x.ts` — a language, in `bounded`, never a use. Before this the whole thing
+/// went to `unresolved`, which reads as "nothing is known" (#1142).
+#[test]
+fn an_interpolated_f_string_is_a_language_not_a_shrug() {
+    let program = read("open(f'{root}/x.ts', 'w')");
+    assert!(program.uses.is_empty(), "no file may be claimed");
+    assert!(!program.unresolved.contains_key("open"));
+    assert_eq!(program.bounded["*/x.ts"], 1);
+}
+
+/// The locus half, which is the commoner one: 44.3% of the corpus's f-strings
+/// in a path argument write their directory out.
+#[test]
+fn an_f_string_with_a_literal_directory_is_located() {
+    let program = read("open(f'data/archive/{name}.stream')");
+    assert!(program.uses.is_empty(), "no file may be claimed");
+    assert_eq!(program.bounded["data/archive/*.stream"], 1);
+    assert_eq!(program.located["data/archive"], 1);
+}
+
+/// ⚠ **Most f-strings are not paths**, and a rule that files a log line as a
+/// bounded subject invents thousands. 94.3% of the corpus's are formatting.
+#[test]
+fn an_f_string_that_is_not_a_path_stays_unresolved() {
+    for source in [
+        "open(f'{k}={v}')",
+        "open(f'Bearer {token}')",
+        "open(f'{a} {b}')",
+        "open(f'http://{host}/api')",
+        "open(f'{d}/{n}')",
+    ] {
+        let program = read(source);
+        assert!(
+            program.bounded.is_empty(),
+            "{source} was filed as a bounded path: {:?}",
+            program.bounded
+        );
+        assert_eq!(program.unresolved["open"], 1, "{source}");
+    }
 }
 
 /// An f-string with no placeholder is an ordinary string.

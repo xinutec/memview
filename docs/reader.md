@@ -471,6 +471,41 @@ no new analysis: 531 of the 901 loops range over a **glob**, whose locus is
 certain even though its leaf is not, and 130 over a **literal list**, which is a
 bounded set. Both are machinery that already exists.
 
+### An interpolated f-string is a language (memview#1142)
+
+`text` returned `None` at the first `{`, and the comment there — "names a file
+whose name is not here" — is true of the hole and false of everything beside it.
+`f"data/{name}.stream"` is not unknowable: it is `data/*.stream`, the same
+object a `glob.glob` argument produces, with a certain locus and an uncertain
+leaf. So `shape` renders the literal text as a glob and `record` files it as
+`bounded`, never as a use.
+
+    one of a known set  3,308 → 3,499   (+191, and 1,548 → 1,636 located)
+    named none          2,946 → 2,755   (−191)
+    named a file       22,154 → 22,154
+
+Conserved to the unit, and the middle column is the point: no operation gained a
+path, 191 gained a *language*. `open` accounts for 141 of them, `glob.glob` 20,
+`Image.open` 16.
+
+⚠ **Most f-strings are not paths, and this is the rule's whole risk.** 94.3% of
+the corpus's 7,826 interpolated f-strings are `print` formatting — `*=*`,
+`Bearer *`, `#* [*] *` — and filing those as bounded subjects would invent
+thousands. `path_shaped` refuses whitespace, a `://` scheme, a literal that is
+nothing but separators, and anything with neither a literal directory nor a
+literal extension.
+
+⚠ **Sizing it against every f-string would have priced the rule at 2.6%.** The
+population is f-strings *in a file operation's path argument*, where the
+distribution inverts: 44.3% carry a literal directory, 33.9% a certain filename.
+`--example fstring-shapes` is the instrument, and it deliberately does not call
+`path_shaped` — an instrument that asks the implementation's own question cannot
+show the implementation being wrong.
+
+⚠ **`text` is unchanged and must stay so.** It serves every string literal, not
+only paths; returning a pattern from it would change every caller. The shape is
+tried only where a `Value` is being built, and reaches `record` as `Pattern`.
+
 ## The JavaScript inside it
 
 The third language, added 2026-08-22, and it is `python.rs` with the nouns

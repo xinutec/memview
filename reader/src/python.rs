@@ -604,7 +604,12 @@ fn single_argument(call: &Pair<Rule>) -> Option<Value> {
     let mut parts = expr.into_inner();
     let head = parts.next()?;
     match (head.as_rule(), parts.next()) {
-        (Rule::string, None) => text(head.as_str()).map(Value::Text),
+        (Rule::string, None) => Some(
+            text(head.as_str())
+                .map(Value::Text)
+                .or_else(|| shape(head.as_str()).map(Value::Pattern))
+                .unwrap_or(Value::Unknown),
+        ),
         _ => Some(Value::Unknown),
     }
 }
@@ -643,6 +648,99 @@ fn text(raw: &str) -> Option<String> {
         }
     }
     Some(out)
+}
+
+/// What an f-string still says about the path, as a glob.
+///
+/// ⚠ **[`text`] returns `None` here and that is right for a literal** — the
+/// name is genuinely not in the text. What is wrong is throwing away everything
+/// AROUND the hole: `f"data/{name}.stream"` is not unknowable, it is
+/// `data/*.stream`, a language with a locus, the same object a `glob.glob`
+/// argument produces. Measured 2026-08-26 (`--example fstring-shapes`): of 289
+/// interpolated f-strings in a file operation's path argument, 44.3% carry a
+/// literal directory and 33.9% a certain filename.
+///
+/// ⚠ **Refuses everything that is not path-shaped, and most f-strings are
+/// not.** 94.3% of the corpus's are `print` formatting — `*=*`, `Bearer *`,
+/// `#* [*] *` — and a rule that files those as bounded paths would invent
+/// thousands of subjects. So a space, a URL scheme, or a literal that is
+/// nothing but separators is refused, which is the direction that claims less.
+fn shape(raw: &str) -> Option<String> {
+    let quote_at = raw.find(['\'', '"'])?;
+    let prefix = raw[..quote_at].to_ascii_lowercase();
+    if !prefix.contains('f') {
+        return None;
+    }
+    let body = &raw[quote_at..];
+    let quote = body.chars().next()?;
+    let fence = if body.starts_with(&quote.to_string().repeat(3)) {
+        3
+    } else {
+        1
+    };
+    let inner = body.get(fence..body.len().saturating_sub(fence))?;
+    let literal = prefix.contains('r');
+    let mut out = String::with_capacity(inner.len());
+    let mut chars = inner.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' if !literal => match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('t') => out.push('\t'),
+                Some(other) => out.push(other),
+                None => {}
+            },
+            '{' if chars.peek() == Some(&'{') => {
+                chars.next();
+                out.push('{');
+            }
+            // The hole. A format spec ends at the same `}` and is just as
+            // unknown, so neither is followed. Adjacent holes are one run.
+            '{' => {
+                for c in chars.by_ref() {
+                    if c == '}' {
+                        break;
+                    }
+                }
+                if !out.ends_with('*') {
+                    out.push('*');
+                }
+            }
+            c => out.push(c),
+        }
+    }
+    path_shaped(&out).then_some(out)
+}
+
+/// Whether a rendered shape could be a path at all.
+///
+/// Each refusal is a population the census named, and every one of them is
+/// bigger than the thing being gained.
+fn path_shaped(pattern: &str) -> bool {
+    if !pattern.contains('*') {
+        return false;
+    }
+    let literal: String = pattern.chars().filter(|c| *c != '*').collect();
+    // Whitespace says a sentence; a scheme says a URL, which is a subject but
+    // not a file on this machine.
+    if literal.trim().is_empty() || literal.contains([' ', '\t', '\n']) || pattern.contains("://") {
+        return false;
+    }
+    // `*/*` and `*.` name neither a directory nor a file.
+    if literal.chars().all(|c| c == '/' || c == '.') {
+        return false;
+    }
+    // Something must be certain: a directory before the first hole, or an
+    // extension after the last one.
+    let located = pattern
+        .split('*')
+        .next()
+        .is_some_and(|head| head.contains('/'));
+    let extension = pattern
+        .rsplit('*')
+        .next()
+        .is_some_and(|tail| tail.starts_with('.') && tail.len() > 1 && !tail.contains('/'));
+    located || extension || literal.contains('/')
 }
 
 // ---- reading ----
@@ -1206,7 +1304,10 @@ impl Reader {
             return Value::Unknown;
         };
         let mut value = match head.as_rule() {
-            Rule::string => text(head.as_str()).map_or(Value::Unknown, Value::Text),
+            Rule::string => text(head.as_str())
+                .map(Value::Text)
+                .or_else(|| shape(head.as_str()).map(Value::Pattern))
+                .unwrap_or(Value::Unknown),
             // `(Path('src') / 'x.ts')` — brackets round one thing are that
             // thing, and pathlib's join is written that way as often as not.
             Rule::paren => match self.arguments(&head).as_slice() {
