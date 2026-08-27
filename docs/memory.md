@@ -108,13 +108,20 @@ inert to it, so asked to make room it will evict precisely the consolidated
 entries — the ones whose value is that they fire in situations *other than the
 current one*. The judgement has to be made from evidence no single session holds.
 
-**What separates the two is breadth, not volume.** A memory read forty times by
-one session on one afternoon is topical: it belongs one hop away, linked from its
-hub, where that session will find it again. A memory read a few times each by
-many different sessions in many different projects is general, and general is the
-whole qualification for a root slot. That is also how consolidation works in the
-analogy we are borrowing — repeated retrieval in *varied* contexts, not repetition
-in one.
+**Consolidation needs volume AND breadth, and breadth is the half that gets
+forgotten.** How often a memory is consulted is real evidence and must count —
+something read constantly is doing work. But volume alone cannot separate the two
+populations: forty reads by one session on one afternoon is a topic being worked,
+not a rule that has consolidated. Spread across many sessions and many subjects
+is what says "this fires in situations other than the one that wrote it", which
+is the qualification for a root slot. That is also how consolidation works in the
+analogy we are borrowing — repeated retrieval in *varied* contexts, not
+repetition in one.
+
+⚠ **So neither factor is sufficient alone, and they fail in opposite
+directions.** Volume alone promotes whatever is being worked on this week.
+Breadth alone punishes deep focus — a month spent on one subject produces
+memories read by one session that are nonetheless exactly the working set.
 
 So the two tiers want two different rules, and only one of them is a cut:
 
@@ -122,9 +129,10 @@ So the two tiers want two different rules, and only one of them is a cut:
     default. If a session keeps writing entries, let it; the tier is supposed to
     turn over. What must not happen is a lease quietly becoming tenure because
     nobody looked.
-  * **Consolidated entries hold tenure, and tenure is earned by breadth over
-    time** — distinct sessions, distinct projects, distinct days, over a long
-    interval. Not "opened a lot".
+  * **Consolidated entries hold tenure, earned by being consulted often AND
+    widely** — distinct sessions, distinct projects, distinct days, over a long
+    interval. Volume says it is doing work; breadth says the work is not one
+    topic's.
   * **Evict from the lease tier by age. Never evict from the tenure tier on one
     session's opinion** — that is the failure mode above, and it is the one that
     stranded 24 memories on 2026-08-07.
