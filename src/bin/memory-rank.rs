@@ -104,6 +104,39 @@ fn main() -> Result<()> {
             )
         })?)?;
 
+    // ⚠ **Refuse rather than rank on a mine that has not seen the corpus.**
+    // Every figure below is anchored to `generated`, so a stale artefact does
+    // not merely omit recent memories — it moves the day that every age is
+    // measured from, silently. On 2026-08-27 that produced breadth figures for
+    // memories written after the mine and very nearly a demotion argument built
+    // on them; the artefact had carried a `generated` field the whole time and
+    // nothing made a reader look at it (#1210).
+    //
+    // The memory directory is the input that matters here: a memory written
+    // after the mine is one this cannot have ranked. Transcripts are excluded
+    // deliberately — they change constantly and would make this refuse always,
+    // which trains people to pass the override. See `agents::freshness`.
+    let freshness = mined.freshness(
+        &[std::path::Path::new(&memory_dir)],
+        std::env::var("CLAUDE_CODE_SESSION_ID").ok().as_deref(),
+    );
+    if freshness.is_stale() && !args.iter().any(|a| a == "--stale-ok") {
+        eprintln!(
+            "agents.json was mined {} and {} memories have changed since:",
+            freshness.generated,
+            freshness.unseen.len()
+        );
+        for path in freshness.unseen.iter().take(5) {
+            eprintln!("    {path}");
+        }
+        eprintln!(
+            "\nranking them would measure days from the mine, not from now.\n\
+             re-mine:  cargo run --release --bin agents\n\
+             or pass --stale-ok to rank anyway, knowing the figures lean old."
+        );
+        std::process::exit(2);
+    }
+
     // The artefact's own stamp, not the wall clock, so the report is a property
     // of the mine and re-reading it never changes what it says.
     let today = day_number(&mined.generated).unwrap_or(0);

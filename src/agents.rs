@@ -330,7 +330,99 @@ pub struct Agents {
     pub agents: Vec<Agent>,
 }
 
+/// What a mined artefact has NOT seen.
+///
+/// ⚠ **A `generated` field nobody consults is not a safeguard.** `agents.json`
+/// has carried one all along; it still produced three wrong analyses, the third
+/// of them a demotion argument built on breadth figures for memories written
+/// after the mine (#1210). The stamp has to be turned into a refusal at the
+/// point a number is used, or it is decoration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Freshness {
+    /// The artefact's own stamp.
+    pub generated: String,
+    /// Inputs modified after it, newest first. Empty means the artefact has
+    /// seen everything.
+    pub unseen: Vec<String>,
+}
+
+impl Freshness {
+    pub fn is_stale(&self) -> bool {
+        !self.unseen.is_empty()
+    }
+}
+
+/// Which of `roots`' files postdate `generated`.
+///
+/// ⚠ **The running session's own transcript is excluded, and without that this
+/// check refuses ALWAYS.** Claude Code appends to it continuously, so it is
+/// newer than any artefact by construction — a guard that always fires teaches
+/// people to pass `--stale-ok`, which is worse than no guard. Pass the live
+/// session id; everything else counts.
+///
+/// ⚠ **mtime, not content.** A file rewritten with identical bytes reads as
+/// unseen. That errs toward refusing, which is the safe direction here: the
+/// cost is re-mining, and the cost of the other error is a demotion argued from
+/// numbers that never saw the memory it is about.
+pub fn freshness(generated: &str, roots: &[&Path], live_session: Option<&str>) -> Freshness {
+    let mut unseen: Vec<(std::time::SystemTime, String)> = Vec::new();
+    let cutoff = crate::agents::iso_to_system_time(generated);
+    for root in roots {
+        let mut stack = vec![root.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let Ok(meta) = entry.metadata() else { continue };
+                if meta.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                // The live session writes as this runs; see above.
+                if let Some(live) = live_session
+                    && path.to_string_lossy().contains(live)
+                {
+                    continue;
+                }
+                let Ok(modified) = meta.modified() else {
+                    continue;
+                };
+                if cutoff.is_none_or(|cutoff| modified > cutoff) {
+                    unseen.push((modified, path.to_string_lossy().into_owned()));
+                }
+            }
+        }
+    }
+    unseen.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
+    Freshness {
+        generated: generated.to_string(),
+        unseen: unseen.into_iter().map(|(_, path)| path).collect(),
+    }
+}
+
+/// An ISO-8601 stamp as a system time, or `None` when it will not parse — which
+/// is treated as "seen nothing", so an artefact with a broken stamp refuses
+/// rather than being believed.
+fn iso_to_system_time(iso: &str) -> Option<std::time::SystemTime> {
+    let date = iso.get(..10)?;
+    let time = iso.get(11..19).unwrap_or("00:00:00");
+    let day = day_number(date)?;
+    let mut parts = time.split(':');
+    let hour: u64 = parts.next()?.parse().ok()?;
+    let minute: u64 = parts.next()?.parse().ok()?;
+    let second: u64 = parts.next().unwrap_or("0").parse().ok()?;
+    let seconds = day as u64 * 86_400 + hour * 3_600 + minute * 60 + second;
+    Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds))
+}
+
 impl Agents {
+    /// What this mine has not seen. See [`freshness`].
+    pub fn freshness(&self, roots: &[&Path], live_session: Option<&str>) -> Freshness {
+        freshness(&self.generated, roots, live_session)
+    }
+
     pub fn load(path: &Path) -> Option<Self> {
         serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
     }
