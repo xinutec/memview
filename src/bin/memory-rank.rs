@@ -68,6 +68,16 @@ struct Standing {
     /// and a memory nobody reads but somebody keeps correct is an archive entry
     /// in good standing rather than a candidate.
     edit: f64,
+    /// Opens the miner could not prove happened — a shell read after `&&`, or
+    /// inside a script with one exit status.
+    ///
+    /// ⚠ **Shown, never scored.** Counting these as opens overstates the record,
+    /// which is why `MemoryUse` keeps them apart; scoring them at a discount
+    /// would invent a factor, which `docs/memory.md` warns against. This list is
+    /// advisory, so the honest move is to put the evidence in front of whoever
+    /// decides. Measured 2026-08-27: 6 memories corpus-wide have no proven open
+    /// and some unproven one, 2 of them indexed (#1214).
+    maybe_reads: usize,
     /// Days since it was last opened at all, or `None` if never.
     last_open: Option<i64>,
     /// Whether `MEMORY.md` links it directly.
@@ -160,12 +170,19 @@ fn main() -> Result<()> {
         .keys()
         .map(|name| {
             let days = memory_days.get(name);
+            let maybe_reads = mined
+                .agents
+                .iter()
+                .filter_map(|agent| agent.memories.get(name))
+                .map(|use_| use_.maybe_reads)
+                .sum();
             let reads = days.map(|d| d.reads.clone()).unwrap_or_default();
             let edits = days.map(|d| d.edits.clone()).unwrap_or_default();
             Standing {
                 read: weighted(reads.iter().copied(), today, half_life),
                 read_halved: weighted(reads.iter().copied(), today, half_life / 2.0),
                 edit: weighted(edits.iter().copied(), today, half_life),
+                maybe_reads,
                 last_open: reads.iter().max().map(|d| today - d),
                 indexed: listed.contains(name),
                 entry_cost: index_entry_cost(&index, name),
@@ -249,8 +266,8 @@ fn report(
 
     println!("DEMOTION CANDIDATES — indexed, least consulted, and already at home elsewhere");
     println!(
-        "  {:<58} {:>7} {:>7} {:>6} {:>5}  home",
-        "memory", "opens", "halved", "edits", "bytes"
+        "  {:<58} {:>7} {:>7} {:>6} {:>5} {:>6}  home",
+        "memory", "opens", "halved", "edits", "bytes", "maybe"
     );
     let picked: Vec<&Standing> = standings
         .iter()
@@ -277,12 +294,13 @@ fn report(
         }
         let home = s.homes.first().map(String::as_str).unwrap_or("—");
         println!(
-            "  {:<58} {:>7.2} {:>7.2} {:>6.2} {:>5}  {home}{}",
+            "  {:<58} {:>7.2} {:>7.2} {:>6.2} {:>5} {:>6}  {home}{}",
             s.name,
             s.read,
             s.read_halved,
             s.edit,
             s.entry_cost,
+            s.maybe_reads,
             if safe { "" } else { "   ⚠ STRANDS" }
         );
     }
