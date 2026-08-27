@@ -28,6 +28,16 @@ struct FrontmatterMeta {
     /// it. Camel-case on disk, so it is renamed rather than relied on.
     #[serde(rename = "originSessionId")]
     origin_session: Option<String>,
+    /// When the memory itself says it last changed.
+    ///
+    /// ⚠ **Not the file's mtime, which is what this used and which is wrong by
+    /// a median of 9.9 days.** mtime records a touch; measured over the whole
+    /// corpus on 2026-08-27, only 129 of 647 files agreed with their own stamp
+    /// within an hour, the worst was 34 days out, and 11 had an mtime EARLIER
+    /// than the stamp. `memory-lint` makes an absent stamp an error and
+    /// `memory-stamp` exists to maintain it, so it is the corpus's own record
+    /// and the viewer had no business preferring the filesystem's (#1219).
+    modified: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -136,11 +146,22 @@ impl Corpus {
             // An empty value is absent: an origin that resolves to nothing is
             // worse than none, because it renders as an agent that never was.
             let origin_session = meta.origin_session.filter(|s| !s.trim().is_empty());
-            let modified = entry
-                .metadata()
-                .ok()
-                .and_then(|m| m.modified().ok())
-                .map(DateTime::<Utc>::from);
+            // ⚠ **The stamp the memory keeps, falling back to mtime only when
+            // it has none** — which `memory-lint` reports as an error, so the
+            // fallback is a stopgap for a corpus mid-repair, not a second
+            // opinion. See `FrontmatterMeta::modified`.
+            let modified = meta
+                .modified
+                .as_deref()
+                .and_then(|stamp| DateTime::parse_from_rfc3339(stamp).ok())
+                .map(|stamp| stamp.with_timezone(&Utc))
+                .or_else(|| {
+                    entry
+                        .metadata()
+                        .ok()
+                        .and_then(|m| m.modified().ok())
+                        .map(DateTime::<Utc>::from)
+                });
             // Canonical id is the filename stem; frontmatter `name` normally
             // agrees and is not trusted to (a mismatch shouldn't hide a file).
             docs.insert(

@@ -532,3 +532,41 @@ fn a_memory_with_its_own_index_line_survives_its_only_inbound_link_being_demoted
     let reached = reaches_without(&["project_alpha", "reference_beta"]);
     assert!(reached.contains("feedback_gamma"), "{reached:?}");
 }
+
+/// ⚠ **The viewer's "updated" is the memory's own stamp, not the file's mtime.**
+/// mtime records a touch: measured over the whole corpus 2026-08-27, only 129 of
+/// 647 files agreed with their stamp within an hour, the median gap was 9.9 days
+/// and the worst 34 (#1219). `memory-lint` enforces the stamp; the viewer had no
+/// business preferring the filesystem.
+#[test]
+fn the_viewer_dates_a_memory_by_its_own_stamp() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("feedback_example.md"),
+        "---\nname: feedback_example\ndescription: \"d\"\nmetadata:\n  type: feedback\n  modified: 2026-08-10T09:00:00.000Z\n---\n\nbody\n",
+    )
+    .unwrap();
+    let corpus = memview::store::Corpus::load(dir.path().to_str().unwrap()).expect("corpus");
+    let doc = corpus.docs.get("feedback_example").expect("doc");
+    let modified = doc.meta.modified.expect("a date");
+    assert_eq!(
+        modified.format("%Y-%m-%d").to_string(),
+        "2026-08-10",
+        "the file was written just now; its stamp says 2026-08-10"
+    );
+}
+
+/// A memory with no stamp still gets a date — `memory-lint` errors on the
+/// absence, so this is a stopgap for a corpus mid-repair, not a second opinion.
+#[test]
+fn a_memory_with_no_stamp_falls_back_rather_than_showing_nothing() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("feedback_unstamped.md"),
+        "---\nname: feedback_unstamped\ndescription: \"d\"\nmetadata:\n  type: feedback\n---\n\nbody\n",
+    )
+    .unwrap();
+    let corpus = memview::store::Corpus::load(dir.path().to_str().unwrap()).expect("corpus");
+    let doc = corpus.docs.get("feedback_unstamped").expect("doc");
+    assert!(doc.meta.modified.is_some(), "mtime is the fallback");
+}
