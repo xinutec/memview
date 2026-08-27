@@ -374,12 +374,41 @@ enum Line {
         #[serde(default)]
         content: Content,
     },
+    /// A message the CLI parked and has now handed to the running turn.
+    ///
+    /// ⚠ **This is the ONLY record of a message sent to a busy session.** The
+    /// CLI writes no `user` line for one — the text arrives here and nowhere
+    /// else. Without this variant an `attachment` fell to [`Line::Other`] and
+    /// produced nothing, so a replayed transcript had no trace of the message at
+    /// all: it showed while the console held it live, then vanished the moment
+    /// anything re-seeded from disk. Reported 2026-08-27, three messages, and
+    /// the console was reporting the record faithfully — the record was blind.
+    ///
+    /// ⚠ **Only `queued_command`.** The corpus holds 54,566 `task_reminder`
+    /// attachments against 21,349 of these; treating every attachment as
+    /// something a person said would bury the conversation in machinery.
+    Attachment {
+        attachment: Attached,
+    },
     RateLimitEvent {
         rate_limit_info: Limit,
     },
     ControlRequest {
         request_id: String,
         request: Control,
+    },
+    #[serde(other)]
+    Other,
+}
+
+/// What an `attachment` line carries. Only the one kind that is a person
+/// speaking is modelled; the rest are machinery.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum Attached {
+    QueuedCommand {
+        #[serde(default)]
+        prompt: Content,
     },
     #[serde(other)]
     Other,
@@ -896,6 +925,13 @@ pub fn read(line: &str) -> Vec<Event> {
         // appears on screen when it is sent rather than only when the
         // conversation is next opened.
         Line::User { message } => from_user(message.content),
+        // The delivery of a message sent while the session was working. Read as
+        // the prompt it is, so the echo that clears "waiting to be read" arrives
+        // and a replay shows the message at all.
+        Line::Attachment {
+            attachment: Attached::QueuedCommand { prompt },
+        } => from_user(prompt),
+        Line::Attachment { .. } => Vec::new(),
         Line::Result(turn) => vec![Event::Turn {
             // Whichever model answered; there is one entry in practice, and the
             // largest is the honest answer if a turn ever spanned two.
@@ -1530,6 +1566,14 @@ pub fn read_recorded(line: &str) -> Vec<Event> {
                 .collect()
         }
         Line::User { message } => from_user(message.content),
+        // ⚠ **The replay path needs this more than the live one does.** Live,
+        // the console has its own `Accepted` event and shows the message while
+        // it waits. A re-seed has only the transcript — where a message sent to
+        // a busy session exists ONLY as this attachment — so without this arm the
+        // message vanished off the screen the moment anything rebuilt from disk.
+        Line::Attachment {
+            attachment: Attached::QueuedCommand { prompt },
+        } => from_user(prompt),
         // Only what has just been handed over, and only if it is a notification.
         // `remove` is the same message going the other way — reading it too would
         // be the same finish twice, and `enqueue` is the one that happens when

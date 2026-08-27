@@ -1055,3 +1055,49 @@ fn what_is_not_a_control_response_is_not_a_mode() {
     let asked = console::protocol::set_mode("set-mode-6f7c2f11", "plan");
     assert_eq!(console::protocol::mode_reply(&asked), None);
 }
+
+/// ⚠ **A message sent to a BUSY session exists only as a `queued_command`
+/// attachment** — the CLI writes no `user` line for it. Reported 2026-08-27:
+/// three messages showed as waiting and then vanished, because a re-seed reads
+/// the transcript and the transcript's only record of them produced no event.
+#[test]
+fn a_message_delivered_to_a_busy_session_is_a_prompt() {
+    const LINE: &str = r#"{"type":"attachment","attachment":{"type":"queued_command","commandMode":"prompt","prompt":[{"type":"text","text":"When formatting that is"}]}}"#;
+    let spoken: Vec<String> = console::protocol::read(LINE)
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::Prompt { text } => Some(text),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(spoken, ["When formatting that is"]);
+    // The replay path is the one a re-seed uses, and it is where this was blind.
+    let replayed: Vec<String> = console::protocol::read_recorded(LINE)
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::Prompt { text } => Some(text),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(replayed, ["When formatting that is"]);
+}
+
+/// ⚠ **Only `queued_command`.** 54,566 `task_reminder` attachments in the corpus
+/// against 21,349 queued messages — reading every attachment as speech would
+/// bury the conversation in machinery.
+#[test]
+fn other_attachments_are_not_things_a_person_said() {
+    for kind in ["task_reminder", "hook_success", "edited_text_file", "file"] {
+        let line = format!(
+            r#"{{"type":"attachment","attachment":{{"type":"{kind}","prompt":[{{"type":"text","text":"noise"}}]}}}}"#
+        );
+        assert!(
+            console::protocol::read(&line).is_empty(),
+            "{kind} produced events"
+        );
+        assert!(
+            console::protocol::read_recorded(&line).is_empty(),
+            "{kind} produced events on replay"
+        );
+    }
+}
