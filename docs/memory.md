@@ -155,11 +155,14 @@ usually that it was live on about one day, ever.
 Three blind spots are documented in the tool itself and bound anything built on
 top of it:
 
-  * **Shell reads are invisible.** The miner attributes shell paths only under
-    the code root, and the corpus lives outside it, so `rg`/`sed`/`cat` over the
-    memory directory counts for nothing. Every figure is a floor, and it *leans*:
-    whoever reads memories through the shell looks idle. Sessions that read in
-    bulk are exactly the ones most undercounted.
+  * **Unprovable shell reads are discarded.** Shell reads themselves ARE
+    counted — `d39d227` gave the shell site its own arm on 2026-08-14 and reads
+    rose 137% — and this document said otherwise until 2026-08-27, having
+    inherited the claim from `memory-rank`'s docstring after it had already been
+    fixed in code. What is still dropped is `maybe_reads`: a read whose success
+    cannot be established, which the ranking collects and never consults
+    (memview#1214). So the figures remain a floor, and the floor still leans
+    toward whoever reads in bulk — for a narrower reason than was written here.
   * **The teaser paradox.** For the entries that work best the index line IS the
     memory — a reader acts on "no CoA" and never opens the file. Opens therefore
     under-measure the best-compressed behavioural rules, which is why `feedback`

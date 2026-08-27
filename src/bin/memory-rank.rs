@@ -24,11 +24,17 @@
 //! and the index itself is injected every session, so every name in it appears
 //! constantly whether or not anybody looked.
 //!
-//! ⚠ **A memory opened through the shell is invisible here.** The miner
-//! attributes shell paths only under the code root, and the corpus is outside
-//! it, so a `grep` or `sed` over `memory/` counts for nothing. Every figure below
-//! is therefore a floor, and it is a floor that leans: whoever reads memories
-//! with `rg` rather than `Read` looks idle.
+//! ⚠ **A shell read IS counted — and this said the opposite for two weeks.**
+//! `d39d227` (2026-08-14) gave the shell site its own `memory_of` arm and reads
+//! went 2,646 → 6,259, +137%. The claim that used to stand here outlived it and
+//! was believed: #1214 was filed on a wrong premise taken from this very
+//! paragraph, which is what a stale docstring costs.
+//!
+//! ⚠ **What IS discarded is `maybe_reads`.** A shell read whose success cannot
+//! be established — after `&&`, or inside a script with one exit status — is
+//! collected under that name and never consulted by the ranking, so a memory
+//! whose only evidence is unprovable access still reads as never opened
+//! (#1214).
 //!
 //! ## The two hazards it prints rather than hides
 //!

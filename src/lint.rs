@@ -96,13 +96,16 @@ const RULES: &[(&str, Severity, &str)] = &[
         // frontmatter is not a modification of what the memory says.
         //
         // ⚠ **Presence is not accuracy, and this rule only checks presence.**
-        // Measured the same day: `modified` is never EARLIER than mtime but is
-        // later than it on 115 files, i.e. a third of the stamps that already
-        // existed were stale — the stamp is maintained by the memory-writing
-        // path and goes silently wrong whenever a file is edited by any other
-        // route. A freshness rule wants mtime, which is a property of the
-        // filesystem rather than the corpus, so it would misfire on any synced
-        // or restored copy. That check belongs beside this one, as a warning.
+        // The stamp is maintained by the memory-writing path and goes silently
+        // wrong whenever a file is edited by any other route.
+        //
+        // ⚠ **"`modified` is never EARLIER than mtime" was measured on
+        // 2026-08-14 and is no longer true — 11 files break it (#1219).** The
+        // rest of that measurement got worse rather than better: across the
+        // whole corpus on 2026-08-27, only 129 of 647 files agreed with their
+        // own stamp within an hour, the median gap was 9.9 days and the worst
+        // 34. A freshness rule built on mtime would misfire on any synced or
+        // restored copy — and on a plain touch, which is most of them.
         //
         // ⚠ **The message names a repair tool; do NOT let that become an
         // auto-fix.** `memory-stamp` must stay a thing a person runs, because
@@ -916,10 +919,15 @@ pub fn check_world(corpus: &Corpus, code_root: &std::path::Path) -> Vec<Finding>
 /// matched with their colon, so `type:` does not also match `node_type:`.
 ///
 /// ⚠ **Deliberately reads `raw` rather than the parsed [`crate::store::MemoryMeta`].**
-/// That struct's `modified` is populated from the file's mtime (`store.rs`), so
-/// it is `Some` for every memory that exists and a check against it can never
-/// fire — which is exactly how `missing-modified` was first written, and it
-/// passed a corpus with 190 missing stamps. `mtype` has the same hazard from
+/// That struct's `modified` is `Some` for every memory that exists, so a check
+/// against it can never fire — which is exactly how `missing-modified` was first
+/// written, and it passed a corpus with 190 missing stamps.
+///
+/// ⚠ **The reason changed on 2026-08-27 and the conclusion did not.** Until
+/// `0c5b940` it was always `Some` because it came from the file's mtime; now it
+/// prefers the frontmatter stamp and falls back to mtime, so it is still always
+/// `Some` and this rule must still read `raw`. A note that survives the change
+/// it describes is the dangerous kind. `mtype` has the same hazard from
 /// the other direction: it falls back to the filename prefix, so a memory
 /// declaring no type at all parses as a valid one. What the frontmatter *says*
 /// is the only thing that travels with the file, and it is what these rules are
