@@ -116,13 +116,15 @@ fn main() -> Result<()> {
     // after the mine is one this cannot have ranked. Transcripts are excluded
     // deliberately — they change constantly and would make this refuse always,
     // which trains people to pass the override. See `agents::freshness`.
+    let projects =
+        std::env::var("PROJECTS_DIR").unwrap_or_else(|_| format!("{home}/.claude/projects"));
     let freshness = mined.freshness(
-        &[std::path::Path::new(&memory_dir)],
+        &[std::path::Path::new(&projects)],
         std::env::var("CLAUDE_CODE_SESSION_ID").ok().as_deref(),
     );
     if freshness.is_stale() && !args.iter().any(|a| a == "--stale-ok") {
         eprintln!(
-            "agents.json was mined {} and {} memories have changed since:",
+            "agents.json was mined {} and {} memories were written since:",
             freshness.generated,
             freshness.unseen.len()
         );

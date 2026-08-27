@@ -352,21 +352,31 @@ impl Freshness {
     }
 }
 
-/// Which of `roots`' files postdate `generated`.
+/// Which memories were written after `generated`, from the history itself.
 ///
-/// ⚠ **The running session's own transcript is excluded, and without that this
-/// check refuses ALWAYS.** Claude Code appends to it continuously, so it is
-/// newer than any artefact by construction — a guard that always fires teaches
-/// people to pass `--stale-ok`, which is worse than no guard. Pass the live
-/// session id; everything else counts.
+/// ⚠ **The transcripts are the record, not the filesystem.** The first version
+/// of this compared file mtimes and was wrong in the way that matters: measured
+/// 2026-08-27, 55 memories had an mtime past the mine and **2 had actually
+/// changed** — mtime records a touch, and something had rewritten fifty-two
+/// files without altering a word. A guard raising 55 alarms for 2 events is the
+/// `--stale-ok` habit this exists to prevent. memview parses every session's
+/// history; asking the filesystem what happened is asking the wrong witness.
 ///
-/// ⚠ **mtime, not content.** A file rewritten with identical bytes reads as
-/// unseen. That errs toward refusing, which is the safe direction here: the
-/// cost is re-mining, and the cost of the other error is a demotion argued from
-/// numbers that never saw the memory it is about.
+/// ⚠ **The derived artefacts cannot answer this and it is circular to ask.**
+/// `memory-days.json` is mined by the same pass, so its latest edit day equals
+/// `generated` exactly — an artefact cannot report events it did not see. The
+/// check has to read the source.
+///
+/// ⚠ **Tail first, whole file only if the tail says so.** A transcript's last
+/// line carries its newest event, so one small read per session decides whether
+/// it is worth opening — the corpus is gigabytes and a guard nobody can afford
+/// to run is a guard nobody runs.
+///
+/// ⚠ **The running session is excluded, and without that this refuses ALWAYS.**
+/// Claude Code appends to its own transcript as this executes, so it postdates
+/// every artefact by construction.
 pub fn freshness(generated: &str, roots: &[&Path], live_session: Option<&str>) -> Freshness {
-    let mut unseen: Vec<(std::time::SystemTime, String)> = Vec::new();
-    let cutoff = crate::agents::iso_to_system_time(generated);
+    let mut unseen: Vec<(String, String)> = Vec::new();
     for root in roots {
         let mut stack = vec![root.to_path_buf()];
         while let Some(dir) = stack.pop() {
@@ -386,35 +396,151 @@ pub fn freshness(generated: &str, roots: &[&Path], live_session: Option<&str>) -
                 {
                     continue;
                 }
-                let Ok(modified) = meta.modified() else {
+                if !reader::transcript::is_transcript(&path) {
+                    continue;
+                }
+                // One tail read decides whether the whole file is worth opening.
+                let Some(newest) = newest_event(&path) else {
                     continue;
                 };
-                if cutoff.is_none_or(|cutoff| modified > cutoff) {
-                    unseen.push((modified, path.to_string_lossy().into_owned()));
+                if newest.as_str() <= generated {
+                    continue;
+                }
+                for name in memories_written_after(&path, generated) {
+                    unseen.push((newest.clone(), name));
+                }
+                for name in shell_written_after(&path, generated) {
+                    unseen.push((newest.clone(), name));
                 }
             }
         }
     }
-    unseen.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
+    unseen.sort_by(|a, b| b.0.cmp(&a.0));
+    unseen.dedup_by(|a, b| a.1 == b.1);
     Freshness {
         generated: generated.to_string(),
         unseen: unseen.into_iter().map(|(_, path)| path).collect(),
     }
 }
 
-/// An ISO-8601 stamp as a system time, or `None` when it will not parse — which
-/// is treated as "seen nothing", so an artefact with a broken stamp refuses
-/// rather than being believed.
-fn iso_to_system_time(iso: &str) -> Option<std::time::SystemTime> {
-    let date = iso.get(..10)?;
-    let time = iso.get(11..19).unwrap_or("00:00:00");
-    let day = day_number(date)?;
-    let mut parts = time.split(':');
-    let hour: u64 = parts.next()?.parse().ok()?;
-    let minute: u64 = parts.next()?.parse().ok()?;
-    let second: u64 = parts.next().unwrap_or("0").parse().ok()?;
-    let seconds = day as u64 * 86_400 + hour * 3_600 + minute * 60 + second;
-    Some(std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds))
+/// The newest event timestamp in a transcript, from its tail.
+///
+/// ⚠ **The tail, not the whole file.** The corpus is gigabytes; reading all of
+/// it to answer "is there anything new" costs more than the question is worth.
+/// A transcript is append-mostly, so its last complete line carries its latest
+/// event even when earlier stretches have been rewritten
+/// (`reference_claude_transcript_rewrites_history`).
+fn newest_event(path: &Path) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    const TAIL: i64 = 64 * 1024;
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let from = len.saturating_sub(TAIL as u64);
+    file.seek(SeekFrom::Start(from)).ok()?;
+    let mut tail = String::new();
+    file.take(TAIL as u64 * 2).read_to_string(&mut tail).ok()?;
+    // Last wins: the newest event is the last one written.
+    tail.rmatch_indices("\"timestamp\":\"")
+        .find_map(|(at, marker)| {
+            let rest = &tail[at + marker.len()..];
+            rest.find('"').map(|end| rest[..end].to_string())
+        })
+}
+
+/// The memories a transcript records being written after `generated`.
+///
+/// Names, not paths — the caller reports memories, and a memory is its stem.
+fn memories_written_after(path: &Path, generated: &str) -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let mut found: Vec<String> = Vec::new();
+    for line in text.lines() {
+        // Cheap reject first: most lines mention no memory at all.
+        if !line.contains("/memory/") {
+            continue;
+        }
+        let Some(at) = line.find("\"timestamp\":\"") else {
+            continue;
+        };
+        let rest = &line[at + 13..];
+        let Some(end) = rest.find('"') else { continue };
+        if &rest[..end] <= generated {
+            continue;
+        }
+        // A write names its file; a read of the same path does not count, since
+        // reading a memory cannot change what a mine should have seen.
+        if !line.contains("\"Write\"") && !line.contains("\"Edit\"") {
+            continue;
+        }
+        // ⚠ **Anchored on the argument, never on a bare `/memory/`.** Prose in
+        // the transcript says things like "memory/preferences cannot fulfil
+        // them", and a substring match invented `preferences` as a memory.
+        for (start, marker) in line.match_indices("\"file_path\":\"") {
+            let rest = &line[start + marker.len()..];
+            let Some(end) = rest.find('"') else { continue };
+            let path = &rest[..end];
+            let Some(name) = path
+                .rsplit_once("/memory/")
+                .map(|(_, leaf)| leaf)
+                .and_then(|leaf| leaf.strip_suffix(".md"))
+            else {
+                continue;
+            };
+            if !name.contains('/') && !found.contains(&name.to_string()) {
+                found.push(name.to_string());
+            }
+        }
+    }
+    found
+}
+
+/// Memories a transcript records being written by a SHELL command.
+///
+/// ⚠ **A heredoc write is invisible to a tool-name check**, and it is not rare:
+/// `memory-stamp` exists because `cat > x.md <<'MD'` skips the stamping path
+/// entirely, and `memory-lint` errors on the missing `modified:` it leaves
+/// behind. Measured 2026-08-27, this is exactly how
+/// `feedback_a_degenerate_example_cannot_show_a_convention` was written — a real
+/// change the Write/Edit scan could not see, which is the unsafe direction for
+/// a staleness guard.
+///
+/// ⚠ **This is a redirect heuristic, not a reading.** memview parses shell
+/// properly — `reader::shell_files` knows which files a command writes — and
+/// routing this through it is the correct implementation. Until then a
+/// redirection naming a memory is the shape that covers the observed case, and
+/// over-reporting here only costs a re-mine.
+fn shell_written_after(path: &Path, generated: &str) -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let mut found: Vec<String> = Vec::new();
+    for line in text.lines() {
+        if !line.contains("\"name\":\"Bash\"") || !line.contains(".md") {
+            continue;
+        }
+        let Some(at) = line.find("\"timestamp\":\"") else {
+            continue;
+        };
+        let rest = &line[at + 13..];
+        let Some(end) = rest.find('"') else { continue };
+        if &rest[..end] <= generated {
+            continue;
+        }
+        for (start, _) in line.match_indices("> ") {
+            let leaf: String = line[start + 2..]
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '-' || *c == '.')
+                .collect();
+            if let Some(name) = leaf.strip_suffix(".md")
+                && !name.is_empty()
+                && !found.contains(&name.to_string())
+            {
+                found.push(name.to_string());
+            }
+        }
+    }
+    found
 }
 
 impl Agents {

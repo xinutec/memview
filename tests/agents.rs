@@ -1941,54 +1941,91 @@ fn a_corrupt_previous_file_fails_rather_than_being_overwritten() {
 
 /// ⚠ **A `generated` field nobody consults is decoration.** `agents.json` has
 /// carried one all along and still produced three wrong analyses (#1210); the
-/// third argued a demotion from breadth figures for memories written after the
-/// mine. These pin the refusal, not the stamp.
+/// fourth was a demotion argued from breadth figures for memories written after
+/// the mine. These pin the refusal.
+///
+/// ⚠ **The transcripts are the witness, not the filesystem.** The first version
+/// compared mtimes: 55 alarms for 2 real changes, because something had touched
+/// fifty-two files without altering a word.
+fn transcript(dir: &std::path::Path, name: &str, lines: &[&str]) -> std::path::PathBuf {
+    let path = dir.join(format!("{name}.jsonl"));
+    std::fs::write(&path, lines.join("\n")).unwrap();
+    path
+}
+
+fn wrote(stamp: &str, memory: &str) -> String {
+    format!(
+        r#"{{"timestamp":"{stamp}","message":{{"content":[{{"name":"Write","input":{{"file_path":"/home/example/.claude/projects/-x/memory/{memory}.md"}}}}]}}}}"#
+    )
+}
+
 #[test]
-fn a_mine_that_has_seen_everything_is_fresh() {
+fn a_mine_that_has_seen_every_write_is_fresh() {
     let dir = tempfile::tempdir().expect("tempdir");
-    std::fs::write(dir.path().join("a.md"), "old").unwrap();
-    // Far in the future, so every file under the root predates it.
-    let fresh = memview::agents::freshness("2099-01-01T00:00:00Z", &[dir.path()], None);
+    transcript(
+        dir.path(),
+        "s1",
+        &[&wrote("2026-08-01T10:00:00Z", "old_one")],
+    );
+    let fresh = memview::agents::freshness("2026-08-26T23:33:31Z", &[dir.path()], None);
     assert!(!fresh.is_stale(), "{:?}", fresh.unseen);
 }
 
 #[test]
 fn a_memory_written_after_the_mine_makes_it_stale_and_is_named() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let path = dir.path().join("written_later.md");
-    std::fs::write(&path, "new").unwrap();
-    let fresh = memview::agents::freshness("2000-01-01T00:00:00Z", &[dir.path()], None);
-    assert!(fresh.is_stale());
-    assert!(
-        fresh.unseen.iter().any(|p| p.ends_with("written_later.md")),
-        "the file that made it stale must be named: {:?}",
-        fresh.unseen
+    transcript(
+        dir.path(),
+        "s1",
+        &[
+            &wrote("2026-08-01T10:00:00Z", "before"),
+            &wrote("2026-08-27T09:52:56Z", "after"),
+        ],
     );
+    let fresh = memview::agents::freshness("2026-08-26T23:33:31Z", &[dir.path()], None);
+    assert!(fresh.is_stale());
+    assert_eq!(fresh.unseen, vec!["after".to_string()]);
+}
+
+/// ⚠ **A heredoc write is invisible to a tool-name check**, and that is how
+/// `feedback_a_degenerate_example_cannot_show_a_convention` was really written
+/// on 2026-08-27 — a change the Write/Edit scan could not see.
+#[test]
+fn a_heredoc_write_counts_too() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let line = r#"{"timestamp":"2026-08-27T12:35:49Z","message":{"content":[{"name":"Bash","input":{"command":"cat > written_by_heredoc.md <<'MD'"}}]}}"#;
+    transcript(dir.path(), "s1", &[line]);
+    let fresh = memview::agents::freshness("2026-08-26T23:33:31Z", &[dir.path()], None);
+    assert!(fresh.is_stale());
+    assert_eq!(fresh.unseen, vec!["written_by_heredoc".to_string()]);
+}
+
+/// ⚠ **Prose is not a path.** A transcript says things like "memory/preferences
+/// cannot fulfil them"; a bare `/memory/` substring match invented
+/// `preferences` as a memory. The tool argument is the anchor.
+#[test]
+fn prose_mentioning_memory_is_not_a_write() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let line = r#"{"timestamp":"2026-08-27T09:00:00Z","message":{"content":[{"text":"see memory/preferences cannot fulfill them"}]}}"#;
+    transcript(dir.path(), "s1", &[line]);
+    let fresh = memview::agents::freshness("2026-08-26T23:33:31Z", &[dir.path()], None);
+    assert!(!fresh.is_stale(), "{:?}", fresh.unseen);
 }
 
 /// ⚠ **Without this exclusion the check refuses ALWAYS.** Claude Code appends to
-/// the running session's transcript as the tool runs, so it is newer than any
+/// the running session's transcript as the tool runs, so it postdates every
 /// artefact by construction — and a guard that always fires trains people to
 /// pass the override, which is worse than no guard.
 #[test]
 fn the_running_sessions_own_transcript_does_not_make_the_mine_stale() {
     let dir = tempfile::tempdir().expect("tempdir");
-    std::fs::write(dir.path().join("session-abc123.jsonl"), "live").unwrap();
-    let live = memview::agents::freshness("2000-01-01T00:00:00Z", &[dir.path()], Some("abc123"));
+    transcript(
+        dir.path(),
+        "abc123",
+        &[&wrote("2026-08-27T10:00:00Z", "mine")],
+    );
+    let live = memview::agents::freshness("2026-08-26T23:33:31Z", &[dir.path()], Some("abc123"));
     assert!(!live.is_stale(), "{:?}", live.unseen);
-    // ...and it is only that session which is forgiven.
-    let other = memview::agents::freshness("2000-01-01T00:00:00Z", &[dir.path()], Some("zzz999"));
+    let other = memview::agents::freshness("2026-08-26T23:33:31Z", &[dir.path()], Some("zzz999"));
     assert!(other.is_stale());
-}
-
-/// A stamp that will not parse must refuse, never be believed: an artefact that
-/// cannot say when it was mined has not earned the benefit of the doubt.
-#[test]
-fn an_unparseable_stamp_refuses_rather_than_passing() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    std::fs::write(dir.path().join("a.md"), "x").unwrap();
-    for stamp in ["", "not-a-date", "2026"] {
-        let fresh = memview::agents::freshness(stamp, &[dir.path()], None);
-        assert!(fresh.is_stale(), "stamp {stamp:?} was believed");
-    }
 }
