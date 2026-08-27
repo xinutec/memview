@@ -334,12 +334,34 @@ async fn call(binary: &str, prompt: &str, named: &str) -> Option<String> {
         "gists: asking pid {} about {named}",
         child.id().unwrap_or(0)
     );
-    let mut stdin = child.stdin.take()?;
-    stdin.write_all(prompt.as_bytes()).await.ok()?;
-    stdin.flush().await.ok()?;
-    // Closed, because `-p` reads until end of file and would otherwise wait for
-    // the rest of a prompt that has already been sent in full.
-    drop(stdin);
+    // ⚠ **Every `?` here used to leak the child, and one of them did.** Handing
+    // the prompt over is three fallible steps, and returning early from any of
+    // them dropped `child` having never waited on it. `kill_on_drop` does not
+    // save that case: a child that has ALREADY exited cannot be killed, so the
+    // signal is a no-op and the `<defunct>` stays.
+    //
+    // ⚠ **This is not the shape #797 tested.** Both its cases model a child that
+    // outlives the timeout, and both reap. The real one died in 66 seconds
+    // against a 90-second `PATIENCE` — before the timeout could fire — and the
+    // gist that was eventually stored came from a later call seventeen minutes
+    // on, so this one returned nothing and was never waited for. Traced 2026-08-27
+    // from pid 93988, three days defunct under the console.
+    let sent = async {
+        let mut stdin = child.stdin.take()?;
+        stdin.write_all(prompt.as_bytes()).await.ok()?;
+        stdin.flush().await.ok()?;
+        // Closed, because `-p` reads until end of file and would otherwise wait
+        // for the rest of a prompt that has already been sent in full.
+        drop(stdin);
+        Some(())
+    }
+    .await;
+    if sent.is_none() {
+        // Reaped rather than leaked. The answer is lost either way; the process
+        // table entry need not be.
+        let _ = child.wait().await;
+        return None;
+    }
     let output = tokio::time::timeout(PATIENCE, child.wait_with_output())
         .await
         .ok()?

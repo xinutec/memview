@@ -231,3 +231,58 @@ fn the_recorder_finds_a_real_zombie_under_this_process() {
         "the start time must survive, unlike the command"
     );
 }
+
+/// The shape that actually leaked: a child that **exits before the prompt is
+/// written**, so the write fails and the function returns before any wait.
+///
+/// ⚠ **Neither existing case covers this.** Both model a child that OUTLIVES the
+/// timeout and is dropped mid-wait, and both reap. The real one — pid 93988,
+/// traced 2026-08-27 after three days defunct — died 66 seconds into a
+/// 90-second `PATIENCE`, so no timeout fired; the gist eventually stored came
+/// from a later call seventeen minutes on. `gist::ask` returned early on the
+/// failed write with `?` and dropped the child unwaited.
+///
+/// ⚠ **`kill_on_drop` does NOT cover it either**, which is why this is not a
+/// duplicate of the case above: killing a process that has already exited is a
+/// no-op, so the flag is set and the `<defunct>` stays.
+///
+/// ⚠ **This pins the SHAPE, and does not guard `gist::ask`.** The wait is
+/// performed here, so the test passes whether or not the fix is in place —
+/// reverting `gist.rs` does not fail it. `ask` spawns `claude`, which no unit
+/// test can do, so what actually watches that code is the deployed
+/// `console::zombies` sweep: it is what caught pid 93988 and named its spawn
+/// site, and it is what will catch the next one.
+#[tokio::test]
+async fn a_child_that_dies_before_the_write_is_still_reaped() {
+    let mut child = tokio::process::Command::new("true")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("true did not spawn");
+    let pid = child.id().expect("the child had no pid");
+
+    // Let it exit, so the write below has nobody to write to.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let sent = async {
+        let mut stdin = child.stdin.take()?;
+        tokio::io::AsyncWriteExt::write_all(&mut stdin, b"prompt")
+            .await
+            .ok()?;
+        tokio::io::AsyncWriteExt::flush(&mut stdin).await.ok()?;
+        Some(())
+    }
+    .await;
+
+    // What `gist::ask` now does on that path, and what it used to skip.
+    if sent.is_none() {
+        let _ = child.wait().await;
+    }
+
+    tokio::time::sleep(SETTLE).await;
+    assert!(
+        !is_a_zombie(pid),
+        "a child that exited before the write left {pid} unreaped"
+    );
+}
