@@ -134,3 +134,86 @@ fn another_sessions_damage_does_not_fail_this_run() {
 fn a_session_still_fails_on_its_own_transcript() {
     assert_eq!(fatal_damage(3, 1, Some("session-1")), 1);
 }
+
+// ── human_turns: one test per fact the crate now owns (memview#1215) ─────────
+
+fn turns(lines: &[&str]) -> Vec<reader::transcript::Turn> {
+    reader::transcript::human_turns(lines.join("\n").as_bytes())
+}
+
+/// Fact 5, and the one that caused the incident: a message typed while the
+/// session is working arrives as a `queued_command` attachment, never as a
+/// `user` row. Reading only `user` rows reported three of Pippijn's messages
+/// LOST on 2026-08-27 when they had been delivered normally.
+#[test]
+fn a_queued_message_is_a_human_turn() {
+    let got = turns(&[
+        r#"{"type":"attachment","uuid":"a","timestamp":"2026-08-27T15:52:24Z","attachment":{"type":"queued_command","timestamp":"2026-08-27T15:47:22Z","prompt":[{"type":"text","text":"When formatting that is"}]}}"#,
+    ]);
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].text, "When formatting that is");
+    assert!(got[0].queued);
+    // The ENQUEUE's stamp, not the row's — they differ by the wait.
+    assert_eq!(got[0].at, "2026-08-27T15:47:22Z");
+}
+
+/// Fact 1: the CLI rewrites earlier stretches into the same file, so a linear
+/// read sees the conversation twice. The first copy is the good one.
+#[test]
+fn a_rewritten_stretch_is_not_a_second_turn() {
+    let got = turns(&[
+        r#"{"type":"user","uuid":"a","timestamp":"t1","message":{"content":"first"}}"#,
+        r#"{"type":"user","uuid":"a","timestamp":"t2","message":{"content":"rewritten"}}"#,
+    ]);
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].text, "first");
+}
+
+/// Fact 2: a tool result wears `role: user` and is not something anybody typed.
+#[test]
+fn a_tool_result_is_not_a_human_turn() {
+    let got = turns(&[
+        r#"{"type":"user","uuid":"a","message":{"content":[{"type":"tool_result","content":"ok"}]}}"#,
+    ]);
+    assert!(got.is_empty(), "{got:?}");
+}
+
+/// Fact 3.
+#[test]
+fn a_meta_row_is_not_a_human_turn() {
+    let got =
+        turns(&[r#"{"type":"user","uuid":"a","isMeta":true,"message":{"content":"caveat"}}"#]);
+    assert!(got.is_empty(), "{got:?}");
+}
+
+/// Fact 4: injected blocks are the CLI talking, not the person.
+#[test]
+fn an_injected_reminder_is_not_what_the_person_typed() {
+    let got = turns(&[
+        r#"{"type":"user","uuid":"a","message":{"content":"go ahead<system-reminder>13 open tasks</system-reminder>"}}"#,
+    ]);
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].text, "go ahead");
+}
+
+/// ⚠ **A slash command IS what the person said**, so the wrapper comes off and
+/// the turn stays — dropping it would lose every `/compact` and `/loop`.
+#[test]
+fn a_slash_command_survives_its_wrapper() {
+    let got = turns(&[
+        r#"{"type":"user","uuid":"a","message":{"content":"<command-name>/compact</command-name><command-args></command-args>"}}"#,
+    ]);
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].text, "/compact");
+}
+
+/// A reminder that never closes takes the rest of the message with it rather
+/// than leaking machinery into what the person is quoted as saying.
+#[test]
+fn an_unclosed_reminder_does_not_leak() {
+    let got = turns(&[
+        r#"{"type":"user","uuid":"a","message":{"content":"real words<system-reminder>truncated..."}}"#,
+    ]);
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].text, "real words");
+}

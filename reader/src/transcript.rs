@@ -623,3 +623,157 @@ pub fn fatal_damage(damaged: usize, mine: usize, session: Option<&str>) -> usize
         Some(_) => mine,
     }
 }
+
+/// One thing a person typed into a conversation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Turn {
+    /// The row's `uuid`, which is what deduplicates a rewritten stretch.
+    pub uuid: String,
+    /// When the CLI recorded it, ISO-8601.
+    ///
+    /// ⚠ **For a queued turn this is when it was ENQUEUED, not delivered.** The
+    /// attachment repeats the enqueue's stamp inside itself while the row's own
+    /// stamp is when the running turn consumed it — and the gap between them is
+    /// real: 2026-08-27 saw five minutes. Taking the row's stamp would date a
+    /// message to when the model got round to it.
+    pub at: String,
+    /// What the person typed, with the wrappers the CLI adds taken off.
+    pub text: String,
+    /// Whether it was typed while the session was working, and so arrived as a
+    /// `queued_command` rather than a turn of its own.
+    pub queued: bool,
+}
+
+/// Every human turn in a conversation, in order.
+///
+/// ⚠ **Five facts, each of which has cost somebody an afternoon.** They are
+/// listed here because the crate owns them and callers kept re-deriving them
+/// (memview#1215):
+///
+/// 1. **Dedupe by `uuid`, keep the FIRST.** The CLI rewrites earlier stretches
+///    back into the same file, so a linear read returns the conversation twice
+///    and the later copy is the degraded one.
+/// 2. **A `tool_result` row carries `role: user`** and is not a human turn.
+/// 3. **`isMeta` rows** are not human turns.
+/// 4. **`<command-name>` wrappers and `<system-reminder>` blocks** are injected
+///    into user messages and are not what the person typed.
+/// 5. **A `queued_command` attachment IS a human turn.** A message typed while
+///    the session is working is queued and handed to the running turn; the text
+///    lives in an `attachment` row, never in a `user` one. 21,349 of them in the
+///    corpus on 2026-08-27 — and reading only `user` rows that day produced a
+///    confident report that three of Pippijn's messages had been LOST when they
+///    had been delivered normally.
+pub fn human_turns(bytes: &[u8]) -> Vec<Turn> {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for line in bytes.split(|b| *b == b'\n') {
+        let Ok(row) = serde_json::from_slice::<serde_json::Value>(line) else {
+            continue;
+        };
+        let uuid = row["uuid"].as_str().unwrap_or_default().to_string();
+        // Fact 1: the first copy wins.
+        if !uuid.is_empty() && !seen.insert(uuid.clone()) {
+            continue;
+        }
+        let turn = match row["type"].as_str() {
+            Some("user") => typed_turn(&row, uuid),
+            Some("attachment") => queued_turn(&row, uuid),
+            _ => None,
+        };
+        if let Some(turn) = turn.filter(|turn| !turn.text.is_empty()) {
+            out.push(turn);
+        }
+    }
+    out
+}
+
+/// A turn the person typed when the session was idle.
+fn typed_turn(row: &serde_json::Value, uuid: String) -> Option<Turn> {
+    // Fact 3.
+    if row["isMeta"].as_bool().unwrap_or(false) {
+        return None;
+    }
+    let content = &row["message"]["content"];
+    let text = match content {
+        serde_json::Value::String(text) => text.clone(),
+        serde_json::Value::Array(parts) => {
+            // Fact 2: a result of a tool call wears the user's role.
+            if parts.iter().any(|part| part["type"] == "tool_result") {
+                return None;
+            }
+            parts
+                .iter()
+                .filter_map(|part| part["text"].as_str())
+                .collect::<Vec<_>>()
+                .join("")
+        }
+        _ => return None,
+    };
+    Some(Turn {
+        uuid,
+        at: row["timestamp"].as_str().unwrap_or_default().to_string(),
+        text: spoken(&text),
+        queued: false,
+    })
+}
+
+/// A turn the person typed while the session was working.
+fn queued_turn(row: &serde_json::Value, uuid: String) -> Option<Turn> {
+    let attachment = &row["attachment"];
+    if attachment["type"] != "queued_command" {
+        return None;
+    }
+    let text: String = attachment["prompt"]
+        .as_array()?
+        .iter()
+        .filter_map(|part| part["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("");
+    Some(Turn {
+        uuid,
+        // The enqueue's own stamp — see `Turn::at`.
+        at: attachment["timestamp"]
+            .as_str()
+            .or_else(|| row["timestamp"].as_str())
+            .unwrap_or_default()
+            .to_string(),
+        text: spoken(&text),
+        queued: true,
+    })
+}
+
+/// Fact 4: strip what the CLI wrapped round what the person said.
+///
+/// ⚠ **A `<command-name>` block means the person typed a SLASH COMMAND**, so the
+/// turn is not dropped — the command is what they said. Only the machinery
+/// around it goes.
+fn spoken(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("<system-reminder>") {
+        out.push_str(&rest[..at]);
+        match rest[at..].find("</system-reminder>") {
+            Some(end) => rest = &rest[at + end + "</system-reminder>".len()..],
+            // Unclosed: everything after it is the reminder's, not the person's.
+            None => return out.trim().to_string(),
+        }
+    }
+    out.push_str(rest);
+    for tag in [
+        "command-name",
+        "command-message",
+        "command-args",
+        "local-command-stdout",
+        "local-command-caveat",
+    ] {
+        out = unwrap_tag(&out, tag);
+    }
+    out.trim().to_string()
+}
+
+/// Replace `<tag>x</tag>` with `x`, keeping the text a slash command carries.
+fn unwrap_tag(text: &str, tag: &str) -> String {
+    let open = format!("<{tag}>");
+    let close = format!("</{tag}>");
+    text.replace(&open, "").replace(&close, "\n")
+}
