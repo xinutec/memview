@@ -1967,7 +1967,8 @@ fn a_mine_that_has_seen_every_write_is_fresh() {
         "s1",
         &[&wrote("2026-08-01T10:00:00Z", "old_one")],
     );
-    let fresh = memview::agents::freshness("2026-08-26T23:33:31Z", &[dir.path()], None);
+    let fresh =
+        memview::agents::freshness("2026-08-26T23:33:31Z", &[dir.path()], None, "/home/example");
     assert!(!fresh.is_stale(), "{:?}", fresh.unseen);
 }
 
@@ -1982,23 +1983,18 @@ fn a_memory_written_after_the_mine_makes_it_stale_and_is_named() {
             &wrote("2026-08-27T09:52:56Z", "after"),
         ],
     );
-    let fresh = memview::agents::freshness("2026-08-26T23:33:31Z", &[dir.path()], None);
+    let fresh =
+        memview::agents::freshness("2026-08-26T23:33:31Z", &[dir.path()], None, "/home/example");
     assert!(fresh.is_stale());
     assert_eq!(fresh.unseen, vec!["after".to_string()]);
 }
 
-/// ⚠ **A heredoc write is invisible to a tool-name check**, and that is how
-/// `feedback_a_degenerate_example_cannot_show_a_convention` was really written
-/// on 2026-08-27 — a change the Write/Edit scan could not see.
-#[test]
-fn a_heredoc_write_counts_too() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let line = r#"{"timestamp":"2026-08-27T12:35:49Z","message":{"content":[{"name":"Bash","input":{"command":"cat > written_by_heredoc.md <<'MD'"}}]}}"#;
-    transcript(dir.path(), "s1", &[line]);
-    let fresh = memview::agents::freshness("2026-08-26T23:33:31Z", &[dir.path()], None);
-    assert!(fresh.is_stale());
-    assert_eq!(fresh.unseen, vec!["written_by_heredoc".to_string()]);
-}
+// ⚠ A bare `> name.md` is NOT a memory, and asserting it was is how the first
+// version of this shipped. The test that stood here fed
+// `cat > written_by_heredoc.md` with no directory and expected a memory named
+// `written_by_heredoc`; the reader resolves the path and correctly refuses it.
+// Superseded by `a_heredoc_write_to_a_memory_is_seen`, which names a real corpus
+// path, and by `a_markdown_file_outside_the_corpus_is_not_a_memory` (#1218).
 
 /// ⚠ **Prose is not a path.** A transcript says things like "memory/preferences
 /// cannot fulfil them"; a bare `/memory/` substring match invented
@@ -2008,7 +2004,8 @@ fn prose_mentioning_memory_is_not_a_write() {
     let dir = tempfile::tempdir().expect("tempdir");
     let line = r#"{"timestamp":"2026-08-27T09:00:00Z","message":{"content":[{"text":"see memory/preferences cannot fulfill them"}]}}"#;
     transcript(dir.path(), "s1", &[line]);
-    let fresh = memview::agents::freshness("2026-08-26T23:33:31Z", &[dir.path()], None);
+    let fresh =
+        memview::agents::freshness("2026-08-26T23:33:31Z", &[dir.path()], None, "/home/example");
     assert!(!fresh.is_stale(), "{:?}", fresh.unseen);
 }
 
@@ -2024,8 +2021,79 @@ fn the_running_sessions_own_transcript_does_not_make_the_mine_stale() {
         "abc123",
         &[&wrote("2026-08-27T10:00:00Z", "mine")],
     );
-    let live = memview::agents::freshness("2026-08-26T23:33:31Z", &[dir.path()], Some("abc123"));
+    let live = memview::agents::freshness(
+        "2026-08-26T23:33:31Z",
+        &[dir.path()],
+        Some("abc123"),
+        "/home/example",
+    );
     assert!(!live.is_stale(), "{:?}", live.unseen);
-    let other = memview::agents::freshness("2026-08-26T23:33:31Z", &[dir.path()], Some("zzz999"));
+    let other = memview::agents::freshness(
+        "2026-08-26T23:33:31Z",
+        &[dir.path()],
+        Some("zzz999"),
+        "/home/example",
+    );
     assert!(other.is_stale());
+}
+
+fn bash_row(stamp: &str, command: &str) -> String {
+    format!(
+        r#"{{"timestamp":"{stamp}","cwd":"/home/example/Code","message":{{"content":[{{"name":"Bash","input":{{"command":{}}}}}]}}}}"#,
+        serde_json::to_string(command).unwrap()
+    )
+}
+
+/// ⚠ **`echo x > /tmp/note.md` is not a memory**, and the `> name.md` heuristic
+/// this replaced counted it whenever the stem collided with one (#1218).
+#[test]
+fn a_markdown_file_outside_the_corpus_is_not_a_memory() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    transcript(
+        dir.path(),
+        "s1",
+        &[&bash_row(
+            "2026-08-27T09:00:00Z",
+            "echo hi > /tmp/feedback_tdd_first.md",
+        )],
+    );
+    let fresh =
+        memview::agents::freshness("2026-08-26T23:33:31Z", &[dir.path()], None, "/home/example");
+    assert!(!fresh.is_stale(), "{:?}", fresh.unseen);
+}
+
+/// A heredoc write to a real memory is what the tool-name scan missed, and is
+/// why the shell is read at all.
+#[test]
+fn a_heredoc_write_to_a_memory_is_seen() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    transcript(
+        dir.path(),
+        "s1",
+        &[&bash_row(
+            "2026-08-27T09:00:00Z",
+            "cat > /home/example/.claude/projects/-x/memory/feedback_written.md <<'MD'\nbody\nMD",
+        )],
+    );
+    let fresh =
+        memview::agents::freshness("2026-08-26T23:33:31Z", &[dir.path()], None, "/home/example");
+    assert_eq!(fresh.unseen, vec!["feedback_written".to_string()]);
+}
+
+/// ⚠ **Reading a memory is not writing one.** The redirect heuristic could not
+/// tell the two apart inside a compound command.
+#[test]
+fn reading_a_memory_does_not_make_the_mine_stale() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    transcript(
+        dir.path(),
+        "s1",
+        &[&bash_row(
+            "2026-08-27T09:00:00Z",
+            "cat /home/example/.claude/projects/-x/memory/feedback_read_only.md",
+        )],
+    );
+    let fresh =
+        memview::agents::freshness("2026-08-26T23:33:31Z", &[dir.path()], None, "/home/example");
+    assert!(!fresh.is_stale(), "{:?}", fresh.unseen);
 }

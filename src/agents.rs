@@ -375,7 +375,12 @@ impl Freshness {
 /// ⚠ **The running session is excluded, and without that this refuses ALWAYS.**
 /// Claude Code appends to its own transcript as this executes, so it postdates
 /// every artefact by construction.
-pub fn freshness(generated: &str, roots: &[&Path], live_session: Option<&str>) -> Freshness {
+pub fn freshness(
+    generated: &str,
+    roots: &[&Path],
+    live_session: Option<&str>,
+    home: &str,
+) -> Freshness {
     let mut unseen: Vec<(String, String)> = Vec::new();
     for root in roots {
         let mut stack = vec![root.to_path_buf()];
@@ -409,7 +414,7 @@ pub fn freshness(generated: &str, roots: &[&Path], live_session: Option<&str>) -
                 for name in memories_written_after(&path, generated) {
                     unseen.push((newest.clone(), name));
                 }
-                for name in shell_written_after(&path, generated) {
+                for name in shell_written_after(&path, generated, home) {
                     unseen.push((newest.clone(), name));
                 }
             }
@@ -505,17 +510,23 @@ fn memories_written_after(path: &Path, generated: &str) -> Vec<String> {
 /// change the Write/Edit scan could not see, which is the unsafe direction for
 /// a staleness guard.
 ///
-/// ⚠ **This is a redirect heuristic, not a reading.** memview parses shell
-/// properly — `reader::shell_files` knows which files a command writes — and
-/// routing this through it is the correct implementation. Until then a
-/// redirection naming a memory is the shape that covers the observed case, and
-/// over-reporting here only costs a re-mine.
-fn shell_written_after(path: &Path, generated: &str) -> Vec<String> {
-    let Ok(text) = std::fs::read_to_string(path) else {
+/// ⚠ **Read by `reader::shell_files`, not by looking for a `>`.** The first
+/// version matched a `> name.md` redirect and was wrong in three ways a
+/// substring cannot fix: `echo x > /tmp/note.md` counted whenever the stem
+/// collided with a memory, a write through a variable or `tee` was invisible,
+/// and a read redirect in a compound command was indistinguishable from a
+/// write. The reader answers all three and was already instantiated two hundred
+/// lines below (#1218).
+fn shell_written_after(path: &Path, generated: &str, home: &str) -> Vec<String> {
+    // ⚠ **Streamed, not slurped.** `read_to_string` on every transcript whose
+    // tail postdates the mine cost 30s after a busy day; the answer needs one
+    // line at a time and never the whole file.
+    let Ok(file) = std::fs::File::open(path) else {
         return Vec::new();
     };
     let mut found: Vec<String> = Vec::new();
-    for line in text.lines() {
+    for line in std::io::BufRead::lines(std::io::BufReader::new(file)).map_while(Result::ok) {
+        // Cheap rejects before any parsing: most lines are neither.
         if !line.contains("\"name\":\"Bash\"") || !line.contains(".md") {
             continue;
         }
@@ -527,26 +538,69 @@ fn shell_written_after(path: &Path, generated: &str) -> Vec<String> {
         if &rest[..end] <= generated {
             continue;
         }
-        for (start, _) in line.match_indices("> ") {
-            let leaf: String = line[start + 2..]
-                .chars()
-                .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '-' || *c == '.')
-                .collect();
-            if let Some(name) = leaf.strip_suffix(".md")
-                && !name.is_empty()
-                && !found.contains(&name.to_string())
-            {
-                found.push(name.to_string());
+        let Ok(row) = serde_json::from_str::<serde_json::Value>(&line) else {
+            continue;
+        };
+        for command in bash_commands(&row) {
+            let Ok(parsed) = reader::project::read(&command) else {
+                continue;
+            };
+            let cwd = row["cwd"].as_str();
+            for use_ in reader::shell_files::extract(&parsed, cwd, home).files {
+                // A read of a memory cannot change what a mine should have seen.
+                if !use_.write {
+                    continue;
+                }
+                if let Some(name) = memory_stem(&use_.path)
+                    && !found.contains(&name)
+                {
+                    found.push(name);
+                }
             }
         }
     }
     found
 }
 
+/// Every `Bash` command a transcript row invokes.
+fn bash_commands(row: &serde_json::Value) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut stack = vec![row];
+    while let Some(node) = stack.pop() {
+        match node {
+            serde_json::Value::Array(items) => stack.extend(items),
+            serde_json::Value::Object(map) => {
+                if map.get("name").and_then(|n| n.as_str()) == Some("Bash")
+                    && let Some(command) = map
+                        .get("input")
+                        .and_then(|i| i.get("command"))
+                        .and_then(|c| c.as_str())
+                {
+                    out.push(command.to_string());
+                }
+                stack.extend(map.values());
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The memory a path names, or `None` if it names something else.
+///
+/// ⚠ **Anchored on `/memory/` in a resolved path**, which is what the reader
+/// returns — not on a bare filename, which is how `> note.md` in `/tmp` used to
+/// pass for a memory.
+fn memory_stem(path: &str) -> Option<String> {
+    let (_, leaf) = path.rsplit_once("/memory/")?;
+    let name = leaf.strip_suffix(".md")?;
+    (!name.is_empty() && !name.contains('/')).then(|| name.to_string())
+}
+
 impl Agents {
     /// What this mine has not seen. See [`freshness`].
-    pub fn freshness(&self, roots: &[&Path], live_session: Option<&str>) -> Freshness {
-        freshness(&self.generated, roots, live_session)
+    pub fn freshness(&self, roots: &[&Path], live_session: Option<&str>, home: &str) -> Freshness {
+        freshness(&self.generated, roots, live_session, home)
     }
 
     pub fn load(path: &Path) -> Option<Self> {

@@ -137,6 +137,7 @@ fn main() -> Result<()> {
     let freshness = mined.freshness(
         &[std::path::Path::new(&projects)],
         std::env::var("CLAUDE_CODE_SESSION_ID").ok().as_deref(),
+        &home,
     );
     if freshness.is_stale() && !args.iter().any(|a| a == "--stale-ok") {
         eprintln!(
