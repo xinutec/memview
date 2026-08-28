@@ -62,3 +62,4 @@ pub mod sniff;
 pub mod sql;
 pub mod syntax;
 pub mod transcript;
+pub mod watermark;

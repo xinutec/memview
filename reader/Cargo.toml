@@ -17,6 +17,8 @@ edition = "2024"
 # nothing in it to misconfigure — see the crate doc. A dependency added here is
 # a decision about that, not a convenience.
 [dependencies]
+# Fingerprints the bytes a resumed read has already consumed; see src/watermark.rs.
+sha2 = "0.11"
 pest = "2.8"
 pest_derive = "2.8"
 base64 = "0.22"
@@ -25,6 +27,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [dev-dependencies]
+tempfile = "3"
 # Tried against the pest grammar and NOT adopted — `examples/tree-sitter-probe.rs`
 # has the numbers. A dev-dependency on purpose: the probe is worth keeping so the
 # decision can be re-checked when the upstream heredoc bug is fixed, but the

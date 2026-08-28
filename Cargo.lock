@@ -2016,6 +2016,8 @@ dependencies = [
  "pest_derive",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
  "tree-sitter",
  "tree-sitter-bash",
  "tree-sitter-python",

@@ -15,15 +15,23 @@
 /// What may be linked, and why each earns its place.
 ///
 /// Two parser generators for the grammars, a base64 decoder for the heredocs the
-/// transcripts carry encoded, an error type, and serde for the artefact shapes.
-/// Every one of them is a pure transformation of bytes already in hand.
-const ALLOWED: [&str; 6] = [
+/// transcripts carry encoded, an error type, serde for the artefact shapes, and
+/// a hash. Every one of them is a pure transformation of bytes already in hand.
+///
+/// ⚠ **`sha2` is here as a HASH, not as a credential primitive.** It
+/// fingerprints the stretch of a transcript a resumed read has already consumed
+/// (`watermark.rs`), so drift in a file can be detected without re-reading it —
+/// no key, no secret, no verification of anything anybody sent. If a future use
+/// of it authenticates, signs, or compares against something a user supplied,
+/// that use belongs in whichever crate holds the trust, not in this one.
+const ALLOWED: [&str; 7] = [
     "anyhow",
     "base64",
     "pest",
     "pest_derive",
     "serde",
     "serde_json",
+    "sha2",
 ];
 
 /// The names under `[dependencies]`, in order.
