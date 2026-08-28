@@ -857,3 +857,44 @@ pub fn render_markdown(md: &str) -> Result<String> {
     format_html(root, &options, &mut out).context("rendering markdown")?;
     Ok(out)
 }
+
+/// The reachable memories that already link `target`.
+///
+/// ⚠ **This is the step the 2026-08-07 pass skipped**, and skipping it is what
+/// stranded memories that still existed. A demotion is only safe once something
+/// live already points at the memory; a candidate with no home is not a
+/// candidate, it is a deletion wearing a demotion's clothes.
+pub fn homes_for(
+    docs: &BTreeMap<String, MemoryDoc>,
+    target: &str,
+    reached: &BTreeSet<String>,
+) -> Vec<String> {
+    docs.iter()
+        .filter(|(name, _)| name.as_str() != target && reached.contains(*name))
+        .filter(|(_, doc)| wikilinks_of(&doc.body).iter().any(|l| l.target == target))
+        .map(|(name, _)| name.clone())
+        .collect()
+}
+
+/// The bytes a memory's entry spends in the index, which is what demoting it
+/// recovers — and the only reason any of this is a question.
+///
+/// ⚠ **The entry, not the line.** A line here is a section listing dozens of
+/// memories — `[cite](a.md), [not chat](b.md), …` — so charging each of them the
+/// whole line overstates every one of them and, summed, claimed a saving of
+/// 20,266 bytes from a 20,411-byte file. What a demotion actually recovers is
+/// one `[teaser](name.md)` fragment and the `, ` that joins it to its neighbour.
+pub fn index_entry_cost(index_md: &str, name: &str) -> usize {
+    let Some(link) = index_md.find(&format!("]({name}.md)")) else {
+        return 0;
+    };
+    // Back to the `[` that opens this entry's teaser; without it the label is
+    // free, which is the same overstatement in the other direction.
+    let Some(open) = index_md[..link].rfind('[') else {
+        return 0;
+    };
+    let close = link + format!("]({name}.md)").len();
+    // Plus the separator that goes with it — a comma and a space between
+    // entries, which is what is actually reclaimed when one is removed.
+    (close - open) + 2
+}

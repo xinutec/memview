@@ -1989,6 +1989,42 @@ fn a_memory_written_after_the_mine_makes_it_stale_and_is_named() {
     assert_eq!(fresh.unseen, vec!["after".to_string()]);
 }
 
+/// ⚠ **Editing the index is not staleness.** `MEMORY.md` lives in the corpus
+/// directory, so the write scan sees it like any other file — but both readers
+/// of `freshness` load the index live from disk, so a change to it cannot move
+/// a figure that comes from the artefact. Counting it made the refusal fire
+/// every time the memory session touched the root, and a refusal that fires on
+/// a harmless change is one people learn to override.
+#[test]
+fn an_edit_to_the_index_does_not_make_the_mine_stale() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    transcript(
+        dir.path(),
+        "s1",
+        &[&wrote("2026-08-27T09:52:56Z", memview::agents::INDEX_STEM)],
+    );
+    let fresh =
+        memview::agents::freshness("2026-08-26T23:33:31Z", &[dir.path()], None, "/home/example");
+    assert!(!fresh.is_stale(), "{:?}", fresh.unseen);
+}
+
+/// And a real memory written in the same breath still does.
+#[test]
+fn a_memory_written_beside_an_index_edit_is_still_named() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    transcript(
+        dir.path(),
+        "s1",
+        &[
+            &wrote("2026-08-27T09:52:56Z", memview::agents::INDEX_STEM),
+            &wrote("2026-08-27T09:53:10Z", "a_real_one"),
+        ],
+    );
+    let fresh =
+        memview::agents::freshness("2026-08-26T23:33:31Z", &[dir.path()], None, "/home/example");
+    assert_eq!(fresh.unseen, vec!["a_real_one".to_string()]);
+}
+
 // ⚠ A bare `> name.md` is NOT a memory, and asserting it was is how the first
 // version of this shipped. The test that stood here fed
 // `cat > written_by_heredoc.md` with no directory and expected a memory named

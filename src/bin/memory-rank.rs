@@ -54,7 +54,7 @@ use std::collections::BTreeSet;
 
 use anyhow::{Context, Result};
 use memview::agents::{Agents, HALF_LIFE_DAYS, day_number, weighted};
-use memview::store::{Corpus, index_links, reachable_without, wikilinks_of};
+use memview::store::{Corpus, homes_for, index_entry_cost, index_links, reachable_without};
 
 /// How a memory stands: what it cost, what it was used for, and whether the
 /// index is what is holding it up.
@@ -187,7 +187,7 @@ fn main() -> Result<()> {
                 last_open: reads.iter().max().map(|d| today - d),
                 indexed: listed.contains(name),
                 entry_cost: index_entry_cost(&index, name),
-                homes: homes_for(&corpus, name, &reached),
+                homes: homes_for(&corpus.docs, name, &reached),
                 name: name.clone(),
             }
         })
@@ -196,45 +196,6 @@ fn main() -> Result<()> {
 
     report(&corpus, &standings, &listed, half_life, today, &index);
     Ok(())
-}
-
-/// The reachable memories that already link this one.
-///
-/// ⚠ **This is the step the 2026-08-07 pass skipped**, and skipping it is what
-/// stranded 24 memories. A demotion is only safe once something live already
-/// points at the memory; a candidate with no home is not a candidate, it is a
-/// deletion wearing a demotion's clothes.
-fn homes_for(corpus: &Corpus, target: &str, reached: &BTreeSet<String>) -> Vec<String> {
-    corpus
-        .docs
-        .iter()
-        .filter(|(name, _)| name.as_str() != target && reached.contains(*name))
-        .filter(|(_, doc)| wikilinks_of(&doc.body).iter().any(|l| l.target == target))
-        .map(|(name, _)| name.clone())
-        .collect()
-}
-
-/// The bytes this memory's entry spends in the index, which is what demoting it
-/// recovers — and the only reason any of this is a question.
-///
-/// ⚠ **The entry, not the line.** A line here is a section listing dozens of
-/// memories — `[cite](a.md), [not chat](b.md), …` — so charging each of them the
-/// whole line overstates every one of them and, summed, claimed a saving of
-/// 20,266 bytes from a 20,411-byte file. What a demotion actually recovers is
-/// one `[teaser](name.md)` fragment and the `, ` that joins it to its neighbour.
-fn index_entry_cost(index: &str, name: &str) -> usize {
-    let Some(link) = index.find(&format!("]({name}.md)")) else {
-        return 0;
-    };
-    // Back to the `[` that opens this entry's teaser; without it the label is
-    // free, which is the same overstatement in the other direction.
-    let Some(open) = index[..link].rfind('[') else {
-        return 0;
-    };
-    let close = link + format!("]({name}.md)").len();
-    // Plus the separator that goes with it — a comma and a space between
-    // entries, which is what is actually reclaimed when one is removed.
-    (close - open) + 2
 }
 
 /// Whether this is a rule to be absorbed rather than a fact to be looked up.

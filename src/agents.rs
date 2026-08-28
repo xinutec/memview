@@ -330,6 +330,11 @@ pub struct Agents {
     pub agents: Vec<Agent>,
 }
 
+/// The index's stem. It lives in the corpus directory and is not a memory —
+/// `tests/agents.rs::the_index_is_not_a_memory_anyone_knows` holds the same line
+/// for opens.
+pub const INDEX_STEM: &str = "MEMORY";
+
 /// What a mined artefact has NOT seen.
 ///
 /// ⚠ **A `generated` field nobody consults is not a safeguard.** `agents.json`
@@ -411,10 +416,24 @@ pub fn freshness(
                 if newest.as_str() <= generated {
                     continue;
                 }
-                for name in memories_written_after(&path, generated) {
+                // ⚠ **An edit to the index is not staleness.** Both readers of
+                // this — `memory-rank` and `memory-tiers` — load `MEMORY.md`
+                // live from disk, so a change to it cannot move any figure that
+                // comes from the artefact. Counting it made the refusal fire
+                // every time the memory session touched the root, which is
+                // most days, and a refusal that fires on a harmless change is
+                // one people learn to override.
+                let a_memory = |name: &String| name != INDEX_STEM;
+                for name in memories_written_after(&path, generated)
+                    .into_iter()
+                    .filter(a_memory)
+                {
                     unseen.push((newest.clone(), name));
                 }
-                for name in shell_written_after(&path, generated, home) {
+                for name in shell_written_after(&path, generated, home)
+                    .into_iter()
+                    .filter(a_memory)
+                {
                     unseen.push((newest.clone(), name));
                 }
             }
