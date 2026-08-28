@@ -172,16 +172,33 @@ That leaves an asymmetry in what is *built*, though not in what is knowable:
   * **Demotion has mechanics.** Least-consulted, already-at-home, with the
     no-home cases held back — `memory-rank` proposes a set and says what it
     saves, and checks reachability of the set as a whole rather than per entry.
-  * **Admission has none.** Nothing proposes that a line should JOIN the root, so
-    the root grows by judgement and shrinks by measurement — a ratchet pointing
-    the wrong way, and the reason it drifts over its ceiling rather than settling
-    under it.
+  * **Admission has mechanics too, and they are the same operation.** The root
+    used to grow by judgement and shrink by measurement — a ratchet pointing the
+    wrong way, and the reason it drifted over its ceiling rather than settling
+    under it. `memory-tiers` closes it by proposing a TRADE: what has earned a
+    slot, what has finished with one, and whether the root is smaller
+    afterwards. Deciding the halves separately is what breaches the ceiling.
 
-⚠ **Admission is not unmeasurable.** The data model already carries reads and
-writes *per project directory*, per named agent — so breadth (how many distinct
-sessions and subjects consulted a memory) is derivable from what is already
-mined. Breadth is the missing factor, and it is the one a single session cannot
-observe about itself.
+    Two details of that proposal are load-bearing. It lists **every** qualifier
+    for admission, not only those the budget covers — "eleven have earned a slot
+    and none fit" is a different finding from "nothing has earned one", and only
+    the first argues for a demotion pass. And the arrival price is stated for
+    people as well, in `MEMORY.md`'s own header: live work belongs at the root
+    and writing a line for it is right, but the line is a lease, and at the
+    ceiling a new one is paid for by demoting a finished one in the same edit.
+
+    ⚠ **The bar for admission is not "does a parent already link it"** — a
+    memory about current work usually does, from its own project hub, and that
+    test would exclude exactly the recent thinking the tier exists to hold.
+    Parentage decides whether a demotion is SAFE, never whether a line is
+    warranted.
+
+⚠ **Breadth was the missing factor and is no longer missing.** How many distinct
+sessions and subjects consulted a memory is derivable from what the mine already
+carries — reads and writes per project directory, per named agent — and
+`memory-tiers` now ranks admissions by it. It is the factor a single session
+cannot observe about itself, which is the whole reason the judgement could not
+be left to whoever happens to be editing.
 
 What remains unmeasurable is narrower than "admission": it is **whether a memory
 helped**. A tripwire's value is the incident it prevented, and prevented
