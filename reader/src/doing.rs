@@ -232,6 +232,23 @@ impl Names {
     pub fn into_vec(self) -> Vec<String> {
         self.list
     }
+
+    /// Rebuild a dictionary from a frozen one, so an index already written into
+    /// a row still means the same name.
+    ///
+    /// ⚠ **Positional, and that is the whole contract.** [`Names::into_vec`]
+    /// emits names in index order, so re-interning them in that order reproduces
+    /// every index exactly — which is what lets a resumed fold append rows
+    /// beside ones it did not build. Change either side and every `a`, `p`, `k`
+    /// and `h` in the carried rows silently means a different name.
+    pub fn from_vec(list: Vec<String>) -> Self {
+        let index = list
+            .iter()
+            .enumerate()
+            .map(|(at, name)| (name.clone(), at as u32))
+            .collect();
+        Self { index, list }
+    }
 }
 
 /// One stretch of work as the miner has it, before it is interned.
@@ -269,6 +286,33 @@ pub struct Log {
 }
 
 impl Log {
+    /// Continue the fold a previous run froze, instead of starting from nothing.
+    ///
+    /// ⚠ **Everything here carries except `pending`.** A row waiting on a result
+    /// that had not arrived when the artefact was written stays
+    /// [`Verdict::Unknown`] forever: its answer lands in the tail, where nothing
+    /// is left to match it to. Measured 2026-08-29 against a real watermark —
+    /// **3 calls across the whole corpus** crossed the cut, against 349 already
+    /// unresolved by a full scan. Carrying it would mean remapping row indices
+    /// through `finish`'s sort and putting resume state on an exported wire
+    /// type, which is not what three rows a night buys.
+    ///
+    /// The open episode is a different size of loss and does not stay here — see
+    /// [`Log::reopen`].
+    pub fn resume(from: Doing) -> Self {
+        Self {
+            agents: Names::from_vec(from.agents),
+            projects: Names::from_vec(from.projects),
+            kinds: Names::from_vec(from.kinds),
+            hosts: Names::from_vec(from.hosts),
+            rows: from.rows,
+            pending: BTreeMap::new(),
+            episodes: from.episodes,
+            prompt: None,
+            current: None,
+        }
+    }
+
     /// A new transcript begins, so no episode is open.
     ///
     /// Without this the last instruction of one session would adopt the first
@@ -276,6 +320,28 @@ impl Log {
     pub fn open_transcript(&mut self) {
         self.prompt = None;
         self.current = None;
+    }
+
+    /// Re-enter a transcript mid-instruction, carrying the episode a previous
+    /// read left open.
+    ///
+    /// ⚠ **This is the loss a byte offset alone cannot avoid.** An episode is
+    /// bracketed by a user's turn, so a cut taken while an instruction is still
+    /// being carried out leaves every row until the *next* prompt with no
+    /// episode above it. Measured 2026-08-29 against a real 21:38 watermark:
+    /// **66 of 2,815 tail calls** would land in no episode, twenty times the
+    /// three calls whose result crossed the same cut. Unlike those three this is
+    /// cheap to keep, because the state is an index and a name rather than a row
+    /// position — [`reader::watermark::Resume`] carries it.
+    pub fn reopen(&mut self, episode: Option<u32>, prompt: Option<String>) {
+        self.prompt = prompt;
+        self.current = episode;
+    }
+
+    /// The episode still open on the transcript just read, to be carried to the
+    /// run that reads its tail. Pairs with [`Log::reopen`].
+    pub fn open_episode(&self) -> (Option<u32>, Option<String>) {
+        (self.current, self.prompt.clone())
     }
 
     /// A user said something: whatever follows is one instruction's worth.

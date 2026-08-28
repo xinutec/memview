@@ -89,3 +89,51 @@ fn a_file_that_is_gone_is_unknown_rather_than_resumable() {
     assert_eq!(drift(&p, &mark), Drift::Unknown);
     assert!(!drift(&p, &mark).resumable());
 }
+
+/// ⚠ **A record written before the fold state existed must still parse.**
+/// `transcript-drift.json` is gitignored and rebuildable, but its reader
+/// deliberately fails loudly on a file it cannot understand — so a field added
+/// without a default would turn every existing corpus into "delete it and start
+/// over" rather than into one carried episode fewer.
+#[test]
+fn a_record_from_before_the_fold_state_still_reads_as_an_offset() {
+    let older = r#"{"read_to":128,"tail_sha":"abc"}"#;
+    let back: reader::watermark::Resume = serde_json::from_str(older).expect("parse");
+    assert_eq!(back.mark.read_to, 128);
+    assert_eq!(back.episode, None);
+    assert_eq!(back.prompt, None);
+}
+
+#[test]
+fn a_resume_record_round_trips_the_episode_it_left_open() {
+    let mark = reader::watermark::Watermark {
+        read_to: 4096,
+        tail_sha: "deadbeef".to_string(),
+    };
+    let held = reader::watermark::Resume {
+        mark,
+        episode: Some(17),
+        prompt: Some("memview".to_string()),
+    };
+    let text = serde_json::to_string(&held).expect("write");
+    assert_eq!(
+        serde_json::from_str::<reader::watermark::Resume>(&text).expect("read"),
+        held
+    );
+}
+
+/// The offset and the fold state sit in one object rather than two files: a
+/// resume that knows where to start and not what was open is the bug this
+/// carries state to avoid.
+#[test]
+fn the_fold_state_is_written_beside_the_offset_not_under_it() {
+    let held = reader::watermark::Resume::fresh(reader::watermark::Watermark {
+        read_to: 1,
+        tail_sha: "x".to_string(),
+    });
+    let text = serde_json::to_string(&held).expect("write");
+    assert!(text.contains("\"read_to\":1"), "{text}");
+    // Nothing open, so nothing written — an absent field and a null one would
+    // read the same to serde but not to a person reading the file.
+    assert!(!text.contains("episode"), "{text}");
+}

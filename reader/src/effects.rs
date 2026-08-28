@@ -148,6 +148,25 @@ pub struct Log {
 }
 
 impl Log {
+    /// Continue the fold a previous run froze, instead of starting from nothing.
+    ///
+    /// ⚠ **`pending` does not carry, and that is measured rather than assumed** —
+    /// see [`crate::doing::Log::resume`], which loses the same three calls a
+    /// night for the same reason. There is no episode state here, so this is the
+    /// whole of it: the dictionaries rebuild positionally and the rows keep the
+    /// indices they were written with.
+    pub fn resume(from: Effects) -> Self {
+        Self {
+            agents: Names::from_vec(from.agents),
+            paths: Names::from_vec(from.paths),
+            patterns: Names::from_vec(from.patterns),
+            commands: Names::from_vec(from.commands),
+            hosts: Names::from_vec(from.hosts),
+            rows: from.rows,
+            pending: BTreeMap::new(),
+        }
+    }
+
     pub fn push(&mut self, effect: Effect<'_>) {
         let row = Row {
             a: self.agents.intern(effect.agent),

@@ -134,3 +134,122 @@ fn zsh_prose_in_the_same_position_is_still_not_a_refusal() {
     let said = "8047bc0 cd: fix no such file or directory: handling in the reader";
     assert!(refused_dirs(said).is_empty());
 }
+
+// ── Resuming a fold (#1240) ──────────────────────────────────────────────────
+//
+// The mine is 347 s over 5.9 GB and only reading less makes it cheaper, which
+// means a run has to be able to pick up where the last one stopped. These say
+// what that carries exactly — and what it does not.
+
+use reader::doing::{Log, Names, Verdict, Work};
+
+fn work<'a>(call: &'a str, agent: &'a str, kind: &'a str, minute: i64) -> Work<'a> {
+    Work {
+        call,
+        agent,
+        project: Some("memview"),
+        host: None,
+        kind,
+        n: 1,
+        minute,
+    }
+}
+
+/// The contract the whole resume rests on: an index written into a carried row
+/// still names what it named. A dictionary that re-interned in any other order
+/// would leave every row pointing at the wrong agent, silently.
+#[test]
+fn a_rebuilt_dictionary_gives_back_the_indices_it_was_frozen_with() {
+    let mut names = Names::default();
+    let first = names.intern("memview");
+    let second = names.intern("home");
+    names.intern("memview");
+    let frozen = names.into_vec();
+
+    let mut back = Names::from_vec(frozen);
+    assert_eq!(back.intern("memview"), first);
+    assert_eq!(back.intern("home"), second);
+    // A name it has not seen continues the numbering rather than colliding.
+    assert_eq!(back.intern("tasks"), 2);
+}
+
+/// Reading a transcript in two goes must produce what reading it in one go
+/// produces. This is the claim; the two tests after it are the exceptions.
+#[test]
+fn a_fold_split_in_two_says_what_one_pass_says() {
+    let whole = {
+        let mut log = Log::default();
+        log.open_transcript();
+        log.begin_episode("memview");
+        log.push(work("c1", "memview", "Read", 10));
+        log.resolve("c1", Verdict::Ok);
+        log.push(work("c2", "memview", "Edit", 11));
+        log.resolve("c2", Verdict::Failed);
+        log.finish("stamp")
+    };
+
+    let split = {
+        let mut first = Log::default();
+        first.open_transcript();
+        first.begin_episode("memview");
+        first.push(work("c1", "memview", "Read", 10));
+        first.resolve("c1", Verdict::Ok);
+        let (episode, prompt) = first.open_episode();
+        let frozen = first.finish("stamp");
+
+        let mut second = Log::resume(frozen);
+        second.reopen(episode, prompt);
+        second.push(work("c2", "memview", "Edit", 11));
+        second.resolve("c2", Verdict::Failed);
+        second.finish("stamp")
+    };
+
+    assert_eq!(
+        serde_json::to_string(&whole).expect("whole"),
+        serde_json::to_string(&split).expect("split"),
+    );
+}
+
+/// ⚠ **Without the carried episode the second half is orphaned.** This is the
+/// 66-calls-a-run loss `Resume` exists to prevent, written down as a failure so
+/// that dropping `reopen` from the miner cannot pass the suite.
+#[test]
+fn resuming_without_the_open_episode_orphans_the_rows_after_the_cut() {
+    let mut first = Log::default();
+    first.open_transcript();
+    first.begin_episode("memview");
+    first.push(work("c1", "memview", "Read", 10));
+    let frozen = first.finish("stamp");
+
+    let mut second = Log::resume(frozen);
+    // No `reopen`: exactly what a resume that carried only the byte offset does.
+    second.push(work("c2", "memview", "Edit", 11));
+    let out = second.finish("stamp");
+
+    assert_eq!(out.rows[0].e, Some(0));
+    assert_eq!(
+        out.rows[1].e, None,
+        "the row after the cut lost its episode"
+    );
+    // And the episode never learns it grew, so a page reporting its size lies.
+    assert_eq!(out.episodes[0].n, 1);
+    assert_eq!(out.episodes[0].until, 10);
+}
+
+/// ⚠ **The one thing a resume drops on purpose.** A call answered after the cut
+/// has nothing left to match its result to, so its verdict stays unknown.
+/// Measured at 3 calls across the corpus against a 349-row baseline — small
+/// enough to accept, not small enough to leave unsaid.
+#[test]
+fn a_call_answered_after_the_cut_keeps_no_verdict() {
+    let mut first = Log::default();
+    first.open_transcript();
+    first.begin_episode("memview");
+    first.push(work("c1", "memview", "Bash", 10));
+    let frozen = first.finish("stamp");
+
+    let mut second = Log::resume(frozen);
+    second.resolve("c1", Verdict::Ok);
+    let out = second.finish("stamp");
+    assert_eq!(out.rows[0].v, Verdict::Unknown);
+}

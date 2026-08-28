@@ -43,6 +43,47 @@ pub struct Watermark {
 /// How many bytes the fingerprint covers.
 pub const WINDOW: u64 = 64 * 1024;
 
+/// One transcript's resume record: where the read stopped, **and the fold state
+/// the next read has to start from**.
+///
+/// ⚠ **The offset alone is not enough, and the shortfall is measurable.** An
+/// episode is bracketed by a user's turn, so a cut taken while an instruction is
+/// still being carried out orphans every row until the next prompt. Measured
+/// 2026-08-29 against a real 21:38 watermark: **66 of 2,815 tail calls** would
+/// land in no episode. The comparable loss from *not* carrying a call's pending
+/// result was **3 calls** — twenty times smaller, and twenty times more
+/// expensive to fix, which is why one is carried here and the other is not
+/// (`crate::doing::Log::resume`).
+///
+/// ⚠ **The fold fields default**, so a `transcript-drift.json` written before
+/// they existed still parses as offsets with no episode open — which is exactly
+/// what a run that never carried one had.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Resume {
+    #[serde(flatten)]
+    pub mark: Watermark,
+    /// Index into `Doing::episodes` for the instruction still being carried out
+    /// at `read_to`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub episode: Option<u32>,
+    /// An agent whose prompt was seen but which had done no work yet — the
+    /// episode is materialised by its first row, so before that there is only a
+    /// name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+}
+
+impl Resume {
+    /// A first read of a file: an offset with nothing open above it.
+    pub fn fresh(mark: Watermark) -> Self {
+        Self {
+            mark,
+            episode: None,
+            prompt: None,
+        }
+    }
+}
+
 /// What a second look at a file found.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Drift {
