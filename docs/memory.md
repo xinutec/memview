@@ -1,9 +1,7 @@
 # The memory model
 
 What the corpus *is*, as opposed to how the viewer serves it or how the linter
-checks it. This is the document the rest of memview assumes and never states —
-until now the model lived in two places, neither of them readable: the corpus's
-own `feedback_*` rules, and comments inside memview's tests.
+checks it. This is the document the rest of memview assumes and never states.
 
 ⚠ **No figures here** (the README's rule, and the corpus's own —
 `feedback_a_count_in_prose_rots`). Sizes, counts and rates move; read them off
@@ -85,9 +83,9 @@ Two consequences worth stating plainly:
   * **Demoting a memory is not deleting it.** A file dropped from the root but
     linked from a live hub is one hop further away, not gone. Some documents are
     deliberately one hop deeper and should not be "restored".
-  * **Demoting an unlinked memory strands it.** Give it a home first. `memory-rank`
-    separates these two cases for exactly this reason, and the distinction is the
-    whole safety of the operation.
+  * **Demoting an unlinked memory strands it.** Give it a home first.
+    `memory-rank` separates these two cases for this reason, and the distinction
+    is the whole safety of the operation.
 
 ## Two populations belong at the root, and they earn it differently
 
@@ -121,7 +119,7 @@ repetition in one.
 ⚠ **So neither factor is sufficient alone, and they fail in opposite
 directions.** Volume alone promotes whatever is being worked on this week.
 Breadth alone punishes deep focus — a month spent on one subject produces
-memories read by one session that are nonetheless exactly the working set.
+memories read by one session that are nonetheless the working set.
 
 So the two tiers want two different rules, and only one of them is a cut:
 
@@ -135,7 +133,7 @@ So the two tiers want two different rules, and only one of them is a cut:
     topic's.
   * **Evict from the lease tier by age. Never evict from the tenure tier on one
     session's opinion** — that is the failure mode above, and it is the one that
-    stranded 24 memories on 2026-08-07.
+    stranded memories on 2026-08-07.
 
 ## What memview can and cannot measure
 
@@ -156,13 +154,10 @@ Three blind spots are documented in the tool itself and bound anything built on
 top of it:
 
   * **Unprovable shell reads are discarded.** Shell reads themselves ARE
-    counted — `d39d227` gave the shell site its own arm on 2026-08-14 and reads
-    rose 137% — and this document said otherwise until 2026-08-27, having
-    inherited the claim from `memory-rank`'s docstring after it had already been
-    fixed in code. What is still dropped is `maybe_reads`: a read whose success
-    cannot be established, which the ranking collects and never consults
-    (memview#1214). So the figures remain a floor, and the floor still leans
-    toward whoever reads in bulk — for a narrower reason than was written here.
+    counted — `d39d227` gave the shell site its own arm on 2026-08-14. What is
+    dropped is `maybe_reads`: a read whose success cannot be established, which
+    the ranking collects and never consults (memview#1214). So the figures
+    remain a floor, and the floor leans toward whoever reads in bulk.
   * **The teaser paradox.** For the entries that work best the index line IS the
     memory — a reader acts on "no CoA" and never opens the file. Opens therefore
     under-measure the best-compressed behavioural rules, which is why `feedback`
@@ -182,17 +177,17 @@ That leaves an asymmetry in what is *built*, though not in what is knowable:
     the wrong way, and the reason it drifts over its ceiling rather than settling
     under it.
 
-⚠ **But admission is not unmeasurable, which is the correction worth making.**
-The data model already carries reads and writes *per project directory*, per
-named agent — so breadth (how many distinct sessions and subjects consulted a
-memory) is derivable from what is already mined. Breadth is the missing factor,
-and it is exactly the one a single session cannot observe about itself.
+⚠ **Admission is not unmeasurable.** The data model already carries reads and
+writes *per project directory*, per named agent — so breadth (how many distinct
+sessions and subjects consulted a memory) is derivable from what is already
+mined. Breadth is the missing factor, and it is the one a single session cannot
+observe about itself.
 
-What remains genuinely unmeasurable is narrower than "admission": it is
-**whether a memory helped**. A tripwire's value is the incident it prevented, and
-prevented incidents leave no trace in a record of what was read. Breadth is a
-proxy for it — consulted in many contexts is evidence of general use — and it
-should be treated as a proxy, not mistaken for the thing.
+What remains unmeasurable is narrower than "admission": it is **whether a memory
+helped**. A tripwire's value is the incident it prevented, and prevented
+incidents leave no trace in a record of what was read. Breadth is a proxy for
+it — consulted in many contexts is evidence of general use — and it should be
+treated as a proxy, not mistaken for the thing.
 
 ## Where authority lives
 
@@ -204,7 +199,7 @@ anything written here:
     feedback_memory_index_is_the_working_set  reachability, and why not to compact on a size hook
     feedback_pointer_or_tripwire            decide the shape before writing the line
     feedback_open_full_memory_file          teasers only — open the file before citing it
-    reference_memory_index_demotion_method  how a demotion is actually carried out
+    reference_memory_index_demotion_method  how a demotion is carried out
 
 If this document and one of those disagree, the memory is right and this file
 needs correcting — the corpus is the system of record for how the corpus is
