@@ -324,7 +324,18 @@ fn report(corpus: &Corpus, entries: &[Entry], index: &str, today: i64, at: &Thre
     }
     if trade.admit.is_empty() {
         println!("    (nothing outside the root has been opened by that many agents)");
-    } else if trade.affordable < trade.admit.len() {
+    }
+    if trade.unproven_admissions > 0 {
+        // ⚠ Named rather than admitted. 43.7% of opens arrive through the shell,
+        // so a bar that ignores the unprovable half is a bar decided partly by
+        // what was discarded — and breadth counts SESSIONS, which is the axis
+        // shell-heavy reading distorts (#1214).
+        println!(
+            "    ⚠ {} more would clear the bar if unprovable shell opens counted — shown, never scored.",
+            trade.unproven_admissions
+        );
+    }
+    if trade.affordable < trade.admit.len() {
         // ⚠ The finding, not a footnote: entries earned a slot and the root has
         // nowhere to put them. That argues for a demotion pass, which is a
         // different conclusion from "nothing qualifies".
@@ -360,6 +371,10 @@ fn report(corpus: &Corpus, entries: &[Entry], index: &str, today: i64, at: &Thre
             (
                 Held::Unjudged,
                 "#884 has not judged these, and unjudged is not pointer",
+            ),
+            (
+                Held::Unproven,
+                "thin only because their unprovable shell opens do not count",
             ),
             (
                 Held::Frozen,

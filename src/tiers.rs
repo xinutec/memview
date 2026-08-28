@@ -187,6 +187,15 @@ pub enum Held {
     /// not a pointer — assuming so is a check that passes for the wrong reason,
     /// and it fails toward deleting a rule that fires from its line.
     Unjudged,
+    /// Its THIN verdict turns on opens that were collected and never scored —
+    /// a shell read after `&&`, or inside a script with one exit status. Count
+    /// them and it is not thin, so the tier is an artefact of what was
+    /// discarded rather than a reading of the record (#1214).
+    ///
+    /// ⚠ **Not a reason to score them.** Folding unprovable opens into `reads`
+    /// overstates the record, which is why the split exists. This holds the one
+    /// case where the discard is deciding, and leaves the rest alone.
+    Unproven,
     /// #884's freeze covers it. The freeze is on the SPLIT — do not re-promote a
     /// treated memory, do not demote a control one — so acting on it perturbs a
     /// series that has run since 2026-08-14.
@@ -223,6 +232,16 @@ pub struct Trade {
     /// "nothing to demote" when the truth is "everything that qualified was
     /// disqualified for a reason" — and the reason is the finding.
     pub held: Vec<HeldEntry>,
+    /// Memories the tenure bar excludes only because their unprovable opens do
+    /// not count.
+    ///
+    /// ⚠ **Counted, never admitted.** 43.7% of corpus opens arrive through the
+    /// shell and 23 of 124 sessions read that way predominantly, so a memory
+    /// consulted widely BY SHELL-HEAVY SESSIONS reads as narrow — and breadth is
+    /// a count over sessions, which is exactly the axis that distorts (#1214).
+    /// Admitting them would score what the split exists not to score; hiding
+    /// them lets a bar decided by discarded evidence read as a measurement.
+    pub unproven_admissions: usize,
     /// Bytes the demotions recover.
     pub recovered: usize,
     /// Bytes the admissions are budgeted at, at [`median_entry_cost`].
@@ -273,9 +292,13 @@ pub fn propose(
     // left this half unguarded (#1234).
     let mut free: Vec<Entry> = Vec::new();
     for entry in candidates {
+        // ⚠ Would counting the unprovable opens lift it out of THIN? If so the
+        // verdict is about what was discarded, not about the record.
+        let turns_on_discarded = entry.breadth + entry.maybe_breadth > at.thin_breadth;
         let why = match entry.role {
             Some(Role::Tripwire) => Some(Held::Tripwire),
             None => Some(Held::Unjudged),
+            Some(Role::Pointer) if turns_on_discarded => Some(Held::Unproven),
             Some(Role::Pointer) if entry.frozen => Some(Held::Frozen),
             Some(Role::Pointer) => None,
         };
@@ -291,6 +314,12 @@ pub fn propose(
         .filter(|e| !stranded.contains(&e.name))
         .collect();
     trade.recovered = trade.demote.iter().map(|e| e.entry_cost).sum();
+
+    trade.unproven_admissions = entries
+        .iter()
+        .filter(|e| !e.indexed && e.breadth < at.tenure_breadth)
+        .filter(|e| e.breadth + e.maybe_breadth >= at.tenure_breadth)
+        .count();
 
     let mut admit: Vec<Entry> = entries
         .iter()

@@ -308,3 +308,64 @@ fn a_frozen_tripwire_is_held_for_its_role_not_for_the_freeze() {
         [("feedback_in_the_control_arm_and_a_tripwire", Held::Tripwire)]
     );
 }
+
+/// ⚠ **A thin verdict that DEPENDS on discarded evidence is not a verdict.**
+/// Unprovable opens — a shell read after `&&`, or inside a script with one exit
+/// status — are collected and never scored (#1214), which is right: counting
+/// them overstates the record. But when counting them would lift a memory out of
+/// THIN, the tier is an artefact of what was thrown away, and proposing a
+/// demotion on it is acting on evidence known to be incomplete.
+#[test]
+fn a_thin_verdict_that_turns_on_unprovable_opens_is_held() {
+    let at = Thresholds::default();
+    // Two proven opens is thin; five more that cannot be proved would not be.
+    let shaky = Entry {
+        maybe_breadth: 5,
+        role: Some(Role::Pointer),
+        ..housed("reference_read_mostly_by_shell", Some(0), 2)
+    };
+    assert_eq!(shaky.tier(TODAY, &at), Tier::Thin);
+    let trade = propose(&[shaky], TODAY, &at, 0, &no_strands);
+    assert!(trade.demote.is_empty());
+    assert_eq!(
+        reasons(&trade.held),
+        [("reference_read_mostly_by_shell", Held::Unproven)]
+    );
+}
+
+/// And a memory that is thin whichever way the unprovable opens fall is simply
+/// thin — otherwise the guard refuses everything and says nothing.
+#[test]
+fn unprovable_opens_that_could_not_change_the_tier_do_not_hold_it() {
+    let at = Thresholds::default();
+    let clear = Entry {
+        maybe_breadth: 0,
+        role: Some(Role::Pointer),
+        ..housed("project_quiet_either_way", Some(0), 1)
+    };
+    let trade = propose(&[clear], TODAY, &at, 0, &no_strands);
+    assert_eq!(
+        trade
+            .demote
+            .iter()
+            .map(|e| e.name.as_str())
+            .collect::<Vec<_>>(),
+        ["project_quiet_either_way"]
+    );
+}
+
+/// ⚠ **The undercount runs the other way too.** A memory just under the tenure
+/// bar whose unprovable opens would carry it over is excluded from ADMIT in
+/// silence. Counting them would invent a discount factor `docs/memory.md` warns
+/// against; saying nothing hides that the bar was decided by discarded evidence.
+/// So they are counted apart, and named.
+#[test]
+fn admission_near_misses_that_turn_on_unprovable_opens_are_counted_apart() {
+    let at = Thresholds::default();
+    let mut nearly = entry("project_reached_by_shell_heavy_sessions", Some(0), 5);
+    nearly.indexed = false;
+    nearly.maybe_breadth = 4;
+    let trade = propose(&[nearly], TODAY, &at, 0, &no_strands);
+    assert!(trade.admit.is_empty(), "5 proven is under the bar of 6");
+    assert_eq!(trade.unproven_admissions, 1);
+}
