@@ -2133,3 +2133,62 @@ fn reading_a_memory_does_not_make_the_mine_stale() {
         memview::agents::freshness("2026-08-26T23:33:31Z", &[dir.path()], None, "/home/example");
     assert!(!fresh.is_stale(), "{:?}", fresh.unseen);
 }
+
+/// ⚠ **The accumulator that decides commit authorship is order-INDEPENDENT**,
+/// and that is what makes a resumed or split scan possible: it keeps the
+/// earliest TIMESTAMP, not the first transcript walked. #1240 recorded the
+/// opposite, on a reading of the call site rather than of the rule.
+#[test]
+fn commit_authorship_merges_to_the_same_answer_in_either_order() {
+    use memview::agents::{FirstSeen, keep_earliest};
+
+    let early: FirstSeen = [(
+        "abc123".to_string(),
+        ("2026-08-01T10:00:00Z".to_string(), "memview".to_string()),
+    )]
+    .into_iter()
+    .collect();
+    let late: FirstSeen = [(
+        "abc123".to_string(),
+        ("2026-08-05T10:00:00Z".to_string(), "recall".to_string()),
+    )]
+    .into_iter()
+    .collect();
+
+    let mut one = early.clone();
+    keep_earliest(&mut one, late.clone());
+    let mut other = late;
+    keep_earliest(&mut other, early);
+
+    assert_eq!(
+        one, other,
+        "the merge must not depend on which half arrived first"
+    );
+    assert_eq!(
+        one["abc123"].1, "memview",
+        "the earliest sighting owns the commit"
+    );
+}
+
+/// A hash only one half saw is carried, not dropped — otherwise a resumed scan
+/// would lose every commit whose only mention sits in the part it skipped.
+#[test]
+fn a_sighting_only_one_half_has_survives_the_merge() {
+    use memview::agents::{FirstSeen, keep_earliest};
+
+    let mut into: FirstSeen = [(
+        "aaa".to_string(),
+        ("2026-08-01T00:00:00Z".to_string(), "memview".to_string()),
+    )]
+    .into_iter()
+    .collect();
+    let other: FirstSeen = [(
+        "bbb".to_string(),
+        ("2026-08-02T00:00:00Z".to_string(), "recall".to_string()),
+    )]
+    .into_iter()
+    .collect();
+    keep_earliest(&mut into, other);
+    assert_eq!(into.len(), 2);
+    assert_eq!(into["bbb"].1, "recall");
+}

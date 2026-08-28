@@ -1559,7 +1559,39 @@ pub fn tool_result(line: &[u8]) -> Option<(String, reader::doing::Verdict)> {
 /// A hash does not exist until the commit is made, so the earliest mention is
 /// the session that made it. Keyed by full sha; the value is the timestamp and
 /// the agent name.
-type FirstSeen = BTreeMap<String, (String, String)>;
+///
+/// ⚠ **Earliest by TIMESTAMP, not by which transcript was walked first** — so
+/// this accumulator is order-independent, and two halves of a scan can be
+/// merged with [`keep_earliest`] to the same answer the whole scan gives. That
+/// is what makes a resumed or split mine possible at all; a fold that depended
+/// on file order could not be restarted from a saved artefact (memview#1240).
+pub type FirstSeen = BTreeMap<String, (String, String)>;
+
+/// Fold one map of sightings into another, keeping the earlier sighting of each
+/// hash.
+///
+/// ⚠ **The merge IS the ordering rule**, written once so a resumed scan and a
+/// whole scan cannot disagree: both reduce to "smallest timestamp wins", and a
+/// tie keeps what was already there.
+pub fn keep_earliest(into: &mut FirstSeen, other: FirstSeen) {
+    for (sha, (stamp, who)) in other {
+        note_earliest(into, &sha, &stamp, &who);
+    }
+}
+
+/// Record one sighting, keeping whichever is earlier.
+///
+/// ⚠ **The single copy of the comparison.** The scan records sightings one line
+/// at a time and a merge records them a map at a time; writing `<=` twice is how
+/// a resumed scan would start disagreeing with a whole one over ties.
+fn note_earliest(first: &mut FirstSeen, sha: &str, stamp: &str, who: &str) {
+    match first.get(sha) {
+        Some((seen, _)) if seen.as_str() <= stamp => {}
+        _ => {
+            first.insert(sha.to_string(), (stamp.to_string(), who.to_string()));
+        }
+    }
+}
 
 /// Full hashes by their seven-character prefix, for recognising a mention.
 type ShaIndex = BTreeMap<String, Vec<String>>;
@@ -1583,12 +1615,7 @@ fn note_hashes(
         // characters — a longer mention is a stronger claim, and checking it is
         // what keeps a `git log` printing nine from matching the wrong commit.
         for sha in shas.iter().filter(|sha| sha.starts_with(candidate)) {
-            match first.get(sha) {
-                Some((seen, _)) if seen.as_str() <= stamp => {}
-                _ => {
-                    first.insert(sha.clone(), (stamp.to_string(), name.to_string()));
-                }
-            }
+            note_earliest(first, sha, stamp, name);
         }
     }
 }
