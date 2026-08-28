@@ -17,9 +17,11 @@ fn main() -> Result<()> {
         .nth(1)
         .unwrap_or_else(|| format!("{home}/.claude/projects"));
     let sessions = format!("{home}/.claude/sessions");
-    let out = std::env::args()
-        .nth(2)
-        .unwrap_or_else(|| format!("{home}/.claude/agents.json"));
+    let out = std::env::args().nth(2).unwrap_or_else(|| {
+        reader::home::file("agents.json")
+            .to_string_lossy()
+            .into_owned()
+    });
     // Overridable so the miner is not welded to one machine's layout, and so
     // nothing publishes a home directory from a public repo.
     let code_root = std::env::var("CODE_ROOT").unwrap_or_else(|_| format!("{home}/Code"));

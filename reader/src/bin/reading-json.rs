@@ -2,7 +2,8 @@
 //!
 //!     cargo run --release -p reader --bin reading-json -- <corpus.jsonl> [out.json]
 //!
-//! Defaults to `~/.claude/corpus/union.jsonl` → `~/.claude/reading.json`, which
+//! Defaults to `~/.claude/corpus/union.jsonl` → `~/.claude/memview/reading.json`,
+//! which
 //! is what the nightly runs.
 //!
 //! ⚠ **Mined rather than computed per request, and the reason is a measurement:
@@ -26,10 +27,11 @@ fn main() -> anyhow::Result<()> {
         .get(1)
         .cloned()
         .unwrap_or_else(|| format!("{home}/.claude/corpus/union.jsonl"));
-    let out = args
-        .get(2)
-        .cloned()
-        .unwrap_or_else(|| format!("{home}/.claude/reading.json"));
+    let out = args.get(2).cloned().unwrap_or_else(|| {
+        reader::home::file("reading.json")
+            .to_string_lossy()
+            .into_owned()
+    });
 
     // Epoch seconds, NOT a formatted string. `reader` is a leaf crate — see
     // `reader/tests/leaf.rs` — and carrying `chrono` so that one field arrives

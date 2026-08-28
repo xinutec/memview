@@ -32,14 +32,12 @@ const WINDOW: i64 = 28;
 const HARVEST: &str = "2026-09-11";
 
 fn main() -> Result<()> {
-    let home = std::env::var("HOME").unwrap_or_default();
     let harvest = std::env::args().any(|a| a == "--harvest");
-    let root = format!("{home}/.claude");
 
     let t = day_number(T).context("t is not a date")?;
-    let history: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!(
-        "{root}/index-history.json"
-    ))?)?;
+    let history: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(
+        reader::home::file("index-history.json"),
+    )?)?;
     let snap = |day: &str| -> Vec<String> {
         history["snapshots"][day]
             .as_array()
@@ -58,11 +56,11 @@ fn main() -> Result<()> {
     );
 
     let days: BTreeMap<String, MemoryDays> = serde_json::from_str(&std::fs::read_to_string(
-        format!("{root}/memory-days.json"),
+        reader::home::file("memory-days.json"),
     )?)?;
-    let roles: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!(
-        "{root}/memory-roles.json"
-    ))?)?;
+    let roles: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(
+        reader::home::file("memory-roles.json"),
+    )?)?;
 
     // ⚠ Opens are READS. An edit is the author touching their own file, not the
     // corpus being consulted, and counting it would let a memory look consulted

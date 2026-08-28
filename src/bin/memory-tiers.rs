@@ -16,6 +16,13 @@
 //! session. And the corpus is not memview's to hand-edit: the tools are built
 //! here, the memory session runs them.
 //!
+//! ⚠ **A stale mine is disclosed, never refused.** Ages come from
+//! `memory-created.json` and the wall clock, and nothing here is decay-weighted
+//! — breadth is a set cardinality — so an old artefact means one thing only:
+//! memories it has not seen show breadth 0, a floor that is printed and not
+//! scored. The refusal this replaced fired on one changed file and forced two
+//! ~6-minute re-mines in an afternoon (#1240).
+//!
 //! ⚠ **#884's freeze runs until 2026-09-11.** A prospective study has been
 //! running on these index lines since 2026-08-14, and the freeze is on the
 //! SPLIT: do not re-promote a treated memory, do not demote a control one.
@@ -102,48 +109,52 @@ fn main() -> Result<()> {
         .unwrap_or_else(|_| format!("{root}/projects/-Users-pippijn-Code/memory"));
 
     let corpus = Corpus::load(&memory_dir)?;
-    let mined =
-        Agents::load(std::path::Path::new(&format!("{root}/agents.json"))).with_context(|| {
-            format!("reading {root}/agents.json — mine it with: cargo run --release --bin agents")
-        })?;
+    let mined = Agents::load(&reader::home::file("agents.json")).with_context(|| {
+        format!(
+            "reading {} — mine it with: cargo run --release --bin agents",
+            reader::home::file("agents.json").display()
+        )
+    })?;
 
-    // ⚠ **Refuse rather than tier on a mine that has not seen the corpus.**
-    // Every age below is measured from `generated`, so a stale artefact does not
-    // merely omit recent memories — it moves the day every lease is counted
-    // from, and a lease is the one thing here that turns on a date. The same
-    // refusal `memory-rank` makes, for the same reason (#1210).
+    // ⚠ **Disclose a stale mine; do NOT refuse on one.** This used to exit 2,
+    // and its own comment predicted the cost: "a refusal that fires on a
+    // harmless change trains people to pass the override." On 2026-08-28 it
+    // trained the session that wrote it, twice in one afternoon, and forced two
+    // full ~6-minute re-mines to answer questions about a corpus that had
+    // changed by one file (#1240).
+    //
+    // ⚠ **The distortion it stood in for is fixed at the source instead.** Ages
+    // come from `memory-created.json` and `today` below, never from the mine —
+    // so measuring them from the mine's stamp made a week-old artefact
+    // understate every age by a week, silently. Nothing here is decay-weighted:
+    // breadth is a set cardinality with no time in it. So a stale mine now
+    // means exactly one thing, and it is a floor rather than a skew — memories
+    // it has not seen have no recorded opens, which is stated below and not
+    // scored.
     let projects = std::env::var("PROJECTS_DIR").unwrap_or_else(|_| format!("{root}/projects"));
     let freshness = mined.freshness(
         &[std::path::Path::new(&projects)],
         std::env::var("CLAUDE_CODE_SESSION_ID").ok().as_deref(),
         &home,
     );
-    if freshness.is_stale() && !args.iter().any(|a| a == "--stale-ok") {
-        eprintln!(
-            "agents.json was mined {} and {} memories were written since:",
-            freshness.generated,
-            freshness.unseen.len()
-        );
-        for path in freshness.unseen.iter().take(5) {
-            eprintln!("    {path}");
-        }
-        eprintln!(
-            "\ntiering them would measure every lease from the mine, not from now.\n\
-             re-mine:  cargo run --release --bin agents\n\
-             or pass --stale-ok to tier anyway, knowing the ages lean old."
-        );
-        std::process::exit(2);
-    }
 
-    let today = day_number(&mined.generated).unwrap_or(0);
+    // ⚠ **The wall clock, not the mine's stamp.** An age is a fact about the
+    // corpus and the calendar; the mine contributes nothing to it.
+    let now = memview::couse::stamp(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+    );
+    let today = day_number(&now).unwrap_or(0);
     let index = corpus.index_md.clone().unwrap_or_default();
     let listed: BTreeSet<String> = index_links(&index).into_iter().collect();
     let reached = reachable_without(&corpus.docs, &index, &BTreeSet::new());
 
     let created: BTreeMap<String, serde_json::Value> =
-        read_json(&format!("{root}/memory-created.json"))?;
-    let days: BTreeMap<String, MemoryDays> = read_json(&format!("{root}/memory-days.json"))?;
-    let roles: serde_json::Value = read_json(&format!("{root}/memory-roles.json"))?;
+        read_json(&reader::home::file("memory-created.json"))?;
+    let days: BTreeMap<String, MemoryDays> = read_json(&reader::home::file("memory-days.json"))?;
+    let roles: serde_json::Value = read_json(&reader::home::file("memory-roles.json"))?;
 
     // #884's two arms, which is what the freeze is on. Held together in the
     // roles file, which `demotion-study` already reads.
@@ -206,15 +217,34 @@ fn main() -> Result<()> {
         .collect();
 
     report(&corpus, &entries, &index, today, &at);
+    if !freshness.unseen.is_empty() {
+        println!(
+            "\n⚠ the mine is from {} and has not seen {} memory/memories:",
+            freshness.generated,
+            freshness.unseen.len()
+        );
+        for name in freshness.unseen.iter().take(10) {
+            println!("    {name}");
+        }
+        println!(
+            "  Their breadth reads as 0 because nothing has been mined for them yet — a floor,\n\
+             \x20 not a verdict. Ages above are measured from today and are unaffected.\n\
+             \x20 Re-mine for their opens:  cargo run --release --bin agents"
+        );
+    }
     Ok(())
 }
 
 /// An absent private file is a stop, not a default. Tiering on a missing
 /// creation record would put the whole corpus in UNDATED and read like a
 /// finding about the corpus rather than about the machine.
-fn read_json<T: serde::de::DeserializeOwned + Default>(path: &str) -> Result<T> {
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("reading {path} — a private artefact under ~/.claude"))?;
+fn read_json<T: serde::de::DeserializeOwned + Default>(path: &std::path::Path) -> Result<T> {
+    let text = std::fs::read_to_string(path).with_context(|| {
+        format!(
+            "reading {} — a private artefact under memview's own directory",
+            path.display()
+        )
+    })?;
     Ok(serde_json::from_str(&text)?)
 }
 

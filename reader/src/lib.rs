@@ -49,6 +49,7 @@
 pub mod activity;
 pub mod doing;
 pub mod effects;
+pub mod home;
 pub mod javascript;
 pub mod program;
 pub mod project;

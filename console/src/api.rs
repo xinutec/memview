@@ -90,8 +90,11 @@ pub fn router(roster: Arc<Roster>) -> Router {
 /// commands, which is a mining job, not a request. `reader --bin reading-json`
 /// writes the file and the nightly runs it.
 async fn reading() -> Result<Json<reader::reading::CorpusRead>, StatusCode> {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let path = std::env::var("READING_FILE").unwrap_or(format!("{home}/.claude/reading.json"));
+    let path = std::env::var("READING_FILE").unwrap_or(
+        reader::home::file("reading.json")
+            .to_string_lossy()
+            .into_owned(),
+    );
     // A missing artefact is a 404 the view can say "not mined yet" about, never
     // a `CorpusRead` of zeroes — those are different claims and the second is false.
     let text = std::fs::read_to_string(&path).map_err(|_| StatusCode::NOT_FOUND)?;

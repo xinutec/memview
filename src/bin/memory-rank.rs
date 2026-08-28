@@ -101,8 +101,11 @@ fn main() -> Result<()> {
     let home = std::env::var("HOME").unwrap_or_default();
     let memory_dir = std::env::var("MEMORY_DIR")
         .unwrap_or_else(|_| format!("{home}/.claude/projects/-Users-pippijn-Code/memory"));
-    let artefact =
-        std::env::var("AGENTS_FILE").unwrap_or_else(|_| format!("{home}/.claude/agents.json"));
+    let artefact = std::env::var("AGENTS_FILE").unwrap_or_else(|_| {
+        reader::home::file("agents.json")
+            .to_string_lossy()
+            .into_owned()
+    });
 
     let corpus = Corpus::load(&memory_dir)?;
     let mined = Agents::load(std::path::Path::new(&artefact)).with_context(|| {

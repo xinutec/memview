@@ -94,7 +94,7 @@ fn main() -> Result<()> {
         }
     }
 
-    let mined = Agents::load(std::path::Path::new(&format!("{root}/agents.json")));
+    let mined = Agents::load(&reader::home::file("agents.json"));
     let named = |session: &str| -> String {
         mined
             .as_ref()
