@@ -171,3 +171,95 @@ pub fn open_task_in(json: &str) -> Option<u64> {
         (open && subject.contains(MARKER)).then(|| row["id"].as_u64())?
     })
 }
+
+/// The earliest write of EVERY memory the transcripts record, not a named few.
+///
+/// ⚠ **No wanted-list, deliberately.** [`attribute`] answers "who wrote these
+/// files", which is what a lint failure needs. Rebuilding the creation record
+/// needs the other question — every memory anybody ever wrote — including ones
+/// since deleted, whose dates would otherwise be dropped by asking only about
+/// files that still exist.
+///
+/// ⚠ **The shell arm goes through the reader**, where the ad-hoc script this
+/// replaces tokenised on `>`, `tee` and `mv` and split on quotes. That guesses;
+/// `shell_files` answers. A heredoc, a `tee -a`, or a redirect glued to the
+/// word before it are all writes the string test misses.
+pub fn all_first_writes(root: &Path, memory_dir: &str, home: &str) -> BTreeMap<String, Author> {
+    let mut out: BTreeMap<String, Author> = BTreeMap::new();
+    let mut note = |name: &str, at: &str, session: &str| {
+        if out.get(name).is_none_or(|a| at < a.at.as_str()) {
+            out.insert(
+                name.to_string(),
+                Author {
+                    session: session.to_string(),
+                    at: at.to_string(),
+                },
+            );
+        }
+    };
+    let stem = |path: &str| -> Option<String> {
+        let leaf = path.rsplit_once('/')?.1;
+        let name = leaf.strip_suffix(".md")?;
+        (!name.is_empty() && path.contains(memory_dir)).then(|| name.to_string())
+    };
+
+    for path in transcripts(root) {
+        let session = path
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        for line in text.lines() {
+            // Cheap reject first: most lines mention no memory at all.
+            if !line.contains(memory_dir) {
+                continue;
+            }
+            let Ok(row) = serde_json::from_str::<serde_json::Value>(line) else {
+                continue;
+            };
+            let Some(at) = row["timestamp"].as_str() else {
+                continue;
+            };
+            let Some(content) = row["message"]["content"].as_array() else {
+                continue;
+            };
+            for item in content {
+                if item["type"] != "tool_use" {
+                    continue;
+                }
+                match item["name"].as_str() {
+                    Some("Write" | "Edit" | "MultiEdit" | "NotebookEdit") => {
+                        let path = item["input"]["file_path"]
+                            .as_str()
+                            .or_else(|| item["input"]["notebook_path"].as_str())
+                            .unwrap_or_default();
+                        if let Some(name) = stem(path) {
+                            note(&name, at, &session);
+                        }
+                    }
+                    Some("Bash") => {
+                        let Some(command) = item["input"]["command"].as_str() else {
+                            continue;
+                        };
+                        let cwd = row["cwd"].as_str().filter(|c| !c.is_empty());
+                        let Ok(parsed) = reader::project::read(command) else {
+                            continue;
+                        };
+                        for used in reader::shell_files::extract(&parsed, cwd, home).files {
+                            if used.write
+                                && let Some(name) = stem(&used.path)
+                            {
+                                note(&name, at, &session);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    out
+}

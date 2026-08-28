@@ -180,25 +180,30 @@ fn file_for(agent: &str, findings: &[&Finding]) -> Result<String> {
         run(&["task", "edit", &id, "--body", &body, "--subject", &title])?;
         return Ok(format!("refreshed #{id}"));
     }
-    // ⚠ **`--no-duplicate-check`, because this tool's idempotence is PER AGENT
-    // and the service's is global.** Every agent's lint task reads like every
-    // other agent's — same marker, same shape — so once two exist the service
-    // refuses the third and files NOTHING. Measured 2026-08-28: a real error
-    // belonging to `tasks` went unfiled because `dev-lint` and `home` already
-    // had one, which is #1235's failure reproduced by #1235's fix. The
-    // `open_task_in` check above is the guard that must hold here, and it does.
-    let out = run(&[
-        "task",
-        "add",
-        &title,
-        "--to",
-        agent,
-        "--priority",
-        "p2",
-        "--no-duplicate-check",
-        "--body",
-        &body,
-    ])?;
+    // ⚠ **Ask, then overrule — never overrule first.** This tool's idempotence is
+    // PER AGENT and the service's duplicate check is global, so every agent's
+    // lint task reads like every other agent's and the third one gets refused:
+    // measured 2026-08-28, a real error belonging to `tasks` went unfiled
+    // because `dev-lint` and `home` already had one, which is #1235's failure
+    // reproduced by #1235's fix.
+    //
+    // ⚠ But `--no-duplicate-check` is only accepted AFTER a refusal — passing it
+    // unconditionally is itself a 400 and files nothing, which is how the first
+    // version of this fix broke filing altogether. The `open_task_in` check
+    // above is what makes overruling safe here.
+    let file = |flags: &[&str]| -> Result<String> {
+        let mut argv = vec!["task", "add", &title, "--to", agent, "--priority", "p2"];
+        argv.extend_from_slice(flags);
+        argv.extend_from_slice(&["--body", &body]);
+        run(&argv)
+    };
+    let out = match file(&[]) {
+        Ok(out) => out,
+        Err(refused) if format!("{refused:#}").contains("already filed") => {
+            file(&["--no-duplicate-check"])?
+        }
+        Err(other) => return Err(other),
+    };
     Ok(out.lines().next().unwrap_or("filed").trim().to_string())
 }
 
