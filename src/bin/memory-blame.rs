@@ -180,6 +180,13 @@ fn file_for(agent: &str, findings: &[&Finding]) -> Result<String> {
         run(&["task", "edit", &id, "--body", &body, "--subject", &title])?;
         return Ok(format!("refreshed #{id}"));
     }
+    // ⚠ **`--no-duplicate-check`, because this tool's idempotence is PER AGENT
+    // and the service's is global.** Every agent's lint task reads like every
+    // other agent's — same marker, same shape — so once two exist the service
+    // refuses the third and files NOTHING. Measured 2026-08-28: a real error
+    // belonging to `tasks` went unfiled because `dev-lint` and `home` already
+    // had one, which is #1235's failure reproduced by #1235's fix. The
+    // `open_task_in` check above is the guard that must hold here, and it does.
     let out = run(&[
         "task",
         "add",
@@ -188,6 +195,7 @@ fn file_for(agent: &str, findings: &[&Finding]) -> Result<String> {
         agent,
         "--priority",
         "p2",
+        "--no-duplicate-check",
         "--body",
         &body,
     ])?;
