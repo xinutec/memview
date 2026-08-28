@@ -38,6 +38,19 @@ fn main() -> Result<()> {
         .unwrap_or_else(|_| format!("{root}/projects/-Users-pippijn-Code/memory"));
     let projects = std::env::var("PROJECTS_DIR").unwrap_or_else(|_| format!("{root}/projects"));
 
+    // ⚠ **Ask whether it can file BEFORE doing the work, not after.** `task`
+    // refuses without an identity — the nightly runs under launchd, where
+    // neither `CLAUDE_CODE_SESSION_ID` nor a terminal exists, so it needs
+    // `TASKS_SESSION` set. Discovering that per agent, after a transcript scan
+    // that reads gigabytes, prints a row of "not filed" into a log nobody is
+    // watching — which is this ticket's own failure, one layer down.
+    if file {
+        run(&["task", "list", "--json"]).context(
+            "cannot file: `task` needs an identity. Set TASKS_SESSION=<name> \
+             (the nightly files as itself) or pass --session",
+        )?;
+    }
+
     let corpus = Corpus::load(&memory_dir)?;
     let findings: Vec<Finding> = lint::check(&corpus, None)
         .into_iter()
