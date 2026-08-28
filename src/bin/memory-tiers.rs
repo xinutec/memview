@@ -35,14 +35,20 @@
 //! floor. `maybe` beside a row is the agents whose only evidence is a shell read
 //! after `&&` or inside a script with one exit status.
 //!
-//! ⚠ **The teaser paradox is NOT corrected for, and must not be corrected for
-//! by prefix.** For the best entries the index line IS the memory — read from
-//! the teaser, file never opened — so breadth under-measures them. `memory-rank`
-//! holds `feedback_`/`user_` names apart for this reason, and #884's finding is
-//! that the prefix is the wrong classifier: `reference_` is mostly tripwires.
-//! So this reads the role from `memory-roles.json` where #884 has judged one and
-//! prints it beside the row, rather than building a second tool on the classifier
-//! the first study exists to replace.
+//! ⚠ **The teaser paradox decides the demote half, and by ROLE, never by name
+//! prefix.** For the best entries the index line IS the memory — read from the
+//! teaser, file never opened — so breadth under-measures exactly the rules doing
+//! their job. `Tier::Thin` is breadth-derived, so a demotion filter that reads
+//! only the tier selects those entries first. `memory-rank` holds them back by a
+//! `feedback_`/`user_` prefix test; #884's finding is that the prefix is the
+//! wrong classifier, since `reference_` is mostly tripwires.
+//!
+//! So a demotion is proposed only for a memory `memory-roles.json` judges a
+//! POINTER. A tripwire is held because demoting it deletes the only place it
+//! fires; an unjudged memory is held because an absent judgement is not a
+//! pointer. Dropping the prefix test without putting this in its place is what
+//! left the half unguarded, and only #884's freeze stopped it reaching a
+//! proposal (#1234).
 //!
 //! Reads four private files under `~/.claude` — memory NAMES are private and
 //! none of them may ever be committed to this public repo.
@@ -52,7 +58,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use anyhow::{Context, Result};
 use memview::agents::{Agents, MemoryDays, day_number};
 use memview::store::{Corpus, homes_for, index_entry_cost, index_links, reachable_without};
-use memview::tiers::{Entry, Role, Thresholds, census, expired, median_entry_cost, propose};
+use memview::tiers::{
+    Entry, Held, HeldEntry, Role, Thresholds, census, expired, median_entry_cost, propose,
+};
 
 /// The size the root is truncated at, from Claude Code's own warning text —
 /// "approaching the 24.4KB read limit". Past it the root is cut from the bottom
@@ -341,12 +349,42 @@ fn report(corpus: &Corpus, entries: &[Entry], index: &str, today: i64, at: &Thre
 
     if !trade.held.is_empty() {
         println!(
-            "\n  ⚠ HELD until {HARVEST} — {} qualify on the evidence and are in #884's arms.",
+            "\n  ⚠ HELD — {} qualify on opens and must not be demoted anyway.",
             trade.held.len()
         );
-        println!("  Demoting a control entry perturbs a series that has run since 2026-08-14.");
-        for entry in trade.held.iter().take(10) {
-            println!("    {:<52} {:>3} agents", entry.name, entry.breadth);
+        for (why, note) in [
+            (
+                Held::Tripwire,
+                "the line IS the memory — demoting one deletes the only place it fires",
+            ),
+            (
+                Held::Unjudged,
+                "#884 has not judged these, and unjudged is not pointer",
+            ),
+            (
+                Held::Frozen,
+                "pointers, but in #884's arms — actionable after {HARVEST}",
+            ),
+        ] {
+            let group: Vec<&HeldEntry> = trade.held.iter().filter(|h| h.why == why).collect();
+            if group.is_empty() {
+                continue;
+            }
+            println!(
+                "\n    {:?} — {} of them: {}",
+                why,
+                group.len(),
+                note.replace("{HARVEST}", HARVEST)
+            );
+            for held in group.iter().take(10) {
+                println!(
+                    "      {:<50} {:>3} agents  {:>4} b",
+                    held.entry.name, held.entry.breadth, held.entry.entry_cost
+                );
+            }
+            if group.len() > 10 {
+                println!("      … and {} more", group.len() - 10);
+            }
         }
     }
 

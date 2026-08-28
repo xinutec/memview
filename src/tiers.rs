@@ -171,6 +171,35 @@ pub fn median_entry_cost(entries: &[Entry]) -> usize {
     costs[costs.len() / 2]
 }
 
+/// Why a demotion the evidence would offer is not being offered.
+///
+/// ⚠ **Checked in this order, and the order is load-bearing.** The freeze lifts
+/// on 2026-09-11; a tripwire's reason never does. Reporting the freeze for an
+/// entry that is also a tripwire would make it read as demotable the day after
+/// the harvest, which moves the failure by a fortnight rather than fixing it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Held {
+    /// The line IS the memory: it fires from the index and the file is never
+    /// opened, so a low open count is what SUCCESS looks like. Demoting one
+    /// deletes the only place it fires.
+    Tripwire,
+    /// #884 has judged part of the corpus, not all of it. An absent judgement is
+    /// not a pointer — assuming so is a check that passes for the wrong reason,
+    /// and it fails toward deleting a rule that fires from its line.
+    Unjudged,
+    /// #884's freeze covers it. The freeze is on the SPLIT — do not re-promote a
+    /// treated memory, do not demote a control one — so acting on it perturbs a
+    /// series that has run since 2026-08-14.
+    Frozen,
+}
+
+/// A demotion the evidence supports and something else forbids.
+#[derive(Debug, Clone)]
+pub struct HeldEntry {
+    pub entry: Entry,
+    pub why: Held,
+}
+
 /// A proposed exchange: what would join the root, what would leave it, and
 /// whether the root is smaller afterwards.
 #[derive(Debug, Clone, Default)]
@@ -185,16 +214,15 @@ pub struct Trade {
     pub admit: Vec<Entry>,
     /// How many of `admit`, from the front, the budget actually covers.
     pub affordable: usize,
-    /// Indexed, thin, and already linked from somewhere live.
+    /// Indexed, thin, housed, and judged a POINTER — the only role a demotion
+    /// may be proposed for.
     pub demote: Vec<Entry>,
-    /// Would qualify on the evidence, but #884's freeze covers them until the
-    /// harvest.
+    /// Would qualify on opens, and must not be demoted anyway. See [`Held`].
     ///
-    /// ⚠ **Held, not dropped.** The freeze is on the SPLIT — do not re-promote
-    /// a treated memory, do not demote a control one — so acting on these
-    /// perturbs a series that has been running since 2026-08-14. Showing them
-    /// separately is what lets the proposal be read now and applied after.
-    pub held: Vec<Entry>,
+    /// ⚠ **Held, not dropped.** A tool that silently drops these reports
+    /// "nothing to demote" when the truth is "everything that qualified was
+    /// disqualified for a reason" — and the reason is the finding.
+    pub held: Vec<HeldEntry>,
     /// Bytes the demotions recover.
     pub recovered: usize,
     /// Bytes the admissions are budgeted at, at [`median_entry_cost`].
@@ -230,20 +258,38 @@ pub fn propose(
 ) -> Trade {
     let mut trade = Trade::default();
 
-    let mut demote: Vec<Entry> = entries
+    let mut candidates: Vec<Entry> = entries
         .iter()
         .filter(|e| e.indexed && e.tier(today, at) == Tier::Thin && !e.homes.is_empty())
         .cloned()
         .collect();
-    demote.sort_by(|a, b| a.breadth.cmp(&b.breadth).then(a.name.cmp(&b.name)));
+    candidates.sort_by(|a, b| a.breadth.cmp(&b.breadth).then(a.name.cmp(&b.name)));
 
-    let (held, free): (Vec<Entry>, Vec<Entry>) = demote.into_iter().partition(|e| e.frozen);
+    // ⚠ **The tier alone must never select a demotion.** `Tier::Thin` is derived
+    // from breadth, and for a tripwire a low open count is what success looks
+    // like — so filtering on the tier picks out the entries doing their job
+    // best. `memory-rank` held these back by name prefix; #884 showed the prefix
+    // is the wrong classifier, and dropping it without a replacement is what
+    // left this half unguarded (#1234).
+    let mut free: Vec<Entry> = Vec::new();
+    for entry in candidates {
+        let why = match entry.role {
+            Some(Role::Tripwire) => Some(Held::Tripwire),
+            None => Some(Held::Unjudged),
+            Some(Role::Pointer) if entry.frozen => Some(Held::Frozen),
+            Some(Role::Pointer) => None,
+        };
+        match why {
+            Some(why) => trade.held.push(HeldEntry { entry, why }),
+            None => free.push(entry),
+        }
+    }
+
     let stranded = strands(&free);
     trade.demote = free
         .into_iter()
         .filter(|e| !stranded.contains(&e.name))
         .collect();
-    trade.held = held;
     trade.recovered = trade.demote.iter().map(|e| e.entry_cost).sum();
 
     let mut admit: Vec<Entry> = entries

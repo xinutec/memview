@@ -1,6 +1,8 @@
 //! What the tiering must get right about the root's two populations (#1210).
 
-use memview::tiers::{Entry, Thresholds, Tier, census, expired, median_entry_cost, propose};
+use memview::tiers::{
+    Entry, Held, HeldEntry, Role, Thresholds, Tier, census, expired, median_entry_cost, propose,
+};
 
 /// Day 100 is "now" in every test here, so an age is `100 - created`.
 const TODAY: i64 = 100;
@@ -16,15 +18,25 @@ fn entry(name: &str, created: Option<i64>, breadth: usize) -> Entry {
     }
 }
 
+/// The ordinary demotable fixture: thin, housed, and judged a POINTER — which
+/// is the only role a demotion may be proposed for. Tests that care about the
+/// other roles override it.
 fn housed(name: &str, created: Option<i64>, breadth: usize) -> Entry {
     Entry {
         homes: vec!["some_hub".to_string()],
+        role: Some(Role::Pointer),
         ..entry(name, created, breadth)
     }
 }
 
 fn no_strands(_: &[Entry]) -> Vec<String> {
     Vec::new()
+}
+
+fn reasons(held: &[HeldEntry]) -> Vec<(&str, Held)> {
+    held.iter()
+        .map(|h| (h.entry.name.as_str(), h.why))
+        .collect()
 }
 
 #[test]
@@ -174,11 +186,11 @@ fn a_pair_that_houses_only_each_other_is_dropped_from_the_set() {
     let entries = vec![
         Entry {
             homes: vec!["b".to_string()],
-            ..entry("a", Some(0), 0)
+            ..housed("a", Some(0), 0)
         },
         Entry {
             homes: vec!["a".to_string()],
-            ..entry("b", Some(0), 0)
+            ..housed("b", Some(0), 0)
         },
     ];
     let both_strand = |set: &[Entry]| set.iter().map(|e| e.name.clone()).collect::<Vec<_>>();
@@ -199,12 +211,8 @@ fn a_frozen_entry_is_held_apart_rather_than_dropped_or_demoted() {
     let trade = propose(&[frozen], TODAY, &at, 0, &no_strands);
     assert!(trade.demote.is_empty(), "the freeze forbids acting on it");
     assert_eq!(
-        trade
-            .held
-            .iter()
-            .map(|e| e.name.as_str())
-            .collect::<Vec<_>>(),
-        ["in_the_control_arm"],
+        reasons(&trade.held),
+        [("in_the_control_arm", Held::Frozen)],
         "but it must still be visible, or the proposal is silently short"
     );
     assert_eq!(trade.recovered, 0, "held bytes are not recovered bytes");
@@ -220,4 +228,83 @@ fn unprovable_opens_do_not_buy_tenure() {
         ..entry("read_only_after_an_and", Some(0), 0)
     };
     assert_eq!(unproven.tier(TODAY, &at), Tier::Thin);
+}
+
+/// ⚠ **A tripwire's low open count is what SUCCESS looks like** — it fires from
+/// the index line and the file is never opened. `Tier::Thin` is breadth-derived,
+/// so a demote filter that reads only the tier selects exactly the entries doing
+/// their job best. `memory-rank` held these back by name prefix; #884 showed the
+/// prefix is the wrong classifier, and dropping it without a replacement left
+/// this half unguarded (#1234).
+#[test]
+fn a_tripwire_is_never_offered_for_demotion() {
+    let at = Thresholds::default();
+    let trip = Entry {
+        role: Some(Role::Tripwire),
+        ..housed("feedback_fires_from_the_line", Some(0), 0)
+    };
+    let trade = propose(&[trip], TODAY, &at, 0, &no_strands);
+    assert!(trade.demote.is_empty());
+    assert_eq!(
+        reasons(&trade.held),
+        [("feedback_fires_from_the_line", Held::Tripwire)]
+    );
+}
+
+/// ⚠ **Unjudged is not "pointer".** #884 has classified some of the corpus, not
+/// all of it. Treating an absent judgement as a demotable pointer is a check
+/// that passes for the wrong reason, and it fails toward deleting the only place
+/// a rule fires.
+#[test]
+fn an_entry_with_no_role_judgement_is_held_rather_than_assumed_a_pointer() {
+    let at = Thresholds::default();
+    let unknown = Entry {
+        role: None,
+        ..housed("nobody_has_judged_this", Some(0), 0)
+    };
+    let trade = propose(&[unknown], TODAY, &at, 0, &no_strands);
+    assert!(trade.demote.is_empty());
+    assert_eq!(
+        reasons(&trade.held),
+        [("nobody_has_judged_this", Held::Unjudged)]
+    );
+}
+
+/// The demotable case, so the guard above is not simply refusing everything.
+#[test]
+fn a_thin_housed_pointer_is_demotable() {
+    let at = Thresholds::default();
+    let ptr = Entry {
+        role: Some(Role::Pointer),
+        ..housed("project_findable_when_wanted", Some(0), 0)
+    };
+    let trade = propose(&[ptr], TODAY, &at, 0, &no_strands);
+    assert_eq!(
+        trade
+            .demote
+            .iter()
+            .map(|e| e.name.as_str())
+            .collect::<Vec<_>>(),
+        ["project_findable_when_wanted"]
+    );
+    assert_eq!(trade.recovered, 40);
+}
+
+/// ⚠ **Role before freeze, and the order is the point.** The freeze lifts on
+/// 2026-09-11; being a tripwire does not. Reporting the freeze as the reason
+/// would make this read as demotable the day after the harvest — which is the
+/// failure #1234 describes, moved by a fortnight rather than fixed.
+#[test]
+fn a_frozen_tripwire_is_held_for_its_role_not_for_the_freeze() {
+    let at = Thresholds::default();
+    let both = Entry {
+        role: Some(Role::Tripwire),
+        frozen: true,
+        ..housed("feedback_in_the_control_arm_and_a_tripwire", Some(0), 0)
+    };
+    let trade = propose(&[both], TODAY, &at, 0, &no_strands);
+    assert_eq!(
+        reasons(&trade.held),
+        [("feedback_in_the_control_arm_and_a_tripwire", Held::Tripwire)]
+    );
 }
