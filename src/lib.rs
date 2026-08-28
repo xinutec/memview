@@ -10,6 +10,7 @@ pub mod agents;
 pub mod atomic;
 pub mod bash_corpus;
 pub mod blame;
+pub mod cites;
 pub mod commits;
 pub mod config;
 pub mod couse;
