@@ -23,17 +23,11 @@
 //! file (memview #1047: three authors in three hours, each invisible to itself
 //! and each blocking somebody else).
 
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use memview::atomic;
-
-/// Who wrote a memory, and when — recovered from one transcript line.
-struct Author {
-    session: String,
-    at: String,
-}
+use memview::blame::{Author, attribute};
 
 fn main() -> Result<()> {
     let home = std::env::var("HOME").unwrap_or_default();
@@ -51,7 +45,13 @@ fn main() -> Result<()> {
     }
     println!("{} unstamped:", wanted.len());
 
-    let found = attribute(Path::new(&root), &wanted, &home);
+    // `attribute` asks by file NAME, since a transcript records the path the
+    // writing session used and not this one's.
+    let names: Vec<String> = wanted
+        .iter()
+        .map(|p| p.file_name().unwrap_or_default().to_string_lossy().into())
+        .collect();
+    let found = attribute(Path::new(&root), &names, &home);
     for path in &wanted {
         let name = path.file_name().unwrap_or_default().to_string_lossy();
         match found.get(name.as_ref()) {
@@ -98,95 +98,6 @@ fn unstamped(dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(out)
 }
 
-/// Which session wrote each wanted file, from the transcripts.
-///
-/// ⚠ **A mention is not a write.** Every session that ever grepped for a memory
-/// names it, and this session names all of #1047's while diagnosing them. The
-/// filename must be a `file_path` on a writing tool, or a file the *reader* says
-/// the command wrote — never merely somewhere in the text.
-///
-/// Checked against six memories with known authors, all six right: the three of
-/// #1047, one written here, and two whose answer came from frontmatter this
-/// session never touched. The sharpest of them is
-/// `reference_claude_archive_backup`, which this session READ on the day of the
-/// check and which still attributes to `home` in July.
-fn attribute(root: &Path, wanted: &[PathBuf], home: &str) -> BTreeMap<String, Author> {
-    let names: Vec<String> = wanted
-        .iter()
-        .map(|p| p.file_name().unwrap_or_default().to_string_lossy().into())
-        .collect();
-    let mut out: BTreeMap<String, Author> = BTreeMap::new();
-    for path in transcripts(root) {
-        let session = path
-            .file_stem()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        for line in text.lines() {
-            let hit = names.iter().find(|n| line.contains(n.as_str()));
-            let Some(name) = hit else { continue };
-            let Ok(row) = serde_json::from_str::<serde_json::Value>(line) else {
-                continue;
-            };
-            let Some(at) = row["timestamp"].as_str() else {
-                continue;
-            };
-            let Some(content) = row["message"]["content"].as_array() else {
-                continue;
-            };
-            for item in content {
-                if item["type"] != "tool_use" {
-                    continue;
-                }
-                let wrote = match item["name"].as_str() {
-                    Some("Write" | "Edit" | "MultiEdit" | "NotebookEdit") => {
-                        item["input"]["file_path"]
-                            .as_str()
-                            .is_some_and(|p| p.ends_with(name.as_str()))
-                    }
-                    Some("Bash") => item["input"]["command"].as_str().is_some_and(|c| {
-                        writes(c, row["cwd"].as_str().filter(|c| !c.is_empty()), home, name)
-                    }),
-                    _ => false,
-                };
-                // The EARLIEST write is the creation; later ones are edits, and
-                // `originSessionId` means who wrote it first.
-                if wrote && out.get(name.as_str()).is_none_or(|a| at < a.at.as_str()) {
-                    out.insert(
-                        name.clone(),
-                        Author {
-                            session: session.clone(),
-                            at: at.to_string(),
-                        },
-                    );
-                }
-            }
-        }
-    }
-    out
-}
-
-/// Does `command` WRITE `name`, rather than just mentioning it?
-///
-/// ⚠ **Asked of the reader rather than of the text.** A scan for `>` followed by
-/// the filename gets the common case and then argues with the shell about every
-/// other one — `tee`, a heredoc inside `bash -c`, a redirect glued to the word
-/// before it. `shell_files` already answers "which files did this command
-/// write", and using it here means this tool cannot drift from the reader the
-/// rest of the repo trusts.
-fn writes(command: &str, cwd: Option<&str>, home: &str, name: &str) -> bool {
-    let Ok(parsed) = reader::project::read(command) else {
-        return false;
-    };
-    reader::shell_files::extract(&parsed, cwd, home)
-        .files
-        .iter()
-        .any(|used| used.write && used.path.ends_with(name))
-}
-
 /// Write both fields under the existing `metadata:` block.
 fn stamp(path: &Path, session: &str, at: &str) -> Result<()> {
     let text = std::fs::read_to_string(path)?;
@@ -209,24 +120,4 @@ fn stamp(path: &Path, session: &str, at: &str) -> Result<()> {
     // and by every session at once — see `reference_write_then_rename_or_the_reader_sees_half`.
     atomic::write(path, out.as_bytes())?;
     Ok(())
-}
-
-/// Every `.jsonl` under the projects root, main-loop and delegated alike.
-fn transcripts(root: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                stack.push(path);
-            } else if path.extension().is_some_and(|e| e == "jsonl") {
-                out.push(path);
-            }
-        }
-    }
-    out
 }
