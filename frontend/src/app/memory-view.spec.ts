@@ -16,6 +16,7 @@ function page(extra: Partial<MemoryPage> = {}): MemoryPage {
     description: '',
     mtype: 'project',
     modified: null,
+    created: null,
     html: '<p>Body.</p>',
     backlinks: [],
     outlinks: [],

@@ -14,6 +14,7 @@ pub mod cites;
 pub mod commits;
 pub mod config;
 pub mod couse;
+pub mod dates;
 pub mod error;
 pub mod lint;
 pub mod nextcloud;

@@ -189,13 +189,27 @@ fn main() -> Result<()> {
                 }
             }
             Entry {
-                // ⚠ `get`, not `[]`. 27 memories have no recovered creation
-                // date, and indexing a map by a missing key panics — turning a
+                // ⚠ **The memory's own frontmatter first, the sidecar only
+                // as a fallback.** `memory-dated` writes `created:` into each
+                // file, which is the versioned copy; once every memory carries
+                // one the sidecar is a cache of what the corpus already says and
+                // can go (#1240). Until then a memory written before that pass
+                // still needs it.
+                //
+                // ⚠ `get`, not `[]`. Memories no transcript dates have no entry
+                // at all, and indexing a map by a missing key panics — turning a
                 // known DETECTION gap into a crash on the whole report.
-                created: created
+                created: corpus
+                    .docs
                     .get(name)
-                    .and_then(|v| v["first"].as_str())
-                    .and_then(day_number),
+                    .and_then(|doc| doc.meta.created)
+                    .map(|at| at.timestamp() / 86_400)
+                    .or_else(|| {
+                        created
+                            .get(name)
+                            .and_then(|v| v["first"].as_str())
+                            .and_then(day_number)
+                    }),
                 breadth,
                 maybe_breadth,
                 last_open: days

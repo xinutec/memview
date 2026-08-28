@@ -200,6 +200,7 @@ describe('SearchView — who works on this', () => {
             description: '<code>code/kubes/dhall/</code> models the fleet',
             mtype: 'project',
             modified: null,
+            created: null,
             snippet: '…<strong>How to apply:</strong> for new automation',
             score: 1,
           },

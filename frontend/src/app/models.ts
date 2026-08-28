@@ -13,6 +13,11 @@ export interface MemoryMeta {
   /** user | feedback | project | reference (free-form fallback). */
   mtype: string;
   modified: string | null;
+  /**
+   * When the memory was first written — recovered from the transcripts by
+   * `memory-dated`, so absent on one no surviving transcript records.
+   */
+  created: string | null;
 }
 
 /**

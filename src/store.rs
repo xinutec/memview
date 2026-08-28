@@ -38,6 +38,16 @@ struct FrontmatterMeta {
     /// `memory-stamp` exists to maintain it, so it is the corpus's own record
     /// and the viewer had no business preferring the filesystem's (#1219).
     modified: Option<String>,
+    /// When the memory was first written.
+    ///
+    /// ⚠ **Recovered, not observed, and the recovery gets less complete every
+    /// day.** It exists nowhere but the transcripts — this repo's history begins
+    /// 2026-08-14 and Claude Code prunes its own sessions — so `memory-dated`
+    /// writes it here while the evidence lasts. Absent on a memory no surviving
+    /// transcript records, which is a DETECTION gap and not a memory without a
+    /// beginning; nothing falls back to an mtime, which records a touch and is
+    /// wrong by a median of 9.9 days across this corpus.
+    created: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -66,6 +76,9 @@ pub struct MemoryMeta {
     /// back to the filename prefix).
     pub mtype: String,
     pub modified: Option<DateTime<Utc>>,
+    /// When it was first written, if a transcript still said so when
+    /// `memory-dated` ran. See [`FrontmatterMeta::created`].
+    pub created: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug)]
@@ -162,6 +175,15 @@ impl Corpus {
                         .and_then(|m| m.modified().ok())
                         .map(DateTime::<Utc>::from)
                 });
+            // ⚠ **No mtime fallback here, unlike `modified` above.** An mtime
+            // is the last touch, which for a creation date is not a worse
+            // answer but a different fact — and a wrong date that looks present
+            // is worse than an absent one, because nothing goes looking for it.
+            let created = meta
+                .created
+                .as_deref()
+                .and_then(|stamp| DateTime::parse_from_rfc3339(stamp).ok())
+                .map(|stamp| stamp.with_timezone(&Utc));
             // Canonical id is the filename stem; frontmatter `name` normally
             // agrees and is not trusted to (a mismatch shouldn't hide a file).
             docs.insert(
@@ -172,6 +194,7 @@ impl Corpus {
                         description: fm.description.unwrap_or_default(),
                         mtype,
                         modified,
+                        created,
                     },
                     body: body.to_string(),
                     raw: text.clone(),
