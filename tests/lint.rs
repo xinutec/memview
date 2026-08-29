@@ -281,3 +281,69 @@ fn a_memory_that_does_not_quote_the_figure_is_untouched() {
     let found = corpus_with_retraction(dir.path(), "An unrelated claim entirely.");
     assert!(findings(&found, "quotes-a-retracted-figure").is_empty());
 }
+
+// ── The injection ceiling, as a check rather than as prose (#822) ────────────
+
+fn all_findings(corpus: &Corpus, rule: &str) -> Vec<memview::lint::Finding> {
+    check(corpus, None)
+        .into_iter()
+        .filter(|f| f.rule == rule)
+        .collect()
+}
+
+/// ⚠ **The rule exists because prose did not work.** "A new line is paid for by
+/// demoting a finished one" has been in `MEMORY.md`'s own header — injected into
+/// every session, every turn — for weeks, and the root grew past the ceiling
+/// anyway. A budget that is only ever asked for is not a budget.
+#[test]
+fn an_index_past_the_ceiling_is_reported() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let filler = "x".repeat(memview::lint::INDEX_CEILING + 1);
+    let found = all_findings(
+        &corpus(
+            dir.path(),
+            &format!("# Memory index\n- [hub](project_hub.md)\n{filler}\n"),
+            &[("project_hub", "body")],
+        ),
+        "index-over-ceiling",
+    );
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].detail.contains("over"), "{:?}", found[0].detail);
+}
+
+#[test]
+fn an_index_under_the_ceiling_is_silent() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let found = all_findings(
+        &corpus(
+            dir.path(),
+            "# Memory index\n- [hub](project_hub.md)\n",
+            &[("project_hub", "body")],
+        ),
+        "index-over-ceiling",
+    );
+    assert!(found.is_empty(), "{found:?}");
+}
+
+/// ⚠ **It must stay a WARNING until the corpus reaches zero, and this test is
+/// the thing that says so.** `claude-sync` sets `corpus_ok=false` on any lint
+/// ERROR and withholds the entire corpus from its history — so promoting this
+/// while the root is over would not tighten the budget, it would stop every
+/// memory being committed at all. A gate that can never go green is not a
+/// signal; that is how memview's own gate became unpassable (#1062). Promote it
+/// in a one-word edit once the root is under, and delete this test in the same
+/// edit rather than around it.
+#[test]
+fn the_ceiling_rule_is_a_warning_while_the_corpus_is_over_it() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let filler = "x".repeat(memview::lint::INDEX_CEILING + 1);
+    let found = all_findings(
+        &corpus(
+            dir.path(),
+            &format!("# Memory index\n- [hub](project_hub.md)\n{filler}\n"),
+            &[("project_hub", "body")],
+        ),
+        "index-over-ceiling",
+    );
+    assert_eq!(found[0].severity, Severity::Warning);
+}

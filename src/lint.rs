@@ -52,6 +52,18 @@ pub struct Finding {
     pub detail: String,
 }
 
+/// The size `MEMORY.md` is truncated at when injected, from Claude Code's own
+/// warning text.
+///
+/// ⚠ **Deliberately the LOW reading of an ambiguous figure**, and the same
+/// number `memory-tiers` administers the trade by: 24.4 KB is either 24,400 or
+/// 24,985 bytes, and guessing high costs a silent truncation while guessing low
+/// costs a few hundred bytes of headroom. The observed edge is wider still and
+/// has never been pinned — a root of about 25 KB arrived whole, one of 27,382
+/// bytes lost its last forty entries. So this is where a warning is worth
+/// raising, not where the cliff is.
+pub const INDEX_CEILING: usize = 24_400;
+
 /// Every rule, with the severity it currently carries.
 ///
 /// Listed in one place rather than beside each check so that the promotion of a
@@ -166,6 +178,26 @@ const RULES: &[(&str, Severity, &str)] = &[
         "index-points-nowhere",
         Severity::Error,
         "MEMORY.md links a file that does not exist",
+    ),
+    (
+        "index-over-ceiling",
+        // ⚠ **A WARNING, and it must stay one until the corpus reaches zero.**
+        // The root is over the line today, so shipping this at error would make
+        // the nightly memory commit unpassable — `claude-sync` sets
+        // `corpus_ok=false` on any lint error and withholds the whole corpus
+        // from its history. A gate that can never go green is not a signal; it
+        // is how memview's own gate became unpassable (#1062). Promote it in a
+        // one-word edit once the root is under, and not before.
+        //
+        // ⚠ **Why this is a LINT and not a line in `MEMORY.md`'s header.** The
+        // rule — a new line is paid for by demoting a finished one — has been
+        // written in that header for weeks, injected into every session, and the
+        // root has grown past the ceiling anyway. Prose asking a writer to
+        // budget does not budget; it spends the scarcest bytes in the corpus
+        // restating a constraint nothing enforces. This is the same constraint
+        // where it can actually bind (#822).
+        Severity::Warning,
+        "MEMORY.md is past the injection ceiling — the bottom is silently truncated and no session can tell",
     ),
     (
         "dangling-link",
@@ -459,6 +491,22 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
         // with its demotions struck out. One invariant, one implementation: the
         // second copy of this walk is what let that tool grow a one-at-a-time
         // signature and recommend a set that stranded a pair (#869).
+        // ⚠ **Bytes, not entries, and measured on the file as injected.** The
+        // truncation is a byte limit, so an index of few long lines fails where
+        // one of many short lines passes. The ceiling itself is a warning line
+        // rather than a measured edge — see `memory-tiers`, which owns the
+        // number and explains why it is guessed low.
+        let size = index.len();
+        if size > INDEX_CEILING {
+            push(
+                "index-over-ceiling",
+                "MEMORY.md",
+                format!(
+                    "{size} bytes, {} over — the last entries reach no session",
+                    size - INDEX_CEILING
+                ),
+            );
+        }
         let reached = reachable_without(&corpus.docs, index, &BTreeSet::new());
         for name in corpus.docs.keys() {
             if !reached.contains(name) {
