@@ -15,6 +15,7 @@ pub mod config;
 pub mod couse;
 pub mod dates;
 pub mod error;
+pub mod index_history;
 pub mod lint;
 pub mod nextcloud;
 pub mod rank;
