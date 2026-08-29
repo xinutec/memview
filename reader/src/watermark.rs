@@ -19,6 +19,7 @@
 //! exactly the lines a full scan sees, in the same order. Parity needs no
 //! carried set of ids.
 
+use std::collections::BTreeMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
@@ -163,4 +164,89 @@ pub fn drift(path: &Path, mark: &Watermark) -> Drift {
         Some(_) => Drift::Rewritten,
         None => Drift::Unknown,
     }
+}
+
+/// What a run may do, given what it read last time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Plan {
+    /// Read every transcript whole and DISCARD the carried artefacts.
+    ///
+    /// ⚠ **All-or-nothing, and that is forced by the artefacts rather than
+    /// chosen.** Their rows carry no per-transcript provenance, so one file that
+    /// cannot be resumed cannot have its old contribution subtracted — it would
+    /// be counted once from the carried artefact and again from the re-read. A
+    /// full re-mine is the only sound answer, and it is cheap because it is
+    /// rare: `transcript-drift` has reported "no prefix moved" run after run.
+    Full { because: String },
+    /// Keep the carried artefacts and read only what is listed.
+    Resume {
+        /// Transcripts that grew, and where to start in each.
+        tails: BTreeMap<String, Resume>,
+        /// Transcripts nothing has read before — new since the last run, so they
+        /// are read whole WITHOUT invalidating anything carried.
+        whole: Vec<String>,
+        /// Transcripts the last run saw and that are gone now.
+        ///
+        /// ⚠ **Carried, not a reason to re-mine.** A vanished transcript's rows
+        /// are history and stay; `carry_forward` already treats memory-days this
+        /// way deliberately. Forcing a full re-mine on one would mean a full
+        /// re-mine most days — 343 transcripts disappeared in 22 days, nearly
+        /// all of them `/private/tmp` scratch — which is the whole saving, gone
+        /// for bookkeeping.
+        gone: Vec<String>,
+    },
+}
+
+/// Decide what this run may do.
+///
+/// `marks` is what the last run recorded; `present` is what is on disk now.
+///
+/// ⚠ **Fails CLOSED.** Anything not provably an append — a rewritten prefix, a
+/// file shorter than it was, a file that cannot be read — returns [`Plan::Full`]
+/// with the reason, because a wrong resume produces no error at all: it mines
+/// from an offset that means something else and the artefact simply becomes
+/// quietly untrue.
+pub fn plan(marks: &BTreeMap<String, Resume>, present: &[std::path::PathBuf]) -> Plan {
+    let mut tails = BTreeMap::new();
+    let mut whole = Vec::new();
+    let here: std::collections::BTreeSet<String> = present
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+
+    for path in present {
+        let key = path.to_string_lossy().into_owned();
+        let Some(held) = marks.get(&key) else {
+            whole.push(key);
+            continue;
+        };
+        match drift(path, &held.mark) {
+            Drift::Unchanged => {}
+            Drift::Grew { .. } => {
+                tails.insert(key, held.clone());
+            }
+            Drift::Rewritten => {
+                return Plan::Full {
+                    because: format!("{key} was rewritten before its recorded offset"),
+                };
+            }
+            Drift::Shrank => {
+                return Plan::Full {
+                    because: format!("{key} is shorter than it was"),
+                };
+            }
+            Drift::Unknown => {
+                return Plan::Full {
+                    because: format!("{key} could not be read"),
+                };
+            }
+        }
+    }
+
+    let gone = marks
+        .keys()
+        .filter(|key| !here.contains(*key))
+        .cloned()
+        .collect();
+    Plan::Resume { tails, whole, gone }
 }

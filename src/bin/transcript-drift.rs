@@ -70,6 +70,34 @@ fn main() -> Result<()> {
         }
     }
 
+    // ⚠ **What a resumable mine WOULD do tonight, printed beside the drift it is
+    // built on.** The guard is all-or-nothing — one unresumable file discards
+    // every carried artefact — so the question that decides whether resuming is
+    // worth anything is how often that fires in practice, and the only honest
+    // way to answer it is against this corpus, nightly, over time.
+    let marks: BTreeMap<String, reader::watermark::Resume> = previous
+        .iter()
+        .map(|(k, m)| (k.clone(), reader::watermark::Resume::fresh(m.clone())))
+        .collect();
+    let files: Vec<std::path::PathBuf> = memview::blame::transcripts(&reader::home::projects_dir());
+    if !marks.is_empty() {
+        match reader::watermark::plan(&marks, &files) {
+            reader::watermark::Plan::Full { because } => {
+                println!("a mine could NOT resume tonight: {because}");
+            }
+            reader::watermark::Plan::Resume { tails, whole, gone } => {
+                println!(
+                    "a mine could resume: {} tail(s), {} new, {} gone — {} of {} files untouched",
+                    tails.len(),
+                    whole.len(),
+                    gone.len(),
+                    files.len() - tails.len() - whole.len(),
+                    files.len()
+                );
+            }
+        }
+    }
+
     if previous.is_empty() {
         println!("first run: recorded {} transcripts", now.len());
     } else {

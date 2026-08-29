@@ -137,3 +137,149 @@ fn the_fold_state_is_written_beside_the_offset_not_under_it() {
     // read the same to serde but not to a person reading the file.
     assert!(!text.contains("episode"), "{text}");
 }
+
+// ── What a run may do, given what it read last time (#1240) ──────────────────
+//
+// ⚠ Every test here is about failing CLOSED. A wrong resume produces no error:
+// it mines from an offset that means something else, and the artefact becomes
+// quietly untrue. So anything not provably an append must return `Full`.
+
+use std::collections::BTreeMap;
+
+use reader::watermark::{Plan, Resume, plan};
+
+fn marked(p: &std::path::Path) -> Resume {
+    Resume::fresh(observe(p).expect("observe"))
+}
+
+#[test]
+fn a_file_that_only_grew_is_resumed_from_its_offset() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let p = dir.path().join("t.jsonl");
+    write(&p, "one\ntwo\n");
+    let marks = BTreeMap::from([(p.to_string_lossy().into_owned(), marked(&p))]);
+    append(&p, "three\n");
+
+    match plan(&marks, std::slice::from_ref(&p)) {
+        Plan::Resume { tails, whole, gone } => {
+            assert_eq!(tails.len(), 1);
+            assert!(whole.is_empty() && gone.is_empty());
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_file_nothing_touched_is_read_at_all() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let p = dir.path().join("t.jsonl");
+    write(&p, "one\n");
+    let marks = BTreeMap::from([(p.to_string_lossy().into_owned(), marked(&p))]);
+
+    match plan(&marks, std::slice::from_ref(&p)) {
+        // Neither a tail nor a whole read: there is nothing new in it.
+        Plan::Resume { tails, whole, .. } => assert!(tails.is_empty() && whole.is_empty()),
+        other => panic!("{other:?}"),
+    }
+}
+
+/// ⚠ **ONE unresumable file discards EVERYTHING.** The artefacts carry no
+/// per-transcript provenance, so a re-read cannot have its old contribution
+/// subtracted — it would be counted from the carried artefact and again from the
+/// file. Partial recovery is not available, however tempting.
+#[test]
+fn one_rewritten_prefix_forces_a_full_re_mine_of_the_whole_corpus() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let good = dir.path().join("good.jsonl");
+    let bad = dir.path().join("bad.jsonl");
+    write(&good, "one\n");
+    write(&bad, "one\ntwo\n");
+    let marks = BTreeMap::from([
+        (good.to_string_lossy().into_owned(), marked(&good)),
+        (bad.to_string_lossy().into_owned(), marked(&bad)),
+    ]);
+    // The prefix moves, which is what a resume may never survive.
+    write(&bad, "ONE\nTWO\nthree\n");
+
+    match plan(&marks, &[good, bad]) {
+        Plan::Full { because } => assert!(because.contains("rewritten"), "{because}"),
+        other => panic!("expected Full, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_file_shorter_than_it_was_forces_a_full_re_mine() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let p = dir.path().join("t.jsonl");
+    write(&p, "one\ntwo\nthree\n");
+    let marks = BTreeMap::from([(p.to_string_lossy().into_owned(), marked(&p))]);
+    write(&p, "one\n");
+
+    match plan(&marks, &[p]) {
+        Plan::Full { because } => assert!(because.contains("shorter"), "{because}"),
+        other => panic!("expected Full, got {other:?}"),
+    }
+}
+
+/// A transcript nothing has read before is read whole — and that does NOT
+/// invalidate what is carried, because nothing carried mentions it.
+#[test]
+fn a_new_transcript_is_read_whole_without_discarding_the_rest() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let old = dir.path().join("old.jsonl");
+    let new = dir.path().join("new.jsonl");
+    write(&old, "one\n");
+    write(&new, "fresh\n");
+    let marks = BTreeMap::from([(old.to_string_lossy().into_owned(), marked(&old))]);
+
+    match plan(&marks, &[old, new.clone()]) {
+        Plan::Resume { whole, .. } => {
+            assert_eq!(whole, vec![new.to_string_lossy().into_owned()]);
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// ⚠ **A vanished transcript is carried, never a reason to re-mine.** Its rows
+/// are history; `carry_forward` already treats memory-days this way on purpose.
+/// Forcing a full run on one would mean a full run most days — 343 transcripts
+/// disappeared in 22 days, nearly all `/private/tmp` scratch — which is the
+/// whole saving spent on bookkeeping.
+#[test]
+fn a_transcript_that_disappeared_is_carried_and_counted() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let here = dir.path().join("here.jsonl");
+    write(&here, "one\n");
+    let vanished = dir.path().join("vanished.jsonl");
+    write(&vanished, "gone\n");
+    let marks = BTreeMap::from([
+        (here.to_string_lossy().into_owned(), marked(&here)),
+        (vanished.to_string_lossy().into_owned(), marked(&vanished)),
+    ]);
+    std::fs::remove_file(&vanished).expect("remove");
+
+    match plan(&marks, &[here]) {
+        Plan::Resume { gone, .. } => {
+            assert_eq!(gone, vec![vanished.to_string_lossy().into_owned()]);
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// The first run has nothing recorded, so everything is new — and that is a
+/// resume with a full worklist, not a `Full`, because there is nothing carried
+/// to discard.
+#[test]
+fn the_first_ever_run_reads_everything_as_new() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let p = dir.path().join("t.jsonl");
+    write(&p, "one\n");
+
+    match plan(&BTreeMap::new(), &[p]) {
+        Plan::Resume { whole, tails, gone } => {
+            assert_eq!(whole.len(), 1);
+            assert!(tails.is_empty() && gone.is_empty());
+        }
+        other => panic!("{other:?}"),
+    }
+}
