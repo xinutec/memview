@@ -23,6 +23,7 @@ pub mod rank;
 pub mod routes;
 pub mod session;
 pub mod share;
+pub mod stamped;
 pub mod state;
 pub mod store;
 pub mod study;
