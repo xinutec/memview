@@ -244,11 +244,20 @@ on the live corpus was that nearly every qualified admission sits two hops out �
 one step past a hub — which is a weaker case for spending root bytes than the
 breadth alone suggested.
 
-⚠ **The demotion side of the same question is NOT built.** Dropping a line moves
-a memory further away rather than deleting it, so the cost of a demotion is how
-far its target falls — one hop is cheap, unreachable is a stranding, and `homes`
-currently reports only which of the two it is. `depths_without` takes the
-demotion set for exactly this and nothing passes one yet.
+⚠ **The demotion side is measured too, and it asks a different question from
+`homes`.** Dropping a line moves a memory further away rather than deleting it,
+so the cost of a demotion is how far its target FALLS. `homes` answers only
+whether anything still links it — safe or stranded, a boolean — and one hop
+further out is not the same trade as four. `memory-tiers` prints `falls` beside
+each demotion, computed with the WHOLE demotion set struck out, for the reason
+reachability is: two entries that house each other each look one hop away until
+both lines go.
+
+⚠ **Nothing on the live corpus can exercise that column.** Forced with
+`--lease-days 1 --breadth 30`, every candidate is still HELD — most as tripwires,
+whose low open rate IS success. So the logic lives in `tiers::falls()` with its
+own tests, including the `STRANDS` branch that `propose` exists to prevent and
+which is therefore the branch most likely to be wrong and never seen.
 
 ⚠ **Breadth was the missing factor and is no longer missing.** How many distinct
 sessions and subjects consulted a memory is derivable from what the mine already
