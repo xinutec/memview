@@ -290,3 +290,71 @@ pub fn concentration(mut sizes: Vec<u64>, n: usize) -> (u64, u64, usize) {
     let rest: u64 = sizes.iter().skip(n).sum();
     (top, rest, sizes.len().saturating_sub(n))
 }
+
+/// The census as an artefact, for a collector that must not read 6 GB itself.
+///
+/// ⚠ **Every field here becomes a fleetwatch TREND KEY, and a trend key is
+/// forever.** fleetwatch keys a series on `(source, collector, section, label)`,
+/// so a label that appears once creates a line that exists from then on. The
+/// bucket names are therefore a FIXED set with an `other` catch-all, never the
+/// raw [`Kind`] — `call: SomeNewTool` would mint a permanent series the first
+/// time anybody used a new tool, and a corpus with a hundred tool names would
+/// grow a hundred lines nobody chose.
+#[derive(Debug, Default, Serialize, serde::Deserialize)]
+pub struct Census {
+    /// When the walk finished, so a reader can grade its own staleness rather
+    /// than trusting that a file it can open is current.
+    pub at: String,
+    pub total_bytes: u64,
+    pub lines: u64,
+    pub messages: u64,
+    /// Bytes per top-level entry of `~/.claude`, `remainder` included so the
+    /// parts sum — which is the whole defect this closes (memview#1200).
+    pub where_bytes: BTreeMap<String, u64>,
+    /// Bytes per content bucket, over the transcripts only.
+    pub what_bytes: BTreeMap<String, u64>,
+    /// Of `total_bytes`, how many are re-appended copies.
+    pub repeat_bytes: u64,
+    /// Bytes in the largest 16 transcripts, and in all the others.
+    pub top16_bytes: u64,
+    pub rest_bytes: u64,
+}
+
+/// The stable label for a bucket, or `None` for one that must fold into `other`.
+///
+/// ⚠ **Adding a name here is adding a permanent chart line.** Removing one
+/// leaves its history orphaned in fleetwatch, which is why the set is small and
+/// chosen rather than derived: these are the buckets above 1% of the corpus when
+/// it was first measured, and `other` carries the tail honestly.
+pub fn stable_label(kind: &Kind) -> Option<&'static str> {
+    Some(match kind {
+        Kind::Envelope => "envelope",
+        Kind::Thinking => "thinking",
+        Kind::FileHistory => "file-history in transcript",
+        Kind::Attachment => "attachment",
+        Kind::AssistantText => "assistant text",
+        Kind::UserText => "user text",
+        Kind::ToolUse(t) if t == "Bash" => "call: Bash",
+        Kind::ToolUse(t) if t == "Edit" => "call: Edit",
+        Kind::ToolUse(t) if t == "Write" => "call: Write",
+        Kind::ToolResult(t) if t == "Bash" => "result: Bash",
+        Kind::ToolResult(t) if t == "Read" => "result: Read",
+        Kind::ToolResult(t) if t == "Edit" => "result: Edit",
+        _ => return None,
+    })
+}
+
+impl Bytes {
+    /// Fold into the fixed label set, with everything unnamed under `other`.
+    pub fn stable(&self) -> BTreeMap<String, u64> {
+        let mut out: BTreeMap<String, u64> = BTreeMap::new();
+        for ((_, kind), n) in &self.by {
+            let label = stable_label(kind).unwrap_or("other");
+            *out.entry(label.to_string()).or_default() += n;
+        }
+        if self.unparseable > 0 {
+            *out.entry("other".to_string()).or_default() += self.unparseable;
+        }
+        out
+    }
+}

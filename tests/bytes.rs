@@ -193,3 +193,50 @@ fn concentration_of_fewer_files_than_asked_for_leaves_no_remainder() {
     assert_eq!(rest, 0);
     assert_eq!(others, 0);
 }
+
+// ── The artefact, whose labels become permanent fleetwatch trend keys (#1200) ─
+
+/// ⚠ **A label that appears once creates a series that exists for ever.**
+/// fleetwatch keys a trend on `(source, collector, section, label)`, so emitting
+/// the raw `Kind` would mint a permanent line the first time anybody ran a new
+/// tool — and a corpus with a hundred tool names would grow a hundred lines
+/// nobody chose. The set is fixed and everything else folds into `other`.
+#[test]
+fn an_unnamed_bucket_folds_into_other_rather_than_minting_a_line() {
+    use memview::bytes::stable_label;
+    assert_eq!(stable_label(&Kind::Envelope), Some("envelope"));
+    assert_eq!(
+        stable_label(&Kind::ToolUse("Bash".into())),
+        Some("call: Bash")
+    );
+    // A tool nobody has charted, and a line type that did not exist yesterday.
+    assert_eq!(stable_label(&Kind::ToolUse("BrandNewTool".into())), None);
+    assert_eq!(stable_label(&Kind::Other("some-new-line".into())), None);
+}
+
+#[test]
+fn the_stable_rollup_keeps_every_byte_including_the_unnamed_ones() {
+    let lines = [
+        r#"{"type":"assistant","uuid":"a","message":{"content":[{"type":"tool_use","id":"t","name":"BrandNewTool","input":{}}]}}"#,
+        r#"{"type":"brand-new-line","uuid":"b","x":"yy"}"#,
+        "not json",
+    ];
+    let out = fold(&lines);
+    let stable = out.stable();
+    // Nothing may be dropped on the way to the chart: the rollup still sums.
+    assert_eq!(stable.values().sum::<u64>(), out.total());
+    assert!(stable.contains_key("other"), "{stable:?}");
+}
+
+/// The two dimensions collapse for the chart — a line is "how many bytes of
+/// thinking", not "how many bytes of thinking that were repeats". The repeat
+/// fraction is its own single number so it stays legible.
+#[test]
+fn the_rollup_sums_first_and_repeat_into_one_line_per_bucket() {
+    let one = r#"{"type":"assistant","uuid":"a","message":{"content":[{"type":"thinking","thinking":"x"}]}}"#;
+    let out = fold(&[one, one]);
+    let stable = out.stable();
+    assert_eq!(stable.values().sum::<u64>(), out.total());
+    // One entry for thinking, carrying both copies.
+    assert!(stable["thinking"] > 0);
+}

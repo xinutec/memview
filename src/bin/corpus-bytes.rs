@@ -35,12 +35,17 @@ fn label(kind: &Kind) -> String {
 }
 
 fn main() -> Result<()> {
-    let arg = std::env::args().nth(1);
+    // ⚠ `--json` writes the artefact a collector reads; it never reads 6 GB
+    // itself. `claude_disk.py` runs every 600 s off ~0.7 s of stat calls, and a
+    // 33-second content walk cannot ride that cadence (memview#1200).
+    let write_json = std::env::args().any(|a| a == "--json");
+    let arg = std::env::args().nth(1).filter(|a| a != "--json");
     let files: Vec<std::path::PathBuf> = match &arg {
         Some(one) => vec![std::path::PathBuf::from(one)],
         None => memview::blame::transcripts(&reader::home::projects_dir()),
     };
 
+    let mut census = memview::bytes::Census::default();
     // ⚠ **The WHERE dimension first, because it is the one with a REMAINDER.**
     // `claude_disk.py` charts three named parts against a total they do not sum
     // to, so whatever is not transcripts, file history or uploads is invisible.
@@ -58,6 +63,7 @@ fn main() -> Result<()> {
         let mut shown = 0u64;
         for part in parts.iter().take(8) {
             shown += part.bytes;
+            census.where_bytes.insert(part.name.clone(), part.bytes);
             println!(
                 "  {:<24} {:>7.2} GB {:>6.1}%  {:>7} files",
                 part.name,
@@ -66,6 +72,13 @@ fn main() -> Result<()> {
                 part.files
             );
         }
+        // The line that makes the rest honest, and it goes in the artefact for
+        // exactly the same reason: a chart whose pieces silently fail to add up
+        // is the defect being closed, so the remainder is data and not decoration.
+        census
+            .where_bytes
+            .insert("remainder".to_string(), total - shown);
+        census.total_bytes = total;
         // The line that makes the rest honest.
         println!(
             "  {:<24} {:>7.2} GB {:>6.1}%  (everything else, {} entries)",
@@ -197,6 +210,29 @@ fn main() -> Result<()> {
         100.0 * top as f64 / (top + rest).max(1) as f64,
         100.0 * rest as f64 / (top + rest).max(1) as f64,
     );
+    if write_json {
+        census.at = memview::couse::stamp(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+        );
+        census.lines = all.lines;
+        census.messages = all.messages;
+        census.what_bytes = all.stable();
+        census.repeat_bytes = all
+            .by
+            .iter()
+            .filter(|((c, _), _)| *c == memview::bytes::Copy::Repeat)
+            .map(|(_, n)| *n)
+            .sum();
+        census.top16_bytes = top;
+        census.rest_bytes = rest;
+        let at = reader::home::cache("corpus-bytes.json");
+        memview::atomic::write(&at, serde_json::to_string_pretty(&census)?.as_bytes())?;
+        println!("\n  wrote {}", at.display());
+    }
+
     println!(
         "\n  re-appended copies are {:.1}% of the corpus — the CLI writes earlier stretches\n  \
          of a conversation back into the same file (reference_claude_transcript_rewrites_history)",
