@@ -36,7 +36,17 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)" || exit 1
 
 want_all=false
-[[ ${1:-} == --all ]] && want_all=true
+only=""
+case "${1:-}" in
+  --all) want_all=true ;;
+  # ⚠ **A NAME runs that check with the gate's argv.** This exists so there is
+  # never a reason to type `cargo clippy` by hand during a loop: the whole defect
+  # this script was written for is that a retyped command drifts — `--workspace`
+  # missing lints one crate of four, and still exits 0. If the right thing is not
+  # addressable, the wrong thing gets typed.
+  "") ;;
+  *) only="$1" ;;
+esac
 
 changed=$(git status --porcelain | awk '{print $NF}')
 [[ -n $changed ]] || { echo "nothing changed — the gate has nothing to narrow to"; exit 0; }
@@ -65,7 +75,9 @@ matches() {
 names=$(python3 -c "import json;[print(c['name']) for c in json.load(open('gate.json'))['checks']]")
 ran=0; skipped=(); failed=()
 while IFS= read -r name; do
-  if ! $want_all && ! matches "$name"; then skipped+=("$name"); continue; fi
+  if [[ -n $only ]]; then
+    [[ $name == *"$only"* ]] || { skipped+=("$name"); continue; }
+  elif ! $want_all && ! matches "$name"; then skipped+=("$name"); continue; fi
   mapfile -t argv < <(python3 -c "
 import json,sys
 for c in json.load(open('gate.json'))['checks']:
