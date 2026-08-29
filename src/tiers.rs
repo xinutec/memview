@@ -126,6 +126,25 @@ pub struct Entry {
     pub depth: Option<usize>,
 }
 
+/// Where a demoted entry's target lands, as the report says it.
+///
+/// ⚠ **`None` after the demotion means STRANDED, not "no change".** That is the
+/// one outcome a demotion must never produce — [`propose`] holds back anything
+/// without a home for exactly this reason — so it is named loudly rather than
+/// printed as a dash, which reads as "nothing happened" in a column of arrows.
+///
+/// ⚠ **A demotion's cost is this number, not the boolean beside it.** `homes`
+/// answers "is there anything left linking it", which is safe-or-stranded; one
+/// hop further out and four hops further out are both "safe" and are not the
+/// same trade.
+pub fn falls(before: Option<usize>, after: Option<usize>) -> String {
+    match (before, after) {
+        (_, None) => "STRANDS".to_string(),
+        (Some(was), Some(now)) => format!("{was}h→{now}h"),
+        (None, Some(now)) => format!("→{now}h"),
+    }
+}
+
 impl Entry {
     /// Days since it was written, or `None` when nothing dates it.
     pub fn age(&self, today: i64) -> Option<i64> {

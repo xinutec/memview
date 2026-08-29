@@ -404,11 +404,29 @@ fn report(corpus: &Corpus, entries: &[Entry], index: &str, today: i64, at: &Thre
         );
     }
 
+    // ⚠ **What a demotion COSTS is how far its target falls, not whether it
+    // survives.** `homes` answers the second question — is there anything left
+    // linking it — and that is a boolean: safe or stranded. One hop further out
+    // and four hops further out are both "safe", and they are not the same
+    // trade. Computed with the WHOLE demotion set struck out, for the reason
+    // `reachable_without` is: two entries that house each other each look one
+    // hop away until both lines go (#869).
+    let after = memview::store::depths_without(
+        &corpus.docs,
+        index,
+        &trade
+            .demote
+            .iter()
+            .map(|e| e.name.clone())
+            .collect::<BTreeSet<String>>(),
+    );
     println!("\n  DEMOTE — thin, past its lease, and already linked from somewhere live.");
+    println!("  `falls` is where the target lands once EVERY line below has gone.");
     for entry in trade.demote.iter().take(15) {
         let home = entry.homes.first().map(String::as_str).unwrap_or("—");
+        let falls = memview::tiers::falls(entry.depth, after.get(&entry.name).copied());
         println!(
-            "    {:<52} {:>3} agents  {:>4} b  {home}",
+            "    {:<52} {:>3} agents  {:>4} b  {falls:<8} {home}",
             entry.name, entry.breadth, entry.entry_cost
         );
     }

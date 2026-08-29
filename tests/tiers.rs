@@ -369,3 +369,29 @@ fn admission_near_misses_that_turn_on_unprovable_opens_are_counted_apart() {
     assert!(trade.admit.is_empty(), "5 proven is under the bar of 6");
     assert_eq!(trade.unproven_admissions, 1);
 }
+
+// ── What a demotion COSTS: how far the target falls (#822) ──────────────────
+
+/// ⚠ **The outcome `propose` exists to prevent, so the report must not whisper
+/// it.** A dash in a column of arrows reads as "nothing happened"; this is the
+/// one case where nothing happening would mean the memory left the graph.
+#[test]
+fn a_target_nothing_still_reaches_is_named_not_dashed() {
+    assert_eq!(memview::tiers::falls(Some(1), None), "STRANDS");
+    assert_eq!(memview::tiers::falls(None, None), "STRANDS");
+}
+
+#[test]
+fn an_ordinary_demotion_says_where_it_lands() {
+    assert_eq!(memview::tiers::falls(Some(1), Some(2)), "1h→2h");
+    // Falling further than one hop is legal and is a different trade — the
+    // number is the point, which is why it is not collapsed to "safe".
+    assert_eq!(memview::tiers::falls(Some(1), Some(4)), "1h→4h");
+}
+
+/// A memory the index does not currently reach has no "before", and that is an
+/// ordinary state rather than an error — it still lands somewhere.
+#[test]
+fn a_target_with_no_reading_before_still_reports_where_it_lands() {
+    assert_eq!(memview::tiers::falls(None, Some(3)), "→3h");
+}
