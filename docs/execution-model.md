@@ -370,14 +370,19 @@ That is also why the denominator is every command and not a sample: the question
 this layer answers is *what did the fleet do*, and a command left unread is an
 answer withheld.
 
-**Freeze a snapshot and measure against it.** The live corpus shrinks: Claude
-Code prunes its own sessions, and since 2026-08-14 the odin archive mirrors
-deletions rather than appending. odin's restic retention is the only deeper
-history.
+⚠ **This was built on "the live corpus shrinks", and it does not.** The argument
+was that Claude Code prunes its own sessions, that the odin archive has mirrored
+deletions since 2026-08-14, and that commands therefore leave the denominator and
+inflate a coverage rate. Measured 2026-08-29 out of odin's snapshots (#1240,
+#1247): **not one transcript holding a conversation has been deleted since the
+archive began**, everything ever lost lived in a temp-directory project, and a
+restore reads back byte-identical.
 
-1. Commands leave the denominator, so coverage rises with no work done. A ratchet
-   against a moving corpus is not a ratchet.
-2. Loss is continuous, so the snapshot precedes the parser work.
+**So the fixed denominator is not buying what it was meant to buy.** The
+corpus is still a legitimate frozen baseline — a rate is only comparable against
+the same denominator, and the live one GROWS — but it is a convenience, not a
+rescue, and its union is currently a strict SUBSET of the live set. Retiring it
+is open on #1240.
 
 ⚠ **The union moves the other way too, and that is the half that surprises.** It
 is cumulative, so the nightly job *adds* newly-mined commands — 131,246 to
@@ -397,8 +402,8 @@ memview is public and that is shell history.
 ⚠ **A run that stops happening has to be visible, or the ratchet rots quietly.**
 `fleet_health`'s `claude corpus` check grades the snapshot's age hourly and
 charts the union's row count, so a stalled job and a shrinking union both
-surface. This is the one job here whose silent failure destroys something: what
-it captures is being pruned from the live tree by design.
+surface. It used to be described as the one job here whose silent failure
+destroys something; that rested on the live tree being pruned, and it is not.
 
 **Union for the ratchet, snapshot for frequency.** A corpus row is
 `{cmd, cwd, ran}` with no call id, so the merge collapses exact repeats the

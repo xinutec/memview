@@ -1,12 +1,19 @@
 //! When a memory was first written, put back into the memory itself.
 //!
-//! ⚠ **This is a one-way window and it is closing.** A creation date exists
-//! nowhere but the transcripts: `~/.claude` git history begins 2026-08-14, and
-//! Claude Code prunes its own sessions. `memview/memory-created.json` holds what
-//! was recovered while the evidence was still there — so it is not a cache of a
-//! computation, it is the surviving output of one. Writing it into each memory's
-//! frontmatter makes age an O(1) file read, removes a sidecar, and puts the fact
-//! in the one place that is versioned (memview#1210, #1240).
+//! ⚠ **This was written as a closing window and it is not one.** A creation date
+//! exists nowhere but the transcripts — `~/.claude` git history begins
+//! 2026-08-14 — and the transcripts were believed to be evaporating. Measured
+//! 2026-08-29 against odin's snapshots: **nothing holding a conversation has
+//! been deleted since the archive began**, everything ever lost lived in a
+//! temp-directory project, and a restore reads back byte-identical
+//! (memview#1247, #1240).
+//!
+//! So the recovery is EXPENSIVE, not perishable, and `memory-created.json` is a
+//! cache rather than a rescued artefact. Two bounds are real: sessions predating
+//! **2026-07-31** were never archived, and a snapshot lives daily 7 / weekly 4 /
+//! monthly 6 / yearly 1. Writing the date into each memory's frontmatter is
+//! still right — it makes age an O(1) file read, removes a sidecar, and puts the
+//! fact in the one place that is versioned (memview#1210).
 //!
 //! ⚠ **Insertion, never rewriting.** A memory is somebody's file and most of
 //! them already carry `modified:` and `originSessionId:`. Everything here

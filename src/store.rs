@@ -40,13 +40,14 @@ struct FrontmatterMeta {
     modified: Option<String>,
     /// When the memory was first written.
     ///
-    /// ⚠ **Recovered, not observed, and the recovery gets less complete every
-    /// day.** It exists nowhere but the transcripts — this repo's history begins
-    /// 2026-08-14 and Claude Code prunes its own sessions — so `memory-dated`
-    /// writes it here while the evidence lasts. Absent on a memory no surviving
-    /// transcript records, which is a DETECTION gap and not a memory without a
-    /// beginning; nothing falls back to an mtime, which records a touch and is
-    /// wrong by a median of 9.9 days across this corpus.
+    /// ⚠ **Recovered, not observed.** It exists nowhere but the transcripts —
+    /// this repo's history begins 2026-08-14 — so `memory-dated` mines it and
+    /// writes it here, where it is versioned. This once said the recovery "gets
+    /// less complete every day"; measured 2026-08-29 against odin's snapshots,
+    /// it does not (memview#1240). Absent on a memory no surviving transcript
+    /// records, which is a DETECTION gap and not a memory without a beginning;
+    /// nothing falls back to an mtime, which records a touch and is wrong by a
+    /// median of 9.9 days across this corpus.
     created: Option<String>,
 }
 

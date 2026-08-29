@@ -8,11 +8,14 @@
 //! `memory-lint` reports as an error, and `originSessionId:`, which it does not
 //! report at all.
 //!
-//! ⚠ **The stamp is recoverable and the AUTHOR is the perishable half.**
+//! ⚠ **The stamp is recoverable and the AUTHOR is the harder half.**
 //! `modified:` can always be taken from the file's mtime. Authorship exists only
-//! in the transcripts, and Claude Code prunes those — so a memory written this
-//! way has an author for as long as its transcript survives and none afterwards.
-//! That is what makes this worth a tool rather than a habit.
+//! in the transcripts, so a memory written without this has an author for
+//! exactly as long as its transcript is reachable — which is why it is worth a
+//! tool rather than a habit. It once said "perishable": measured 2026-08-29,
+//! transcripts holding a conversation are not being deleted and are archived on
+//! odin from 2026-07-31 (memview#1247, #1240). Sessions older than that are gone,
+//! and 24 memories name one.
 //!
 //! ⚠ **This is NOT wired into the gate, deliberately.** `memory-lint` must go on
 //! failing on a missing stamp, because the stamp is the only visible symptom of

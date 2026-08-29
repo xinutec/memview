@@ -117,12 +117,12 @@ itself, so even a glob loop runs its body once. The rule is bash's.
 
 ## Method
 
-1. **Pick the right corpus, and say which.** `~/.claude/corpus/union.jsonl` is
-   the fixed denominator — comparisons across a change are only meaningful
-   against it, because the live transcripts *shrink* and a rate rises when
-   commands leave. Rebuild from transcripts when the question is about what is
-   current. See the corpus discipline in
-   [execution-model.md](execution-model.md).
+1. **Pick the right corpus, and say which.** `~/.claude/corpus/union.jsonl` is a
+   frozen denominator, so two rates measured against it are comparable. ⚠ It is
+   NOT the case that the live transcripts shrink — this said so, and #1240
+   measured otherwise; the live corpus grows, which moves a rate just as surely.
+   Rebuild from transcripts when the question is about what is current. See the
+   corpus discipline in [execution-model.md](execution-model.md).
 
    ⚠ **Absolute figures in this file dated on or before 2026-08-23 were taken
    over a union that held one era TWICE** — 141,545 of 298,895 rows, collapsed
