@@ -41,12 +41,48 @@ fn main() -> Result<()> {
         None => memview::blame::transcripts(&reader::home::projects_dir()),
     };
 
+    // ⚠ **The WHERE dimension first, because it is the one with a REMAINDER.**
+    // `claude_disk.py` charts three named parts against a total they do not sum
+    // to, so whatever is not transcripts, file history or uploads is invisible.
+    // Naming every entry plus "everything else" makes that impossible.
+    if arg.is_none() {
+        let root = reader::home::claude_dir();
+        let parts = memview::bytes::top_level(&root)?;
+        let total: u64 = parts.iter().map(|p| p.bytes).sum();
+        println!(
+            "{} — {:.2} GB in {} entries\n",
+            root.display(),
+            total as f64 / 1e9,
+            parts.len()
+        );
+        let mut shown = 0u64;
+        for part in parts.iter().take(8) {
+            shown += part.bytes;
+            println!(
+                "  {:<24} {:>7.2} GB {:>6.1}%  {:>7} files",
+                part.name,
+                part.bytes as f64 / 1e9,
+                100.0 * part.bytes as f64 / total as f64,
+                part.files
+            );
+        }
+        // The line that makes the rest honest.
+        println!(
+            "  {:<24} {:>7.2} GB {:>6.1}%  (everything else, {} entries)",
+            "remainder",
+            (total - shown) as f64 / 1e9,
+            100.0 * (total - shown) as f64 / total as f64,
+            parts.len().saturating_sub(8)
+        );
+    }
+
     let mut all = Bytes::default();
     // What we actually consumed, and what the filesystem claimed at the end.
     // They differ on a live corpus and the difference is the finding, not an
     // error — see the note below.
     let mut read_bytes = 0u64;
     let mut on_disk = 0u64;
+    let mut sizes: Vec<u64> = Vec::new();
     for path in &files {
         let file = std::fs::File::open(path).with_context(|| format!("{}", path.display()))?;
         // ⚠ Per FILE, not per corpus. The same uuid in two transcripts is one
@@ -75,7 +111,9 @@ fn main() -> Result<()> {
             )
             .with_context(|| format!("in {}", path.display()))?;
         }
-        on_disk += std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+        on_disk += size;
+        sizes.push(size);
     }
 
     let total = all.total();
@@ -148,6 +186,17 @@ fn main() -> Result<()> {
             all.unparseable as f64 / 1e9
         );
     }
+    // ⚠ **Concentration decides what any cleanup could ever be worth**, and the
+    // byte census cannot see it: it says what bytes ARE and nothing about how
+    // they are spread across files.
+    let (top, rest, others) = memview::bytes::concentration(sizes, 16);
+    println!(
+        "\n  the 16 largest transcripts hold {:.2} GB; the other {others} share {:.2} GB ({:.1}% vs {:.1}%)",
+        top as f64 / 1e9,
+        rest as f64 / 1e9,
+        100.0 * top as f64 / (top + rest).max(1) as f64,
+        100.0 * rest as f64 / (top + rest).max(1) as f64,
+    );
     println!(
         "\n  re-appended copies are {:.1}% of the corpus — the CLI writes earlier stretches\n  \
          of a conversation back into the same file (reference_claude_transcript_rewrites_history)",

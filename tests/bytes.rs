@@ -136,3 +136,60 @@ fn the_envelope_absorbs_what_the_parts_do_not_claim() {
     assert!(envelope > 0);
     assert_eq!(out.total(), line.len() as u64);
 }
+
+// ── The WHERE dimension: parts that sum, and concentration (#1199, #1200) ────
+
+#[test]
+fn every_top_level_entry_is_weighed_and_a_directory_is_its_contents() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("loose.json"), "12345").expect("write");
+    std::fs::create_dir(dir.path().join("sub")).expect("mkdir");
+    std::fs::write(dir.path().join("sub/a"), "123").expect("write");
+    std::fs::write(dir.path().join("sub/b"), "45").expect("write");
+
+    let parts = memview::bytes::top_level(dir.path()).expect("walk");
+    let by = |n: &str| parts.iter().find(|p| p.name == n).expect("present").clone();
+    assert_eq!(by("loose.json").bytes, 5);
+    assert_eq!(by("sub").bytes, 5);
+    assert_eq!(by("sub").files, 2);
+}
+
+/// ⚠ **`~/.claude` is itself a symlink to an external volume and entries under it
+/// point elsewhere.** Following one would count another disk's bytes into this
+/// total, and a cycle would never terminate. A link is its own size, which is
+/// what the filesystem charges for it.
+#[test]
+fn a_symlink_is_counted_as_a_link_and_never_followed() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let big = dir.path().join("real");
+    std::fs::create_dir(&big).expect("mkdir");
+    std::fs::write(big.join("payload"), "x".repeat(1000)).expect("write");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&big, dir.path().join("link")).expect("symlink");
+
+    let parts = memview::bytes::top_level(dir.path()).expect("walk");
+    let link = parts.iter().find(|p| p.name == "link").expect("present");
+    assert!(
+        link.bytes < 1000,
+        "a link must not carry its target's bytes"
+    );
+    assert_eq!(link.files, 1);
+}
+
+/// The question a cleanup rests on: is the corpus a thousand equal files, or a
+/// handful holding nearly all of it?
+#[test]
+fn concentration_splits_the_largest_n_from_the_rest() {
+    let (top, rest, others) = memview::bytes::concentration(vec![100, 50, 5, 3, 2], 2);
+    assert_eq!(top, 150);
+    assert_eq!(rest, 10);
+    assert_eq!(others, 3);
+}
+
+#[test]
+fn concentration_of_fewer_files_than_asked_for_leaves_no_remainder() {
+    let (top, rest, others) = memview::bytes::concentration(vec![7, 3], 5);
+    assert_eq!(top, 10);
+    assert_eq!(rest, 0);
+    assert_eq!(others, 0);
+}

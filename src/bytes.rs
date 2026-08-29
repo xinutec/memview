@@ -212,3 +212,81 @@ pub fn absorb(
     out.add(copy, Kind::Envelope, raw - accounted);
     Ok(())
 }
+
+/// One top-level entry of `~/.claude` and what it costs.
+///
+/// ⚠ **The WHERE dimension, and it exists to carry a REMAINDER.** `claude_disk.py`
+/// charts transcripts, file history and uploads against a total they do not add
+/// up to, so the gap between them is invisible and unnamed. A census that names
+/// every entry plus "everything else" cannot have that gap: the parts sum by
+/// construction or the walk is wrong (memview#1199, #1200).
+#[derive(Debug, Clone, Serialize)]
+pub struct Part {
+    pub name: String,
+    pub bytes: u64,
+    pub files: u64,
+}
+
+/// Bytes and file counts per top-level entry, largest first.
+///
+/// ⚠ **Apparent size, not allocated blocks**, so it agrees with the byte census
+/// over the same transcripts. `du` reports allocation and would disagree with
+/// every other figure here by the filesystem's block size times the file count —
+/// 25,000 small files under `file-history/` is where that difference stops being
+/// rounding.
+pub fn top_level(root: &std::path::Path) -> std::io::Result<Vec<Part>> {
+    let mut parts = Vec::new();
+    for entry in std::fs::read_dir(root)? {
+        let entry = entry?;
+        let (bytes, files) = weigh(&entry.path());
+        parts.push(Part {
+            name: entry.file_name().to_string_lossy().into_owned(),
+            bytes,
+            files,
+        });
+    }
+    parts.sort_by_key(|p| std::cmp::Reverse(p.bytes));
+    Ok(parts)
+}
+
+/// Bytes and file count under a path, following nothing.
+///
+/// ⚠ **Symlinks are counted as links, never followed.** `~/.claude` is itself a
+/// symlink to an external volume and several entries under it point elsewhere;
+/// following them would count another disk's bytes into this total and could
+/// recurse forever.
+fn weigh(path: &std::path::Path) -> (u64, u64) {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return (0, 0);
+    };
+    if meta.file_type().is_symlink() {
+        return (meta.len(), 1);
+    }
+    if meta.is_file() {
+        return (meta.len(), 1);
+    }
+    let mut bytes = 0;
+    let mut files = 0;
+    let Ok(dir) = std::fs::read_dir(path) else {
+        return (0, 0);
+    };
+    for entry in dir.flatten() {
+        let (b, f) = weigh(&entry.path());
+        bytes += b;
+        files += f;
+    }
+    (bytes, files)
+}
+
+/// How much of a set of file sizes the largest `n` hold.
+///
+/// ⚠ **The shape that decides what a cleanup could ever be worth.** A corpus of
+/// a thousand equal files and one where sixteen hold 97% need different answers,
+/// and the byte census cannot tell them apart — it says what bytes ARE and
+/// nothing about how they are distributed across files.
+pub fn concentration(mut sizes: Vec<u64>, n: usize) -> (u64, u64, usize) {
+    sizes.sort_unstable_by_key(|b| std::cmp::Reverse(*b));
+    let top: u64 = sizes.iter().take(n).sum();
+    let rest: u64 = sizes.iter().skip(n).sum();
+    (top, rest, sizes.len().saturating_sub(n))
+}
