@@ -18,7 +18,7 @@ so where they appear.
 
 ```sh
 cargo run --release -p bash-oracle --bin syntax-report -- \
-  ~/.claude/corpus/union.jsonl --oracle [--why SUBSTRING]
+  ~/.claude/memview/bash-corpus.jsonl --oracle [--why SUBSTRING]
 ```
 
 ## Purpose
@@ -392,32 +392,39 @@ direction, and a count taken now against a total remembered from before reads as
 arithmetically impossible: on that morning the greedy curve was called a report
 bug, and the report was right. Re-read the header of the run you are quoting.
 
-**It lives in `~/.claude/corpus/`** — dated snapshots beside a cumulative
-`union.jsonl`, written nightly by `xinutec-infra/scripts/claude-corpus-snapshot.sh`
-from `claude-sync.sh`'s mining step, before the archive runs. It sits there to
-inherit an existing durability path rather than grow a new one: `~/.claude` is
-already rsynced to odin nightly and held in restic. Not in this repository —
-memview is public and that is shell history.
+**It lives at `~/.claude/memview/bash-corpus.jsonl`**, one file beside every
+other mined artefact, gitignored and rebuilt nightly from `claude-sync.sh`'s
+mining step by `--bin bash-corpus`. It is a CACHE: `--bin bash-corpus` reproduces
+it from the transcripts in about four minutes, and nothing about it is preserved.
 
-⚠ **A run that stops happening has to be visible, or the ratchet rots quietly.**
-`fleet_health`'s `claude corpus` check grades the snapshot's age hourly and
-charts the union's row count, so a stalled job and a shrinking union both
-surface. It used to be described as the one job here whose silent failure
-destroys something; that rested on the live tree being pruned, and it is not.
+## ⚠ `~/.claude/corpus/` is RETIRED (2026-08-29) — do not rebuild it
 
-**Union for the ratchet, snapshot for frequency.** A corpus row is
-`{cmd, cwd, ran}` with no call id, so the merge collapses exact repeats the
-moment it runs. Distinctness survives and multiplicity does not, which is why
-the dated snapshots are kept beside the union rather than replaced by it.
+It kept fourteen dated gzips beside a cumulative `union.jsonl`, merged by a
+`corpus-merge` binary with a never-shrink ratchet, guarded by a lock, a floor and
+an hourly `fleet_health` check. All of it existed to hold Bash history from
+sessions Claude Code was believed to prune.
 
-⚠ **The merge is `corpus-merge`, and it is not `sort -u`, because `sort -u`
-dedups whole LINES.** `bash-corpus` writes `at` only when the transcript carried
-one and an older version wrote it never, so every command mined before `at`
-existed sat in the union twice — once bare, once stamped, two distinct lines.
-Measured 2026-08-24: **141,545 of 298,895 rows, 47% of the corpus, was one era
-counted twice** (memview#1130). It collapses on IDENTITY — the row without its
-`at` — so two stamped rows that agree otherwise are two days and both survive;
-only a bare row with a stamped twin goes.
+**Measured before deleting it: the union held 6 rows out of 177,467 that a fresh
+mine does not produce, and all six are the SAME commands captured worse** —
+`ran:"unknown"` where a fresh mine now resolves `ok`, three of them missing the
+`at` the miner learned to recover. A `sort -u` union froze those early readings
+as distinct lines permanently. The live mine was **163 distinct commands ahead**,
+and reached exactly as far back: 605 April rows in each, earliest
+`2026-04-12T22:00:30Z` in both. See memview#1240 and #1247 for how the pruning
+premise was refuted, and `feedback_the_backup_is_the_instrument_for_a_claim_about_the_past`.
+
+⚠ **So a "fixed denominator" is not what that directory bought.** If two coverage
+figures have to be comparable, keep a COPY of the corpus file for the duration of
+the work and say which. Re-mining between two measurements moves the denominator
+under them — that hazard is real and is the one thing here worth keeping.
+
+⚠ **And a `sort -u` union is a trap worth remembering even though its subject is
+gone.** `bash-corpus` writes `at` only when the transcript carried one; an older
+version wrote it never, so every command mined before `at` existed sat in the
+union twice — once bare, once stamped, two distinct lines. Measured 2026-08-24:
+**141,545 of 298,895 rows, 47%, was one era counted twice** (memview#1130).
+`corpus-merge` collapsed on identity rather than on the line to fix it. Any
+cumulative store of records whose SHAPE changes has this defect.
 
 ⚠ **And the ratchet moved from rows to SUBJECTS, which is the stronger check,
 not the weaker one.** The old guard refused to let the row count fall, which is

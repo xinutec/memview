@@ -38,10 +38,11 @@ fn declares(text: &str, name: &str) -> bool {
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let home = std::env::var("HOME").unwrap_or_default();
-    let path = args
-        .first()
-        .cloned()
-        .unwrap_or_else(|| format!("{home}/.claude/corpus/union.jsonl"));
+    let path = args.first().cloned().unwrap_or_else(|| {
+        reader::home::file("bash-corpus.jsonl")
+            .to_string_lossy()
+            .into_owned()
+    });
 
     let text = std::fs::read_to_string(&path)?;
     let mut unread = 0usize;

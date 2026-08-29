@@ -2,10 +2,16 @@
 //!
 //!     cargo run --release -p bash-oracle --bin syntax-report -- <corpus.jsonl> [--oracle] [--why SUBSTRING]
 //!
-//! ⚠ **Pass `~/.claude/corpus/union.jsonl`.** The live transcripts shrink, so a
-//! coverage figure measured against them rises when commands leave and two runs
-//! either side of a change are not comparable. The union is the fixed
-//! denominator. See `docs/execution-model.md`.
+//! ⚠ **Two runs either side of a change are only comparable over the SAME
+//! corpus file** — `~/.claude/memview/bash-corpus.jsonl`, or a copy of it kept
+//! for the duration of the work. The live mine grows nightly, so re-mining
+//! between two measurements moves the denominator under them.
+//!
+//! ⚠ **This said the live transcripts SHRINK and named `corpus/union.jsonl` as a
+//! fixed denominator against that. Both are gone (memview#1240):** nothing that
+//! held a conversation has been deleted, and the union it pointed at held 6 rows
+//! out of 177,467 that a fresh mine does not produce — all six the same commands
+//! captured worse. See `docs/execution-model.md`.
 //!
 //! **Two rates, reported apart — per command and per byte.** They diverge, and
 //! the direction says which work is left: a parser reading most commands but few

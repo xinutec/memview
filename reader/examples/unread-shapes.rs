@@ -42,7 +42,12 @@ fn main() -> anyhow::Result<()> {
             args[..args.len() - 1].to_vec(),
             args[args.len() - 1].clone(),
         ),
-        _ => (args, format!("{home}/.claude/corpus/union.jsonl")),
+        _ => (
+            args,
+            reader::home::file("bash-corpus.jsonl")
+                .to_string_lossy()
+                .into_owned(),
+        ),
     };
     anyhow::ensure!(!want.is_empty(), "usage: unread-shapes <name>… [corpus]");
 

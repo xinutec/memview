@@ -2,9 +2,17 @@
 //!
 //!     cargo run --release -p reader --bin reading-json -- <corpus.jsonl> [out.json]
 //!
-//! Defaults to `~/.claude/corpus/union.jsonl` → `~/.claude/memview/reading.json`,
-//! which
-//! is what the nightly runs.
+//! Defaults to `~/.claude/memview/bash-corpus.jsonl` →
+//! `~/.claude/memview/reading.json`, which is what the nightly runs.
+//!
+//! ⚠ **That default used to be `~/.claude/corpus/union.jsonl` and that whole
+//! directory is gone (memview#1240).** It kept fourteen dated gzips plus a
+//! cumulative union against a window believed to be shrinking; measured
+//! 2026-08-29, the union held **6 rows out of 177,467** that a fresh mine does
+//! not produce, and all six are the SAME commands captured worse — `ran:
+//! "unknown"` where a fresh mine resolves `ok`, three of them missing the `at`
+//! the miner now recovers. A `sort -u` union froze them as distinct lines
+//! forever. The live mine was 163 distinct commands ahead of it.
 //!
 //! ⚠ **Mined rather than computed per request, and the reason is a measurement:
 //! the survey takes 13 seconds over 146k commands.** That is fine for a report
@@ -23,10 +31,11 @@ use reader::reading::Reading;
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let home = std::env::var("HOME").unwrap_or_default();
-    let corpus = args
-        .get(1)
-        .cloned()
-        .unwrap_or_else(|| format!("{home}/.claude/corpus/union.jsonl"));
+    let corpus = args.get(1).cloned().unwrap_or_else(|| {
+        reader::home::file("bash-corpus.jsonl")
+            .to_string_lossy()
+            .into_owned()
+    });
     let out = args.get(2).cloned().unwrap_or_else(|| {
         reader::home::file("reading.json")
             .to_string_lossy()

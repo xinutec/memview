@@ -3,9 +3,11 @@
 //!
 //! Each case here was found by `cargo run -p reader --bin projection`, which runs
 //! both readers over the corpus and groups the disagreements. The counts in the
-//! comments are that report's, over `~/.claude/corpus/union.jsonl` at 134,622
-//! distinct commands — they are what makes a case worth a test rather than a
-//! curiosity, and they are the thing to re-measure rather than trust.
+//! comments are that report's, taken over 134,622 distinct commands in the
+//! since-retired `corpus/union.jsonl` — they are what makes a case worth a test
+//! rather than a curiosity, and they are the thing to re-measure rather than
+//! trust. Re-measure against `~/.claude/memview/bash-corpus.jsonl`; it is a
+//! superset, so a count here can only be low.
 //!
 //! ⚠ **The disagreements are the point, so they are asserted on both sides.**
 //! A test that only pinned the tree's answer would pass just as well after

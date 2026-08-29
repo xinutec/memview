@@ -168,23 +168,25 @@ Mining is offline; `scripts/sync.sh` pushes the artefacts to the pod.
 ```sh
 cargo run --release --bin agents        # → ~/.claude/agents.json + doing.json
 cargo run --release --bin couse         # → ~/.claude/couse.json
-cargo run --release --bin bash-corpus > /tmp/bash-corpus.jsonl   # what is current
-cargo run --release -p reader --bin reading-json   # → ~/.claude/reading.json
+cargo run --release --bin bash-corpus > ~/.claude/memview/bash-corpus.jsonl
+cargo run --release -p reader --bin reading-json   # → ~/.claude/memview/reading.json
 ```
 
 **`reading-json` is the survey, mined rather than computed on request.** It
 takes ~13 seconds over 146k commands — fine for a report somebody waits on,
 wrong for a page — and the artefact is 8 kB, so both servers hold it in memory
-and answer instantly. `claude-sync.sh` runs it in the nightly, **after the
-corpus snapshot**, because it reads what that step writes: running it first
-would describe last night's corpus and stamp it with tonight's mtime, a
-staleness nothing downstream could detect.
+and answer instantly. `claude-sync.sh` runs it in the nightly, **after the corpus
+is mined**, because it reads what that step writes: running it first would
+describe last night's corpus and stamp it with tonight's mtime, a staleness
+nothing downstream could detect.
 
 It carries counts and command NAMES, never a command line — `effects.json` is
 where verbatim text lives, and this file is small enough to embed in a page.
 
-The reports take any corpus file, so `~/.claude/corpus/union.jsonl` is the one to
-pass when a figure has to be comparable with an earlier one.
+The reports take any corpus file, and default to
+`~/.claude/memview/bash-corpus.jsonl`. ⚠ **That file is re-mined nightly**, so two
+figures either side of a night are not comparable — when a figure has to hold
+across a change, copy the corpus somewhere for the duration and pass the copy.
 
 ⚠ Reports need `-p reader`; a plain `--bin` from the workspace root fails with
 *no bin target in default-run packages*.

@@ -12,10 +12,9 @@ use reader::{project, shell_files, sql};
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let path = args.get(1).cloned().unwrap_or_else(|| {
-        format!(
-            "{}/.claude/corpus/union.jsonl",
-            std::env::var("HOME").unwrap_or_default()
-        )
+        reader::home::file("bash-corpus.jsonl")
+            .to_string_lossy()
+            .into_owned()
     });
     let home = std::env::var("HOME").unwrap_or_default();
     let text = std::fs::read_to_string(&path)?;
