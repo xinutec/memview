@@ -9,6 +9,7 @@ pub mod access;
 pub mod agents;
 pub mod atomic;
 pub mod blame;
+pub mod bytes;
 pub mod cites;
 pub mod commits;
 pub mod config;
