@@ -69,15 +69,15 @@ use memview::tiers::{
     Entry, Held, HeldEntry, Role, Thresholds, census, expired, median_entry_cost, propose,
 };
 
-/// The size the root is truncated at, from Claude Code's own warning text —
-/// "approaching the 24.4KB read limit". Past it the root is cut from the bottom
-/// and nothing says which part went missing.
+/// The size the root is truncated at — see [`memview::lint::INDEX_CEILING`] for
+/// the number and why it is guessed low.
 ///
-/// ⚠ **The conservative reading of an ambiguous figure.** 24.4 KB is either
-/// 24,400 or 24,985 bytes depending on which kilobyte is meant, and the cost of
-/// guessing high is a silent truncation nobody can see. Guessing low costs a
-/// few hundred bytes of headroom.
-const CEILING: usize = 24_400;
+/// ⚠ **Defined THERE and not here, deliberately.** It was written out twice, in
+/// this tool and in the lint rule that reports the same overage, which is one
+/// edit away from the two disagreeing about where the ceiling is while both
+/// sound authoritative. A tool that proposes a trade against 24,400 and a check
+/// that warns above 24,985 would be a corpus with two ceilings.
+const CEILING: usize = memview::lint::INDEX_CEILING;
 
 /// When #884's freeze lifts and the held half of the trade becomes actionable.
 const HARVEST: &str = "2026-09-11";
