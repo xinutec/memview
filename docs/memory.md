@@ -35,15 +35,49 @@ it matters you will not know to look.
 
 ## Why the root is scarce, and scarce in a way that bites
 
-The injection has a hard size ceiling. Past it, **the root is truncated and
-nothing tells the reader which part went missing** — the session simply thinks
-with a partial root and has no way to notice. That is the failure this tier is
-uniquely exposed to: a body that is too long is a slow read, but a root that is
-too long is *silently incomplete*.
+The injection has a size ceiling. Past it, **the root is truncated and nothing
+tells the reader which part went missing** — the session simply thinks with a
+partial root and has no way to notice. That is the failure this tier is uniquely
+exposed to: a body that is too long is a slow read, but a root that is too long
+is *silently incomplete*.
+
+⚠ **Where that ceiling actually is has never been measured, and the number in
+the tool is a guess made deliberately low.** `memory-tiers` uses 24,400 bytes,
+read off Claude Code's own warning text; 24.4 KB is ambiguous between 24,400 and
+24,985 depending on which kilobyte is meant, and guessing high costs a silent
+truncation while guessing low costs a few hundred bytes of headroom. The corpus's
+own header records the observed bracket rather than the warning line: a root of
+about 25 KB arrived whole, and one of 27,382 bytes lost its last forty entries.
+So the cliff is real, its edge sits somewhere between those two, and **the number
+this model is administered by is a warning line, not the edge.** Do not quote it
+as the ceiling.
 
 ⚠ Check the current size against the ceiling before adding a line. If the root
 is over, adding a good line evicts an unknown other line rather than joining it.
 That is not a trade anyone chose, and it is invisible in the diff.
+
+## ⚠ The state this model does not yet describe: over the line with no legal move
+
+The trade below assumes a trade exists. It can fail to: the root can sit above
+the ceiling while nothing is demotable and everything that qualifies is blocked
+for want of room, so `memory-tiers` proposes `0 in, 0 out, net 0` and the file
+stays over. That is not a bug in the tool and it is not a stalemate to wait out —
+it is the model reporting that the only remaining moves are ones a rule was
+written to forbid, and it is where the sustainability question actually lives.
+
+Three things are true at once in that state and all three should be said before
+anyone reaches for a cut:
+
+  * **Demotion is blocked by ROLE, not by evidence.** Most of what ranks lowest
+    is a tripwire, and a tripwire's low open rate is what success looks like.
+  * **Admission is blocked by ROOM, not by evidence.** Entries have earned a slot
+    and there is nowhere to put them.
+  * **A held entry is not a rejected one.** #884's freeze holds part of the
+    corpus out of the trade until its harvest, by design.
+
+The honest responses are to shorten existing lines rather than remove them, to
+let leases expire once the freeze lifts, or to accept the root as it is and say
+so. What must NOT happen is a cut chosen because the tool printed zero.
 
 This is why the root's economy is not "is this true and useful" — everything in
 the corpus should be true and useful. It is: **does this need to be thought
@@ -192,6 +226,29 @@ That leaves an asymmetry in what is *built*, though not in what is knowable:
     test would exclude exactly the recent thinking the tier exists to hold.
     Parentage decides whether a demotion is SAFE, never whether a line is
     warranted.
+
+⚠ **Distance was the OTHER missing factor, and it is measured now (2026-08-29).**
+Everything above describes how much a memory is used. Nothing described how far
+away it is — `reachable_without` ran a walk from the index and returned a set,
+discarding the depth it had to compute on the way, so reachability was a boolean
+and "reached by fifteen agents from four hops out" read the same as "from one".
+`store::depths_without` keeps the number and `memory-tiers` prints it beside
+breadth.
+
+⚠ **It is a second question, not a tie-breaker on breadth**, and it is printed
+rather than scored because nothing has measured which way it should weigh. High
+breadth at ONE hop says the traversal is already short and a root line buys
+little; the same breadth from four hops out is a reader going a long way,
+repeatedly, for something the root does not carry. The first reading it produced
+on the live corpus was that nearly every qualified admission sits two hops out —
+one step past a hub — which is a weaker case for spending root bytes than the
+breadth alone suggested.
+
+⚠ **The demotion side of the same question is NOT built.** Dropping a line moves
+a memory further away rather than deleting it, so the cost of a demotion is how
+far its target falls — one hop is cheap, unreachable is a stranding, and `homes`
+currently reports only which of the two it is. `depths_without` takes the
+demotion set for exactly this and nothing passes one yet.
 
 ⚠ **Breadth was the missing factor and is no longer missing.** How many distinct
 sessions and subjects consulted a memory is derivable from what the mine already

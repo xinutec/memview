@@ -570,3 +570,101 @@ fn a_memory_with_no_stamp_falls_back_rather_than_showing_nothing() {
     let doc = corpus.docs.get("feedback_unstamped").expect("doc");
     assert!(doc.meta.modified.is_some(), "mtime is the fallback");
 }
+
+// ── How FAR away a memory is (#822, docs/memory.md's traversal tier) ─────────
+//
+// Every signal built for the root-versus-traversed decision so far describes
+// USE. None described POSITION, so "consulted by fifteen agents from four hops
+// out" and "consulted by fifteen agents from one" read identically.
+
+fn depths_without(names: &[&str]) -> std::collections::BTreeMap<String, usize> {
+    let corpus = corpus();
+    let index = corpus.index_md.clone().expect("fixture has an index");
+    let dropping = names.iter().map(|n| (*n).to_string()).collect();
+    memview::store::depths_without(&corpus.docs, &index, &dropping)
+}
+
+#[test]
+fn a_memory_the_index_links_is_one_hop_away() {
+    let depths = depths_without(&[]);
+    // The fixture's index carries a line for all three, so all three are direct.
+    assert_eq!(depths.get("project_alpha"), Some(&1));
+    assert_eq!(depths.get("reference_beta"), Some(&1));
+    assert_eq!(depths.get("feedback_gamma"), Some(&1));
+}
+
+/// ⚠ **The question a trade actually asks.** Dropping a line does not delete the
+/// memory — it moves it further away, and how much further is the cost of the
+/// demotion. One hop is cheap; unreachable is a stranding, and those are
+/// different findings that reachability alone reports as the same boolean.
+#[test]
+fn demoting_a_line_says_how_far_its_target_falls_rather_than_whether_it_survives() {
+    let before = depths_without(&[]);
+    let after = depths_without(&["reference_beta"]);
+    assert_eq!(before.get("reference_beta"), Some(&1));
+    // Still reachable, one hop further out — through alpha, which houses it.
+    assert_eq!(after.get("reference_beta"), Some(&2));
+
+    // And the stranding case reports absence, not a larger number.
+    let both = depths_without(&["project_alpha", "reference_beta"]);
+    assert_eq!(both.get("reference_beta"), None);
+}
+
+/// ⚠ **Breadth-first, and the walk this replaced was not.** `reachable_without`
+/// used `Vec::pop` — a stack — correct for "what is reachable", wrong for "how
+/// far", because a depth-first walk records whichever path it wandered down
+/// first rather than the shortest.
+///
+/// Built as a diamond on purpose: `near` is indexed and links `far`, and `far`
+/// is also reachable down a longer chain. A stack-based walk can arrive by the
+/// long route first and record 3 where the answer is 2.
+#[test]
+fn the_shortest_route_wins_when_two_paths_reach_the_same_memory() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let write = |name: &str, body: &str| {
+        std::fs::write(
+            dir.path().join(format!("{name}.md")),
+            format!(
+                "---\nname: {name}\ndescription: \"d\"\nmetadata:\n  type: reference\n---\n\n{body}\n"
+            ),
+        )
+        .expect("write");
+    };
+    // index → near → far   (2 hops)
+    // index → a → b → far  (3 hops)
+    write("reference_near", "[[reference_far]]");
+    write("reference_a", "[[reference_b]]");
+    write("reference_b", "[[reference_far]]");
+    write("reference_far", "nothing");
+    std::fs::write(
+        dir.path().join("MEMORY.md"),
+        "# Memory index\n\n- [near](reference_near.md) · [a](reference_a.md)\n",
+    )
+    .expect("index");
+
+    let corpus = Corpus::load(dir.path().to_str().expect("utf8")).expect("loads");
+    let index = corpus.index_md.clone().expect("index");
+    let depths =
+        memview::store::depths_without(&corpus.docs, &index, &std::collections::BTreeSet::new());
+    assert_eq!(depths.get("reference_near"), Some(&1));
+    assert_eq!(depths.get("reference_a"), Some(&1));
+    assert_eq!(depths.get("reference_b"), Some(&2));
+    assert_eq!(depths.get("reference_far"), Some(&2), "shortest route wins");
+}
+
+/// The two share one walk now, so they cannot disagree about what is reachable.
+#[test]
+fn reachability_is_exactly_the_names_that_have_a_depth() {
+    let corpus = corpus();
+    let index = corpus.index_md.clone().expect("fixture has an index");
+    let dropping = ["reference_beta".to_string()].into_iter().collect();
+    let reached = memview::store::reachable_without(&corpus.docs, &index, &dropping);
+    let depths = memview::store::depths_without(&corpus.docs, &index, &dropping);
+    assert_eq!(
+        reached,
+        depths
+            .keys()
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>()
+    );
+}

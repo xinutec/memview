@@ -150,6 +150,9 @@ fn main() -> Result<()> {
     let index = corpus.index_md.clone().unwrap_or_default();
     let listed: BTreeSet<String> = index_links(&index).into_iter().collect();
     let reached = reachable_without(&corpus.docs, &index, &BTreeSet::new());
+    // How far each memory sits from the index, which is the traversal cost a
+    // root line buys down. Taken with nothing demoted, so it is today's graph.
+    let depths = memview::store::depths_without(&corpus.docs, &index, &BTreeSet::new());
 
     let created: BTreeMap<String, serde_json::Value> =
         read_json(&reader::home::cache("memory-created.json"))?;
@@ -225,6 +228,7 @@ fn main() -> Result<()> {
                 },
                 homes: homes_for(&corpus.docs, name, &reached),
                 frozen: frozen.contains(name),
+                depth: depths.get(name).copied(),
                 name: name.clone(),
             }
         })
@@ -356,12 +360,22 @@ fn report(corpus: &Corpus, entries: &[Entry], index: &str, today: i64, at: &Thre
         at.tenure_breadth
     );
     println!("  strong direction of evidence: they were found without help.");
+    // ⚠ **`hops` is not a tie-breaker on breadth, it is a second question.** A
+    // memory reached by many agents from ONE hop already has a short traversal
+    // and a root line buys little; the same breadth from four hops out is a
+    // reader going a long way, repeatedly, for something the root does not
+    // carry. Printed rather than folded into a score, because nothing has
+    // measured which way it should weigh yet (#822).
     for (i, entry) in trade.admit.iter().take(15).enumerate() {
         println!(
-            "    {:<52} {:>3} agents  {:>3} maybe  {:<4} {}",
+            "    {:<52} {:>3} agents  {:>3} maybe  {:>4}  {:<4} {}",
             entry.name,
             entry.breadth,
             entry.maybe_breadth,
+            entry
+                .depth
+                .map(|d| format!("{d}h"))
+                .unwrap_or_else(|| "—".into()),
             role_mark(entry),
             if i < trade.affordable { "" } else { "no room" }
         );

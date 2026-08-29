@@ -441,23 +441,59 @@ pub fn reachable_without(
     index_md: &str,
     demoting: &BTreeSet<String>,
 ) -> BTreeSet<String> {
-    let mut seen = BTreeSet::new();
-    let mut queue: Vec<String> = index_links(index_md)
+    depths_without(docs, index_md, demoting)
+        .into_keys()
+        .collect()
+}
+
+/// How many links a reader follows from the index to arrive at each memory.
+///
+/// **Depth 1 is a root line's own target — DIRECTLY linked.** Depth 2 is one hop
+/// beyond it, and a name absent from the map is not reachable at all.
+///
+/// ⚠ **This is the half of the root/traversal question nothing measured.**
+/// `docs/memory.md` splits the corpus into what is present without being asked
+/// for and what is reached by following a link, and every signal built for that
+/// decision so far describes USE — breadth, days, roles. None describes
+/// POSITION. So "consulted by fifteen agents from four hops out" and "consulted
+/// by fifteen agents from one" were the same reading, though one argues for a
+/// root line and the other says the traversal is already short.
+///
+/// ⚠ **Breadth-first, and the queue is why.** `reachable_without` used
+/// `Vec::pop`, which is a STACK — correct for reachability, where any order
+/// visits the same set, and wrong for distance, where a depth-first walk records
+/// whichever path it wandered down first rather than the shortest. The two share
+/// this walk now so they cannot disagree about what is reachable.
+///
+/// `demoting` is struck out first, so the depths are the ones a reader would
+/// face AFTER the demotion — which is the question a trade actually asks: does
+/// this line's target fall one hop, or out of the graph entirely?
+pub fn depths_without(
+    docs: &BTreeMap<String, MemoryDoc>,
+    index_md: &str,
+    demoting: &BTreeSet<String>,
+) -> BTreeMap<String, usize> {
+    let mut depth: BTreeMap<String, usize> = BTreeMap::new();
+    let mut queue: std::collections::VecDeque<(String, usize)> = index_links(index_md)
         .into_iter()
         .filter(|name| docs.contains_key(name) && !demoting.contains(name))
+        .map(|name| (name, 1))
         .collect();
-    while let Some(name) = queue.pop() {
+    while let Some((name, at)) = queue.pop_front() {
         let Some(doc) = docs.get(&name) else { continue };
-        if !seen.insert(name) {
+        // First arrival wins: BFS reaches a name by its shortest path, so a
+        // later, longer route must not overwrite it.
+        if depth.contains_key(&name) {
             continue;
         }
+        depth.insert(name, at);
         for link in wikilinks_of(&doc.body) {
-            if docs.contains_key(&link.target) {
-                queue.push(link.target);
+            if docs.contains_key(&link.target) && !depth.contains_key(&link.target) {
+                queue.push_back((link.target, at + 1));
             }
         }
     }
-    seen
+    depth
 }
 
 /// Every `name.md` the index links, in order — including any written before the

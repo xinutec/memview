@@ -114,6 +114,16 @@ pub struct Entry {
     pub homes: Vec<String>,
     /// Whether #884's freeze covers it. See [`Trade::held`].
     pub frozen: bool,
+    /// How many links a reader follows from the index to reach it — 1 for a
+    /// memory the root carries directly, `None` if nothing reaches it.
+    ///
+    /// ⚠ **The half of the root/traversal decision that use cannot answer.**
+    /// `docs/memory.md` splits the corpus by WHEN a memory arrives, and breadth
+    /// says only how widely it is consulted: "reached by fifteen agents from
+    /// four hops out" and "reached by fifteen agents from one" were the same
+    /// reading. The first argues for a root line; the second says the traversal
+    /// is already short and the line would buy little.
+    pub depth: Option<usize>,
 }
 
 impl Entry {
