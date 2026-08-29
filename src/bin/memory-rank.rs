@@ -102,7 +102,7 @@ fn main() -> Result<()> {
     let memory_dir = std::env::var("MEMORY_DIR")
         .unwrap_or_else(|_| format!("{home}/.claude/projects/-Users-pippijn-Code/memory"));
     let artefact = std::env::var("AGENTS_FILE").unwrap_or_else(|_| {
-        reader::home::file("agents.json")
+        reader::home::cache("agents.json")
             .to_string_lossy()
             .into_owned()
     });

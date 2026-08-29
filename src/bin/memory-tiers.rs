@@ -109,10 +109,10 @@ fn main() -> Result<()> {
         .unwrap_or_else(|_| format!("{root}/projects/-Users-pippijn-Code/memory"));
 
     let corpus = Corpus::load(&memory_dir)?;
-    let mined = Agents::load(&reader::home::file("agents.json")).with_context(|| {
+    let mined = Agents::load(&reader::home::cache("agents.json")).with_context(|| {
         format!(
             "reading {} — mine it with: cargo run --release --bin agents",
-            reader::home::file("agents.json").display()
+            reader::home::cache("agents.json").display()
         )
     })?;
 
@@ -152,8 +152,8 @@ fn main() -> Result<()> {
     let reached = reachable_without(&corpus.docs, &index, &BTreeSet::new());
 
     let created: BTreeMap<String, serde_json::Value> =
-        read_json(&reader::home::file("memory-created.json"))?;
-    let days: BTreeMap<String, MemoryDays> = read_json(&reader::home::file("memory-days.json"))?;
+        read_json(&reader::home::cache("memory-created.json"))?;
+    let days: BTreeMap<String, MemoryDays> = read_json(&reader::home::cache("memory-days.json"))?;
     let roles: serde_json::Value = read_json(&reader::home::file("memory-roles.json"))?;
 
     // #884's two arms, which is what the freeze is on. Held together in the

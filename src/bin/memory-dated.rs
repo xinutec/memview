@@ -35,7 +35,7 @@ fn main() -> Result<()> {
             .into_owned()
     });
 
-    let recovered_at = reader::home::file("memory-created.json");
+    let recovered_at = reader::home::cache("memory-created.json");
     let recovered: BTreeMap<String, serde_json::Value> = serde_json::from_str(
         &std::fs::read_to_string(&recovered_at)
             .with_context(|| format!("reading {}", recovered_at.display()))?,

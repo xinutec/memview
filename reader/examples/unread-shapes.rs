@@ -44,7 +44,7 @@ fn main() -> anyhow::Result<()> {
         ),
         _ => (
             args,
-            reader::home::file("bash-corpus.jsonl")
+            reader::home::cache("bash-corpus.jsonl")
                 .to_string_lossy()
                 .into_owned(),
         ),

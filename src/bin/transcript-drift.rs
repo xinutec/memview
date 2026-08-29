@@ -25,7 +25,7 @@ use anyhow::{Context, Result};
 use reader::watermark::{Drift, Watermark, drift, observe};
 
 fn main() -> Result<()> {
-    let at = reader::home::file("transcript-drift.json");
+    let at = reader::home::cache("transcript-drift.json");
     // ⚠ **An absent file and an unreadable one are different answers.** Absent
     // is a legitimate first run. Unreadable is a lost baseline, and defaulting
     // it to empty would print "first run: recorded 1156" and re-record — the

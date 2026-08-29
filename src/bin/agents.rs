@@ -18,7 +18,7 @@ fn main() -> Result<()> {
         .unwrap_or_else(|| format!("{home}/.claude/projects"));
     let sessions = format!("{home}/.claude/sessions");
     let out = std::env::args().nth(2).unwrap_or_else(|| {
-        reader::home::file("agents.json")
+        reader::home::cache("agents.json")
             .to_string_lossy()
             .into_owned()
     });

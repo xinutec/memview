@@ -36,7 +36,7 @@ fn main() -> Result<()> {
         })
         .collect();
 
-    let at = reader::home::file("memory-created.json");
+    let at = reader::home::cache("memory-created.json");
     memview::atomic::write(&at, serde_json::to_string_pretty(&out)?.as_bytes())
         .with_context(|| format!("writing {}", at.display()))?;
     println!("{} memories dated → {}", out.len(), at.display());

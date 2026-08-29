@@ -91,7 +91,7 @@ pub fn router(roster: Arc<Roster>) -> Router {
 /// writes the file and the nightly runs it.
 async fn reading() -> Result<Json<reader::reading::CorpusRead>, StatusCode> {
     let path = std::env::var("READING_FILE").unwrap_or(
-        reader::home::file("reading.json")
+        reader::home::cache("reading.json")
             .to_string_lossy()
             .into_owned(),
     );

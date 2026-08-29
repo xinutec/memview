@@ -30,9 +30,35 @@ pub fn dir() -> PathBuf {
         .join("memview")
 }
 
-/// One of memview's files, by name.
+/// One of memview's RECORDS, by name — a file nothing can rebuild, tracked in
+/// git.
+///
+/// ⚠ **Two files live here and both are frozen for a reason**, not merely
+/// unrebuilt: `memory-roles.json` is a model's judgement that memview#884 is
+/// pre-registered on, so re-running it is a different experiment rather than a
+/// refresh, and `trap-admissible.json` holds #1050's arms. `index-history.json`
+/// sits here too until the 2026-09-11 harvest — `--bin index-history` rebuilds
+/// it, so it is a cache wearing a record's coat until the study that pins two of
+/// its snapshots is done.
 pub fn file(name: &str) -> PathBuf {
     dir().join(name)
+}
+
+/// One of memview's CACHES, by name — rebuilt by a command, ignored by git.
+///
+/// ⚠ **The split is a directory rather than a list, and that is the point.**
+/// `.gitignore` used to enumerate every derived file, which meant a new artefact
+/// was tracked-by-default and someone had to remember to add a line. It failed
+/// exactly that way once: `trap-admissible.json` sat neither tracked nor
+/// ignored — a result rescued from `/tmp` before the daily sweep, one `git add`
+/// or one cleanup away from either fate. A file written through here lands on
+/// the right side by construction.
+///
+/// ⚠ **The test for which function to use is not "is it derived" but "does a
+/// rebuild return the same thing, or LESS?"** Run it and diff before moving a
+/// file to this side; every name here has a command that was run and compared.
+pub fn cache(name: &str) -> PathBuf {
+    dir().join("cache").join(name)
 }
 
 /// Claude Code's own directory — its transcripts and corpus, which we READ and

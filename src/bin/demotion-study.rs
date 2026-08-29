@@ -56,7 +56,7 @@ fn main() -> Result<()> {
     );
 
     let days: BTreeMap<String, MemoryDays> = serde_json::from_str(&std::fs::read_to_string(
-        reader::home::file("memory-days.json"),
+        reader::home::cache("memory-days.json"),
     )?)?;
     let roles: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(
         reader::home::file("memory-roles.json"),

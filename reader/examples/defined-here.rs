@@ -39,7 +39,7 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let home = std::env::var("HOME").unwrap_or_default();
     let path = args.first().cloned().unwrap_or_else(|| {
-        reader::home::file("bash-corpus.jsonl")
+        reader::home::cache("bash-corpus.jsonl")
             .to_string_lossy()
             .into_owned()
     });

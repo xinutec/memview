@@ -32,8 +32,27 @@ fn our_directory_is_not_claude_codes() {
         std::env::set_var("MEMVIEW_DIR", "/tmp/example-memview");
     }
     assert_eq!(
-        reader::home::file("agents.json"),
-        std::path::Path::new("/tmp/example-memview/agents.json")
+        reader::home::cache("agents.json"),
+        std::path::Path::new("/tmp/example-memview/cache/agents.json")
+    );
+    // ⚠ **A record and a cache must not land in the same directory.**
+    // `.gitignore` carries one line, `/memview/cache/`, so these two functions
+    // ARE the tracked/untracked decision — collapse them and every derived
+    // artefact is tracked-by-default again, which is the enumeration this
+    // replaced.
+    //
+    // ⚠ Asserted HERE rather than in a test of its own, and that is not tidiness.
+    // Rust runs a file's tests as threads in ONE process, so a second
+    // `set_var("MEMVIEW_DIR", …)` races this one and whichever runs last decides
+    // what both see. A separate test failed 1 run in 5 — and passed the first
+    // full local suite, which is how it reached the gate.
+    assert_eq!(
+        reader::home::file("memory-roles.json"),
+        std::path::Path::new("/tmp/example-memview/memory-roles.json")
+    );
+    assert_ne!(
+        reader::home::file("x.json").parent(),
+        reader::home::cache("x.json").parent()
     );
     // ⚠ Overriding ours must NOT move Claude Code's — they are separate roots.
     assert_eq!(

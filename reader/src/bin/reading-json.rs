@@ -32,12 +32,12 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let home = std::env::var("HOME").unwrap_or_default();
     let corpus = args.get(1).cloned().unwrap_or_else(|| {
-        reader::home::file("bash-corpus.jsonl")
+        reader::home::cache("bash-corpus.jsonl")
             .to_string_lossy()
             .into_owned()
     });
     let out = args.get(2).cloned().unwrap_or_else(|| {
-        reader::home::file("reading.json")
+        reader::home::cache("reading.json")
             .to_string_lossy()
             .into_owned()
     });

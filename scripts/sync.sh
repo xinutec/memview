@@ -112,7 +112,7 @@ fi
 
 # The agent roster: which named session works in which project directory.
 # Names, project names and integers, same as the co-use artefact.
-AGENTS="${AGENTS_FILE:-$HOME/.claude/memview/agents.json}"
+AGENTS="${AGENTS_FILE:-$HOME/.claude/memview/cache/agents.json}"
 if [[ -f $AGENTS ]]; then
   push_json agents "$AGENTS" /state/agents.json
 else
@@ -123,7 +123,7 @@ fi
 # and typed — an agent, a moment, a repository, a kind of work, a verdict — and
 # carrying no command line, no prompt and no output text. Pippijn lifted the
 # no-timeline rule on 2026-08-02 and left that half of it standing.
-DOING="${DOING_FILE:-$HOME/.claude/memview/doing.json}"
+DOING="${DOING_FILE:-$HOME/.claude/memview/cache/doing.json}"
 if [[ -f $DOING ]]; then
   push_json timeline "$DOING" /state/doing.json
 else
@@ -132,7 +132,7 @@ fi
 
 # What each turn did to which file, with the command that did it — the evidence
 # under a timeline row. The largest thing this pushes, ~35 MB.
-EFFECTS="${EFFECTS_FILE:-$HOME/.claude/memview/effects.json}"
+EFFECTS="${EFFECTS_FILE:-$HOME/.claude/memview/cache/effects.json}"
 if [[ -f $EFFECTS ]]; then
   push_json effects "$EFFECTS" /state/effects.json
 else

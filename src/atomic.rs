@@ -36,6 +36,16 @@ use anyhow::{Context, Result};
 /// `<name>.tmp` after a crash is recognisable rather than one of a growing pile
 /// of unexplained files. `agents.rs` already treats `.tmp` as leftover litter.
 pub fn write(path: &Path, bytes: &[u8]) -> Result<()> {
+    // ⚠ **The directory may not exist yet, and that must not be a failure.**
+    // The caches moved under `memview/cache/` (#1240), so the first run on a
+    // fresh checkout — or with `MEMVIEW_DIR` pointed at a temp dir, which is how
+    // every ablation is run — writes into a directory nothing has created. A
+    // miner that dies here after eight minutes of reading is a bad trade for one
+    // `create_dir_all`.
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating {}", parent.display()))?;
+    }
     let tmp = tmp_beside(path);
     std::fs::write(&tmp, bytes)
         .with_context(|| format!("writing {} (temp for {})", tmp.display(), path.display()))?;
