@@ -2047,6 +2047,25 @@ fn scan_transcript(
 /// `memory_root` is the corpus directory, so opening a memory is attributed to
 /// the memory rather than discarded as "outside the code root". A path that
 /// does not exist is harmless: nothing matches it and the profile is empty.
+/// The artefacts a previous run wrote, plus the fold state they could not carry.
+///
+/// See [`crate::mine::Carried`] for why three of the folds below are not
+/// recoverable from `agents.json`, `doing.json` or `memory-days.json`.
+pub struct Resumed {
+    /// Watermarks and the fold state the artefacts cannot hold.
+    pub carried: crate::mine::Carried,
+    /// The roster as last written.
+    pub agents: Vec<Agent>,
+    /// The timeline as last written.
+    pub doing: reader::doing::Doing,
+    /// The evidence under the timeline, as last written.
+    pub effects: reader::effects::Effects,
+}
+
+/// Read the whole corpus from scratch.
+///
+/// The unconditional form, kept because most callers want it and because it is
+/// what [`Plan::Full`](reader::watermark::Plan::Full) falls back to.
 pub fn scan(
     projects_root: &Path,
     sessions_dir: &Path,
@@ -2055,14 +2074,57 @@ pub fn scan(
     home: &str,
     generated: &str,
 ) -> Result<Agents> {
+    scan_resumed(
+        projects_root,
+        sessions_dir,
+        code_root,
+        memory_root,
+        home,
+        generated,
+        None,
+    )
+    .map(|(agents, _)| agents)
+}
+
+/// Read only what has changed since `from`, and return the state the next run
+/// resumes from.
+///
+/// ⚠ **All-or-nothing.** One transcript that cannot be proved an append forces
+/// the whole corpus to be re-read and everything carried to be discarded — the
+/// artefacts carry no per-transcript provenance, so a file's old contribution
+/// cannot be subtracted and would be counted twice. See
+/// [`reader::watermark::plan`], which fails closed for the same reason.
+///
+/// ⚠ **A transcript that did not change is not re-read AND not forgotten**: its
+/// watermark is carried into the next run's state unchanged. Dropping it would
+/// make the following run believe the file was new and read it whole.
+pub fn scan_resumed(
+    projects_root: &Path,
+    sessions_dir: &Path,
+    code_root: &str,
+    memory_root: &str,
+    home: &str,
+    generated: &str,
+    from: Option<Resumed>,
+) -> Result<(Agents, crate::mine::Carried)> {
     let names = registry_names(sessions_dir);
-    let mut by_name: BTreeMap<String, Agent> = BTreeMap::new();
+    let held = from.unwrap_or_else(|| Resumed {
+        carried: crate::mine::Carried::default(),
+        agents: Vec::new(),
+        doing: reader::doing::Doing::default(),
+        effects: reader::effects::Effects::default(),
+    });
+    let mut by_name: BTreeMap<String, Agent> = held
+        .agents
+        .into_iter()
+        .map(|a| (a.name.clone(), a))
+        .collect();
     // The timeline, built across every transcript and frozen at the end.
-    let mut log = reader::doing::Log::default();
+    let mut log = reader::doing::Log::resume(held.doing);
     // The evidence under the timeline, built in the same pass and written to its
     // own file for the same reasons.
-    let mut effects = reader::effects::Log::default();
-    let mut days: BTreeMap<String, DaysSeen> = BTreeMap::new();
+    let mut effects = reader::effects::Log::resume(held.effects);
+    let mut days: BTreeMap<String, DaysSeen> = held.carried.days;
     // Read before the transcripts, because recognising a hash in one needs the
     // set of hashes to look for. Empty when the code root has no repositories,
     // in which case the whole dimension is skipped rather than half-built.
@@ -2076,7 +2138,7 @@ pub fn scan(
                 .push(commit.sha.clone());
         }
     }
-    let mut first_seen: FirstSeen = BTreeMap::new();
+    let mut first_seen: FirstSeen = held.carried.first_seen;
     // "Now" is the mine's own stamp, not the wall clock, so the weights are a
     // property of the artefact and re-reading it never changes what it says.
     let today = day_number(generated).unwrap_or(0);
@@ -2085,14 +2147,61 @@ pub fn scan(
         .with_context(|| format!("reading {}", projects_root.display()))?;
     // The name an owner settled on, so a dispatched transcript lands under the
     // same agent as the session that dispatched it.
-    let mut resolved: BTreeMap<String, String> = BTreeMap::new();
+    // ⚠ **Carried, because a session is named in the HEAD of its transcript.**
+    // A resumed run reads only the tail, so without this every long-lived agent
+    // would come back as a bare uuid — see [`crate::mine::Carried`].
+    let mut resolved: BTreeMap<String, String> = held.carried.resolved;
 
-    for transcript in transcripts_under(projects_root) {
-        let Ok(text) = std::fs::read(&transcript.path) else {
+    let found = transcripts_under(projects_root);
+    let present: Vec<std::path::PathBuf> = found.iter().map(|t| t.path.clone()).collect();
+    let plan = reader::watermark::plan(&held.carried.marks, &present);
+    // ⚠ **A full re-read must also DISCARD what was carried**, or the carried
+    // contribution is counted once from the artefact and again from the re-read.
+    // This is the half of all-or-nothing that is easy to leave out, because
+    // forgetting it produces a plausible artefact with everything doubled.
+    if matches!(plan, reader::watermark::Plan::Full { .. }) {
+        by_name.clear();
+        log = reader::doing::Log::default();
+        effects = reader::effects::Log::default();
+        days.clear();
+        first_seen.clear();
+        resolved.clear();
+    }
+    let mut marks: BTreeMap<String, reader::watermark::Resume> = BTreeMap::new();
+
+    for transcript in &found {
+        let key = transcript.path.to_string_lossy().into_owned();
+        // Where this run starts in this file: the beginning unless the plan
+        // proved the prefix is untouched.
+        let resume = match &plan {
+            reader::watermark::Plan::Full { .. } => None,
+            reader::watermark::Plan::Resume { tails, .. } => match tails.get(&key) {
+                Some(held) => Some(held.clone()),
+                None => match held.carried.marks.get(&key) {
+                    // Unchanged since the last run: nothing to read, but its
+                    // watermark has to survive into the next run's state.
+                    Some(unchanged) => {
+                        marks.insert(key, unchanged.clone());
+                        continue;
+                    }
+                    // Never seen before: read it whole, carrying nothing.
+                    None => None,
+                },
+            },
+        };
+        let start = resume.as_ref().map(|r| r.mark.read_to).unwrap_or(0);
+        let Ok(text) = read_from(&transcript.path, start) else {
             continue;
         };
-        if titling(&text) {
+        // ⚠ Only meaningful for a whole read. A tail does not contain the
+        // header this inspects, and asking it would drop the file's tail rows.
+        if start == 0 && titling(&text) {
             continue;
+        }
+        // The instruction still being carried out at the cut. Without this, 66
+        // of 2,815 tail calls measured on a real watermark land in no episode.
+        if let Some(open) = &resume {
+            log.reopen(open.episode, open.prompt.clone());
         }
         // The name it goes by now, then the registry, then the reminder it was
         // given once, then the id.
@@ -2152,6 +2261,20 @@ pub fn scan(
             &mut log,
             &mut effects,
         );
+        // Taken AFTER the read, at the length actually consumed, together with
+        // whatever episode is still open — the two have to describe the same
+        // instant or the next run resumes into the wrong instruction.
+        if let Some(mark) = reader::watermark::observe(&transcript.path) {
+            let (episode, prompt) = log.open_episode();
+            marks.insert(
+                key,
+                reader::watermark::Resume {
+                    mark,
+                    episode,
+                    prompt,
+                },
+            );
+        }
     }
 
     // ⚠ **Memory days are unioned across agents, where project days are not.**
@@ -2196,9 +2319,15 @@ pub fn scan(
     }
 
     // Every transcript has now been read, so "who saw this hash first" is a
-    // question with an answer. A commit nobody mentioned goes to nobody: the
-    // transcripts are pruned by Claude Code, and work predating the corpus has
-    // no session left to credit.
+    // question with an answer. A commit nobody mentioned goes to nobody: work
+    // predating the corpus has no session left to credit.
+    //
+    // ⚠ **This used to say the transcripts are pruned by Claude Code. They are
+    // not** — measured 2026-08-29 out of odin's snapshots, not one transcript
+    // holding a conversation has been deleted since the archive began on
+    // 2026-07-31 (memview#1240, #1247). What is genuinely missing is older than
+    // that: measured 2026-08-30, the 659 memories that name a session name 18
+    // distinct ones, and exactly ONE of those has no transcript left.
     let mut unattributed = 0usize;
     for commit in &history {
         let Some((_, who)) = first_seen.get(&commit.sha) else {
@@ -2257,16 +2386,42 @@ pub fn scan(
         })
         .collect();
 
-    Ok(Agents {
-        doing: log.finish(generated),
-        effects: effects.finish(generated),
+    let carried = crate::mine::Carried {
         generated: generated.to_string(),
-        commits: history.len(),
-        unattributed,
-        renames,
-        memory_days,
-        agents,
-    })
+        marks,
+        resolved,
+        first_seen,
+        days,
+    };
+    Ok((
+        Agents {
+            doing: log.finish(generated),
+            effects: effects.finish(generated),
+            generated: generated.to_string(),
+            commits: history.len(),
+            unattributed,
+            renames,
+            memory_days,
+            agents,
+        },
+        carried,
+    ))
+}
+
+/// A transcript from `start` to its end.
+///
+/// ⚠ **Seeks rather than reading and slicing.** The files this resumes into are
+/// gigabytes; reading one whole in order to throw away all but its tail would
+/// spend exactly what resuming exists to save.
+fn read_from(path: &Path, start: u64) -> std::io::Result<Vec<u8>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path)?;
+    if start > 0 {
+        file.seek(SeekFrom::Start(start))?;
+    }
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf)?;
+    Ok(buf)
 }
 
 /// Where each old path ended up, following a chain of renames to the end.

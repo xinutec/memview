@@ -13,11 +13,20 @@ use memview::couse::stamp;
 
 fn main() -> Result<()> {
     let home = std::env::var("HOME").unwrap_or_default();
-    let root = std::env::args()
-        .nth(1)
+    // ⚠ **Flags taken out before the positionals are counted.** `root` and `out`
+    // are read by position, so a bare `--resume` would otherwise become the
+    // projects root and the mine would read an empty directory and report a
+    // corpus of nothing — a wrong answer with no error.
+    let positional: Vec<String> = std::env::args()
+        .skip(1)
+        .filter(|a| !a.starts_with("--"))
+        .collect();
+    let root = positional
+        .first()
+        .cloned()
         .unwrap_or_else(|| format!("{home}/.claude/projects"));
     let sessions = format!("{home}/.claude/sessions");
-    let out = std::env::args().nth(2).unwrap_or_else(|| {
+    let out = positional.get(1).cloned().unwrap_or_else(|| {
         reader::home::cache("agents.json")
             .to_string_lossy()
             .into_owned()
@@ -39,13 +48,57 @@ fn main() -> Result<()> {
             .unwrap_or(0),
     );
 
-    let mut found = agents::scan(
+    // ⚠ **Opt-in, and it stays that way until parity is shown on the REAL
+    // corpus.** The fixtures prove a resumed scan equals a whole one; a fixture
+    // is not 6.28 GB of transcripts, and a wrong resume reads no error — it
+    // mines from an offset that means something else and the artefact simply
+    // becomes untrue. `--resume` is how that comparison gets run at all.
+    let want_resume = std::env::args().any(|a| a == "--resume");
+    let resume_file = reader::home::cache(memview::mine::FILE);
+    let from = if want_resume {
+        // ⚠ An unparseable resume file is FATAL here, not "nothing to resume":
+        // see `mine::Carried::load`.
+        match memview::mine::Carried::load(&resume_file)? {
+            None => {
+                println!(
+                    "no resume state at {} — reading whole",
+                    resume_file.display()
+                );
+                None
+            }
+            Some(carried) => {
+                let beside = |name: &str| std::path::Path::new(&out).with_file_name(name);
+                let roster = agents::Agents::load(std::path::Path::new(&out));
+                println!(
+                    "resuming from {} transcript mark(s) recorded {}",
+                    carried.marks.len(),
+                    if carried.generated.is_empty() {
+                        "(unstamped)"
+                    } else {
+                        &carried.generated
+                    }
+                );
+                Some(agents::Resumed {
+                    carried,
+                    agents: roster.map(|r| r.agents).unwrap_or_default(),
+                    doing: reader::doing::Doing::load(&beside("doing.json")).unwrap_or_default(),
+                    effects: reader::effects::Effects::load(&beside("effects.json"))
+                        .unwrap_or_default(),
+                })
+            }
+        }
+    } else {
+        None
+    };
+
+    let (mut found, resume_state) = agents::scan_resumed(
         std::path::Path::new(&root),
         std::path::Path::new(&sessions),
         &code_root,
         &memory_dir,
         &home,
         &generated,
+        from,
     )?;
 
     println!("{} agents", found.agents.len());
@@ -175,5 +228,21 @@ fn main() -> Result<()> {
 
     found.save(std::path::Path::new(&out))?;
     println!("wrote {out}");
+
+    // ⚠ **Written on EVERY run, including a whole one.** A full mine is how the
+    // resume state is bootstrapped and how it is repaired after a
+    // `Plan::Full` — writing it only when `--resume` was asked for would mean
+    // the first resumable run could never happen.
+    //
+    // ⚠ **Written LAST, after every artefact it describes.** These marks assert
+    // "the corpus up to here is already in those files"; saved first, a crash in
+    // between would leave a resume state promising work no artefact holds, and
+    // the next run would skip it silently.
+    resume_state.save(&resume_file)?;
+    println!(
+        "wrote {} ({} transcript mark(s))",
+        resume_file.display(),
+        resume_state.marks.len()
+    );
     Ok(())
 }
