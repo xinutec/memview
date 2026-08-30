@@ -21,13 +21,23 @@ fn a_missing_file_is_a_first_run() {
     assert_eq!(got, None);
 }
 
-/// ⚠ Separated from the case above deliberately — see the module note.
+/// ⚠ **A damaged resume file must NOT abort the run.** Every byte here is
+/// reproduced by one full mine, and `plan()` treats absent state as "read
+/// everything whole" — so the cost of losing it is a slow run, not a wrong one.
+///
+/// Being fatal instead would take down the nightly, which runs the mine under
+/// `set -euo pipefail`: a recoverable four minutes becomes an outage. The damage
+/// is named on stderr rather than swallowed.
 #[test]
-fn a_file_that_will_not_parse_is_fatal_rather_than_empty() {
+fn a_file_that_will_not_parse_is_recovered_from_rather_than_fatal() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("mine-resume.json");
     std::fs::write(&path, "{ this is not json").expect("write");
-    assert!(Carried::load(&path).is_err());
+    let got = Carried::load(&path).expect("a damaged file must not abort the run");
+    assert_eq!(
+        got, None,
+        "a damaged file must read as nothing to resume from"
+    );
 }
 
 #[test]

@@ -92,21 +92,40 @@ pub struct Carried {
 impl Carried {
     /// Read the state a previous run left.
     ///
-    /// ⚠ **Absent is a first run; UNPARSEABLE is fatal.** Returning
-    /// `Ok(None)` for a corrupt file would make "nothing to resume from" and
-    /// "the resume state is damaged" the same answer — and the second one would
-    /// then silently mine from offsets whose fold state was thrown away, which
-    /// is a wrong resume rather than a slow one. Same rule, and the same reason,
-    /// as [`crate::agents::carry_forward`].
+    /// ⚠ **Absent is a first run; UNPARSEABLE is reported and recovered from.**
+    ///
+    /// This deliberately does NOT follow [`crate::agents::carry_forward`], which
+    /// is fatal on a file it cannot read. That one guards `memory-days.json`,
+    /// which holds days contributed by transcripts that no longer exist and is
+    /// therefore NOT recomputable — losing it loses history. This file is the
+    /// opposite: every byte of it is reproduced by one full mine.
+    ///
+    /// ⚠ **An earlier version was fatal, on reasoning that does not hold.** It
+    /// argued that a corrupt file read as `None` would "mine from offsets whose
+    /// fold state was thrown away". There are no offsets when the state is
+    /// absent: [`reader::watermark::plan`] then puts every transcript in
+    /// `whole`, which IS a full mine. The failure is a slow run, not a wrong
+    /// one — and being fatal instead would abort the nightly under
+    /// `set -euo pipefail`, turning a recoverable 4-minute cost into an outage.
+    ///
+    /// The damage is still named on stderr, because a resume file that will not
+    /// parse is worth somebody knowing about even when the run recovers.
     pub fn load(path: &std::path::Path) -> Result<Option<Self>> {
         let text = match std::fs::read_to_string(path) {
             Ok(text) => text,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
         };
-        let carried = serde_json::from_str(&text)
-            .with_context(|| format!("{} exists but will not parse", path.display()))?;
-        Ok(Some(carried))
+        match serde_json::from_str(&text) {
+            Ok(carried) => Ok(Some(carried)),
+            Err(why) => {
+                eprintln!(
+                    "⚠ {} will not parse ({why}) — reading the whole corpus instead",
+                    path.display()
+                );
+                Ok(None)
+            }
+        }
     }
 
     /// Write this run's state, atomically.
