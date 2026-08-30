@@ -1,7 +1,9 @@
 //! Talk to the live Claude Code sessions on this Mac: find one by name, read
-//! what it last said, send it a message.
+//! the conversation, send it a message.
 //!
 //!     cargo run -p console --bin talk -- who
+//!     cargo run -p console --bin talk -- log home
+//!     cargo run -p console --bin talk -- log home 20 --since 22:00 --full
 //!     cargo run -p console --bin talk -- last home
 //!     cargo run -p console --bin talk -- last home 3 --user
 //!     cargo run -p console --bin talk -- send home "ready to compact?"
@@ -18,22 +20,30 @@
 //!
 //! The rest of it exists because every step has already gone wrong by hand: a
 //! 36-character session id pasted where `home` was meant, an apostrophe
-//! shell-quoted into JSON and silently dropped, and a message sent to a session
-//! that had already exited.
+//! shell-quoted into JSON and silently dropped, a message sent to a session that
+//! had already exited, and two half-conversations interleaved by eye because
+//! reading each side took its own command.
 
 use anyhow::{Context, Result, bail};
 use console::config::Config;
 use serde::Deserialize;
 use std::io::{Read, Seek, SeekFrom};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-/// How much of a transcript's tail to read for `last`.
+/// How much of a transcript's tail to read.
 ///
 /// ⚠ **A live transcript can be gigabytes** — 1.7 GB on this Mac in August — so
 /// reading the whole file to print one message is not an option. Eight
 /// megabytes covers hundreds of exchanges of the largest session seen; when it
-/// does not, the answer is fewer messages rather than a slower tool.
+/// does not, [`Line`] counting says so rather than quietly showing less.
 const TAIL: u64 = 8 << 20;
+
+/// How much of a message `log` shows before saying how much it kept back.
+///
+/// ⚠ **Never truncate silently.** A cut that leaves no mark is indistinguishable
+/// from a message that was short, which is the same shape of mistake as a probe
+/// returning empty and being read as a result.
+const WIDTH: usize = 700;
 
 #[derive(Deserialize)]
 struct Overview {
@@ -52,6 +62,14 @@ struct Row {
     alive: bool,
     #[serde(default)]
     working: bool,
+    /// What the CLI last said it was doing. Only meaningful while `working`.
+    #[serde(default)]
+    busy: Option<String>,
+    /// When the conversation last moved, in milliseconds — not when the console
+    /// picked the process up. For a session running since last night the two are
+    /// hours apart, and this is the one worth showing.
+    #[serde(default)]
+    touched: Option<u64>,
     #[serde(default)]
     unread: usize,
     #[serde(default)]
@@ -77,6 +95,20 @@ impl Row {
     }
 }
 
+/// Who said it. The session is named rather than called "assistant" because the
+/// name is what a person asking about it uses.
+#[derive(PartialEq, Clone, Copy)]
+enum Voice {
+    Pippijn,
+    Session,
+}
+
+struct Line {
+    at: String,
+    voice: Voice,
+    text: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // ⚠ **`reqwest` here is a rustls build with no default provider**, chosen so
@@ -91,10 +123,11 @@ async fn main() -> Result<()> {
     let rest: Vec<&str> = args.iter().map(String::as_str).collect();
     match rest.split_first() {
         None | Some((&"who", [])) => who().await,
-        Some((&"last", tail)) => last(tail).await,
+        Some((&"log", tail)) => read(tail, Mode::Log).await,
+        Some((&"last", tail)) => read(tail, Mode::Last).await,
         Some((&"send", tail)) => send(tail).await,
         Some((&("-h" | "--help" | "help"), _)) => {
-            println!("{}", USAGE);
+            println!("{USAGE}");
             Ok(())
         }
         Some((other, _)) => bail!("no such command {other:?}\n\n{USAGE}"),
@@ -102,12 +135,21 @@ async fn main() -> Result<()> {
 }
 
 const USAGE: &str = "usage:
-  talk who                       list the sessions
-  talk last <session> [n]        print the last n things it said (default 1)
-  talk last <session> [n] --user print the last n things Pippijn said instead
+  talk who                       the sessions: state, what they are doing, how long ago
+  talk log <session> [n]         the last n messages of the conversation, both sides
+  talk last <session> [n]        the last n things the session said, in full
   talk send <session> <text>     send it a message, as Pippijn; `-` reads stdin
 
+  --user      with `last`, show what Pippijn said instead
+  --full      with `log`, do not shorten long messages
+  --since T   only messages at or after T — `22:00` today, or a full ISO stamp
+
 <session> is a name (`home`) or the start of an id (`1b6f2e45`).";
+
+enum Mode {
+    Log,
+    Last,
+}
 
 /// The console's ungated loopback address, from the same place the server reads
 /// it, so this cannot go stale when that default moves.
@@ -128,12 +170,30 @@ async fn overview() -> Result<Vec<Row>> {
     Ok(body.sessions)
 }
 
+/// How long ago, in the shortest form that is not a lie.
+fn ago(touched: Option<u64>) -> String {
+    let Some(touched) = touched else {
+        return String::new();
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_millis() as u64)
+        .unwrap_or(touched);
+    let secs = now.saturating_sub(touched) / 1000;
+    match secs {
+        0..60 => format!("{secs}s"),
+        60..3600 => format!("{}m", secs / 60),
+        3600..86400 => format!("{}h", secs / 3600),
+        _ => format!("{}d", secs / 86400),
+    }
+}
+
 async fn who() -> Result<()> {
     let mut sessions = overview().await?;
     sessions.sort_by(|a, b| a.label().cmp(b.label()));
     println!(
-        "{:<10} {:<8} {:<8} {:>6}  CONTEXT",
-        "NAME", "ID", "STATE", "UNREAD"
+        "{:<10} {:<8} {:<8} {:>4} {:>6} {:>10}  DOING",
+        "NAME", "ID", "STATE", "AGO", "UNREAD", "CONTEXT"
     );
     for row in &sessions {
         let context = match (row.context, row.window) {
@@ -141,13 +201,21 @@ async fn who() -> Result<()> {
             (Some(used), None) => format!("{}k", used / 1000),
             _ => String::new(),
         };
+        // Only while it is working: the CLI leaves the last thing it narrated in
+        // place, so showing it for an idle session says it is still doing that.
+        let doing = match (row.working, &row.busy) {
+            (true, Some(busy)) => busy.as_str(),
+            _ => "",
+        };
         println!(
-            "{:<10} {:<8} {:<8} {:>6}  {}",
+            "{:<10} {:<8} {:<8} {:>4} {:>6} {:>10}  {}",
             row.label(),
             &row.id[..8.min(row.id.len())],
             row.state(),
+            ago(row.touched),
             row.unread,
-            context
+            context,
+            doing
         );
     }
     Ok(())
@@ -161,7 +229,7 @@ fn resolve<'a>(sessions: &'a [Row], needle: &str) -> Result<&'a Row> {
         .filter(|row| {
             row.name
                 .as_deref()
-                .is_some_and(|n| n.eq_ignore_ascii_case(needle))
+                .is_some_and(|name| name.eq_ignore_ascii_case(needle))
         })
         .collect();
     let found = match by_name.len() {
@@ -208,7 +276,7 @@ fn transcript(id: &str) -> Result<PathBuf> {
 }
 
 /// The tail of a file, starting at a line boundary.
-fn tail_of(path: &PathBuf) -> Result<Vec<u8>> {
+fn tail_of(path: &Path) -> Result<Vec<u8>> {
     let mut file =
         std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let len = file.metadata()?.len();
@@ -219,9 +287,9 @@ fn tail_of(path: &PathBuf) -> Result<Vec<u8>> {
     // ⚠ A seek lands mid-line, and half a JSON object parses as nothing at all —
     // silently, which would read as "the session said nothing".
     if from > 0
-        && let Some(nl) = buf.iter().position(|byte| *byte == b'\n')
+        && let Some(newline) = buf.iter().position(|byte| *byte == b'\n')
     {
-        buf.drain(..=nl);
+        buf.drain(..=newline);
     }
     Ok(buf)
 }
@@ -242,63 +310,152 @@ fn said(row: &serde_json::Value) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
-async fn last(args: &[&str]) -> Result<()> {
+/// Both sides of the conversation, in the order they were recorded.
+///
+/// ⚠ **The two sides are read by different rules and neither generalises.** What
+/// counts as a human turn is five facts that have each cost somebody an
+/// afternoon — a queued message lives in an `attachment` row and never in a
+/// `user` one, a `tool_result` wears the user's role — and they live in
+/// `reader`, which owns them for the whole workspace. The assistant side needs
+/// only the dedupe rule, because nothing else wears its type.
+fn conversation(bytes: &[u8]) -> Vec<Line> {
+    let mut lines: Vec<Line> = reader::transcript::human_turns(bytes)
+        .into_iter()
+        .map(|turn| Line {
+            at: turn.at,
+            voice: Voice::Pippijn,
+            text: turn.text,
+        })
+        .collect();
+
+    let mut seen = std::collections::HashSet::new();
+    for row in bytes.split(|byte| *byte == b'\n') {
+        let Ok(row) = serde_json::from_slice::<serde_json::Value>(row) else {
+            continue;
+        };
+        // ⚠ The CLI rewrites earlier stretches back into the same file, so a
+        // linear read returns some turns twice — and the later copy is the
+        // degraded one. Same rule as `reader::transcript::human_turns`.
+        let uuid = row["uuid"].as_str().unwrap_or_default().to_string();
+        if !uuid.is_empty() && !seen.insert(uuid) {
+            continue;
+        }
+        if let Some(text) = said(&row) {
+            lines.push(Line {
+                at: row["timestamp"].as_str().unwrap_or_default().to_string(),
+                voice: Voice::Session,
+                text,
+            });
+        }
+    }
+    // ISO-8601 in a fixed zone sorts as text, which is why the transcripts use
+    // it. ⚠ A queued turn is stamped when it was ENQUEUED, so it can sort before
+    // the reply to the message ahead of it — that is the truth about when it was
+    // typed, not a bug to correct here.
+    lines.sort_by(|a, b| a.at.cmp(&b.at));
+    lines
+}
+
+/// `--since 22:00` means today at 22:00, in whatever the transcript's stamps
+/// are; a longer value is compared as the prefix it is.
+fn since_of(args: &[&str]) -> Option<String> {
+    let at = args.iter().position(|arg| *arg == "--since")?;
+    let value = args.get(at + 1)?;
+    if value.len() == 5 && value.as_bytes()[2] == b':' {
+        let today = &time::OffsetDateTime::now_utc();
+        let stamp = format!(
+            "{:04}-{:02}-{:02}T{value}",
+            today.year(),
+            today.month() as u8,
+            today.day()
+        );
+        Some(stamp)
+    } else {
+        Some((*value).to_string())
+    }
+}
+
+async fn read(args: &[&str], mode: Mode) -> Result<()> {
     let mine = args.iter().any(|arg| *arg == "--user" || *arg == "-u");
-    let args: Vec<&&str> = args.iter().filter(|arg| !arg.starts_with('-')).collect();
-    let Some(needle) = args.first() else {
-        bail!("usage: talk last <session> [n] [--user]");
+    let full = args.iter().any(|arg| *arg == "--full" || *arg == "-f");
+    let since = since_of(args);
+    // Skip the flags and the value `--since` consumed.
+    let mut positional: Vec<&str> = Vec::new();
+    let mut skip = false;
+    for arg in args {
+        if skip {
+            skip = false;
+            continue;
+        }
+        if *arg == "--since" {
+            skip = true;
+        } else if !arg.starts_with('-') {
+            positional.push(arg);
+        }
+    }
+    let Some(needle) = positional.first() else {
+        bail!(
+            "usage: talk {} <session> [n]",
+            match mode {
+                Mode::Log => "log",
+                Mode::Last => "last",
+            }
+        );
     };
-    let count: usize = match args.get(1) {
+    let count: usize = match positional.get(1) {
         Some(n) => n
             .parse()
             .with_context(|| format!("{n:?} is not a number"))?,
-        None => 1,
+        None => match mode {
+            Mode::Log => 10,
+            Mode::Last => 1,
+        },
     };
 
     let sessions = overview().await?;
     let row = resolve(&sessions, needle)?;
     let bytes = tail_of(&transcript(&row.id)?)?;
+    let mut lines = conversation(&bytes);
 
-    let turns: Vec<(String, String)> = if mine {
-        // The five facts about what counts as a human turn live in `reader`, and
-        // getting any of them wrong has cost somebody an afternoon already.
-        reader::transcript::human_turns(&bytes)
-            .into_iter()
-            .map(|turn| (turn.at, turn.text))
-            .collect()
-    } else {
-        let mut seen = std::collections::HashSet::new();
-        let mut out = Vec::new();
-        for line in bytes.split(|byte| *byte == b'\n') {
-            let Ok(row) = serde_json::from_slice::<serde_json::Value>(line) else {
-                continue;
-            };
-            // ⚠ The CLI rewrites earlier stretches back into the same file, so a
-            // linear read returns some turns twice — and the later copy is the
-            // degraded one. Same rule as `reader::transcript::human_turns`.
-            let uuid = row["uuid"].as_str().unwrap_or_default().to_string();
-            if !uuid.is_empty() && !seen.insert(uuid) {
-                continue;
-            }
-            if let Some(text) = said(&row) {
-                out.push((
-                    row["timestamp"].as_str().unwrap_or_default().to_string(),
-                    text,
-                ));
-            }
-        }
-        out
-    };
-
-    if turns.is_empty() {
-        bail!(
-            "nothing found in the last {} MB of {}",
-            TAIL >> 20,
-            row.label()
-        );
+    if let Some(since) = &since {
+        lines.retain(|line| line.at.as_str() >= since.as_str());
     }
-    for (at, text) in turns.iter().rev().take(count).rev() {
-        println!("=== {} {}\n{text}\n", &at[..19.min(at.len())], row.label());
+    if let Mode::Last = mode {
+        let want = if mine { Voice::Pippijn } else { Voice::Session };
+        lines.retain(|line| line.voice == want);
+    }
+    if lines.is_empty() {
+        let scope = since
+            .map(|since| format!("since {since}"))
+            .unwrap_or_else(|| format!("in the last {} MB", TAIL >> 20));
+        bail!("nothing from {} {scope}", row.label());
+    }
+
+    let shown = lines.len().min(count);
+    for line in &lines[lines.len() - shown..] {
+        let who = match line.voice {
+            Voice::Pippijn => "pippijn",
+            Voice::Session => row.label(),
+        };
+        let stamp = &line.at[..19.min(line.at.len())];
+        let body = match (
+            matches!(mode, Mode::Log) && !full,
+            line.text.char_indices().nth(WIDTH),
+        ) {
+            // ⚠ The count of what was kept back is the point — see `WIDTH`.
+            (true, Some((cut, _))) => format!(
+                "{}\n    … +{} more chars",
+                &line.text[..cut],
+                line.text.chars().count() - WIDTH
+            ),
+            _ => line.text.clone(),
+        };
+        println!("=== {stamp} {who}\n{body}\n");
+    }
+    // Saying what was left out, so a short answer is never mistaken for a short
+    // conversation.
+    if lines.len() > shown {
+        println!("({} earlier, ask for more)", lines.len() - shown);
     }
     Ok(())
 }
