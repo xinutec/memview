@@ -1660,6 +1660,7 @@ fn scan_transcript(
     seen: &mut DaysSeen,
     log: &mut reader::doing::Log,
     effects: &mut reader::effects::Log,
+    resume: Option<&reader::watermark::Resume>,
 ) {
     // Borrowed field by field: one tool call updates either a project counter
     // or a memory counter, and the compiler cannot see they are disjoint
@@ -1690,7 +1691,18 @@ fn scan_transcript(
         .collect();
     // ⚠ **Per transcript, or the last instruction of one session adopts the
     // first rows of the next file read.**
-    log.open_transcript();
+    //
+    // ⚠ **But a RESUMED read must not reset, and getting this wrong is silent.**
+    // The driver used to call `Log::reopen` just before this function, and this
+    // line then cleared it on the next statement — so the carried episode was
+    // applied and immediately thrown away. Measured 2026-08-30: exactly 78 tail
+    // rows landed in no episode where a whole scan put them in episode 35921,
+    // and that one episode was the ONLY thing still differing between a resumed
+    // artefact and a full one (memview#1240).
+    match resume {
+        None => log.open_transcript(),
+        Some(open) => log.reopen(open.episode, open.prompt.clone()),
+    }
     for line in text.split(|&c| c == b'\n') {
         if line.is_empty() {
             continue;
@@ -2203,21 +2215,9 @@ pub fn scan_resumed(
         if start == 0 && titling(&text) {
             continue;
         }
-        // The instruction still being carried out at the cut. Without this, 66
-        // of 2,815 tail calls measured on a real watermark land in no episode.
-        //
-        // ⚠ **The `None` arm is not a no-op and must not be dropped.** `Log`
-        // holds `current`/`prompt` globally, so without an explicit reset the
-        // rows at the head of one transcript inherit the episode left open by
-        // whichever transcript was read BEFORE it — a different session's
-        // instruction. A whole scan and a resumed scan visit different
-        // predecessors, so the leak is also why the two disagreed
-        // (memview#1240). Resetting makes such rows carry no episode, which is
-        // what they always should have carried.
-        match &resume {
-            Some(open) => log.reopen(open.episode, open.prompt.clone()),
-            None => log.reopen(None, None),
-        }
+        // ⚠ **The open episode is handed to `scan_transcript`, not applied
+        // here.** That function opens the log itself, per transcript, and doing
+        // it here as well meant this was cleared one statement later.
         // The name it goes by now, then the registry, then the reminder it was
         // given once, then the id.
         //
@@ -2286,6 +2286,7 @@ pub fn scan_resumed(
             days.entry(agent.name.clone()).or_default(),
             &mut log,
             &mut effects,
+            resume.as_ref(),
         );
         // Taken AFTER the read, at the length actually consumed, together with
         // whatever episode is still open — the two have to describe the same

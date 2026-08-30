@@ -100,9 +100,16 @@ fn append(path: &std::path::Path, lines: &[&str]) {
 }
 
 /// A `Read` of `path` at `stamp`, in the shape the miner parses.
+///
+/// ⚠ **The `id` is required and its absence is silent.** A timeline row is only
+/// pushed when `call_id` finds one BEFORE the tool's name on the line; without
+/// it the call still counts towards the roster's reads, so a fixture missing it
+/// looks like it works and produces an empty timeline. That cost one wrong test
+/// before it was noticed.
 fn read_call(path: &str, stamp: &str) -> String {
+    let id = stamp.replace([':', '-'], "");
     format!(
-        "{{\"type\":\"assistant\",\"timestamp\":\"{stamp}\",\"message\":{{\"content\":[{{\"type\":\"tool_use\",\"name\":\"Read\",\"input\":{{\"file_path\":\"{path}\"}}}}]}}}}"
+        "{{\"type\":\"assistant\",\"timestamp\":\"{stamp}\",\"message\":{{\"content\":[{{\"type\":\"tool_use\",\"id\":\"tu_{id}\",\"name\":\"Read\",\"input\":{{\"file_path\":\"{path}\"}}}}]}}}}"
     )
 }
 
@@ -357,4 +364,101 @@ fn a_resumed_mine_does_not_double_the_commit_counts() {
         recounted, counted,
         "a resumed mine doubled the commit count"
     );
+}
+
+/// ⚠ **The carried episode has to survive into the log, and for a long time it
+/// did not.** The driver called `Log::reopen` just before `scan_transcript`,
+/// which opens the log itself on its first statement and cleared it — so the
+/// carry was applied and thrown away one line later, silently.
+///
+/// Measured on the real corpus 2026-08-30: 78 tail rows landed in no episode
+/// where a whole scan put them in the episode open at the cut, and that single
+/// episode was the ONLY remaining difference between a resumed artefact and a
+/// full one.
+#[test]
+fn a_tail_continues_the_episode_that_was_open_at_the_cut() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let sessions = tempfile::tempdir().expect("tempdir");
+    // No repositories needed: this asks about episodes, not commits.
+    let _code = tempfile::tempdir().expect("tempdir");
+    let memory = tempfile::tempdir().expect("tempdir");
+    let stamp = "2026-08-30T00:00:00Z";
+
+    // A user turn opens the episode; the call after it materialises the episode.
+    let prompt = r#"{"type":"user","timestamp":"2026-08-01T10:00:00Z","message":{"role":"user","content":"do the thing"}}"#;
+    let path = corpus_with(
+        root.path(),
+        "-code",
+        "s1",
+        &[
+            prompt,
+            &read_call("/code/alpha/a.rs", "2026-08-01T10:01:00Z"),
+        ],
+    );
+
+    let run = |from: Option<Resumed>| {
+        scan_resumed(
+            root.path(),
+            sessions.path(),
+            "/code",
+            &memory.path().to_string_lossy(),
+            "/home/example",
+            stamp,
+            from,
+        )
+        .expect("scan")
+    };
+
+    let (first, carried) = run(None);
+    assert_eq!(
+        first.doing.episodes.len(),
+        1,
+        "the prompt should open one episode"
+    );
+
+    // More work under the SAME instruction, after the watermark.
+    append(
+        &path,
+        &[&read_call("/code/alpha/b.rs", "2026-08-01T10:02:00Z")],
+    );
+
+    let (resumed, _) = run(Some(Resumed {
+        carried,
+        doing: first.doing,
+        effects: reader::effects::Effects::default(),
+    }));
+    let whole = scan(
+        root.path(),
+        sessions.path(),
+        "/code",
+        &memory.path().to_string_lossy(),
+        "/home/example",
+        stamp,
+    )
+    .expect("whole");
+
+    assert!(
+        !whole.doing.rows.is_empty(),
+        "fixture produced no timeline rows"
+    );
+    let orphaned = resumed.doing.rows.iter().filter(|r| r.e.is_none()).count();
+    assert_eq!(
+        orphaned,
+        whole.doing.rows.iter().filter(|r| r.e.is_none()).count(),
+        "a resumed tail orphaned {orphaned} row(s) the whole scan placed in an episode"
+    );
+    assert_eq!(
+        resumed.doing.episodes.len(),
+        whole.doing.episodes.len(),
+        "episode count diverged"
+    );
+    for (a, b) in resumed
+        .doing
+        .episodes
+        .iter()
+        .zip(whole.doing.episodes.iter())
+    {
+        assert_eq!(a.n, b.n, "episode row count diverged: {a:?} vs {b:?}");
+        assert_eq!(a.until, b.until, "episode end diverged: {a:?} vs {b:?}");
+    }
 }
