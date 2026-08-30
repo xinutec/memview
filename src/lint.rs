@@ -122,8 +122,10 @@ const RULES: &[(&str, Severity, &str)] = &[
         // ⚠ **The message names a repair tool; do NOT let that become an
         // auto-fix.** `memory-stamp` must stay a thing a person runs, because
         // this rule failing is the only visible symptom of a write that skipped
-        // the stamping path, and the perishable half is the AUTHOR — recoverable
-        // from the transcripts only until Claude Code prunes them. Silence the
+        // the stamping path, and the harder half is the AUTHOR — recoverable only
+        // from the transcripts, and only for sessions the archive still holds
+        // (it begins 2026-07-31; memview#1240 measured that nothing since has
+        // been deleted, so this is a floor rather than a countdown). Silence the
         // rule and the authorship loss continues unseen; see
         // `feedback_a_precondition_that_can_pass_wrongly`. What the pointer
         // removes is the forensics, not the failure: the session that trips this

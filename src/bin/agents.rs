@@ -102,8 +102,8 @@ fn main() -> Result<()> {
 
     println!("{} agents", found.agents.len());
     // What the commit join could and could not do. An unattributed commit is
-    // the ordinary case for anything predating the corpus — Claude Code prunes
-    // its own old sessions — but the share has to be visible, or these line
+    // the ordinary case for anything predating the corpus — but the share has
+    // to be visible, or these line
     // counts read as a complete account of the history when they are not.
     if found.commits > 0 {
         let joined = found.commits - found.unattributed;
@@ -197,12 +197,15 @@ fn main() -> Result<()> {
     // this way (`index-history.json`); the outcome variable never was.
     let carried = memview::agents::carry_forward(&days_file, &mut days)?;
     if carried > 0 {
-        // The only signal pruning ever gives. Said out loud rather than folded
-        // into a total: a silent carry reads exactly like a complete re-mine.
-        println!(
-            "carried {carried} memory-day(s) no surviving transcript still shows \
-             — transcripts have been pruned"
-        );
+        // ⚠ **Said out loud rather than folded into a total**: a silent carry
+        // reads exactly like a complete re-mine.
+        //
+        // ⚠ **It used to say "transcripts have been pruned", and that is false**
+        // — memview#1240 measured that nothing holding a conversation has been
+        // deleted since the archive began. What vanishes is temp-directory
+        // sessions, which carried no conversation, plus whatever predates
+        // 2026-07-31. The message states the observation, not a cause.
+        println!("carried {carried} memory-day(s) from sessions with no surviving transcript");
     }
     memview::atomic::write(&days_file, serde_json::to_string(&days)?.as_bytes())
         .with_context(|| format!("writing {}", days_file.display()))?;

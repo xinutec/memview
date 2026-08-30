@@ -78,10 +78,13 @@ pub async fn memories(
 /// session belongs to when the roster still knows.
 ///
 /// The name is the point — a uuid answers "which session" without answering
-/// "which of my agents". It stays optional because Claude Code prunes its own
-/// old sessions, so a memory routinely outlives the transcript that wrote it;
-/// the id is still shown then, since "written by a session I no longer have"
-/// is a truer answer than silence.
+/// "which of my agents". It stays optional because a memory can outlive the
+/// transcript that wrote it; the id is still shown then, since "written by a
+/// session I no longer have" is a truer answer than silence.
+///
+/// ⚠ **NOT because Claude Code prunes them** — measured 2026-08-29, it does not
+/// (memview#1240). What is missing predates the archive's 2026-07-31 start, and
+/// as of 2026-08-30 that is exactly ONE session of the 18 the corpus names.
 #[derive(Serialize)]
 pub struct Origin {
     session: String,

@@ -282,9 +282,9 @@ pub struct Agents {
     /// Commits found under the code root, and how many of them no transcript
     /// mentions.
     ///
-    /// Reported rather than quietly dropped. Claude Code prunes its own old
-    /// sessions and plenty of this history predates the corpus entirely, so an
-    /// unattributed commit is the ordinary case for anything old — and a reader
+    /// Reported rather than quietly dropped. Plenty of this history predates the
+    /// corpus entirely, so an unattributed commit is the ordinary case for
+    /// anything old — and a reader
     /// comparing these line counts against `git log` needs to know how much of
     /// the history they cover before concluding somebody did less than they did.
     #[serde(default)]
@@ -635,9 +635,15 @@ impl Agents {
     /// The agent a session id belongs to, for resolving a memory's
     /// `originSessionId` to a name.
     ///
-    /// `None` is an ordinary answer, not a failure: Claude Code prunes its own
-    /// old sessions, so a memory can outlive the transcript that wrote it —
-    /// 24 of the live corpus's memories name a session with no transcript left.
+    /// `None` is an ordinary answer, not a failure: a memory can outlive the
+    /// transcript that wrote it.
+    ///
+    /// ⚠ **NOT because Claude Code prunes them — measured 2026-08-29, it does
+    /// not** (memview#1240, #1247). What is genuinely missing predates the odin
+    /// archive, which begins 2026-07-31: of the 18 distinct sessions the live
+    /// corpus names, exactly ONE has no transcript left, and it wrote 24
+    /// memories. Re-run the count before quoting it; the SESSION count is the
+    /// one that matters, not the memory count.
     /// Those keep their raw id rather than being dropped or attributed to
     /// somebody else.
     /// Who has been working on the files a query names, busiest first.
@@ -909,8 +915,8 @@ pub struct MemoryDays {
 /// only the earlier record still had.
 ///
 /// ⚠ **This file used to be a fresh derivation from whichever transcripts still
-/// existed, and Claude Code prunes its own.** So a pruned transcript silently
-/// deleted every day it contributed and the file went on looking complete —
+/// existed.** So a transcript that went away silently deleted every day it
+/// contributed and the file went on looking complete —
 /// invisible by construction, because nothing compared today's days with
 /// yesterday's. A day is a historical fact and cannot stop being true, so union
 /// is the correct merge and there is no case for dropping one.

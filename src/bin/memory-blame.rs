@@ -133,8 +133,10 @@ fn main() -> Result<()> {
     }
 
     if !unclaimed.is_empty() {
-        // ⚠ **Named, not guessed.** No transcript claims these — the transcript
-        // was pruned, or something outside a session wrote the file. Attaching
+        // ⚠ **Named, not guessed.** No transcript claims these — it predates the
+        // archive, or something outside a session wrote the file. (Not pruning:
+        // memview#1240 measured that nothing holding a conversation is deleted.)
+        // Attaching
         // them to whoever ran this would put a stranger's work in a real queue.
         println!("\nnobody claims these — no surviving transcript records the write");
         for finding in &unclaimed {

@@ -166,10 +166,10 @@ read, and a census mislabelling what it counted (both `reader/src/bin/opacity.rs
 Mining is offline; `scripts/sync.sh` pushes the artefacts to the pod.
 
 ```sh
-cargo run --release --bin agents        # → ~/.claude/agents.json + doing.json
-cargo run --release --bin couse         # → ~/.claude/couse.json
-cargo run --release --bin bash-corpus > ~/.claude/memview/bash-corpus.jsonl
-cargo run --release -p reader --bin reading-json   # → ~/.claude/memview/reading.json
+cargo run --release --bin agents        # → ~/.claude/memview/cache/agents.json + doing.json + effects.json
+cargo run --release --bin couse         # → ~/.claude/projects/-Users-pippijn-Code/couse.json
+cargo run --release --bin bash-corpus > ~/.claude/memview/cache/bash-corpus.jsonl
+cargo run --release -p reader --bin reading-json   # → ~/.claude/memview/cache/reading.json
 ```
 
 **`reading-json` is the survey, mined rather than computed on request.** It
@@ -184,7 +184,7 @@ It carries counts and command NAMES, never a command line — `effects.json` is
 where verbatim text lives, and this file is small enough to embed in a page.
 
 The reports take any corpus file, and default to
-`~/.claude/memview/bash-corpus.jsonl`. ⚠ **That file is re-mined nightly**, so two
+`~/.claude/memview/cache/bash-corpus.jsonl`. ⚠ **That file is re-mined nightly**, so two
 figures either side of a night are not comparable — when a figure has to hold
 across a change, copy the corpus somewhere for the duration and pass the copy.
 

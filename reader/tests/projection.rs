@@ -6,7 +6,7 @@
 //! comments are that report's, taken over 134,622 distinct commands in the
 //! since-retired `corpus/union.jsonl` — they are what makes a case worth a test
 //! rather than a curiosity, and they are the thing to re-measure rather than
-//! trust. Re-measure against `~/.claude/memview/bash-corpus.jsonl`; it is a
+//! trust. Re-measure against `~/.claude/memview/cache/bash-corpus.jsonl`; it is a
 //! superset, so a count here can only be low.
 //!
 //! ⚠ **The disagreements are the point, so they are asserted on both sides.**

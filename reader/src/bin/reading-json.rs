@@ -2,8 +2,8 @@
 //!
 //!     cargo run --release -p reader --bin reading-json -- <corpus.jsonl> [out.json]
 //!
-//! Defaults to `~/.claude/memview/bash-corpus.jsonl` →
-//! `~/.claude/memview/reading.json`, which is what the nightly runs.
+//! Defaults to `~/.claude/memview/cache/bash-corpus.jsonl` →
+//! `~/.claude/memview/cache/reading.json`, which is what the nightly runs.
 //!
 //! ⚠ **That default used to be `~/.claude/corpus/union.jsonl` and that whole
 //! directory is gone (memview#1240).** It kept fourteen dated gzips plus a

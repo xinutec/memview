@@ -18,7 +18,7 @@ so where they appear.
 
 ```sh
 cargo run --release -p bash-oracle --bin syntax-report -- \
-  ~/.claude/memview/bash-corpus.jsonl --oracle [--why SUBSTRING]
+  ~/.claude/memview/cache/bash-corpus.jsonl --oracle [--why SUBSTRING]
 ```
 
 ## Purpose
@@ -392,7 +392,7 @@ direction, and a count taken now against a total remembered from before reads as
 arithmetically impossible: on that morning the greedy curve was called a report
 bug, and the report was right. Re-read the header of the run you are quoting.
 
-**It lives at `~/.claude/memview/bash-corpus.jsonl`**, one file beside every
+**It lives at `~/.claude/memview/cache/bash-corpus.jsonl`**, one file beside every
 other mined artefact, gitignored and rebuilt nightly from `claude-sync.sh`'s
 mining step by `--bin bash-corpus`. It is a CACHE: `--bin bash-corpus` reproduces
 it from the transcripts in about four minutes, and nothing about it is preserved.

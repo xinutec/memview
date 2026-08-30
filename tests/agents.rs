@@ -551,9 +551,14 @@ fn a_session_resolves_to_its_agent_and_a_forgotten_one_to_nobody() {
     };
 
     assert_eq!(roster.name_of_session("s1"), Some("builder"));
-    // Claude Code prunes its own old sessions, so a memory outlives the
-    // transcript that wrote it. That is an ordinary answer, not a failure —
-    // the alternative is attributing it to whoever happens to sort first.
+    // A memory can outlive the transcript that wrote it — one session of the 18
+    // the live corpus names has none left, measured 2026-08-30. That is an
+    // ordinary answer, not a failure; the alternative is attributing it to
+    // whoever happens to sort first.
+    //
+    // ⚠ **Not because Claude Code prunes them.** memview#1240 measured that
+    // nothing holding a conversation has been deleted since the archive began
+    // on 2026-07-31; what is missing predates it.
     assert_eq!(roster.name_of_session("s-pruned"), None);
 }
 
@@ -1845,7 +1850,7 @@ mod is_prompt {
     }
 }
 
-// --- memory-days must survive a pruned transcript (#884's outcome) -----------
+// --- memory-days must survive a vanished transcript (#884's outcome) --------
 
 use memview::agents::{MemoryDays, carry_forward};
 
@@ -1879,7 +1884,7 @@ fn a_day_whose_transcript_is_gone_is_carried_and_counted() {
     assert_eq!(
         got.reads,
         vec![100, 101],
-        "day 100 was pruned away and must survive"
+        "day 100 lost its transcript and must survive"
     );
     assert_eq!(got.edits, vec![100]);
     assert_eq!(

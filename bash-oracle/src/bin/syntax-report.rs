@@ -3,7 +3,7 @@
 //!     cargo run --release -p bash-oracle --bin syntax-report -- <corpus.jsonl> [--oracle] [--why SUBSTRING]
 //!
 //! ⚠ **Two runs either side of a change are only comparable over the SAME
-//! corpus file** — `~/.claude/memview/bash-corpus.jsonl`, or a copy of it kept
+//! corpus file** — `~/.claude/memview/cache/bash-corpus.jsonl`, or a copy of it
 //! for the duration of the work. The live mine grows nightly, so re-mining
 //! between two measurements moves the denominator under them.
 //!
