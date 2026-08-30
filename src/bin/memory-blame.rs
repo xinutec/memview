@@ -23,7 +23,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result};
-use memview::agents::Agents;
 use memview::blame::{MARKER, attribute, open_task_in, subject};
 use memview::lint::{self, Finding, Severity};
 use memview::store::Corpus;
@@ -94,7 +93,14 @@ fn main() -> Result<()> {
         }
     }
 
-    let mined = Agents::load(&reader::home::cache("agents.json"));
+    // ⚠ Refreshed rather than read off disk: this names sessions, and a session
+    // that started since the last mine would otherwise show as a bare uuid.
+    // Costs about 0.3s — see `memview::fresh`.
+    let mined = memview::fresh::mined(
+        &memview::fresh::Where::from_env(),
+        memview::agents::Needs::MEMORIES,
+    )
+    .ok();
     let named = |session: &str| -> String {
         mined
             .as_ref()
