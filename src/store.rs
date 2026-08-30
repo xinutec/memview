@@ -924,15 +924,41 @@ pub fn render_markdown(md: &str) -> Result<String> {
 /// stranded memories that still existed. A demotion is only safe once something
 /// live already points at the memory; a candidate with no home is not a
 /// candidate, it is a deletion wearing a demotion's clothes.
+/// Who links to each memory, over the whole corpus, computed once.
+///
+/// ⚠ **This exists because [`homes_for`] used to re-derive it per target, and a
+/// small corpus was taking a minute.** Each `wikilinks_of` is a full markdown
+/// parse with a fresh arena; asking it inside a per-memory loop made the cost
+/// 668 x 668 = ~446,000 parses of a few megabytes. Building the reverse map once
+/// is 668 parses — the same answer, three orders of magnitude less work.
+///
+/// The corpus is SMALL. Anything here that is slow is slow because of its shape,
+/// not its size, and the fix is the shape rather than a cache.
+pub fn incoming_links(docs: &BTreeMap<String, MemoryDoc>) -> BTreeMap<String, BTreeSet<String>> {
+    let mut out: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for (name, doc) in docs {
+        for link in wikilinks_of(&doc.body) {
+            out.entry(link.target).or_default().insert(name.clone());
+        }
+    }
+    out
+}
+
+/// The memories that link to `target` and are themselves reachable.
+///
+/// Takes the map from [`incoming_links`] rather than the corpus: the caller
+/// builds it once and asks this many times.
 pub fn homes_for(
-    docs: &BTreeMap<String, MemoryDoc>,
+    incoming: &BTreeMap<String, BTreeSet<String>>,
     target: &str,
     reached: &BTreeSet<String>,
 ) -> Vec<String> {
-    docs.iter()
-        .filter(|(name, _)| name.as_str() != target && reached.contains(*name))
-        .filter(|(_, doc)| wikilinks_of(&doc.body).iter().any(|l| l.target == target))
-        .map(|(name, _)| name.clone())
+    incoming
+        .get(target)
+        .into_iter()
+        .flatten()
+        .filter(|name| name.as_str() != target && reached.contains(*name))
+        .cloned()
         .collect()
 }
 

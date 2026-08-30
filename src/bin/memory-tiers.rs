@@ -64,7 +64,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result};
 use memview::agents::{Agents, MemoryDays, day_number};
-use memview::store::{Corpus, homes_for, index_entry_cost, index_links, reachable_without};
+use memview::store::{
+    Corpus, homes_for, incoming_links, index_entry_cost, index_links, reachable_without,
+};
 use memview::tiers::{
     Entry, Held, HeldEntry, Role, Thresholds, census, expired, median_entry_cost, propose,
 };
@@ -150,6 +152,9 @@ fn main() -> Result<()> {
     let index = corpus.index_md.clone().unwrap_or_default();
     let listed: BTreeSet<String> = index_links(&index).into_iter().collect();
     let reached = reachable_without(&corpus.docs, &index, &BTreeSet::new());
+    // ⚠ Built ONCE. Asking it per memory meant a full markdown parse of every
+    // document for every target — ~446,000 parses of a few megabytes.
+    let incoming = incoming_links(&corpus.docs);
     // How far each memory sits from the index, which is the traversal cost a
     // root line buys down. Taken with nothing demoted, so it is today's graph.
     let depths = memview::store::depths_without(&corpus.docs, &index, &BTreeSet::new());
@@ -226,7 +231,7 @@ fn main() -> Result<()> {
                     Some("pointer") => Some(Role::Pointer),
                     _ => None,
                 },
-                homes: homes_for(&corpus.docs, name, &reached),
+                homes: homes_for(&incoming, name, &reached),
                 frozen: frozen.contains(name),
                 depth: depths.get(name).copied(),
                 name: name.clone(),

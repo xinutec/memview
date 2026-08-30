@@ -53,8 +53,10 @@
 use std::collections::BTreeSet;
 
 use anyhow::{Context, Result};
-use memview::agents::{Agents, HALF_LIFE_DAYS, day_number, weighted};
-use memview::store::{Corpus, homes_for, index_entry_cost, index_links, reachable_without};
+use memview::agents::{HALF_LIFE_DAYS, day_number, weighted};
+use memview::store::{
+    Corpus, homes_for, incoming_links, index_entry_cost, index_links, reachable_without,
+};
 
 /// How a memory stands: what it cost, what it was used for, and whether the
 /// index is what is holding it up.
@@ -108,9 +110,12 @@ fn main() -> Result<()> {
     });
 
     let corpus = Corpus::load(&memory_dir)?;
-    let mined = Agents::load(std::path::Path::new(&artefact)).with_context(|| {
-        format!("reading {artefact} — mine it with: cargo run --release --bin agents")
-    })?;
+    // ⚠ **Brought up to date before it is read, not checked and complained
+    // about.** This used to load the artefact as it lay and REFUSE when the
+    // corpus had moved past it, because catching up cost 4m31. It now costs
+    // about 9 seconds — see `memview::fresh`.
+    let mined = memview::fresh::mined(&memview::fresh::Where::from_env())
+        .with_context(|| format!("refreshing {artefact}"))?;
 
     // Beside the roster rather than inside it: `/api/agents` must not carry
     // this, so the miner writes it to its own file. See `agents::Agents`.
@@ -123,41 +128,16 @@ fn main() -> Result<()> {
             )
         })?)?;
 
-    // ⚠ **Refuse rather than rank on a mine that has not seen the corpus.**
-    // Every figure below is anchored to `generated`, so a stale artefact does
-    // not merely omit recent memories — it moves the day that every age is
+    // ⚠ **There is no staleness check here any more, and that is the point.**
+    // Every figure below is anchored to the mine's stamp, so a stale artefact
+    // does not merely omit recent memories — it moves the day every age is
     // measured from, silently. On 2026-08-27 that produced breadth figures for
     // memories written after the mine and very nearly a demotion argument built
-    // on them; the artefact had carried a `generated` field the whole time and
-    // nothing made a reader look at it (#1210).
+    // on them (#1210).
     //
-    // The memory directory is the input that matters here: a memory written
-    // after the mine is one this cannot have ranked. Transcripts are excluded
-    // deliberately — they change constantly and would make this refuse always,
-    // which trains people to pass the override. See `agents::freshness`.
-    let projects =
-        std::env::var("PROJECTS_DIR").unwrap_or_else(|_| format!("{home}/.claude/projects"));
-    let freshness = mined.freshness(
-        &[std::path::Path::new(&projects)],
-        std::env::var("CLAUDE_CODE_SESSION_ID").ok().as_deref(),
-        &home,
-    );
-    if freshness.is_stale() && !args.iter().any(|a| a == "--stale-ok") {
-        eprintln!(
-            "agents.json was mined {} and {} memories were written since:",
-            freshness.generated,
-            freshness.unseen.len()
-        );
-        for path in freshness.unseen.iter().take(5) {
-            eprintln!("    {path}");
-        }
-        eprintln!(
-            "\nranking them would measure days from the mine, not from now.\n\
-             re-mine:  cargo run --release --bin agents\n\
-             or pass --stale-ok to rank anyway, knowing the figures lean old."
-        );
-        std::process::exit(2);
-    }
+    // The old answer was to refuse and offer `--stale-ok`, which trains a reader
+    // to pass the override. The artefact is now refreshed above instead, so the
+    // condition the check guarded against cannot arise.
 
     // The artefact's own stamp, not the wall clock, so the report is a property
     // of the mine and re-reading it never changes what it says.
@@ -168,6 +148,9 @@ fn main() -> Result<()> {
     // Everything the index reaches by link, which is the invariant a demotion
     // must not break. Recomputed per candidate below, without its own line.
     let reached = reachable_without(&corpus.docs, &index, &BTreeSet::new());
+    // ⚠ Built ONCE. Asking it per memory meant a full markdown parse of every
+    // document for every target — ~446,000 parses of a few megabytes.
+    let incoming = incoming_links(&corpus.docs);
 
     let mut standings: Vec<Standing> = corpus
         .docs
@@ -190,7 +173,7 @@ fn main() -> Result<()> {
                 last_open: reads.iter().max().map(|d| today - d),
                 indexed: listed.contains(name),
                 entry_cost: index_entry_cost(&index, name),
-                homes: homes_for(&corpus.docs, name, &reached),
+                homes: homes_for(&incoming, name, &reached),
                 name: name.clone(),
             }
         })
