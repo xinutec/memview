@@ -15,6 +15,17 @@
 # what repairs drift and what every parity check is measured against.
 set -euo pipefail
 
+# ⚠ **A launchd agent gets a bare environment with NO nix on PATH.** Without
+# this the run dies with `nix: command not found` — which it did, and only
+# surfaced after the lock bug was fixed, because a leaked lock made every pass
+# skip before it ever reached the nix line. `claude-sync.sh` sources the same
+# file for the same reason; this is not a new trick, it is the one already in use.
+#
+# Unconditional and non-fatal: an interactive run already has nix, and a missing
+# profile should fail at the `nix` call with a real message rather than here.
+# shellcheck disable=SC1091
+. /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+
 MEMVIEW="${MEMVIEW_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 # ⚠ **One miner at a time, and this is not belt-and-braces.** Artefacts are
