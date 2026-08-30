@@ -25,16 +25,40 @@ MEMVIEW="${MEMVIEW_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 #
 # `mkdir` is the atomic primitive that exists everywhere; macOS has no `flock`.
 LOCK="${TMPDIR:-/tmp}/memview-mine.lock"
-if ! mkdir "$LOCK" 2>/dev/null; then
+
+# ⚠ **A lock nobody holds must be RECLAIMABLE.** The holder's pid goes inside it,
+# so a mine killed before its trap ran — or one that died with the machine — does
+# not disable every later pass forever. Checked with `kill -0`, never by name:
+# a `pgrep` for this script matches the check itself
+# (`feedback_my_tooling_fails_silently_not_loudly`).
+take_lock() {
+  if mkdir "$LOCK" 2>/dev/null; then
+    echo $$ > "$LOCK/pid"
+    return 0
+  fi
+  local held
+  held=$(cat "$LOCK/pid" 2>/dev/null || echo "")
+  if [[ -n $held ]] && kill -0 "$held" 2>/dev/null; then
+    return 1 # genuinely held by a live process
+  fi
+  echo "⚠ reclaiming a lock left by pid ${held:-unknown}, which is gone" >&2
+  rm -rf "$LOCK"
+  mkdir "$LOCK" 2>/dev/null && echo $$ > "$LOCK/pid"
+}
+
+if ! take_lock; then
   # ⚠ **Not an error.** The nightly full mine takes ~4m30 and this fires hourly;
   # overlapping is expected and skipping is the correct response. Saying so on
   # stdout keeps a skip from reading as a run that found nothing to do.
-  echo "a mine is already running ($LOCK) — skipping this pass"
+  echo "a mine is already running (pid $(cat "$LOCK/pid" 2>/dev/null)) — skipping this pass"
   exit 0
 fi
-# ⚠ Removed on EVERY exit, including a failure: a lock left behind by a crashed
-# mine would silently disable every later pass, and nothing would report it.
-trap 'rmdir "$LOCK" 2>/dev/null || true' EXIT
+# ⚠ Removed on EVERY exit, including a failure.
+trap 'rm -rf "$LOCK" 2>/dev/null || true' EXIT
 
 cd "$MEMVIEW"
-exec nix develop --no-warn-dirty -c cargo run --release --quiet --bin agents -- --resume
+# ⚠ **NOT `exec`, and that was a real bug.** `exec` replaces this shell, so the
+# EXIT trap above never fires and the lock leaks on every SUCCESSFUL run — the
+# first pass then disables every pass after it. Caught by kickstarting the agent
+# and reading its log rather than trusting the switch's exit code.
+nix develop --no-warn-dirty -c cargo run --release --quiet --bin agents -- --resume
