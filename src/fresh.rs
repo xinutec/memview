@@ -65,6 +65,43 @@ impl Where {
     }
 }
 
+/// The effects — who last touched which file — current as of now.
+///
+/// ⚠ **This one DOES carry `effects.json`**, because the question is "who wrote
+/// this path, ever", not "what happened lately". [`mined`] deliberately does not,
+/// and the difference is the whole reason both exist: a memory tool wants a fold
+/// over the corpus, this wants the corpus.
+///
+/// Still writes nothing. Costs the 70 MB parse plus whatever grew.
+pub fn effects(at: &Where) -> Result<reader::effects::Effects> {
+    let generated = crate::couse::stamp(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+    );
+    let carried = crate::mine::Carried::load(&reader::home::cache(crate::mine::FILE))?;
+    let from = carried.map(|carried| Resumed {
+        carried,
+        doing: reader::doing::Doing::default(),
+        effects: reader::effects::Effects::load(&reader::home::cache("effects.json"))
+            .unwrap_or_default(),
+    });
+    let (found, _) = crate::agents::scan_resumed(
+        crate::agents::Roots {
+            projects: &at.projects,
+            sessions: &at.sessions,
+            code_root: &at.code_root,
+            memory_root: &at.memory_dir,
+            home: &at.home,
+        },
+        &generated,
+        from,
+        Needs::MEMORIES,
+    )?;
+    Ok(found.effects)
+}
+
 /// The mined view a reader needs, current as of now, computed in memory.
 ///
 /// Reads only the transcripts that grew since the last mine. Falls back to a

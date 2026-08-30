@@ -25,6 +25,7 @@ pub mod rank;
 pub mod routes;
 pub mod session;
 pub mod share;
+pub mod staged;
 pub mod stamped;
 pub mod state;
 pub mod store;
