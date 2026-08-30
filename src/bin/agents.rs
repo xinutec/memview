@@ -17,10 +17,29 @@ fn main() -> Result<()> {
     // are read by position, so a bare `--resume` would otherwise become the
     // projects root and the mine would read an empty directory and report a
     // corpus of nothing — a wrong answer with no error.
-    let positional: Vec<String> = std::env::args()
-        .skip(1)
-        .filter(|a| !a.starts_with("--"))
-        .collect();
+    // ⚠ **A flag's VALUE is not a positional argument, and getting this wrong is
+    // silent.** `--exports /tmp/x` left `/tmp/x` looking positional, so it became
+    // the projects ROOT: the mine read an empty directory, found no transcripts,
+    // and wrote a resume state with zero marks over a good one. Green, fast, and
+    // entirely wrong — the exact failure the `--resume` note warned about, then
+    // reintroduced by adding a flag that takes a value.
+    let positional: Vec<String> = {
+        const TAKES_VALUE: &[&str] = &["--exports"];
+        let all: Vec<String> = std::env::args().skip(1).collect();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < all.len() {
+            if TAKES_VALUE.contains(&all[i].as_str()) {
+                i += 2; // the flag and the value it owns
+            } else if all[i].starts_with("--") {
+                i += 1;
+            } else {
+                out.push(all[i].clone());
+                i += 1;
+            }
+        }
+        out
+    };
     let root = positional
         .first()
         .cloned()
@@ -54,6 +73,27 @@ fn main() -> Result<()> {
     // mines from an offset that means something else and the artefact simply
     // becomes untrue. `--resume` is how that comparison gets run at all.
     let want_resume = std::env::args().any(|a| a == "--resume");
+    // ⚠ **`doing.json` and `effects.json` are EXPORTS, not local data.** 130 MB
+    // that exists only to be pushed to the console — nothing on this Mac reads
+    // them except this miner, to resume the timeline. `--exports <dir>` sends
+    // them somewhere temporary so the push can carry them without leaving them
+    // in `~/.claude`; `--exports none` skips them entirely, which is what the
+    // hourly resumed mine wants.
+    //
+    // ⚠ **`none` means NOT LOADED either.** A resumed run that cannot carry the
+    // previous timeline produces a wrong one — measured: 78 orphaned rows and
+    // renumbered episodes (memview#1240). So it does not pretend to produce one.
+    // Only a FULL mine writes a timeline anybody should read.
+    let exports: Option<std::path::PathBuf> = {
+        let args: Vec<String> = std::env::args().collect();
+        match args.iter().position(|a| a == "--exports") {
+            None => Some(std::path::Path::new(&out).with_file_name(".").to_path_buf()),
+            Some(i) => match args.get(i + 1).map(String::as_str) {
+                Some("none") | None => None,
+                Some(dir) => Some(std::path::PathBuf::from(dir)),
+            },
+        }
+    };
     let resume_file = reader::home::cache(memview::mine::FILE);
     let from = if want_resume {
         // ⚠ An unparseable resume file is FATAL here, not "nothing to resume":
@@ -67,7 +107,6 @@ fn main() -> Result<()> {
                 None
             }
             Some(carried) => {
-                let beside = |name: &str| std::path::Path::new(&out).with_file_name(name);
                 println!(
                     "resuming from {} transcript mark(s) recorded {}, roster of {} agent(s)",
                     carried.marks.len(),
@@ -80,15 +119,31 @@ fn main() -> Result<()> {
                 );
                 Some(agents::Resumed {
                     carried,
-                    doing: reader::doing::Doing::load(&beside("doing.json")).unwrap_or_default(),
-                    effects: reader::effects::Effects::load(&beside("effects.json"))
-                        .unwrap_or_default(),
+                    // ⚠ Carried only when this run will WRITE a timeline. With
+                    // `--exports none` there is nothing to carry and nothing
+                    // worth producing; the roster and the day sets do not
+                    // depend on either.
+                    doing: match &exports {
+                        Some(dir) => {
+                            reader::doing::Doing::load(&dir.join("doing.json")).unwrap_or_default()
+                        }
+                        None => reader::doing::Doing::default(),
+                    },
+                    effects: match &exports {
+                        Some(dir) => reader::effects::Effects::load(&dir.join("effects.json"))
+                            .unwrap_or_default(),
+                        None => reader::effects::Effects::default(),
+                    },
                 })
             }
         }
     } else {
         None
     };
+
+    // How much timeline this run STARTED with, so the export guard below can tell
+    // "resumed and extended it" from "resumed and never had it".
+    let carried_timeline_rows = from.as_ref().map(|r| r.doing.rows.len()).unwrap_or(0);
 
     let (mut found, resume_state) = agents::scan_resumed(
         agents::Roots {
@@ -159,14 +214,42 @@ fn main() -> Result<()> {
     // it. `Agents` marks the field `#[serde(skip)]`, so this is the only way it
     // is ever written.
     let timeline = std::mem::take(&mut found.doing);
-    let beside = std::path::Path::new(&out).with_file_name("doing.json");
-    timeline.save(&beside)?;
+    // ⚠ **An export may only come from a run that HOLDS the whole timeline.**
+    // A resumed run that could not carry the previous one produces the tail
+    // alone — measured here as a 108-byte `doing.json` with 0 effects, which
+    // pushed to the console would replace a real timeline with nothing. A full
+    // mine always qualifies; a resumed one only if it loaded what it is about
+    // to extend.
+    //
+    // Refusing rather than warning: the push reads whatever is on disk, so a
+    // warning nobody sees would still ship the empty file.
+    let partial = want_resume && carried_timeline_rows == 0 && !timeline.rows.is_empty();
+    anyhow::ensure!(
+        !(exports.is_some() && partial),
+        "refusing to write exports from a resumed run that carried no timeline — \
+         they would hold only the tail. Run a full mine, or pass --exports none."
+    );
+    if let Some(dir) = &exports {
+        // ⚠ Explicit: the directory usually exists, and if it cannot be made
+        // the `save` below fails with a message naming the path.
+        let _ = std::fs::create_dir_all(dir);
+        timeline.save(&dir.join("doing.json"))?;
+    } else {
+        // ⚠ Said out loud. A run that silently stopped producing the console's
+        // data would look identical to one that produced it.
+        println!("exports skipped (--exports none): no timeline or effects written");
+    }
 
     // The evidence under the timeline, to its own file again: it is larger than
     // both and answers the question a reader asks standing on a timeline row.
     let effects = std::mem::take(&mut found.effects);
-    let effects_file = std::path::Path::new(&out).with_file_name("effects.json");
-    effects.save(&effects_file)?;
+    let effects_file = exports
+        .as_ref()
+        .map(|dir| dir.join("effects.json"))
+        .unwrap_or_default();
+    if exports.is_some() {
+        effects.save(&effects_file)?;
+    }
     let size = std::fs::metadata(&effects_file)
         .map(|m| m.len())
         .unwrap_or(0);
@@ -229,7 +312,9 @@ fn main() -> Result<()> {
         100.0 * failed as f64 / timeline.rows.len().max(1) as f64,
         timeline.kinds.len()
     );
-    println!("wrote {}", beside.display());
+    if let Some(dir) = &exports {
+        println!("wrote {}", dir.join("doing.json").display());
+    }
 
     found.save(std::path::Path::new(&out))?;
     println!("wrote {out}");

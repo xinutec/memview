@@ -2233,7 +2233,23 @@ pub fn scan_resumed(
     // contribution is counted once from the artefact and again from the re-read.
     // This is the half of all-or-nothing that is easy to leave out, because
     // forgetting it produces a plausible artefact with everything doubled.
-    if matches!(plan, reader::watermark::Plan::Full { .. }) {
+    // ⚠ **Marks and the carried folds must agree about how much has been read.**
+    // Zero marks beside a non-empty roster is incoherent: `plan` then calls every
+    // transcript NEW, reads them all whole, and adds them ON TOP of what was
+    // carried — which doubles everything. It is exactly the first bug this
+    // resume ever had, reachable again through a damaged or truncated resume
+    // file rather than through the code.
+    //
+    // Treated as a full re-mine, which is the only sound answer when the two
+    // halves of the resume state disagree.
+    let incoherent = held.carried.marks.is_empty() && !held.carried.agents.is_empty();
+    if incoherent {
+        eprintln!(
+            "⚠ resume state has no watermarks but a roster of {} — re-reading everything",
+            held.carried.agents.len()
+        );
+    }
+    if incoherent || matches!(plan, reader::watermark::Plan::Full { .. }) {
         by_name.clear();
         log = reader::doing::Log::default();
         effects = reader::effects::Log::default();

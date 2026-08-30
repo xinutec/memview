@@ -74,6 +74,17 @@ impl Where {
 ///
 /// Still writes nothing. Costs the 70 MB parse plus whatever grew.
 pub fn effects(at: &Where) -> Result<reader::effects::Effects> {
+    // ⚠ **Refuse rather than answer from nothing.** Without the carried artefact
+    // a resumed scan sees only what grew, so "who last wrote this path" would be
+    // answered from a few minutes of history and read as "nobody" — a check that
+    // reports all-clear because it has no evidence, which is worse than one that
+    // does not run.
+    anyhow::ensure!(
+        reader::home::cache("effects.json").exists(),
+        "no effects.json on this machine — it is an export the nightly builds and \
+         deletes (memview#1240). Rebuild it with: cargo run --release --bin agents \
+         -- --exports <dir>"
+    );
     let generated = crate::couse::stamp(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -84,6 +95,11 @@ pub fn effects(at: &Where) -> Result<reader::effects::Effects> {
     let from = carried.map(|carried| Resumed {
         carried,
         doing: reader::doing::Doing::default(),
+        // ⚠ **Absent is NOT empty here.** `effects.json` is an export the nightly
+        // now builds into a temp directory and deletes, so on this Mac it is
+        // usually GONE. Defaulting to empty would make every caller — the
+        // staged-work check above all — report "nothing found" when it in fact
+        // read nothing. The caller is told below instead.
         effects: reader::effects::Effects::load(&reader::home::cache("effects.json"))
             .unwrap_or_default(),
     });

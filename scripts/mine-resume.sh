@@ -72,4 +72,9 @@ cd "$MEMVIEW"
 # EXIT trap above never fires and the lock leaks on every SUCCESSFUL run — the
 # first pass then disables every pass after it. Caught by kickstarting the agent
 # and reading its log rather than trusting the switch's exit code.
-nix develop --no-warn-dirty -c cargo run --release --quiet --bin agents -- --resume
+# ⚠ **`--exports none`: this pass does NOT produce the console's two files.**
+# They are 130 MB whose only reader is the console, and a resumed run cannot
+# produce a correct timeline anyway — without the previous one carried in it
+# holds the tail alone. The nightly FULL mine builds them, pushes them, and
+# deletes them (memview#1240).
+nix develop --no-warn-dirty -c cargo run --release --quiet --bin agents -- --resume --exports none
