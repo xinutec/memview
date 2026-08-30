@@ -53,7 +53,7 @@ use crate::agents::{DaysSeen, FirstSeen};
 pub const FILE: &str = "mine-resume.json";
 
 /// Everything a resumed mine must be handed to produce the whole-corpus answer.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Carried {
     /// The stamp of the run that wrote this, for reading a stale file's age.
     #[serde(default)]
@@ -70,6 +70,23 @@ pub struct Carried {
     /// Per-agent day sets, keyed by agent name.
     #[serde(default)]
     pub days: BTreeMap<String, DaysSeen>,
+    /// The roster **before** renames are applied.
+    ///
+    /// ⚠ **Not the roster from `agents.json`, and the difference is not
+    /// cosmetic.** Git's rename map is applied on the way out, and it is NOT
+    /// idempotent: the live history contains a 2-CYCLE — `docs/proposals/X.md`
+    /// to `docs/proposals/archive/X.md` and back again, because the file was
+    /// archived and later restored. Feeding an already-renamed roster back in
+    /// flips those paths, and every resumed run would toggle them.
+    ///
+    /// So renames are treated the way commit attribution is: a derivation from
+    /// raw state, recomputed each run, never accumulated. What is carried is the
+    /// raw accumulation; `agents.json` keeps the renamed view.
+    ///
+    /// Found by the first full-corpus parity run, 2026-08-30. No fixture has a
+    /// rename in it, let alone a cyclic one.
+    #[serde(default)]
+    pub agents: Vec<crate::agents::Agent>,
 }
 
 impl Carried {

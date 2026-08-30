@@ -68,19 +68,18 @@ fn main() -> Result<()> {
             }
             Some(carried) => {
                 let beside = |name: &str| std::path::Path::new(&out).with_file_name(name);
-                let roster = agents::Agents::load(std::path::Path::new(&out));
                 println!(
-                    "resuming from {} transcript mark(s) recorded {}",
+                    "resuming from {} transcript mark(s) recorded {}, roster of {} agent(s)",
                     carried.marks.len(),
                     if carried.generated.is_empty() {
                         "(unstamped)"
                     } else {
                         &carried.generated
-                    }
+                    },
+                    carried.agents.len()
                 );
                 Some(agents::Resumed {
                     carried,
-                    agents: roster.map(|r| r.agents).unwrap_or_default(),
                     doing: reader::doing::Doing::load(&beside("doing.json")).unwrap_or_default(),
                     effects: reader::effects::Effects::load(&beside("effects.json"))
                         .unwrap_or_default(),

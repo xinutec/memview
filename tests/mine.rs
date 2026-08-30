@@ -144,7 +144,8 @@ fn resuming_over_an_appended_corpus_equals_reading_it_whole() {
         .expect("scan")
     };
 
-    let (first, carried) = run(None);
+    // The roster now rides inside `carried`, so the artefact itself is unused here.
+    let (_first, carried) = run(None);
     assert_eq!(carried.marks.len(), 1, "the transcript should be marked");
 
     append(
@@ -154,7 +155,6 @@ fn resuming_over_an_appended_corpus_equals_reading_it_whole() {
 
     let (resumed, _) = run(Some(Resumed {
         carried,
-        agents: first.agents.clone(),
         doing: reader::doing::Doing::default(),
         effects: reader::effects::Effects::default(),
     }));
@@ -188,6 +188,20 @@ fn resuming_over_an_appended_corpus_equals_reading_it_whole() {
         assert_eq!(a.name, b.name, "agent names diverged");
         assert_eq!(a.reads, b.reads, "{}: reads diverged", a.name);
         assert_eq!(a.writes, b.writes, "{}: writes diverged", a.name);
+        // ⚠ Counted per TRANSCRIPT, not per read. Without the guard in
+        // `scan_resumed`, resuming into a grown file reports one session as two
+        // — the defect the full-corpus parity run found on 2026-08-30.
+        assert_eq!(
+            a.transcripts, b.transcripts,
+            "{}: transcript count diverged",
+            a.name
+        );
+        assert_eq!(
+            a.delegated, b.delegated,
+            "{}: delegated count diverged",
+            a.name
+        );
+        assert_eq!(a.sessions, b.sessions, "{}: sessions diverged", a.name);
     }
 }
 
@@ -234,7 +248,6 @@ fn an_untouched_transcript_keeps_its_watermark() {
         stamp,
         Some(Resumed {
             carried: first.clone(),
-            agents: Vec::new(),
             doing: reader::doing::Doing::default(),
             effects: reader::effects::Effects::default(),
         }),
@@ -244,5 +257,104 @@ fn an_untouched_transcript_keeps_its_watermark() {
     assert_eq!(
         second.marks, first.marks,
         "an untouched transcript lost its watermark"
+    );
+}
+
+/// A git repo under `root` with one commit, returning its short sha.
+///
+/// ⚠ Every inherited git variable is removed: these tests run under `cargo
+/// test`, `cargo test` runs under the gate, and the gate runs from a pre-commit
+/// hook that exports `GIT_DIR` and `GIT_INDEX_FILE` to everything it spawns —
+/// so `git -C <tempdir> add` would write into MEMVIEW'S index.
+fn repo_with_a_commit(root: &std::path::Path, name: &str) -> String {
+    let repo = root.join(name);
+    std::fs::create_dir_all(&repo).expect("mkdir");
+    let git = |args: &[&str]| {
+        let mut c = std::process::Command::new("git");
+        c.arg("-C").arg(&repo).args(args);
+        for var in [
+            "GIT_DIR",
+            "GIT_INDEX_FILE",
+            "GIT_WORK_TREE",
+            "GIT_OBJECT_DIRECTORY",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+            "GIT_COMMON_DIR",
+            "GIT_PREFIX",
+            "GIT_CONFIG_PARAMETERS",
+        ] {
+            c.env_remove(var);
+        }
+        c.output().expect("git");
+    };
+    git(&["init", "-q"]);
+    git(&["config", "user.email", "t@example.com"]);
+    git(&["config", "user.name", "t"]);
+    std::fs::write(repo.join("f.rs"), "x").expect("write");
+    git(&["add", "f.rs"]);
+    git(&["commit", "-qm", "one"]);
+    let mut c = std::process::Command::new("git");
+    c.arg("-C")
+        .arg(&repo)
+        .args(["rev-parse", "--short=8", "HEAD"]);
+    for var in ["GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"] {
+        c.env_remove(var);
+    }
+    let out = c.output().expect("git");
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// ⚠ **Commit attribution is RECOMPUTED from the whole git history each run, not
+/// accumulated** — so a carried roster must have its counts cleared first.
+///
+/// Without the reset a resumed mine reports exactly DOUBLE. Found by the first
+/// full-corpus parity run, 2026-08-30, not by any fixture: the other fixtures
+/// carry no git history, so there was nothing to double.
+#[test]
+fn a_resumed_mine_does_not_double_the_commit_counts() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let sessions = tempfile::tempdir().expect("tempdir");
+    let code = tempfile::tempdir().expect("tempdir");
+    let memory = tempfile::tempdir().expect("tempdir");
+    let stamp = "2026-08-30T00:00:00Z";
+
+    let sha = repo_with_a_commit(code.path(), "alpha");
+    // A turn that mentions the hash is what attributes it to this agent.
+    corpus_with(
+        root.path(),
+        "-code",
+        "s1",
+        &[&format!(
+            "{{\"type\":\"assistant\",\"timestamp\":\"2026-08-01T10:00:00Z\",\"message\":{{\"content\":[{{\"type\":\"text\",\"text\":\"landed in {sha}\"}}]}}}}"
+        )],
+    );
+
+    let run = |from: Option<Resumed>| {
+        scan_resumed(
+            root.path(),
+            sessions.path(),
+            &code.path().to_string_lossy(),
+            &memory.path().to_string_lossy(),
+            "/home/example",
+            stamp,
+            from,
+        )
+        .expect("scan")
+    };
+
+    let (first, carried) = run(None);
+    let counted: usize = first.agents.iter().map(|a| a.commits).sum();
+    assert_eq!(counted, 1, "the fixture must attribute exactly one commit");
+
+    // Nothing changed on disk, so the resumed run reads no transcript at all —
+    // and must still report the same attribution, not twice it.
+    let (again, _) = run(Some(Resumed {
+        carried,
+        doing: reader::doing::Doing::default(),
+        effects: reader::effects::Effects::default(),
+    }));
+    let recounted: usize = again.agents.iter().map(|a| a.commits).sum();
+    assert_eq!(
+        recounted, counted,
+        "a resumed mine doubled the commit count"
     );
 }

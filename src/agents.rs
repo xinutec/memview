@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use crate::couse::{field, find_at, last_at};
 
 /// One named session, and where its work actually landed.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Agent {
     /// The name it goes by — "recall", "health" — or its session id when it was
     /// never named.
@@ -157,7 +157,7 @@ pub struct Agent {
 ///
 /// Reads and edits stay apart because they answer different questions: who went
 /// and looked it up, and who is maintaining it.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct MemoryUse {
     /// Times this agent opened the memory with `Read`.
     pub reads: usize,
@@ -195,7 +195,7 @@ fn is_zero(n: &usize) -> bool {
 /// is not the same work as writing 413 from nothing, and one net figure would
 /// call them equal. Deletion is work too — the largest single change to the
 /// Dhall configs in this corpus is the removal of a file that had rotted.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct LineDelta {
     pub added: usize,
     pub deleted: usize,
@@ -2052,10 +2052,11 @@ fn scan_transcript(
 /// See [`crate::mine::Carried`] for why three of the folds below are not
 /// recoverable from `agents.json`, `doing.json` or `memory-days.json`.
 pub struct Resumed {
-    /// Watermarks and the fold state the artefacts cannot hold.
+    /// Watermarks and the fold state the artefacts cannot hold, INCLUDING the
+    /// raw roster. There is deliberately no field for `agents.json`'s roster:
+    /// that one has renames applied, and re-seeding from it toggles any path
+    /// caught in a rename cycle. See [`crate::mine::Carried::agents`].
     pub carried: crate::mine::Carried,
-    /// The roster as last written.
-    pub agents: Vec<Agent>,
     /// The timeline as last written.
     pub doing: reader::doing::Doing,
     /// The evidence under the timeline, as last written.
@@ -2110,13 +2111,17 @@ pub fn scan_resumed(
     let names = registry_names(sessions_dir);
     let held = from.unwrap_or_else(|| Resumed {
         carried: crate::mine::Carried::default(),
-        agents: Vec::new(),
         doing: reader::doing::Doing::default(),
         effects: reader::effects::Effects::default(),
     });
+    // ⚠ Seeded from the CARRIED raw roster, never from `agents.json` — that one
+    // has renames applied, and the rename map is not idempotent. See
+    // [`crate::mine::Carried::agents`].
     let mut by_name: BTreeMap<String, Agent> = held
+        .carried
         .agents
-        .into_iter()
+        .iter()
+        .cloned()
         .map(|a| (a.name.clone(), a))
         .collect();
     // The timeline, built across every transcript and frozen at the end.
@@ -2243,11 +2248,22 @@ pub fn scan_resumed(
         // dispatched it rather than the subagent's own id — the same identity
         // the rest of the row is counted under, and the one a memory's
         // `originSessionId` will name.
+        // A set, so re-inserting on a resumed read is already harmless.
         agent.sessions.insert(transcript.owner.clone());
-        if transcript.delegated {
-            agent.delegated += 1;
-        } else {
-            agent.transcripts += 1;
+        // ⚠ **Counted once per transcript, not once per READ.** A resumed run
+        // reads the tail of a file a previous run already counted, and
+        // incrementing again reports one session as two. Found by the
+        // full-corpus parity run on 2026-08-30 with a transcript that GREW —
+        // the zero-change comparison cannot see it, because it reads nothing.
+        //
+        // `resume.is_none()` is exactly "this run is reading the file from the
+        // start", which is the only time it has not been counted before.
+        if resume.is_none() {
+            if transcript.delegated {
+                agent.delegated += 1;
+            } else {
+                agent.transcripts += 1;
+            }
         }
         scan_transcript(
             &text,
@@ -2328,6 +2344,21 @@ pub fn scan_resumed(
     // 2026-07-31 (memview#1240, #1247). What is genuinely missing is older than
     // that: measured 2026-08-30, the 659 memories that name a session name 18
     // distinct ones, and exactly ONE of those has no transcript left.
+    // ⚠ **Cleared first, because attribution is RECOMPUTED rather than
+    // accumulated.** `history` is the whole git log every run, not just what
+    // this run read, so the loop below is a fresh derivation — and a carried
+    // roster arrives with last run's counts already in it. Without this reset a
+    // resumed mine reports exactly DOUBLE the commits, which is what the first
+    // full-corpus parity run found on 2026-08-30: every agent doubled, while
+    // `doing.json`, `effects.json` and `memory-days.json` were byte-identical.
+    //
+    // ⚠ **The fixtures could not catch it** — they carry no git history, so the
+    // loop had nothing to double. Only a real corpus with real repositories
+    // shows it, which is why `--resume` stayed opt-in until that run happened.
+    for agent in by_name.values_mut() {
+        agent.commits = 0;
+        agent.commit_lines.clear();
+    }
     let mut unattributed = 0usize;
     for commit in &history {
         let Some((_, who)) = first_seen.get(&commit.sha) else {
@@ -2357,6 +2388,9 @@ pub fn scan_resumed(
     // them here, at the end, where every dimension is complete.
     let renames = renames(&history);
     let mut agents: Vec<Agent> = by_name.into_values().collect();
+    // ⚠ Taken BEFORE `rename_keys` below. What is carried has to be the raw
+    // accumulation; renames are re-derived from git every run.
+    let raw_roster = agents.clone();
     for agent in &mut agents {
         agent.paths = rename_keys(std::mem::take(&mut agent.paths), &renames);
         agent.shell_paths = rename_keys(std::mem::take(&mut agent.shell_paths), &renames);
@@ -2392,6 +2426,7 @@ pub fn scan_resumed(
         resolved,
         first_seen,
         days,
+        agents: raw_roster,
     };
     Ok((
         Agents {
