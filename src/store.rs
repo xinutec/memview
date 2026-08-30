@@ -87,6 +87,18 @@ pub struct MemoryDoc {
     pub meta: MemoryMeta,
     /// Markdown body (frontmatter stripped).
     pub body: String,
+    /// This memory's outgoing wikilinks, parsed ONCE at load.
+    ///
+    /// ⚠ **Because parsing them per query was the whole cost of the memory
+    /// tools.** Every graph walk — `depths_without`, `reachable_without`,
+    /// `incoming_links`, the lint's link rules — used to call `wikilinks_of`,
+    /// which is a full markdown parse with a fresh arena. `memory-tiers` runs
+    /// four whole-corpus walks, so it paid ~2,700 parses of a few megabytes per
+    /// run; `homes_for` asked per memory and paid ~446,000 (memview#1274).
+    ///
+    /// The corpus is SMALL. Anything here that is slow is slow because of its
+    /// shape, and the fix is the shape rather than a cache.
+    pub links: Vec<Wikilink>,
     /// The file exactly as written, frontmatter included. Kept because linting
     /// the corpus has to see what the frontmatter *says*, not only what parsing
     /// it produced — a `name:` that disagrees with the filename is invisible
@@ -197,6 +209,7 @@ impl Corpus {
                         modified,
                         created,
                     },
+                    links: wikilinks(body),
                     body: body.to_string(),
                     raw: text.clone(),
                     origin_session,
@@ -326,7 +339,7 @@ impl Corpus {
         let mut out_degree: BTreeMap<String, usize> = BTreeMap::new();
         for doc in self.docs.values() {
             let mut seen = BTreeSet::new();
-            for link in wikilinks(&doc.body) {
+            for link in &doc.links {
                 // Mentioning a memory twice is still one relationship, and a
                 // memory linking itself is not a relationship at all. A typed
                 // mention beats an untyped one for the same pair, so a body that
@@ -336,7 +349,7 @@ impl Corpus {
                     continue;
                 }
                 if !seen.insert(link.target.clone()) {
-                    if let Some(relation) = link.relation
+                    if let Some(relation) = link.relation.clone()
                         && let Some(existing) = edges.iter_mut().find(|e: &&mut GraphEdge| {
                             e.source == doc.meta.name && e.target == link.target
                         })
@@ -349,8 +362,8 @@ impl Corpus {
                 *in_degree.entry(link.target.clone()).or_default() += 1;
                 edges.push(GraphEdge {
                     source: doc.meta.name.clone(),
-                    target: link.target,
-                    relation: link.relation,
+                    target: link.target.clone(),
+                    relation: link.relation.clone(),
                 });
             }
         }
@@ -487,9 +500,9 @@ pub fn depths_without(
             continue;
         }
         depth.insert(name, at);
-        for link in wikilinks_of(&doc.body) {
+        for link in &doc.links {
             if docs.contains_key(&link.target) && !depth.contains_key(&link.target) {
-                queue.push_back((link.target, at + 1));
+                queue.push_back((link.target.clone(), at + 1));
             }
         }
     }
@@ -937,8 +950,10 @@ pub fn render_markdown(md: &str) -> Result<String> {
 pub fn incoming_links(docs: &BTreeMap<String, MemoryDoc>) -> BTreeMap<String, BTreeSet<String>> {
     let mut out: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for (name, doc) in docs {
-        for link in wikilinks_of(&doc.body) {
-            out.entry(link.target).or_default().insert(name.clone());
+        for link in &doc.links {
+            out.entry(link.target.clone())
+                .or_default()
+                .insert(name.clone());
         }
     }
     out

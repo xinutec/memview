@@ -22,7 +22,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::couse::CoUse;
 use crate::store::{
     Corpus, MEMORY_TYPES, RELATIONS, has_section, index_links, reachable_without, split_relation,
-    wikilinks_of,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -427,7 +426,7 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
             }
         }
 
-        for link in wikilinks_of(&doc.body) {
+        for link in &doc.links {
             if link.target == *name {
                 push("self-link", name, format!("[[{}]]", link.target));
                 continue;
@@ -1260,10 +1259,11 @@ pub fn tally(findings: &[Finding]) -> BTreeMap<&'static str, usize> {
 pub fn relation_usage(corpus: &Corpus) -> BTreeMap<String, usize> {
     let mut counts = BTreeMap::new();
     for doc in corpus.docs.values() {
-        for link in wikilinks_of(&doc.body) {
+        for link in &doc.links {
             let (relation, _) = split_relation(&link.target);
             let key = link
                 .relation
+                .clone()
                 .or(relation)
                 .unwrap_or_else(|| "(untyped)".to_string());
             *counts.entry(key).or_default() += 1;
