@@ -38,7 +38,9 @@ struct ShellParser;
 /// itself uncertain, whatever separator precedes it.
 /// Serialised one character apiece: this travels on every row of the effects
 /// artefact, where the field's name already costs more than its value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, PartialOrd, Ord,
+)]
 pub enum Reached {
     /// First in its list, or after `;`, a newline, or `&`. Runs whatever
     /// happened before it — which is why `a; b; c` runs all three even when the

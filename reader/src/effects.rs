@@ -47,7 +47,7 @@ use crate::shell::Reached;
 /// Narrower than [`crate::activity::Activity`], which describes what a *turn* was
 /// doing. Here the question is only what became of one path, because that is what
 /// a reader is checking when they open a claim.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 pub enum Did {
     /// Opened and read.
     #[serde(rename = "r")]
@@ -202,7 +202,17 @@ impl Log {
 
     /// Freeze into the artefact, oldest first.
     pub fn finish(mut self, generated: &str) -> Effects {
-        self.rows.sort_by_key(|row| row.t);
+        // ⚠ **A TOTAL order, for the reason `doing::Log::finish` has one.**
+        // `sort_by_key(|row| row.t)` is stable, so rows sharing a minute kept
+        // their INSERTION order — the order transcripts happened to be read in,
+        // which differs between a whole scan and a resumed one. This artefact
+        // was the last of the four still failing the corpus parity check on
+        // 2026-08-30, at identical byte length and a different hash
+        // (memview#1240).
+        self.rows.sort_by(|x, y| {
+            (x.t, x.a, x.p, x.q, x.h, x.c, x.k, x.r, x.v)
+                .cmp(&(y.t, y.a, y.p, y.q, y.h, y.c, y.k, y.r, y.v))
+        });
         Effects {
             generated: generated.to_string(),
             agents: self.agents.into_vec(),
