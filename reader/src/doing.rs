@@ -54,7 +54,7 @@ use serde::{Deserialize, Serialize};
 /// `Unknown` is a real state, not a synonym for `Ok`: an interruption is not a
 /// result at all but a separate message, so the call it stopped simply never
 /// gets an answer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Verdict {
     Unknown,
@@ -398,9 +398,58 @@ impl Log {
     }
 
     /// Freeze into the artefact, oldest first.
-    pub fn finish(mut self, generated: &str) -> Doing {
-        self.rows.sort_by_key(|row| row.t);
-        Doing {
+    /// As [`Log::finish`], and also the map from each episode's OLD index to its
+    /// canonical one.
+    ///
+    /// ⚠ **A caller holding episode indices of its own MUST remap them.** The
+    /// resume watermarks record `open_episode()` during the scan, i.e. against
+    /// the pre-canonical numbering; saved unremapped they would name a different
+    /// instruction on the next run, silently. That is the whole reason this
+    /// returns the map instead of hiding it (memview#1240).
+    pub fn finish_canonical(
+        mut self,
+        generated: &str,
+    ) -> (Doing, std::collections::BTreeMap<u32, u32>) {
+        // ⚠ **A TOTAL order, not just the minute.** `sort_by_key(|row| row.t)`
+        // is stable, so rows sharing a minute kept their INSERTION order — which
+        // is the order transcripts happened to be read in, and therefore differs
+        // between a whole scan and a resumed one. Every field the row carries in
+        // its own right takes part; `e` cannot, because it is renumbered below.
+        self.rows.sort_by(|x, y| {
+            (x.t, x.a, x.p, x.k, x.n, x.h, x.v).cmp(&(y.t, y.a, y.p, y.k, y.n, y.h, y.v))
+        });
+        // ⚠ **Episode identity was its POSITION in this vector**, assigned as
+        // `episodes.len()` at creation — so it depended on when the scan reached
+        // it, which is exactly what reading only the changed transcripts alters.
+        // Measured 2026-08-30 on the real corpus: 682,865 rows of 1,061,700
+        // differed by nothing but this index (memview#1240).
+        //
+        // Renumbered here in the order an episode is first REFERENCED by the
+        // sorted rows, so the numbering is a property of the content rather than
+        // of the traversal. An episode holds at least one row by construction —
+        // `push` creates it only when there is a row to put in it — so none is
+        // dropped by walking the rows.
+        let mut canonical: std::collections::BTreeMap<u32, u32> = std::collections::BTreeMap::new();
+        let mut order: Vec<u32> = Vec::new();
+        for row in &self.rows {
+            if let Some(old) = row.e {
+                canonical.entry(old).or_insert_with(|| {
+                    order.push(old);
+                    (order.len() - 1) as u32
+                });
+            }
+        }
+        let episodes: Vec<Episode> = order
+            .iter()
+            .map(|old| self.episodes[*old as usize].clone())
+            .collect();
+        for row in &mut self.rows {
+            if let Some(old) = row.e {
+                row.e = canonical.get(&old).copied();
+            }
+        }
+        self.episodes = episodes;
+        let done = Doing {
             generated: generated.to_string(),
             agents: self.agents.into_vec(),
             projects: self.projects.into_vec(),
@@ -408,7 +457,14 @@ impl Log {
             hosts: self.hosts.into_vec(),
             rows: self.rows,
             episodes: self.episodes,
-        }
+        };
+        (done, canonical)
+    }
+
+    /// Freeze the timeline. Use [`Log::finish_canonical`] when episode indices
+    /// are held elsewhere and have to be remapped.
+    pub fn finish(self, generated: &str) -> Doing {
+        self.finish_canonical(generated).0
     }
 }
 

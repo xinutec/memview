@@ -253,3 +253,76 @@ fn a_call_answered_after_the_cut_keeps_no_verdict() {
     let out = second.finish("stamp");
     assert_eq!(out.rows[0].v, Verdict::Unknown);
 }
+
+/// ⚠ **Episode identity used to be a POSITION in the vector**, assigned as
+/// `episodes.len()` at creation — so it depended on the order the scan reached
+/// things, which is exactly what reading only the changed transcripts alters.
+/// Measured on the real corpus 2026-08-30: 682,865 rows of 1,061,700 differed by
+/// nothing but this index (memview#1240).
+///
+/// Two logs holding the same work, built in different orders, must finish
+/// identical.
+#[test]
+fn episode_numbering_does_not_depend_on_the_order_the_work_arrived() {
+    // ⚠ **One agent, deliberately.** Two would also vary the AGENT dictionary,
+    // which is interned in arrival order and is a different question — covered
+    // by `a_rebuilt_dictionary_gives_back_the_indices_it_was_frozen_with`. What
+    // is under test here is episode numbering alone, so the only thing allowed
+    // to differ between the two builds is the order the episodes are created in.
+    let build = |reversed: bool| {
+        let mut log = Log::default();
+        let mut minutes = vec![100i64, 200i64];
+        if reversed {
+            minutes.reverse();
+        }
+        for minute in minutes {
+            log.begin_episode("alpha");
+            log.push(work("cargo build", "alpha", "build", minute));
+            log.push(work("cargo test", "alpha", "test", minute + 1));
+        }
+        log.finish("2026-08-30T00:00:00Z")
+    };
+
+    let forward = build(false);
+    let backward = build(true);
+
+    // Same work either way, so the same artefact either way.
+    assert_eq!(forward.episodes.len(), 2);
+    assert_eq!(
+        serde_json::to_string(&forward.rows).expect("rows"),
+        serde_json::to_string(&backward.rows).expect("rows"),
+        "row order or episode numbering depended on arrival order"
+    );
+    assert_eq!(
+        serde_json::to_string(&forward.episodes).expect("episodes"),
+        serde_json::to_string(&backward.episodes).expect("episodes"),
+        "episode order depended on arrival order"
+    );
+}
+
+/// ⚠ **Every row must still point at the episode that actually holds it.** A
+/// renumbering that lost the mapping would leave a plausible artefact whose rows
+/// name the wrong instruction — worse than the divergence it replaced.
+#[test]
+fn renumbering_keeps_each_row_inside_its_own_episode() {
+    let mut log = Log::default();
+    log.begin_episode("alpha");
+    log.push(work("a", "alpha", "build", 500));
+    log.begin_episode("beta");
+    log.push(work("b", "beta", "test", 100));
+
+    let done = log.finish("2026-08-30T00:00:00Z");
+    assert_eq!(done.episodes.len(), 2);
+    for row in &done.rows {
+        let e = row.e.expect("every row here has a prompt above it");
+        let episode = &done.episodes[e as usize];
+        assert_eq!(episode.a, row.a, "row landed under another agent's episode");
+        assert!(
+            episode.t <= row.t && row.t <= episode.until,
+            "row at {} sits outside its episode {}..{}",
+            row.t,
+            episode.t,
+            episode.until
+        );
+    }
+}

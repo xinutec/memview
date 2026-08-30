@@ -2205,8 +2205,18 @@ pub fn scan_resumed(
         }
         // The instruction still being carried out at the cut. Without this, 66
         // of 2,815 tail calls measured on a real watermark land in no episode.
-        if let Some(open) = &resume {
-            log.reopen(open.episode, open.prompt.clone());
+        //
+        // ⚠ **The `None` arm is not a no-op and must not be dropped.** `Log`
+        // holds `current`/`prompt` globally, so without an explicit reset the
+        // rows at the head of one transcript inherit the episode left open by
+        // whichever transcript was read BEFORE it — a different session's
+        // instruction. A whole scan and a resumed scan visit different
+        // predecessors, so the leak is also why the two disagreed
+        // (memview#1240). Resetting makes such rows carry no episode, which is
+        // what they always should have carried.
+        match &resume {
+            Some(open) => log.reopen(open.episode, open.prompt.clone()),
+            None => log.reopen(None, None),
         }
         // The name it goes by now, then the registry, then the reminder it was
         // given once, then the id.
@@ -2420,6 +2430,19 @@ pub fn scan_resumed(
         })
         .collect();
 
+    // ⚠ **Finished BEFORE the resume state is built, because finishing
+    // renumbers the episodes.** `open_episode()` was recorded during the scan,
+    // against the live log's numbering; the artefact the next run loads uses the
+    // canonical one. Saved unremapped, every carried mark would name a different
+    // instruction — and it would read as a plausible timeline, not an error.
+    //
+    // Unchanged transcripts make it sharper still: their marks arrive already
+    // canonical from the PREVIOUS run, so without one uniform remap the file
+    // would mix two numbering schemes.
+    let (doing, episodes) = log.finish_canonical(generated);
+    for mark in marks.values_mut() {
+        mark.episode = mark.episode.and_then(|old| episodes.get(&old).copied());
+    }
     let carried = crate::mine::Carried {
         generated: generated.to_string(),
         marks,
@@ -2430,7 +2453,7 @@ pub fn scan_resumed(
     };
     Ok((
         Agents {
-            doing: log.finish(generated),
+            doing,
             effects: effects.finish(generated),
             generated: generated.to_string(),
             commits: history.len(),
