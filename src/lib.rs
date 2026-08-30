@@ -18,6 +18,7 @@ pub mod dates;
 pub mod error;
 pub mod index_history;
 pub mod lint;
+pub mod mine;
 pub mod nextcloud;
 pub mod rank;
 pub mod routes;

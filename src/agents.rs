@@ -963,8 +963,12 @@ pub fn carry_forward(
 /// consulted, and one afternoon of forty opens is a worse claim on the index
 /// than a fortnight of one a day. Counting events answered that wrong; counting
 /// days answers it right, which is the one thing settled by measurement here.
-#[derive(Default)]
-struct DaysSeen {
+/// ⚠ **Serialised because a resumed mine cannot rebuild it.** Only the
+/// corpus-wide UNION of these day sets is written, to `memory-days.json`, and a
+/// union cannot be taken apart again into the per-agent sets the weights are
+/// computed from. See [`crate::mine::Carried`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DaysSeen {
     reads: BTreeMap<String, std::collections::BTreeSet<i64>>,
     writes: BTreeMap<String, std::collections::BTreeSet<i64>>,
     memory_reads: BTreeMap<String, std::collections::BTreeSet<i64>>,
