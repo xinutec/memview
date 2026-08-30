@@ -607,6 +607,38 @@ const NOT_A_REPO: &[&str] = &[
     "check",
 ];
 
+/// Words that name an 8-hex identifier as something other than a commit.
+///
+/// Read in the [`KIND_WINDOW`] characters immediately before the opening
+/// backtick, because that is where the writer says what the token is. Each of
+/// these is in the corpus for a real reason: `snapshot` and `restic` for the
+/// archive's own ids, `magic` and `bytecode` for the Hermes header, `blob` and
+/// `hash-object` for a git object that is not a commit.
+///
+/// Enumerated for the same reason [`NOT_A_REPO`] is — a missing entry shows up
+/// as a visible finding, where a pattern would swallow whatever it did not
+/// anticipate.
+///
+/// ⚠ **`session` is deliberately NOT here.** Session ids are already excluded by
+/// `originSessionId`, which is exact where a word is a guess.
+const NOT_A_COMMIT_KIND: &[&str] = &[
+    "restic",
+    "snapshot",
+    "magic",
+    "bytecode",
+    "hash-object",
+    "blob",
+    "checksum",
+    "digest",
+    "inode",
+];
+
+/// How far back of the text before a token is read for [`NOT_A_COMMIT_KIND`].
+///
+/// 20 characters, measured against the corpus — see [`commit_shas`] for the
+/// cost of every wider window that was tried.
+const KIND_WINDOW: usize = 20;
+
 /// The text of a memory a path claim can live in — prose, inline code and
 /// fenced blocks — with link destinations left out.
 ///
@@ -722,6 +754,26 @@ fn code_repos_named(text: &str, code_root: &std::path::Path) -> BTreeSet<String>
 /// every `originSessionId` the corpus declares is excluded by its first eight
 /// characters. Together these two filters took the finding rate from 7.6% to
 /// 4.1%.
+///
+/// ⚠ **A third shape: an 8-hex identifier that is not a git object at all.** A
+/// restic snapshot id, a Hermes bytecode magic number and a `git hash-object`
+/// blob are all written in backticks exactly like a sha, and all three sat in
+/// the findings as permanent noise — a warning that cannot be made true is one
+/// a reader learns to skip. The discriminator is the word the writer put
+/// IMMEDIATELY before the token, because that is where the kind is named:
+/// `snapshot \`7d747cd5\``, `(magic \`c61fbc03\`)`.
+///
+/// ⚠ **The window is 20 characters and that number was measured, not chosen.**
+/// Against the whole corpus — 440 citations that resolve as real commits, 27
+/// that do not — a 20-char left window excuses 0 of the 440. Widening it costs
+/// real detection immediately: 30 chars loses 5, 40 loses 6, 80 loses 14. The
+/// enclosing BLOCK, which is the scope `dead-repo-path` uses, loses 43 — one
+/// `restic` in a paragraph excuses every sha in it.
+///
+/// ⚠ **The inverse rule was measured and REJECTED.** #1249 proposed requiring a
+/// nearby word claiming the token IS a commit. Only 51.6% of the 440 real
+/// citations name one in their block, so it would have halved detection while
+/// still keeping 8 of the 27 non-commits. Do not re-propose it.
 fn commit_shas(body: &str, session_prefixes: &BTreeSet<String>) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     let bytes: Vec<char> = body.chars().collect();
@@ -743,7 +795,15 @@ fn commit_shas(body: &str, session_prefixes: &BTreeSet<String>) -> BTreeSet<Stri
                     .chars()
                     .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
                 && tok.chars().any(|c| c.is_ascii_lowercase());
-            if hexish && !session_prefixes.contains(&tok) {
+            let named_kind = {
+                let from = start.saturating_sub(1 + KIND_WINDOW);
+                let before: String = bytes[from..start.saturating_sub(1)]
+                    .iter()
+                    .collect::<String>()
+                    .to_ascii_lowercase();
+                NOT_A_COMMIT_KIND.iter().any(|w| before.contains(w))
+            };
+            if hexish && !session_prefixes.contains(&tok) && !named_kind {
                 out.insert(tok);
             }
             i = j + 1;
@@ -752,6 +812,41 @@ fn commit_shas(body: &str, session_prefixes: &BTreeSet<String>) -> BTreeSet<Stri
         }
     }
     out
+}
+
+/// Whether a block records `repo` as living on a remote it names.
+///
+/// The counterpart of the `~/Archive/<repo>` exemption in [`check_world`]: both
+/// ask "does this block account for the absence", and both answer it from what
+/// the writer actually wrote rather than from a list kept somewhere else.
+///
+/// Matched as the LAST segment after an org, so `github.com/xinutec/phonos`
+/// excuses `phonos` and not `xinutec` — an org name that collided with a repo
+/// name would otherwise waive a real finding. Both spellings, because the corpus
+/// writes browse URLs and clone URLs alike.
+fn names_a_remote(block: &str, repo: &str) -> bool {
+    for host in ["github.com/", "github.com:"] {
+        let mut rest = block;
+        while let Some(at) = rest.find(host) {
+            rest = &rest[at + host.len()..];
+            let mut segs =
+                rest.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')));
+            let org = segs.next().unwrap_or("");
+            // The separator that ended the org has to be a path separator; a
+            // bare `github.com/xinutec` names an org and locates no repository.
+            let after = &rest[org.len()..];
+            if !org.is_empty() && after.starts_with('/') {
+                let name: String = after[1..]
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+                    .collect();
+                if name.trim_end_matches(".git") == repo {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Every git repository directly under the code root, plus the root itself, plus
@@ -823,6 +918,35 @@ fn unresolved_in_any(shas: &BTreeSet<String>, repos: &[std::path::PathBuf]) -> B
             .map(|s| format!("{s}^{{commit}}"))
             .collect::<Vec<_>>()
             .join("\n");
+        let Ok(out) = git_batch_check(repo, &input) else {
+            continue;
+        };
+        let lines: Vec<&str> = out.lines().collect();
+        if lines.len() != left.len() {
+            continue;
+        }
+        left = left
+            .iter()
+            .zip(lines)
+            .filter(|(_, l)| l.contains("missing") || l.contains("ambiguous"))
+            .map(|(s, _)| s.clone())
+            .collect();
+    }
+    // ⚠ **Everything above asked `^{commit}`, so a token that IS a git object of
+    // some other type is still sitting in `left`.** `reference_a_git_hook_...`
+    // cites `c1b0730e`, which is `printf 'x' | git hash-object` — a real blob in
+    // a real repo, correct as written, and reported for a year as a sha that
+    // exists nowhere. Git already knows the answer; the rule just never asked.
+    //
+    // Asked bare and only of the leftovers, which is a handful rather than the
+    // whole corpus. A token resolving to a blob, tree or tag is not a mistyped
+    // commit, so it is dropped rather than re-worded into a second finding: the
+    // memory is right and there is nothing for a reader to do.
+    for repo in repos {
+        if left.is_empty() {
+            break;
+        }
+        let input = left.join("\n");
         let Ok(out) = git_batch_check(repo, &input) else {
             continue;
         };
@@ -912,6 +1036,23 @@ pub fn check_world(corpus: &Corpus, code_root: &std::path::Path) -> Vec<Finding>
                 // stale reference to another, and per BLOCK so a banner at the
                 // top cannot excuse an instruction further down.
                 if block.contains(&format!("~/Archive/{repo}")) {
+                    continue;
+                }
+                // ⚠ **The third state: alive, pushed, and simply not cloned
+                // here.** Retirement is not the only honest reason a `~/Code`
+                // path is absent. `project_phonos` names a repo pushed on
+                // 2026-08-26 with no working copy on this Mac, and the honest
+                // sentence — "there is no clone here, it is at
+                // github.com/xinutec/phonos" — tripped this rule for saying
+                // where the repo was expected to be.
+                //
+                // It was worked around by deleting the path from the prose
+                // (`ac6bf80`), which is strictly worse: the reader loses the
+                // location and the rule learns nothing. Naming the remote beside
+                // the path is the same shape of record as naming the archive,
+                // and is accepted on the same terms — per repo, and per BLOCK,
+                // so a header cannot excuse an instruction forty lines down.
+                if names_a_remote(&block, &repo) {
                     continue;
                 }
                 reported.insert(repo.clone());

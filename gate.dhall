@@ -243,7 +243,7 @@ in  { name = "memview"
         , name = "memory-lint (the corpus)"
         , argv =
             G.inDevShell
-              [ "cargo", "run", "--quiet", "--bin", "memory-lint" ]
+              [ "cargo", "run", "--release", "--quiet", "--bin", "memory-lint" ]
         , timeout_s = 900
         }
       , {-  The conversations the corpus is mined from. Same argument as
@@ -275,6 +275,25 @@ in  { name = "memview"
             G.inDevShell
               [ "cargo"
               , "run"
+              , {-  ⚠ **`--release`, because this walks 6.28 GB and a debug
+                    binary is 8.6x slower.** Measured 2026-08-30, both runs
+                    CPU-bound (`real` within 4% of `user`, so neither was
+                    waiting) and both printing the identical verdict:
+
+                        debug    4m51.3s
+                        release  0m34.0s
+
+                    The extra release build costs +24s incremental over the
+                    debug one the gate already pays (20.2s -> 44.3s), so the
+                    row is ~4m17 cheaper and the gate ~3m55 cheaper overall.
+                    memory-lint's row above is the same change for the same
+                    reason, worth a smaller 4.3s -> 2.2s.
+
+                    Found by dogfooding `scripts/gate-changed.sh`, which claims
+                    ~15s and took over ten minutes — the claim was written from
+                    a run whose cost was this row, misattributed.
+                -}
+                "--release"
               , "--quiet"
               , {-  `-p` is required and memory-lint's row does without it. That
                     one is a bin of the ROOT package, and `default-run =

@@ -10,6 +10,16 @@
 # a silent subset is exactly the failure it exists to prevent — the pre-commit
 # hook remains the only thing that judges a commit.
 #
+# ⚠ **It is NOT fast by default, and the first run of it proved that.** On
+# 2026-08-30 a one-file `.rs` edit selected `transcript-lint`, which walks 6.28 GB
+# of transcripts, and the whole thing ran over ten minutes. The cause was the
+# gate's own argv, faithfully reproduced: `cargo run` with no `--release`, i.e. a
+# debug binary, 4m51s against release's 34s. Fixed in `gate.dhall`.
+#
+# ⚠ **So read the SKIPPED list, not a remembered duration.** What this costs is
+# whatever the selected checks cost; the checks it picks for a corpus or
+# transcript change are the slow ones, and no wrapper makes them cheap.
+#
 # ⚠ **Why it exists at all.** Measured 2026-08-29: the full gate is ~13 minutes,
 # so during an edit loop it is not run, and what gets run instead is fast and
 # WRONG. That day I typed `cargo clippy --all-targets` after nearly every edit

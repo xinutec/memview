@@ -225,6 +225,7 @@
         "--command",
         "cargo",
         "run",
+        "--release",
         "--quiet",
         "--bin",
         "memory-lint"
@@ -242,6 +243,7 @@
         "--command",
         "cargo",
         "run",
+        "--release",
         "--quiet",
         "-p",
         "reader",

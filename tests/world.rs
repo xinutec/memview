@@ -465,3 +465,158 @@ fn a_commit_in_a_config_repo_beside_the_code_root_still_resolves() {
         .collect();
     assert!(findings.is_empty(), "{findings:?}");
 }
+
+/// ⚠ **A restic snapshot id is 8 lowercase hex and reads as a sha.** Three sat in
+/// the findings permanently — a snapshot id, a Hermes bytecode magic number and a
+/// `git hash-object` blob — and a warning that cannot be made true is one a
+/// reader learns to skip.
+///
+/// The discriminator is the word IMMEDIATELY before the token, which is where the
+/// writer names the kind.
+#[test]
+fn an_identifier_named_as_a_snapshot_is_not_read_as_a_commit() {
+    let corpus_dir = tempfile::tempdir().expect("tempdir");
+    let code = tempfile::tempdir().expect("tempdir");
+    repo_with_a_commit(code.path(), "observe");
+
+    let corpus = corpus_saying(
+        corpus_dir.path(),
+        "The stamp captured inside snapshot `7d747cd5` reads 03:32:48Z, \
+         and the bundle is Hermes v96 (magic `c61fbc03`).",
+    );
+    let findings: Vec<_> = check_world(&corpus, code.path())
+        .into_iter()
+        .filter(|f| f.rule == "unresolvable-commit")
+        .collect();
+    assert!(findings.is_empty(), "{findings:?}");
+}
+
+/// ⚠ **The exemption above must not become a block-wide waiver, which is the
+/// mistake `dead-repo-path` explicitly avoids.** Measured on the corpus: scoped to
+/// the enclosing block, one `restic` in a paragraph excuses every sha in it — 43
+/// real commit citations of 440. At 20 characters it excuses none.
+///
+/// This is the test that fails if the window is ever widened.
+#[test]
+fn a_kind_word_further_off_in_the_same_block_does_not_excuse_a_dead_sha() {
+    let corpus_dir = tempfile::tempdir().expect("tempdir");
+    let code = tempfile::tempdir().expect("tempdir");
+    repo_with_a_commit(code.path(), "observe");
+
+    let corpus = corpus_saying(
+        corpus_dir.path(),
+        "odin's restic backup dumps the redis database nightly before the run, \
+         and the dependency was missed at first and fixed in `deadbee`.",
+    );
+    let findings: Vec<_> = check_world(&corpus, code.path())
+        .into_iter()
+        .filter(|f| f.rule == "unresolvable-commit")
+        .collect();
+    assert_eq!(findings.len(), 1, "{findings:?}");
+}
+
+/// ⚠ **`^{commit}` leaves a real git object of another type looking like a sha
+/// that exists nowhere.** `c1b0730e` is `printf 'x' | git hash-object` — a blob
+/// this very suite writes — and it was reported as unresolvable while sitting in
+/// the object store the rule was searching. Git knew; the rule never asked.
+#[test]
+fn a_git_object_that_is_not_a_commit_is_not_reported() {
+    let corpus_dir = tempfile::tempdir().expect("tempdir");
+    let code = tempfile::tempdir().expect("tempdir");
+    repo_with_a_commit(code.path(), "observe");
+
+    let out = scrubbed_git(&code.path().join("observe"))
+        .args(["rev-parse", "--short=8", "HEAD:f"])
+        .output()
+        .expect("git");
+    let blob = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    assert_eq!(blob.len(), 8, "expected a short blob oid, got {blob:?}");
+
+    // Written with no kind word in front of it, so the ONLY thing that can clear
+    // it is asking git for the object type.
+    let corpus = corpus_saying(corpus_dir.path(), &format!("Two commits died on `{blob}`."));
+    let findings: Vec<_> = check_world(&corpus, code.path())
+        .into_iter()
+        .filter(|f| f.rule == "unresolvable-commit")
+        .collect();
+    assert!(findings.is_empty(), "{findings:?}");
+}
+
+/// ⚠ **`session` is deliberately not a kind word.** Session ids are excluded by
+/// `originSessionId`, which is exact; adding the word would excuse any sha
+/// written near the word "session" — and the corpus writes that word constantly.
+#[test]
+fn the_word_session_does_not_excuse_a_dead_sha() {
+    let corpus_dir = tempfile::tempdir().expect("tempdir");
+    let code = tempfile::tempdir().expect("tempdir");
+    repo_with_a_commit(code.path(), "observe");
+
+    let corpus = corpus_saying(corpus_dir.path(), "Another session shipped `deadbee`.");
+    let findings: Vec<_> = check_world(&corpus, code.path())
+        .into_iter()
+        .filter(|f| f.rule == "unresolvable-commit")
+        .collect();
+    assert_eq!(findings.len(), 1, "{findings:?}");
+}
+
+/// ⚠ **A repo can be alive, pushed, and simply not cloned on this Mac.** The rule
+/// had two states — present, or retired to `~/Archive` — and this is the third.
+/// `project_phonos` hit it: a repo pushed on 2026-08-26 with no working copy
+/// here, where the honest sentence names both the missing path and the remote.
+#[test]
+fn a_block_naming_the_remote_accounts_for_a_missing_clone() {
+    let corpus_dir = tempfile::tempdir().expect("tempdir");
+    let code = tempfile::tempdir().expect("tempdir");
+
+    let corpus = corpus_saying(
+        corpus_dir.path(),
+        "There is no clone of `~/Code/phonos` on this Mac; it is at \
+         `github.com/xinutec/phonos`.",
+    );
+    let findings: Vec<_> = check_world(&corpus, code.path())
+        .into_iter()
+        .filter(|f| f.rule == "dead-repo-path")
+        .collect();
+    assert!(findings.is_empty(), "{findings:?}");
+}
+
+/// ⚠ **The exemption is per REPO.** Naming one repository's remote must not
+/// excuse a stale path to a different one — the same trap the `~/Archive`
+/// exemption already guards, where a banner cleared a whole file.
+#[test]
+fn naming_one_remote_does_not_excuse_a_different_missing_repo() {
+    let corpus_dir = tempfile::tempdir().expect("tempdir");
+    let code = tempfile::tempdir().expect("tempdir");
+
+    let corpus = corpus_saying(
+        corpus_dir.path(),
+        "phonos is at `github.com/xinutec/phonos`, and captures live in \
+         `~/Code/lares/captures`.",
+    );
+    let findings: Vec<_> = check_world(&corpus, code.path())
+        .into_iter()
+        .filter(|f| f.rule == "dead-repo-path")
+        .collect();
+    assert_eq!(findings.len(), 1, "{findings:?}");
+    assert!(findings[0].detail.contains("lares"), "{findings:?}");
+}
+
+/// ⚠ **An org is not a repository.** `github.com/xinutec` locates nothing, and
+/// accepting it would waive every missing path in a block that merely names the
+/// org — which the corpus does constantly.
+#[test]
+fn naming_only_the_org_does_not_account_for_a_missing_clone() {
+    let corpus_dir = tempfile::tempdir().expect("tempdir");
+    let code = tempfile::tempdir().expect("tempdir");
+
+    let corpus = corpus_saying(
+        corpus_dir.path(),
+        "Everything is under `github.com/phonos` and the checkout is \
+         `~/Code/phonos`.",
+    );
+    let findings: Vec<_> = check_world(&corpus, code.path())
+        .into_iter()
+        .filter(|f| f.rule == "dead-repo-path")
+        .collect();
+    assert_eq!(findings.len(), 1, "{findings:?}");
+}
