@@ -87,3 +87,37 @@ fn a_subject_that_merely_states_a_finding_is_left_alone() {
         "A corpus grep is an open of what it MATCHED — counting all or nothing are both wrong"
     ));
 }
+
+// --- dead-path: which repo files a task's body claims exist -------------------
+
+use memview::cites::cited_paths;
+
+#[test]
+fn a_backticked_repo_path_is_a_citation() {
+    let got = cited_paths("the fix is in `src/geo/stays.ts`, near the top");
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert!(got.contains("src/geo/stays.ts"));
+}
+
+/// ⚠ **Prose is full of slashes.** A matcher that took any slashed token would
+/// accuse sentences, and a rule that accuses sentences gets muted.
+#[test]
+fn prose_and_bare_directories_are_not_citations() {
+    let got =
+        cited_paths("the `and/or` case, the `src/geo` directory, and `Verified` — none are files");
+    assert!(got.is_empty(), "{got:?}");
+}
+
+/// ⚠ A URL and an absolute path are both checked against the wrong thing.
+#[test]
+fn urls_and_absolute_paths_are_not_repo_relative() {
+    let got = cited_paths("see `https://example.com/a/b.ts` or `/etc/hosts.conf`");
+    assert!(got.is_empty(), "{got:?}");
+}
+
+/// ⚠ Unfenced text is not a claim about a file — it is a sentence.
+#[test]
+fn only_fenced_tokens_count() {
+    let got = cited_paths("the fix is in src/geo/stays.ts, near the top");
+    assert!(got.is_empty(), "{got:?}");
+}

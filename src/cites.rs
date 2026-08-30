@@ -116,3 +116,79 @@ pub fn still_asks(subject: &str) -> bool {
     let lower = subject.to_lowercase();
     STILL_OPEN.iter().any(|phrase| lower.contains(phrase))
 }
+
+/// A repo-relative path a task's body cites in backticks.
+///
+/// ⚠ **Backticks and an extension are both required, and that is deliberate.**
+/// Prose names directories, module paths and English words containing slashes;
+/// requiring a fenced token that ends in a short extension is what keeps this
+/// from accusing sentences. Measured 2026-08-30 over 140 open tasks: 98
+/// citations, of which 55 were absent — a rate high enough that a looser matcher
+/// would drown the real ones.
+pub fn cited_paths(body: &str) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    let chars: Vec<char> = body.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] != '`' {
+            i += 1;
+            continue;
+        }
+        let start = i + 1;
+        let mut j = start;
+        while j < chars.len() && chars[j] != '`' && chars[j] != '\n' {
+            j += 1;
+        }
+        if j >= chars.len() || chars[j] != '`' {
+            i = j;
+            continue;
+        }
+        let tok: String = chars[start..j].iter().collect();
+        i = j + 1;
+        if path_shaped(&tok) {
+            out.insert(tok);
+        }
+    }
+    out
+}
+
+/// Whether a fenced token reads as a repo-relative file path.
+///
+/// ⚠ **A URL is not a path** and a leading `/` is not repo-relative — both would
+/// be checked against the wrong thing entirely.
+fn path_shaped(tok: &str) -> bool {
+    if tok.starts_with('/') || tok.contains("://") || tok.contains(' ') {
+        return false;
+    }
+    let Some((dir, file)) = tok.rsplit_once('/') else {
+        return false;
+    };
+    if dir.is_empty() {
+        return false;
+    }
+    let Some((stem, ext)) = file.rsplit_once('.') else {
+        return false;
+    };
+    !stem.is_empty()
+        && !ext.is_empty()
+        && ext.len() <= 6
+        && ext.chars().all(|c| c.is_ascii_alphanumeric())
+        && tok
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-'))
+}
+
+/// Where a session's repository is, or `None` when it has no checkout here.
+///
+/// ⚠ **The FILESYSTEM decides, never `git ls-files`.** health gitignores
+/// `tests/golden/**` because those fixtures carry real coordinates; keying on git
+/// would report five present-but-untracked files as deleted, which is a wrong
+/// accusation about the most sensitive files in the repo (memview#1279).
+pub fn repo_of(session: &str, code_root: &std::path::Path) -> Option<std::path::PathBuf> {
+    [
+        code_root.join(session),
+        code_root.join("kubes").join(session),
+    ]
+    .into_iter()
+    .find(|candidate| candidate.is_dir())
+}

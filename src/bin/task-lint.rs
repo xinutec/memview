@@ -25,7 +25,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result};
-use memview::cites::{citations, is_ours, still_asks};
+use memview::cites::{citations, cited_paths, is_ours, repo_of, still_asks};
 use memview::store::Corpus;
 
 fn main() -> Result<()> {
@@ -73,6 +73,56 @@ fn main() -> Result<()> {
         }
     }
 
+    // dead-path: what an OPEN task claims still exists in its own repository.
+    //
+    // ⚠ **Open only.** A closed task describes work that finished, and the files
+    // it names are supposed to be gone — flagging those reports history as damage.
+    let code_root = std::path::PathBuf::from(
+        std::env::var("CODE_ROOT").unwrap_or_else(|_| format!("{home}/Code")),
+    );
+    let mut dead: Vec<(u64, String, String)> = Vec::new();
+    let mut paths_checked = 0usize;
+    // ⚠ Reported, so "no findings" cannot mean "nothing was read".
+    let mut unreadable = 0usize;
+    for t in &tasks {
+        if t["status"]
+            .as_str()
+            .is_some_and(|s| s == "done" || s == "closed")
+        {
+            continue;
+        }
+        let (Some(id), Some(who)) = (t["id"].as_u64(), t["assignee"]["name"].as_str()) else {
+            continue;
+        };
+        // ⚠ A session with no checkout here says NOTHING about paths. Reporting
+        // its citations as dead would accuse a repo this machine cannot see.
+        let Some(repo) = repo_of(who, &code_root) else {
+            continue;
+        };
+        let shown = std::process::Command::new("task")
+            .args(["show", "--json", &id.to_string()])
+            .output();
+        let Ok(shown) = shown else { continue };
+        // ⚠ **A body that will not parse is COUNTED, never treated as empty.**
+        // `unwrap_or_default()` here would turn a broken service response into a
+        // task with no citations — so a service returning nonsense would report
+        // "every path still exists", which is the loudest possible lie this check
+        // can tell. dev-lint's `rust-serde-swallow` caught exactly that.
+        let body = match serde_json::from_slice::<serde_json::Value>(&shown.stdout) {
+            Ok(v) => v["body"].as_str().unwrap_or_default().to_string(),
+            Err(_) => {
+                unreadable += 1;
+                continue;
+            }
+        };
+        for path in cited_paths(&body) {
+            paths_checked += 1;
+            if !repo.join(&path).exists() {
+                dead.push((id, who.to_string(), path));
+            }
+        }
+    }
+
     println!(
         "{cited} citations across {} memories, against {} tasks the service holds",
         corpus.docs.len(),
@@ -86,6 +136,33 @@ fn main() -> Result<()> {
         for (id, memories) in &dangling {
             println!("  #{id:<6} {}", memories.join(", "));
         }
+    }
+    // ⚠ **Reported last and separately**: it is the highest-yield rule here by an
+    // order of magnitude, and burying it under the citation counts would read as
+    // a footnote to a check that finds almost nothing.
+    // ⚠ **Said before any verdict.** A run that could not read half the tasks and
+    // found nothing is not a clean run, and the two must never look alike.
+    if unreadable > 0 {
+        println!("\n  ⚠ {unreadable} task(s) returned a body that would not parse — NOT checked");
+    }
+    if dead.is_empty() {
+        println!("\n  every path an open task cites still exists ({paths_checked} checked)");
+    } else {
+        let mut repos: BTreeSet<&str> = BTreeSet::new();
+        for (_, who, _) in &dead {
+            repos.insert(who.as_str());
+        }
+        println!(
+            "\ndead-path — an OPEN task cites a file that is gone ({} of {paths_checked} cited paths, {} repo(s)):",
+            dead.len(),
+            repos.len()
+        );
+        for (id, who, path) in &dead {
+            println!("  #{id:<6} {who:<10} {path}");
+        }
+        println!(
+            "  ⚠ about 1 in 30 of these is an illustrative path rather than a citation — see this file's head."
+        );
     }
 
     // ⚠ **Closed only.** An open ticket SHOULD still ask its question; that is
