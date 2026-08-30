@@ -91,13 +91,16 @@ fn main() -> Result<()> {
     };
 
     let (mut found, resume_state) = agents::scan_resumed(
-        std::path::Path::new(&root),
-        std::path::Path::new(&sessions),
-        &code_root,
-        &memory_dir,
-        &home,
+        agents::Roots {
+            projects: std::path::Path::new(&root),
+            sessions: std::path::Path::new(&sessions),
+            code_root: &code_root,
+            memory_root: &memory_dir,
+            home: &home,
+        },
         &generated,
         from,
+        agents::Needs::EVERYTHING,
     )?;
 
     println!("{} agents", found.agents.len());

@@ -114,8 +114,11 @@ fn main() -> Result<()> {
     // about.** This used to load the artefact as it lay and REFUSE when the
     // corpus had moved past it, because catching up cost 4m31. It now costs
     // about 9 seconds — see `memview::fresh`.
-    let mined = memview::fresh::mined(&memview::fresh::Where::from_env())
-        .with_context(|| format!("refreshing {artefact}"))?;
+    let mined = memview::fresh::mined(
+        &memview::fresh::Where::from_env(),
+        memview::agents::Needs::MEMORIES,
+    )
+    .with_context(|| format!("refreshing {artefact}"))?;
 
     // Beside the roster rather than inside it: `/api/agents` must not carry
     // this, so the miner writes it to its own file. See `agents::Agents`.

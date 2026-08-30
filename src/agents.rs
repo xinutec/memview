@@ -2065,6 +2065,43 @@ fn scan_transcript(
 /// `memory_root` is the corpus directory, so opening a memory is attributed to
 /// the memory rather than discarded as "outside the code root". A path that
 /// does not exist is harmless: nothing matches it and the profile is empty.
+/// Where a scan reads from.
+///
+/// Bundled because passing five paths positionally is how a caller ends up
+/// handing `memory_root` to `code_root` — and because clippy was right that
+/// eight arguments is too many to keep straight.
+#[derive(Clone, Copy)]
+pub struct Roots<'a> {
+    pub projects: &'a Path,
+    pub sessions: &'a Path,
+    pub code_root: &'a str,
+    pub memory_root: &'a str,
+    pub home: &'a str,
+}
+
+/// What a caller actually wants out of a scan, so the rest is not computed.
+///
+/// ⚠ **This exists because `memory-rank` referenced commit data ZERO times and
+/// paid 4.4s of git walk for it on every run** — most of a 5.9s refresh, to
+/// produce numbers it never read. A scan that computes everything is the right
+/// default for the miner and the wrong one for a reader.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Needs {
+    /// Attribute commits to the agents who mentioned them. Walks the git log of
+    /// every repository under the code root.
+    ///
+    /// ⚠ **Off means the commit fields are EMPTY, not stale** — so a scan with
+    /// this off must never be written to `agents.json`.
+    pub commits: bool,
+}
+
+impl Needs {
+    /// Everything the artefacts hold. What the miner asks for.
+    pub const EVERYTHING: Self = Self { commits: true };
+    /// The roster and the day sets — what the memory tools read.
+    pub const MEMORIES: Self = Self { commits: false };
+}
+
 /// The artefacts a previous run wrote, plus the fold state they could not carry.
 ///
 /// See [`crate::mine::Carried`] for why three of the folds below are not
@@ -2094,13 +2131,16 @@ pub fn scan(
     generated: &str,
 ) -> Result<Agents> {
     scan_resumed(
-        projects_root,
-        sessions_dir,
-        code_root,
-        memory_root,
-        home,
+        Roots {
+            projects: projects_root,
+            sessions: sessions_dir,
+            code_root,
+            memory_root,
+            home,
+        },
         generated,
         None,
+        Needs::EVERYTHING,
     )
     .map(|(agents, _)| agents)
 }
@@ -2118,14 +2158,18 @@ pub fn scan(
 /// watermark is carried into the next run's state unchanged. Dropping it would
 /// make the following run believe the file was new and read it whole.
 pub fn scan_resumed(
-    projects_root: &Path,
-    sessions_dir: &Path,
-    code_root: &str,
-    memory_root: &str,
-    home: &str,
+    at: Roots<'_>,
     generated: &str,
     from: Option<Resumed>,
+    needs: Needs,
 ) -> Result<(Agents, crate::mine::Carried)> {
+    let Roots {
+        projects: projects_root,
+        sessions: sessions_dir,
+        code_root,
+        memory_root,
+        home,
+    } = at;
     let names = registry_names(sessions_dir);
     let held = from.unwrap_or_else(|| Resumed {
         carried: crate::mine::Carried::default(),
@@ -2151,7 +2195,14 @@ pub fn scan_resumed(
     // Read before the transcripts, because recognising a hash in one needs the
     // set of hashes to look for. Empty when the code root has no repositories,
     // in which case the whole dimension is skipped rather than half-built.
-    let history = crate::commits::all(Path::new(code_root));
+    // ⚠ Empty when the caller does not need attribution — see [`Needs`]. The
+    // commit fields then come out ZERO, which is why such a scan must not be
+    // written to the artefact.
+    let history = if needs.commits {
+        crate::commits::all(Path::new(code_root))
+    } else {
+        Vec::new()
+    };
     let mut index: ShaIndex = BTreeMap::new();
     for commit in &history {
         if commit.sha.len() >= crate::commits::SHORT {

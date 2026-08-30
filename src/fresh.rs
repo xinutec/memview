@@ -18,14 +18,21 @@
 //! thing that repairs any drift the chain accumulates, and it is the baseline
 //! every parity check is measured against.
 //!
-//! ⚠ **It writes back.** The refreshed artefacts are saved, so the next tool
-//! inherits the work instead of repeating it. Two sessions refreshing at once
-//! both produce valid states and `atomic::write` makes a torn file impossible —
-//! the loser of the race has simply done redundant work, not damage.
+//! ⚠ **A reader here NEVER WRITES, and that is the point.** Only `bin/agents`
+//! owns the artefacts. A reader that wrote them would be a second writer racing
+//! every other session — but worse, it could not then skip any work, because
+//! writing a partially-computed artefact corrupts it. Staying read-only is what
+//! lets a caller say [`Needs::MEMORIES`] and not pay 4.4s of git walk for
+//! numbers it never looks at.
+//!
+//! ⚠ **So each reader catches up from the last MINE, not from the last reader.**
+//! Measured 2026-08-30: the corpus grows about 1 MB per eight minutes, so a full
+//! day of drift is a few hundred MB of tails — seconds, not minutes. Cheaper
+//! than the coordination a shared writable cache would need.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 
-use crate::agents::{Agents, Resumed};
+use crate::agents::{Agents, Needs, Resumed};
 
 /// Where the miner reads and writes, defaulted from the environment.
 ///
@@ -56,18 +63,17 @@ impl Where {
             out: reader::home::cache("agents.json"),
         }
     }
-
-    fn beside(&self, name: &str) -> std::path::PathBuf {
-        self.out.with_file_name(name)
-    }
 }
 
-/// The roster, the timeline and the evidence, current as of now.
+/// The mined view a reader needs, current as of now, computed in memory.
 ///
-/// Reads only the transcripts that grew since the last run. Falls back to a full
-/// read whenever [`reader::watermark::plan`] cannot prove an append, and whenever
-/// the resume state is missing or damaged — see [`crate::mine::Carried::load`].
-pub fn mined(at: &Where) -> Result<Agents> {
+/// Reads only the transcripts that grew since the last mine. Falls back to a
+/// full read whenever [`reader::watermark::plan`] cannot prove an append, and
+/// whenever the resume state is missing or damaged — see
+/// [`crate::mine::Carried::load`].
+///
+/// ⚠ **Writes nothing.** See this module's head.
+pub fn mined(at: &Where, needs: Needs) -> Result<Agents> {
     let generated = crate::couse::stamp(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -75,48 +81,28 @@ pub fn mined(at: &Where) -> Result<Agents> {
             .unwrap_or(0),
     );
     let resume_file = reader::home::cache(crate::mine::FILE);
+    // ⚠ **The timeline and the evidence are 122 MB and are NOT loaded here.**
+    // A reader that does not write them does not need them carried; the fold
+    // state a memory tool actually reads — the roster, the day sets, `resolved`,
+    // `first_seen` — all rides in `Carried`, which is 1.5 MB.
     let from = crate::mine::Carried::load(&resume_file)?.map(|carried| Resumed {
         carried,
-        doing: reader::doing::Doing::load(&at.beside("doing.json")).unwrap_or_default(),
-        effects: reader::effects::Effects::load(&at.beside("effects.json")).unwrap_or_default(),
+        doing: reader::doing::Doing::default(),
+        effects: reader::effects::Effects::default(),
     });
 
-    let (mut found, resume_state) = crate::agents::scan_resumed(
-        &at.projects,
-        &at.sessions,
-        &at.code_root,
-        &at.memory_dir,
-        &at.home,
+    let (found, _resume_state) = crate::agents::scan_resumed(
+        crate::agents::Roots {
+            projects: &at.projects,
+            sessions: &at.sessions,
+            code_root: &at.code_root,
+            memory_root: &at.memory_dir,
+            home: &at.home,
+        },
         &generated,
         from,
+        needs,
     )?;
 
-    // Each artefact to its own file, for the reasons `bin/agents` gives: they
-    // answer different questions and the two large ones must not ride on
-    // `/api/agents`.
-    let timeline = std::mem::take(&mut found.doing);
-    timeline.save(&at.beside("doing.json"))?;
-    let effects = std::mem::take(&mut found.effects);
-    effects.save(&at.beside("effects.json"))?;
-
-    let mut days = std::mem::take(&mut found.memory_days);
-    let days_file = at.beside("memory-days.json");
-    // ⚠ Union with what earlier runs saw — a day is a historical fact and cannot
-    // stop being true. #884's outcome IS this file.
-    crate::agents::carry_forward(&days_file, &mut days)?;
-    crate::atomic::write(&days_file, serde_json::to_string(&days)?.as_bytes())
-        .with_context(|| format!("writing {}", days_file.display()))?;
-
-    found.save(&at.out)?;
-    // ⚠ **Written LAST, after every artefact it describes.** These marks assert
-    // "the corpus up to here is already in those files"; saved first, a crash in
-    // between would leave a resume state promising work no artefact holds.
-    resume_state.save(&resume_file)?;
-
-    // Handed back with the two large fields restored, so a caller that wants the
-    // timeline does not have to read the file this just wrote.
-    found.doing = timeline;
-    found.effects = effects;
-    found.memory_days = days;
     Ok(found)
 }

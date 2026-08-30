@@ -335,7 +335,17 @@ impl Log {
     /// position — [`reader::watermark::Resume`] carries it.
     pub fn reopen(&mut self, episode: Option<u32>, prompt: Option<String>) {
         self.prompt = prompt;
-        self.current = episode;
+        // ⚠ **An episode this log does not hold cannot be continued.** The index
+        // comes from a watermark, and a caller may legitimately have chosen not
+        // to carry the timeline — a reader that only wants the day sets does not
+        // load 122 MB of it. Left unchecked, the next `push` indexed an empty
+        // vector and PANICKED: "len is 0 but the index is 36887".
+        //
+        // Filtering here rather than at the call site because the log is the only
+        // thing that knows what it holds, and this is the one place the two facts
+        // meet. Dropping to `None` starts a fresh episode, which is exactly what
+        // "I have no record of the one you mean" should do.
+        self.current = episode.filter(|at| (*at as usize) < self.episodes.len());
     }
 
     /// The episode still open on the transcript just read, to be carried to the

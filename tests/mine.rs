@@ -83,7 +83,7 @@ fn a_session_name_survives_the_round_trip() {
 
 // --- the property that makes a resumed mine usable at all --------------------
 
-use memview::agents::{Resumed, scan, scan_resumed};
+use memview::agents::{Needs, Resumed, Roots, scan, scan_resumed};
 
 /// A corpus with one session, written in two stretches.
 fn corpus_with(
@@ -150,13 +150,16 @@ fn resuming_over_an_appended_corpus_equals_reading_it_whole() {
 
     let run = |from: Option<Resumed>| {
         scan_resumed(
-            root.path(),
-            sessions.path(),
-            "/code",
-            &memory.path().to_string_lossy(),
-            "/home/example",
+            Roots {
+                projects: root.path(),
+                sessions: sessions.path(),
+                code_root: "/code",
+                memory_root: &memory.path().to_string_lossy(),
+                home: "/home/example",
+            },
             stamp,
             from,
+            Needs::EVERYTHING,
         )
         .expect("scan")
     };
@@ -244,30 +247,36 @@ fn an_untouched_transcript_keeps_its_watermark() {
     let stamp = "2026-08-30T00:00:00Z";
 
     let (_, first) = scan_resumed(
-        root.path(),
-        sessions.path(),
-        &code.path().to_string_lossy(),
-        &memory.path().to_string_lossy(),
-        "/home/example",
+        Roots {
+            projects: root.path(),
+            sessions: sessions.path(),
+            code_root: &code.path().to_string_lossy(),
+            memory_root: &memory.path().to_string_lossy(),
+            home: "/home/example",
+        },
         stamp,
         None,
+        Needs::EVERYTHING,
     )
     .expect("first");
     assert_eq!(first.marks.len(), 1);
 
     // Nothing changed on disk between the two runs.
     let (_, second) = scan_resumed(
-        root.path(),
-        sessions.path(),
-        &code.path().to_string_lossy(),
-        &memory.path().to_string_lossy(),
-        "/home/example",
+        Roots {
+            projects: root.path(),
+            sessions: sessions.path(),
+            code_root: &code.path().to_string_lossy(),
+            memory_root: &memory.path().to_string_lossy(),
+            home: "/home/example",
+        },
         stamp,
         Some(Resumed {
             carried: first.clone(),
             doing: reader::doing::Doing::default(),
             effects: reader::effects::Effects::default(),
         }),
+        Needs::EVERYTHING,
     )
     .expect("second");
 
@@ -347,13 +356,16 @@ fn a_resumed_mine_does_not_double_the_commit_counts() {
 
     let run = |from: Option<Resumed>| {
         scan_resumed(
-            root.path(),
-            sessions.path(),
-            &code.path().to_string_lossy(),
-            &memory.path().to_string_lossy(),
-            "/home/example",
+            Roots {
+                projects: root.path(),
+                sessions: sessions.path(),
+                code_root: &code.path().to_string_lossy(),
+                memory_root: &memory.path().to_string_lossy(),
+                home: "/home/example",
+            },
             stamp,
             from,
+            Needs::EVERYTHING,
         )
         .expect("scan")
     };
@@ -408,13 +420,16 @@ fn a_tail_continues_the_episode_that_was_open_at_the_cut() {
 
     let run = |from: Option<Resumed>| {
         scan_resumed(
-            root.path(),
-            sessions.path(),
-            "/code",
-            &memory.path().to_string_lossy(),
-            "/home/example",
+            Roots {
+                projects: root.path(),
+                sessions: sessions.path(),
+                code_root: "/code",
+                memory_root: &memory.path().to_string_lossy(),
+                home: "/home/example",
+            },
             stamp,
             from,
+            Needs::EVERYTHING,
         )
         .expect("scan")
     };
