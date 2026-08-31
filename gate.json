@@ -273,6 +273,19 @@
     {
       "argv": [
         "nix",
+        "build",
+        "--no-warn-dirty",
+        "--no-link",
+        ".#sessions"
+      ],
+      "cwd": ".",
+      "env": {},
+      "name": "the sessions CLI packages (what home-manager installs)",
+      "timeout_s": 1800
+    },
+    {
+      "argv": [
+        "nix",
         "run",
         "../dev-lint#gate",
         "--",

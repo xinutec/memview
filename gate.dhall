@@ -327,6 +327,23 @@ in  { name = "memview"
         , argv = [ "nix", "build", "--no-warn-dirty", "--no-link", ".#console" ]
         , timeout_s = 1800
         }
+      , {-  ⚠ **A separate row because it is a separate FAILURE.** `.#sessions`
+            shares this one's source and lockfile, so most breakage takes both —
+            but what is unique to it is `--bin sessions` naming a binary that
+            exists, and that is precisely what a rename breaks. This package was
+            added because the tool was renamed (memview#1298); leaving the next
+            rename to be caught by hand repeats the thing it fixed.
+
+            ⚠ **It is a machine-config dependency, which is why it earns a row
+            rather than a note.** home-manager installs it onto PATH, and a bad
+            input there does not fail this repo — it fails `home-manager switch`
+            for the whole Mac, long after the commit that broke it.
+        -}
+        G.Check::{
+        , name = "the sessions CLI packages (what home-manager installs)"
+        , argv = [ "nix", "build", "--no-warn-dirty", "--no-link", ".#sessions" ]
+        , timeout_s = 1800
+        }
       , G.checkTable "../dev-lint"
       , G.devLint "../"
       ]

@@ -25,7 +25,22 @@
       # teardown abort, which lands before index.html is flushed and leaves a
       # directory that exists and is empty — thoth shipped exactly that and
       # crash-looped 33 times. The frontend is published by `publish:console`.
-      packages = forAll (pkgs: {
+      packages = forAll (pkgs:
+      let
+        # Shared by both packages below, because the reasoning under it is about
+        # the REPOSITORY rather than about either binary.
+        workspace = pkgs.lib.fileset.toSource {
+          root = ./.;
+          fileset = pkgs.lib.fileset.unions [
+            ./Cargo.toml
+            ./Cargo.lock
+            ./bash-oracle
+            ./console
+            ./reader
+            ./src
+          ];
+        };
+      in {
         console = pkgs.rustPlatform.buildRustPackage {
           pname = "agent-console";
           version = "0.1.0";
@@ -43,17 +58,7 @@
           # is not a smaller build — it is `failed to load manifest for
           # workspace member`. Adding `bash-oracle` to the workspace failed this
           # build and nothing else.
-          src = pkgs.lib.fileset.toSource {
-            root = ./.;
-            fileset = pkgs.lib.fileset.unions [
-              ./Cargo.toml
-              ./Cargo.lock
-              ./bash-oracle
-              ./console
-              ./reader
-              ./src
-            ];
-          };
+          src = workspace;
 
           cargoLock.lockFile = ./Cargo.lock;
           cargoBuildFlags = [ "--package" "console" ];
@@ -64,6 +69,31 @@
           doCheck = false;
 
           meta.mainProgram = "console";
+        };
+
+        # The desk-side CLI, and ONLY it.
+        #
+        # ⚠ **`--bin sessions` leaves the server out, and that is correctness
+        # rather than size.** The console runner is installed to
+        # `~/.local/libexec/agent-console` by `scripts/console-upgrade.sh`,
+        # deliberately outside the store so signing into the keychain survives a
+        # GC. Shipping it a second time through home-manager would put a second
+        # copy on PATH with different upgrade rules — the same argument
+        # `tasks` makes for splitting its CLI from its server.
+        #
+        # ⚠ **This exists so the word a reader types is the program that runs.**
+        # Until it is installed the only invocation is a `cargo run` from a
+        # checkout, so every doc writes one thing and every shell does another
+        # (memview#1298).
+        sessions = pkgs.rustPlatform.buildRustPackage {
+          pname = "sessions";
+          version = "0.1.0";
+          src = workspace;
+          cargoLock.lockFile = ./Cargo.lock;
+          cargoBuildFlags = [ "--package" "console" "--bin" "sessions" ];
+          # As above: the gate runs the tests, with a corpus this sandbox has not.
+          doCheck = false;
+          meta.mainProgram = "sessions";
         };
         default = self.packages.${pkgs.stdenv.hostPlatform.system}.console;
       });
