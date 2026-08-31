@@ -74,10 +74,40 @@ struct Row {
     unread: usize,
     #[serde(default)]
     waiting: usize,
+    /// Commands still running after the turn that started them returned.
+    ///
+    /// ⚠ **This is why `working` alone misreads the board.** A session that
+    /// backgrounds a command hands control back, so `working` goes false while
+    /// it is still blocked on the result. Both fields are ABSENT from the JSON
+    /// when empty, not zero, which is how they were missed the first time.
+    #[serde(default)]
+    background: usize,
+    #[serde(default)]
+    running: Vec<Running>,
     #[serde(default)]
     context: Option<u64>,
     #[serde(default)]
     window: Option<u64>,
+}
+
+/// One command still in flight.
+///
+/// ⚠ **The tool's key is `tool`, and `label` is the sentence a person wrote for
+/// it.** Reading a `name` field here compiles, deserialises and prints nothing,
+/// because serde fills an absent Option with None rather than complaining. Say
+/// what the command is FOR when it says so; fall back to which tool it is.
+#[derive(Deserialize)]
+struct Running {
+    #[serde(default)]
+    tool: Option<String>,
+    #[serde(default)]
+    label: Option<String>,
+}
+
+impl Running {
+    fn describe(&self) -> Option<&str> {
+        self.label.as_deref().or(self.tool.as_deref())
+    }
 }
 
 impl Row {
@@ -86,11 +116,34 @@ impl Row {
     }
 
     fn state(&self) -> &'static str {
-        match (self.alive, self.working, self.waiting > 0) {
-            (false, _, _) => "exited",
-            (_, _, true) => "waiting",
-            (_, true, _) => "working",
+        match (
+            self.alive,
+            self.working,
+            self.waiting > 0,
+            self.background > 0,
+        ) {
+            (false, ..) => "exited",
+            (_, _, true, _) => "waiting",
+            (_, true, ..) => "working",
+            // Idle for input, not idle. Distinguished because the two want
+            // opposite things: one is safe to compact, the other is not.
+            (.., true) => "bg",
             _ => "idle",
+        }
+    }
+
+    /// What it is doing, whether or not a turn is running.
+    fn doing(&self) -> String {
+        if self.working {
+            return self.busy.clone().unwrap_or_default();
+        }
+        if self.background == 0 {
+            return String::new();
+        }
+        let names: Vec<&str> = self.running.iter().filter_map(Running::describe).collect();
+        match names.is_empty() {
+            true => format!("{} background", self.background),
+            false => format!("{} background: {}", self.background, names.join(", ")),
         }
     }
 }
@@ -216,12 +269,11 @@ async fn who() -> Result<()> {
             (Some(used), None) => format!("{}k", used / 1000),
             _ => String::new(),
         };
-        // Only while it is working: the CLI leaves the last thing it narrated in
-        // place, so showing it for an idle session says it is still doing that.
-        let doing = match (row.working, &row.busy) {
-            (true, Some(busy)) => busy.as_str(),
-            _ => "",
-        };
+        // ⚠ Only narrate `busy` while it is working: the CLI leaves the last
+        // thing it said in place, so printing it for an idle session claims it
+        // is still doing that. Background work is the opposite case and IS
+        // still true after the turn ends.
+        let doing = row.doing();
         println!(
             "{:<10} {:<8} {:<8} {:>4} {:>6} {:>10}  {}",
             row.label(),
