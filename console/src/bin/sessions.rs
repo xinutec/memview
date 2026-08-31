@@ -29,6 +29,7 @@
 
 use anyhow::{Context, Result, bail};
 use console::config::Config;
+use console::conversation::{Voice, conversation};
 use serde::Deserialize;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -149,20 +150,6 @@ impl Row {
             false => format!("{} background: {}", self.background, names.join(", ")),
         }
     }
-}
-
-/// Who said it. The session is named rather than called "assistant" because the
-/// name is what a person asking about it uses.
-#[derive(PartialEq, Clone, Copy)]
-enum Voice {
-    Pippijn,
-    Session,
-}
-
-struct Line {
-    at: String,
-    voice: Voice,
-    text: String,
 }
 
 #[tokio::main]
@@ -362,68 +349,6 @@ fn tail_of(path: &Path) -> Result<Vec<u8>> {
         buf.drain(..=newline);
     }
     Ok(buf)
-}
-
-/// The text of an assistant turn, or `None` for every other kind of row.
-fn said(row: &serde_json::Value) -> Option<String> {
-    if row["type"].as_str()? != "assistant" {
-        return None;
-    }
-    let text = row["message"]["content"]
-        .as_array()?
-        .iter()
-        .filter(|block| block["type"] == "text")
-        .filter_map(|block| block["text"].as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
-    let text = text.trim().to_string();
-    (!text.is_empty()).then_some(text)
-}
-
-/// Both sides of the conversation, in the order they were recorded.
-///
-/// ⚠ **The two sides are read by different rules and neither generalises.** What
-/// counts as a human turn is five facts that have each cost somebody an
-/// afternoon — a queued message lives in an `attachment` row and never in a
-/// `user` one, a `tool_result` wears the user's role — and they live in
-/// `reader`, which owns them for the whole workspace. The assistant side needs
-/// only the dedupe rule, because nothing else wears its type.
-fn conversation(bytes: &[u8]) -> Vec<Line> {
-    let mut lines: Vec<Line> = reader::transcript::human_turns(bytes)
-        .into_iter()
-        .map(|turn| Line {
-            at: turn.at,
-            voice: Voice::Pippijn,
-            text: turn.text,
-        })
-        .collect();
-
-    let mut seen = std::collections::HashSet::new();
-    for row in bytes.split(|byte| *byte == b'\n') {
-        let Ok(row) = serde_json::from_slice::<serde_json::Value>(row) else {
-            continue;
-        };
-        // ⚠ The CLI rewrites earlier stretches back into the same file, so a
-        // linear read returns some turns twice — and the later copy is the
-        // degraded one. Same rule as `reader::transcript::human_turns`.
-        let uuid = row["uuid"].as_str().unwrap_or_default().to_string();
-        if !uuid.is_empty() && !seen.insert(uuid) {
-            continue;
-        }
-        if let Some(text) = said(&row) {
-            lines.push(Line {
-                at: row["timestamp"].as_str().unwrap_or_default().to_string(),
-                voice: Voice::Session,
-                text,
-            });
-        }
-    }
-    // ISO-8601 in a fixed zone sorts as text, which is why the transcripts use
-    // it. ⚠ A queued turn is stamped when it was ENQUEUED, so it can sort before
-    // the reply to the message ahead of it — that is the truth about when it was
-    // typed, not a bug to correct here.
-    lines.sort_by(|a, b| a.at.cmp(&b.at));
-    lines
 }
 
 /// `--since 22:00` means today at 22:00, in whatever the transcript's stamps
