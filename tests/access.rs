@@ -351,3 +351,52 @@ async fn a_wrong_share_token_is_not_a_viewer() {
         StatusCode::UNAUTHORIZED,
     );
 }
+
+/// ⚠ **A callback that a browser is SENT to must answer in HTML.**
+///
+/// `/auth/callback` is a navigation target — nothing calls it as an API — and
+/// `AppError` renders as `{"error":"…"}`. In `tasks`, the same code on the same
+/// provider put a raw JSON object on a phone screen, and a recoverable "try
+/// again" read as the application being broken. The sentence was right the whole
+/// time; only its content type was wrong.
+#[tokio::test]
+async fn a_failed_sign_in_answers_the_browser_in_html_not_json() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::create_dir_all(dir.path().join("corpus")).expect("corpus dir");
+    std::fs::write(dir.path().join("corpus/MEMORY.md"), "# Memory index\n").expect("index");
+    let (state, _) = app(dir.path());
+
+    // Neither a URL state nor a pending cookie: the flow cannot be identified,
+    // which is exactly what Nextcloud produces when it loses the state and the
+    // cookie has expired too.
+    let res = memview::routes::router(state)
+        .oneshot(
+            Request::builder()
+                .uri("/auth/callback?code=abc")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    let kind = res
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(kind.starts_with("text/html"), "answered as {kind:?}");
+
+    let body = axum::body::to_bytes(res.into_body(), 64 * 1024)
+        .await
+        .expect("body");
+    let page = String::from_utf8_lossy(&body);
+    // Non-vacuity: an empty 401 would also not be JSON.
+    assert!(page.contains("Sign-in did not finish"), "{page}");
+    assert!(
+        page.contains("/login"),
+        "a dead end is not a recovery: {page}"
+    );
+    assert!(!page.contains("\"error\""), "still JSON-shaped: {page}");
+}

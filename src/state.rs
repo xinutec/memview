@@ -13,7 +13,13 @@ use reader::doing::Doing;
 use reader::effects::Effects;
 use reader::reading::CorpusRead;
 
-const OAUTH_TTL: Duration = Duration::from_secs(600); // 10 minutes
+/// How long a pending sign-in stays valid.
+///
+/// ⚠ **Public because the cookie that carries the same sign-in must expire with
+/// it.** Two independently-written timeouts for one flow is a window where the
+/// cookie outlives the state it names, or the reverse — and either reads as a
+/// sign-in that mysteriously stopped working.
+pub const OAUTH_TTL: Duration = Duration::from_secs(600); // 10 minutes
 
 pub struct PendingOauth {
     created: Instant,
