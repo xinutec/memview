@@ -140,6 +140,15 @@ fn repo_with_a_commit(root: &std::path::Path) -> String {
         ] {
             c.env_remove(var);
         }
+        // ⚠ **Fixed dates, so the hash is DETERMINISTIC.** A commit made from
+        // the wall clock gets a different sha every run, and
+        // `commits::hash_candidates` deliberately refuses an all-digit short
+        // hash (3.4% of the fleet's real commits) — so roughly one run in forty
+        // produced a fixture that attributed nothing, tripped `refuse_vacuous`,
+        // and failed CI while passing locally. A fixture whose validity is
+        // decided by chance is not a fixture.
+        c.env("GIT_AUTHOR_DATE", "2026-08-11T00:00:00Z");
+        c.env("GIT_COMMITTER_DATE", "2026-08-11T00:00:00Z");
         c.output().expect("git");
     };
     git(&["init", "-q"]);
@@ -155,9 +164,20 @@ fn repo_with_a_commit(root: &std::path::Path) -> String {
     for var in ["GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"] {
         c.env_remove(var);
     }
-    String::from_utf8_lossy(&c.output().expect("git").stdout)
+    let sha = String::from_utf8_lossy(&c.output().expect("git").stdout)
         .trim()
-        .to_string()
+        .to_string();
+    // ⚠ **The one property the whole fixture rests on.** An all-digit hash is
+    // never attributed, on purpose, so it would make every comparison below
+    // vacuous — and the failure reads as "the resumed mine lost the commits"
+    // rather than "the fixture cannot express the question". With the dates
+    // pinned above this is decided once, here, instead of per run.
+    assert!(
+        sha.chars().any(|c| c.is_ascii_alphabetic()),
+        "fixture hash {sha:?} is all digits, which is never attributed — \
+         change the commit content or date until it is not",
+    );
+    sha
 }
 
 fn corpus() -> Corpus {
