@@ -154,31 +154,65 @@ pub fn difference_in_differences(pairs: &[&Pair]) -> Estimate {
 
 /// The arms the pre-registration asks for, each estimated on its own.
 ///
-/// `reference_` is the arm this ticket turns on: those memories are mostly
-/// tripwires, and a tripwire's success mode is being read in the index and never
-/// opened — so ranking them by opens asks the wrong question of them.
-pub fn by_arm(matching: &Matching) -> Vec<(String, Estimate)> {
-    let all: Vec<&Pair> = matching.pairs.iter().collect();
-    let mut out = vec![("all".to_string(), difference_in_differences(&all))];
-    for (label, keep) in [
-        (
-            "reference_",
-            &(|p: &Pair| p.treated.name.starts_with("reference_")) as &dyn Fn(&Pair) -> bool,
-        ),
-        ("project_", &|p: &Pair| {
-            p.treated.name.starts_with("project_")
-        }),
-        ("role: tripwire", &|p: &Pair| {
-            p.treated.role == Some(Role::Tripwire)
-        }),
-        ("role: pointer", &|p: &Pair| {
-            p.treated.role == Some(Role::Pointer)
-        }),
-    ] {
-        let arm: Vec<&Pair> = matching.pairs.iter().filter(|p| keep(p)).collect();
-        out.push((label.to_string(), difference_in_differences(&arm)));
+/// ⚠ **A closed set with ONE definition of each filter.** The estimate and its
+/// null band have to be computed over the same pairs, and the band lives in the
+/// caller — so a second copy of "what is in this arm", written as a `match` on
+/// the label, would let a band describe a different subset than the number
+/// beside it with nothing to show for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Arm {
+    All,
+    /// The arm #884 turns on: mostly tripwires, whose success mode is being read
+    /// in the index and never opened, so ranking them by opens asks the wrong
+    /// question of them.
+    Reference,
+    Project,
+    Tripwire,
+    Pointer,
+}
+
+impl Arm {
+    /// Every arm, in report order.
+    pub const EVERY: [Arm; 5] = [
+        Arm::All,
+        Arm::Reference,
+        Arm::Project,
+        Arm::Tripwire,
+        Arm::Pointer,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Arm::All => "all",
+            Arm::Reference => "reference_",
+            Arm::Project => "project_",
+            Arm::Tripwire => "role: tripwire",
+            Arm::Pointer => "role: pointer",
+        }
     }
-    out
+
+    /// Whether a pair belongs to this arm, by its TREATED member.
+    pub fn holds(self, pair: &Pair) -> bool {
+        match self {
+            Arm::All => true,
+            Arm::Reference => pair.treated.name.starts_with("reference_"),
+            Arm::Project => pair.treated.name.starts_with("project_"),
+            Arm::Tripwire => pair.treated.role == Some(Role::Tripwire),
+            Arm::Pointer => pair.treated.role == Some(Role::Pointer),
+        }
+    }
+
+    /// This arm's pairs out of a matching.
+    pub fn pairs(self, matching: &Matching) -> Vec<&Pair> {
+        matching.pairs.iter().filter(|p| self.holds(p)).collect()
+    }
+}
+
+pub fn by_arm(matching: &Matching) -> Vec<(Arm, Estimate)> {
+    Arm::EVERY
+        .iter()
+        .map(|&arm| (arm, difference_in_differences(&arm.pairs(matching))))
+        .collect()
 }
 
 /// Today, as `YYYY-MM-DD`.
@@ -190,4 +224,180 @@ pub fn today() -> String {
         .date()
         .format(&time::macros::format_description!("[year]-[month]-[day]"))
         .unwrap_or_default()
+}
+
+/// A deterministic 64-bit generator, written out rather than taken from a crate.
+///
+/// ⚠ **A dependency's generator is not guaranteed stable across versions**, and
+/// this one decides whether a result is called distinguishable from zero. A
+/// `rand` bump that silently changed the stream would move the null band under a
+/// published estimate with nothing in the diff to show it. SplitMix64 is six
+/// lines, is fixed by its constants, and gives the same band on any machine and
+/// any year — the same reason [`match_on_pre_opens`] is deterministic.
+struct SplitMix64(u64);
+
+impl SplitMix64 {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    /// A fair coin.
+    fn flip(&mut self) -> bool {
+        self.next() >> 63 == 1
+    }
+}
+
+/// The per-pair differences the estimate is the mean of.
+///
+/// Public because the null band below is a statement about THESE numbers, and a
+/// caller that recomputed them another way could band a different quantity than
+/// the one it reports.
+pub fn pair_differences(pairs: &[&Pair]) -> Vec<f64> {
+    pairs
+        .iter()
+        .map(|p| p.treated.change() - p.control.change())
+        .collect()
+}
+
+/// Where a DiD would fall if the pairing carried no effect.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Null {
+    pub lo: f64,
+    pub hi: f64,
+    pub draws: usize,
+}
+
+impl Null {
+    /// Whether an estimate is inside the band, i.e. indistinguishable from zero.
+    ///
+    /// ⚠ **This is the decision rule's missing half.** #884 says to act on
+    /// whether the estimate is "indistinguishable from zero" and nothing in the
+    /// code could answer that — the estimator returned a point and no spread, so
+    /// any number at all read as an effect.
+    pub fn covers(&self, did: f64) -> bool {
+        self.lo <= did && did <= self.hi
+    }
+}
+
+/// A 95% null band for the DiD, by flipping the sign of each pair's difference.
+///
+/// ⚠ **Sign-flipping is the test the design licenses.** Under the null that
+/// demotion did nothing, a matched pair's two members are exchangeable, so
+/// negating a pair's difference gives an equally likely dataset. That needs no
+/// distributional assumption — which matters here, where the outcome is a small
+/// integer count with a floor at zero and is nothing like normal.
+///
+/// ⚠ **It says nothing about BIAS.** The band is symmetric around zero by
+/// construction, so it can only ask whether an estimate is larger than noise. An
+/// estimator that returns the same number when no treatment happened will
+/// produce an estimate outside this band and still be measuring nothing —
+/// [`placebo`] is what answers that, and the two are not substitutes.
+pub fn sign_flip_null(diffs: &[f64], draws: usize, seed: u64) -> Null {
+    if diffs.is_empty() || draws == 0 {
+        return Null {
+            lo: 0.0,
+            hi: 0.0,
+            draws: 0,
+        };
+    }
+    let mut rng = SplitMix64(seed);
+    let n = diffs.len() as f64;
+    let mut means: Vec<f64> = (0..draws)
+        .map(|_| {
+            diffs
+                .iter()
+                .map(|d| if rng.flip() { *d } else { -*d })
+                .sum::<f64>()
+                / n
+        })
+        .collect();
+    means.sort_by(f64::total_cmp);
+    Null {
+        lo: means[draws * 25 / 1000],
+        hi: means[(draws * 975 / 1000).min(draws - 1)],
+        draws,
+    }
+}
+
+/// One memory's exposure and outcome, measured around an arbitrary day.
+///
+/// ⚠ **Factored out so the placebo cannot drift from the estimate.** A placebo
+/// built by a second copy of this loop would answer a slightly different
+/// question than the one it is supposed to be checking, and the divergence would
+/// be invisible — the same "second implementation of one invariant" that let
+/// `memory-rank` strand a pair (#869).
+pub fn subjects_at(
+    treated: &[String],
+    control: &[String],
+    t0: i64,
+    window: i64,
+    opens: &dyn Fn(&str, i64, i64) -> u32,
+    role: &dyn Fn(&str) -> Option<Role>,
+) -> Vec<Subject> {
+    let mut out = Vec::new();
+    for (names, is_treated) in [(treated, true), (control, false)] {
+        for name in names {
+            out.push(Subject {
+                pre: opens(name, t0 - window, t0),
+                post: opens(name, t0, t0 + window),
+                name: name.clone(),
+                treated: is_treated,
+                role: role(name),
+            });
+        }
+    }
+    out
+}
+
+/// What the pre-registered procedure reports at a day when nothing happened.
+#[derive(Debug, Clone)]
+pub struct Placebo {
+    /// The fake treatment day.
+    pub at: i64,
+    pub estimate: Estimate,
+    pub null: Null,
+}
+
+impl Placebo {
+    /// Whether the procedure claimed an effect where there was none to find.
+    ///
+    /// ⚠ **True here invalidates the real estimate, it does not qualify it.** A
+    /// difference-in-differences rests on the two arms trending together in the
+    /// absence of treatment; this is that assumption measured. When it fails,
+    /// the harvest number is the sum of an effect and a divergence that was
+    /// already running, and nothing in the output can separate them.
+    pub fn flags_an_effect(&self) -> bool {
+        !self.null.covers(self.estimate.did)
+    }
+}
+
+/// Run the whole procedure at fake treatment days before the real one.
+///
+/// ⚠ **Uses only days before `t`, so it can be run while the study is live.**
+/// That is the point: a pre-trend found after the harvest is an excuse, and the
+/// same finding eleven days before it is still a design decision.
+pub fn placebo(
+    treated: &[String],
+    control: &[String],
+    fake_days: &[i64],
+    window: i64,
+    opens: &dyn Fn(&str, i64, i64) -> u32,
+    role: &dyn Fn(&str) -> Option<Role>,
+    seed: u64,
+) -> Vec<Placebo> {
+    fake_days
+        .iter()
+        .map(|&at| {
+            let subjects = subjects_at(treated, control, at, window, opens, role);
+            let matching = match_on_pre_opens(&subjects);
+            let pairs: Vec<&Pair> = matching.pairs.iter().collect();
+            let estimate = difference_in_differences(&pairs);
+            let null = sign_flip_null(&pair_differences(&pairs), 4000, seed);
+            Placebo { at, estimate, null }
+        })
+        .collect()
 }

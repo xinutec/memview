@@ -21,7 +21,9 @@ use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
 use memview::agents::{MemoryDays, day_number};
-use memview::study::{Role, Subject, by_arm, match_on_pre_opens};
+use memview::study::{
+    Role, by_arm, match_on_pre_opens, pair_differences, placebo, sign_flip_null, subjects_at,
+};
 
 /// t: the day the treated memories left the index.
 const T: &str = "2026-08-14";
@@ -30,6 +32,12 @@ const WINDOW: i64 = 28;
 /// The date the post-period completes. Before this, the estimate is not the
 /// study's estimate — it is a peek at a half-finished window.
 const HARVEST: &str = "2026-09-11";
+/// Fake treatment days, each a whole window before `t` so the placebo reads only
+/// pre-period data and can be run while the study is still live.
+const PLACEBO_DAYS: [i64; 3] = [-28, -21, -14];
+/// Fixed so a band is re-derivable. Any value would do; that it never changes is
+/// the property that matters.
+const SEED: u64 = 20_260_831;
 
 fn main() -> Result<()> {
     let harvest = std::env::args().any(|a| a == "--harvest");
@@ -76,20 +84,9 @@ fn main() -> Result<()> {
         _ => None,
     };
 
-    let mut subjects = Vec::new();
-    for (name, treated) in before
-        .difference(&after)
-        .map(|n| (n, true))
-        .chain(after.iter().map(|n| (n, false)))
-    {
-        subjects.push(Subject {
-            pre: opens(name, t - WINDOW, t),
-            post: opens(name, t, t + WINDOW),
-            name: name.clone(),
-            treated,
-            role: role(name),
-        });
-    }
+    let treated_arm: Vec<String> = before.difference(&after).cloned().collect();
+    let control_arm: Vec<String> = after.iter().cloned().collect();
+    let subjects = subjects_at(&treated_arm, &control_arm, t, WINDOW, &opens, &role);
 
     let matching = match_on_pre_opens(&subjects);
     let treated = subjects.iter().filter(|s| s.treated).count();
@@ -109,6 +106,48 @@ fn main() -> Result<()> {
          before treatment and cannot fall"
     );
 
+    // ⚠ **Printed BEFORE the estimate and on every run, harvest or not.** It
+    // reads only days before `t`, so it costs the pre-registration nothing — and
+    // a pre-trend found after the number is published is an excuse, where the
+    // same finding before it is still a design decision.
+    println!(
+        "\nPLACEBO — the same procedure at fake treatment days, where nothing was demoted.\n\
+         A working design returns a DiD inside its own null band here."
+    );
+    let fake: Vec<i64> = PLACEBO_DAYS.iter().map(|d| t + d).collect();
+    let placebos = placebo(
+        &treated_arm,
+        &control_arm,
+        &fake,
+        WINDOW,
+        &opens,
+        &role,
+        SEED,
+    );
+    println!("  fake t        pairs       DiD        95% null band   verdict");
+    let mut broken = false;
+    for p in &placebos {
+        let flags = p.flags_an_effect();
+        broken |= flags;
+        println!(
+            "  t{:+4}d {:12} {:9.3}   [{:+.3}, {:+.3}]   {}",
+            p.at - t,
+            p.estimate.pairs,
+            p.estimate.did,
+            p.null.lo,
+            p.null.hi,
+            if flags { "FLAGS AN EFFECT" } else { "null" }
+        );
+    }
+    if broken {
+        println!(
+            "\n⚠ THE DESIGN FAILS ITS OWN PLACEBO. The procedure reports an effect on windows\n\
+             \x20 where no memory was demoted, so the arms were already diverging and a\n\
+             \x20 difference-in-differences cannot separate that from the treatment. The\n\
+             \x20 harvest estimate below is NOT interpretable as an effect of demotion."
+        );
+    }
+
     if !harvest {
         println!(
             "\nthe post-period completes {HARVEST}. Not computing the estimate before then \
@@ -123,11 +162,33 @@ fn main() -> Result<()> {
                   not the study's estimate. Recorded as such."
         );
     }
-    println!("\narm                 pairs  informative   treated   control       DiD");
+    println!(
+        "\narm                 pairs  informative   treated   control       DiD   \
+         95% null band   verdict"
+    );
     for (arm, e) in by_arm(&matching) {
+        // ⚠ The band is over THIS arm's pairs, not the whole matching — a
+        // sub-arm of 30 pairs has a wider null than one of 130, and quoting the
+        // pooled band beside a sub-arm estimate would call a small arm's noise
+        // an effect. `Arm::pairs` is the same filter the estimate used.
+        let null = sign_flip_null(&pair_differences(&arm.pairs(&matching)), 4000, SEED);
         println!(
-            "{arm:<18} {:6} {:12} {:9.2} {:9.2} {:9.2}",
-            e.pairs, e.informative, e.treated_change, e.control_change, e.did
+            "{:<18} {:6} {:12} {:9.2} {:9.2} {:9.2}   [{:+.3}, {:+.3}]   {}",
+            arm.label(),
+            e.pairs,
+            e.informative,
+            e.treated_change,
+            e.control_change,
+            e.did,
+            null.lo,
+            null.hi,
+            if broken {
+                "UNINTERPRETABLE"
+            } else if null.covers(e.did) {
+                "indistinguishable from zero"
+            } else {
+                "distinguishable"
+            }
         );
     }
     Ok(())
