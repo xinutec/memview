@@ -300,3 +300,305 @@ fn the_band_describes_the_same_numbers_the_estimate_averages() {
     let mean = diffs.iter().sum::<f64>() / diffs.len() as f64;
     assert!((mean - e.did).abs() < 1e-9, "{mean} vs {}", e.did);
 }
+
+// ── The pre-trend correction. The raw estimator reports an effect on windows
+// ── where nothing happened; these pin what the repair has to do about it.
+
+use memview::study::{Corrected, Gap, correct, event_study, pre_trend};
+
+/// Arms that open on the same days: no gap, no trend, no effect.
+fn parallel(_: &str, lo: i64, hi: i64) -> u32 {
+    (lo..hi).filter(|d| d % 3 == 0).count() as u32
+}
+
+fn names(prefix: &str, n: usize) -> Vec<String> {
+    (0..n).map(|i| format!("{prefix}{i}")).collect()
+}
+
+#[test]
+fn a_flat_series_has_no_slope_and_nothing_to_correct() {
+    let role = |_: &str| None;
+    let gaps = event_study(
+        &names("t", 20),
+        &names("c", 20),
+        300,
+        14,
+        3,
+        &parallel,
+        &role,
+    );
+    assert_eq!(gaps.len(), 4, "three leads and one post: {gaps:?}");
+    let out = correct(&gaps).expect("a correction");
+    assert!(
+        out.trend.slope.abs() < 1e-9,
+        "flat arms must have no slope: {out:?}"
+    );
+    assert!(out.effect.abs() < 1e-9, "and nothing to subtract: {out:?}");
+}
+
+/// ⚠ **The case the raw estimator gets wrong.** The arms are already diverging
+/// before `t` and NOTHING happens at `t`. A before/after reads the drift as an
+/// effect; this must read it as the drift.
+///
+/// ⚠ The arms are EQUAL in the bin before `t`, and they have to be: matching is
+/// exact on opens in that bin, so a fixture whose arms are far apart there
+/// produces no pairs at all and tests nothing. That is a property of the design
+/// under test, not a convenience — a real treated arm was selected FROM the
+/// control pool at that level.
+#[test]
+fn a_pure_pre_existing_trend_is_not_an_effect() {
+    // gap(k) = -k - 1: +2, +1, 0 across the leads, then -1 after. A straight
+    // line through the leads predicts exactly -1, so nothing is left over.
+    let opens = |name: &str, lo: i64, _hi: i64| -> u32 {
+        const LEVEL: i64 = 6;
+        if name.starts_with('c') {
+            return LEVEL as u32;
+        }
+        let k = (lo - 300).div_euclid(14);
+        (LEVEL - k - 1).max(0) as u32
+    };
+    let role = |_: &str| None;
+    let gaps = event_study(&names("t", 20), &names("c", 20), 300, 14, 3, &opens, &role);
+    let out = correct(&gaps).expect("a correction");
+
+    assert!(out.trend.slope < -0.9, "the drift must be seen: {out:?}");
+    assert!(
+        (out.observed + 1.0).abs() < 1e-9,
+        "and the raw post gap must look like an effect: {out:?}",
+    );
+    assert!(
+        out.effect.abs() < 1e-9,
+        "but after subtracting the trend there is nothing left: {out:?}",
+    );
+}
+
+/// ⚠ **The case it must still catch.** A real step at `t`, on top of the drift.
+#[test]
+fn a_step_on_top_of_a_trend_is_recovered_at_its_true_size() {
+    let opens = |name: &str, lo: i64, _hi: i64| -> u32 {
+        const LEVEL: i64 = 6;
+        if name.starts_with('c') {
+            return LEVEL as u32;
+        }
+        let k = (lo - 300).div_euclid(14);
+        // The same drift as above, and two more lost from `t` onward.
+        let step = i64::from(k >= 0) * 2;
+        (LEVEL - k - 1 - step).max(0) as u32
+    };
+    let role = |_: &str| None;
+    let gaps = event_study(&names("t", 20), &names("c", 20), 300, 14, 3, &opens, &role);
+    let out = correct(&gaps).expect("a correction");
+    assert!(
+        (out.effect + 2.0).abs() < 1e-9,
+        "the step is -2 and must come back as -2, not -2 plus the drift: {out:?}",
+    );
+    assert!(
+        out.observed < out.effect,
+        "the raw gap must be the larger claim: {out:?}",
+    );
+}
+
+#[test]
+fn one_usable_lead_cannot_give_a_slope_and_says_so() {
+    // -1 is the anchor and is excluded, so this leaves a single point.
+    let gaps = vec![
+        Gap {
+            at: -2,
+            pairs: 10,
+            gap: -1.0,
+        },
+        Gap {
+            at: -1,
+            pairs: 10,
+            gap: 0.0,
+        },
+        Gap {
+            at: 0,
+            pairs: 10,
+            gap: -3.0,
+        },
+    ];
+    assert!(pre_trend(&gaps).is_none(), "one point is not a line");
+    assert!(
+        correct(&gaps).is_none(),
+        "and must not silently assume flat"
+    );
+}
+
+/// ⚠ **The anchor bin is zero by construction and must not be fitted through.**
+/// Matching is exact on opens in the bin before `t`, so its gap is a definition.
+/// Including it drags the slope toward flat — which is the parallel-trends
+/// assumption creeping back in through the fit.
+#[test]
+fn the_anchor_bin_does_not_pull_the_trend() {
+    let leads_only = vec![
+        Gap {
+            at: -3,
+            pairs: 9,
+            gap: 2.0,
+        },
+        Gap {
+            at: -2,
+            pairs: 9,
+            gap: 1.0,
+        },
+        Gap {
+            at: 0,
+            pairs: 9,
+            gap: -1.0,
+        },
+    ];
+    let with_anchor = vec![
+        Gap {
+            at: -3,
+            pairs: 9,
+            gap: 2.0,
+        },
+        Gap {
+            at: -2,
+            pairs: 9,
+            gap: 1.0,
+        },
+        Gap {
+            at: -1,
+            pairs: 9,
+            gap: 0.0,
+        },
+        Gap {
+            at: 0,
+            pairs: 9,
+            gap: -1.0,
+        },
+    ];
+    assert_eq!(
+        pre_trend(&leads_only),
+        pre_trend(&with_anchor),
+        "the anchor changed the fitted line",
+    );
+    // Slope -1 through (-3, 2) and (-2, 1) predicts -1 at bin 0 — exactly what
+    // was observed, so a pure trend leaves nothing.
+    assert!(correct(&with_anchor).expect("c").effect.abs() < 1e-9);
+}
+
+#[test]
+fn a_series_with_no_post_bin_has_nothing_to_correct() {
+    let gaps = vec![
+        Gap {
+            at: -2,
+            pairs: 10,
+            gap: -1.0,
+        },
+        Gap {
+            at: -1,
+            pairs: 10,
+            gap: -2.0,
+        },
+    ];
+    assert!(correct(&gaps).is_none());
+}
+
+#[test]
+fn the_line_is_fitted_through_the_leads_only() {
+    // A wild post bin must not bend the counterfactual toward itself.
+    let leads = [
+        Gap {
+            at: -3,
+            pairs: 9,
+            gap: -1.0,
+        },
+        Gap {
+            at: -2,
+            pairs: 9,
+            gap: -2.0,
+        },
+        Gap {
+            at: -1,
+            pairs: 9,
+            gap: 0.0,
+        },
+    ];
+    let mild: Vec<Gap> = leads
+        .iter()
+        .copied()
+        .chain([Gap {
+            at: 0,
+            pairs: 9,
+            gap: -4.0,
+        }])
+        .collect();
+    let wild: Vec<Gap> = leads
+        .iter()
+        .copied()
+        .chain([Gap {
+            at: 0,
+            pairs: 9,
+            gap: -50.0,
+        }])
+        .collect();
+    assert_eq!(
+        pre_trend(&mild),
+        pre_trend(&wild),
+        "the post bin changed the fitted line",
+    );
+    // Slope -1 through (-3,-1) and (-2,-2) predicts -4 at bin 0.
+    assert!(correct(&mild).expect("c").effect.abs() < 1e-9);
+}
+
+#[test]
+fn every_bin_reports_how_many_pairs_it_rests_on() {
+    let role = |_: &str| None;
+    let gaps = event_study(
+        &names("t", 15),
+        &names("c", 15),
+        300,
+        14,
+        2,
+        &parallel,
+        &role,
+    );
+    assert!(!gaps.is_empty());
+    for g in &gaps {
+        assert!(
+            g.pairs > 0,
+            "a bin with no pairs is not a measurement: {g:?}"
+        );
+    }
+}
+
+#[test]
+fn a_corrected_estimate_states_all_three_numbers() {
+    // observed, expected and effect must each be readable: an effect alone
+    // cannot be checked against the series it came from.
+    let gaps = vec![
+        Gap {
+            at: -3,
+            pairs: 9,
+            gap: 0.0,
+        },
+        Gap {
+            at: -2,
+            pairs: 9,
+            gap: -1.0,
+        },
+        Gap {
+            at: -1,
+            pairs: 9,
+            gap: 0.0,
+        },
+        Gap {
+            at: 0,
+            pairs: 9,
+            gap: -5.0,
+        },
+    ];
+    let out = correct(&gaps).expect("c");
+    assert_eq!(
+        out,
+        Corrected {
+            observed: -5.0,
+            expected: -3.0,
+            effect: -2.0,
+            trend: out.trend
+        },
+    );
+}

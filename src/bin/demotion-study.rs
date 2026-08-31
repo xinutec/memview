@@ -22,7 +22,8 @@ use std::collections::BTreeMap;
 use anyhow::{Context, Result};
 use memview::agents::{MemoryDays, day_number};
 use memview::study::{
-    Role, by_arm, match_on_pre_opens, pair_differences, placebo, sign_flip_null, subjects_at,
+    Role, by_arm, correct, event_study, match_on_pre_opens, pair_differences, placebo,
+    sign_flip_null, subjects_at,
 };
 
 /// t: the day the treated memories left the index.
@@ -145,6 +146,56 @@ fn main() -> Result<()> {
              \x20 where no memory was demoted, so the arms were already diverging and a\n\
              \x20 difference-in-differences cannot separate that from the treatment. The\n\
              \x20 harvest estimate below is NOT interpretable as an effect of demotion."
+        );
+    }
+
+    // ⚠ **The gap in each period, which is what made the failure legible.** A
+    // single before/after cannot tell a step at `t` from a slope through it; a
+    // series can be looked at. The bin at -1 is zero BY CONSTRUCTION — matching
+    // is exact there — so it is printed as the anchor rather than as evidence.
+    const BIN: i64 = 14;
+    const LEADS: usize = 6;
+    println!("\nTHE GAP BY PERIOD — treated minus control, {BIN}-day bins, one pairing throughout");
+    let gaps = event_study(&treated_arm, &control_arm, t, BIN, LEADS, &opens, &role);
+    for g in &gaps {
+        let note = match g.at {
+            -1 => "  anchor: zero by construction, matching is exact here",
+            0 => "  <- after",
+            _ => "",
+        };
+        println!(
+            "  bin {:+}  {:4} pairs   gap {:+.3}{note}",
+            g.at, g.pairs, g.gap
+        );
+    }
+
+    // ⚠ **Printed WITH its own placebo, never alone.** This correction was
+    // written as the standard repair and measured to fail: see `study::correct`.
+    if let Some(c) = correct(&gaps) {
+        println!(
+            "\n  a linear pre-trend correction would give {:+.3} \
+             (observed {:+.3}, trend predicts {:+.3}, slope {:+.3}/bin)",
+            c.effect, c.observed, c.expected, c.trend.slope
+        );
+        let mut refuted = Vec::new();
+        for off in PLACEBO_DAYS {
+            let fake = event_study(
+                &treated_arm,
+                &control_arm,
+                t + off,
+                BIN,
+                LEADS,
+                &opens,
+                &role,
+            );
+            if let Some(fc) = correct(&fake) {
+                refuted.push(format!("{:+.3}", fc.effect));
+            }
+        }
+        println!(
+            "  ⚠ the SAME correction at days when nothing was demoted: {} — it does not\n\
+             \x20   return to zero either, so it is a diagnostic and not an estimate.",
+            refuted.join(", ")
         );
     }
 
