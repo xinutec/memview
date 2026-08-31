@@ -51,17 +51,12 @@ pub struct Finding {
     pub detail: String,
 }
 
-/// The size `MEMORY.md` is truncated at when injected, from Claude Code's own
-/// warning text.
+/// The injection ceiling, owned by [`crate::ceiling`] and re-exported here.
 ///
-/// ⚠ **Deliberately the LOW reading of an ambiguous figure**, and the same
-/// number `memory-tiers` administers the trade by: 24.4 KB is either 24,400 or
-/// 24,985 bytes, and guessing high costs a silent truncation while guessing low
-/// costs a few hundred bytes of headroom. The observed edge is wider still and
-/// has never been pinned — a root of about 25 KB arrived whole, one of 27,382
-/// bytes lost its last forty entries. So this is where a warning is worth
-/// raising, not where the cliff is.
-pub const INDEX_CEILING: usize = 24_400;
+/// ⚠ **One number, one owner.** The cut model and the rule that reports it have
+/// to agree by construction, not by two constants that happen to match — a
+/// corpus with two ceilings warns at one size and truncates at another.
+pub use crate::ceiling::INDEX_CEILING;
 
 /// Every rule, with the severity it currently carries.
 ///
@@ -498,15 +493,45 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
         // rather than a measured edge — see `memory-tiers`, which owns the
         // number and explains why it is guessed low.
         let size = index.len();
-        if size > INDEX_CEILING {
+        let seen = crate::ceiling::cut(index, INDEX_CEILING);
+        if !seen.is_whole() {
+            // ⚠ **Name the casualties, do not state an overage.** "969 over" is
+            // a number a reader can carry for weeks without acting; it says
+            // nothing about which memories stopped arriving, and the file gives
+            // no other sign — a truncated index reads as a complete one. The
+            // whole point of the rule is that no session can tell, so the lint
+            // has to be the thing that tells.
+            // ⚠ **Order-preserving, and NOT `Vec::dedup`** — that drops only
+            // ADJACENT repeats, so one name listed in two sections would be
+            // counted twice and the tally would overstate the loss.
+            let mut seen_once = std::collections::BTreeSet::new();
+            let lost: Vec<String> = crate::store::index_links(seen.dropped)
+                .into_iter()
+                .filter(|name| seen_once.insert(name.clone()))
+                .collect();
             push(
                 "index-over-ceiling",
                 "MEMORY.md",
                 format!(
-                    "{size} bytes, {} over — the last entries reach no session",
-                    size - INDEX_CEILING
+                    "{size} bytes, {} over the {INDEX_CEILING} b warning line — {} memories below it, in file order",
+                    size - INDEX_CEILING,
+                    lost.len()
                 ),
             );
+            // ⚠ **The warning line is not the cliff, so this list is the
+            // PESSIMISTIC reading** — see [`INDEX_CEILING`], which is the low
+            // reading of an ambiguous figure and has never been pinned. The
+            // entries at the END of the list are the file's tail and are the
+            // first to go; the ones at the top may still be arriving. Naming
+            // them all is still right: the alternative is a byte count nobody
+            // can act on, and every name here is one the root cannot rely on.
+            for name in lost {
+                push(
+                    "index-over-ceiling",
+                    "MEMORY.md",
+                    format!("  below the line: {name}"),
+                );
+            }
         }
         let reached = reachable_without(&corpus.docs, index, &BTreeSet::new());
         for name in corpus.docs.keys() {
