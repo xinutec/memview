@@ -1,13 +1,13 @@
 //! The live Claude Code sessions on this Mac: list them, read a conversation,
 //! send one a message.
 //!
-//!     cargo run -p console --bin sessions -- who
-//!     cargo run -p console --bin sessions -- log home
-//!     cargo run -p console --bin sessions -- log home 20 --since 22:00 --full
-//!     cargo run -p console --bin sessions -- last home
-//!     cargo run -p console --bin sessions -- last home 3 --user
-//!     cargo run -p console --bin sessions -- send home "ready to compact?"
-//!     echo "..." | cargo run -p console --bin sessions -- send home -
+//!     sessions                                    the listing
+//!     sessions log home 20 --since 22:00 --full   the conversation, both sides
+//!     sessions last home 3 --user                 what one side said, in full
+//!     sessions send home "ready to compact?"      `-` reads stdin
+//!
+//! On PATH from home-manager. In a checkout that has not been installed yet,
+//! `cargo run -p console --bin sessions -- <args>` is the same program.
 //!
 //! ⚠ **The console listens on two ports, and the one that gets written down is
 //! the gated one.** `BIND_ADDR` (8097) is TLS behind the pinned-client gate —
@@ -18,11 +18,14 @@
 //! is what this speaks to. The default is taken from [`Config::from_env`]
 //! rather than written out again here, so the two cannot drift apart.
 //!
-//! The rest of it exists because every step has already gone wrong by hand: a
-//! 36-character session id pasted where `home` was meant, an apostrophe
-//! shell-quoted into JSON and silently dropped, a message sent to a session that
-//! had already exited, and two half-conversations interleaved by eye because
-//! reading each side took its own command.
+//! ⚠ **`send` arrives as Pippijn, with nothing marking it as drafted**, so it
+//! must be in his words and not the sender's.
+//!
+//! The rest exists because every step has gone wrong by hand: a 36-character id
+//! pasted where `home` was meant, an apostrophe shell-quoted into JSON and
+//! dropped, a message sent to a session that had exited, two half-conversations
+//! interleaved by eye, and a session reported idle while it waited on a
+//! background command.
 
 use anyhow::{Context, Result, bail};
 use console::config::Config;
