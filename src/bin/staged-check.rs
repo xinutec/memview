@@ -43,8 +43,8 @@ fn main() -> Result<()> {
     // ⚠ **Refreshed, not read off disk.** The night-stale artefact caught 1 of
     // the 6 files in the incident that prompted this: a collision happens in a
     // window of HOURS and the mine ran at 00:36 (memview#1258).
-    let effects = memview::fresh::effects(&memview::fresh::Where::from_env())?;
-    let foreign = memview::staged::foreign(&effects, &repo, &staged, &me);
+    let last = memview::fresh::last_writer(&memview::fresh::Where::from_env())?;
+    let foreign = memview::staged::foreign(&last, &repo, &staged, &me);
     if foreign.is_empty() {
         return Ok(());
     }

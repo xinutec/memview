@@ -19,6 +19,7 @@ pub mod dates;
 pub mod error;
 pub mod fresh;
 pub mod index_history;
+pub mod last_writer;
 pub mod lint;
 pub mod mine;
 pub mod nextcloud;

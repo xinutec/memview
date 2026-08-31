@@ -240,6 +240,46 @@ fn main() -> Result<()> {
         println!("exports skipped (--exports none): no timeline or effects written");
     }
 
+    // ⚠ **Who last wrote each path, kept LOCALLY even when the evidence is not.**
+    // `effects.json` is an export that leaves this machine, and `staged-check`
+    // was only ever parsing 70 MB to answer this one question (memview#1258).
+    //
+    // ⚠ **A full mine builds from EMPTY; a resumed one absorbs onto what it
+    // carried.** Folding a full read onto a stale map would keep entries for
+    // paths the read no longer mentions, so the artefact would stop being a
+    // function of the corpus and no parity check could stand on it.
+    //
+    // ⚠ **A resumed run must not CREATE it.** Absorbing the tail onto an absent
+    // artefact yields a map of the few paths touched since the last mine — 21 of
+    // them, measured — which is indistinguishable on disk from a complete one and
+    // would answer "nobody wrote this" for everything else. Every later resume
+    // then builds on those 21 and it never recovers. `unwrap_or_default()` here
+    // was that bug, written under a doc comment warning against it.
+    {
+        let file = reader::home::cache(memview::last_writer::FILE);
+        let carried = memview::last_writer::LastWriter::load(&file)?;
+        match (want_resume, carried) {
+            (true, None) => println!(
+                "no {} to extend — a full mine seeds it (memview#1258)",
+                file.display()
+            ),
+            (resumed, carried) => {
+                let mut last = if resumed {
+                    carried.unwrap_or_default()
+                } else {
+                    memview::last_writer::LastWriter::default()
+                };
+                last.absorb(&found.effects);
+                last.save(&file)?;
+                println!(
+                    "{} path(s) carry a last writer → {}",
+                    last.len(),
+                    file.display()
+                );
+            }
+        }
+    }
+
     // The evidence under the timeline, to its own file again: it is larger than
     // both and answers the question a reader asks standing on a timeline row.
     let effects = std::mem::take(&mut found.effects);

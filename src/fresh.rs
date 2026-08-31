@@ -159,3 +159,29 @@ pub fn mined(at: &Where, needs: Needs) -> Result<Agents> {
 
     Ok(found)
 }
+
+/// Who last wrote each path, current as of now.
+///
+/// ⚠ **Carries [`crate::last_writer`], NOT `effects.json`.** The 70 MB export
+/// left this machine, and it was only ever being parsed to answer this one
+/// question. Loading the fold instead costs a few MB and the tail.
+///
+/// ⚠ **Refuses rather than answering from nothing**, for the reason [`effects`]
+/// gives: a resumed scan alone sees only what grew, so "who last wrote this"
+/// would be answered from minutes of history and read as "nobody" — a check
+/// reporting all-clear because it has no evidence.
+pub fn last_writer(at: &Where) -> Result<crate::last_writer::LastWriter> {
+    let file = reader::home::cache(crate::last_writer::FILE);
+    let mut known = crate::last_writer::LastWriter::load(&file)?.ok_or_else(|| {
+        anyhow::anyhow!(
+            "no {} on this machine — the miner writes it. Build it with: \
+             cargo run --release --bin agents -- --exports none",
+            file.display()
+        )
+    })?;
+    let tail = mined(at, Needs::MEMORIES)?;
+    // Only what grew since the last mine: `mined` carries no effects, so these
+    // rows ARE the tail and folding them is the catch-up.
+    known.absorb(&tail.effects);
+    Ok(known)
+}

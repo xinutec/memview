@@ -16,8 +16,6 @@
 //! checker that shelled out would ask the committing repository about paths it
 //! was handed. Paths come in, findings come out.
 
-use std::collections::BTreeMap;
-
 /// A staged path whose last recorded writer is not the session committing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Foreign {
@@ -44,43 +42,24 @@ pub struct Foreign {
 /// every new file is one people learn to scroll past, which is exactly the
 /// failure mode this exists to avoid.
 pub fn foreign(
-    effects: &reader::effects::Effects,
+    last: &crate::last_writer::LastWriter,
     repo: &str,
     staged: &[String],
     me: &str,
 ) -> Vec<Foreign> {
-    // The last writer of each path, by minute. One pass over the rows rather
-    // than a scan per staged file: the artefact holds hundreds of thousands.
-    let mut last: BTreeMap<&str, (i64, u32)> = BTreeMap::new();
-    for row in &effects.rows {
-        if !matches!(row.k, reader::effects::Did::Wrote) {
-            continue;
-        }
-        let Some(path) = row.p.and_then(|p| effects.paths.get(p as usize)) else {
-            continue;
-        };
-        let seen = last.entry(path.as_str()).or_insert((i64::MIN, row.a));
-        if row.t >= seen.0 {
-            *seen = (row.t, row.a);
-        }
-    }
-
     let mut out = Vec::new();
     for path in staged {
         let full = format!("{}/{}", repo.trim_end_matches('/'), path);
-        let Some((minute, who)) = last.get(full.as_str()) else {
+        let Some(wrote) = last.who_wrote(&full) else {
             continue; // unknown is not foreign
         };
-        let Some(name) = effects.agents.get(*who as usize) else {
-            continue;
-        };
-        if name == me {
+        if wrote.who == me {
             continue;
         }
         out.push(Foreign {
             path: path.clone(),
-            who: name.clone(),
-            minute: *minute,
+            who: wrote.who.clone(),
+            minute: wrote.minute,
         });
     }
     out.sort_by(|a, b| a.path.cmp(&b.path));
