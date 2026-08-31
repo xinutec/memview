@@ -170,7 +170,7 @@ pub fn mined(at: &Where, needs: Needs) -> Result<Agents> {
 /// gives: a resumed scan alone sees only what grew, so "who last wrote this"
 /// would be answered from minutes of history and read as "nobody" — a check
 /// reporting all-clear because it has no evidence.
-pub fn last_writer(at: &Where) -> Result<crate::last_writer::LastWriter> {
+pub fn last_writer(at: &Where) -> Result<(crate::last_writer::LastWriter, Agents)> {
     let file = reader::home::cache(crate::last_writer::FILE);
     let mut known = crate::last_writer::LastWriter::load(&file)?.ok_or_else(|| {
         anyhow::anyhow!(
@@ -183,5 +183,10 @@ pub fn last_writer(at: &Where) -> Result<crate::last_writer::LastWriter> {
     // Only what grew since the last mine: `mined` carries no effects, so these
     // rows ARE the tail and folding them is the catch-up.
     known.absorb(&tail.effects);
-    Ok(known)
+    // ⚠ **The roster comes back too, because the caller needs to know WHO IT
+    // IS.** Deriving that from the repository's directory name was a
+    // memview-shaped assumption — it is right only where the agent and the repo
+    // happen to share a name, and wrong in every other repo, where it makes the
+    // caller's own files read as somebody else's.
+    Ok((known, tail))
 }

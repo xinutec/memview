@@ -21,13 +21,6 @@ fn main() -> Result<()> {
             .map(|d| d.display().to_string())
             .unwrap_or_default()
     });
-    let me = std::env::var("CLAUDE_AGENT_NAME").unwrap_or_else(|_| {
-        std::path::Path::new(&repo)
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default()
-    });
-
     let mut input = String::new();
     std::io::stdin().read_to_string(&mut input)?;
     let staged: Vec<String> = input
@@ -43,22 +36,67 @@ fn main() -> Result<()> {
     // ⚠ **Refreshed, not read off disk.** The night-stale artefact caught 1 of
     // the 6 files in the incident that prompted this: a collision happens in a
     // window of HOURS and the mine ran at 00:36 (memview#1258).
-    let last = memview::fresh::last_writer(&memview::fresh::Where::from_env())?;
-    // ⚠ **Before believing an all-clear, check the path shape.** An empty result
-    // means "nothing is foreign" OR "nothing matched", and a resolved symlink
-    // produces the second — silently. See `wrong_shape`.
-    if let Some(shape) = memview::staged::wrong_shape(&last, &repo) {
-        eprintln!(
-            "⚠ staged-check was given {repo}, which the record knows {} path(s) under \
-             — but it knows {} under {}.",
-            shape.given, shape.better_count, shape.better
-        );
-        eprintln!(
-            "  It checked almost nothing rather than finding nothing. Pass the \
-             logical path (a resolved symlink matches a different set)."
-        );
-        return Ok(());
-    }
+    let (last, roster) = memview::fresh::last_writer(&memview::fresh::Where::from_env())?;
+
+    // ⚠ **Who this session IS, from the roster — not from the directory name.**
+    // The first version took the repository's basename, which is only ever
+    // right where the agent and the repo share a name (`memview` in `memview`).
+    // In `xinutec-infra` it made every file this session had written read as
+    // another session's, which is noise that teaches people to ignore the one
+    // warning that matters.
+    let me = match std::env::var("CLAUDE_AGENT_NAME").ok().or_else(|| {
+        std::env::var("CLAUDE_CODE_SESSION_ID")
+            .ok()
+            .and_then(|s| roster.name_of_session(&s).map(str::to_string))
+    }) {
+        Some(me) => me,
+        // ⚠ **Skip loudly rather than guess.** With no name, every path is
+        // "somebody else's" and the check would flag the whole index — which
+        // reads as broken and gets muted, taking the real warnings with it.
+        None => {
+            eprintln!(
+                "⚠ staged-check cannot tell which session it is (no CLAUDE_AGENT_NAME, \
+                 and CLAUDE_CODE_SESSION_ID is absent or not in the roster) — \
+                 whose-work-is-staged check SKIPPED, not passed."
+            );
+            return Ok(());
+        }
+    };
+    // ⚠ **The record's spelling of this repo, which may not be the caller's.**
+    // `git rev-parse --show-toplevel` resolves symlinks, and `~/Code` points at
+    // an external volume here — so a hook that hands over its own cwd names a
+    // path the record barely knows and the check silently examines nothing.
+    //
+    // ⚠ **Corrected HERE rather than in every hook.** The alternative was ~20
+    // lines of path derivation copied into each repo's hook, which is the same
+    // claim in two places waiting to disagree. The tool knows the record; the
+    // hook should only have to name its own directory.
+    let repo = match memview::staged::wrong_shape(&last, &repo) {
+        None => repo,
+        Some(shape) => {
+            let same_dir =
+                |a: &str, b: &str| match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+                    (Ok(a), Ok(b)) => a == b,
+                    _ => false,
+                };
+            if same_dir(&shape.better, &repo) {
+                // The same directory under the name the record uses. Nothing is
+                // wrong; the caller simply had the resolved spelling.
+                shape.better
+            } else {
+                // ⚠ A DIFFERENT directory — so this is a misconfiguration, not
+                // a spelling. Saying nothing here would report all-clear from
+                // no evidence, which is the failure this check exists for.
+                eprintln!(
+                    "⚠ staged-check was given {repo}, which the record knows {} path(s) \
+                     under — but it knows {} under {}, and they are not the same \
+                     directory. It checked almost nothing rather than finding nothing.",
+                    shape.given, shape.better_count, shape.better
+                );
+                return Ok(());
+            }
+        }
+    };
     let foreign = memview::staged::foreign(&last, &repo, &staged, &me);
     if foreign.is_empty() {
         return Ok(());
