@@ -44,6 +44,21 @@ fn main() -> Result<()> {
     // the 6 files in the incident that prompted this: a collision happens in a
     // window of HOURS and the mine ran at 00:36 (memview#1258).
     let last = memview::fresh::last_writer(&memview::fresh::Where::from_env())?;
+    // ⚠ **Before believing an all-clear, check the path shape.** An empty result
+    // means "nothing is foreign" OR "nothing matched", and a resolved symlink
+    // produces the second — silently. See `wrong_shape`.
+    if let Some(shape) = memview::staged::wrong_shape(&last, &repo) {
+        eprintln!(
+            "⚠ staged-check was given {repo}, which the record knows {} path(s) under \
+             — but it knows {} under {}.",
+            shape.given, shape.better_count, shape.better
+        );
+        eprintln!(
+            "  It checked almost nothing rather than finding nothing. Pass the \
+             logical path (a resolved symlink matches a different set)."
+        );
+        return Ok(());
+    }
     let foreign = memview::staged::foreign(&last, &repo, &staged, &me);
     if foreign.is_empty() {
         return Ok(());

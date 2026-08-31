@@ -248,3 +248,86 @@ fn an_empty_path_is_not_recorded() {
     let last = wrote(&[("hardware", "", 100, Did::Wrote)]);
     assert!(last.is_empty(), "{last:?}");
 }
+
+/// ⚠ **An all-clear and a broken path shape must not look the same.** Both make
+/// `foreign` empty; only one is good news.
+#[test]
+fn a_resolved_symlink_is_reported_rather_than_read_as_clean() {
+    // The shape the record actually holds, plus TWO stragglers under the
+    // resolved spelling — which is what the live artefact looks like, and what
+    // defeated an existence check.
+    let mut rows: Vec<(&str, &str, i64, Did)> = vec![
+        (
+            "hardware",
+            "/Users/example/Code/memview/src/a.rs",
+            100,
+            Did::Wrote,
+        ),
+        (
+            "hardware",
+            "/Users/example/Code/memview/src/b.rs",
+            100,
+            Did::Wrote,
+        ),
+        (
+            "hardware",
+            "/Users/example/Code/memview/src/c.rs",
+            100,
+            Did::Wrote,
+        ),
+    ];
+    rows.push((
+        "hardware",
+        "/Volumes/Backup/code/memview/src/z.rs",
+        100,
+        Did::Wrote,
+    ));
+    let last = wrote(&rows);
+
+    let shape = memview::staged::wrong_shape(&last, "/Volumes/Backup/code/memview")
+        .expect("the lopsided spelling must be reported");
+    assert_eq!(
+        shape.given, 1,
+        "the stragglers are why existence was not the test"
+    );
+    assert_eq!(shape.better, "/Users/example/Code/memview");
+    assert_eq!(shape.better_count, 3);
+
+    // And the spelling the record knows best raises nothing.
+    assert_eq!(
+        memview::staged::wrong_shape(&last, "/Users/example/Code/memview"),
+        None,
+    );
+}
+
+/// A repository the record has never heard of at all is still reported, not
+/// silently cleared.
+#[test]
+fn a_repo_with_no_entries_at_all_is_reported() {
+    let last = wrote(&[(
+        "hardware",
+        "/Users/example/Code/memview/src/a.rs",
+        100,
+        Did::Wrote,
+    )]);
+    assert!(memview::staged::wrong_shape(&last, "/elsewhere/memview").is_some());
+}
+
+/// ⚠ A sibling repository whose name merely STARTS the same must not be taken
+/// for this one.
+#[test]
+fn a_sibling_repo_is_not_mistaken_for_this_one() {
+    let last = wrote(&[(
+        "hardware",
+        "/Users/example/Code/memview-web/src/lib.rs",
+        100,
+        Did::Wrote,
+    )]);
+    // `memview-web` is a different repository; nothing here is a better
+    // spelling of `memview`, so there is nothing to report and also nothing
+    // to match.
+    assert_eq!(
+        memview::staged::wrong_shape(&last, "/Users/example/Code/memview"),
+        None
+    );
+}
