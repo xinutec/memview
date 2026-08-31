@@ -153,6 +153,32 @@ fn main() -> Result<()> {
         println!("    {sev:<8} {rule:<22} {count}");
     }
 
+    // ⚠ **One machine-readable line, because the nightly must not awk PROSE.**
+    // `claude-sync.sh` already lifts numbers out of this tool's output with awk
+    // to stamp them for `mem_check.py`; a finding's wording is written for a
+    // person and changes when the wording improves, which would silently stop
+    // the trend. This line exists to be parsed and says so.
+    //
+    // ⚠ **Emitted whether or not the root is over.** A line that appears only on
+    // failure makes "under the ceiling" and "the lint did not run" the same
+    // observation — see memview#1260, which is the same defect one layer up.
+    if let Some(index) = corpus.index_md.as_deref() {
+        let seen = memview::ceiling::cut(index, memview::ceiling::INDEX_CEILING);
+        let mut entries = memview::store::index_links(index);
+        entries.sort();
+        entries.dedup();
+        let mut below = memview::store::index_links(seen.dropped);
+        below.sort();
+        below.dedup();
+        println!(
+            "\nindex-stamp {{\"bytes\":{},\"ceiling\":{},\"entries\":{},\"unreachable\":{}}}",
+            index.len(),
+            memview::ceiling::INDEX_CEILING,
+            entries.len(),
+            below.len()
+        );
+    }
+
     // ⚠ **Only what this session wrote fails the gate.** The corpus is shared, so
     // before this the block landed on whoever committed next rather than on the
     // author. Outside a session — the nightly under launchd — `session` is None
