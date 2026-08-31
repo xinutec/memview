@@ -8,6 +8,38 @@
 # Bypass a genuine work-in-progress commit with:  git commit --no-verify
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+
+# ⚠ **Whose work is in the index — FIRST, before the nine-minute gate.** `git
+# commit` takes the whole INDEX, so `git add <paths>` does not protect you: a
+# session staging between your add and your commit ships their work under your
+# message (memview#1258). Running it first means you can stop and unstage
+# instead of finding out after the gate.
+#
+# ⚠ **A HOOK, not a gate row.** The gate prints a check's output only when it
+# FAILS, and this one must never fail — two sessions legitimately edit one file
+# and a refusal would wedge a shared repo. A warning inside a passing gate row
+# is a warning nobody ever sees.
+STAGED_CHECK="/Users/pippijn/Library/Caches/cargo/target/release/staged-check"
+[[ -x $STAGED_CHECK ]] || STAGED_CHECK="$HOME/.local/bin/staged-check"
+if [[ -x $STAGED_CHECK ]]; then
+  # ⚠ **The LOGICAL path, because `--show-toplevel` resolves the symlink.**
+  # `~/Code` points at an external volume and the record keys paths as
+  # `~/Code/<repo>/…`, so the resolved spelling matches almost nothing. The
+  # check says so rather than reporting all-clear, but saying so on every commit
+  # is noise, so hand it the spelling it holds. Verified by comparing what both
+  # resolve to, never assumed.
+  repo=$PWD
+  logical="$HOME/Code/${PWD##*/}"
+  if [[ -d $logical && "$(cd "$logical" && pwd -P)" == "$(pwd -P)" ]]; then
+    repo=$logical
+  fi
+  git diff --cached --name-only | "$STAGED_CHECK" "$repo" || true
+else
+  # ⚠ A silent skip is a check that reports nothing and looks clean.
+  echo "⚠ staged-check not built — whose-work-is-staged check SKIPPED, not passed." >&2
+  echo "  build it: nix develop -c cargo build --release --bin staged-check" >&2
+fi
+
 if ! out=$(nix run ../dev-lint#gate -- . gate.json 2>&1); then
   printf '%s\n' "$out" >&2
   exit 1
