@@ -1,13 +1,13 @@
-//! Talk to the live Claude Code sessions on this Mac: find one by name, read
-//! the conversation, send it a message.
+//! The live Claude Code sessions on this Mac: list them, read a conversation,
+//! send one a message.
 //!
-//!     cargo run -p console --bin talk -- who
-//!     cargo run -p console --bin talk -- log home
-//!     cargo run -p console --bin talk -- log home 20 --since 22:00 --full
-//!     cargo run -p console --bin talk -- last home
-//!     cargo run -p console --bin talk -- last home 3 --user
-//!     cargo run -p console --bin talk -- send home "ready to compact?"
-//!     echo "..." | cargo run -p console --bin talk -- send home -
+//!     cargo run -p console --bin sessions -- who
+//!     cargo run -p console --bin sessions -- log home
+//!     cargo run -p console --bin sessions -- log home 20 --since 22:00 --full
+//!     cargo run -p console --bin sessions -- last home
+//!     cargo run -p console --bin sessions -- last home 3 --user
+//!     cargo run -p console --bin sessions -- send home "ready to compact?"
+//!     echo "..." | cargo run -p console --bin sessions -- send home -
 //!
 //! ⚠ **The console listens on two ports, and the one that gets written down is
 //! the gated one.** `BIND_ADDR` (8097) is TLS behind the pinned-client gate —
@@ -127,24 +127,39 @@ async fn main() -> Result<()> {
         Some((&"last", tail)) => read(tail, Mode::Last).await,
         Some((&"send", tail)) => send(tail).await,
         Some((&("-h" | "--help" | "help"), _)) => {
-            println!("{USAGE}");
+            println!("{}", usage());
             Ok(())
         }
-        Some((other, _)) => bail!("no such command {other:?}\n\n{USAGE}"),
+        Some((other, _)) => bail!("no such command {other:?}\n\n{}", usage()),
     }
 }
 
-const USAGE: &str = "usage:
-  talk who                       the sessions: state, what they are doing, how long ago
-  talk log <session> [n]         the last n messages of the conversation, both sides
-  talk last <session> [n]        the last n things the session said, in full
-  talk send <session> <text>     send it a message, as Pippijn; `-` reads stdin
+/// What to type, with the binary's own name in it.
+///
+/// ⚠ **`CARGO_BIN_NAME`, never the name written out again.** Renaming this tool
+/// on 2026-08-31 left the old word in two `bail!` strings and every line of this
+/// text, because a rename satisfies the filename — which is where Cargo gets the
+/// bin name — and says nothing about the copies. Nothing failed; the tool simply
+/// printed a command that did not exist. The compiler supplies the name, so the
+/// two cannot disagree and the next rename is `git mv` and nothing else.
+fn usage() -> String {
+    let me = env!("CARGO_BIN_NAME");
+    format!(
+        "usage:
+  {me}                       the sessions: state, what they are doing, how long ago
+  {me} log <session> [n]     the last n messages of the conversation, both sides
+  {me} last <session> [n]    the last n things the session said, in full
+  {me} send <session> <text> send it a message, as Pippijn; `-` reads stdin
+
+  `{me} who` is still accepted; the bare form is the same listing.
 
   --user      with `last`, show what Pippijn said instead
   --full      with `log`, do not shorten long messages
   --since T   only messages at or after T — `22:00` today, or a full ISO stamp
 
-<session> is a name (`home`) or the start of an id (`1b6f2e45`).";
+<session> is a name (`home`) or the start of an id (`1b6f2e45`)."
+    )
+}
 
 enum Mode {
     Log,
@@ -395,7 +410,8 @@ async fn read(args: &[&str], mode: Mode) -> Result<()> {
     }
     let Some(needle) = positional.first() else {
         bail!(
-            "usage: talk {} <session> [n]",
+            "usage: {} {} <session> [n]",
+            env!("CARGO_BIN_NAME"),
             match mode {
                 Mode::Log => "log",
                 Mode::Last => "last",
@@ -462,7 +478,7 @@ async fn read(args: &[&str], mode: Mode) -> Result<()> {
 
 async fn send(args: &[&str]) -> Result<()> {
     let Some((needle, words)) = args.split_first() else {
-        bail!("usage: talk send <session> <text>");
+        bail!("usage: {} send <session> <text>", env!("CARGO_BIN_NAME"));
     };
     if words.is_empty() {
         bail!("nothing to send");
