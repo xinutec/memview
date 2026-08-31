@@ -72,13 +72,14 @@ use memview::tiers::{
 };
 
 /// The size the root is truncated at — see [`memview::lint::INDEX_CEILING`] for
-/// the number and why it is guessed low.
+/// the number and how it was measured.
 ///
 /// ⚠ **Defined THERE and not here, deliberately.** It was written out twice, in
 /// this tool and in the lint rule that reports the same overage, which is one
 /// edit away from the two disagreeing about where the ceiling is while both
-/// sound authoritative. A tool that proposes a trade against 24,400 and a check
-/// that warns above 24,985 would be a corpus with two ceilings.
+/// sound authoritative. A tool that proposes a trade against one reading of
+/// "24.4 KB" and a check that warns above the other would be a corpus with two
+/// ceilings — which is exactly the ambiguity that stood until it was measured.
 const CEILING: usize = memview::lint::INDEX_CEILING;
 
 /// When #884's freeze lifts and the held half of the trade becomes actionable.

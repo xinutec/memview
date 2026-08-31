@@ -17,13 +17,27 @@
 /// The size `MEMORY.md` is truncated at when injected, from Claude Code's own
 /// warning text.
 ///
-/// ⚠ **Deliberately the LOW reading of an ambiguous figure**, and the same
-/// number `memory-tiers` administers the trade by: 24.4 KB is either 24,400 or
-/// 24,985 bytes, and guessing high costs a silent truncation while guessing low
-/// costs a few hundred bytes of headroom. The observed edge is wider still and
-/// has never been pinned — a root of about 25 KB arrived whole, one of 27,382
-/// bytes lost its last forty entries. So this is where a warning is worth
-/// raising, not where the cliff is.
+/// ⚠ **MEASURED 2026-08-31, and it was a guess until then.** Claude Code prints
+/// the size and the limit in the same units — `MEMORY.md is 25.7KB (limit:
+/// 24.4KB)` — so the only question was which kilobyte, and the file's own git
+/// history answers it. Every size the root has ever had (40 commits, 18,369 to
+/// 27,382 bytes) against the two readings of the two values the harness has been
+/// observed printing:
+///
+/// ```text
+/// decimal KB   "24.6KB" ← 24,613 b     "25.7KB" ← 25,684 b
+/// binary KiB   no size ever            no size ever
+/// ```
+///
+/// Decimal, unambiguously: each printed value maps to a size that existed, and
+/// under the binary reading neither corresponds to any size the file has ever
+/// been. **So the limit is 24,400 bytes and this is the edge, not a warning
+/// line.** The value is unchanged — it was the low guess and it was right.
+///
+/// ⚠ **The corpus header's bracket is FALSIFIED by this** — it reads "27,382
+/// bytes dropped the last forty entries and ~25 KB arrived whole, so it sits
+/// between". 27,382 is real. The lower bound is not: the whole-arrival was
+/// measured at 24,115 bytes, which is under the limit and brackets nothing.
 pub const INDEX_CEILING: usize = 24_400;
 
 /// What a session is given, and what it is not.

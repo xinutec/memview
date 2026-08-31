@@ -41,16 +41,20 @@ partial root and has no way to notice. That is the failure this tier is uniquely
 exposed to: a body that is too long is a slow read, but a root that is too long
 is *silently incomplete*.
 
-⚠ **Where that ceiling actually is has never been measured, and the number in
-the tool is a guess made deliberately low.** `memory-tiers` uses 24,400 bytes,
-read off Claude Code's own warning text; 24.4 KB is ambiguous between 24,400 and
-24,985 depending on which kilobyte is meant, and guessing high costs a silent
-truncation while guessing low costs a few hundred bytes of headroom. The corpus's
-own header records the observed bracket rather than the warning line: a root of
-about 25 KB arrived whole, and one of 27,382 bytes lost its last forty entries.
-So the cliff is real, its edge sits somewhere between those two, and **the number
-this model is administered by is a warning line, not the edge.** Do not quote it
-as the ceiling.
+⚠ **The ceiling is 24,400 bytes, measured 2026-08-31.** Claude Code prints the
+size and the limit in the same units — `MEMORY.md is 25.7KB (limit: 24.4KB)` —
+so the only open question was which kilobyte it counts in, and the root's git
+history settles it. Against every size the file has ever had, the two values the
+harness has been observed printing resolve under the decimal reading to sizes
+that existed (`24.6KB` = 24,613 b, `25.7KB` = 25,684 b) and under the binary
+reading to sizes it has never been. So `24.4 KB` is 24,400 bytes, and the number
+`memory-tiers` administers the trade by is the edge rather than a warning line.
+
+⚠ **The corpus header's bracket is superseded and should not be repeated.** It
+reads that the cliff sits between "~25 KB arrived whole" and "27,382 bytes
+dropped the last forty entries". The upper observation is real. The lower one is
+not a bound: the arrival-whole was measured at 24,115 bytes, which is under the
+limit and therefore consistent with it rather than evidence against it.
 
 ⚠ Check the current size against the ceiling before adding a line. If the root
 is over, adding a good line evicts an unknown other line rather than joining it.

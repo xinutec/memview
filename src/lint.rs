@@ -489,9 +489,8 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
         // signature and recommend a set that stranded a pair (#869).
         // ⚠ **Bytes, not entries, and measured on the file as injected.** The
         // truncation is a byte limit, so an index of few long lines fails where
-        // one of many short lines passes. The ceiling itself is a warning line
-        // rather than a measured edge — see `memory-tiers`, which owns the
-        // number and explains why it is guessed low.
+        // one of many short lines passes. `crate::ceiling` owns both the number
+        // and the cut model, and records how the number was measured.
         let size = index.len();
         let seen = crate::ceiling::cut(index, INDEX_CEILING);
         if !seen.is_whole() {
@@ -513,18 +512,17 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
                 "index-over-ceiling",
                 "MEMORY.md",
                 format!(
-                    "{size} bytes, {} over the {INDEX_CEILING} b warning line — {} memories below it, in file order",
+                    "{size} bytes, {} over the {INDEX_CEILING} b ceiling — {} memories a new session is NOT given",
                     size - INDEX_CEILING,
                     lost.len()
                 ),
             );
-            // ⚠ **The warning line is not the cliff, so this list is the
-            // PESSIMISTIC reading** — see [`INDEX_CEILING`], which is the low
-            // reading of an ambiguous figure and has never been pinned. The
-            // entries at the END of the list are the file's tail and are the
-            // first to go; the ones at the top may still be arriving. Naming
-            // them all is still right: the alternative is a byte count nobody
-            // can act on, and every name here is one the root cannot rely on.
+            // ⚠ **These are the casualties, not an estimate.** The ceiling
+            // was measured on 2026-08-31 (see [`INDEX_CEILING`]) and is the
+            // edge rather than a warning line, so every name here is a memory
+            // a new session is not given. The one remaining slack is the cut
+            // model: whole lines, which can over-report by at most one partial
+            // line at the boundary.
             for name in lost {
                 push(
                     "index-over-ceiling",
