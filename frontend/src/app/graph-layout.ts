@@ -65,7 +65,21 @@ export interface LayoutInput {
 export interface Affinity {
   readonly a: string;
   readonly b: string;
-  /** Normalised mutual information, ~0..1. Scales the pull. */
+  /**
+   * Normalised pointwise mutual information, **-1..1**. Scales the pull.
+   *
+   * ⚠ **Most of them are NEGATIVE, and negative means no pull at all** — the
+   * layout clamps with `Math.max(0, …)`. Measured on the live corpus 2026-09-01:
+   * 78% of 2220 pairs clamp to zero, leaving an effective average spring of
+   * 0.0024 against the 0.012 that was rejected as inert. That is why the force
+   * reads as doing nothing (memview#1307).
+   *
+   * It is not a bug in the mine. `couse.rs` selects pairs by SESSION SUPPORT
+   * (`MIN_SESSIONS`), not by npmi, and with a couple of dozen sessions two
+   * popular memories sharing three of them really is below chance. The formula
+   * is the standard one and agrees. What is wrong is that a pair the layout
+   * ignores is still counted as an affinity and still listed as a companion.
+   */
   readonly npmi: number;
   /** Distinct sessions both were used in — the support behind the npmi. */
   readonly sessions?: number;
