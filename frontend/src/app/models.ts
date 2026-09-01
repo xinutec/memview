@@ -10,6 +10,13 @@ export interface Me {
 export interface MemoryMeta {
   name: string;
   description: string;
+  /**
+   * This memory's line in the index — the cue met in a list of hundreds, not a
+   * summary read alone, which is why it is a separate field from `description`
+   * and roughly 24x shorter. Null on a memory that has none, and that absence
+   * is meaningful: it cannot be assembled into the index.
+   */
+  teaser: string | null;
   /** user | feedback | project | reference (free-form fallback). */
   mtype: string;
   modified: string | null;

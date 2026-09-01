@@ -170,12 +170,25 @@ fn main() -> Result<()> {
         let mut below = memview::store::index_links(seen.dropped);
         below.sort();
         below.dedup();
+        // Teaser coverage rides the same line rather than becoming a finding
+        // per memory. 349 of them lack one today, and a rule that opens with
+        // 349 warnings is a wall nobody works down — the corpus convention is a
+        // warning worked to zero. As a COUNT it is a trend, and the trend is the
+        // question: how much of the corpus is index-eligible, and is that
+        // growing? See memview#822, which says nothing measures arrivals.
+        let with_teaser = corpus
+            .docs
+            .values()
+            .filter(|d| d.meta.teaser.is_some())
+            .count();
         println!(
-            "\nindex-stamp {{\"bytes\":{},\"ceiling\":{},\"entries\":{},\"unreachable\":{}}}",
+            "\nindex-stamp {{\"bytes\":{},\"ceiling\":{},\"entries\":{},\"unreachable\":{},\"teasers\":{},\"memories\":{}}}",
             index.len(),
             memview::ceiling::INDEX_CEILING,
             entries.len(),
-            below.len()
+            below.len(),
+            with_teaser,
+            corpus.docs.len()
         );
     }
 

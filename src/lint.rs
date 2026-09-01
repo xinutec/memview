@@ -51,6 +51,14 @@ pub struct Finding {
     pub detail: String,
 }
 
+/// The most a single index teaser may take from the ceiling.
+///
+/// Not tuned to today's longest line (123 bytes) — a cap that tight would argue
+/// with wording. It is set to sit between an index teaser and a description,
+/// whose medians measured over the corpus on 2026-09-01 were 8 and 193 bytes, so
+/// what it catches is a description pasted into the wrong field.
+pub const TEASER_MAX: usize = 140;
+
 /// The injection ceiling, owned by [`crate::ceiling`] and re-exported here.
 ///
 /// ⚠ **One number, one owner.** The cut model and the rule that reports it have
@@ -64,6 +72,12 @@ pub use crate::ceiling::INDEX_CEILING;
 /// rule from warning to error is a visible, reviewable edit — and so this table
 /// can be read as the answer to "what does a good memory look like".
 const RULES: &[(&str, Severity, &str)] = &[
+    (
+        "teaser-shape",
+        Severity::Error,
+        "a `teaser:` is one short line for the index, not a second description — \
+         one line, at most TEASER_MAX bytes",
+    ),
     (
         "link-extension",
         Severity::Error,
@@ -344,6 +358,36 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
             detail,
         });
     };
+
+    // ⚠ **A bound, not a style rule.** Every teaser is copied into an injected
+    // file with a hard 24,400-byte ceiling, so length here is spent from a fixed
+    // budget rather than from taste. The longest line in the index today is 123
+    // bytes and the median is 8; a description's median is 193, so the cap is
+    // set to catch a description pasted into the wrong field rather than to
+    // argue with anyone's phrasing.
+    for doc in corpus.docs.values() {
+        let Some(teaser) = doc.meta.teaser.as_deref() else {
+            continue;
+        };
+        if teaser.contains('\n') {
+            push(
+                "teaser-shape",
+                &doc.meta.name,
+                "spans more than one line; it becomes a single line of the index".to_string(),
+            );
+        } else if teaser.len() > TEASER_MAX {
+            push(
+                "teaser-shape",
+                &doc.meta.name,
+                format!(
+                    "{} bytes, over the {TEASER_MAX} allowed — that is description length, and \
+                     the index has {} bytes for every entry it carries",
+                    teaser.len(),
+                    crate::ceiling::INDEX_CEILING
+                ),
+            );
+        }
+    }
 
     let mut linked: BTreeSet<String> = BTreeSet::new();
     // Unordered pairs, for the co-use comparison: a link in either direction

@@ -347,3 +347,78 @@ fn the_ceiling_rule_is_a_warning_while_the_corpus_is_over_it() {
     );
     assert_eq!(found[0].severity, Severity::Warning);
 }
+
+// ── The teaser: a memory's own line in the index (#1310) ─────────────────────
+//
+// Pippijn, 2026-09-01: "Let's make the teaser text part of the doc itself. The
+// automation will be structural, not linguistic." So the field is where the
+// index line lives, and the only thing lint can say about it is whether it still
+// fits the shape the index needs — one line, and short enough that the ceiling
+// can carry a corpus of them.
+
+/// Write a memory whose frontmatter carries `teaser`.
+fn corpus_with_teaser(dir: &std::path::Path, teaser: &str) -> Corpus {
+    std::fs::write(
+        dir.join("MEMORY.md"),
+        "# Memory index\n- [t](project_t.md)\n",
+    )
+    .expect("write index");
+    std::fs::write(
+        dir.join("project_t.md"),
+        format!(
+            "---\nname: project_t\ndescription: d\nteaser: {teaser}\nmetadata:\n  type: project\n---\n\nbody\n"
+        ),
+    )
+    .expect("write memory");
+    Corpus::load(dir).expect("loads")
+}
+
+#[test]
+fn a_teaser_the_length_of_an_index_line_is_silent() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    // The corpus median is 8 bytes; this is longer than that and still fine.
+    let found = all_findings(&corpus_with_teaser(dir.path(), "co-use"), "teaser-shape");
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn a_description_pasted_into_the_teaser_is_reported() {
+    // The failure this catches: `description` and `teaser` answer different
+    // questions — relevance read alone versus a cue read among hundreds — and
+    // the wrong one costs the ceiling ~24x per entry.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let pasted = "x".repeat(memview::lint::TEASER_MAX + 1);
+    let found = all_findings(&corpus_with_teaser(dir.path(), &pasted), "teaser-shape");
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found[0].detail.contains("over the"),
+        "{:?}",
+        found[0].detail
+    );
+}
+
+#[test]
+fn a_teaser_at_the_cap_exactly_is_silent() {
+    // The boundary, in the direction that can fail: `>` not `>=`.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let exact = "x".repeat(memview::lint::TEASER_MAX);
+    let found = all_findings(&corpus_with_teaser(dir.path(), &exact), "teaser-shape");
+    assert!(found.is_empty(), "{found:?}");
+}
+
+#[test]
+fn a_memory_without_a_teaser_is_not_a_finding() {
+    // 349 of the corpus lack one. A rule that opens with 349 warnings is a wall
+    // nobody works down, and the corpus convention is a warning worked to zero —
+    // so absence is COUNTED in the index-stamp, never reported per memory.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let found = all_findings(
+        &corpus(
+            dir.path(),
+            "# Memory index\n- [hub](project_hub.md)\n",
+            &[("project_hub", "body")],
+        ),
+        "teaser-shape",
+    );
+    assert!(found.is_empty(), "{found:?}");
+}

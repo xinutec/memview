@@ -54,6 +54,9 @@ struct FrontmatterMeta {
 #[derive(Debug, Deserialize, Default)]
 struct Frontmatter {
     description: Option<String>,
+    /// The memory's own line in the index, written here rather than in
+    /// MEMORY.md. See [`MemoryMeta::teaser`].
+    teaser: Option<String>,
     #[serde(default)]
     metadata: Option<FrontmatterMeta>,
 }
@@ -73,6 +76,24 @@ pub struct MemoryMeta {
     /// with no second field to fall out of step.
     #[serde(serialize_with = "as_inline_html")]
     pub description: String,
+    /// This memory's line in the index — the cue a reader meets in a list of
+    /// three hundred, not a summary read on its own.
+    ///
+    /// ⚠ **Deliberately NOT `description`, which answers a different question.**
+    /// A description decides relevance when it is read alone and runs to a
+    /// median of 193 characters; an index teaser is read among hundreds and runs
+    /// to a median of 8. Generating the index from descriptions would be ~64 KB
+    /// against a 24,400-byte ceiling. Measured over the corpus 2026-09-01.
+    ///
+    /// **It lives with the memory so it cannot rot apart from it.** Held in
+    /// MEMORY.md, a teaser described a memory that had since changed and nothing
+    /// connected the two. Pippijn, 2026-09-01: "Let's make the teaser text part
+    /// of the doc itself. The automation will be structural, not linguistic."
+    ///
+    /// Absent is meaningful, not an error: a memory with no teaser cannot be
+    /// assembled into the index, which is the first signal the corpus has had
+    /// about what is index-eligible (memview#822, #1310).
+    pub teaser: Option<String>,
     /// user | feedback | project | reference (from metadata.type, falling
     /// back to the filename prefix).
     pub mtype: String,
@@ -205,6 +226,10 @@ impl Corpus {
                     meta: MemoryMeta {
                         name,
                         description: fm.description.unwrap_or_default(),
+                        teaser: fm
+                            .teaser
+                            .map(|t| t.trim().to_string())
+                            .filter(|t| !t.is_empty()),
                         mtype,
                         modified,
                         created,

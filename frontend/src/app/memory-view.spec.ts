@@ -14,6 +14,7 @@ function page(extra: Partial<MemoryPage> = {}): MemoryPage {
   return {
     name: 'project_alpha',
     description: '',
+    teaser: null,
     mtype: 'project',
     modified: null,
     created: null,
