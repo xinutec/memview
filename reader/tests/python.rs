@@ -104,9 +104,24 @@ fn a_computed_argument_names_nothing() {
     assert!(uses("open(root + '/x.ts', 'w')").is_empty());
     assert!(uses("open(f'{root}/x.ts', 'w')").is_empty());
     assert!(uses("open('src/%s.ts' % name)").is_empty());
-    // A concatenation and a `%` format say nothing about the shape.
-    assert_eq!(read("open(root + '/x.ts', 'w')").unresolved["open"], 1);
+    // A `%` format still says nothing about the shape.
     assert_eq!(read("open('src/%s.ts' % name)").unresolved["open"], 1);
+    // ⚠ **A concatenation used to say nothing either, and that changed on
+    // 2026-09-01.** `root + '/x.ts'` is not a file, but the literal carries its
+    // own separator, so the NAME is certain and the shape is `*/x.ts` — a
+    // language, never a use. The danger this test exists for is unaffected: the
+    // assertion above still refuses to record `/x.ts` as the file (#1142).
+    let concatenated = read("open(root + '/x.ts', 'w')");
+    assert_eq!(
+        concatenated.bounded["*/x.ts"], 1,
+        "{:?}",
+        concatenated.bounded
+    );
+    assert!(
+        concatenated.unresolved.is_empty(),
+        "{:?}",
+        concatenated.unresolved
+    );
 }
 
 /// ⚠ **An f-string is not a shrug, and calling it one lost the certain half.**
@@ -684,4 +699,63 @@ fn a_join_of_known_parts_is_still_a_path() {
             .bounded
             .is_empty()
     );
+}
+
+// ── concatenation: the same slice, one separator weaker (#1142) ─────────────
+
+/// The literal carries the separator, so the DIRECTORY survives.
+///
+/// ⚠ This is the half a join gets for free. `join(d, name)` is `d/*` however
+/// little is known; `d + name` is `*` and says nothing, because `+` inserts
+/// nothing. Only the literal's own `/` locates anything here.
+#[test]
+fn a_concatenation_whose_literal_carries_the_separator_locates_it() {
+    let program = read("open('logs/' + name)");
+    assert!(program.uses.is_empty(), "no file may be claimed");
+    assert_eq!(program.bounded["logs/*"], 1, "{:?}", program.bounded);
+    assert_eq!(program.located["logs"], 1, "{:?}", program.located);
+}
+
+/// The other half, and the commoner one: the NAME is certain, the directory is
+/// not. 63.7% of the censused population is this shape.
+#[test]
+fn a_concatenation_onto_an_unknown_base_still_names_the_file() {
+    let program = read("open(base + '.json')");
+    assert!(program.uses.is_empty(), "no file may be claimed");
+    assert_eq!(program.bounded["*.json"], 1, "{:?}", program.bounded);
+    assert!(program.located.is_empty(), "no directory is certain");
+}
+
+/// Adjacent unknowns are one run here too — `**.json` would be a shape nobody
+/// wrote.
+#[test]
+fn adjacent_unknown_concatenated_parts_are_one_run() {
+    let program = read("open(a + b + '.json')");
+    assert_eq!(program.bounded["*.json"], 1, "{:?}", program.bounded);
+}
+
+/// ⚠ **A guard, and the whole reason this shape was censused before it was
+/// built.** Concatenation puts nothing between its parts, so a join of two
+/// unknowns is `*` — every file there is. It must stay a shrug.
+#[test]
+fn a_concatenation_of_nothing_known_is_still_unresolved() {
+    let program = read("open(a + b)");
+    assert!(program.bounded.is_empty(), "{:?}", program.bounded);
+    assert_eq!(program.unresolved["open"], 1);
+}
+
+/// ⚠ **A guard: a sentence is not a path.** 92.2% of the corpus's
+/// concatenations are message building, and `path_shaped` is what refuses them.
+#[test]
+fn a_concatenated_message_is_not_a_path() {
+    let program = read("open('count: ' + str(n))");
+    assert!(program.bounded.is_empty(), "{:?}", program.bounded);
+}
+
+/// Every part known is still an exact path, not a language — the rule must not
+/// widen what it used to resolve.
+#[test]
+fn a_concatenation_of_known_parts_stays_an_exact_path() {
+    assert_eq!(uses("open('src/' + 'x.ts')"), [used("src/x.ts", false)]);
+    assert!(read("open('src/' + 'x.ts')").bounded.is_empty());
 }

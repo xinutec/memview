@@ -1278,6 +1278,22 @@ impl Reader {
                 }
                 Value::Text(joined)
             }
+            // `'logs/' + name`, `base + '.json'` — concatenation, which unlike
+            // pathlib's `/` puts NOTHING between the parts. See `concat_shape`
+            // for why that makes it a weaker shape rather than the same one.
+            _ if operators.iter().all(|op| op == "+") => {
+                let parts: Option<Vec<String>> = values
+                    .iter()
+                    .map(|value| match value {
+                        Value::Text(part) => Some(part.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                match parts {
+                    Some(parts) => Value::Text(parts.concat()),
+                    None => concat_shape(&values),
+                }
+            }
             _ => Value::Unknown,
         }
     }
@@ -1685,6 +1701,43 @@ fn joined_shape(parts: &[Value]) -> Value {
         }
         if !rendered.is_empty() {
             rendered.push('/');
+        }
+        rendered.push_str(piece);
+    }
+    match path_shaped(&rendered) {
+        true => Value::Pattern(rendered),
+        false => Value::Unknown,
+    }
+}
+
+/// A concatenation where only some parts are known, as a language.
+///
+/// ⚠ **The difference from [`joined_shape`] is the separator, and it is the
+/// whole of what makes this shape weaker.** A join KNOWS a `/` goes between the
+/// parts, so `join(d, 'meta.json')` is `*/meta.json` however little is known
+/// about `d`. Concatenation inserts nothing: `base + name` is `*`, and only a
+/// literal carrying its own separator or extension leaves anything behind —
+/// `'logs/' + name` is `logs/*`, `base + '.json'` is `*.json`.
+///
+/// Censused before it was written (`reader/examples/concat-shapes.rs`,
+/// 2026-09-01). Over every concatenation in the corpus the caution is right:
+/// 92.2% of 4,842 render nothing but `*` and are refused here by
+/// [`path_shaped`]. In a file operation's path argument the population is 245
+/// and inverts — 63.7% name a file, 6.5% locate one.
+fn concat_shape(parts: &[Value]) -> Value {
+    let mut rendered = String::new();
+    for part in parts {
+        let piece = match part {
+            // ⚠ NOT trimmed, where a join's parts are. A trailing `/` is exactly
+            // what carries the locus here, so trimming it would discard the only
+            // thing this shape can learn.
+            Value::Text(text) => text.as_str(),
+            _ => "*",
+        };
+        // Adjacent unknowns are one run: `a + b + '.json'` is `*.json`, not
+        // `**.json`.
+        if rendered.ends_with('*') && piece == "*" {
+            continue;
         }
         rendered.push_str(piece);
     }
