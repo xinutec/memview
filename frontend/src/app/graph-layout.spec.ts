@@ -561,6 +561,27 @@ describe('planLabels', () => {
     expect(plan.overBudget).toBe(30);
   });
 
+  it('fills the budget from further down when a landmark cannot be placed', () => {
+    // The budget is a cap on labels DRAWN. It used to cap the candidates
+    // CONSIDERED, so a top-ranked label that could not fit was simply lost and
+    // the picture came out quieter than asked: the live corpus rendered 6 of 10.
+    //
+    // Here the widest-drawn node's text cannot fit on either side of it at a
+    // 100px canvas, so it is off-canvas. With a budget of one, the old rule
+    // drew NOTHING; the rule now reaches the next-ranked node that does fit.
+    const nodes = [
+      { ...candidate('a_name_too_long_to_fit', 50, 10, 5), radius: 6 },
+      { ...candidate('ok', 20, 60, 1), radius: 4 },
+    ];
+
+    const plan = planLabels(nodes, measure, 100, 1);
+
+    expect(plan.drawn.map((l) => l.name)).toEqual(['ok']);
+    expect(plan.offCanvas).toBe(1);
+    // Both were attempted, so nothing is left unconsidered.
+    expect(plan.overBudget).toBe(0);
+  });
+
   it('falls back to degree when every node is drawn the same size', () => {
     // What a corpus with no usage mined looks like: sized by links alone, so
     // radius carries no information and degree has to decide.

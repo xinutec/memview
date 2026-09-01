@@ -852,12 +852,16 @@ export function sectionColour(index: number): string {
 export const UNSECTIONED_COLOUR = 'hsl(0 0% 60%)';
 
 /**
- * How many landmark labels to draw at most.
+ * How many landmark labels to DRAW at most.
  *
  * A budget rather than a degree cutoff. Degree is a property of the corpus, not
  * of the picture, so as the corpus grows the same cutoff labels ever more nodes:
  * at degree >= 10 the live corpus drew ~25 labels that collided into unreadable
  * stacks. A fixed budget keeps the picture legible whatever the corpus does.
+ *
+ * ⚠ It bounds what is drawn, not what is considered — see `planLabels`. Bounding
+ * the candidates instead spent the budget on labels that were then dropped for
+ * colliding, and the live corpus rendered 6 of its 10.
  */
 export const LABEL_BUDGET = 10;
 
@@ -957,10 +961,21 @@ export function planLabels(
   const ranked = candidates
     .filter((c) => !c.pinned)
     .sort((a, b) => b.radius - a.radius || b.degree - a.degree);
-  const considered = ranked.slice(0, budget);
-  const queue = [...pinned, ...considered];
+  // ⚠ **The budget caps labels DRAWN, not candidates considered.** Slicing the
+  // ranked list at `budget` and then losing some of that slice to collisions and
+  // canvas edges left the picture quieter than the budget allows, with nothing
+  // taking the dropped ones' place: the live corpus asked for 10 and rendered 6.
+  // A reader cannot see why, because a label that was never drawn looks exactly
+  // like a node that was never important. So the queue is the whole ranking and
+  // the loop stops when the budget is FILLED — the next-ranked landmark takes a
+  // dropped one's place, which also spreads the text, since the highest-ranked
+  // nodes are the ones clustered together and so the ones that lose out.
+  const queue = [...pinned, ...ranked];
+  let attempted = 0;
 
   const drawn: PlacedLabel[] = [];
+  const pinnedNames = new Set(pinned.map((c) => c.name));
+  const pinnedDrawn = () => drawn.filter((d) => pinnedNames.has(d.name)).length;
   const boxes: { x: number; y: number; w: number; h: number }[] = [];
   let offCanvas = 0;
   let collided = 0;
@@ -971,6 +986,12 @@ export function planLabels(
     );
 
   for (const entry of queue) {
+    // Pinned nodes sit OUTSIDE the budget, as they always have — the reader
+    // pointed at them.
+    if (!entry.pinned) {
+      if (drawn.length - pinnedDrawn() >= budget) break;
+      attempted++;
+    }
     const width = measure(entry.name);
     const gap = entry.radius + LABEL_GAP;
 
@@ -1020,6 +1041,8 @@ export function planLabels(
     drawn,
     offCanvas,
     collided,
-    overBudget: ranked.length - considered.length,
+    // What was never even tried, now that the loop keeps going until the budget
+    // is filled: the ranking's tail, not the slice's remainder.
+    overBudget: ranked.length - attempted,
   };
 }
