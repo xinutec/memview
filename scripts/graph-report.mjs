@@ -470,7 +470,13 @@ const report = {
   stranded,
   indexAgreement: `${(agreement() * 100).toFixed(0)}%`,
   topBridge: topBridges.map((b) => `${b.name}(${b.spans})`).join(' '),
-  affinities: affinities.length,
+  // ⚠ **Both numbers, because the total is not the evidence.** The layout scales
+  // each pair by `Math.max(0, npmi)`, and the mine's npmi is mostly NEGATIVE —
+  // on the live corpus 1731 of 2220 pairs clamp to zero and exert no force at
+  // all. Reporting only the total says 2220 where 489 is the number that acts,
+  // which is how a force doing nearly nothing read as well-supported for weeks
+  // (memview#1307).
+  affinities: `${affinities.filter((f) => (f.npmi ?? 0) > 0).length} pulling of ${affinities.length}`,
   affinityPull: pull
     ? `${pull.ratio.toFixed(3)}x vs the same graph without them, over ${pull.pairs} pairs`
     : 'none',
