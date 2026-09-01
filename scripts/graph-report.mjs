@@ -399,7 +399,7 @@ const report = {
   topBridge: topBridges.map((b) => `${b.name}(${b.spans})`).join(' '),
   affinities: affinities.length,
   affinityPull: pull
-    ? `${pull.ratio.toFixed(2)}x vs the same graph without them, over ${pull.pairs} pairs`
+    ? `${pull.ratio.toFixed(3)}x vs the same graph without them, over ${pull.pairs} pairs`
     : 'none',
   coUseMemories: reach ? reach.withCompanions : 0,
   coUsePerMemory: reach ? reach.median : 0,
