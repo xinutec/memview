@@ -1126,6 +1126,15 @@ enum Call {
     /// in the command, which [`crate::shell_files`] reads — this only says what
     /// was handed over, and whether a shell was on the other side.
     Command,
+    /// The user's home directory: `Path.home()`.
+    ///
+    /// Rendered as `~`, NOT as the running user's real path. That is the same
+    /// answer `os.path.expanduser` already gives — it is `Call::Name`, so the
+    /// `~` it is handed comes back untouched — and the corpus is full of paths
+    /// written that way by hand. Expanding it here would make one spelling of
+    /// home resolve to this machine while the other stayed literal, and the
+    /// reader would report two different files for the same directory.
+    Home,
     /// Understood, and touches no file.
     ///
     /// Distinct from a name that is absent, and the distinction is the whole
@@ -1142,6 +1151,7 @@ fn callable(name: &str) -> Option<Call> {
         | "os.path.abspath" | "os.path.realpath" | "os.path.normpath" | "os.path.expanduser" => {
             Call::Name
         }
+        "Path.home" | "PurePath.home" | "pathlib.Path.home" | "pathlib.PurePath.home" => Call::Home,
         "os.path.join" => Call::Join,
         "os.remove" | "os.unlink" | "shutil.rmtree" => Call::Delete,
         "os.rename" | "os.replace" | "shutil.move" | "shutil.copy" | "shutil.copy2"
@@ -1511,6 +1521,7 @@ impl Reader {
                 Value::Unknown
             }
             Call::Name => arg(0).unwrap_or(Value::Unknown),
+            Call::Home => Value::Text("~".to_string()),
             Call::Join => join(args),
             Call::Delete => {
                 self.record(name, arg(0), true);

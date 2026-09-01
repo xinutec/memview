@@ -782,3 +782,33 @@ fn a_concatenation_of_known_parts_stays_an_exact_path() {
     assert_eq!(uses("open('src/' + 'x.ts')"), [used("src/x.ts", false)]);
     assert!(read("open('src/' + 'x.ts')").bounded.is_empty());
 }
+
+/// `Path.home()` is `~`, in both spellings.
+///
+/// ⚠ **Rendered as `~`, not as the running user's real directory.** That is what
+/// `os.path.expanduser` already does here — it is a name-identity call, so the
+/// `~` it is handed comes back untouched — and the corpus is full of paths
+/// written that way by hand. Expanding one spelling and not the other would make
+/// the reader report two different files for the same directory (#1142).
+#[test]
+fn the_home_directory_is_a_path_in_both_spellings() {
+    // ⚠ The import is load-bearing in the TEST as well as in the code. Without
+    // it `Path.home()` reads as a method on an unknown receiver and stays in the
+    // worklist — which is what the first draft of this test asserted against,
+    // and it failed for that reason rather than for a fault in the rule. Real
+    // Python always carries the import; a probe of bare source does not.
+    assert_eq!(
+        uses("from pathlib import Path\nopen(Path.home() / '.claude' / 'x.json')"),
+        [used("~/.claude/x.json", false)]
+    );
+    assert_eq!(
+        uses("import pathlib\nopen(pathlib.Path.home() / 'notes.md')"),
+        [used("~/notes.md", false)]
+    );
+    // And it leaves the worklist, which is the measure that moved: 170 calls.
+    assert!(
+        read("from pathlib import Path\nopen(Path.home() / 'x')")
+            .unknown
+            .is_empty()
+    );
+}
