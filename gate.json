@@ -223,6 +223,21 @@
         "develop",
         "--no-warn-dirty",
         "--command",
+        "node",
+        "scripts/graph-report.mjs",
+        "--affinities"
+      ],
+      "cwd": ".",
+      "env": {},
+      "name": "graph layout report (with co-use, so the affinity guards run)",
+      "timeout_s": 900
+    },
+    {
+      "argv": [
+        "nix",
+        "develop",
+        "--no-warn-dirty",
+        "--command",
         "cargo",
         "run",
         "--release",

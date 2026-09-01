@@ -1,6 +1,8 @@
 // Measure the graph layout without a browser.
 //
 //   node scripts/graph-report.mjs                 synthetic corpus-scale graph
+//   node scripts/graph-report.mjs --affinities    ...with synthetic co-use, so the
+//                                                 affinity guards actually run
 //   node scripts/graph-report.mjs graph.json      a saved /api/graph response
 //
 // Every bug this view has had was invisible until someone measured, and the
@@ -95,10 +97,81 @@ function syntheticGraph(nodeCount = 350, sectionCount = 12) {
   return { nodes, edges };
 }
 
-const file = process.argv[2];
-const graph = file
-  ? JSON.parse(readFileSync(file, 'utf8'))
-  : syntheticGraph();
+/**
+ * Co-use pairs shaped like the mined ones, for the synthetic corpus.
+ *
+ * ⚠ **Without these the affinity guards cannot fire, and the gate runs the
+ * synthetic corpus.** `affinityPull()` returns null on an empty affinity list,
+ * so `pull &&` short-circuits and the check that graph-layout.ts promises —
+ * "fails the build if this goes inert again" — was never once evaluated by the
+ * build. Measured on the live corpus 2026-09-01 the force sat at 0.946x, which
+ * is the value its own comment records as having been REJECTED for doing
+ * nothing visible, and nothing said so (memview#1307).
+ *
+ * ⚠ **A second mode rather than a changed default.** The plain synthetic graph
+ * deliberately has none — "the layout has to be sane without them" — and that
+ * property is worth keeping, so this is reached by `--affinities` and the gate
+ * runs both.
+ *
+ * Shaped from the real mine: about half the memories carry co-use, ~12 partners
+ * each, and roughly three quarters of the pairs are NOT already links, which is
+ * the property that decides whether the layer draws anything the edges did not.
+ * Deterministic strides, for the reason the link generator gives.
+ */
+function syntheticAffinities(nodes, edges, sectionCount = 12) {
+  const seen = new Set();
+  const pairs = [];
+  const key = (a, b) => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`);
+  const add = (a, b, i) => {
+    if (a === b) return;
+    const id = key(a, b);
+    if (seen.has(id)) return;
+    seen.add(id);
+    // Spread across the range the mine produces rather than one value, so a
+    // scaling bug in the npmi term is visible rather than absorbed.
+    pairs.push({ a, b, npmi: 0.3 + (i % 7) / 10, sessions: 2 + (i % 5) });
+  };
+
+  // The majority: co-use that is NOT a link, which is the whole reason to draw
+  // the layer. Mostly WITHIN a section — memories used together are usually
+  // related — with a minority crossing, matching the mine's 72% unlinked.
+  const carriers = Math.floor(nodes.length / 2);
+  for (let i = 0; i < carriers; i++) {
+    const section = i % sectionCount;
+    // Steps 3+ stay in-section without colliding with the link generator, which
+    // uses 1 and 2.
+    for (const step of [3, 4, 5, 6, 7, 8]) {
+      const j = (i + step * sectionCount) % nodes.length;
+      if (j % sectionCount === section) add(nodes[i].name, nodes[j].name, i + step);
+    }
+    for (const stride of [31, 97]) {
+      add(nodes[i].name, nodes[(i * stride + 5) % nodes.length].name, i + stride);
+    }
+  }
+
+  // ⚠ **And a minority that ARE links.** Without them every pair goes beyond the
+  // edges, the layer reads as 98% novel where the mine says 72%, and the extra
+  // cross-section pull smears the sections until `intraOverInter` trips — a
+  // layout regression that is really a defect in the fixture. This file already
+  // warns about exactly that for the link generator; affinities have the same
+  // failure mode.
+  const wantLinked = Math.round((pairs.length / 0.72) * 0.28);
+  let taken = 0;
+  for (let i = 0; i < edges.length && taken < wantLinked; i++) {
+    const before = pairs.length;
+    add(edges[i].source, edges[i].target, i);
+    if (pairs.length > before) taken++;
+  }
+  return pairs;
+}
+
+const args = process.argv.slice(2);
+const withAffinities = args.includes('--affinities');
+const file = args.find((a) => !a.startsWith('--'));
+const graph = file ? JSON.parse(readFileSync(file, 'utf8')) : syntheticGraph();
+if (withAffinities && !graph.affinities) {
+  graph.affinities = syntheticAffinities(graph.nodes, graph.edges);
+}
 
 const names = graph.nodes.map((n) => n.name);
 const curated = new Map(graph.nodes.map((n) => [n.name, n.section ?? null]));

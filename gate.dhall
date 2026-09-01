@@ -229,6 +229,23 @@ in  { name = "memview"
         , argv = G.inDevShell [ "node", "scripts/graph-report.mjs" ]
         , timeout_s = 900
         }
+      , {-  The same report over a corpus that HAS co-use, because the affinity
+            guards cannot fire without one.
+
+            ⚠ The row above runs the plain synthetic graph, which carries no
+            affinities deliberately — the layout has to be sane without them. But
+            `affinityPull` returns null on an empty list, so every co-use
+            threshold short-circuited, and `graph-layout.ts`'s promise that this
+            "fails the build if this goes inert again" was never once evaluated
+            BY the build. Both properties are wanted, so both are run. Verified
+            by ablation: with the spring at zero this row fails and the row above
+            still passes (memview#1307).
+        -}
+        G.Check::{
+        , name = "graph layout report (with co-use, so the affinity guards run)"
+        , argv = G.inDevShell [ "node", "scripts/graph-report.mjs", "--affinities" ]
+        , timeout_s = 900
+        }
       , {-  The corpus itself. Locally this is the check that matters most: the
             app can be perfect and the document set still be falling apart.
 
