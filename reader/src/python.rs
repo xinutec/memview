@@ -940,6 +940,21 @@ const NOTHING: &[&str] = &[
     "os.path.splitext",
     "os.path.getsize",
     "os.path.getmtime",
+    // ⚠ **The module spellings of what `PREDICATES` already handles as methods.**
+    // `p.exists()` was understood and recorded as nothing — asking about a file
+    // is not using it — while `os.path.exists(p)`, the same question written the
+    // other way, was a call the reader did not know. So it sat in the
+    // unknown-calls worklist at 102, third from the top, describing a gap that
+    // was really a missing spelling. The reason for recording them as nothing is
+    // `PREDICATES`'s and is unchanged: counting the question as an answer would
+    // credit an agent with work it may have skipped.
+    "os.path.exists",
+    "os.path.isfile",
+    "os.path.isdir",
+    "os.path.islink",
+    "os.path.samefile",
+    "os.stat",
+    "os.lstat",
     "difflib.unified_diff",
 ];
 

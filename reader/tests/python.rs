@@ -198,6 +198,29 @@ fn predicates_are_not_uses() {
     assert!(uses("Path('src/x.ts').is_file()").is_empty());
 }
 
+/// ⚠ **The test above cannot tell "understood and ignored" from "never heard
+/// of".** Both produce no use, so it passed while `os.path.exists` sat third in
+/// the reader's own worklist of calls it does not know, at 102 — the method
+/// spelling was handled and the module spelling was not. This asserts the
+/// difference the worklist sees (#1142).
+#[test]
+fn a_predicate_is_understood_in_both_spellings() {
+    for source in [
+        "os.path.exists('src/x.ts')",
+        "os.path.isfile('src/x.ts')",
+        "os.path.isdir('src')",
+        "Path('src/x.ts').exists()",
+    ] {
+        let program = read(source);
+        assert!(program.uses.is_empty(), "not a use: {source}");
+        assert!(
+            program.unknown.is_empty(),
+            "must not sit in the worklist: {source} -> {:?}",
+            program.unknown
+        );
+    }
+}
+
 #[test]
 fn a_path_can_be_built_from_literals() {
     assert_eq!(
