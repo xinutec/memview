@@ -63,7 +63,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result};
-use memview::agents::{Agents, MemoryDays, day_number};
+use memview::agents::{MemoryDays, day_number};
 use memview::store::{
     Corpus, homes_for, incoming_links, index_entry_cost, index_links, reachable_without,
 };
@@ -112,9 +112,21 @@ fn main() -> Result<()> {
         .unwrap_or_else(|_| format!("{root}/projects/-Users-pippijn-Code/memory"));
 
     let corpus = Corpus::load(&memory_dir)?;
-    let mined = Agents::load(&reader::home::cache("agents.json")).with_context(|| {
+    // ⚠ **Brought up to date before it is read.** The disclosure below is the
+    // floor's mitigation, not a substitute for not having a floor: a memory the
+    // mine has not seen has no recorded opens, and #1210 came within one step of
+    // arguing a demotion from breadth figures that were zero for that reason
+    // alone. Refreshing costs about 0.3s — a reader carries only
+    // `mine-resume.json`, skips the git walk it does not read, and never writes.
+    // What still reaches the disclosure is genuinely unmined, which is the case
+    // it was written for.
+    let mined = memview::fresh::mined(
+        &memview::fresh::Where::from_env(),
+        memview::agents::Needs::MEMORIES,
+    )
+    .with_context(|| {
         format!(
-            "reading {} — mine it with: cargo run --release --bin agents",
+            "refreshing {}",
             reader::home::cache("agents.json").display()
         )
     })?;
