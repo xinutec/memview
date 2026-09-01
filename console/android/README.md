@@ -4,9 +4,9 @@ The agent console on the phone: read what the Claude Code sessions on the Mac ar
 doing, send them instructions, and answer the questions they are blocked on —
 from wherever you are.
 
-It is the eleventh app on `org.xinutec:shell` and looks like the other ten: one
+It is one of the apps on `org.xinutec:shell` and looks like the others: one
 full-screen **WebView**, no address bar, a home-screen icon. What is different is
-underneath it. The other ten are things to read, behind a Nextcloud sign-in and a
+underneath it. The others are things to read, behind a Nextcloud sign-in and a
 VPN. This one can start a process that holds the machine's git credentials, its
 kubeconfig and its tokens, so it does not authenticate with a session cookie. It
 authenticates with a key generated inside the phone's secure element, which no
