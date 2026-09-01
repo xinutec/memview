@@ -174,6 +174,7 @@ pub async fn graph(
     if let Some(path) = &app.cfg.couse_file
         && let Some(couse) = crate::couse::CoUse::load(std::path::Path::new(path))
     {
+        graph.as_of = Some(couse.generated);
         graph.usage = couse.usage;
         graph.affinities = couse.pairs;
     }

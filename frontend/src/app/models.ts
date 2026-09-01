@@ -118,6 +118,12 @@ export interface Usage {
 export interface GraphData {
   nodes: GraphNode[];
   edges: GraphEdge[];
+  /**
+   * When the co-use mine that produced `usage` and `affinities` last ran, or
+   * null when there is no artefact. The links and nodes are always current —
+   * only these two are as old as the last mine, which is nightly.
+   */
+  as_of: string | null;
   /** Section titles in MEMORY.md order — the legend's order. */
   sections: string[];
   /** Usage by memory name. Empty when no co-use artefact was mined. */

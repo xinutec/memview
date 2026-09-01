@@ -409,6 +409,9 @@ impl Corpus {
             nodes,
             edges,
             sections,
+            // Filled by the route when a co-use artefact is loaded; the corpus
+            // alone cannot say when the mine last ran.
+            as_of: None,
             usage: Default::default(),
             affinities: Default::default(),
         }
@@ -643,6 +646,17 @@ pub struct GraphEdge {
 pub struct Graph {
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,
+    /// When the co-use mine that produced `usage` and `affinities` last ran, as
+    /// the artefact itself records it. `None` when there is no artefact.
+    ///
+    /// ⚠ **The defect this closes is SILENCE, not staleness.** The viewer serves
+    /// whatever the last mine left, and that is the right trade for a page: a
+    /// per-request re-scan costs far more than a CLI run, and a reader
+    /// mid-scroll should not have the picture move under them. What was wrong is
+    /// that nothing said how old it was, so a graph missing yesterday's work and
+    /// a graph missing nothing looked identical. Nightly mining means this is
+    /// routinely hours behind — which is fine, and now legible (memview#1274).
+    pub as_of: Option<String>,
     /// How much each memory is actually used, keyed by name. Empty when no
     /// co-use artefact is available — the picture degrades to structure only,
     /// rather than to nothing.

@@ -31,6 +31,13 @@
   margin: 8px 0 0;
 }
 
+// The mine's age, quieter than the counts beside it: it qualifies them rather
+// than being a fact about the corpus. Nodes and links are live; only the
+// used-together data is as old as the last nightly run.
+.mined {
+  opacity: 0.7;
+}
+
 .focus {
   margin-top: 12px;
   padding: 12px;

@@ -272,6 +272,25 @@ export class GraphView {
     return new Map((graph?.nodes ?? []).map((n) => [n.name, n]));
   });
 
+  /**
+   * When the co-use mine last ran, in the reader's own locale, or null when the
+   * graph carries no mined data at all.
+   *
+   * ⚠ **Shown because the alternative is silence, not because it changes.** The
+   * nodes and links are read live; `usage` and `affinities` are as old as the
+   * last nightly mine, and a graph missing a day's work looked exactly like one
+   * missing nothing. Serving a frozen artefact is the right trade for a page —
+   * a per-request re-scan is a different cost profile, and the picture should
+   * not move under a reader mid-scroll — so what needed fixing was saying so
+   * (memview#1274).
+   */
+  readonly minedAt = computed<string | null>(() => {
+    const raw = this.data()?.as_of;
+    if (!raw) return null;
+    const at = new Date(raw);
+    return Number.isNaN(at.getTime()) ? null : at.toLocaleString();
+  });
+
   readonly selected = computed<GraphNode | null>(() => {
     const name = this.trail().at(-1);
     return name === undefined ? null : (this.byName().get(name) ?? null);

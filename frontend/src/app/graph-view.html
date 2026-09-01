@@ -14,7 +14,12 @@
 </div>
 
 @if (data(); as graph) {
-  <p class="scale">{{ graph.nodes.length }} memories in {{ clusters().length }} regions</p>
+  <p class="scale">
+    {{ graph.nodes.length }} memories in {{ clusters().length }} regions
+    @if (minedAt(); as when) {
+      <span class="mined">· used-together from {{ when }}</span>
+    }
+  </p>
   <p class="hint">
     drag to turn · two fingers to move · pinch to zoom · tap a memory to walk from it · tap the
     background to come back
