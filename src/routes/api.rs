@@ -153,8 +153,19 @@ pub async fn memory(
 }
 
 /// GET /api/graph — the corpus as a link graph, for the 3D view. One payload
-/// for the whole graph: at corpus scale (hundreds of nodes, ~2 edges each) it
-/// is tens of KB, and a layout needs every node before it can place any.
+/// for the whole graph, because a layout needs every node before it can place
+/// any.
+///
+/// ⚠ **The size claim that used to be here had rotted by two orders of
+/// magnitude.** It read "hundreds of nodes, ~2 edges each, tens of KB"; measured
+/// 2026-09-01 the response is 680 nodes, 2576 edges (3.8 each) and **972 KB**,
+/// because every node carries its `description`. Measure it rather than trusting
+/// a number in a comment — `curl -so /dev/null -w '%{size_download}'` against
+/// this route ([[feedback_a_count_in_prose_rots]]).
+///
+/// The one-payload decision still stands on the layout argument alone. What no
+/// longer follows from it is that this is cheap, or that every node belongs on
+/// screen at once — see memview#1306.
 pub async fn graph(
     State(app): State<AppState>,
     ReadAccess(_): ReadAccess,
