@@ -21,6 +21,7 @@
 //! - matching **any** mention put five agents on one commit, including the
 //!   session that was merely reading the history that afternoon.
 
+use anyhow::Context;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -84,7 +85,7 @@ pub fn repositories(code_root: &Path) -> Vec<PathBuf> {
 ///
 /// Merges are skipped (`--no-merges`): a merge commit's diff restates changes
 /// already counted against whoever actually made them.
-pub fn history(repo: &Path, code_root: &Path) -> Vec<Commit> {
+pub fn history(repo: &Path, code_root: &Path) -> anyhow::Result<Vec<Commit>> {
     let prefix = repo
         .strip_prefix(code_root)
         .unwrap_or(repo)
@@ -113,10 +114,21 @@ pub fn history(repo: &Path, code_root: &Path) -> Vec<Commit> {
             "--no-merges",
             "--format=\x01%H\x01%cI",
         ])
-        .output();
-    let Ok(out) = out else {
-        return Vec::new();
-    };
+        .output()
+        // ⚠ **A failure here must not read as an empty history.** This was
+        // `let Ok(out) = out else { return Vec::new() }`, and a spawn that
+        // failed under load — fork pressure at load 27, two gates and a mine
+        // beside — surfaced as "this repository has no commits": attribution
+        // silently zero, twice, in-gate, with nothing anywhere naming the
+        // cause (memview#1243). An error is an error; empty is a CLAIM.
+        .with_context(|| format!("running git log in {}", repo.display()))?;
+    anyhow::ensure!(
+        out.status.success(),
+        "git log in {} exited {}: {}",
+        repo.display(),
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
     let text = String::from_utf8_lossy(&out.stdout);
 
     let mut commits: Vec<Commit> = Vec::new();
@@ -154,7 +166,7 @@ pub fn history(repo: &Path, code_root: &Path) -> Vec<Commit> {
             deleted,
         });
     }
-    commits
+    Ok(commits)
 }
 
 /// The old and new names in a `--numstat` path, when it reports a rename.
@@ -186,11 +198,12 @@ pub fn renamed(path: &str) -> (Option<String>, String) {
 }
 
 /// Every commit under the code root, newest first within each repository.
-pub fn all(code_root: &Path) -> Vec<Commit> {
-    repositories(code_root)
-        .iter()
-        .flat_map(|repo| history(repo, code_root))
-        .collect()
+pub fn all(code_root: &Path) -> anyhow::Result<Vec<Commit>> {
+    let mut every = Vec::new();
+    for repo in repositories(code_root) {
+        every.extend(history(&repo, code_root)?);
+    }
+    Ok(every)
 }
 
 /// The shortest hash a mention can be recognised by.

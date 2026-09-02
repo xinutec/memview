@@ -310,7 +310,17 @@ fn repo_with_a_commit(root: &std::path::Path, name: &str) -> String {
         ] {
             c.env_remove(var);
         }
-        c.output().expect("git");
+        let out = c.output().expect("git");
+        // ⚠ `.output()` succeeds when git RUNS, not when git WORKS. This
+        // swallowed a failing step once — the test then reported "0 commits
+        // attributed", a claim about the miner, with nothing anywhere naming
+        // the step that actually broke (in-gate, 2026-09-02, unreproduced).
+        // A precondition that fails must say so in its own name.
+        assert!(
+            out.status.success(),
+            "fixture git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
     };
     git(&["init", "-q"]);
     git(&["config", "user.email", "t@example.com"]);
@@ -326,7 +336,15 @@ fn repo_with_a_commit(root: &std::path::Path, name: &str) -> String {
         c.env_remove(var);
     }
     let out = c.output().expect("git");
-    String::from_utf8_lossy(&out.stdout).trim().to_string()
+    let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    // The same honesty for the value the transcript is built from: an empty or
+    // odd-shaped sha would attribute nothing and blame the miner.
+    assert!(
+        sha.len() == 8 && sha.chars().all(|c| c.is_ascii_hexdigit()),
+        "fixture rev-parse produced {sha:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    sha
 }
 
 /// ⚠ **Commit attribution is RECOMPUTED from the whole git history each run, not

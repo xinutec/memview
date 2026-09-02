@@ -2199,7 +2199,7 @@ pub fn scan_resumed(
     // commit fields then come out ZERO, which is why such a scan must not be
     // written to the artefact.
     let history = if needs.commits {
-        crate::commits::all(Path::new(code_root))
+        crate::commits::all(Path::new(code_root))?
     } else {
         Vec::new()
     };

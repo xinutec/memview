@@ -264,7 +264,25 @@ async fn a_child_that_dies_before_the_write_is_still_reaped() {
     let pid = child.id().expect("the child had no pid");
 
     // Let it exit, so the write below has nobody to write to.
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    //
+    // ⚠ **Waited for, not slept for.** This was `sleep(200ms)`, which is a
+    // timing assumption: under gate load `true` had not even been SCHEDULED in
+    // 200ms, its pipe was still open, the write below SUCCEEDED, the reap
+    // branch was skipped, and the assertion reported "left unreaped" — the
+    // test failing its own precondition and wearing it as a reaping bug
+    // (memview#1243, failed in-gate 2026-08-28 and passed alone moments
+    // later). Exited-but-unreaped IS the zombie state, so the precondition is
+    // waited on directly and a machine too loaded to run `true` in five
+    // seconds names the precondition instead of the behaviour.
+    let mut waited = Duration::ZERO;
+    while !is_a_zombie(pid) && waited < Duration::from_secs(5) {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        waited += Duration::from_millis(10);
+    }
+    assert!(
+        is_a_zombie(pid),
+        "precondition: the child never exited within 5s — machine load, not reaping"
+    );
     let sent = async {
         let mut stdin = child.stdin.take()?;
         tokio::io::AsyncWriteExt::write_all(&mut stdin, b"prompt")
@@ -275,12 +293,16 @@ async fn a_child_that_dies_before_the_write_is_still_reaped() {
     }
     .await;
 
+    // With the child provably dead, the write has nobody to receive it — so
+    // this names the precondition too, where silently taking the Some branch
+    // would skip the reap and blame the assertion below.
+    assert!(
+        sent.is_none(),
+        "precondition: a write to an exited child's pipe succeeded"
+    );
     // What `gist::ask` now does on that path, and what it used to skip.
-    if sent.is_none() {
-        let _ = child.wait().await;
-    }
+    let _ = child.wait().await;
 
-    tokio::time::sleep(SETTLE).await;
     assert!(
         !is_a_zombie(pid),
         "a child that exited before the write left {pid} unreaped"
