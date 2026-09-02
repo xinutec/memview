@@ -21,6 +21,8 @@ fn published() -> Published {
         five_hour_resets_at: "2026-08-04T18:10:00.000Z".into(),
         seven_day_pct: 66.0,
         seven_day_resets_at: "2026-08-07T02:00:00.000Z".into(),
+        // As the timer pusher claims it since home v9: a live probe's reading.
+        measured: true,
     }
 }
 
@@ -409,6 +411,58 @@ fn a_live_reading_still_wins_when_it_is_the_higher_one() {
 }
 
 #[test]
+fn an_unmeasured_dashboard_row_may_fill_in_but_never_lower() {
+    // The row's own claim decides now (home v9): until 2026-09-02 every
+    // dashboard row was branded a measurement on arrival, so any writer's
+    // cache — the statusLine stamps cached headers with the SEND time — could
+    // arrive as dated truth entitled to lower a figure. An echo row keeps the
+    // echo's rights: it supplies a window nothing live has reported, and it
+    // does not outrank a held measurement, whatever its stamp says.
+    let now = at_ms("2026-08-04T17:10:00.000Z");
+    let live = seen(&[(
+        "five_hour",
+        heard(0.62, "2026-08-04T18:10:00.000Z", "2026-08-04T16:40:00.000Z"),
+    )]);
+    let mut dash = published();
+    dash.measured = false;
+    dash.ts = "2026-08-04T17:00:00.000Z".into(); // later than the live capture
+    dash.five_hour_pct = 11.0; // and lower — the stale-cache shape exactly
+    let read = merged(&live, Some(&dash), now).expect("a reading");
+    let five = read.five_hour.as_ref().unwrap().pct;
+    assert!(
+        (five - 62.0).abs() < 1e-9,
+        "an echo row lowered a held measurement, got {five}"
+    );
+    // Filling in is still its job: nothing live spoke to the weekly window, so
+    // the echo's copy is better than a blank.
+    let seven = read.seven_day.as_ref().unwrap().pct;
+    assert!(
+        (seven - 66.0).abs() < 1e-9,
+        "the echo should fill in, got {seven}"
+    );
+}
+
+#[test]
+fn a_measured_dashboard_row_is_how_another_machines_reset_arrives() {
+    // The complement: a row whose writer measured it — the timer pusher's live
+    // probe — may move the figure BOTH ways, and down is how a mid-window reset
+    // reaches a console none of whose own sessions has spoken since.
+    let now = at_ms("2026-08-04T17:10:00.000Z");
+    let live = seen(&[(
+        "seven_day",
+        heard(0.62, "2026-08-07T02:00:00.000Z", "2026-08-04T15:00:00.000Z"),
+    )]);
+    let mut dash = published();
+    dash.seven_day_pct = 11.0; // same window instance, figure fell: a reset
+    let read = merged(&live, Some(&dash), now).expect("a reading");
+    let seven = read.seven_day.as_ref().unwrap().pct;
+    assert!(
+        (seven - 11.0).abs() < 1e-9,
+        "the later measurement is the account now, got {seven}"
+    );
+}
+
+#[test]
 fn a_reading_outlives_the_session_that_heard_it() {
     // ⚠ **The backwards jump, #87.** Two sessions, one holding 93% and one 92%.
     // The roster used to rebuild this from its live sessions on every poll, so
@@ -517,9 +571,16 @@ fn a_measured_reset_within_one_window_is_believed() {
         fresher(&before, &after),
         "a later measurement of the same window is believed even when it falls"
     );
+    // ⚠ Under A the pre-reset high CAN return, because a higher reading is
+    // believed as real new usage from any source — the console cannot tell a
+    // stale echo of 62% from usage that genuinely climbed back to 62%, and it
+    // chose to trust the everyday rise over instantly latching a rare reset.
+    // What it must NOT do is let an OLDER low reading undo the reset: an
+    // out-of-order measurement stamped before the reset does not win.
+    let stale_low = held_measured(0.06, TURNS, 500);
     assert!(
-        !fresher(&after, &before),
-        "and the pre-reset high water cannot climb back over it"
+        !fresher(&after, &stale_low),
+        "a measurement older than the reset does not lower it further out of order"
     );
 }
 
@@ -539,18 +600,44 @@ fn an_echoed_drop_within_one_window_is_still_refused() {
 }
 
 #[test]
-fn a_measurement_outranks_an_echo_regardless_of_figure_or_age() {
-    // An idle session goes on echoing the pre-reset high from its stale cache;
-    // a measurement — even an older, lower one — is the truer kind and wins. The
-    // echo cannot bury the reset under a number nobody measured more recently.
-    let measurement = held_measured(0.06, TURNS, 1_000);
-    let stale_echo = held(0.62, TURNS, 9_000);
+fn a_fresh_higher_echo_beats_a_stale_measurement() {
+    // ⚠ **The 2026-09-02 regression this reverses (`03eb36e`), and the reason A
+    // exists.** A `get_usage` reply from the session you are talking to is an
+    // echo; the home dashboard is a measurement. That commit let a measurement
+    // win over an echo UNCONDITIONALLY, so a fresh, higher live reading could
+    // not displace the five-minute-old dashboard and the figure stopped
+    // tracking your messages. A higher figure is real usage whatever reported
+    // it, so the echo wins — this is the assertion that fails if the
+    // measurement-beats-echo rule ever comes back.
+    let dashboard = held_measured(0.80, TURNS, 1_000);
+    let fresh_echo = held(0.84, TURNS, 2_000);
     assert!(
-        !fresher(&measurement, &stale_echo),
-        "an echo cannot displace a measurement, even reading higher and arriving later"
+        fresher(&dashboard, &fresh_echo),
+        "a fresh higher echo must beat a stale measurement, or the figure stops tracking you"
+    );
+}
+
+#[test]
+fn only_a_measurement_may_lower_within_a_window() {
+    // The line A draws (2026-09-02): within one window instance an echo — a
+    // `get_usage` reply from a process cache of unknowable age — may RAISE the
+    // figure, because usage that rose cannot be faked, but it may NOT lower it,
+    // or a stale one would forge a reset. A measurement (a `rate_limit_event`,
+    // or a live dashboard probe) may lower, and that is how a real reset lands.
+    let base = held(0.30, TURNS, 1_000);
+    let echo_up = held(0.50, TURNS, 2_000);
+    let echo_down = held(0.06, TURNS, 2_000);
+    let measured_down = held_measured(0.06, TURNS, 2_000);
+    assert!(
+        fresher(&base, &echo_up),
+        "an echo may raise: usage that rose is real"
     );
     assert!(
-        fresher(&stale_echo, &measurement),
-        "a measurement displaces an echo"
+        !fresher(&base, &echo_down),
+        "an echo may not lower: that is the flap"
+    );
+    assert!(
+        fresher(&base, &measured_down),
+        "a measurement may lower: that is how a reset lands"
     );
 }

@@ -61,6 +61,13 @@ pub struct Published {
     pub five_hour_resets_at: String,
     pub seven_day_pct: f64,
     pub seven_day_resets_at: String,
+    /// The writer's own claim about provenance: a measurement (the API's figure
+    /// at an instant the writer could date — home schema v9) or an echo of some
+    /// process's cached headers. Defaulted false so a home from before the
+    /// field, or a writer that does not say, claims the weaker kind — the same
+    /// rule [`crate::session::Seen`] applies to itself.
+    #[serde(default)]
+    pub measured: bool,
 }
 
 /// One rate-limit window, as the console shows it.
@@ -238,40 +245,50 @@ impl Usage {
 /// latched the window shut: every reading from the other looked like an *older*
 /// instance and was dropped whole, figure and arrival time together, until the
 /// window really turned over hours later. See [`SAME_WINDOW`].
-/// ⚠ **A measurement outranks every echo, and only a measurement may say the
-/// figure FELL.** Measured 2026-09-02: the week's meter was reset by Anthropic
-/// mid-window — same `resets_at`, utilisation 62% → low — and the console
-/// refused every honest reading of it for days, because "same instance, lower
-/// figure" is exactly what a stale cached answer looks like and the monotone
-/// rule cannot tell the two apart. No debounce can: a genuine reset and a
-/// stale echo produce identical readings, and only PROVENANCE separates them.
-/// A `rate_limit_event` is the API's own answer at an instant we can date, so
-/// its figure is true at its stamp and may move the display both ways — down
-/// is how a reset is believed, within one beat of any session's next real
-/// request. A `get_usage` answer is a cache of unknowable age; letting it
-/// lower the figure is the 81 → 77 → 81 flap, and letting it raise the figure
-/// over a measurement would bury a reset under the pre-reset high water an
-/// idle session goes on echoing. So echoes keep the old rules against each
-/// other, and fill in only where no measurement has spoken. Every fresh datum
-/// enters this console as a measurement — an echo's payload is always some
-/// request's headers, and that request wrote a `rate_limit_event` or a
-/// dashboard row when it happened — so refusing echoes loses nothing that was
-/// ever knowable.
+/// Within one window instance the figure only RISES, so the higher reading is
+/// the later one whoever heard it — that is the rule that kills the 81 → 77 →
+/// 81 flap an idle session causes by re-answering `get_usage` from an hour-old
+/// cache. The one exception is a mid-window RESET: 2026-09-02 Anthropic reset
+/// the week's meter without moving `resets_at`, utilisation 62% → low, and the
+/// monotone rule refused every honest reading of it because "same instance,
+/// lower figure" is exactly what a stale echo looks like too.
+///
+/// ⚠ **So a fall is believed only from a MEASUREMENT.** `measured` marks a
+/// reading whose figure is true at its stamp: a `rate_limit_event` (fired by a
+/// real request) or the home dashboard (a terminal's own reading). A
+/// `get_usage` reply is a session's process cache of unknowable age — it may
+/// RAISE the figure (you cannot fake usage that rose) but may not LOWER it, or
+/// a stale one would forge a reset.
+///
+/// ⚠ **A higher reading wins whatever its source** — and that is deliberate,
+/// reversing a 2026-09-02 regression (`03eb36e`). That commit made an echo
+/// unable to displace a measurement AT ALL, so a fresh `get_usage` from the
+/// session you are actively talking to could no longer beat the 5-minute-old
+/// dashboard, and the figure stopped tracking your messages. The cost of
+/// admitting a higher echo is narrow: a stale session holding a pre-reset high
+/// can climb back over a reset until its next real request re-lowers it —
+/// accepted, because the everyday case (your usage rising as you work) matters
+/// more than instantly latching a rare reset.
 pub fn fresher(held: &Seen, candidate: &Seen) -> bool {
-    match (held.measured, candidate.measured) {
-        // Two dated answers from the API: the later one is the account now,
-        // whatever direction the figure moved and whatever window instant it
-        // names. A wrong instant heard once is displaced by the next
-        // measurement instead of latching — instants are not compared at all.
-        (true, true) => candidate.at > held.at,
-        (false, true) => true,
-        (true, false) => false,
-        (false, false) => match (held.resets_at, candidate.resets_at) {
-            (Some(theirs), Some(ours)) if !same_window(theirs, ours) => ours > theirs,
-            (Some(_), Some(_)) if candidate.utilization > held.utilization => true,
-            (Some(_), Some(_)) if candidate.utilization < held.utilization => false,
-            _ => candidate.at > held.at,
-        },
+    match (held.resets_at, candidate.resets_at) {
+        // A different reset instant is a different window instance — a turnover
+        // — and it wins outright, so a fresh window's honest 3% is not
+        // outranked by the old window's high-water mark.
+        (Some(theirs), Some(ours)) if !same_window(theirs, ours) => ours > theirs,
+        // Rose: real progress, believed from any source. This is the arm a
+        // fresh `get_usage` wins on as you work, which is what makes the figure
+        // follow your messages.
+        (Some(_), Some(_)) if candidate.utilization > held.utilization => true,
+        // Fell within one window: only a measurement may say so — a reset —
+        // and only one at least as recent as what it lowers, or a stale
+        // low-reading measurement would undo a fresher high. An echo falling
+        // is the flap, and is refused outright.
+        (Some(_), Some(_)) if candidate.utilization < held.utilization => {
+            candidate.measured && candidate.at >= held.at
+        }
+        // Equal, or a reading with no reset time to place it: nothing to choose
+        // but which arrived later.
+        _ => candidate.at > held.at,
     }
 }
 
@@ -326,19 +343,24 @@ pub fn remember(
 /// question — which of two readings of this window is the current one — and
 /// asking it in two places with two rules is how the console came to prefer an
 /// hour-old figure it had measured over a six-minute-old one it had been told.
-fn published_as_seen(pct: f64, resets_at: &str, ts: &str) -> Option<Seen> {
+fn published_as_seen(pct: f64, resets_at: &str, ts: &str, measured: bool) -> Option<Seen> {
     Some(Seen {
         // A percentage there, a fraction here: `live` multiplies back up, and a
         // comparison between the two only means anything in one of them.
         utilization: pct / 100.0,
         resets_at: Some(crate::session::ResetsAt(at(resets_at)? / 1000)),
         at: crate::session::Heard(at(ts)?),
-        // A measurement, dated by ITS host's capture instant, not by when this
-        // console fetched it — which is what lets another machine's spend
-        // arrive here at its true place in the order. The row this console
-        // published about itself comes back wearing the same stamp it went
-        // out with, so the round trip cannot displace anything.
-        measured: true,
+        // The row's own claim, not this console's assertion. Until 2026-09-02
+        // every dashboard row was branded a measurement here, which let any
+        // writer's cache — the statusLine stamps its cached headers with the
+        // SEND time — arrive as dated truth entitled to lower a figure. Now the
+        // writer says (home v9), and a row that does not is an echo: it may
+        // fill in, never lower. Either way the date is ITS host's capture
+        // instant, not the fetch — which is what lets another machine's spend
+        // arrive at its true place in the order, and why the row this console
+        // published about itself comes back wearing the same stamp it went out
+        // with and cannot displace anything.
+        measured,
     })
 }
 
@@ -378,7 +400,7 @@ pub fn merged(
         }
     };
     let of = |pct: fn(&Published) -> f64, resets: fn(&Published) -> &str| {
-        dashboard.and_then(|it| published_as_seen(pct(it), resets(it), &it.ts))
+        dashboard.and_then(|it| published_as_seen(pct(it), resets(it), &it.ts, it.measured))
     };
     let chosen_five = pick(
         seen.get(FIVE_HOUR),
