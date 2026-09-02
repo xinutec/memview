@@ -468,6 +468,31 @@ the second's rows as the first's is what produced a hypothesis — that "not a
 bare name" and the library-call gap were one shape — which the measurement then
 refuted.
 
+### The census is permanent now (2026-09-02)
+
+Both censuses above were **temporary probes on `record`'s failure branch**,
+reverted after they were read — which is why sizing each slice began by
+rebuilding an inventory the last slice had already had and thrown away. The
+reason is now a field. Every missed operation carries a `program::Why`, filed
+beside the by-call `unresolved` count and summing to the same total, and the
+`--why` line of `python-report`/`javascript-report` prints it:
+
+    named none          3154, and why — each row names the rule that would shrink it:
+      from outside the program           425
+      a name bound to a computed value   1721
+      a loop over what this cannot read   645
+      an expression with no value here    363
+
+⚠ **Each row names the rule that would shrink it, and one row names none.**
+`Computed`, `Loop` and `Expression` are backlog — more assignments read, more
+iterable languages, more value rules. `Outside` is the boundary: a function
+parameter, a name bound where the program cannot see, a value that never was in
+the text. It does not shrink, and measuring it is the honest floor under every
+coverage figure this reader reports. The rows are not comparable with the
+2026-08-24/25 ones above — different denominators, and a corpus change between
+them — which is exactly the trap the by-reason keying removes, since it is
+regenerated from the live corpus rather than transcribed.
+
 **What the loop row iterates** is the next thing to build, and most of it needs
 no new analysis: 531 of the 901 loops range over a **glob**, whose locus is
 certain even though its leaf is not, and 130 over a **literal list**, which is a
