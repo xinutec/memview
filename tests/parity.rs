@@ -129,16 +129,22 @@ struct Corpus {
 fn repo_with_a_commit(root: &std::path::Path) -> String {
     let repo = root.join("alpha");
     std::fs::create_dir_all(&repo).expect("mkdir");
-    let git = |args: &[&str]| {
+    // ⚠ **Strip EVERY GIT_* variable, not a list.** Inside the gate this
+    // fixture runs under memview's own pre-commit hook, which exports GIT_DIR,
+    // GIT_COMMON_DIR, GIT_OBJECT_DIRECTORY and more to every child. An
+    // enumerated subset missed GIT_COMMON_DIR, so `git init` here bound the new
+    // repo to memview's common dir instead of making a standalone one — then
+    // the miner's own `git log` (which does env-clean) found no repository and
+    // returned exit 128, read as "the resumed mine lost the commits". In-gate
+    // only, 2026-09-02, and only under the full parallel suite. Removing the
+    // whole GIT_* set by prefix cannot drift out of date the way a list does.
+    let git = |args: &[&str]| -> std::process::Output {
         let mut c = std::process::Command::new("git");
         c.arg("-C").arg(&repo).args(args);
-        for var in [
-            "GIT_DIR",
-            "GIT_INDEX_FILE",
-            "GIT_WORK_TREE",
-            "GIT_OBJECT_DIRECTORY",
-        ] {
-            c.env_remove(var);
+        for (key, _) in std::env::vars() {
+            if key.starts_with("GIT_") {
+                c.env_remove(key);
+            }
         }
         // ⚠ **Fixed dates, so the hash is DETERMINISTIC.** A commit made from
         // the wall clock gets a different sha every run, and
@@ -149,7 +155,13 @@ fn repo_with_a_commit(root: &std::path::Path) -> String {
         // decided by chance is not a fixture.
         c.env("GIT_AUTHOR_DATE", "2026-08-11T00:00:00Z");
         c.env("GIT_COMMITTER_DATE", "2026-08-11T00:00:00Z");
-        c.output().expect("git");
+        let out = c.output().expect("git");
+        assert!(
+            out.status.success(),
+            "fixture git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        out
     };
     git(&["init", "-q"]);
     git(&["config", "user.email", "t@example.com"]);
@@ -157,14 +169,7 @@ fn repo_with_a_commit(root: &std::path::Path) -> String {
     std::fs::write(repo.join("src.rs"), "x").expect("write");
     git(&["add", "src.rs"]);
     git(&["commit", "-qm", "one"]);
-    let mut c = std::process::Command::new("git");
-    c.arg("-C")
-        .arg(&repo)
-        .args(["rev-parse", "--short=8", "HEAD"]);
-    for var in ["GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"] {
-        c.env_remove(var);
-    }
-    let sha = String::from_utf8_lossy(&c.output().expect("git").stdout)
+    let sha = String::from_utf8_lossy(&git(&["rev-parse", "--short=8", "HEAD"]).stdout)
         .trim()
         .to_string();
     // ⚠ **The one property the whole fixture rests on.** An all-digit hash is

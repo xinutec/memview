@@ -295,32 +295,32 @@ fn an_untouched_transcript_keeps_its_watermark() {
 fn repo_with_a_commit(root: &std::path::Path, name: &str) -> String {
     let repo = root.join(name);
     std::fs::create_dir_all(&repo).expect("mkdir");
-    let git = |args: &[&str]| {
+    // ⚠ **Strip EVERY GIT_* variable, not a list.** Inside the gate this
+    // fixture runs under memview's pre-commit hook, which exports GIT_DIR,
+    // GIT_COMMON_DIR, GIT_OBJECT_DIRECTORY and more to every child; an
+    // enumerated subset that missed one let `git init` bind the new repo to
+    // memview's own dirs, and the miner's later `git log` then found no
+    // repository (exit 128), read as "the resumed mine lost the commits" —
+    // in-gate only, under the full parallel suite, 2026-09-02. Removing the
+    // whole GIT_* set by prefix cannot drift the way a list does.
+    let git = |args: &[&str]| -> std::process::Output {
         let mut c = std::process::Command::new("git");
         c.arg("-C").arg(&repo).args(args);
-        for var in [
-            "GIT_DIR",
-            "GIT_INDEX_FILE",
-            "GIT_WORK_TREE",
-            "GIT_OBJECT_DIRECTORY",
-            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-            "GIT_COMMON_DIR",
-            "GIT_PREFIX",
-            "GIT_CONFIG_PARAMETERS",
-        ] {
-            c.env_remove(var);
+        for (key, _) in std::env::vars() {
+            if key.starts_with("GIT_") {
+                c.env_remove(key);
+            }
         }
         let out = c.output().expect("git");
-        // ⚠ `.output()` succeeds when git RUNS, not when git WORKS. This
-        // swallowed a failing step once — the test then reported "0 commits
-        // attributed", a claim about the miner, with nothing anywhere naming
-        // the step that actually broke (in-gate, 2026-09-02, unreproduced).
-        // A precondition that fails must say so in its own name.
+        // ⚠ `.output()` succeeds when git RUNS, not when git WORKS. A failing
+        // step must name itself, or it reads as "0 commits attributed" — a
+        // claim about the miner.
         assert!(
             out.status.success(),
             "fixture git {args:?} failed: {}",
             String::from_utf8_lossy(&out.stderr)
         );
+        out
     };
     git(&["init", "-q"]);
     git(&["config", "user.email", "t@example.com"]);
@@ -328,14 +328,7 @@ fn repo_with_a_commit(root: &std::path::Path, name: &str) -> String {
     std::fs::write(repo.join("f.rs"), "x").expect("write");
     git(&["add", "f.rs"]);
     git(&["commit", "-qm", "one"]);
-    let mut c = std::process::Command::new("git");
-    c.arg("-C")
-        .arg(&repo)
-        .args(["rev-parse", "--short=8", "HEAD"]);
-    for var in ["GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"] {
-        c.env_remove(var);
-    }
-    let out = c.output().expect("git");
+    let out = git(&["rev-parse", "--short=8", "HEAD"]);
     let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
     // The same honesty for the value the transcript is built from: an empty or
     // odd-shaped sha would attribute nothing and blame the miner.
