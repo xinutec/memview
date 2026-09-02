@@ -145,6 +145,31 @@ const RULES: &[(&str, Severity, &str)] = &[
          `cargo run --bin memory-stamp` names the session that wrote it and repairs it",
     ),
     (
+        // Introduced 2026-09-02 at ERROR, which the two-tier design allows only
+        // because the corpus was taken to zero first: five memories carried the
+        // pair the wrong way round and were repaired by hand the same day
+        // (memory corpus e1a6388), each `created` set to the earliest write the
+        // evidence supported.
+        //
+        // ⚠ **What this catches is a BACKFILL, not a typo.** The worst of the
+        // five was `reference_sqlx_mysql_type_traps`: created 08-21 against
+        // modified 08-19, where git showed the file already existed on 08-19 —
+        // so the 08-28 backfill invented a birthday after the memory's own first
+        // commit. Nothing downstream reads the pair together, which is why five
+        // of them sat there unremarked; a memory whose age is stated backwards
+        // still recalls, still renders, and quietly poisons anything that later
+        // asks how old the corpus is.
+        //
+        // ⚠ **Ordering only.** Whether either stamp is TRUE is not decidable
+        // here — see `missing-modified` above on why mtime cannot referee it.
+        // This rule states the one thing that is true by construction: a memory
+        // cannot have been changed before it existed.
+        "created-after-modified",
+        Severity::Error,
+        "`created` is later than `modified` — a memory cannot have been changed before it existed, \
+         so one of the two stamps was written by something that did not check",
+    ),
+    (
         // Introduced 2026-08-14 at ERROR; the corpus was already at zero. The
         // stem is what everything resolves by, so a missing `name:` breaks
         // nothing at runtime — which is the reason to check it. It is the
@@ -412,6 +437,22 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
                 "missing-modified",
                 name,
                 "no `modified:` in frontmatter".to_string(),
+            );
+        }
+        // ⚠ **Compared as instants, not as the text they were written in.** A
+        // rule on the strings would read `2026-08-19T09:00:00Z` as later than
+        // `2026-08-21T08:00:00+03:00`, and both shapes are in the corpus.
+        if let (Some(created), Some(modified)) = (doc.meta.created, doc.meta.modified)
+            && created > modified
+        {
+            push(
+                "created-after-modified",
+                name,
+                format!(
+                    "created {} is after modified {}",
+                    created.to_rfc3339(),
+                    modified.to_rfc3339()
+                ),
             );
         }
         if frontmatter_value(&doc.raw, "name").is_none() {

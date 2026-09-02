@@ -422,3 +422,80 @@ fn a_memory_without_a_teaser_is_not_a_finding() {
     );
     assert!(found.is_empty(), "{found:?}");
 }
+
+// ── A memory cannot have been changed before it existed (#1321) ──────────────
+
+/// One memory carrying both stamps, and an index that reaches it.
+fn dated(dir: &std::path::Path, created: &str, modified: &str) -> Corpus {
+    std::fs::write(
+        dir.join("MEMORY.md"),
+        "# Memory index\n- [one](project_one.md)\n",
+    )
+    .expect("write index");
+    std::fs::write(
+        dir.join("project_one.md"),
+        format!(
+            "---\nname: project_one\ndescription: d\nmetadata:\n  type: project\n  \
+             created: {created}\n  modified: {modified}\n---\n\nbody\n"
+        ),
+    )
+    .expect("write memory");
+    Corpus::load(dir).expect("loads")
+}
+
+#[test]
+fn a_memory_created_after_it_was_modified_is_an_error() {
+    // ⚠ **The shape five memories were in on 2026-09-02**, worst of them
+    // `reference_sqlx_mysql_type_traps`: git showed the file on 08-19 and a
+    // later backfill wrote a `created` of 08-21. Nothing downstream reads the
+    // pair together, so all five sat unremarked — a memory whose age is stated
+    // backwards still recalls and still renders.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let found = all_findings(
+        &dated(dir.path(), "2026-08-21T00:00:00Z", "2026-08-19T00:00:00Z"),
+        "created-after-modified",
+    );
+
+    assert_eq!(found.len(), 1, "{found:?}");
+    // Both stamps in the message: which one to repair is not decidable from
+    // either alone, and the person reading this has to pick.
+    assert!(
+        found[0].detail.contains("2026-08-21"),
+        "{:?}",
+        found[0].detail
+    );
+    assert!(
+        found[0].detail.contains("2026-08-19"),
+        "{:?}",
+        found[0].detail
+    );
+}
+
+#[test]
+fn a_memory_written_and_never_changed_is_silent() {
+    // Equal is the ordinary state of a memory nobody has edited, and the
+    // commonest single shape in the corpus. A rule that fired on it would be
+    // noise on every new memory.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let same = "2026-08-19T00:00:00Z";
+    assert!(all_findings(&dated(dir.path(), same, same), "created-after-modified").is_empty());
+}
+
+#[test]
+fn the_stamps_are_compared_as_instants_and_not_as_text() {
+    // ⚠ **The case a string comparison gets backwards.** `08:00:00+03:00` is
+    // 05:00 UTC, which is BEFORE `06:00:00Z` — but sorts after it as text, and
+    // both shapes are written into this corpus. A rule on the raw frontmatter
+    // would report a memory that is perfectly in order.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let found = all_findings(
+        &dated(
+            dir.path(),
+            "2026-08-21T08:00:00+03:00",
+            "2026-08-21T06:00:00Z",
+        ),
+        "created-after-modified",
+    );
+
+    assert!(found.is_empty(), "{found:?}");
+}
