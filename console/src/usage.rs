@@ -238,12 +238,40 @@ impl Usage {
 /// latched the window shut: every reading from the other looked like an *older*
 /// instance and was dropped whole, figure and arrival time together, until the
 /// window really turned over hours later. See [`SAME_WINDOW`].
+/// ⚠ **A measurement outranks every echo, and only a measurement may say the
+/// figure FELL.** Measured 2026-09-02: the week's meter was reset by Anthropic
+/// mid-window — same `resets_at`, utilisation 62% → low — and the console
+/// refused every honest reading of it for days, because "same instance, lower
+/// figure" is exactly what a stale cached answer looks like and the monotone
+/// rule cannot tell the two apart. No debounce can: a genuine reset and a
+/// stale echo produce identical readings, and only PROVENANCE separates them.
+/// A `rate_limit_event` is the API's own answer at an instant we can date, so
+/// its figure is true at its stamp and may move the display both ways — down
+/// is how a reset is believed, within one beat of any session's next real
+/// request. A `get_usage` answer is a cache of unknowable age; letting it
+/// lower the figure is the 81 → 77 → 81 flap, and letting it raise the figure
+/// over a measurement would bury a reset under the pre-reset high water an
+/// idle session goes on echoing. So echoes keep the old rules against each
+/// other, and fill in only where no measurement has spoken. Every fresh datum
+/// enters this console as a measurement — an echo's payload is always some
+/// request's headers, and that request wrote a `rate_limit_event` or a
+/// dashboard row when it happened — so refusing echoes loses nothing that was
+/// ever knowable.
 pub fn fresher(held: &Seen, candidate: &Seen) -> bool {
-    match (held.resets_at, candidate.resets_at) {
-        (Some(theirs), Some(ours)) if !same_window(theirs, ours) => ours > theirs,
-        (Some(_), Some(_)) if candidate.utilization > held.utilization => true,
-        (Some(_), Some(_)) if candidate.utilization < held.utilization => false,
-        _ => candidate.at > held.at,
+    match (held.measured, candidate.measured) {
+        // Two dated answers from the API: the later one is the account now,
+        // whatever direction the figure moved and whatever window instant it
+        // names. A wrong instant heard once is displaced by the next
+        // measurement instead of latching — instants are not compared at all.
+        (true, true) => candidate.at > held.at,
+        (false, true) => true,
+        (true, false) => false,
+        (false, false) => match (held.resets_at, candidate.resets_at) {
+            (Some(theirs), Some(ours)) if !same_window(theirs, ours) => ours > theirs,
+            (Some(_), Some(_)) if candidate.utilization > held.utilization => true,
+            (Some(_), Some(_)) if candidate.utilization < held.utilization => false,
+            _ => candidate.at > held.at,
+        },
     }
 }
 
@@ -305,6 +333,12 @@ fn published_as_seen(pct: f64, resets_at: &str, ts: &str) -> Option<Seen> {
         utilization: pct / 100.0,
         resets_at: Some(crate::session::ResetsAt(at(resets_at)? / 1000)),
         at: crate::session::Heard(at(ts)?),
+        // A measurement, dated by ITS host's capture instant, not by when this
+        // console fetched it — which is what lets another machine's spend
+        // arrive here at its true place in the order. The row this console
+        // published about itself comes back wearing the same stamp it went
+        // out with, so the round trip cannot displace anything.
+        measured: true,
     })
 }
 

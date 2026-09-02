@@ -87,6 +87,9 @@ fn heard(utilization: f64, resets_at: &str, at: &str) -> Seen {
         utilization,
         resets_at: Some(ResetsAt(at_ms(resets_at) / 1000)),
         at: Heard(at_ms(at)),
+        // A stream reading is a `rate_limit_event`: the API's own headers,
+        // dated. `held()` below is the `get_usage` echo, and stays unmeasured.
+        measured: true,
     }
 }
 
@@ -213,12 +216,23 @@ fn nothing_heard_and_no_dashboard_is_no_reading_at_all() {
     assert!(merged(&BTreeMap::new(), None, at_ms("2026-08-04T20:05:00.000Z")).is_none());
 }
 
-/// One session's copy of a window's figure, as its process last saw it.
+/// One session's copy of a window's figure, as its process last saw it: a
+/// `get_usage` echo, cached headers of unknowable age — the weaker kind.
 fn held(utilization: f64, resets_at: i64, at: i64) -> Seen {
     Seen {
         utilization,
         resets_at: Some(ResetsAt(resets_at)),
         at: Heard(at),
+        measured: false,
+    }
+}
+
+/// The same window figure, but a MEASUREMENT — the API's own word at a datable
+/// instant, as a `rate_limit_event` carries.
+fn held_measured(utilization: f64, resets_at: i64, at: i64) -> Seen {
+    Seen {
+        measured: true,
+        ..held(utilization, resets_at, at)
     }
 }
 
@@ -308,11 +322,13 @@ fn a_reading_with_no_reset_time_falls_back_to_when_it_arrived() {
         utilization: 0.5,
         resets_at: None,
         at: Heard(1_000),
+        measured: false,
     };
     let later = Seen {
         utilization: 0.4,
         resets_at: None,
         at: Heard(2_000),
+        measured: false,
     };
 
     assert!(fresher(&first, &later));
@@ -345,10 +361,16 @@ fn a_fresher_dashboard_beats_a_stale_live_reading_of_the_same_window() {
     // only when the live figure was ABSENT, and absent is not the same as older,
     // so the console preferred the worse number because it was its own.
     let now = at_ms("2026-08-04T17:10:00.000Z");
-    // Same window instance as `published()`, heard an hour before it.
+    // Same window instance as `published()`, whose stamp is 15:20:39 — and this
+    // live reading was captured an hour before that, at 14:20:39. Both are
+    // measurements now, so the later CAPTURE wins, and the dashboard's is later.
+    // ⚠ The figures are the tell that this is right: the older live reading is
+    // LOWER (13%), the newer dashboard HIGHER (28%), because utilisation rises
+    // through a window — so believing the later capture also happens to believe
+    // the larger figure here. The next test breaks that coincidence apart.
     let live = seen(&[(
         "five_hour",
-        heard(0.13, "2026-08-04T18:10:00.000Z", "2026-08-04T16:10:00.000Z"),
+        heard(0.13, "2026-08-04T18:10:00.000Z", "2026-08-04T14:20:39.000Z"),
     )]);
     let read = merged(&live, Some(&published()), now).expect("a reading");
     // Within a whisker rather than exactly: judging the two sources against each
@@ -478,4 +500,57 @@ mod who_is_asked {
             "newer"
         );
     }
+}
+
+#[test]
+fn a_measured_reset_within_one_window_is_believed() {
+    // ⚠ **The defect this exists for, 2026-09-02.** Anthropic reset the week's
+    // meter mid-window: the SAME window instance (same `resets_at`) went from a
+    // high figure to a low one. The monotone rule refused it — "same window,
+    // lower figure" is what a stale echo looks like too — and the console showed
+    // the pre-reset number for days. Provenance is the only thing that tells the
+    // two apart: a `rate_limit_event` is the API's own word at a known instant,
+    // so a later one is the account NOW, downward included.
+    let before = held_measured(0.62, TURNS, 1_000);
+    let after = held_measured(0.06, TURNS, 2_000);
+    assert!(
+        fresher(&before, &after),
+        "a later measurement of the same window is believed even when it falls"
+    );
+    assert!(
+        !fresher(&after, &before),
+        "and the pre-reset high water cannot climb back over it"
+    );
+}
+
+#[test]
+fn an_echoed_drop_within_one_window_is_still_refused() {
+    // The other half, and why the fix is provenance and not "believe any drop".
+    // A `get_usage` answer is a session's cached headers of unknowable age, so a
+    // lower one is the 81 → 77 → 81 flap — refused, exactly as before. Only a
+    // dated measurement may lower the figure inside one window instance.
+    let cached = held(0.81, TURNS, 1_000);
+    let echo = held(0.77, TURNS, 9_000);
+    assert!(
+        !fresher(&cached, &echo),
+        "a cached lower echo does not displace"
+    );
+    assert!(fresher(&echo, &cached), "the higher echo still does");
+}
+
+#[test]
+fn a_measurement_outranks_an_echo_regardless_of_figure_or_age() {
+    // An idle session goes on echoing the pre-reset high from its stale cache;
+    // a measurement — even an older, lower one — is the truer kind and wins. The
+    // echo cannot bury the reset under a number nobody measured more recently.
+    let measurement = held_measured(0.06, TURNS, 1_000);
+    let stale_echo = held(0.62, TURNS, 9_000);
+    assert!(
+        !fresher(&measurement, &stale_echo),
+        "an echo cannot displace a measurement, even reading higher and arriving later"
+    );
+    assert!(
+        fresher(&stale_echo, &measurement),
+        "a measurement displaces an echo"
+    );
 }

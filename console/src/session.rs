@@ -197,6 +197,20 @@ pub struct Seen {
     #[serde(default)]
     pub resets_at: Option<ResetsAt>,
     pub at: Heard,
+    /// **Whether the API itself said this, at a moment we can date.** A
+    /// `rate_limit_event` is the response headers of a request that just
+    /// completed, so its figure is true AT its stamp; the dashboard's row
+    /// carries the instant its host took it. A `get_usage` answer is neither —
+    /// it is a process's cached headers, of unknowable age, arriving now.
+    ///
+    /// The split is what lets [`crate::usage::fresher`] believe a genuine
+    /// mid-window reset (the figure DROPS, which no echo may claim) without
+    /// re-admitting the 81 → 77 → 81 flap that cached answers caused: a
+    /// measurement moves the figure both ways, an echo can only fill in where
+    /// no measurement has spoken. Defaulted false so anything deserialized
+    /// from before this field claims the weaker kind.
+    #[serde(default)]
+    pub measured: bool,
 }
 
 /// Wait on an adopted child, so the kernel can let go of it when it ends.
@@ -1837,16 +1851,24 @@ impl Session {
     fn record_usage(&self, windows: Vec<(String, f64, Option<i64>)>) {
         let mut state = self.state.lock().expect("session state poisoned");
         let at = Heard(now());
-        for (window, utilization, resets_at) in windows {
-            state.spent.insert(
-                window,
-                Seen {
-                    utilization,
-                    resets_at: resets_at.map(ResetsAt),
-                    at,
-                },
-            );
-        }
+        // Through [`crate::usage::remember`], not a blind insert: an answer
+        // from cached headers is an echo, and an echo written over a fresh
+        // `rate_limit_event` in this same map would launder it into the
+        // roster's merge as if nothing better had been heard.
+        crate::usage::remember(
+            &mut state.spent,
+            windows.into_iter().map(|(window, utilization, resets_at)| {
+                (
+                    window,
+                    Seen {
+                        utilization,
+                        resets_at: resets_at.map(ResetsAt),
+                        at,
+                        measured: false,
+                    },
+                )
+            }),
+        );
     }
 
     /// Ask this session what the account has spent. See [`protocol::get_usage`].
@@ -2079,13 +2101,26 @@ impl Session {
                     // the five-hour window says nothing about the weekly one,
                     // and overwriting would lose whichever was not mentioned.
                     if let Some(spent) = utilization {
-                        state.spent.insert(
-                            window.clone(),
-                            Seen {
-                                utilization: *spent,
-                                resets_at: resets_at.map(ResetsAt),
-                                at: Heard(now()),
-                            },
+                        // A measurement: the API's own headers off a request
+                        // that just completed, dated by when it completed — the
+                        // event's own stamp on replay, `now()` via [`Self::push`]
+                        // live. The date matters: a transcript seeded on restart
+                        // replays old events, and one stamped "now" would be a
+                        // stale figure wearing a fresh measurement's authority.
+                        // An event with no stamp at all cannot be dated, and a
+                        // figure whose truth-instant is unknowable is the
+                        // definition of an echo — so that is what it claims.
+                        crate::usage::remember(
+                            &mut state.spent,
+                            [(
+                                window.clone(),
+                                Seen {
+                                    utilization: *spent,
+                                    resets_at: resets_at.map(ResetsAt),
+                                    at: Heard(at.unwrap_or_else(now)),
+                                    measured: at.is_some(),
+                                },
+                            )],
                         );
                     }
                 }
