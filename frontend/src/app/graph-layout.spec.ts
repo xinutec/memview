@@ -813,4 +813,33 @@ describe('affinities', () => {
     const layout = createLayout(APART, [], ['A', 'B'], [{ a: 'a1', b: 'ghost', npmi: 1 }]);
     expect(layout.soft).toHaveLength(0);
   });
+
+  it('does not push a linked pair back out to the affinity rest', () => {
+    // ⚠ The measured failure of memview#1307: 51.5% of the pulling pairs are
+    // ALSO linked, a link holds its pair at REST_LENGTH — inside the longer
+    // AFFINITY_REST — and a two-sided spring there pushed the most co-used
+    // pairs APART. The spring is one-sided now: co-use is evidence a far pair
+    // belongs nearer, never that a near pair belongs further.
+    // ⚠ The pair must settle INSIDE the affinity rest, or the spec cannot
+    // meet the regime it is about. In this four-node fixture the repulsion
+    // holds even a linked same-group pair at ~44, OUTSIDE the rest of 40 —
+    // where the old two-sided spring also pulled, and the first two versions
+    // of this spec passed vacuously (measured, not assumed: /tmp probe,
+    // 2026-09-02). Three parallel links pull the pair to ~37, inside the
+    // rest, which stands in for the density of the real corpus, where links
+    // hold co-used pairs near 26 and the old spring pushed them out.
+    const tight = Array.from({ length: 3 }, () => ({ source: 'a1', target: 'a2' }));
+    const gap = (affinities: { a: string; b: string; npmi: number }[]) => {
+      const layout = createLayout(APART, tight, ['A', 'B'], affinities);
+      for (let i = 0; i < 600; i++) stepLayout(layout);
+      const at = (n: string) => layout.nodes[layout.index.get(n) ?? -1].pos;
+      return distance(at('a1'), at('a2'));
+    };
+    const linkAlone = gap([]);
+    const linkAndAffinity = gap([{ a: 'a1', b: 'a2', npmi: 1 }]);
+    // The affinity may leave the linked pair where it is or draw it closer; it
+    // must not widen it. Strict inequality would demand the pull win against a
+    // settled link, which is not the claim — the claim is only "never apart".
+    expect(linkAndAffinity).toBeLessThanOrEqual(linkAlone * 1.001);
+  });
 });

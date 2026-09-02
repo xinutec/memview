@@ -324,3 +324,59 @@ fn work_outside_the_code_root_has_no_project() {
         Some("health".into())
     );
 }
+
+/// Support admits a pair; npmi judges it. Two memories that are EVERYWHERE and
+/// meet in only a few sessions co-occur less than chance would give — that is
+/// not a habit, and keeping such pairs made 78% of the live artefact weightless
+/// (memview#1307): counted, drawn as companions, ignored by the layout.
+#[test]
+fn a_below_chance_pair_is_dropped_at_the_mine() {
+    // Three sessions where alpha and beta meet inside one turn…
+    let mut sessions = met_in_three();
+    // …and six more where both are PRESENT but never meet: each meets gamma in
+    // its own turn instead. ⚠ Presence has to be staged through a meeting,
+    // because a single-name turn never reaches a basket (`b.len() >= 2` in
+    // scan_session) — the first version of this test put alpha and beta in
+    // solo turns and their presence simply vanished, leaving pab = 1. With
+    // gamma: pa = pb = 1, pab = 3/9 — below chance, npmi < 0, dropped. And so
+    // are both gamma pairs, for the same reason: a name in EVERY session
+    // leaves nothing for chance to beat.
+    for s in 3..9 {
+        sessions.push(vec![
+            msg(&format!("{s}a"), None, Some("p1"), "project_alpha"),
+            msg(
+                &format!("{s}b"),
+                Some(&format!("{s}a")),
+                None,
+                "project_gamma",
+            ),
+            msg(&format!("{s}c"), None, Some("p2"), "reference_beta"),
+            msg(
+                &format!("{s}d"),
+                Some(&format!("{s}c")),
+                None,
+                "project_gamma",
+            ),
+        ]);
+    }
+    let found = mine(
+        &sessions,
+        &["project_alpha", "reference_beta", "project_gamma"],
+    );
+    assert!(
+        found.pairs.is_empty(),
+        "a pair everyone has and few use together is not an affinity: {:?}",
+        found.pairs
+    );
+}
+
+/// The degenerate end of the same formula: a pair present in EVERY session has
+/// pab = 1 and the formula reads 0/0. That pair is the strongest this measure
+/// can support, so it is 1 by definition — NaN would fail the below-chance
+/// filter and silently drop the best pair in a small corpus.
+#[test]
+fn a_pair_present_in_every_session_scores_one_not_nan() {
+    let found = mine(&met_in_three(), &["project_alpha", "reference_beta"]);
+    assert_eq!(found.pairs.len(), 1);
+    assert_eq!(found.pairs[0].npmi, 1.0);
+}

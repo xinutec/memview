@@ -49,7 +49,9 @@ pub struct Pair {
     pub turns: usize,
     /// Distinct sessions those turns came from. This is the support.
     pub sessions: usize,
-    /// Normalised pointwise mutual information, in (-1, 1].
+    /// Normalised pointwise mutual information. The formula's range is
+    /// (-1, 1]; **the artefact carries only (0, 1]**, because the mine drops
+    /// below-chance pairs — see the filter in [`scan`].
     ///
     /// Raw counts rank the hubs and nothing else — `project_dev_lint` appears
     /// everywhere, so it pairs highly with everything and says nothing. This
@@ -474,9 +476,31 @@ pub fn scan(
                 b: b.to_string(),
                 turns: pair_turns[&(a, b)],
                 sessions: k,
-                npmi: (pab / (pa * pb)).ln() / -pab.ln(),
+                // ⚠ pab = 1 makes the formula 0/0: a pair present in EVERY
+                // session has nothing left for chance to explain, which is the
+                // strongest claim this measure can make — so it is 1 by
+                // definition rather than NaN by arithmetic. NaN would fail the
+                // below-chance filter and silently drop the best-supported
+                // pair in a small corpus (three test sessions hit this; ~23
+                // real ones make it unlikely but not impossible).
+                npmi: if pab >= 1.0 {
+                    1.0
+                } else {
+                    (pab / (pa * pb)).ln() / -pab.ln()
+                },
             }
         })
+        // ⚠ **Below chance is not an affinity.** Session support admits a pair;
+        // npmi then judges it — and with a couple of dozen sessions, two popular
+        // memories sharing the minimum three genuinely co-occur LESS than chance
+        // would give, so a correct formula returns a negative number. Keeping
+        // those pairs made 78% of the artefact weightless: counted in every
+        // total, drawn in the companions panel, clamped to zero by the layout
+        // (memview#1307). A pair this filter drops is not evidence of anything —
+        // not of belonging together, and at these counts not of avoidance
+        // either — so it is dropped at the mine, where every consumer agrees,
+        // rather than re-judged differently in each one.
+        .filter(|pair| pair.npmi > 0.0)
         .collect();
     pairs.sort_by(|x, y| {
         y.npmi

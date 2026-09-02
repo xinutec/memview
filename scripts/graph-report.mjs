@@ -113,9 +113,13 @@ function syntheticGraph(nodeCount = 350, sectionCount = 12) {
  * property is worth keeping, so this is reached by `--affinities` and the gate
  * runs both.
  *
- * Shaped from the real mine: about half the memories carry co-use, ~12 partners
- * each, and roughly three quarters of the pairs are NOT already links, which is
- * the property that decides whether the layer draws anything the edges did not.
+ * Shaped from the real mine AFTER its npmi > 0 filter (memview#1307): about
+ * half the memories carry co-use, every artefact pair pulls, npmi runs low
+ * (real pulling mean 0.275, not the 0.6 the first fixture used — a fixture at
+ * twice the real force is how an inert force measured healthy), and about
+ * HALF the pairs are already links (real 51.5%, because above-chance co-use
+ * and linking are the same habit). The linked half is where the old two-sided
+ * spring pushed pairs APART; a fixture without it cannot see that regression.
  * Deterministic strides, for the reason the link generator gives.
  */
 function syntheticAffinities(nodes, edges, sectionCount = 12) {
@@ -127,14 +131,15 @@ function syntheticAffinities(nodes, edges, sectionCount = 12) {
     const id = key(a, b);
     if (seen.has(id)) return;
     seen.add(id);
-    // Spread across the range the mine produces rather than one value, so a
-    // scaling bug in the npmi term is visible rather than absorbed.
-    pairs.push({ a, b, npmi: 0.3 + (i % 7) / 10, sessions: 2 + (i % 5) });
+    // Spread across the range the mine actually produces (its filter keeps
+    // (0, 1], pulling mean 0.275) rather than one value, so a scaling bug in
+    // the npmi term is visible rather than absorbed.
+    pairs.push({ a, b, npmi: 0.05 + (i % 6) / 10, sessions: 3 + (i % 5) });
   };
 
-  // The majority: co-use that is NOT a link, which is the whole reason to draw
-  // the layer. Mostly WITHIN a section — memories used together are usually
-  // related — with a minority crossing, matching the mine's 72% unlinked.
+  // Co-use that is NOT a link — the half of the layer that draws anything the
+  // edges did not. Mostly WITHIN a section — memories used together are
+  // usually related — with a minority crossing.
   const carriers = Math.floor(nodes.length / 2);
   for (let i = 0; i < carriers; i++) {
     const section = i % sectionCount;
@@ -149,13 +154,15 @@ function syntheticAffinities(nodes, edges, sectionCount = 12) {
     }
   }
 
-  // ⚠ **And a minority that ARE links.** Without them every pair goes beyond the
-  // edges, the layer reads as 98% novel where the mine says 72%, and the extra
-  // cross-section pull smears the sections until `intraOverInter` trips — a
-  // layout regression that is really a defect in the fixture. This file already
-  // warns about exactly that for the link generator; affinities have the same
-  // failure mode.
-  const wantLinked = Math.round((pairs.length / 0.72) * 0.28);
+  // ⚠ **And an equal share that ARE links — the real majority regime.** The
+  // first fixture made these 28% against the mine's ALL-pairs split, but the
+  // PULLING pairs (all that survive the mine's filter) are 51.5% linked, and
+  // the linked half is exactly where the two-sided spring regression lived.
+  // Without them the layer also reads as 98% novel and the extra cross-section
+  // pull smears the sections until `intraOverInter` trips — a layout
+  // regression that is really a defect in the fixture, as this file already
+  // warns for the link generator.
+  const wantLinked = Math.round(pairs.length * (0.515 / 0.485));
   let taken = 0;
   for (let i = 0; i < edges.length && taken < wantLinked; i++) {
     const before = pairs.length;

@@ -68,17 +68,13 @@ export interface Affinity {
   /**
    * Normalised pointwise mutual information, **-1..1**. Scales the pull.
    *
-   * ⚠ **Most of them are NEGATIVE, and negative means no pull at all** — the
-   * layout clamps with `Math.max(0, …)`. Measured on the live corpus 2026-09-01:
-   * 78% of 2220 pairs clamp to zero, leaving an effective average spring of
-   * 0.0024 against the 0.012 that was rejected as inert. That is why the force
-   * reads as doing nothing (memview#1307).
-   *
-   * It is not a bug in the mine. `couse.rs` selects pairs by SESSION SUPPORT
-   * (`MIN_SESSIONS`), not by npmi, and with a couple of dozen sessions two
-   * popular memories sharing three of them really is below chance. The formula
-   * is the standard one and agrees. What is wrong is that a pair the layout
-   * ignores is still counted as an affinity and still listed as a companion.
+   * **The mine keeps only npmi > 0** (memview#1307). It used to admit pairs by
+   * session support alone, and with a couple of dozen sessions two popular
+   * memories sharing the minimum three really are below chance — so 78% of the
+   * artefact arrived negative, was clamped to zero here, and was still counted
+   * as an affinity and listed as a companion. A below-chance pair is not a
+   * habit; it is dropped where every consumer agrees, at the mine. The clamp
+   * below stays, against a stale or degenerate artefact.
    */
   readonly npmi: number;
   /** Distinct sessions both were used in — the support behind the npmi. */
@@ -162,6 +158,15 @@ const AFFINITY_SPRING = 0.04;
  * should end up neighbours rather than sitting on top of one another. Pulling
  * them to the same distance as a stated link would claim more than the evidence
  * supports.
+ *
+ * ⚠ **The spring is one-sided: it pulls a far pair in and does NOTHING to a
+ * near one.** Co-use is evidence two memories belong near each other; it is no
+ * evidence they must sit exactly this far apart. A two-sided spring at this
+ * rest fought the links — 51.5% of the pulling pairs are also linked
+ * (memview#1307), a link holds its pair at REST_LENGTH 26, inside this rest,
+ * and `strength * (d - 40)` there is negative: the "affinity" pushed the most
+ * co-used pairs APART, which is why the force measured inert (0.95x) while
+ * every part of it looked right.
  */
 const AFFINITY_REST = 40;
 const ORIGIN: Vec3 = { x: 0, y: 0, z: 0 };
@@ -322,7 +327,15 @@ export function stepLayout(layout: Layout): void {
     const dy = b.pos.y - a.pos.y;
     const dz = b.pos.z - a.pos.z;
     const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || MIN_DISTANCE;
-    const force = AFFINITY_SPRING * strength * (d - AFFINITY_REST);
+    // One-sided: a pair already nearer than the rest is left exactly where
+    // its links put it. See AFFINITY_REST for the measured failure a
+    // two-sided spring caused here.
+    // One-sided: a pair already nearer than the rest is left exactly where
+    // its links put it. See AFFINITY_REST for the measured failure a
+    // two-sided spring caused here.
+    const stretch = d - AFFINITY_REST;
+    if (stretch <= 0) continue;
+    const force = AFFINITY_SPRING * strength * stretch;
     const ux = (dx / d) * force;
     const uy = (dy / d) * force;
     const uz = (dz / d) * force;

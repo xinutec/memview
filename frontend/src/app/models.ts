@@ -140,7 +140,8 @@ export interface Affinity {
   turns: number;
   /** Distinct sessions those turns came from — the support. */
   sessions: number;
-  /** Normalised mutual information, ~0..1. */
+  /** Normalised mutual information, in (0, 1] — the mine drops below-chance
+   * pairs, so a served affinity always pulls (memview#1307). */
   npmi: number;
 }
 
