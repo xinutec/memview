@@ -17,8 +17,24 @@
 //! full size, which is not what was sent. It is kept for exactly as long as that
 //! conversation is: see [`tidy`], which is what stops a directory of megabytes
 //! outliving every transcript that explains it.
+//!
+//! ## And the other direction: a picture a session pointed at
+//!
+//! A session that renders something serves it — observe puts its reconstruction
+//! previews on an ad-hoc HTTP server and writes the URL into the conversation.
+//! Those URLs name this machine's LAN address, which the phone reading them is
+//! not on: it reaches the console through a tunnel isis carries, and the one-way
+//! VPN means nothing routes back the other way. So the link is real, and
+//! following it from the phone reaches nothing. [`fetch`] is what closes that
+//! gap — the Mac can reach the LAN, so the Mac fetches, and the phone asks the
+//! console it is already talking to.
+//!
+//! Both halves of this module answer the same question with the same code: are
+//! these bytes a picture? [`sniff`] decides for what arrives from the phone and
+//! for what arrives from a URL, and neither believes what it is told.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 /// Where the copies go. Overridable for the same reason
 /// [`crate::tasks::tasks_root`] is: a test has no home directory worth writing
@@ -138,6 +154,178 @@ pub fn find(root: &Path, session: &str, name: &str) -> Option<(Vec<u8>, &'static
     let bytes = std::fs::read(root.join(session).join(name)).ok()?;
     let (media_type, _) = sniff(&bytes)?;
     Some((bytes, media_type))
+}
+
+/// The most a picture from somewhere else may weigh.
+///
+/// ⚠ **Not [`LIMIT`], because nothing fetched here is sent to a model.** What
+/// bounds this is the wire: a render travels the tunnel to a phone that may be
+/// on cellular, and something that will not arrive is not worth beginning. It is
+/// also the ceiling on what one request can make this process hold, which is why
+/// it is counted while reading rather than after — a `Content-Length` is the
+/// server's claim about itself, and a server that understates it meets the same
+/// number a second time.
+pub const REACH: usize = 8 * 1024 * 1024;
+
+/// How long a picture from somewhere else has to arrive.
+///
+/// Generous next to the two seconds [`crate::tasks`] allows itself: that is a
+/// poll behind a page that can go without, and this is somebody who tapped a
+/// link and is watching the space where the picture goes.
+const PATIENCE: Duration = Duration::from_secs(10);
+
+/// A picture from somewhere else, and what it turned out to be.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fetched {
+    /// Sniffed from the bytes, never the `Content-Type` that came with them.
+    pub media_type: String,
+    pub bytes: Vec<u8>,
+}
+
+/// Why a picture from somewhere else is not on its way back.
+///
+/// Two cases rather than one string, because they blame different parties and
+/// the answer's status code is the only place that distinction survives: this
+/// console refusing to go is a 400 against whoever asked, and a far end that
+/// failed is a 502 about somewhere else. Both carry a sentence, because the
+/// person who tapped the link is the one who has to decide whether to re-render
+/// or to start the server again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Reason {
+    /// Nothing was fetched: this is not a URL this will go to.
+    Asked(String),
+    /// It was fetched, and what came back is not a picture.
+    Answered(String),
+}
+
+impl std::fmt::Display for Reason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Reason::Asked(why) | Reason::Answered(why) => f.write_str(why),
+        }
+    }
+}
+
+/// Fetch a picture a session pointed at.
+///
+/// ⚠ **This exists because the phone is not on the LAN.** The URLs are real and
+/// unreachable from where they are read: the phone talks to the console down a
+/// tunnel this Mac dialled out to isis, and nothing routes back toward the LAN
+/// those addresses are on. Fetching here and serving from the console is the
+/// only arrangement that does not amend the one-way VPN — see
+/// [`crate::images`]'s module note.
+///
+/// ## Why an open fetch is not a new privilege
+///
+/// The URL comes out of a conversation, so in principle a session decides where
+/// this goes — and a session already runs shell on this machine, so an allowlist
+/// would restrain nobody it was written for. What the sniff below *does*
+/// restrain is the response: only bytes that are a PNG, JPEG, GIF or WebP come
+/// back, so this cannot be used as a general proxy that puts somebody else's
+/// HTML on the console's own origin, which is the one thing here that would be a
+/// new privilege. SVG is excluded by the same table for the same reason — an SVG
+/// carries script, and the other four cannot.
+///
+/// Nothing is written to disk. A kept picture is one somebody sent and can look
+/// for again ([`keep`]); this is a window onto a file that lives somewhere else
+/// and is rewritten by whatever renders it.
+pub async fn fetch(url: &str) -> Result<Fetched, Reason> {
+    let asked = reqwest::Url::parse(url).map_err(|why| Reason::Asked(format!("{url}: {why}")))?;
+    if !matches!(asked.scheme(), "http" | "https") {
+        return Err(Reason::Asked(format!(
+            "{} is not a scheme this fetches — http and https are",
+            asked.scheme()
+        )));
+    }
+
+    let answer = client()
+        .get(asked)
+        .send()
+        .await
+        .map_err(|why| Reason::Answered(format!("could not reach it: {why}")))?;
+    if !answer.status().is_success() {
+        return Err(Reason::Answered(format!("it answered {}", answer.status())));
+    }
+    // The claim, refused before a byte is read. The check below is what actually
+    // holds; this one saves the download when the far end is honest, and it can
+    // name the size where the other one can only say it went past.
+    if let Some(size) = answer.content_length()
+        && size > REACH as u64
+    {
+        return Err(Reason::Answered(format!(
+            "it says it is {} MB, and this fetches at most {} MB",
+            size / (1024 * 1024),
+            REACH / (1024 * 1024)
+        )));
+    }
+
+    let mut answer = answer;
+    let mut bytes: Vec<u8> = Vec::new();
+    while let Some(piece) = answer
+        .chunk()
+        .await
+        .map_err(|why| Reason::Answered(format!("it stopped part way: {why}")))?
+    {
+        if bytes.len() + piece.len() > REACH {
+            return Err(Reason::Answered(format!(
+                "it went past the {} MB this fetches, without ever saying how big it was",
+                REACH / (1024 * 1024)
+            )));
+        }
+        bytes.extend_from_slice(&piece);
+    }
+
+    let (media_type, _) = sniff(&bytes).ok_or_else(|| {
+        Reason::Answered(format!(
+            "what came back is not a PNG, JPEG, GIF or WebP{}",
+            // The head of an error page is worth more than the sentence above,
+            // and is usually all of what a person needs: a 200 carrying an
+            // apology reads exactly like a broken picture without it.
+            described(&bytes)
+        ))
+    })?;
+    Ok(Fetched {
+        media_type: media_type.to_string(),
+        bytes,
+    })
+}
+
+/// A few words about bytes that are not a picture, for the sentence that says so.
+///
+/// Text only, and short: an HTML error page and a directory listing are the two
+/// things this actually meets, and both say what happened in their first line.
+/// Anything that is not printable ASCII is described rather than quoted, because
+/// a viewer showing a fragment of a binary is a viewer that looks broken itself.
+fn described(bytes: &[u8]) -> String {
+    let head: Vec<u8> = bytes.iter().copied().take(80).collect();
+    if head.is_empty() {
+        return " — it answered with nothing at all".to_string();
+    }
+    if head
+        .iter()
+        .all(|byte| byte.is_ascii_graphic() || byte.is_ascii_whitespace())
+    {
+        let text = String::from_utf8_lossy(&head);
+        return format!(" — it begins {:?}", text.trim());
+    }
+    format!(" — {} bytes of something else", bytes.len())
+}
+
+/// The one client, kept because a client is a connection pool.
+///
+/// ⚠ **The crypto provider is installed here as well as in `main`**, for the
+/// reason [`crate::tasks::Reader::at`] gives at length: building a TLS client
+/// with no process-wide provider panics inside reqwest, and a test that reaches
+/// this function has run no `main`.
+fn client() -> &'static reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        reqwest::Client::builder()
+            .timeout(PATIENCE)
+            .build()
+            .unwrap_or_default()
+    })
 }
 
 /// Delete the copies belonging to conversations that are no longer on disk, and

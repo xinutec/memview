@@ -340,3 +340,173 @@ fn a_directory_this_never_wrote_is_left_alone() {
         vec!["mine".to_string(), "not a session id".to_string()]
     );
 }
+
+// ---------------------------------------------------------------------------
+// The other direction: a picture a session pointed at.
+//
+// These fetch over loopback from a server the test starts, rather than stubbing
+// the client. What is being tested is what this does with an answer — a lying
+// `Content-Type`, an error page that came back 200, a body that never ends — and
+// none of those exist except on the wire.
+// ---------------------------------------------------------------------------
+
+use console::images::{REACH, Reason, fetch};
+
+/// A server that answers everything with the same thing. Returns its base URL.
+async fn answering(status: u16, kind: &'static str, body: Vec<u8>) -> String {
+    let body = std::sync::Arc::new(body);
+    let app = axum::Router::new().fallback(move || {
+        let body = body.clone();
+        async move {
+            (
+                axum::http::StatusCode::from_u16(status).expect("a status"),
+                [(axum::http::header::CONTENT_TYPE, kind)],
+                body.to_vec(),
+            )
+        }
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("a port");
+    let at = listener.local_addr().expect("an address");
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    format!("http://{at}/whatever.png")
+}
+
+/// A server that answers in chunks and never says how many — so the size guard
+/// has to hold without a `Content-Length` to read.
+async fn dribbling(pieces: usize, each: usize) -> String {
+    let app = axum::Router::new().fallback(move || async move {
+        let stream = tokio_stream::iter(
+            (0..pieces).map(move |_| Ok::<_, std::io::Error>(vec![b'\xff'; each])),
+        );
+        axum::body::Body::from_stream(stream)
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("a port");
+    let at = listener.local_addr().expect("an address");
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    format!("http://{at}/endless.png")
+}
+
+#[tokio::test]
+async fn a_picture_from_elsewhere_is_what_its_bytes_say_and_not_what_the_server_says() {
+    // The server observe runs is `python3 -m http.server`, which types a file by
+    // its extension — so the claim is a guess about a name, and the console
+    // hands what comes back to an `<img>` under the type it declares. Sniffed
+    // here for the same reason it is sniffed on the way in.
+    let at = answering(200, "text/plain", PNG.to_vec()).await;
+
+    let got = fetch(&at).await.expect("fetched");
+
+    assert_eq!(got.media_type, "image/png", "the bytes win");
+    assert_eq!(got.bytes, PNG);
+}
+
+#[tokio::test]
+async fn an_error_page_that_came_back_200_is_refused_with_its_own_first_line() {
+    // ⚠ **The case a status check alone would pass.** A server that lost the
+    // file, a proxy that wants a login, a directory listing — all of them are a
+    // successful HTTP response, and all of them would reach the phone as a
+    // picture that will not draw. The first line is what tells them apart, and
+    // it is the only thing the person who tapped the link can act on.
+    let at = answering(
+        200,
+        "text/html",
+        b"<!DOCTYPE html><title>404</title>".to_vec(),
+    )
+    .await;
+
+    let why = fetch(&at).await.expect_err("refused");
+
+    assert!(matches!(why, Reason::Answered(_)), "the far end's fault");
+    let said = why.to_string();
+    assert!(said.contains("not a PNG"), "{said}");
+    assert!(
+        said.contains("<!DOCTYPE html>"),
+        "quotes what it got: {said}"
+    );
+}
+
+#[tokio::test]
+async fn a_status_that_is_not_success_is_carried_back_as_that_status() {
+    let at = answering(404, "text/plain", b"no such render".to_vec()).await;
+
+    let why = fetch(&at).await.expect_err("refused");
+
+    assert_eq!(why.to_string(), "it answered 404 Not Found");
+}
+
+#[tokio::test]
+async fn a_far_end_that_is_not_listening_is_a_sentence_rather_than_a_wait() {
+    // The ordinary way this fails: the session that rendered the picture has
+    // stopped its server, and the link outlives it in the transcript. A phone
+    // showing a spinner for that would be indistinguishable from a slow one.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("a port");
+    let at = listener.local_addr().expect("an address");
+    drop(listener);
+
+    let why = fetch(&format!("http://{at}/gone.png"))
+        .await
+        .expect_err("refused");
+
+    assert!(matches!(why, Reason::Answered(_)));
+    assert!(why.to_string().starts_with("could not reach it"), "{why}");
+}
+
+#[tokio::test]
+async fn a_scheme_this_does_not_fetch_is_refused_before_anything_is_asked() {
+    // ⚠ **`file:` is the one that matters**, and it is refused by the scheme
+    // rather than by anything about the path: a fetch that reads local files is
+    // one URL in a transcript away from serving `~/.ssh/id_ed25519` to whoever
+    // taps it. `Asked` is the proof that nothing was fetched — that arm returns
+    // before the client is built.
+    for url in ["file:///etc/passwd", "ftp://somewhere/x.png", "not a url"] {
+        let why = fetch(url).await.expect_err("refused");
+        assert!(matches!(why, Reason::Asked(_)), "{url} was fetched");
+    }
+}
+
+#[tokio::test]
+async fn something_too_large_for_the_wire_is_refused_on_the_servers_own_claim() {
+    // The cheap arm: an honest `Content-Length` is refused before the body is
+    // read at all.
+    let mut oversize = PNG.to_vec();
+    oversize.resize(REACH + 1, 0);
+    let at = answering(200, "image/png", oversize).await;
+
+    let why = fetch(&at).await.expect_err("refused");
+
+    // ⚠ **The sentence, not just the refusal.** Both guards refuse this body;
+    // only the wording says which one did, so an assertion on "too large" would
+    // pass with the early arm deleted and this test would be testing the one
+    // below twice.
+    assert_eq!(
+        why.to_string(),
+        "it says it is 8 MB, and this fetches at most 8 MB"
+    );
+}
+
+#[tokio::test]
+async fn something_too_large_is_refused_while_it_arrives_when_nothing_declared_it() {
+    // ⚠ **The arm above cannot cover this one.** A `Content-Length` is the
+    // server's claim about itself; a chunked answer makes no claim, and this is
+    // the guard that decides how much of one this process will hold. Refused
+    // part way rather than after, so the memory is bounded by [`REACH`] and not
+    // by how long the far end feels like writing.
+    let at = dribbling(REACH / (64 * 1024) + 2, 64 * 1024).await;
+
+    let why = fetch(&at).await.expect_err("refused");
+
+    assert_eq!(
+        why.to_string(),
+        "it went past the 8 MB this fetches, without ever saying how big it was"
+    );
+}

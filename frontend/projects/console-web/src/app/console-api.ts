@@ -13,6 +13,7 @@ import {
   Summary,
   Task,
 } from './models';
+import { fetchedAt } from './picture';
 import { Answers, Notes } from './questions';
 
 /** Thin client over the console runner. Same origin in production (the runner
@@ -142,6 +143,22 @@ export class ConsoleApi {
    */
   pictureAt(id: string, name: string): string {
     return `/api/sessions/${encodeURIComponent(id)}/images/${encodeURIComponent(name)}`;
+  }
+
+  /**
+   * The bytes of a picture a session pointed at, fetched by the console.
+   *
+   * ⚠ **A request and not a URL, which is the opposite of [[pictureAt]] above.**
+   * A kept picture is a file the console holds and can hand to an `<img>`; this
+   * one lives on somebody else's server and fails in ways worth reading — the
+   * render server was stopped, the file was re-rendered under another name, the
+   * far end answered an HTML error page with a 200. `console::images::fetch`
+   * writes a sentence for each of those, and an `<img>` cannot read one: its
+   * `error` event carries nothing at all. So the bytes come back through here,
+   * where the failure arrives with its reason attached.
+   */
+  elsewhere(url: string): Observable<Blob> {
+    return this.http.get(fetchedAt(url), { responseType: 'blob' });
   }
 
   /** Answer a question the session is blocked on.

@@ -280,3 +280,40 @@ app-root {
   // and `vh` measures the larger state.
   height: 100dvh;
 }
+
+// A picture opened from a link fills the screen, where every other sheet takes
+// the bottom of it.
+//
+// ⚠ **`panelClass` lands on the overlay PANE, not on the container**, which the
+// first cut of this got wrong: `.picture-panel.mat-bottom-sheet-container`
+// matched nothing at all, and the sheet came up at Material's own 80vh with the
+// render squeezed into the bottom half of the phone. Measured off the DOM —
+// `DIV.cdk-overlay-pane picture-panel` with `MAT-BOTTOM-SHEET-CONTAINER` inside
+// it. So the pane is opened out and the container told to fill it.
+//
+// ⚠ Global because both of those elements are Material's own, outside the
+// component and so out of reach of its scoped styles — the same reason the ANSI
+// palette above is global.
+//
+// The reason it is the whole screen and not the usual sheet: what these hold is
+// a render of a room, and the useful question about one is whether a wall came
+// out straight. A third of a phone screen cannot answer it. See
+// `picture-sheet.ts` for why covering the conversation is right here and wrong
+// for a picture that was sent from the phone.
+.cdk-overlay-pane.picture-panel {
+  // `dvh`, not `vh`: on a phone the browser's chrome comes and goes, and `vh`
+  // measures the larger state — the same note as `app-root` above.
+  height: 100dvh;
+  max-height: 100dvh;
+  width: 100vw;
+  max-width: 100vw;
+
+  .mat-bottom-sheet-container {
+    height: 100%;
+    max-height: 100%;
+    width: 100%;
+    max-width: none;
+    border-radius: 0;
+    padding: 0.5rem 0.75rem;
+  }
+}

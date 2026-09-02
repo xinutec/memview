@@ -6,7 +6,7 @@ are doing, send new instructions, approve what they want to run.
 **Phase 1 and the approvals half of phase 2 are built** — `console/` (the runner)
 and `frontend/projects/console-web` (the UI). It runs as the launchd service
 `org.xinutec.agent-console` (`scripts/console-service.sh`, declared in
-xinutec-infra's `mac-mini/hm-agents.nix` — which names the *installed* copy at
+xinutec-infra's `mac-mini/hm-agents.nix` — which names the _installed_ copy at
 `~/.local/libexec/agent-console-service`, for the reason that script gives);
 `scripts/console.sh` is the by-hand
 launcher, and `scripts/console-upgrade.sh` is how a running one is replaced
@@ -732,11 +732,11 @@ as replaying the log.** `SCROLLBACK` is 5,000 events, which on a session watched
 all day is hours of it; sent to somebody opening a session that was 7.9 MB across
 the fleet, 1.4 MB for the largest, with the newest message arriving last. A cold
 connection gets the transcript's last page instead — 524 kB in total, 48 kB for
-that largest one. The log stays 5,000 for *resumes*, which is what it is for.
+that largest one. The log stays 5,000 for _resumes_, which is what it is for.
 See `api::cold`.
 
 **What the tally carries, in two directions.** Carry what nothing on disk
-records — a status, a question, the rate-limit reading. But *also* carry, or
+records — a status, a question, the rate-limit reading. But _also_ carry, or
 re-derive, anything whose value depends on the WHOLE history rather than on
 recent events, because the replay is one page. Two things sit on that second
 side: the session's name, which binds to the first prompt in the page and so
@@ -746,7 +746,7 @@ which cannot move.
 
 ⚠ **A question is the one console-only event a reader is sent.** `Ask` is a
 control request and no transcript holds one, so a seed read from the file cannot
-contain it — and `Summary::asked` says *waiting for you* regardless. Without it
+contain it — and `Summary::asked` says _waiting for you_ regardless. Without it
 the list asks and the conversation shows nothing to answer, which on a blocked
 session is the whole of what that session is waiting for; measured at ninety
 minutes before it was noticed.
@@ -1171,7 +1171,7 @@ the same question twice.
   the loop that reads a `utilization` off each value stepped straight over it —
   which is why this sat unread in every reply. Measured against CLI 2.1.226: the
   fixed keys a scope used to live under (`seven_day_opus`, `seven_day_sonnet`)
-  are `null`, and the one live scope is *Fable* at 6%, resetting with the week.
+  are `null`, and the one live scope is _Fable_ at 6%, resetting with the week.
   So the **name is data** — `usage::Scoped` carries it, the strip labels the bar
   with it, and nothing in this repository knows which models exist. A new scope
   needs no code and a retired one leaves no dead branch. An entry with no name is
@@ -1267,7 +1267,7 @@ field that reads like a measurement and is actually an aggregate.**
   tasks", not "nothing is running".
 - ⚠ **What counts is read off what a call ANSWERS, never off its arguments.**
   This was `run_in_background: true` on the input for a long time, which is a
-  *request* to detach — and measured across 27,731 calls in one 241 MB
+  _request_ to detach — and measured across 27,731 calls in one 241 MB
   transcript, that flag appears on `Bash` and on nothing else. So a `Monitor`
   running for twenty-five minutes counted as nothing at all, and the card said
   the session had nothing going on.
@@ -1288,10 +1288,11 @@ field that reads like a measurement and is actually an aggregate.**
 
   Matching English is fragile, and the direction it fails in is why it was
   chosen: a reworded CLI undercounts, which is visibly wrong one way and is
-  exactly what this replaced. A rule guessing from the tool's *name* would count
+  exactly what this replaced. A rule guessing from the tool's _name_ would count
   work that never started and leave the number stuck for the life of the session.
+
 - ⚠ **The phrase has to OPEN the result, or reading this page starts a task.**
-  The match was a `contains`, so any result that merely *quoted* one of the four
+  The match was a `contains`, so any result that merely _quoted_ one of the four
   openings counted as a launch — a grep for them, a read of the module that
   defines them, a read of the test that lists them verbatim. The console inflated
   its own count whenever anybody opened the rule behind it. Measured over this
@@ -1299,7 +1300,7 @@ field that reads like a measurement and is actually an aggregate.**
   front, and **all 11 of the difference were quotations**. No genuine launch
   announces itself in the middle of a sentence.
 - ⚠ **A killed task is the one ending that reports nothing, so the kill is read
-  instead.** Stopping a task answers on the *stopping* call and names the task
+  instead.** Stopping a task answers on the _stopping_ call and names the task
   rather than the call that started the work — and no notification ever follows,
   because the work did not finish. Measured: **162 kills, not one of them
   notified**, and they were 162 of the 209 counts that never came down. Seen
@@ -1309,6 +1310,7 @@ field that reads like a measurement and is actually an aggregate.**
   So an entry carries both names: keyed by the call, because that is what a
   notification names, and holding the task, because that is all a kill has to
   give. The task id was readable on every one of the 7,405 launches.
+
 - ⚠ **And cleared on `joined`, because history is not evidence.** The seed
   replays the transcript through the same reader as the live stream, so every
   backgrounded call on the last page was counted a second time — and a resumed
@@ -1326,7 +1328,7 @@ field that reads like a measurement and is actually an aggregate.**
   it. The client draws the same distinction for a call with no result:
   `Event::Joined::restarted` says whether a NEW process wrote what is above the
   line, and only then is that work dead. Without it, opening a live session
-  marked the tool call running right then as *no result recorded*.
+  marked the tool call running right then as _no result recorded_.
 
 ### Showing a session a picture
 
@@ -1392,6 +1394,62 @@ all.** A WebView refuses every `<input type="file">` unless the host implements
 rather than the shared shell, which lists a file chooser under what an app still
 owns (`ui-harness/android`). So this feature needs a build of the APK and not
 only of the bundle.
+
+### Opening a picture a session pointed at
+
+The other direction, and it is not the same feature run backwards. A session that
+renders something serves it and writes the URL into the conversation — observe
+puts its reconstruction previews on an ad-hoc `python3 -m http.server` and says
+where. Those links were already anchors, because GFM autolinks a bare URL, and
+tapping one on the phone **did** something: the shell hands any host outside its
+own to the browser, so the console was left for Chrome, which then could not
+reach the address either. The link named this Mac's LAN, and the phone is on the
+far end of a tunnel isis carries, with the one-way VPN standing between.
+
+So the arrangement is: **every picture the console shows comes from the console.**
+
+- **The link is rewritten where it is rendered.** `picture.ts` decides what looks
+  like a picture — by the extension on the _path_, so a search for `cat.png` is
+  not one — and points the anchor at `/api/picture?url=…` instead. The text stays
+  the address as it was written, because that is how a person tells two renders of
+  one room apart.
+- **The Mac fetches, and refuses to be a proxy for anything else.**
+  `console::images::fetch` will go to `http` and `https` and no other scheme, and
+  what comes back has to sniff as a PNG, JPEG, GIF or WebP through the same table
+  the inbound path uses. That check is not decoration: an open fetch grants a
+  session nothing it lacks — it already runs shell on this machine — but a route
+  that returned _arbitrary_ bytes would put somebody else's HTML on the console's
+  own origin, which would be a new privilege. SVG is excluded by the same table,
+  being the one image format that carries script.
+- **8 MB, counted while it arrives.** A `Content-Length` is the server's claim
+  about itself; the guard that holds is the one in the read loop, and each says a
+  different sentence so a test cannot pass for the other's reason.
+- **Nothing is written to disk and nothing is cached.** A kept picture is written
+  once under the second it arrived in and served `immutable`; this is a window
+  onto a file that lives somewhere else and is rewritten every time it is
+  re-rendered. Answering the second look with the first render is the one wrong
+  answer that looks exactly like the right one.
+- **It opens over the conversation, and back puts it away.** A full-screen sheet,
+  registered with `Dismiss` so the gesture pops a history entry rather than the
+  page — without that, back closes the picture _and_ leaves the conversation
+  behind it. Tapping the picture switches between fitted and its own size: a
+  render fitted to a phone shows the shape of a room and hides whether a wall came
+  out straight, which is the thing being looked for.
+
+  ⚠ **A lightbox here, where a _sent_ picture deliberately has none.** That one
+  is already in the transcript with the words about it around it, so covering
+  them would take away the reason for looking. This one is not in the transcript
+  at all.
+
+- **The bytes come through `HttpClient`, not an `<img src>`.** These fail
+  ordinarily — a session's render server outlives its links by minutes — and the
+  two things a failure means need different answers from the person reading it.
+  An `<img>` that fails says nothing at all; the fetch carries the console's own
+  sentence, which then has to be read back out of a `Blob`, because a request
+  that asked for one gets its error as one too.
+
+Backend only in the sense that matters for deploying it: this changes the bundle
+as well as the binary, so it needs `publish:console` and not just an upgrade.
 
 ### The list a session keeps for itself
 
@@ -1795,16 +1853,16 @@ that generated the key.
 
 ## Configuration
 
-| var | default | meaning |
-| --- | --- | --- |
-| `CONSOLE_DIRS` | `~/Code` | colon-separated roots a session may start in |
-| `CONSOLE_MODEL` | unset | model for spawned sessions; unset = the CLI's own |
-| `CONSOLE_PERMISSION_MODE` | unset | `manual` asks before every tool call |
-| `CLAUDE_BIN` | `claude` | the CLI to spawn |
-| `BIND_ADDR` | `127.0.0.1:8097` | must be loopback unless the gate is configured |
-| `CONSOLE_DESK_ADDR` | `127.0.0.1:8096` | plaintext socket for this machine, only when the gate is on |
-| `CONSOLE_TLS_CERT` / `CONSOLE_TLS_KEY` | unset | the console's own PEM certificate and key |
-| `CONSOLE_CLIENT_KEYS` | unset | comma-separated SHA-256 pins of the client keys admitted |
+| var                                    | default          | meaning                                                     |
+| -------------------------------------- | ---------------- | ----------------------------------------------------------- |
+| `CONSOLE_DIRS`                         | `~/Code`         | colon-separated roots a session may start in                |
+| `CONSOLE_MODEL`                        | unset            | model for spawned sessions; unset = the CLI's own           |
+| `CONSOLE_PERMISSION_MODE`              | unset            | `manual` asks before every tool call                        |
+| `CLAUDE_BIN`                           | `claude`         | the CLI to spawn                                            |
+| `BIND_ADDR`                            | `127.0.0.1:8097` | must be loopback unless the gate is configured              |
+| `CONSOLE_DESK_ADDR`                    | `127.0.0.1:8096` | plaintext socket for this machine, only when the gate is on |
+| `CONSOLE_TLS_CERT` / `CONSOLE_TLS_KEY` | unset            | the console's own PEM certificate and key                   |
+| `CONSOLE_CLIENT_KEYS`                  | unset            | comma-separated SHA-256 pins of the client keys admitted    |
 
 `CONSOLE_DESK_ADDR` exists because the Mac is headless: an SSH forward has no
 certificate to present, so the gate would lock out the machine the console runs

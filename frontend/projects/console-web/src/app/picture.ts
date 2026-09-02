@@ -1,10 +1,26 @@
 /**
- * A picture on its way from the phone to a session.
+ * Pictures, in both of the directions they travel.
  *
- * Everything here happens before the upload, because the phone is the only place
- * that can cheaply make the file smaller and the only place that knows the
- * connection it is going over. A Pixel screenshot is 1080×2400 and a photograph
- * is 4080×3072; neither is what the model reads.
+ * ## Out: a picture on its way from the phone to a session
+ *
+ * Everything on that path happens before the upload, because the phone is the
+ * only place that can cheaply make the file smaller and the only place that
+ * knows the connection it is going over. A Pixel screenshot is 1080×2400 and a
+ * photograph is 4080×3072; neither is what the model reads.
+ *
+ * ## In: a picture a session pointed at
+ *
+ * A session that renders something serves it and writes the URL into the
+ * conversation — observe's reconstruction previews arrive that way. Those URLs
+ * name the Mac's LAN address, and the phone reading them is not on that LAN: it
+ * reaches the console down a tunnel, and the one-way VPN means nothing routes
+ * back. Following such a link from the phone leaves the app (the shell hands any
+ * host it does not know to the browser) and arrives nowhere.
+ *
+ * So the link is rewritten to point at the console, which is on that LAN and is
+ * already being talked to. [[pictorial]] decides which links get that treatment
+ * and [[fetchedAt]] does the rewriting; `console::images::fetch` is the other
+ * end of it.
  */
 
 /**
@@ -126,4 +142,75 @@ export function weight(bytes: number): string {
   // Bytes below a kilobyte, because `0 kB` beside a thumbnail reads as a
   // picture that failed to load rather than as a very small one.
   return bytes >= 1024 ? `${Math.round(bytes / 1024)} kB` : `${bytes} B`;
+}
+
+/**
+ * The endings that make a link worth opening as a picture.
+ *
+ * ⚠ **An extension and not a probe.** Nothing here can know what a URL is
+ * without fetching it, and a transcript that fetched every link to find out
+ * would reach out to whatever a session had quoted, on scroll, without anybody
+ * asking for it. The endings are what these links actually are — a render
+ * server names its files — and a link that is a picture without saying so opens
+ * in the browser as it does today, which is the behaviour it already had.
+ *
+ * SVG is left out deliberately, and the console would refuse it anyway: it is
+ * the one image format that carries script.
+ */
+const SHOWN = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
+
+/** Whether a link points at something this app can open as a picture. */
+export function pictorial(href: string): boolean {
+  let asked: URL;
+  try {
+    // Absolute only: `new URL` without a base throws on a relative href, which
+    // is the answer wanted — a relative link belongs to the console's own pages.
+    asked = new URL(href);
+  } catch {
+    return false;
+  }
+  if (asked.protocol !== 'http:' && asked.protocol !== 'https:') return false;
+  // The path alone, so a query string mentioning `.png` does not qualify and a
+  // link carrying one still does.
+  const path = asked.pathname.toLowerCase();
+  return SHOWN.some((ending) => path.endsWith(ending));
+}
+
+/**
+ * Where to ask the console for a picture that lives somewhere else.
+ *
+ * ⚠ **`encodeURIComponent` and not a template on its own.** The URL is going
+ * into a query parameter and routinely holds `?`, `&` and `#` of its own — a
+ * render named `peekA-350-view_top_down.png?again=2` would otherwise arrive at
+ * the console as two parameters, and the second half would be silently lost.
+ */
+export function fetchedAt(href: string): string {
+  return `${WHERE}?url=${encodeURIComponent(href)}`;
+}
+
+/** The console's route for a picture that lives somewhere else. */
+const WHERE = '/api/picture';
+
+/**
+ * The address a picture link was rewritten from, or nothing if it is not one.
+ *
+ * The inverse of [[fetchedAt]], and it exists because the mark and the address
+ * both live in the anchor: a tap has the DOM and nothing else. Parsed rather
+ * than sliced — the `url` parameter is percent-encoded and may carry a query of
+ * its own, which any hand-written split gets wrong.
+ *
+ * ⚠ **The base is a placeholder, not where anything is fetched from.** `new URL`
+ * needs one to parse a relative href at all; only the path and the query are
+ * read back out, so what it is cannot matter — and taking it from `location`
+ * would make this untestable outside a page for no gain.
+ */
+export function pointedAt(href: string): string | undefined {
+  let asked: URL;
+  try {
+    asked = new URL(href, 'http://console.invalid');
+  } catch {
+    return undefined;
+  }
+  if (asked.pathname !== WHERE) return undefined;
+  return asked.searchParams.get('url') ?? undefined;
 }

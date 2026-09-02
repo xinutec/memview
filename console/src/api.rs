@@ -48,6 +48,7 @@ pub fn router(roster: Arc<Roster>) -> Router {
             post(show).layer(axum::extract::DefaultBodyLimit::max(BODY_LIMIT)),
         )
         .route("/api/sessions/{id}/images/{name}", get(picture))
+        .route("/api/picture", get(elsewhere))
         .route("/api/sessions/{id}/unhold", post(unhold))
         .route("/api/sessions/{id}/decide", post(decide))
         .route("/api/sessions/{id}/mode", post(mode))
@@ -321,6 +322,49 @@ async fn picture(Path((id, name)): Path<(String, String)>) -> Response {
             .into_response(),
         None => (StatusCode::NOT_FOUND, "no such picture").into_response(),
     }
+}
+
+/// GET /api/picture?url=… — a picture a session pointed at, fetched from here.
+///
+/// ⚠ **Not session-scoped, because the URL is the whole of what is being asked
+/// for.** Every other picture route names a conversation because the file is
+/// kept under one; this one holds nothing and remembers nothing, so a session id
+/// in the path would be decoration that reads like a guard.
+///
+/// Why the console fetches rather than the phone, and why an open fetch grants
+/// nothing new, are both in [`crate::images::fetch`].
+///
+/// Not cached, and that is the opposite of the kept-picture route above. A kept
+/// picture is written once under the second it arrived in; this is a window onto
+/// a file somewhere else, and the way these are used is to re-render and look
+/// again. A cache would answer the second look with the first render, which is
+/// the one wrong answer that looks exactly like the right one.
+async fn elsewhere(Query(asked): Query<Elsewhere>) -> Response {
+    match crate::images::fetch(&asked.url).await {
+        Ok(got) => (
+            [
+                (header::CONTENT_TYPE, got.media_type),
+                (header::CACHE_CONTROL, "no-store".to_string()),
+            ],
+            got.bytes,
+        )
+            .into_response(),
+        // Whose fault it was, said in the status as well as the sentence: the
+        // viewer shows the sentence, and anything reading a log needs to know
+        // whether this console refused or somewhere else did.
+        Err(why @ crate::images::Reason::Asked(_)) => {
+            (StatusCode::BAD_REQUEST, why.to_string()).into_response()
+        }
+        Err(why @ crate::images::Reason::Answered(_)) => {
+            (StatusCode::BAD_GATEWAY, why.to_string()).into_response()
+        }
+    }
+}
+
+/// The URL to fetch, as it came off the query string.
+#[derive(Deserialize)]
+struct Elsewhere {
+    url: String,
 }
 
 /// Show a session a picture.

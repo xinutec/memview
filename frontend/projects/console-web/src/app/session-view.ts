@@ -39,11 +39,12 @@ import { Following, measure } from './following';
 import { Here } from './here';
 import { Updates } from './updates';
 import { Coloured } from './coloured';
-import { Rendered } from './rendered';
-import { Picture, shrink, weight } from './picture';
+import { PICTURE, Rendered } from './rendered';
+import { Picture, pointedAt, shrink, weight } from './picture';
 import { Answers, Notes, Question, choiceOf, complete } from './questions';
 import { Held, SessionStore } from './session-store';
 import { ParseSheet } from './parse-sheet';
+import { PictureSheet } from './picture-sheet';
 import { Block, blocks, ran } from './transcript';
 import { Telemetry } from './telemetry';
 import { fullness } from './tokens';
@@ -53,6 +54,17 @@ import { fullness } from './tokens';
   selector: 'app-session-view',
   templateUrl: './session-view.html',
   styleUrl: './session-view.scss',
+  // ⚠ **On the host, not on the transcript element, and that is an
+  // accessibility rule's doing rather than a design choice.** A `(click)` in the
+  // template draws `click-events-have-key-events` and
+  // `interactive-supports-focus`: an `<ol>` that handles taps is unreachable by
+  // keyboard. Both are false here — what is tapped is an anchor, which is
+  // focusable and turns Enter into this very event — but the rule reads
+  // templates and cannot see what the handler is waiting for. Making the list
+  // focusable to satisfy it would put a stop on the tab order that leads
+  // nowhere. Pinned instead by the harness, which reaches the link with the
+  // keyboard and opens it.
+  host: { '(click)': 'tapped($event)' },
   imports: [
     Clock,
     Lasted,
@@ -880,6 +892,30 @@ export class SessionView implements OnDestroy {
         data: { session: this.id(), command: entry.text, ok: entry.ok },
         panelClass: 'session-sheet',
       }),
+    );
+  }
+
+  /**
+   * Open a link to a picture here, rather than letting it leave the app.
+   *
+   * ⚠ **What this replaces did something, and the something was wrong.** GFM
+   * autolinks a bare URL, so these were already anchors; the shell hands any
+   * host outside its own to the phone's browser, and the addresses a session
+   * writes name this Mac's LAN, which the phone is not on. So a tap left the
+   * console and arrived nowhere. See `picture.ts` for how the link is marked and
+   * `console::images::fetch` for who does the fetching.
+   *
+   * Nothing is prevented until a picture link is found: this listener sits on
+   * the whole transcript, and every other tap in it belongs to something else.
+   */
+  protected tapped(event: MouseEvent): void {
+    if (!(event.target instanceof Element)) return;
+    const link = event.target.closest(`a.${PICTURE}`);
+    const url = link && pointedAt(link.getAttribute('href') ?? '');
+    if (!url) return;
+    event.preventDefault();
+    this.dismiss.onBack(
+      this.sheet.open(PictureSheet, { data: { url }, panelClass: 'picture-panel' }),
     );
   }
 

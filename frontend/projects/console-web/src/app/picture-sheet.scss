@@ -1,0 +1,88 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  // As tall as the sheet, which the panel class makes the whole screen. See
+  // `styles.scss` for why the container is opened out rather than this.
+  height: 100%;
+  min-height: 0;
+}
+
+.what {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.where {
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+  // One line, and the end of it is the part that identifies the render.
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  // ⚠ **`rtl` puts the cut at the START of the line**, which is where the least
+  // is lost: two renders of the same room differ in the end of the path and
+  // agree on the host. The ellipsis is what makes the cut visible at all — the
+  // first look at this showed an address quietly missing its `http://`.
+  direction: rtl;
+  text-align: left;
+  text-overflow: ellipsis;
+}
+
+.trouble {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--mat-sys-error);
+  margin: 1rem 0 0;
+}
+
+// The picture takes everything the header leaves.
+//
+// ⚠ **No scroller of its own** (DL-ANGULAR-NESTED-SCROLLER):
+// `mat-bottom-sheet-container` already scrolls, and a second one inside it
+// fights the first. At its own size the picture simply overflows this box, and
+// the container is what reaches the rest of it.
+//
+// ⚠ **Which is why it stops centring at that point.** Overflow from centred
+// content goes past the top and left edges as well as the bottom and right, and
+// what is past the start edge is not scrollable by anyone — measured: with
+// `align-items: center` the sheet did not move under a wheel event at all, and
+// half the render was unreachable. Aligned to the start, the whole overflow is
+// in the direction a scroll can go.
+.frame {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  &.natural {
+    align-items: flex-start;
+    justify-content: flex-start;
+  }
+
+  img {
+    // Fitted: the whole picture, however it is shaped.
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+
+  // Its own size, and the sheet scrolls to reach the rest of it. This is what a
+  // render is opened for — whether a wall came out straight is not visible in
+  // something fitted to a phone.
+  img.natural {
+    max-width: none;
+    max-height: none;
+    // ⚠ The image must not shrink to the flex line's size, which is what
+    // `align-items: center` on the frame would otherwise do to it.
+    flex: 0 0 auto;
+  }
+}

@@ -4626,3 +4626,113 @@ test('usage — the week bar marks the days and where the clock is @ phone width
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
 });
+
+test('a link to a render opens over the conversation, and back puts it away @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **The link was never dead — it went to the wrong place.** GFM autolinks a
+  // bare URL, and the shell hands any host it does not know to the phone's
+  // browser: the addresses a session writes name the Mac's LAN, which the phone
+  // is not on. So the tap left the console and arrived nowhere. What is checked
+  // here is that it now goes through the console instead, and that the back
+  // gesture puts the picture away without also leaving the conversation.
+  const RENDER = 'http://10.0.0.2:8917/data/peek/peekA-350-view_from_sofa.png';
+  let asked = '';
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+        // `text` and not `said`: the runner streams a model's words as deltas
+        // and the page assembles them, which is the shape a real transcript has.
+        { kind: 'text', text: `Rendered from the sofa: ${RENDER}`, at: NEXT },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.route('**/api/picture*', (r) => {
+    asked = r.request().url();
+    return r.fulfill({ path: tinyPng(), contentType: 'image/png' });
+  });
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+
+  // The address is still what the sentence says — it is how a person tells two
+  // renders of the same room apart.
+  const link = page.locator('a.picture-link');
+  await expect(link).toHaveText(RENDER);
+  // And it points at the console, which is on that LAN. Read off the DOM rather
+  // than trusted from the source: the sanitiser is between the two.
+  expect(await link.getAttribute('href')).toContain('/api/picture?url=');
+
+  // ⚠ **By keyboard, which is also the claim `session-view.ts` makes to justify
+  // handling this on the host.** The a11y rules that fire on a `(click)` in the
+  // template are asking whether this can be reached without a pointer: focusing
+  // the anchor and pressing Enter dispatches the same event the tap does, and
+  // that is what the handler is waiting for.
+  await link.focus();
+  await page.keyboard.press('Enter');
+
+  const shown = page.locator('app-picture-sheet img');
+  await shown.waitFor();
+  // The sheet arrives by translating up the screen, and a box read mid-flight is
+  // not the box the layout claims — see [[settleTransforms]].
+  await settleTransforms(page);
+  expect(asked, 'the console is asked for it, not the LAN host').toContain(
+    encodeURIComponent(RENDER),
+  );
+  // Decoded, not merely requested: a picture that failed to load is a visible
+  // element with no pixels in it, and every assertion about visibility passes on
+  // one.
+  expect(await shown.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(2);
+
+  // ⚠ **The gesture Pippijn asked for, and the one that was broken before
+  // `Dismiss` existed**: back used to close the sheet AND leave the conversation
+  // behind it, because a sheet takes no part in history. See `dismiss.ts`.
+  await page.goBack();
+  await expect(page.locator('app-picture-sheet')).toHaveCount(0);
+  await expect(page).toHaveURL(new RegExp(`/s/${STATE.sessions[0].id}$`));
+  await expect(page.locator('.entry.said')).toContainText('Rendered from the sofa');
+
+  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+});
+
+test("a render whose server is gone says so, in the console's words @ phone width", async ({
+  page,
+}, testInfo) => {
+  // ⚠ **The ordinary failure, not the exotic one.** These links outlive the
+  // servers that answer them: a session renders, serves the file from a shell it
+  // is still holding, and stops. What the console says about that has to tell
+  // "re-render it" apart from "start the server again", and an `<img>` that
+  // failed says neither — its error event carries nothing at all.
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+        { kind: 'text', text: 'http://10.0.0.2:8917/data/peek/gone.png', at: NEXT },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.route('**/api/picture*', (r) =>
+    r.fulfill({
+      status: 502,
+      contentType: 'text/plain',
+      body: 'could not reach it: connection refused',
+    }),
+  );
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('a.picture-link').click();
+
+  const sheet = page.locator('app-picture-sheet');
+  // The console's sentence, not the status: "the runner answered 502" names
+  // neither of the two things it means.
+  await expect(sheet).toContainText('could not reach it: connection refused');
+  await expect(sheet).not.toContainText('502');
+
+  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+});

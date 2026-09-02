@@ -1,0 +1,33 @@
+<!-- The address first, because a conversation holds several renders and they
+     differ only in the name. Ellipsised from the left: what changes between two
+     of them is the end of the path, and the host is what they have in common. -->
+<header class="what">
+  <span class="where" [title]="url">{{ url }}</span>
+  <button matIconButton type="button" aria-label="close this picture" (click)="close()">
+    <mat-icon>close</mat-icon>
+  </button>
+</header>
+
+@if (trouble(); as why) {
+  <!-- The console's own sentence, not a broken-image glyph. The two things this
+       usually means — the render server has been stopped, or the file was
+       re-rendered under another name — need different answers from the person
+       reading it. -->
+  <p class="trouble">
+    <mat-icon>broken_image</mat-icon>
+    {{ why }}
+  </p>
+} @else if (at(); as src) {
+  <button
+    class="frame"
+    [class.natural]="natural()"
+    type="button"
+    [attr.aria-label]="natural() ? 'fit this picture to the screen' : 'see this picture full size'"
+    (click)="zoom()"
+  >
+    <img [src]="src" [class.natural]="natural()" [alt]="'a picture from ' + url" />
+  </button>
+} @else {
+  <!-- Down a tunnel to a phone, so this is seconds rather than an instant. -->
+  <mat-progress-bar mode="indeterminate" />
+}
