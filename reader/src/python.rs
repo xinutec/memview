@@ -64,7 +64,7 @@ use pest_derive::Parser;
 #[grammar = "python.pest"]
 struct PythonParser;
 
-pub use crate::program::{Program, Ran, Refused, Tally, Use};
+pub use crate::program::{Program, Ran, Refused, Tally, Use, Why};
 
 /// Read a Python program.
 ///
@@ -91,6 +91,7 @@ pub fn read(source: &str) -> Program {
         consts: scope.consts,
         candidates: scope.candidates,
         ranging: scope.ranging,
+        looped: scope.looped,
         imported: scope.imported,
         defined: scope.defined,
         out: Program::default(),
@@ -312,6 +313,10 @@ struct Scope {
     /// list. **Bound exactly once, and by that loop**: a name the program also
     /// assigns is not ranging over anything by the time it is used.
     ranging: BTreeMap<String, Value>,
+    /// Every name a `for` bound, language or no — so a miss on one is filed as
+    /// [`Why::Loop`] rather than as a computed value. Kept under the same
+    /// bound-once rule as `ranging`, and for the same reason.
+    looped: BTreeSet<String>,
     /// Names the program imported. **Not paths**, whatever else they are —
     /// which is what lets a call on one be read as the library call it is
     /// rather than as a method on a value nobody can name.
@@ -423,6 +428,7 @@ fn locus(pattern: &str) -> Option<String> {
 
 fn scope(elements: &[Pair<Rule>]) -> Scope {
     let mut ranging: BTreeMap<String, Value> = BTreeMap::new();
+    let mut looped: BTreeSet<String> = BTreeSet::new();
     let mut imported = BTreeSet::new();
     let mut bound: BTreeMap<String, Vec<Option<String>>> = BTreeMap::new();
     for element in elements {
@@ -473,12 +479,19 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
                 if let (Some(over), Some(target)) = (over, sole) {
                     ranging.insert(target.as_str().trim().to_string(), over);
                 }
+                let loops = element
+                    .clone()
+                    .into_inner()
+                    .any(|part| part.as_rule() == Rule::ranges_over);
                 for target in inner
                     .filter(|part| part.as_rule() == Rule::target)
                     .flat_map(Pair::into_inner)
                 {
                     if importing {
                         imported.insert(target.as_str().to_string());
+                    }
+                    if loops {
+                        looped.insert(target.as_str().to_string());
                     }
                     bound
                         .entry(target.as_str().to_string())
@@ -526,9 +539,11 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
     // program also assigns has left the loop's space by the time it is used,
     // and `bound` is where that shows: one entry means one binding.
     ranging.retain(|name, _| bound_once.get(name).is_some_and(|ways| *ways == 1));
+    looped.retain(|name| bound_once.get(name).is_some_and(|ways| *ways == 1));
     Scope {
         defined,
         ranging,
+        looped,
         imported,
         consts,
         candidates,
@@ -578,7 +593,7 @@ fn literal(value: &Pair<Rule>) -> Option<String> {
         // `Unknown` gets. A set here would make the CONSTANTS pass bind a name
         // to one of its own candidates, which is how a set becomes a wrong
         // certainty.
-        Value::List(_) | Value::OneOf(_) | Value::Pattern(_) | Value::Unknown => None,
+        Value::List(_) | Value::OneOf(_) | Value::Pattern(_) | Value::Unknown(_) => None,
     }
 }
 
@@ -608,9 +623,9 @@ fn single_argument(call: &Pair<Rule>) -> Option<Value> {
             text(head.as_str())
                 .map(Value::Text)
                 .or_else(|| shape(head.as_str()).map(Value::Pattern))
-                .unwrap_or(Value::Unknown),
+                .unwrap_or(Value::Unknown(Why::Expression)),
         ),
-        _ => Some(Value::Unknown),
+        _ => Some(Value::Unknown(Why::Expression)),
     }
 }
 
@@ -771,7 +786,9 @@ enum Value {
     /// is not a path: joining onto it, or handing it to a command as a word,
     /// would need the choice this deliberately does not make.
     OneOf(Vec<String>),
-    Unknown,
+    /// No value — and [`Why`] not, carried so that [`Reader::record`] can file
+    /// the REASON an operation named nothing, not merely the fact.
+    Unknown(Why),
 }
 
 /// One argument of a call.
@@ -1235,6 +1252,7 @@ fn method_of(name: &str) -> Option<Method> {
 struct Reader {
     candidates: BTreeMap<String, Vec<String>>,
     ranging: BTreeMap<String, Value>,
+    looped: BTreeSet<String>,
     imported: BTreeSet<String>,
     consts: BTreeMap<String, String>,
     defined: BTreeSet<String>,
@@ -1282,7 +1300,7 @@ impl Reader {
             }
         }
         match values.len() {
-            0 => Value::Unknown,
+            0 => Value::Unknown(Why::Expression),
             1 => values.remove(0),
             // `Path(root) / 'src' / 'x.ts'` — pathlib's join, and the only
             // arithmetic here that leaves a path behind.
@@ -1296,7 +1314,10 @@ impl Reader {
                         }
                         // A part nobody can name does not sink the parts anyone
                         // can: what is left is a language. See `joined_shape`.
-                        Value::List(_) | Value::OneOf(_) | Value::Pattern(_) | Value::Unknown => {
+                        Value::List(_)
+                        | Value::OneOf(_)
+                        | Value::Pattern(_)
+                        | Value::Unknown(_) => {
                             return joined_shape(&values);
                         }
                     }
@@ -1319,14 +1340,14 @@ impl Reader {
                     None => concat_shape(&values),
                 }
             }
-            _ => Value::Unknown,
+            _ => Value::Unknown(Why::Expression),
         }
     }
 
     /// An operand, which a unary operator makes unknowable — `*paths` is a list,
     /// not a path.
     fn operand(&mut self, pair: Pair<Rule>) -> Value {
-        let mut value = Value::Unknown;
+        let mut value = Value::Unknown(Why::Expression);
         let mut plain = true;
         for part in pair.into_inner() {
             match part.as_rule() {
@@ -1334,25 +1355,29 @@ impl Reader {
                 _ => plain = false,
             }
         }
-        if plain { value } else { Value::Unknown }
+        if plain {
+            value
+        } else {
+            Value::Unknown(Why::Expression)
+        }
     }
 
     /// An atom and the calls chained onto it.
     fn expr(&mut self, pair: Pair<Rule>) -> Value {
         let mut parts = pair.into_inner().peekable();
         let Some(head) = parts.next() else {
-            return Value::Unknown;
+            return Value::Unknown(Why::Expression);
         };
         let mut value = match head.as_rule() {
             Rule::string => text(head.as_str())
                 .map(Value::Text)
                 .or_else(|| shape(head.as_str()).map(Value::Pattern))
-                .unwrap_or(Value::Unknown),
+                .unwrap_or(Value::Unknown(Why::Expression)),
             // `(Path('src') / 'x.ts')` — brackets round one thing are that
             // thing, and pathlib's join is written that way as often as not.
             Rule::paren => match self.arguments(&head).as_slice() {
                 [only] if only.keyword.is_none() => only.value.clone(),
-                _ => Value::Unknown,
+                _ => Value::Unknown(Why::Expression),
             },
             Rule::list => {
                 let items = self.arguments(&head);
@@ -1361,12 +1386,12 @@ impl Reader {
                 if items.iter().all(|arg| arg.keyword.is_none()) {
                     Value::List(items.into_iter().map(|arg| arg.value).collect())
                 } else {
-                    Value::Unknown
+                    Value::Unknown(Why::Expression)
                 }
             }
             Rule::dict => {
                 self.arguments(&head);
-                Value::Unknown
+                Value::Unknown(Why::Expression)
             }
             Rule::name => {
                 // A module's function is named by its module: `os.path.exists`
@@ -1403,7 +1428,7 @@ impl Reader {
                     }
                     // A module is not a value, and neither is an attribute of
                     // one: only a name bound to a literal is.
-                    None if name.contains('.') => Value::Unknown,
+                    None if name.contains('.') => Value::Unknown(Why::Expression),
                     None => match self.consts.get(&name) {
                         Some(path) => Value::Text(path.clone()),
                         // Bound to several literals: the set, which `record`
@@ -1415,11 +1440,11 @@ impl Reader {
                             // A loop variable, where the loop said what it
                             // ranged over: a pattern, or a written-out set.
                             .or_else(|| self.ranging.get(&name).cloned())
-                            .unwrap_or(Value::Unknown),
+                            .unwrap_or_else(|| Value::Unknown(self.opaque(&name))),
                     },
                 }
             }
-            _ => Value::Unknown,
+            _ => Value::Unknown(Why::Expression),
         };
         while let Some(part) = parts.next() {
             value = match part.as_rule() {
@@ -1432,14 +1457,14 @@ impl Reader {
                         }
                         // An attribute is not a call: `p.parent` is some other
                         // path, and this does not know which.
-                        None => Value::Unknown,
+                        None => Value::Unknown(Why::Expression),
                     }
                 }
                 Rule::call | Rule::subscript => {
                     self.arguments(&part);
-                    Value::Unknown
+                    Value::Unknown(Why::Expression)
                 }
-                _ => Value::Unknown,
+                _ => Value::Unknown(Why::Expression),
             };
         }
         value
@@ -1459,7 +1484,7 @@ impl Reader {
         };
         for arg in args.into_inner() {
             let mut keyword = None;
-            let mut value = Value::Unknown;
+            let mut value = Value::Unknown(Why::Expression);
             let mut raw = String::new();
             for part in arg.into_inner() {
                 match part.as_rule() {
@@ -1491,10 +1516,10 @@ impl Reader {
             Some(does) => self.call(does, name, args),
             // A function the program defined itself is not a gap in this
             // reader, and left in the worklist they crowd out the ones that are.
-            None if self.defined.contains(name) => Value::Unknown,
+            None if self.defined.contains(name) => Value::Unknown(Why::Expression),
             None => {
                 *self.out.unknown.entry(name.to_string()).or_insert(0) += 1;
-                Value::Unknown
+                Value::Unknown(Why::Expression)
             }
         }
     }
@@ -1506,7 +1531,7 @@ impl Reader {
             Some(does) => self.method(receiver, does, name, args),
             None => {
                 *self.out.unknown.entry(format!(".{name}")).or_insert(0) += 1;
-                Value::Unknown
+                Value::Unknown(Why::Expression)
             }
         }
     }
@@ -1518,33 +1543,33 @@ impl Reader {
             Call::Open => {
                 let write = writes(named(args, 1, "mode"));
                 self.record(name, arg(0), write);
-                Value::Unknown
+                Value::Unknown(Why::Expression)
             }
-            Call::Name => arg(0).unwrap_or(Value::Unknown),
+            Call::Name => arg(0).unwrap_or(Value::Unknown(Why::Expression)),
             Call::Home => Value::Text("~".to_string()),
             Call::Join => join(args),
             Call::Delete => {
                 self.record(name, arg(0), true);
-                Value::Unknown
+                Value::Unknown(Why::Expression)
             }
             Call::Transfer => {
                 self.record(name, arg(0), false);
                 self.record(name, arg(1), true);
-                Value::Unknown
+                Value::Unknown(Why::Expression)
             }
             Call::Walk | Call::Database => {
                 self.record(name, arg(0), false);
-                Value::Unknown
+                Value::Unknown(Why::Expression)
             }
             Call::ChangeDir => {
                 self.out.chdir = true;
-                Value::Unknown
+                Value::Unknown(Why::Expression)
             }
             Call::Command => {
                 self.command(name, args);
-                Value::Unknown
+                Value::Unknown(Why::Expression)
             }
-            Call::Directory | Call::Nothing => Value::Unknown,
+            Call::Directory | Call::Nothing => Value::Unknown(Why::Expression),
         }
     }
 
@@ -1577,8 +1602,13 @@ impl Reader {
                         // `["ffmpeg", "-i", f]` with `f` computed would classify
                         // as an ffmpeg call over a file called `-i`, which is
                         // not a file anybody touched.
-                        _ => {
+                        item => {
+                            let why = match item {
+                                Value::Unknown(why) => *why,
+                                _ => Why::Expression,
+                            };
                             *self.out.unresolved.entry(name.to_string()).or_insert(0) += 1;
+                            *self.out.why.entry(why).or_insert(0) += 1;
                             return;
                         }
                     }
@@ -1588,8 +1618,14 @@ impl Reader {
                 // in this corpus writes; recorded as the argv it mostly is.
                 self.out.ran.push(Ran::Argv(argv));
             }
-            _ => {
+            other => {
+                let why = match other {
+                    Some(Value::Unknown(why)) => *why,
+                    None => Why::Absent,
+                    Some(_) => Why::Expression,
+                };
                 *self.out.unresolved.entry(name.to_string()).or_insert(0) += 1;
+                *self.out.why.entry(why).or_insert(0) += 1;
             }
         }
     }
@@ -1601,33 +1637,33 @@ impl Reader {
         match does {
             Method::Write => {
                 self.record(name, receiver(), true);
-                Value::Unknown
+                Value::Unknown(Why::Expression)
             }
             Method::Read | Method::Walk => {
                 self.record(name, receiver(), false);
-                Value::Unknown
+                Value::Unknown(Why::Expression)
             }
             // Deleting is changing, and this is the shape `rm` takes here.
             Method::Delete => {
                 self.record(name, receiver(), true);
-                Value::Unknown
+                Value::Unknown(Why::Expression)
             }
             Method::Rename => {
                 self.record(name, receiver(), false);
                 self.record(name, positional(args, 0).cloned(), true);
-                Value::Unknown
+                Value::Unknown(Why::Expression)
             }
             Method::Open => {
                 let write = writes(named(args, 0, "mode"));
                 self.record(name, receiver(), write);
-                Value::Unknown
+                Value::Unknown(Why::Expression)
             }
             // `img.save('out.png')`, `fig.savefig(p)`, `frame.to_csv(p)` — here
             // the receiver is a picture or a table and the *argument* is the
             // file, which is the other way round from every method above.
             Method::Save => {
                 self.record(name, positional(args, 0).cloned(), true);
-                Value::Unknown
+                Value::Unknown(Why::Expression)
             }
             Method::Join => match (receiver(), positional(args, 0)) {
                 (Some(Value::Text(base)), Some(Value::Text(rest))) => {
@@ -1635,11 +1671,11 @@ impl Reader {
                 }
                 // One half known is a language, not a shrug.
                 (Some(base), Some(rest)) => joined_shape(&[base, rest.clone()]),
-                _ => Value::Unknown,
+                _ => Value::Unknown(Why::Expression),
             },
             // The same path under another spelling.
-            Method::Same => receiver().unwrap_or(Value::Unknown),
-            Method::Directory | Method::Nothing => Value::Unknown,
+            Method::Same => receiver().unwrap_or(Value::Unknown(Why::Expression)),
+            Method::Directory | Method::Nothing => Value::Unknown(Why::Expression),
         }
     }
 
@@ -1669,7 +1705,35 @@ impl Reader {
                 }
                 *self.out.bounded.entry(render(&set)).or_insert(0) += 1;
             }
-            _ => *self.out.unresolved.entry(call.to_string()).or_insert(0) += 1,
+            // The path was not knowable. Count the miss under the call AND
+            // under the reason it was missed — same total, two questions:
+            // where the misses are, and what rule would stop them.
+            other => {
+                let why = match other {
+                    Some(Value::Unknown(why)) => why,
+                    None => Why::Absent,
+                    // An empty literal, a bare list, a one-member set: not a
+                    // path, by shape rather than by ignorance of a value.
+                    Some(_) => Why::Expression,
+                };
+                *self.out.unresolved.entry(call.to_string()).or_insert(0) += 1;
+                *self.out.why.entry(why).or_insert(0) += 1;
+            }
+        }
+    }
+
+    /// Why a bare name has no value here — the census row a miss lands in.
+    ///
+    /// The order matters: a loop variable IS defined, so asking `defined`
+    /// first would file every `for p in files` as a computed value and the
+    /// loop row would read zero forever.
+    fn opaque(&self, name: &str) -> Why {
+        if self.looped.contains(name) {
+            Why::Loop
+        } else if self.defined.contains(name) {
+            Why::Computed
+        } else {
+            Why::Outside
         }
     }
 }
@@ -1732,7 +1796,7 @@ fn joined_shape(parts: &[Value]) -> Value {
     }
     match path_shaped(&rendered) {
         true => Value::Pattern(rendered),
-        false => Value::Unknown,
+        false => Value::Unknown(Why::Expression),
     }
 }
 
@@ -1769,7 +1833,7 @@ fn concat_shape(parts: &[Value]) -> Value {
     }
     match path_shaped(&rendered) {
         true => Value::Pattern(rendered),
-        false => Value::Unknown,
+        false => Value::Unknown(Why::Expression),
     }
 }
 
@@ -1781,7 +1845,7 @@ fn join(args: &[Arg]) -> Value {
         .map(|arg| arg.value.clone())
         .collect();
     if given.is_empty() {
-        return Value::Unknown;
+        return Value::Unknown(Why::Expression);
     }
     // Every part known is a path; some parts known is a language.
     let parts: Option<Vec<String>> = given

@@ -129,7 +129,12 @@ fn main() -> anyhow::Result<()> {
         "  one of a known set  {bounded}  ({} of them under one directory)",
         tally.located.values().sum::<usize>()
     );
-    println!("  named none          {unresolved}  (computed, f-string, loop variable)");
+    println!(
+        "  named none          {unresolved}, and why — each row names the rule that would shrink it:"
+    );
+    for (why, n) in &tally.why {
+        println!("    {:<34} {n}", why.name());
+    }
     println!("file uses             {}", tally.uses);
     println!(
         "  kept as paths       {}  ({:.1}%)",

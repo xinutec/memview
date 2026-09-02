@@ -135,7 +135,12 @@ fn main() -> anyhow::Result<()> {
         recognised - unresolved,
         100.0 * (recognised - unresolved) as f64 / recognised.max(1) as f64
     );
-    println!("  named none          {unresolved}  (computed, f-string, loop variable)");
+    println!(
+        "  named none          {unresolved}, and why — each row names the rule that would shrink it:"
+    );
+    for (why, n) in &tally.why {
+        println!("    {:<34} {n}", why.name());
+    }
     println!("file uses             {}", tally.uses);
     println!(
         "  kept as paths       {}  ({:.1}%)",

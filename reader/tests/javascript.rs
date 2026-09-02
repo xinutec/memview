@@ -175,3 +175,47 @@ fn one_unknown_word_makes_the_whole_argv_unusable() {
     assert!(program.ran.is_empty());
     assert_eq!(program.unresolved.get("spawnSync"), Some(&1));
 }
+
+/// The census of WHY an operation named nothing — the same account the Python
+/// reader keeps, because `Tally.why` is one shared type and a census that only
+/// one reader fills would read as the other reader missing nothing (#1142).
+#[test]
+fn a_missed_path_carries_the_reason_it_was_missed() {
+    use reader::javascript::Why;
+    // A function parameter: never bound in this program.
+    let outside = read("function f(p) { fs.readFileSync(p); }");
+    assert_eq!(outside.why.get(&Why::Outside), Some(&1));
+    // A name the program bound, to a value this could not read.
+    let computed = read("const p = compute();\nfs.readFileSync(p);");
+    assert_eq!(computed.why.get(&Why::Computed), Some(&1));
+    // An inline expression with no value: a call's result.
+    let expression = read("fs.readFileSync(getPath());");
+    assert_eq!(expression.why.get(&Why::Expression), Some(&1));
+    // No argument at all.
+    let absent = read("fs.readFileSync();");
+    assert_eq!(absent.why.get(&Why::Absent), Some(&1));
+}
+
+/// **`why` and `unresolved` are two keyings of ONE count** — the invariant
+/// asserted on the Python side too, and here so a JavaScript entry site added
+/// without its reason cannot land quietly.
+#[test]
+fn every_unresolved_operation_has_exactly_one_reason() {
+    let source = r#"
+function f(p) { fs.readFileSync(p); }
+const q = compute();
+fs.writeFileSync(q, body);
+fs.readFileSync(getPath());
+fs.readFileSync();
+execSync(cmd);
+spawnSync(prog, ["-i", file]);
+fs.readFileSync("src/x.ts");
+"#;
+    let program = read(source);
+    let misses: usize = program.unresolved.values().sum();
+    let reasons: usize = program.why.values().sum();
+    assert_eq!(misses, reasons);
+    // Real misses, so this cannot pass by both being zero.
+    assert!(misses >= 5, "only {misses} misses");
+    assert_eq!(program.uses.len(), 1);
+}

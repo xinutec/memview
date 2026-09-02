@@ -61,6 +61,14 @@ pub struct Program {
     /// variable, a computed join. Counted rather than guessed at, because the
     /// size of what is being dropped is the only honest way to read the rest.
     pub unresolved: BTreeMap<String, usize>,
+    /// The same operations, by [`Why`] their path was not knowable.
+    ///
+    /// **`why.values().sum() == unresolved.values().sum()`, always** — every
+    /// unresolved operation carries exactly one reason, and there is a test
+    /// that says so. Keyed apart from `unresolved` because the two answer
+    /// different questions: BY CALL says where the misses are, BY REASON says
+    /// what rule would have to exist to stop missing them.
+    pub why: BTreeMap<Why, usize>,
     /// Operations whose path is one of a **known finite set** — a name the
     /// program bound to several literals — by the set, written `{a,b}`.
     ///
@@ -107,6 +115,50 @@ pub struct Program {
     pub did_not_run: Option<&'static str>,
 }
 
+/// Why one file operation's path could not be known — the permanent census of
+/// the remainder, so sizing the next slice never again needs a temporary probe
+/// on `record`'s failure branch (memview#1142 accumulated three stale
+/// inventories for want of this).
+///
+/// **Each variant names the rule that would shrink it**, which is what makes
+/// this a worklist rather than a shrug: `Computed` yields to evaluating more
+/// assignments, `Expression` to more value rules, `Loop` to more iterable
+/// languages — and `Outside` yields to nothing, because the value never was in
+/// the text. That last bucket is the reader's boundary, measured instead of
+/// guessed at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Why {
+    /// A bare name never bound in this program — a function parameter, mostly.
+    /// The value came from outside the text, so no rule can ever read it.
+    Outside,
+    /// A bare name the program bound, to a value this could not read.
+    Computed,
+    /// A loop variable whose iterable is not a language — `for p in files`.
+    /// Includes the refuted listing shape: `os.listdir` yields bare entry
+    /// names, not paths, so recording the listed directory would be a wrong
+    /// claim rather than a gained one (memview#1161, measured then dropped).
+    Loop,
+    /// An inline expression with no value here: a call's result, a subscript,
+    /// an attribute, a join or concatenation whose rendered shape was refused.
+    Expression,
+    /// The call was written without the argument at all — broken or exotic
+    /// code, counted so the census total still matches `unresolved`.
+    Absent,
+}
+
+impl Why {
+    /// The census row's name, as the reports print it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Why::Outside => "from outside the program",
+            Why::Computed => "a name bound to a computed value",
+            Why::Loop => "a loop over what this cannot read",
+            Why::Expression => "an expression with no value here",
+            Why::Absent => "no argument at all",
+        }
+    }
+}
+
 /// What the Python across many programs did — the report's view, and the
 /// worklist for growing this reader.
 #[derive(Debug, Default)]
@@ -125,6 +177,8 @@ pub struct Tally {
     pub refused: Refused,
     pub calls: BTreeMap<String, usize>,
     pub unresolved: BTreeMap<String, usize>,
+    /// See [`Program::why`] — the same total as `unresolved`, by reason.
+    pub why: BTreeMap<Why, usize>,
     /// See [`Program::bounded`]. Counted by `subjects_not_named`.
     pub bounded: BTreeMap<String, usize>,
     /// See [`Program::located`] — an annotation on `bounded`, NOT a second
@@ -179,6 +233,7 @@ impl Tally {
         self.ran += program.ran.len();
         merge(&mut self.calls, program.calls);
         merge(&mut self.unresolved, program.unresolved);
+        merge_why(&mut self.why, program.why);
         merge(&mut self.bounded, program.bounded);
         merge(&mut self.located, program.located);
         merge(&mut self.unknown, program.unknown);
@@ -194,9 +249,16 @@ impl Tally {
         self.ran += other.ran;
         merge(&mut self.calls, other.calls);
         merge(&mut self.unresolved, other.unresolved);
+        merge_why(&mut self.why, other.why);
         merge(&mut self.bounded, other.bounded);
         merge(&mut self.located, other.located);
         merge(&mut self.unknown, other.unknown);
+    }
+}
+
+fn merge_why(into: &mut BTreeMap<Why, usize>, from: BTreeMap<Why, usize>) {
+    for (why, n) in from {
+        *into.entry(why).or_insert(0) += n;
     }
 }
 

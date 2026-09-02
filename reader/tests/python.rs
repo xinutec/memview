@@ -812,3 +812,72 @@ fn the_home_directory_is_a_path_in_both_spellings() {
             .is_empty()
     );
 }
+
+/// The census of WHY an operation named nothing, which #1142 rebuilt three
+/// times as a temporary probe before it became this permanent account.
+///
+/// Each row names the rule that would shrink it, so the assertions here are
+/// what the worklist is sized from — a wrong bucket sizes the wrong slice.
+#[test]
+fn a_missed_path_carries_the_reason_it_was_missed() {
+    use reader::python::Why;
+    // A function parameter: never bound in this program, so the value came
+    // from outside the text. The reader's boundary, not its backlog.
+    let outside = read("def f(p):\n    open(p)\n");
+    assert_eq!(outside.why.get(&Why::Outside), Some(&1));
+    // A name the program bound, to a value this could not read.
+    let computed = read("p = compute()\nopen(p)\n");
+    assert_eq!(computed.why.get(&Why::Computed), Some(&1));
+    // A loop variable whose iterable is not a language. NOT a computed value,
+    // even though the name is defined — `opaque` asks `looped` first, and this
+    // is the assertion that fails if that order ever flips.
+    let looped = read("for p in files:\n    open(p)\n");
+    assert_eq!(looped.why.get(&Why::Loop), Some(&1));
+    // An inline expression with no value: a call's result.
+    let expression = read("open(get_path())\n");
+    assert_eq!(expression.why.get(&Why::Expression), Some(&1));
+    // No argument at all.
+    let absent = read("open()\n");
+    assert_eq!(absent.why.get(&Why::Absent), Some(&1));
+}
+
+/// **`why` and `unresolved` are two keyings of ONE count.** A reason filed
+/// without a miss, or a miss without a reason, and the census stops matching
+/// the thing it explains — this is the invariant every entry site carries.
+#[test]
+fn every_unresolved_operation_has_exactly_one_reason() {
+    let source = "\
+def f(p):
+    open(p)
+    open(q)
+r = compute()
+open(r)
+open(get_path())
+open()
+for s in files:
+    open(s)
+os.system(cmd)
+subprocess.run(argv)
+open('src/x.ts')
+";
+    let program = read(&format!("import os\nimport subprocess\n{source}"));
+    let misses: usize = program.unresolved.values().sum();
+    let reasons: usize = program.why.values().sum();
+    assert_eq!(misses, reasons);
+    // And it counted real misses, so this cannot pass by both being zero —
+    // the census-that-cannot-fire shape, checked on purpose.
+    assert!(misses >= 8, "only {misses} misses");
+    // The one named file is not in either count.
+    assert_eq!(program.uses.len(), 1);
+}
+
+/// A name bound by a loop AND assigned has left the loop's space by the time
+/// it is used — the same bound-once rule `ranging` keeps, asserted for the
+/// census so a reassigned loop variable reads as computed, not as a loop.
+#[test]
+fn a_reassigned_loop_variable_is_a_computed_value_not_a_loop() {
+    use reader::python::Why;
+    let program = read("for p in files:\n    p = adjust(p)\n    open(p)\n");
+    assert_eq!(program.why.get(&Why::Loop), None);
+    assert_eq!(program.why.get(&Why::Computed), Some(&1));
+}

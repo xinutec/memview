@@ -47,7 +47,7 @@ use pest::Parser;
 use pest::iterators::Pair;
 use pest_derive::Parser;
 
-pub use crate::program::{Program, Ran, Refused, Tally, Use};
+pub use crate::program::{Program, Ran, Refused, Tally, Use, Why};
 
 #[derive(Parser)]
 #[grammar = "javascript.pest"]
@@ -393,7 +393,10 @@ enum Value {
     /// this exists. Everywhere else it is as unknown as `Unknown`: a list is
     /// not a path.
     List(Vec<Value>),
-    Unknown,
+    /// No value — and [`Why`] not, carried so that [`Reader::use_of`] can file
+    /// the REASON an operation named nothing, not merely the fact. The same
+    /// carrier the Python reader's `Unknown` is, for the same census.
+    Unknown(Why),
 }
 
 /// One argument of a call, or one entry of an object literal.
@@ -763,6 +766,7 @@ impl Reader {
                         Some(path) => self.out.uses.push(Use { path, write: false }),
                         None => {
                             *self.out.unresolved.entry("import".to_string()).or_insert(0) += 1;
+                            *self.out.why.entry(Why::Expression).or_insert(0) += 1;
                         }
                     }
                 }
@@ -786,16 +790,16 @@ impl Reader {
             }
         }
         match values.len() {
-            0 => Value::Unknown,
+            0 => Value::Unknown(Why::Expression),
             1 if operators == 0 => values.remove(0),
-            _ => Value::Unknown,
+            _ => Value::Unknown(Why::Expression),
         }
     }
 
     /// An operand, which a unary operator makes unknowable — except `await`,
     /// which changes what a value *is* and not what it names.
     fn operand(&mut self, pair: Pair<Rule>) -> Value {
-        let mut value = Value::Unknown;
+        let mut value = Value::Unknown(Why::Expression);
         let mut plain = true;
         for part in pair.into_inner() {
             match part.as_rule() {
@@ -804,35 +808,39 @@ impl Reader {
                 _ => plain = false,
             }
         }
-        if plain { value } else { Value::Unknown }
+        if plain {
+            value
+        } else {
+            Value::Unknown(Why::Expression)
+        }
     }
 
     /// An atom and the calls chained onto it.
     fn expr(&mut self, pair: Pair<Rule>) -> Value {
         let mut parts = pair.into_inner().peekable();
         let Some(head) = parts.next() else {
-            return Value::Unknown;
+            return Value::Unknown(Why::Expression);
         };
         let mut value = match head.as_rule() {
             Rule::string | Rule::template => match text(&head) {
                 Some(literal) => Value::Text(literal),
-                None => Value::Unknown,
+                None => Value::Unknown(Why::Expression),
             },
             Rule::paren => match self.arguments(&head).as_slice() {
                 [only] if only.keyword.is_none() => only.value.clone(),
-                _ => Value::Unknown,
+                _ => Value::Unknown(Why::Expression),
             },
             Rule::array => {
                 let items = self.arguments(&head);
                 if items.iter().all(|arg| arg.keyword.is_none()) {
                     Value::List(items.into_iter().map(|arg| arg.value).collect())
                 } else {
-                    Value::Unknown
+                    Value::Unknown(Why::Expression)
                 }
             }
             Rule::object => {
                 self.arguments(&head);
-                Value::Unknown
+                Value::Unknown(Why::Expression)
             }
             Rule::name => {
                 let mut name = head.as_str().to_string();
@@ -847,14 +855,14 @@ impl Reader {
                         let args = self.arguments(&call);
                         self.named_call(&name, &args)
                     }
-                    None if name.contains('.') => Value::Unknown,
-                    None => self
-                        .consts
-                        .get(&name)
-                        .map_or(Value::Unknown, |path| Value::Text(path.clone())),
+                    None if name.contains('.') => Value::Unknown(Why::Expression),
+                    None => match self.consts.get(&name) {
+                        Some(path) => Value::Text(path.clone()),
+                        None => Value::Unknown(self.opaque(&name)),
+                    },
                 }
             }
-            _ => Value::Unknown,
+            _ => Value::Unknown(Why::Expression),
         };
         while let Some(part) = parts.next() {
             value = match part.as_rule() {
@@ -865,14 +873,14 @@ impl Reader {
                             let args = self.arguments(&call);
                             self.method_call(&value, &method, &args)
                         }
-                        None => Value::Unknown,
+                        None => Value::Unknown(Why::Expression),
                     }
                 }
                 Rule::call | Rule::subscript => {
                     self.arguments(&part);
-                    Value::Unknown
+                    Value::Unknown(Why::Expression)
                 }
-                _ => Value::Unknown,
+                _ => Value::Unknown(Why::Expression),
             };
         }
         value
@@ -890,7 +898,7 @@ impl Reader {
                     continue;
                 }
                 let mut keyword = None;
-                let mut value = Value::Unknown;
+                let mut value = Value::Unknown(Why::Expression);
                 for part in arg.into_inner() {
                     match part.as_rule() {
                         Rule::keyword => {
@@ -924,7 +932,7 @@ impl Reader {
             if !self.defined.contains(name) {
                 *self.out.unknown.entry(name.to_string()).or_insert(0) += 1;
             }
-            return Value::Unknown;
+            return Value::Unknown(Why::Expression);
         };
         if !matches!(call, Call::Nothing) {
             *self.out.calls.entry(name.to_string()).or_insert(0) += 1;
@@ -941,7 +949,7 @@ impl Reader {
             // with `./`, `../`, `/` or `~`, and a package otherwise.
             Call::Module => match first {
                 Some(Value::Text(spec)) if is_a_path(spec) => self.use_of(name, first, false),
-                Some(Value::Text(_)) => Value::Unknown,
+                Some(Value::Text(_)) => Value::Unknown(Why::Expression),
                 _ => self.use_of(name, first, false),
             },
             Call::Write => self.use_of(name, first, true),
@@ -949,31 +957,43 @@ impl Reader {
             Call::Transfer => {
                 self.use_of(name, first, false);
                 self.use_of(name, positional(args, 1), true);
-                Value::Unknown
+                Value::Unknown(Why::Expression)
             }
             // A directory listing is a read of a place, not of a file. Counted
             // as a call and attributed to nothing, the same answer Python's
             // `Call::Walk` gives.
-            Call::Walk | Call::Directory => Value::Unknown,
+            Call::Walk | Call::Directory => Value::Unknown(Why::Expression),
             Call::ChangeDir => {
                 self.out.chdir = true;
-                Value::Unknown
+                Value::Unknown(Why::Expression)
             }
             Call::Shell => {
                 match first {
                     Some(Value::Text(script)) => self.out.ran.push(Ran::Script(script.clone())),
-                    _ => {
+                    other => {
+                        let why = match other {
+                            Some(Value::Unknown(why)) => *why,
+                            None => Why::Absent,
+                            Some(_) => Why::Expression,
+                        };
                         *self.out.unresolved.entry(name.to_string()).or_insert(0) += 1;
+                        *self.out.why.entry(why).or_insert(0) += 1;
                     }
                 }
-                Value::Unknown
+                Value::Unknown(Why::Expression)
             }
             Call::Spawn => {
                 let program = match first {
                     Some(Value::Text(word)) => word.clone(),
-                    _ => {
+                    other => {
+                        let why = match other {
+                            Some(Value::Unknown(why)) => *why,
+                            None => Why::Absent,
+                            Some(_) => Why::Expression,
+                        };
                         *self.out.unresolved.entry(name.to_string()).or_insert(0) += 1;
-                        return Value::Unknown;
+                        *self.out.why.entry(why).or_insert(0) += 1;
+                        return Value::Unknown(why);
                     }
                 };
                 let mut argv = vec![program];
@@ -985,18 +1005,23 @@ impl Reader {
                     for item in items {
                         match item {
                             Value::Text(word) => argv.push(word.clone()),
-                            _ => {
+                            item => {
+                                let why = match item {
+                                    Value::Unknown(why) => *why,
+                                    _ => Why::Expression,
+                                };
                                 *self.out.unresolved.entry(name.to_string()).or_insert(0) += 1;
-                                return Value::Unknown;
+                                *self.out.why.entry(why).or_insert(0) += 1;
+                                return Value::Unknown(why);
                             }
                         }
                     }
                 }
                 self.out.ran.push(Ran::Argv(argv));
-                Value::Unknown
+                Value::Unknown(Why::Expression)
             }
             Call::Join => join(args),
-            Call::Nothing => Value::Unknown,
+            Call::Nothing => Value::Unknown(Why::Expression),
         }
     }
 
@@ -1012,14 +1037,14 @@ impl Reader {
         // up with `replace`, `split` and `map`, which is the failure
         // `NOTHING_METHODS` exists to prevent.
         if NOTHING_METHODS.contains(&method) {
-            return Value::Unknown;
+            return Value::Unknown(Why::Expression);
         }
         match callable(method) {
-            Some(Call::Nothing) => Value::Unknown,
+            Some(Call::Nothing) => Value::Unknown(Why::Expression),
             Some(_) => self.named_call(method, args),
             None => {
                 *self.out.unknown.entry(method.to_string()).or_insert(0) += 1;
-                Value::Unknown
+                Value::Unknown(Why::Expression)
             }
         }
     }
@@ -1034,10 +1059,29 @@ impl Reader {
                 });
                 Value::Text(path.clone())
             }
-            _ => {
+            // The path was not knowable. Count the miss under the call AND
+            // under the reason — same total, two questions: where the misses
+            // are, and what rule would stop them. Python's `record` does the
+            // same, and `Tally.why` is checked against `unresolved` in a test.
+            other => {
+                let why = match other {
+                    Some(Value::Unknown(why)) => *why,
+                    None => Why::Absent,
+                    Some(_) => Why::Expression,
+                };
                 *self.out.unresolved.entry(call.to_string()).or_insert(0) += 1;
-                Value::Unknown
+                *self.out.why.entry(why).or_insert(0) += 1;
+                Value::Unknown(why)
             }
+        }
+    }
+
+    /// Why a bare name has no value here — the census row a miss lands in.
+    fn opaque(&self, name: &str) -> Why {
+        if self.defined.contains(name) {
+            Why::Computed
+        } else {
+            Why::Outside
         }
     }
 }
@@ -1071,11 +1115,13 @@ fn join(args: &[Arg]) -> Value {
             Value::Text(part) => {
                 joined = format!("{}/{part}", joined.trim_end_matches('/'));
             }
-            Value::List(_) | Value::Unknown => return Value::Unknown,
+            Value::List(_) | Value::Unknown(_) => {
+                return Value::Unknown(Why::Expression);
+            }
         }
     }
     if joined.is_empty() {
-        Value::Unknown
+        Value::Unknown(Why::Expression)
     } else {
         Value::Text(joined)
     }
