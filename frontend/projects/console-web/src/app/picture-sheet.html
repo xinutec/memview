@@ -2,7 +2,16 @@
      differ only in the name. Ellipsised from the left: what changes between two
      of them is the end of the path, and the host is what they have in common. -->
 <header class="what">
-  <span class="where" [title]="url">{{ url }}</span>
+  <!-- ⚠ **`<bdi>` and not bare text.** The span is `direction: rtl` so the cut
+       falls at the START of a long address; without an isolate, the bidi
+       algorithm then treats the leading `/` of a path as a neutral character and
+       moves it to the other end — `/home/…/room.png` was drawn as
+       `home/…/room.png/`, which reads as a directory. The isolate keeps the
+       address's own order while leaving the container's to decide which end
+       overflows. -->
+  <span class="where" [title]="url"
+    ><bdi>{{ url }}</bdi></span
+  >
   <button matIconButton type="button" aria-label="close this picture" (click)="close()">
     <mat-icon>close</mat-icon>
   </button>
@@ -18,14 +27,33 @@
     {{ why }}
   </p>
 } @else if (at(); as src) {
+  <!-- A button, so a tap is not the only way in: it takes focus, and Enter on it
+       is the same toggle. The continuous gestures are on top of that rather than
+       instead of it — see `zoom.ts` for the arithmetic and the handlers below
+       for which pointer means what.
+
+       ⚠ **`touch-action: none` is in the stylesheet and is load-bearing.**
+       Without it the browser keeps the pinch for itself and the pointer stream
+       stops mid-gesture. -->
   <button
     class="frame"
-    [class.natural]="natural()"
+    #frame
     type="button"
-    [attr.aria-label]="natural() ? 'fit this picture to the screen' : 'see this picture full size'"
-    (click)="zoom()"
+    [attr.aria-label]="close_up() ? 'show the whole picture' : 'look closer at this picture'"
+    (pointerdown)="took($event)"
+    (pointermove)="drew($event)"
+    (pointerup)="let_go($event)"
+    (pointercancel)="let_go($event)"
+    (wheel)="rolled($event)"
+    (click)="tapped($event)"
   >
-    <img [src]="src" [class.natural]="natural()" [alt]="'a picture from ' + url" />
+    <img
+      #picture
+      [src]="src"
+      [alt]="'a picture from ' + url"
+      [style.transform]="drawn()"
+      (load)="measured()"
+    />
   </button>
 } @else {
   <!-- Down a tunnel to a phone, so this is seconds rather than an instant. -->

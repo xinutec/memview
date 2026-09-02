@@ -43,46 +43,48 @@
 //
 // ⚠ **No scroller of its own** (DL-ANGULAR-NESTED-SCROLLER):
 // `mat-bottom-sheet-container` already scrolls, and a second one inside it
-// fights the first. At its own size the picture simply overflows this box, and
-// the container is what reaches the rest of it.
-//
-// ⚠ **Which is why it stops centring at that point.** Overflow from centred
-// content goes past the top and left edges as well as the bottom and right, and
-// what is past the start edge is not scrollable by anyone — measured: with
-// `align-items: center` the sheet did not move under a wheel event at all, and
-// half the render was unreachable. Aligned to the start, the whole overflow is
-// in the direction a scroll can go.
+// fights the first. Nothing here needs one — the picture is moved by a
+// transform, so what is off the edge is reached by dragging rather than by
+// scrolling, and `overflow: hidden` keeps a magnified picture from painting over
+// the address above it.
 .frame {
   flex: 1 1 auto;
   min-height: 0;
   padding: 0;
   border: 0;
   background: none;
-  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
 
-  &.natural {
-    align-items: flex-start;
-    justify-content: flex-start;
+  // ⚠ **Load-bearing, not a nicety.** With the browser's own gestures left on,
+  // a pinch is taken for page zoom and the pointer stream stops part way
+  // through: the picture sticks at whatever it had reached. `none` says every
+  // touch on this element is the app's. The system back gesture is unaffected —
+  // that is the activity's, and it never reaches the page.
+  touch-action: none;
+  // A drag is what this is for; the pointer should say so before it is tried,
+  // and while it is happening.
+  cursor: grab;
+
+  &:active {
+    cursor: grabbing;
   }
 
   img {
-    // Fitted: the whole picture, however it is shaped.
+    // Fitted is where it starts and what `zoom.ts` measures from: `scale: 1` is
+    // this size, not the picture's own pixels.
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
-  }
-
-  // Its own size, and the sheet scrolls to reach the rest of it. This is what a
-  // render is opened for — whether a wall came out straight is not visible in
-  // something fitted to a phone.
-  img.natural {
-    max-width: none;
-    max-height: none;
-    // ⚠ The image must not shrink to the flex line's size, which is what
-    // `align-items: center` on the frame would otherwise do to it.
-    flex: 0 0 auto;
+    // ⚠ The transform is set from the component every frame of a gesture, so
+    // there must be no transition on it — one turns a pinch into the picture
+    // chasing the fingers a fifth of a second behind.
+    transform-origin: center;
+    // Dragging a picture is the gesture; dragging the FILE is the browser's own
+    // idea about images and it fires instead of ours.
+    user-select: none;
+    -webkit-user-drag: none;
   }
 }

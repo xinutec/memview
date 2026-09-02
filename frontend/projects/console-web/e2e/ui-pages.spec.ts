@@ -4781,3 +4781,118 @@ test('a picture the session named by its place on the disk opens too @ phone wid
 
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
 });
+
+/** The `transform` the viewer has put on the picture, read back as numbers. */
+async function placed(page: Page): Promise<{ scale: number; x: number; y: number }> {
+  return page.locator('app-picture-sheet img').evaluate((img) => {
+    const matrix = new DOMMatrixReadOnly(getComputedStyle(img).transform);
+    return { scale: matrix.a, x: matrix.e, y: matrix.f };
+  });
+}
+
+/** Open the viewer on a render big enough to have somewhere to move to. */
+async function opened(page: Page): Promise<void> {
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+        { kind: 'text', text: '![the room](/home/example/peek/room.png)', at: NEXT },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.route('**/api/picture*', (r) =>
+    // ⚠ **Not `tiny.png`.** At 2×4 it is smaller than the phone even at the
+    // closest magnification, so there is nowhere to drag it to and the pan
+    // assertion reads zero against a view that is behaving perfectly. This one
+    // is 800×1000 — see `fixtures/make-render.mjs` for what it is and why.
+    r.fulfill({
+      path: `${test.info().project.testDir}/fixtures/render.png`,
+      contentType: 'image/png',
+    }),
+  );
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.locator('a.picture-link').click();
+  await page.locator('app-picture-sheet img').waitFor();
+  await settleTransforms(page);
+}
+
+test('a picture can be pinched closer and dragged about @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **Real touches, through CDP, and not `dispatchEvent`.** A synthesised
+  // pointer has an id the browser does not know, so `setPointerCapture` throws
+  // `NotFoundError` and the handler is abandoned before it records the finger —
+  // the first cut of this test read scale 1 and looked like a broken pinch. What
+  // `Input.dispatchTouchEvent` sends goes through the same path a thumb does,
+  // capture included. `zoom.spec.ts` has the arithmetic; this has the wiring.
+  await opened(page);
+  expect(await placed(page), 'opens on the whole picture').toMatchObject({ scale: 1 });
+
+  const touch = await page.context().newCDPSession(page);
+  const box = await page.locator('.frame').boundingBox();
+  const mid = {
+    x: (box?.x ?? 0) + (box?.width ?? 0) / 2,
+    y: (box?.y ?? 0) + (box?.height ?? 0) / 2,
+  };
+  const fingers = (spread: number) => [
+    { x: mid.x - spread, y: mid.y, id: 1 },
+    { x: mid.x + spread, y: mid.y, id: 2 },
+  ];
+
+  // Two fingers 60px apart, spread to 240: four times, about their middle.
+  await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: fingers(30) });
+  await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: fingers(120) });
+
+  const close = await placed(page);
+  expect(close.scale).toBeGreaterThan(3.9);
+  expect(close.scale).toBeLessThan(4.1);
+
+  await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+
+  // ⚠ **One finger after two.** The pair has to be forgotten when a finger
+  // lifts, or the next drag is read as a pinch against a finger that is gone.
+  await touch.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: mid.x, y: mid.y, id: 3 }],
+  });
+  await touch.send('Input.dispatchTouchEvent', {
+    type: 'touchMove',
+    touchPoints: [{ x: mid.x - 80, y: mid.y, id: 3 }],
+  });
+  await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+
+  const dragged = await placed(page);
+  expect(dragged.x, 'the drag moved it left').toBeLessThan(close.x);
+  expect(dragged.scale, 'and did not change how close it is').toBeCloseTo(close.scale, 3);
+
+  // ⚠ **The drag must not also toggle.** A pan ends with a `click` on the
+  // element it started on, and without the slip guard the picture jumps back to
+  // fitted every time it is moved — the gesture undoing itself as it finishes.
+  expect(await placed(page)).toMatchObject({ scale: dragged.scale, x: dragged.x });
+
+  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+});
+
+test('a tap looks closer, and a second tap shows the whole picture @ phone width', async ({
+  page,
+}) => {
+  // The keyboard path is the same handler: the button takes focus and Enter
+  // reaches it, which is what keeps a gesture-driven control usable without one.
+  await opened(page);
+
+  await page.locator('.frame').click();
+  // ⚠ **Polled, not read once.** The transform is written on the next render,
+  // and an assertion in the same tick as the event reads the previous frame —
+  // which is how a working toggle looked broken here for twenty minutes.
+  await expect.poll(async () => (await placed(page)).scale).toBeGreaterThan(1);
+
+  // The keyboard reaches the same handler: the picture is a button, so it takes
+  // focus and Enter activates it. That is what keeps a control driven by
+  // gestures usable without them.
+  await page.locator('.frame').press('Enter');
+  await expect.poll(() => placed(page)).toMatchObject({ scale: 1, x: 0, y: 0 });
+});

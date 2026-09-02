@@ -1469,6 +1469,28 @@ So the arrangement is: **every picture the console shows comes from the console.
   them would take away the reason for looking. This one is not in the transcript
   at all.
 
+- **It is pinched, dragged and tapped**, and the arithmetic for that lives apart
+  from the sheet in `zoom.ts` — gesture maths is wrong in ways nobody sees by
+  reading it, so it is a pure function of a view and a gesture, tested on its own.
+  A pinch scales about the point between the fingers rather than the middle of the
+  screen: scaling about the centre is a line shorter and makes what you are
+  zooming towards slide out from under your hand. A drag is bounded by what the
+  picture overhangs, so it can never be flung somewhere there is no gesture to
+  bring it back from. A tap — or Enter, since the picture is a button — goes in
+  about that point, and a second one returns to the whole picture exactly rather
+  than by undoing the way in.
+
+  ⚠ **`touch-action: none` is load-bearing.** Left to itself the browser takes
+  the pinch for page zoom and the pointer stream stops mid-gesture. The system
+  back gesture is unaffected: that belongs to the activity and never reaches the
+  page.
+
+  ⚠ **The pair a pinch is measured from comes out of the map of fingers, either
+  side of one update.** Only one finger moves per event, so "where they were" is
+  the map before the write and "where they are" is after it. A separate copy of
+  the pair loses the first increment of every gesture — a spread from 60px to
+  240px, which is four times, came out as 1.6.
+
 - **The bytes come through `HttpClient`, not an `<img src>`.** These fail
   ordinarily — a session's render server outlives its links by minutes — and the
   two things a failure means need different answers from the person reading it.
