@@ -510,3 +510,88 @@ async fn something_too_large_is_refused_while_it_arrives_when_nothing_declared_i
         "it went past the 8 MB this fetches, without ever saying how big it was"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The same route, given a place on this disk rather than an address.
+//
+// ⚠ **The shape a session actually writes.** It has the file it just rendered;
+// the URL exists only if it is also running a server. observe wrote
+// `![Photo: cabinet corner](/Users/…/lroom-at20s-photo-upright.jpg)`.
+// ---------------------------------------------------------------------------
+
+/// A file with these bytes in it, under a directory this test owns.
+fn on_disk(name: &str, bytes: &[u8]) -> std::path::PathBuf {
+    let dir = scratch(name);
+    std::fs::create_dir_all(&dir).expect("a directory");
+    let path = dir.join("render.png");
+    std::fs::write(&path, bytes).expect("written");
+    path
+}
+
+#[tokio::test]
+async fn a_picture_named_by_its_place_on_this_disk_is_read_from_it() {
+    let path = on_disk("read", JPEG);
+
+    let got = fetch(path.to_str().expect("a path")).await.expect("read");
+
+    // Sniffed here as everywhere: the name says `.png` and the bytes say JPEG,
+    // and what the phone is told has to be what it is about to decode.
+    assert_eq!(got.media_type, "image/jpeg");
+    assert_eq!(got.bytes, JPEG);
+}
+
+#[tokio::test]
+async fn a_file_that_is_not_a_picture_is_not_served_as_one_from_disk_either() {
+    // ⚠ **The bound on what this route can hand out.** It will open any path,
+    // which is deliberate (see `from_disk`) — what stops it being a way to read
+    // a key or a transcript is that nothing which fails the sniff comes back.
+    let path = on_disk("secret", b"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 pippijn@mac\n");
+
+    let why = fetch(path.to_str().expect("a path"))
+        .await
+        .expect_err("refused");
+
+    assert!(matches!(why, Reason::Answered(_)));
+    let said = why.to_string();
+    assert!(said.contains("not a PNG"), "{said}");
+    // And the refusal quotes the head of it, which is how an error page names
+    // itself — so a private file's first line must not be in there.
+    assert!(
+        !said.contains("ssh-ed25519"),
+        "the refusal quoted the file: {said}"
+    );
+}
+
+#[tokio::test]
+async fn a_path_that_is_not_there_says_so_rather_than_hanging() {
+    // The everyday one: the render was overwritten by the next run, or the
+    // directory was cleaned.
+    let why = fetch("/no/such/render.png").await.expect_err("refused");
+
+    assert!(why.to_string().starts_with("/no/such/render.png:"), "{why}");
+}
+
+#[tokio::test]
+async fn a_directory_is_not_a_picture() {
+    let dir = scratch("dir");
+    std::fs::create_dir_all(&dir).expect("a directory");
+
+    let why = fetch(dir.to_str().expect("a path"))
+        .await
+        .expect_err("refused");
+
+    assert!(why.to_string().ends_with("is not a file"), "{why}");
+}
+
+#[tokio::test]
+async fn a_file_too_large_for_the_wire_is_refused_at_its_size_not_after_reading_it() {
+    let mut heavy = PNG.to_vec();
+    heavy.resize(REACH + 1, 0);
+    let path = on_disk("heavy", &heavy);
+
+    let why = fetch(path.to_str().expect("a path"))
+        .await
+        .expect_err("refused");
+
+    assert_eq!(why.to_string(), "it is 8 MB, and this serves at most 8 MB");
+}

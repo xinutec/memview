@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { LONGEST, fetchedAt, fitted, pointedAt, pictorial, weight } from './picture';
+import { LONGEST, fetchable, fetchedAt, fitted, pointedAt, pictorial, weight } from './picture';
 
 describe('fitted', () => {
   it('brings a phone screenshot down to the edge worth sending', () => {
@@ -50,17 +50,43 @@ describe('pictorial', () => {
     expect(pictorial('http://h/a.png?again=2')).toBe(true);
   });
 
+  it('recognises a render named by where it is on the disk', () => {
+    // ⚠ **The shape observe actually wrote**, and the one that did nothing: a
+    // session has the file it just rendered, and only has a URL for it if it
+    // also happens to be running a server.
+    expect(pictorial('/Users/example/Code/observe/data/peek/lroom-at20s-render.png')).toBe(true);
+  });
+
   it('leaves alone what the console could not fetch anyway', () => {
     // `file:` is refused at the other end too — see `console::images::fetch` —
     // and a link the app rewrote but the console will not serve is a tap that
     // fails where it used to work.
     expect(pictorial('file:///home/example/render.png')).toBe(false);
-    expect(pictorial('/local/page.png')).toBe(false);
     expect(pictorial('not a url at all')).toBe(false);
+    // ⚠ The console's own routes are not places on a disk. Rewriting one would
+    // send the console to fetch itself.
+    expect(pictorial('/api/sessions/s1/images/2026-08-05.png')).toBe(false);
   });
 
   it('says nothing about a page, which keeps its own behaviour', () => {
     expect(pictorial('https://example.invalid/tasks/1323')).toBe(false);
+  });
+});
+
+describe('fetchable', () => {
+  it('takes both shapes a session writes, and only those', () => {
+    // An address when it was serving, a path when it simply has the file.
+    expect(fetchable('http://h:8917/data/peek/a.png')).toBe(true);
+    expect(fetchable('/Users/example/render.dat')).toBe(true);
+    expect(fetchable('file:///etc/passwd')).toBe(false);
+    expect(fetchable('/api/state')).toBe(false);
+  });
+
+  it('is what an explicit image asks, so a render need not be named for what it is', () => {
+    // `![alt](…)` is the author saying it is a picture; the extension has
+    // nothing left to decide. `pictorial` stays stricter for a plain link.
+    expect(fetchable('/Users/example/data/peek/at20s')).toBe(true);
+    expect(pictorial('/Users/example/data/peek/at20s')).toBe(false);
   });
 });
 

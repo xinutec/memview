@@ -20,18 +20,22 @@
 //!
 //! ## And the other direction: a picture a session pointed at
 //!
-//! A session that renders something serves it — observe puts its reconstruction
-//! previews on an ad-hoc HTTP server and writes the URL into the conversation.
-//! Those URLs name this machine's LAN address, which the phone reading them is
-//! not on: it reaches the console through a tunnel isis carries, and the one-way
-//! VPN means nothing routes back the other way. So the link is real, and
-//! following it from the phone reaches nothing. [`fetch`] is what closes that
-//! gap — the Mac can reach the LAN, so the Mac fetches, and the phone asks the
-//! console it is already talking to.
+//! A session that renders something names it in the conversation two ways, and
+//! the phone could follow neither. **An address**, when the session is also
+//! running a server — observe puts its reconstruction previews on an ad-hoc HTTP
+//! server — names this machine's LAN, which the phone is not on: it reaches the
+//! console through a tunnel isis carries, and the one-way VPN means nothing
+//! routes back. **A path** is the commoner one, because a session has the file
+//! and only has a URL if it is also serving it; a path names something that is on
+//! this Mac and nowhere else.
 //!
-//! Both halves of this module answer the same question with the same code: are
-//! these bytes a picture? [`sniff`] decides for what arrives from the phone and
-//! for what arrives from a URL, and neither believes what it is told.
+//! [`fetch`] closes both, from the one place that can reach either: the Mac reads
+//! it, and the phone asks the console it is already talking to.
+//!
+//! Every half of this module answers the same question with the same code: are
+//! these bytes a picture? [`sniff`] decides for what arrives from the phone, for
+//! what a server answers and for what is read off the disk — and none of the
+//! three believes what it is told.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -206,14 +210,16 @@ impl std::fmt::Display for Reason {
     }
 }
 
-/// Fetch a picture a session pointed at.
+/// Fetch a picture a session pointed at, by URL or by where it sits on this disk.
 ///
-/// ⚠ **This exists because the phone is not on the LAN.** The URLs are real and
-/// unreachable from where they are read: the phone talks to the console down a
-/// tunnel this Mac dialled out to isis, and nothing routes back toward the LAN
-/// those addresses are on. Fetching here and serving from the console is the
-/// only arrangement that does not amend the one-way VPN — see
-/// [`crate::images`]'s module note.
+/// ⚠ **This exists because the phone is not on the LAN, and not on the disk
+/// either.** Both shapes a session writes are unreachable from where they are
+/// read: a URL names an address the phone cannot route to — it talks to the
+/// console down a tunnel this Mac dialled out to isis, and nothing goes back the
+/// other way — and a path names a file that is on the Mac and nowhere else.
+/// Reading here and serving from the console is the only arrangement that does
+/// not amend the one-way VPN. See [`crate::images`]'s module note, and
+/// [`from_disk`] for what the path half is allowed to open.
 ///
 /// ## Why an open fetch is not a new privilege
 ///
@@ -230,6 +236,16 @@ impl std::fmt::Display for Reason {
 /// for again ([`keep`]); this is a window onto a file that lives somewhere else
 /// and is rewritten by whatever renders it.
 pub async fn fetch(url: &str) -> Result<Fetched, Reason> {
+    // ⚠ **A path is the commoner shape, not the exotic one.** A session writing
+    // about something it just rendered has the FILE; the URL exists only if it
+    // also happens to be running a server. So observe wrote
+    // `![Photo: cabinet corner](/Users/…/lroom-at20s-photo-upright.jpg)` and it
+    // was a link to nowhere — a path resolves against the console's own origin,
+    // where it falls through to the single-page app. Reading it here is what
+    // makes the ordinary thing to write the thing that works.
+    if url.starts_with('/') {
+        return from_disk(std::path::Path::new(url));
+    }
     let asked = reqwest::Url::parse(url).map_err(|why| Reason::Asked(format!("{url}: {why}")))?;
     if !matches!(asked.scheme(), "http" | "https") {
         return Err(Reason::Asked(format!(
@@ -282,6 +298,60 @@ pub async fn fetch(url: &str) -> Result<Fetched, Reason> {
             // and is usually all of what a person needs: a 200 carrying an
             // apology reads exactly like a broken picture without it.
             described(&bytes)
+        ))
+    })?;
+    Ok(Fetched {
+        media_type: media_type.to_string(),
+        bytes,
+    })
+}
+
+/// A picture the session named by where it is on this disk.
+///
+/// ⚠ **What this will hand out is any file on the Mac that IS a picture**, which
+/// is Pippijn's decision (2026-09-02) and belongs in the open rather than in a
+/// changelog. Three things bound it. The sniff below: only PNG, JPEG, GIF and
+/// WebP come back, so this is not a way to read a key or a transcript. Who can
+/// ask: the phone reaches the console over a tunnel whose TLS terminates here
+/// against a pinned key. And who it reaches: the person holding that phone could
+/// have opened the file anyway, and a session that could plant a path already
+/// runs shell on the machine the file is on. The narrower rule considered —
+/// only under the session's own working directory — was rejected because
+/// sessions render into `/tmp` constantly, and a session can copy a file into
+/// its own tree in one command regardless.
+///
+/// The size is read from the metadata before the bytes, so a video linked by
+/// mistake is refused at its size rather than after being loaded.
+fn from_disk(path: &std::path::Path) -> Result<Fetched, Reason> {
+    let about = std::fs::metadata(path)
+        .map_err(|why| Reason::Answered(format!("{}: {why}", path.display())))?;
+    if !about.is_file() {
+        return Err(Reason::Answered(format!(
+            "{} is not a file",
+            path.display()
+        )));
+    }
+    if about.len() > REACH as u64 {
+        return Err(Reason::Answered(format!(
+            "it is {} MB, and this serves at most {} MB",
+            about.len() / (1024 * 1024),
+            REACH / (1024 * 1024)
+        )));
+    }
+    let bytes = std::fs::read(path)
+        .map_err(|why| Reason::Answered(format!("{}: {why}", path.display())))?;
+    let (media_type, _) = sniff(&bytes).ok_or_else(|| {
+        // ⚠ **Not a word of what is in it**, which is where this differs from the
+        // fetched half — that quotes the first line, because an error page
+        // naming itself is the whole of what a person needs and a server chose
+        // to send it. Here there is no server and no choosing: a refusal that
+        // quoted the head would make this route a way to read the first eighty
+        // bytes of ANY file on the Mac, and the sniff would have stopped
+        // exactly nothing. Caught by the test that hands it an ssh key.
+        Reason::Answered(format!(
+            "{} is not a PNG, JPEG, GIF or WebP — {} bytes of something else",
+            path.display(),
+            bytes.len()
         ))
     })?;
     Ok(Fetched {

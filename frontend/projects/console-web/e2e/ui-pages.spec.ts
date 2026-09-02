@@ -4736,3 +4736,48 @@ test("a render whose server is gone says so, in the console's words @ phone widt
 
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
 });
+
+test('a picture the session named by its place on the disk opens too @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **The shape a session writes when it is not also running a server**, which
+  // is most of the time: it has the file it just rendered. observe wrote
+  // `![Photo: cabinet corner](/Users/…/lroom-at20s-photo-upright.jpg)` and the
+  // tap did nothing useful — a path resolves against the console's own origin,
+  // where it falls through to this app and reloads the page it was made from.
+  const FILE = '/home/example/Code/observe/data/peek/lroom-at20s-photo-upright.jpg';
+  let asked = '';
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        { kind: 'started', model: 'claude-opus-5[1m]', cwd: '/home/example/Code', tools: 14 },
+        { kind: 'text', text: `![Photo: cabinet corner](${FILE})`, at: NEXT },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.route('**/api/picture*', (r) => {
+    asked = r.request().url();
+    return r.fulfill({ path: tinyPng(), contentType: 'image/png' });
+  });
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+
+  // The alt text is the label: it is what the author wrote it to be, and it
+  // reads better than a path that fills three lines of a phone.
+  await expect(page.locator('a.picture-link')).toHaveText('Photo: cabinet corner');
+  await page.locator('a.picture-link').click();
+
+  const shown = page.locator('app-picture-sheet img');
+  await shown.waitFor();
+  expect(asked, 'the console is asked for the file, by its place on the disk').toContain(
+    encodeURIComponent(FILE),
+  );
+  expect(await shown.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(2);
+  // The address bar above the picture says which file, since the link did not.
+  await expect(page.locator('app-picture-sheet .where')).toContainText('lroom-at20s');
+
+  await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
+});

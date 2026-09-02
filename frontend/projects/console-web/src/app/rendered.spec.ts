@@ -113,6 +113,19 @@ describe('Rendered', () => {
     expect(html).not.toContain('class="picture-link"');
   });
 
+  it('opens a picture the session named by its place on the disk', () => {
+    // ⚠ **What observe wrote, and what did nothing.** A path resolves against
+    // the console's own origin, where it falls through to this app: the tap
+    // reloaded the page it was made from.
+    const html = render('![Photo: cabinet corner](/Users/example/data/peek/lroom-photo.jpg)\n');
+
+    expect(html).toContain('class="picture-link"');
+    expect(html).toContain(
+      'href="/api/picture?url=%2FUsers%2Fexample%2Fdata%2Fpeek%2Flroom-photo.jpg"',
+    );
+    expect(shown(html)).toContain('Photo: cabinet corner');
+  });
+
   it('draws a markdown image as the same link rather than fetching it inline', () => {
     // A transcript that inlines pictures fetches a megabyte per scroll past a
     // sentence, down a tunnel, on a phone that may be on cellular.

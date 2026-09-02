@@ -2,7 +2,7 @@ import { Pipe, PipeTransform, SecurityContext, inject } from '@angular/core';
 import { DomSanitizer } from '@angular/platform-browser';
 import { Marked, type Tokens } from 'marked';
 
-import { fetchedAt, pictorial } from './picture';
+import { fetchable, fetchedAt, pictorial } from './picture';
 
 /**
  * A checked and an unchecked task, as characters rather than as controls.
@@ -96,10 +96,17 @@ const renderer = new Marked({
      *
      * The alt text is the label when there is one, because that is what it was
      * written to be.
+     *
+     * ⚠ **[[fetchable]] here, where a plain link asks [[pictorial]].** The `!`
+     * is the author saying this is a picture, so an extension has nothing left
+     * to decide — and what a session renders is not always named for what it
+     * is. A link written without the `!` gets the stricter test, because most
+     * links are not pictures and guessing wrong takes a page away from the
+     * browser that could have shown it.
      */
     image(token: Tokens.Image): string {
       const label = attribute(token.text || token.href);
-      if (!pictorial(token.href)) return `<a href="${attribute(token.href)}">${label}</a>`;
+      if (!fetchable(token.href)) return `<a href="${attribute(token.href)}">${label}</a>`;
       return `<a class="${PICTURE}" href="${attribute(fetchedAt(token.href))}">${label}</a>`;
     },
   },

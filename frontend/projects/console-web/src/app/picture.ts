@@ -159,20 +159,42 @@ export function weight(bytes: number): string {
  */
 const SHOWN = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
 
-/** Whether a link points at something this app can open as a picture. */
-export function pictorial(href: string): boolean {
+/**
+ * Whether the console could open this at all — either shape a session writes.
+ *
+ * **An address**, when the session was also running a server, or **a path**,
+ * when it simply has the file. The second is the commoner one and was the one
+ * that did not work: observe wrote
+ * `![Photo: cabinet corner](/Users/…/lroom-at20s-photo-upright.jpg)`, which a
+ * browser resolves against the console's own origin, where it falls through to
+ * this very app. `console::images::fetch` reads it off the disk instead.
+ *
+ * ⚠ **The console's own routes are not paths on a disk.** `/api/…` is this
+ * app talking to its runner, and rewriting one of those would send the console
+ * to fetch itself.
+ */
+export function fetchable(href: string): boolean {
+  if (href.startsWith('/api/')) return false;
+  // A path, which `new URL` cannot parse without a base and should not: what
+  // makes it openable is that it names a file on the machine the console is on.
+  if (href.startsWith('/')) return true;
   let asked: URL;
   try {
-    // Absolute only: `new URL` without a base throws on a relative href, which
-    // is the answer wanted — a relative link belongs to the console's own pages.
     asked = new URL(href);
   } catch {
     return false;
   }
-  if (asked.protocol !== 'http:' && asked.protocol !== 'https:') return false;
-  // The path alone, so a query string mentioning `.png` does not qualify and a
-  // link carrying one still does.
-  const path = asked.pathname.toLowerCase();
+  return asked.protocol === 'http:' || asked.protocol === 'https:';
+}
+
+/** Whether a link points at something this app can open as a picture. */
+export function pictorial(href: string): boolean {
+  if (!fetchable(href)) return false;
+  // ⚠ **The path alone**, so a search for `cat.png` does not qualify and a
+  // render carrying a query of its own still does. A bare path has no query to
+  // separate, and `new URL` needs a base to say so — hence the placeholder,
+  // which nothing is ever fetched from.
+  const path = new URL(href, 'http://console.invalid').pathname.toLowerCase();
   return SHOWN.some((ending) => path.endsWith(ending));
 }
 

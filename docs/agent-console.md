@@ -1398,32 +1398,60 @@ only of the bundle.
 ### Opening a picture a session pointed at
 
 The other direction, and it is not the same feature run backwards. A session that
-renders something serves it and writes the URL into the conversation — observe
-puts its reconstruction previews on an ad-hoc `python3 -m http.server` and says
-where. Those links were already anchors, because GFM autolinks a bare URL, and
-tapping one on the phone **did** something: the shell hands any host outside its
-own to the browser, so the console was left for Chrome, which then could not
-reach the address either. The link named this Mac's LAN, and the phone is on the
-far end of a tunnel isis carries, with the one-way VPN standing between.
+renders something writes it into the conversation two ways, and **neither was
+reachable from the phone**:
+
+- **As an address**, when it is also running a server — observe puts its
+  reconstruction previews on an ad-hoc `python3 -m http.server`. Those links were
+  already anchors, because GFM autolinks a bare URL, and tapping one **did**
+  something: the shell hands any host outside its own to the browser, so the
+  console was left for Chrome, which could not reach the address either. The link
+  named this Mac's LAN, and the phone is on the far end of a tunnel isis carries.
+- **As a path**, the commoner case, because a session has the _file_ and only has
+  a URL if it also happens to be serving it:
+  `![Photo: cabinet corner](/Users/…/lroom-at20s-photo-upright.jpg)`. A browser
+  resolves that against the console's own origin, where it falls through to the
+  single-page app — so the tap reloaded the page it was made from.
 
 So the arrangement is: **every picture the console shows comes from the console.**
 
-- **The link is rewritten where it is rendered.** `picture.ts` decides what looks
-  like a picture — by the extension on the _path_, so a search for `cat.png` is
-  not one — and points the anchor at `/api/picture?url=…` instead. The text stays
-  the address as it was written, because that is how a person tells two renders of
-  one room apart.
-- **The Mac fetches, and refuses to be a proxy for anything else.**
-  `console::images::fetch` will go to `http` and `https` and no other scheme, and
-  what comes back has to sniff as a PNG, JPEG, GIF or WebP through the same table
-  the inbound path uses. That check is not decoration: an open fetch grants a
-  session nothing it lacks — it already runs shell on this machine — but a route
-  that returned _arbitrary_ bytes would put somebody else's HTML on the console's
-  own origin, which would be a new privilege. SVG is excluded by the same table,
-  being the one image format that carries script.
+- **The link is rewritten where it is rendered.** `picture.ts` takes both shapes.
+  A plain link has to look like a picture — by the extension on the _path_, so a
+  search for `cat.png` is not one — while `![alt](…)` needs no extension at all,
+  because the `!` is the author saying what it is and a render is not always named
+  for what it holds. The console's own `/api/…` routes are excluded: rewriting one
+  would send the console to fetch itself. The link's text is left as written — an
+  address is how a person tells two renders of one room apart, and an alt text is
+  what it was written to be.
+- **The Mac reads it, and refuses to be a proxy for anything else.**
+  `console::images::fetch` will go to `http` and `https` and no other scheme, or
+  open a path on this disk, and either way what comes back has to sniff as a PNG,
+  JPEG, GIF or WebP through the same table the inbound path uses. That check is
+  not decoration: it is the whole bound. An open fetch grants a session nothing it
+  lacks — it already runs shell on this machine — but a route returning
+  _arbitrary_ bytes would put somebody else's HTML on the console's own origin,
+  which would be a new privilege. SVG is excluded by the same table, being the one
+  image format that carries script.
+
+  ⚠ **The path half will open any file on the Mac that is a picture**, which is
+  Pippijn's decision (2026-09-02), taken over the narrower rule of "only under the
+  session's own working directory" because sessions render into `/tmp` constantly
+  and a session can copy a file into its own tree in one command anyway. It is
+  bounded by the sniff, by who can ask — the phone's TLS terminates here against a
+  pinned key — and by who it reaches, a person who could have opened the file
+  directly.
+
+  ⚠ **And its refusal quotes nothing.** The fetched half prints the first line of
+  what came back, because an error page naming itself is the whole of what a
+  person needs; the path half prints a byte count and no more. A refusal that
+  quoted the head of the file would have made this a way to read the first eighty
+  bytes of _any_ file, and the sniff would have stopped exactly nothing. Caught by
+  the test that hands it an ssh key.
+
 - **8 MB, counted while it arrives.** A `Content-Length` is the server's claim
   about itself; the guard that holds is the one in the read loop, and each says a
-  different sentence so a test cannot pass for the other's reason.
+  different sentence so a test cannot pass for the other's reason. A file is
+  measured from its metadata before a byte of it is read.
 - **Nothing is written to disk and nothing is cached.** A kept picture is written
   once under the second it arrived in and served `immutable`; this is a window
   onto a file that lives somewhere else and is rewritten every time it is
