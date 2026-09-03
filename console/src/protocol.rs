@@ -1419,27 +1419,44 @@ fn from_user(content: Content) -> Vec<Event> {
         })
         .collect::<Vec<Event>>()
         .into_iter()
-        .fold(Vec::new(), one_thing_said)
+        .fold(Vec::new(), said_once)
 }
 
-/// One message is one thing said, however many blocks it arrived in.
+/// Two blocks are two messages — unless they are the same words twice.
 ///
-/// ⚠ **Measured, and it made somebody doubt their own memory.** A prompt reached
-/// the CLI twice within a millisecond and was merged into a single message
-/// carrying the same words in two blocks — which this reader turned into two
-/// prompts, so the transcript showed a question asked twice that was asked once.
-/// One in every user message in this project's transcripts, so the merging is
-/// rare; the misattribution it caused is not the kind worth leaving in.
+/// ⚠ **A user message with several text blocks has two causes, and they need
+/// opposite answers.** Both are measured, in this project's own transcripts:
 ///
-/// Blank line between, because separate blocks are separate paragraphs — that is
-/// how the model was given them.
-fn one_thing_said(mut said: Vec<Event>, event: Event) -> Vec<Event> {
-    match (said.last_mut(), event) {
-        (Some(Event::Prompt { text: held }), Event::Prompt { text }) => {
-            held.push_str("\n\n");
-            held.push_str(&text);
-        }
-        (_, event) => said.push(event),
+/// - *The same words twice.* A prompt reached the CLI twice inside a millisecond
+///   and was recorded as one message of two identical blocks. Read per block it
+///   showed a question asked twice that was asked once, and it made somebody
+///   doubt their own memory. One occurrence, `health` 2026-08-06.
+/// - *Different words.* Messages written to a session that is working are
+///   queued, and the CLI hands over everything waiting as ONE message with a
+///   block each. Eleven occurrences across four sessions, the plainest in
+///   `recall` 2026-09-03: *Sorry, turned back on at 8:50* and *7:50 UTC* were
+///   typed separately, minutes after the first was thought sent.
+///
+/// This used to join every consecutive pair with a blank line, which fixed the
+/// first at the price of the second — and the second is the common one. Joining
+/// costs more than a mangled bubble: [`Event::Prompt`] is the read receipt that
+/// clears a waiting message, matched on the words (see `in_flight`, and `fold`
+/// in the client). A joined echo matches neither of the two it answers, so both
+/// stay marked *waiting to be read* for the rest of the conversation and the
+/// session reads as deaf while it is replying.
+///
+/// The words are the only thing there is to tell the two apart by: the blocks
+/// carry no times of their own. So identical means delivered twice, and anything
+/// else means said twice. The one case this gets wrong — the same words genuinely
+/// typed twice into a busy session — loses a bubble and leaves one marker
+/// waiting, which is the milder of the two failures and much the rarer.
+fn said_once(mut said: Vec<Event>, event: Event) -> Vec<Event> {
+    let again = matches!(
+        (said.last(), &event),
+        (Some(Event::Prompt { text: held }), Event::Prompt { text }) if held == text
+    );
+    if !again {
+        said.push(event);
     }
     said
 }

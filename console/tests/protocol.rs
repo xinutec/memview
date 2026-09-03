@@ -461,15 +461,54 @@ fn a_message_that_merely_mentions_a_notification_is_still_a_prompt() {
 }
 
 #[test]
-fn one_message_is_one_thing_said_however_many_blocks_it_came_in() {
-    // Verbatim from a real transcript: the same words reached the CLI twice
-    // inside a millisecond and were merged into one message of two blocks. Read
-    // per block it showed a question asked twice that was asked once.
+fn the_same_words_in_two_blocks_were_delivered_twice_and_are_shown_once() {
+    // Verbatim from a real transcript (`health` 2026-08-06): the same words
+    // reached the CLI twice inside a millisecond and were recorded as one
+    // message of two identical blocks. Read per block it showed a question asked
+    // twice that was asked once.
     let line = r#"{"type":"user","message":{"role":"user","content":[{"text":"What's next?","type":"text"},{"text":"What's next?","type":"text"}]}}"#;
     assert!(matches!(
         read(line).as_slice(),
-        [Event::Prompt { text }] if text == "What's next?\n\nWhat's next?"
+        [Event::Prompt { text }] if text == "What's next?"
     ));
+}
+
+#[test]
+fn two_messages_the_cli_handed_over_together_stay_two_messages() {
+    // Verbatim from `recall` 2026-09-03. Both were typed on the phone while the
+    // session was working, minutes apart, and the CLI delivered everything
+    // queued as one message with a block each.
+    //
+    // ⚠ **Joining them is not merely a mangled bubble.** A prompt is the read
+    // receipt that clears a waiting message, matched on the words — so a joined
+    // echo answers neither, and both sit marked "waiting to be read" while the
+    // session replies to them.
+    let line = r#"{"type":"user","message":{"role":"user","content":[{"text":"Sorry, turned back on at 8:50","type":"text"},{"text":"7:50 UTC","type":"text"}]}}"#;
+    assert!(
+        matches!(
+            read(line).as_slice(),
+            [Event::Prompt { text: first }, Event::Prompt { text: second }]
+                if first == "Sorry, turned back on at 8:50" && second == "7:50 UTC"
+        ),
+        "{:?}",
+        read(line)
+    );
+}
+
+#[test]
+fn a_repeat_is_only_folded_into_the_message_right_before_it() {
+    // Three blocks, the outer two the same: that is one message said, another
+    // said, and the first said again — not a delivery duplicate of anything
+    // adjacent. Folding on the last entry rather than on anything seen keeps the
+    // third.
+    let line = r#"{"type":"user","message":{"role":"user","content":[{"text":"ping","type":"text"},{"text":"still there?","type":"text"},{"text":"ping","type":"text"}]}}"#;
+    assert_eq!(
+        read(line)
+            .iter()
+            .filter(|e| matches!(e, Event::Prompt { .. }))
+            .count(),
+        3
+    );
 }
 
 #[test]
