@@ -56,6 +56,9 @@ Four questions this design left open were answered before any of it was built:
   must compare equal — so that `PartialEq` is a first-lens decision, not a
   second-programme feature.
 
+Two further calls — what a dynamic resolver may read, and whose world it reads
+— are decided where they bind, under *Reading is not running*.
+
 ## The tower
 
 | | object | lift | lower |
@@ -241,7 +244,7 @@ at a locus. For a command about to run, `t` is now and the world is readable:
 | `⟦*.log⟧ = S ⊆ L(*.log)` | the directory, now | `S = L ∩ Files(D, now)` — exact, one `readdir` |
 | `$VAR`, `$TMPDIR` | the session's environment | the value |
 | `[ -f x ]`, a `case` arm | the filesystem | *sometimes* collapses to *will* / *will not* |
-| `cd` into an unknowable dir | the live cwd | every relative path downstream resolves |
+| a relative path against the session's cwd | the live cwd | an absolute path — ⚠ a computed `cd $FOO` target is the env row or a hole, not this one |
 | `Why::Outside` — stdin, a parameter | — | **stays a hole.** The system does not know what a person will type. |
 
 ⚠ **The reader's floor is the present's floor too.** A prediction that resolved
@@ -318,7 +321,10 @@ Ordered by how directly the evidence supports it:
    a command *before* it runs and the ask card can say what it is — the
    concept — and what it will touch — the predicted subjects. Approval today
    reads argv; a lifted ask reads *"Rewrite src/geo/velocity.ts in place"*
-   with the L3 prediction beside it.
+   with the L3 prediction beside it. And the description arrives in the same
+   tool call, so gate 4 runs *before* approval: model-stated intent, lifted
+   concept, and predicted subjects side by side, with any disagreement on the
+   card rather than in a post-mortem.
 2. **Search in concept space.** *Every poll loop in fleet history; every
    in-place rewrite of gate.json; every glance at this repo* — questions the
    flat index cannot ask and the concept stream answers by construction.
