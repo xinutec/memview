@@ -4,7 +4,13 @@ Design for the layers above the reader: **lifting** what the fleet executed into
 the concepts it was executing, and **lowering** a concept back into a command
 that does the same thing.
 
-**Status: design. Nothing below is built.** Where a step needs sizing, the
+**Status: the first lens is BUILT; the vocabulary is one concept.**
+`bash-corpus --said` + `said-report` mine and read the description corpus;
+`reader/src/concept.rs` lifts and lowers `Rewrite`, with gates 1–3 in
+`reader/tests/concept.rs`. ⚠ **Instrument 2 — the census — is NOT built**, and
+was skipped rather than dropped: the spike had already named `Rewrite`, so the
+vocabulary today is one concept two people agreed on rather than one the corpus
+ranked. Everything else here is design. Where a step needs sizing, the
 instrument that would size it is named — a count written here would rot.
 [execution-model.md](execution-model.md) governs the syntax underneath and
 [reader.md](reader.md) the effects; both stand unchanged, and every decision

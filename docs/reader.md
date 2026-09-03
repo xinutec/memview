@@ -45,6 +45,7 @@ Each stage's authoritative explanation is its module doc-comment.
 | `reader/src/shell_files.rs` | resolved against a cwd, which files? |
 | `reader/src/reading.rs` | the whole corpus surveyed, as a value the report and both apps draw |
 | `reader/src/activity.rs` | what kind of work — test, build, edit, deploy? |
+| `reader/src/concept.rs` | what was it FOR — and back to a command again ([concept-model.md](concept-model.md)) |
 | `reader/src/doing.rs` | timeline: agent · minute · repo · kind · count · verdict |
 | `src/commits.rs` | what the repositories recorded, renames followed |
 | `src/agents.rs` | who works where — the roster behind `/agents` |
