@@ -40,6 +40,7 @@ pub async fn reading(
 pub async fn me(State(app): State<AppState>, ReadAccess(viewer): ReadAccess) -> Json<Value> {
     let auth_enabled = app.cfg.auth.is_some();
     match viewer {
+        // dev-lint: allow-wire-untyped pre-standard debt (DL-WIRE-UNTYPED-RESPONSE landed 2026-09-03): give this handler a Serialize response struct when the route is next touched
         Viewer::Owner(user) => Json(json!({
             "user_id": user.user_id,
             "display_name": user.display_name,
@@ -60,6 +61,7 @@ pub async fn index(
 ) -> Result<Json<Value>, AppError> {
     let corpus = load_corpus(&app)?;
     let md = corpus.index_md.ok_or(AppError::NotFound)?;
+    // dev-lint: allow-wire-untyped pre-standard debt (DL-WIRE-UNTYPED-RESPONSE landed 2026-09-03): give this handler a Serialize response struct when the route is next touched
     Ok(Json(json!({
         "html": render_markdown(&md)?,
         "count": corpus.docs.len(),
