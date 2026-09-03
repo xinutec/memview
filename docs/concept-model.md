@@ -339,6 +339,34 @@ research programme — lifting *this* corpus is engineering, and the census, not
 optimism, is what says so: run it, and the concept queue either drains the way
 the construct queue did, or the claim dies by the numbers.
 
+### What the first lens found — a described subject cannot be lowered
+
+⚠ **`Rewrite` is built (`reader/src/concept.rs`, 2026-09-03) and the law holds
+over named subjects and holes only.** The middle of the three-part artefact —
+`Bounded`, a glob's language, and `Located`, a locus — **cannot be lowered at
+all**, and that is a fact about concepts rather than a gap in this one.
+
+Measured: lowering `⟦/home/…/*.ts⟧` writes the pattern into an operand
+position, and a pattern in an operand position **is a resolved path** to the
+reader below, so it lifts back as `Named`. The round trip silently promotes a
+described middle into a **false lower bound** — the fabrication direction this
+whole tower refuses. The language came from a *loop*, and a loop is not what a
+single-command concept lowers to.
+
+So the lens refuses those steps by name and they stay counted L2/L3 leaves.
+**Lowering is where the reader's precision has to be paid for**: `S ⊆ L` is
+falsifiable because an oracle can run the loop, and a concept that flattens it
+to one command has thrown that away. A `Rewrite` that lowers to a loop is the
+next thing this vocabulary needs, and it is a shape question, not a bug.
+
+⚠ **The hole's spelling is load-bearing and the obvious one fails the law.** A
+hole lowered as `?` vanishes: it carries no `/` and no extension, the path guard
+refuses it, and the lowered form claims a rewrite of nothing. It lowers as an
+unexpanded variable, which is what a hole *is* — a value from outside the text —
+and reads back as one. An earlier note here said the lowered form was "text a
+shell would not run, and meant not to be"; that contradicted gate 3, which
+requires valid shell, and the law refuted it.
+
 ## What it buys
 
 Ordered by how directly the evidence supports it:
