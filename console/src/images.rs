@@ -247,6 +247,29 @@ pub async fn fetch(url: &str) -> Result<Fetched, Reason> {
         return from_disk(std::path::Path::new(url));
     }
     let asked = reqwest::Url::parse(url).map_err(|why| Reason::Asked(format!("{url}: {why}")))?;
+    // ⚠ **`file:` is the path shape wearing a scheme, and refusing it was a
+    // defect.** That refusal was checked when this route was built and written
+    // up as proof the bound held — but it was only ever put to a scheme nobody
+    // writes. `coach` writes `[caption](file:///Volumes/…/squat3_left.png)` in
+    // ordinary prose, three times on 2026-09-03, and every one was a dead link
+    // while the identical path without the scheme served 200 image/png.
+    // **A refusal tested only against a hostile shape looks right until
+    // something friendly is put to it** (memview#1373).
+    //
+    // It grants nothing the bare path did not: same [`from_disk`], same sniff,
+    // same refusal that quotes no byte of what it read.
+    if asked.scheme() == "file" {
+        // ⚠ **`to_file_path`, never `asked.path()`.** A `file:` URL is
+        // percent-encoded, so `soft%20squat.png` names a file with a space in
+        // it and the raw path names one nobody has. It also refuses a non-empty
+        // host on our behalf: `file://elsewhere/x.png` is another machine, and
+        // reading it off THIS disk would be the same mistake `shell_ops`
+        // refuses for `host:path`.
+        let here = asked
+            .to_file_path()
+            .map_err(|()| Reason::Asked(format!("{url} does not name a file on this machine")))?;
+        return from_disk(&here);
+    }
     if !matches!(asked.scheme(), "http" | "https") {
         return Err(Reason::Asked(format!(
             "{} is not a scheme this fetches — http and https are",

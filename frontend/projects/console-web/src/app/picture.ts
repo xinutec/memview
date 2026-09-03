@@ -184,7 +184,19 @@ export function fetchable(href: string): boolean {
   } catch {
     return false;
   }
-  return asked.protocol === 'http:' || asked.protocol === 'https:';
+  // ⚠ **`file:` is the path shape with a scheme on it, and leaving it out cost
+  // a whole session's pictures.** `coach` writes
+  // `[caption](file:///Volumes/…/soft_squat_left.png)` — a markdown link, so
+  // `marked` renders a real anchor, the shell hands the unknown scheme to
+  // Chrome, and Chrome has neither a route to this Mac nor any business reading
+  // its disk. The console can read it, and already does for the identical path
+  // written bare; the scheme was the whole difference (memview#1373).
+  //
+  // Not re-checked here: `images::fetch` refuses a `file:` URL with a host,
+  // because `file://elsewhere/x.png` is another machine. The bound that counts
+  // is the one where bytes are actually read, and a second copy of it in the
+  // browser would be a rule to keep in step for nothing.
+  return asked.protocol === 'http:' || asked.protocol === 'https:' || asked.protocol === 'file:';
 }
 
 /** Whether a link points at something this app can open as a picture. */

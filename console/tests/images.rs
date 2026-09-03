@@ -463,12 +463,20 @@ async fn a_far_end_that_is_not_listening_is_a_sentence_rather_than_a_wait() {
 
 #[tokio::test]
 async fn a_scheme_this_does_not_fetch_is_refused_before_anything_is_asked() {
-    // ⚠ **`file:` is the one that matters**, and it is refused by the scheme
-    // rather than by anything about the path: a fetch that reads local files is
-    // one URL in a transcript away from serving `~/.ssh/id_ed25519` to whoever
-    // taps it. `Asked` is the proof that nothing was fetched — that arm returns
-    // before the client is built.
-    for url in ["file:///etc/passwd", "ftp://somewhere/x.png", "not a url"] {
+    // ⚠ **This used to include `file:`, on an argument that was already false
+    // when it was written.** It said refusing the scheme was what stopped
+    // `~/.ssh/id_ed25519` being served to whoever tapped a link — but the `/`
+    // arm at the top of [`fetch`] has always read any local path, so the same
+    // key was reachable by writing it without the scheme. The refusal guarded
+    // nothing and cost `coach` three dead picture links (memview#1373).
+    //
+    // What actually guards it is the sniff, and it is tested where it lives:
+    // `a_file_that_is_not_a_picture_is_not_served_as_one_from_disk_either` and
+    // `a_file_url_gets_the_same_sniff_as_a_bare_path`.
+    //
+    // `Asked` is the proof nothing was fetched — that arm returns before the
+    // client is built.
+    for url in ["ftp://somewhere/x.png", "not a url"] {
         let why = fetch(url).await.expect_err("refused");
         assert!(matches!(why, Reason::Asked(_)), "{url} was fetched");
     }
@@ -560,6 +568,82 @@ async fn a_file_that_is_not_a_picture_is_not_served_as_one_from_disk_either() {
         !said.contains("ssh-ed25519"),
         "the refusal quoted the file: {said}"
     );
+}
+
+/// ⚠ **`file:` was refused, and the refusal was recorded as proof the bound
+/// held.** It was only ever put to a scheme nobody writes. `coach` writes
+/// `[caption](file:///Volumes/…/soft_squat_left.png)` in ordinary prose — three
+/// on 2026-09-03, every one dead, while the identical path without the scheme
+/// served 200 image/png. A refusal tested only against a hostile shape looks
+/// right until something friendly is put to it (memview#1373).
+#[tokio::test]
+async fn a_file_url_is_the_path_it_names() {
+    let path = on_disk("scheme", PNG);
+    let url = format!("file://{}", path.to_str().expect("a path"));
+
+    let got = fetch(&url).await.expect("read");
+
+    assert_eq!(got.media_type, "image/png");
+    assert_eq!(got.bytes, PNG);
+}
+
+/// ⚠ **Percent-decoded, because a `file:` URL is encoded and a disk path is
+/// not.** Reading the raw text would hand the filesystem `soft%20squat.png`,
+/// which names nothing — and the render server writes names with spaces.
+#[tokio::test]
+async fn a_file_url_is_decoded_before_the_disk_sees_it() {
+    let path = on_disk("soft squat", PNG);
+    let url = reqwest::Url::from_file_path(&path).expect("an absolute path");
+
+    let got = fetch(url.as_str()).await.expect("read");
+
+    assert!(
+        url.as_str().contains("%20"),
+        "the URL should be encoded: {url}"
+    );
+    assert_eq!(got.bytes, PNG);
+}
+
+/// ⚠ **A host is another machine, and this console must not answer for it.**
+/// `file://elsewhere/render.png` names a file on `elsewhere`; reading it off
+/// THIS disk would be the mistake `shell_ops::resolve` refuses for `host:path`.
+/// Refused before anything is opened, so it is an `Asked` and a 400.
+#[tokio::test]
+async fn a_file_url_naming_another_machine_is_not_this_disk() {
+    let why = fetch("file://elsewhere/render.png")
+        .await
+        .expect_err("refused");
+
+    assert!(matches!(why, Reason::Asked(_)), "{why}");
+    assert!(why.to_string().contains("this machine"), "{why}");
+}
+
+/// The sniff is the bound, and it does not care how the path was spelled.
+#[tokio::test]
+async fn a_file_url_gets_the_same_sniff_as_a_bare_path() {
+    let path = on_disk(
+        "keyfile",
+        b"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5 someone@example\n",
+    );
+    let url = format!("file://{}", path.to_str().expect("a path"));
+
+    let why = fetch(&url).await.expect_err("refused");
+
+    assert!(why.to_string().contains("not a PNG"), "{why}");
+    assert!(
+        !why.to_string().contains("ssh-ed25519"),
+        "the refusal quoted the file: {why}"
+    );
+}
+
+/// A scheme that is neither a fetch nor a path still says so.
+#[tokio::test]
+async fn a_scheme_this_does_not_speak_is_still_refused() {
+    let why = fetch("mailto:someone@example.invalid")
+        .await
+        .expect_err("refused");
+
+    assert!(matches!(why, Reason::Asked(_)), "{why}");
 }
 
 #[tokio::test]

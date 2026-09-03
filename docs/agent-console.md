@@ -1412,6 +1412,21 @@ reachable from the phone**:
   `![Photo: cabinet corner](/Users/…/lroom-at20s-photo-upright.jpg)`. A browser
   resolves that against the console's own origin, where it falls through to the
   single-page app — so the tap reloaded the page it was made from.
+- **As a path wearing a scheme** — `[caption](file:///Volumes/…/soft_squat_left.png)`,
+  which is what `coach` writes. Added 2026-09-03 (memview#1373), and it is the
+  same disk read as the bare path: the URL is percent-decoded, a non-empty host
+  is refused as another machine, and the sniff below is unchanged.
+
+  ⚠ **It was refused for a year of this route's life on an argument that was
+  never true.** The comment said refusing `file:` was what stopped
+  `~/.ssh/id_ed25519` being served to whoever tapped a link — but the bare-path
+  arm above has always read any local path, so the same key was one spelling
+  away. **The refusal guarded nothing and the tests agreed with it**, because
+  both were written with `/etc/passwd` as the example: a hostile subject makes a
+  useless rule look like a protection. What actually guards that file is the
+  sniff, which is where it was tested all along. Three of `coach`'s picture
+  links were dead the whole time, while the identical path without the scheme
+  served `200 image/png`.
 
 So the arrangement is: **every picture the console shows comes from the console.**
 

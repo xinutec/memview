@@ -58,10 +58,11 @@ describe('pictorial', () => {
   });
 
   it('leaves alone what the console could not fetch anyway', () => {
-    // `file:` is refused at the other end too — see `console::images::fetch` —
-    // and a link the app rewrote but the console will not serve is a tap that
-    // fails where it used to work.
-    expect(pictorial('file:///home/example/render.png')).toBe(false);
+    // ⚠ **This asserted `file:` was left alone, and the reason it gave was
+    // true**: the console refused it too, so rewriting the link would have made
+    // a tap fail where it used to work. Both ends have been corrected together
+    // (memview#1373) — `images::fetch` now reads a `file:` URL as the path it
+    // names, so the app may rewrite it and the console will serve it.
     expect(pictorial('not a url at all')).toBe(false);
     // ⚠ The console's own routes are not places on a disk. Rewriting one would
     // send the console to fetch itself.
@@ -74,12 +75,44 @@ describe('pictorial', () => {
 });
 
 describe('fetchable', () => {
-  it('takes both shapes a session writes, and only those', () => {
-    // An address when it was serving, a path when it simply has the file.
+  it('takes every shape a session writes, and only those', () => {
+    // An address when it was serving, a path when it simply has the file, and
+    // the path with a scheme on it — which is what `coach` writes.
     expect(fetchable('http://h:8917/data/peek/a.png')).toBe(true);
     expect(fetchable('/Users/example/render.dat')).toBe(true);
-    expect(fetchable('file:///etc/passwd')).toBe(false);
+    expect(fetchable('file:///Volumes/example/render/out/soft_squat_left.png')).toBe(true);
     expect(fetchable('/api/state')).toBe(false);
+    expect(fetchable('mailto:someone@example.invalid')).toBe(false);
+  });
+
+  /**
+   * ⚠ **This asserted `file:///etc/passwd` was refused, and read as a guard it
+   * never was.** The hostile example made the refusal look like protection —
+   * but `/etc/passwd` written bare has always been fetchable, one test up, so
+   * the scheme kept nothing out. What actually stops that file reaching anybody
+   * is the sniff at the far end: it is not a PNG, JPEG, GIF or WebP, so the
+   * console answers a sentence and no bytes.
+   *
+   * The old assertion cost `coach` three dead picture links (memview#1373). **A
+   * test whose example is chosen to look dangerous can pin a rule that does no
+   * work**, and its passing says nothing about the rule you think you have.
+   */
+  it('does not pretend the scheme is what guards a file nobody may read', () => {
+    expect(fetchable('/etc/passwd')).toBe(true);
+    expect(fetchable('file:///etc/passwd')).toBe(true);
+    // Neither is offered as a picture, which is the check that was doing the
+    // work the scheme was being credited with.
+    expect(pictorial('/etc/passwd')).toBe(false);
+    expect(pictorial('file:///etc/passwd')).toBe(false);
+  });
+
+  it('reads a file: link as the picture it is', () => {
+    // Verbatim shape from `coach`, 2026-09-03: three of these, every one dead
+    // while the identical path without the scheme served 200 image/png.
+    expect(pictorial('file:///Volumes/example/render/out/soft_squat_left.png')).toBe(true);
+    // The path decides, and it is percent-decoded by `new URL` before the
+    // ending is read — a render whose name has a space in it is still a render.
+    expect(pictorial('file:///Volumes/example/out/soft%20squat.png')).toBe(true);
   });
 
   it('is what an explicit image asks, so a render need not be named for what it is', () => {
