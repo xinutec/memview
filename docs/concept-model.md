@@ -218,6 +218,97 @@ rule is derived-never-verbatim, and it stays; `effects.json` is where verbatim
 text lives. Concept artefacts sit on the effects side of that line, never in
 `agents.json`.
 
+## Static and dynamic inference
+
+Two kinds of inference, one structure.
+
+- **Static** — the structure from the text alone: the concept, its parameters,
+  its holes. What a command *is*. This is the lift; it is history's only
+  option and the present's floor, and L1–L4 are static by construction —
+  `reader` touches no filesystem, and that property is load-bearing.
+- **Dynamic** — the same structure with its holes read off the world at a
+  moment `t`. What a command *does, here, now*. Not a second representation
+  and not a second reader: a **substitution of read facts into static holes**,
+  each fact carrying what was read and when, so a resolved prediction is an
+  auditable claim rather than an opinion.
+
+Past and future are one object with a different `t` (reader.md). History's `t`
+is gone, so the honest answer there is the *space* a subject lives in — `S ⊆ L`
+at a locus. For a command about to run, `t` is now and the world is readable:
+
+| static leaves | dynamic reads | becomes |
+| --- | --- | --- |
+| `⟦*.log⟧ = S ⊆ L(*.log)` | the directory, now | `S = L ∩ Files(D, now)` — exact, one `readdir` |
+| `$VAR`, `$TMPDIR` | the session's environment | the value |
+| `[ -f x ]`, a `case` arm | the filesystem | *sometimes* collapses to *will* / *will not* |
+| `cd` into an unknowable dir | the live cwd | every relative path downstream resolves |
+| `Why::Outside` — stdin, a parameter | — | **stays a hole.** The system does not know what a person will type. |
+
+⚠ **The reader's floor is the present's floor too.** A prediction that resolved
+`Why::Outside` would be inventing the future — the same error, one `t` forward,
+as concretising the past that #1078 refused.
+
+⚠ **A read fact ages the moment it is read.** The world can move between
+`t_read` and the run — another session, a nightly, the command above this one —
+so the gap between them is history's missing `t` in miniature. A resolved
+prediction is therefore **stamped, never cached**: resolved at ask time, shown,
+and discarded; a stale prediction re-reads rather than re-serves.
+
+⚠ **Every approved run grades its own prediction, for free.** The transcript
+records what came back; the static reader reads what the command did; diffing
+that against the resolved prediction is execution-model.md's "diffing the two
+is the point", automated per run. The resolver thereby builds its own
+validation corpus out of ordinary use — mispredictions arrive ranked, exactly
+as refusals do at every other layer.
+
+### Reading is not running
+
+**The line, and it is absolute: a resolver reads facts the system exposes and
+never executes any part of the command to learn what it does.** A `readdir`, an
+environment lookup, a `stat` read state that exists; running the command is the
+thing prediction exists to precede. Two consequences, decided here (2026-09-03,
+revisable only by a measurement, not by convenience):
+
+- **`$(…)` stays a hole.** It cannot be statically proven side-effect-free —
+  `$(git rev-parse HEAD)` and `$(rm -rf x && echo done)` are one shape — and an
+  allowlist of "provably pure" spellings is a boundary that rots. If a census
+  ever shows the substitution holes dominating real predictions, that is the
+  measurement that reopens this; nothing else does.
+- **The world read is the one the command will see.** The session's cwd, the
+  session's environment, this machine's filesystem. A command under `ssh` runs
+  in a world this resolver must not pretend to have read — remote prediction
+  stays static, holes and all, the same rule that files remote paths against
+  the machine instead of guessing locally.
+
+### Where it lives
+
+Above `reader`, in the console — the split already made for exactly this.
+`reader` stays filesystem-blind and produces the static structure with its
+spaces; the console, which already holds read access to the root-of-truth Mac
+and already carries the ask card, is the resolver. reader.md wrote the
+placement down before this layer existed: *"it must live above this library —
+`reader` touches no filesystem, and that property is worth more than the
+convenience."*
+
+Both arms are falsifiable by the instrument that exists.
+`reader/tests/oracle.rs` runs fixtures for real under PATH shims and asserts
+`S ⊆ L`; a dynamic resolution claims the stronger `S = L ∩ Files(D, t)`, which
+the same shim refutes or confirms exactly. Sound-but-unfalsifiable is what this
+design refuses at every level; the dynamic arm is *more* checkable than the
+static one, not less.
+
+### Why the corpus permits this
+
+Model-written code is legible in a way human-tuned shell is not, and the
+evidence is already tallied: one obvious operation per command (`sed` is a
+pager in 96.5% of its runs — shell-files prints it), the plain spelling over
+the clever one, and a stated intent beside nearly every call (the description
+corpus, above). A human writes for their own fingers; the model writes as if
+someone will read it, because something now does. Lifting arbitrary shell is a
+research programme — lifting *this* corpus is engineering, and the census, not
+optimism, is what says so: run it, and the concept queue either drains the way
+the construct queue did, or the claim dies by the numbers.
+
 ## What it buys
 
 Ordered by how directly the evidence supports it:
