@@ -33,7 +33,7 @@ else
   echo "  build it: nix develop -c cargo build --release --bin staged-check" >&2
 fi
 
-if ! out=$(nix run ../dev-lint#gate -- . gate.json 2>&1); then
+if ! out=$(nix run "git+file:../dev-lint?ref=HEAD#gate" -- . gate.json 2>&1); then
   printf '%s\n' "$out" >&2
   exit 1
 fi

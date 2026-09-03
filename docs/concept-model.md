@@ -26,6 +26,36 @@ structure. Lossless semantically, not syntactically — quoting, layout, and
 ultimately *the choice of language* normalise away, and everything that decided
 what happened to the world is carried.
 
+## Decided — 2026-09-03, with Pippijn
+
+Four questions this design left open were answered before any of it was built:
+
+- **The ask card is the first consumer.** Gates first, because the lens does
+  not exist without them — but a verification-only loop is a gate with no
+  product behind it. Approval today reads argv, which means approval reads
+  *spelling*, and every payload trap in the corpus is a spelling that hides the
+  act. The card must also render the honest miss — "no concept, here is the
+  L2 reading" — which forces the no-absorption rule from the first screen.
+- **Cross-language from day one, because it is the cheaper option.** The merge
+  is already done one level down: `program.rs` is the shared answer-type and
+  L3 reads `sed -i`, `perl -pi` and `write_text` into the same effect. A
+  bash-only `Rewrite` would be a concept shaped like one spelling, plus a
+  migration. The `Edit`-tool arm is deferred — not hard, but trivially a
+  concept already, so it proves nothing about the lens; it joins when the ask
+  card needs uniformity.
+- **The vocabulary is mined; the automation roadmap is the null hypothesis,
+  never the seed.** Designed vocabularies lose to counted ones everywhere in
+  this repository's record. The roadmap's use comes *after* the census: diff
+  its target list against the mined ranking, and the disagreement is the
+  finding — a roadmap item the corpus barely holds, or a top idiom no roadmap
+  entry names.
+- **Episode→script mining stays out of this round, and constrains it anyway.**
+  Generating scripts from an ungated concept layer is the hand-waving the
+  Ceiling section refuses. But recurrence detection later requires concept
+  equality **up to holes** now — two `Rewrite`s of one file on different days
+  must compare equal — so that `PartialEq` is a first-lens decision, not a
+  second-programme feature.
+
 ## The tower
 
 | | object | lift | lower |
@@ -192,11 +222,12 @@ text lives. Concept artefacts sit on the effects side of that line, never in
 
 Ordered by how directly the evidence supports it:
 
-1. **Prediction a person can approve.** Past and future are the same object
-   with a different `t` (reader.md). Lift a command *before* it runs and the
-   ask card can say what it is — the concept — and what it will touch — the
-   predicted subjects. Approval today reads argv; a lifted ask reads
-   *"Rewrite src/geo/velocity.ts in place"* with the L3 prediction beside it.
+1. **Prediction a person can approve — the declared first consumer, above.**
+   Past and future are the same object with a different `t` (reader.md). Lift
+   a command *before* it runs and the ask card can say what it is — the
+   concept — and what it will touch — the predicted subjects. Approval today
+   reads argv; a lifted ask reads *"Rewrite src/geo/velocity.ts in place"*
+   with the L3 prediction beside it.
 2. **Search in concept space.** *Every poll loop in fleet history; every
    in-place rewrite of gate.json; every glance at this repo* — questions the
    flat index cannot ask and the concept stream answers by construction.
@@ -256,4 +287,8 @@ Unchanged from the two layers below, restated once:
 3. **The first lens.** Take the census's top concept; build lift, lower, and
    all four gates over it; ablate. One concept end-to-end proves the tower's
    plumbing the way round 1's 42.5% proved the grammar's — the rate is
-   irrelevant, the law holding is the point.
+   irrelevant, the law holding is the point. Two acceptance tests come from
+   the decisions above: the concept must lift from at least two languages'
+   spellings and compare equal, and two occurrences differing only in their
+   holes must compare equal — the equality recurrence detection will later
+   stand on.
