@@ -30,6 +30,10 @@ Two questions per command, neither well answered today:
 
 Diffing the two is the point.
 
+A third question — what the command was *for* — belongs to the layer above
+both: [concept-model.md](concept-model.md) designs it, and the round-trip law
+below is the shape it generalises.
+
 The existing reader answers a weak form of the second, and what it *knows* is
 worth carrying over — see Placement for what that means about its code. It has no
 tree: output is a flat command list with structure projected away. So nothing

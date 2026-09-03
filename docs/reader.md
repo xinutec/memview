@@ -15,7 +15,10 @@ stop. What is undetermined is recorded as undetermined and counted, so the gap i
 a number rather than a silence.
 
 [execution-model.md](execution-model.md) specifies the syntax layer underneath,
-`reader/src/syntax/`, and the three gates that govern it. **The chain below reads
+`reader/src/syntax/`, and the three gates that govern it;
+[concept-model.md](concept-model.md) designs the layer above — lifting these
+effects into the concepts they served, and lowering a concept back to a
+command. **The chain below reads
 through it** — `reader/src/project.rs` puts that tree into the flat shape the
 rest of the chain consumes, and `project::read` is the entry point every artefact
 is built from.
