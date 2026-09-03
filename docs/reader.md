@@ -1329,6 +1329,31 @@ Each decided from a measurement kept with the thing it decided.
 | a policy-refusal channel | the refused bucket had one member | memview#820 |
 | confirming `\|\|` from a non-zero exit | reachable by arithmetic, and tiny | `reader/src/shell.rs` |
 
+### A redirect to a device is not an edit (2026-09-03)
+
+`2>/dev/null` is a write redirect, and `activity.rs` read it as a file change —
+so `ls -la x 2>/dev/null` was filed on the timeline as an edit. **82% of every
+recorded edit was this**: `edit` 229,492 → 41,113 over that day's corpus, with
+all 188,379 reappearing under another kind or on the worklist, balanced to the
+unit.
+
+⚠ **The two dimensions had disagreed all along and neither could see it.**
+[`shell_ops::resolve`] refuses `/dev/*` — it calls `/dev/null` the busiest path
+in the corpus and keeps it out of the file index — so no file was ever recorded
+while the work was still called editing. A defect visible only from outside
+both.
+
+⚠ **What found it was the description corpus, on its first run**
+([concept-model.md](concept-model.md)). The `edit` kind's commonest stated
+intents were *read*, *check*, *find* and *list*; sampling them showed `ls`. The
+authors were right and the reader was wrong — which is what an independent
+second reading is for.
+
+⚠ **An unresolvable target is still a write, and that is deliberately not the
+same rule.** `> "$LOG"` wrote something whose name cannot be known, the same
+call `Op::Remove` makes for `rm -rf "$BUILD"`. Only the device refusal is
+shared, because only that one says *this was never a file*.
+
 The timeline takes tool calls as well as the shell since 2026-08-17 — `Read`,
 `Write`, `Edit`, `Grep`, `Agent` and the two web tools each produce a row, and
 `agents::TOOLS` is the list, **taken from the corpus rather than from the tool

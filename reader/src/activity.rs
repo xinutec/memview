@@ -87,11 +87,38 @@ pub struct Where {
 /// Both are needed and neither is enough. The operation knows that `sed -i`
 /// changes a file and `cargo test` does not; the name knows that `cargo test`
 /// is a test run and `cargo build` is not.
+/// Whether a redirect puts bytes somewhere that is a file.
+///
+/// ⚠ **The refusal has to match [`shell_ops::resolve`]'s**, or the activity a
+/// command is filed under stops agreeing with the files it is recorded as
+/// touching — which is exactly the split this was written to close. Only the
+/// device rule is shared: an unresolvable `> "$LOG"` is still a write, because
+/// something was written even where its name is unknowable, and that is the
+/// same call `Op::Remove` makes for `rm -rf "$BUILD"`.
+fn writes_a_file(redirect: &crate::shell::Redirect) -> bool {
+    redirect.write && !redirect.target.starts_with("/dev/")
+}
+
 pub fn of(op: &Op, cmd: &Simple) -> Activity {
     // A redirect changes a file whatever the command is, and it is how a third
     // of the corpus's writing is done: `echo … > f`, `cat <<EOF > f`, and the
     // 8,386 commands that are a redirect and nothing else.
-    if cmd.redirects.iter().any(|r| r.write) {
+    //
+    // ⚠ **Except where the target is not a file, which is a quarter of this
+    // corpus.** `2>/dev/null` discards stderr and edits nothing, and reading it
+    // as a write filed every `ls -la x 2>/dev/null` on the timeline as an edit.
+    // [`shell_ops::resolve`] has always refused `/dev/*` — it calls `/dev/null`
+    // the busiest path in the corpus and keeps it out of the file index — so the
+    // two dimensions disagreed: no file was recorded, and the work was still
+    // called editing.
+    //
+    // ⚠ **Found by the description corpus on its first run**
+    // (`docs/concept-model.md`, the zeroth lift-check): the `edit` kind's
+    // commonest stated intents were *read*, *find*, *list* and *inspect*, and
+    // sampling them showed `ls`. The authors were right and the reader was
+    // wrong — which is what that instrument exists to catch, and neither
+    // dimension could see it alone.
+    if cmd.redirects.iter().any(writes_a_file) {
         return Activity::Edit;
     }
     let argv = &cmd.argv;

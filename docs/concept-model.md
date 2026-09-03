@@ -179,9 +179,15 @@ the record beneath it.
 
 Every `Bash` tool call carries a `description` — a stated intent beside the
 command, written at generation time by an author who did not know a lifter
-would ever read it. Sized 2026-09-03 over six transcripts: 201,466 Bash calls,
-**97.6% carrying a description**. The corpus row (`{at, cmd, cwd, ran}`) does
-not carry it; mining it is the first instrument below.
+would ever read it. Mined 2026-09-03 by `bash-corpus --said`: of 197,126 calls
+across 1,280 transcripts, **187,701 said what they were for (95.2%)**, median
+33 characters and never more than one line.
+
+⚠ **A six-transcript sample had said 97.6%, and the whole corpus says 95.2%.**
+Nothing changed but the denominator — read the figure off a run, never off this
+paragraph. The corpus row (`{at, cmd, cwd, ran}`) does not carry the intent:
+`--said` writes a second file, joined on `(at, cmd)`, and `bash-corpus.rs` says
+why the boundary is two files rather than one row.
 
 That is a parallel corpus of (command, stated intent) pairs, and it is to L4
 what `declare -f` is to L1: an independent second reading of the same text,
@@ -371,12 +377,30 @@ Unchanged from the two layers below, restated once:
 
 ## First three instruments
 
-1. **Description mining.** Carry `description` into a corpus artefact (its own
-   file beside `bash-corpus.jsonl` — the row shape there is load-bearing for
-   the #1130 merge and does not change casually). Report: presence over time,
-   vocabulary, length; cluster against `Activity` as the zeroth lift-check —
-   L5 already names kinds, and descriptions that disagree with `activity.rs`
-   are the first calibration finding either way.
+1. ✅ **Description mining — BUILT 2026-09-03.** `bash-corpus --said <path>`
+   writes the parallel corpus; `said-report` reads it against `Activity`.
+   ⚠ **The stated reason for a separate file was wrong** — memview#1130's
+   duplicated era died with `~/.claude/corpus/` on 2026-08-29 and constrains
+   nothing. The reason that survives is a boundary: prose is a CLAIM, the
+   corpus row is a record of what ran, and two files make "no reader consults
+   the intent" structural instead of a matter of discipline. `bash-corpus.rs`
+   carries it.
+
+   **The zeroth lift-check found a defect on its first run, and it was in
+   `activity.rs`.** The `edit` kind's commonest stated intents were *read*,
+   *check*, *find* and *list*; sampling showed `ls -la x 2>/dev/null`. A
+   redirect to `/dev/null` was being read as a file change, which
+   `shell_ops::resolve` has always refused for the file index — so the two
+   dimensions disagreed and neither could see it alone. Corpus of that day:
+   `edit` **229,492 → 41,113**, and all 188,379 reappear under another kind or
+   on the worklist, balanced to the unit.
+
+   ⚠ **And the instrument's own first answer needs reading with care.** A first
+   word is not a concept: *check* heads seven of the twelve kinds, so the head
+   of each kind's vocabulary is concentrated without being **discriminative**.
+   Ranking a kind's words by how much they exceed their corpus-wide rate is the
+   measure that would say something, and it is not built — the top-4 share this
+   prints is a shape to look at, never a score.
 2. **Concept census.** Over `shell_ops::Op` sequences per command, rank the
    recurring shapes; print the candidate vocabulary with counts and the
    remainder. This is `shell-report` one level up, and like it, the report is
