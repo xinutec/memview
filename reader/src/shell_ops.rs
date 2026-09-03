@@ -913,6 +913,53 @@ pub fn is_python(name: &str) -> bool {
     }
 }
 
+/// What KIND of command this name is, without the flag tables that go with it.
+///
+/// [`Verb`] is private and must stay so: its variants carry [`Flags`], so making
+/// it public emits `private_interfaces`, which under the gate's `-D warnings` is
+/// a build failure rather than a lint. This is the payload-free half, for a
+/// caller above the file layer that needs to know a command's kind and has no
+/// business with its flag spellings — the concept lens
+/// (`docs/concept-model.md`, memview#1364) is the first.
+///
+/// ⚠ **A projection of [`verb`], never a table beside it.** A second `match` on
+/// the NAME would be a second answer to keep in step by hand, and the first
+/// time the two disagreed nothing would say so. This one asks `verb` and names
+/// what came back, so a name taught there is taught here in the same edit.
+///
+/// ⚠ **No `_` arm, deliberately.** Adding a [`Verb`] variant is then a compile
+/// error here rather than a silent fall into a wrong bucket — the same reason
+/// `verb` itself returns `Option` instead of guessing, one level up.
+///
+/// The strings are a closed vocabulary and are compared by callers, so they are
+/// changed the way any wire name is: with everything that reads them.
+pub fn verb_kind(name: &str) -> Option<&'static str> {
+    Some(match verb(name)? {
+        Verb::Read => "read",
+        Verb::Search(_) => "search",
+        Verb::Stream { .. } => "stream",
+        Verb::Remove => "remove",
+        Verb::Overwrite => "overwrite",
+        Verb::Copy(_) => "copy",
+        Verb::Move(_) => "move",
+        Verb::Interpreter { .. } => "interpreter",
+        Verb::Sql { .. } => "sql",
+        Verb::JavaScript => "javascript",
+        Verb::Convert { .. } => "convert",
+        Verb::Archive => "archive",
+        Verb::Python => "python",
+        Verb::Script(_) => "script",
+        Verb::Carries(_) => "carries",
+        Verb::Walk(_) => "walk",
+        Verb::Check { .. } => "check",
+        Verb::Fetch { .. } => "fetch",
+        Verb::ChangeDir => "change directory",
+        Verb::Git => "git",
+        Verb::Remote(_) => "remote",
+        Verb::NoFiles => "no files",
+    })
+}
+
 /// The one place a command name is read. `None` means "not taught yet", which is
 /// [`Op::Unknown`] — never a silent success.
 fn verb(name: &str) -> Option<Verb> {

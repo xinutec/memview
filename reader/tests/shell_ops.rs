@@ -5,7 +5,7 @@
 //! is a claim about meaning; `tests/shell_files.rs` still tests the projection.
 
 use reader::project::read as parse;
-use reader::shell_ops::{GitOp, Op, classify};
+use reader::shell_ops::{GitOp, Op, classify, verb_kind};
 
 const HOME: &str = "/home/example";
 const CWD: &str = "/home/example/Code/health";
@@ -820,4 +820,38 @@ fn replays_page_number_is_not_a_file() {
         ),
         other => panic!("not a read: {other:?}"),
     }
+}
+
+/// ⚠ **A kind for a caller that has no business with flag tables**, and the
+/// obvious way to give it one is a build failure: [`Verb`] carries [`Flags`], so
+/// making it public emits `private_interfaces`, and the gate runs
+/// `-D warnings`. `verb_kind` is the payload-free half (memview#1364).
+#[test]
+fn a_command_name_has_a_kind_without_exposing_its_flag_table() {
+    assert_eq!(verb_kind("cat"), Some("read"));
+    assert_eq!(verb_kind("sed"), Some("stream"));
+    assert_eq!(verb_kind("perl"), Some("stream"));
+    assert_eq!(verb_kind("rg"), Some("search"));
+    assert_eq!(verb_kind("git"), Some("git"));
+}
+
+/// ⚠ **`None` is "not taught yet", the same answer [`verb`] gives** — never a
+/// bucket a stranger falls into. A concept layer reading this must be able to
+/// tell a command the table knows from one it does not.
+#[test]
+fn a_name_nobody_taught_it_has_no_kind_rather_than_a_default() {
+    assert_eq!(verb_kind("frobnicate"), None);
+    assert_eq!(verb_kind(""), None);
+}
+
+/// ⚠ **The point of the pair: two spellings of one act share a kind.** This is
+/// what makes `Rewrite` reachable across `sed -i` and `perl -pi` — measured
+/// identical at `Op::Transform { program, in_place }`, and the kind is the
+/// coarse half of the same claim.
+#[test]
+fn two_spellings_of_one_act_share_a_kind() {
+    assert_eq!(verb_kind("sed"), verb_kind("perl"));
+    assert_eq!(verb_kind("grep"), verb_kind("rg"));
+    // And two different acts do not, or the kind would say nothing.
+    assert_ne!(verb_kind("cat"), verb_kind("rm"));
 }
