@@ -1306,11 +1306,25 @@ pub fn bash_calls(line: &[u8]) -> Option<(Option<String>, Vec<String>)> {
     ))
 }
 
-/// One `Bash` call: the command, and the id its result will name.
+/// One `Bash` call: the command, the id its result will name, and what the
+/// author said it was for.
 #[derive(Debug, Clone)]
 pub struct BashCall {
     pub id: String,
     pub command: String,
+    /// The `description` the caller wrote beside the command.
+    ///
+    /// ⚠ **A CLAIM about the command, never evidence about what ran.** It is
+    /// prose written by the same author, at the same moment, and it can be
+    /// wrong — which is exactly what makes it useful as an independent second
+    /// reading (`docs/concept-model.md`, *The corpus is self-labelling*). No
+    /// reader may consult it to decide what a command did: that would be
+    /// inference from prose, and the whole chain below is a static analysis of
+    /// the text that ran.
+    ///
+    /// `None` where the caller wrote none, which is a fact worth keeping —
+    /// presence is one of the things the description report measures.
+    pub description: Option<String>,
 }
 
 /// The `Bash` calls on one transcript line, with the directory they ran in.
@@ -1349,6 +1363,7 @@ pub fn bash_calls_with_ids(line: &[u8]) -> Option<BashLine> {
             Some(BashCall {
                 id: item["id"].as_str().unwrap_or_default().to_string(),
                 command: item["input"]["command"].as_str()?.to_string(),
+                description: item["input"]["description"].as_str().map(str::to_string),
             })
         })
         .collect();
@@ -1749,7 +1764,13 @@ fn scan_transcript(
         // The miner takes its time from the row it is already walking, so the
         // call's own stamp is not needed here.
         if let Some(BashLine { cwd, calls, .. }) = bash_calls_with_ids(line) {
-            for BashCall { id: call, command } in calls {
+            // The description is deliberately not read here: the miner is a
+            // static analysis of what ran, and prose beside a command is a
+            // claim about it. See [`BashCall::description`].
+            for BashCall {
+                id: call, command, ..
+            } in calls
+            {
                 let Ok(parsed) = reader::project::read(&command) else {
                     continue;
                 };

@@ -3,6 +3,10 @@
 //!     cargo run --release --bin bash-corpus > /tmp/bash-corpus.jsonl
 //!     cargo run --bin shell-report -- /tmp/bash-corpus.jsonl
 //!
+//! With `--said <path>`, a SECOND artefact is written in the same pass: what
+//! the author said each command was for. See [`said`] for why it is a separate
+//! file and not another field on the row.
+//!
 //! One JSON object per line: the command as written, the `cwd` it ran in, and
 //! what became of it. The cwd is carried because a relative path names nothing
 //! without it, and the transcripts record it on every line — it is the one piece
@@ -25,11 +29,60 @@ use std::io::Write;
 use memview::agents;
 use reader::doing::Verdict;
 
+/// Where the stated intents go, when `--said <path>` asks for them.
+///
+/// ⚠ **A SEPARATE FILE, and the reason is a boundary rather than a format.** A
+/// `description` is a claim the author made about the command; the corpus row is
+/// a record of what ran. Everything downstream of `bash-corpus.jsonl` is a
+/// static reader, and prose is not evidence about execution — put the two in one
+/// row and the only thing keeping a reader from consulting the prose is
+/// discipline. Two files make it structural: a reader that wanted the intent
+/// would have to go and open another artefact, which is a decision somebody
+/// would have to write down.
+///
+/// ⚠ **The reason is NOT the retired union.** `docs/concept-model.md` first gave
+/// one — that the row shape is load-bearing for memview#1130's collapse of a
+/// duplicated era — and that argument died with `~/.claude/corpus/` on
+/// 2026-08-29: there is no cumulative store any more, the corpus is re-mined
+/// whole every night, and a shape change would simply change the whole file at
+/// once. The boundary argument above is the one that survives.
+///
+/// **Joined on `(at, cmd)`**, which was measured before it was relied on: over
+/// 450,866 described calls the pair resolves to 184,590 distinct keys and
+/// **not one of them carries two different descriptions** (2026-09-03). The
+/// same pass writes both files from the same deduplicated walk, so the join is
+/// exact by construction rather than by luck.
+///
+/// A call with no description contributes no row at all. Absence is a fact the
+/// report measures — 97.6% of calls carry one — and a row saying `null` would
+/// be the same fact spelled expensively.
+fn said_row(at: &Option<String>, command: &str, description: &str) -> serde_json::Value {
+    let mut row = serde_json::json!({ "cmd": command, "said": description });
+    if let Some(at) = at {
+        row["at"] = serde_json::json!(at);
+    }
+    row
+}
+
 fn main() -> anyhow::Result<()> {
     let home = std::env::var("HOME").unwrap_or_default();
-    let root = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| format!("{home}/.claude/projects"));
+    let mut args = std::env::args().skip(1);
+    let mut root = None;
+    let mut said_to = None;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--said" => said_to = args.next(),
+            _ => root = Some(arg),
+        }
+    }
+    let root = root.unwrap_or_else(|| format!("{home}/.claude/projects"));
+    // Opened before the walk, so a bad path fails in a second rather than four
+    // minutes later with the corpus already on stdout.
+    let mut said = match &said_to {
+        Some(path) => Some(std::io::BufWriter::new(std::fs::File::create(path)?)),
+        None => None,
+    };
+    let mut said_rows = 0usize;
 
     let out = std::io::stdout();
     let mut out = std::io::BufWriter::new(out.lock());
@@ -92,7 +145,12 @@ fn main() -> anyhow::Result<()> {
                 continue;
             };
             let cwd = cwd.unwrap_or_default();
-            for agents::BashCall { id, command } in found {
+            for agents::BashCall {
+                id,
+                command,
+                description,
+            } in found
+            {
                 if !emitted.insert(id.clone()) {
                     continue;
                 }
@@ -119,11 +177,25 @@ fn main() -> anyhow::Result<()> {
                 }
                 writeln!(out, "{row}")?;
                 calls += 1;
+                if let (Some(said), Some(description)) = (said.as_mut(), &description) {
+                    writeln!(said, "{}", said_row(&at, &command, description))?;
+                    said_rows += 1;
+                }
             }
         }
     }
     out.flush()?;
+    if let Some(said) = said.as_mut() {
+        said.flush()?;
+    }
     eprintln!("{calls} Bash calls from {files} transcripts");
+    if let Some(path) = &said_to {
+        // Both numbers, because the interesting figure is the SHARE: a said
+        // count alone cannot say whether a fall is fewer calls or fewer
+        // descriptions.
+        let share = 100.0 * said_rows as f64 / calls.max(1) as f64;
+        eprintln!("{said_rows} of them said what they were for ({share:.1}%) → {path}");
+    }
     Ok(())
 }
 
