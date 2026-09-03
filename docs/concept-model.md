@@ -36,13 +36,19 @@ Four questions this design left open were answered before any of it was built:
   *spelling*, and every payload trap in the corpus is a spelling that hides the
   act. The card must also render the honest miss — "no concept, here is the
   L2 reading" — which forces the no-absorption rule from the first screen.
-- **Cross-language from day one, because it is the cheaper option.** The merge
-  is already done one level down: `program.rs` is the shared answer-type and
-  L3 reads `sed -i`, `perl -pi` and `write_text` into the same effect. A
-  bash-only `Rewrite` would be a concept shaped like one spelling, plus a
-  migration. The `Edit`-tool arm is deferred — not hard, but trivially a
-  concept already, so it proves nothing about the lens; it joins when the ask
-  card needs uniformity.
+- **Cross-language is the goal; the FIRST LENS is shell-only.**
+  ⚠ **This said "cross-language from day one, because it is the cheaper
+  option", and the measurement refuted the reason** (memview#1364, spiked
+  2026-09-03). The merge one level down is real but it is thinner than this
+  claimed: the shared type is `FileUse { path, write, reached }` — subject and
+  direction — not `program.rs`. `python::record` takes `(call, value, write)`,
+  so `re.sub`'s pattern and replacement are never extracted at all, and a
+  `Rewrite` lifted from Python would have **nothing to compare against**.
+  Cross-language first needs a parameter field on `program.rs` and work in both
+  carried readers. Within the shell it IS free and is done from the start:
+  `sed -i 's/a/b/' f` and `perl -pi -e 's/a/b/' f` measure to the identical
+  `Op::Transform { program, in_place }`. The `Edit`-tool arm stays deferred —
+  trivially a concept already, so it proves nothing about the lens.
 - **The vocabulary is mined; the automation roadmap is the null hypothesis,
   never the seed.** Designed vocabularies lose to counted ones everywhere in
   this repository's record. The roadmap's use comes *after* the census: diff
@@ -169,11 +175,26 @@ about — goes unread. The depth measure from
 [execution-model.md](execution-model.md) applies unchanged: report per command,
 per byte, per node, and share descended.
 
-**Recognition is a separate pass, exactly as Embedding is.** Concepts attach to
-a pure L2 reading (`Concept { kind, params, span }`); improving a recognition
-rule changes no tree and no operation. The reason is the one already written:
-a recogniser folded into the layer below makes every improvement above reshape
-the record beneath it.
+**Recognition is a separate pass, exactly as Embedding is** — improving a
+recognition rule must change no tree and no operation, because a recogniser
+folded into the layer below makes every improvement above reshape the record
+beneath it.
+
+⚠ **But it does NOT attach to "a pure L2 reading", which is what this said, and
+no seed concept's parameters survive there** (memview#1364, measured). The
+projection drops flags by construction: `Op::Read` keeps paths only, so
+`head -5 f` and `cat f` are one key and `Page`'s range is gone; `Verb::Fetch`
+loses its URL; `find . -name '*.ts'` is `Op::Nothing` outright. Even `Glance`
+fails — `GitOp::Other { subcommand }` carries no path, and the repository comes
+from the working directory.
+
+**The attach point is [`shell_files::Step`]**, the one place a command and its
+reading are both in hand: post-expansion `argv` beside `op`, `cwd`, `host`,
+`reached`, and the resolved / `bounded` / `located` subjects. That is not a
+debug path — `agents.rs` and `console/src/parse.rs` already call `trace`, so
+**the ask card computes a `Step` per command today** and a concept is a new
+field on the line it already builds. The separation survives intact: `Step` is
+still below recognition, and a concept is still a function of it.
 
 ## The corpus is self-labelling at this level too
 
@@ -401,11 +422,30 @@ Unchanged from the two layers below, restated once:
    Ranking a kind's words by how much they exceed their corpus-wide rate is the
    measure that would say something, and it is not built — the top-4 share this
    prints is a shape to look at, never a score.
-2. **Concept census.** Over `shell_ops::Op` sequences per command, rank the
-   recurring shapes; print the candidate vocabulary with counts and the
-   remainder. This is `shell-report` one level up, and like it, the report is
-   the method rather than a status line.
-3. **The first lens.** Take the census's top concept; build lift, lower, and
+2. **Concept census — ⚠ NOT over `Op` sequences, which is what this said and is
+   refuted** (memview#1364). `reading.rs::naming` already maps `Op` variants
+   1:1 onto display strings and `shell-files` prints the tally, so a census
+   keyed on the variant would **rediscover its own input and read as success** —
+   [[feedback_agreement_with_the_expected_answer_is_not_corroboration]], caught
+   before it was built rather than after. The key is the variant **plus its
+   fields plus the raw argv**, at `Step`. Which flags a given concept needs
+   falls out of the census; it cannot be decided ahead of it.
+3. **The first lens — `Rewrite`, shell-only.** Measured rather than chosen:
+   `sed -i 's/a/b/' f` and `perl -pi -e 's/a/b/' f` both reach
+   `Op::Transform { program: "s/a/b/", in_place: true }`, so two spellings meet
+   in one key and acceptance test 1 has something real to assert. `Page` was
+   the intuitive first pick and is the wrong one — `Op::Read` keeps only paths,
+   so its range must come from `Step.argv`.
+
+   ⚠ **One prerequisite, and the obvious version of it fails the build.**
+   `Verb` and `verb()` are private, and making `Verb` public emits
+   `private_interfaces` (its variants carry `Flags`), which under `-D warnings`
+   is a failure. A payload-free discriminant beside `verb()` is the way.
+   `unwrap_command` and `basename` are already public and both needed: a
+   `Step`'s argv keeps its wrappers, so `sudo rm x` must be unwrapped before
+   the verb is asked for.
+
+   Build lift, lower, and
    all four gates over it; ablate. One concept end-to-end proves the tower's
    plumbing the way round 1's 42.5% proved the grammar's — the rate is
    irrelevant, the law holding is the point. Two acceptance tests come from
