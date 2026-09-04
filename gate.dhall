@@ -110,6 +110,7 @@ in  { name = "memview"
               ]
         , timeout_s = 1800
         }
+      , G.cargoDoc
       , G.Check::{
         , name = "tests"
         , argv = G.inDevShell [ "cargo", "test", "--workspace" ]
