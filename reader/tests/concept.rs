@@ -17,7 +17,7 @@
 //! in their holes must compare equal — the equality recurrence detection will
 //! later stand on.
 
-use reader::concept::{Concept, Subject, lift, lower};
+use reader::concept::{Concept, Subject, Why, lift, lower};
 use reader::project::read as parse;
 use reader::shell_files::{Step, trace};
 use reader::shell_ops::Op;
@@ -33,7 +33,10 @@ fn steps(script: &str) -> Vec<Step> {
 
 /// The concept one command lifts to, when it lifts to exactly one.
 fn only(script: &str) -> Concept {
-    let lifted: Vec<Concept> = steps(script).iter().filter_map(lift).collect();
+    let lifted: Vec<Concept> = steps(script)
+        .iter()
+        .filter_map(|step| lift(step).ok())
+        .collect();
     assert_eq!(lifted.len(), 1, "expected one concept from `{script}`");
     lifted.into_iter().next().expect("one")
 }
@@ -155,17 +158,21 @@ fn the_lowered_text_parses() {
 /// ⚠ **`sed` without `-i` prints and changes nothing**, so it is a different act
 /// and must not lift. Reading both as `Rewrite` would lower to a command that
 /// edits a file the original left alone — the direction that invents work.
+///
+/// And the two refusals are DIFFERENT answers, which is what the census keys
+/// on: the printing `sed` was looked at and turned down, where `cat` is simply
+/// a shape no lens covers yet.
 #[test]
 fn a_transform_that_is_not_in_place_is_not_a_rewrite() {
     assert!(
         steps("sed 's/a/b/' src/geo/velocity.ts")
             .iter()
-            .all(|step| lift(step).is_none())
+            .all(|step| lift(step) == Err(Why::NotInPlace))
     );
     assert!(
         steps("cat src/geo/velocity.ts")
             .iter()
-            .all(|step| lift(step).is_none())
+            .all(|step| lift(step) == Err(Why::NoLens))
     );
 }
 
@@ -186,11 +193,13 @@ fn a_substitution_this_text_does_not_carry_is_a_hole() {
 /// lift refuses rather than filing it here.
 #[test]
 fn a_rewrite_on_another_machine_does_not_lift_as_a_local_one() {
-    assert!(
-        steps("ssh amun \"sed -i 's/a/b/' /etc/hosts\"")
-            .iter()
-            .all(|step| lift(step).is_none())
-    );
+    let steps = steps("ssh amun \"sed -i 's/a/b/' /etc/hosts\"");
+    assert!(steps.iter().all(|step| lift(step).is_err()));
+    // Two refusals with two names: the `ssh` itself is a carrier whose work is
+    // the child's, and the child `sed -i` is refused for WHERE it ran, not for
+    // what it is.
+    assert!(steps.iter().any(|step| lift(step) == Err(Why::Carrier)));
+    assert!(steps.iter().any(|step| lift(step) == Err(Why::Remote)));
 }
 
 /// ⚠ **A described subject is REFUSED, and refusing is the finding.**
@@ -206,22 +215,28 @@ fn a_rewrite_on_another_machine_does_not_lift_as_a_local_one() {
 /// be counted — refuse rather than mis-model.
 #[test]
 fn a_subject_this_cannot_lower_is_refused_rather_than_flattened() {
-    let lifted: Vec<Concept> = steps("for f in *.ts; do sed -i 's/a/b/' \"$f\"; done")
+    let loop_steps = steps("for f in *.ts; do sed -i 's/a/b/' \"$f\"; done");
+    let lifted: Vec<Concept> = loop_steps
         .iter()
-        .filter_map(lift)
+        .filter_map(|step| lift(step).ok())
         .collect();
 
     assert!(
         lifted.is_empty(),
         "a bounded subject must not lift: {lifted:?}"
     );
+    // Refused by NAME, not merely missed: this answer is the number that sizes
+    // "does `Rewrite` need to lower to a loop" when the census reads it.
+    assert!(
+        loop_steps
+            .iter()
+            .any(|step| lift(step) == Err(Why::Described))
+    );
 
     // ⚠ And the reader still HAS the language — nothing was lost below, only
     // left unlifted. A later `Rewrite` that can lower a loop takes it up again.
     assert!(
-        steps("for f in *.ts; do sed -i 's/a/b/' \"$f\"; done")
-            .iter()
-            .any(|step| !step.bounded.is_empty()),
+        loop_steps.iter().any(|step| !step.bounded.is_empty()),
         "the step should still carry the pattern"
     );
 }

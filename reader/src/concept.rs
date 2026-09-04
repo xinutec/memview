@@ -87,13 +87,53 @@ pub enum Concept {
     },
 }
 
-/// Lift one step into the concept it served, or nothing.
+/// Why a step did not lift.
 ///
-/// ⚠ **`None` is the honest answer and must stay cheap to give.** A command with
-/// no concept stays an L2/L3 leaf and is counted; that is what keeps a lift rate
-/// from being manufactured, and it is the same rule the parser follows when it
-/// refuses a construct by name.
-pub fn lift(step: &Step) -> Option<Concept> {
+/// ⚠ **The census's key, born with the layer.** #1142 rebuilt three temporary
+/// inventories before keying misses by reason, and the method learned from that
+/// (`docs/concept-model.md`): the layer starts with its `Why`, so the remainder
+/// is never a bare count. [`Why::NoLens`] is the queue — ranked by shape, it is
+/// where the next concept comes from. The rest are the lens's own refusals:
+/// steps a `Rewrite` *looked at* and turned down, each a design question the
+/// census sizes ([`Why::Described`] is "does `Rewrite` need to lower to a
+/// loop", counted).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Why {
+    /// No lens covers this shape. The counted remainder, and the queue.
+    NoLens,
+    /// A carrier — `bash -c`, `ssh`, `kubectl exec`. Its content arrives as
+    /// steps of its own and is lifted there; a concept on the carrier too
+    /// would say the child's work twice, the same double-count `Step.files`
+    /// refuses for a wrapper's paths.
+    Carrier,
+    /// A transform that prints rather than edits — a different act, and the
+    /// pool a `Page` lens would draw from.
+    NotInPlace,
+    /// Ran on another machine; a lowered local command would claim the wrong
+    /// world.
+    Remote,
+    /// A described subject — `S ⊆ L`, a loop's language — which no single
+    /// command can lower without promoting it to a false lower bound.
+    Described,
+}
+
+/// Lift one step into the concept it served, or say why not.
+///
+/// ⚠ **The refusal is the honest answer and must stay cheap to give.** A command
+/// with no concept stays an L2/L3 leaf and is counted; that is what keeps a lift
+/// rate from being manufactured, and it is the same rule the parser follows when
+/// it refuses a construct by name. A caller that wants only the concept takes
+/// `.ok()`; the census reads the other arm, and the two cannot drift because
+/// there is one function.
+pub fn lift(step: &Step) -> Result<Concept, Why> {
+    // ⚠ **A carrier is refused before its op is read as work** — its children
+    // are steps of their own and are lifted there. See [`Why::Carrier`].
+    if matches!(
+        &step.op,
+        Some(Op::Nested { .. } | Op::Remote { .. } | Op::RemoteRun { .. })
+    ) {
+        return Err(Why::Carrier);
+    }
     let Some(Op::Transform {
         program,
         program_file,
@@ -101,7 +141,7 @@ pub fn lift(step: &Step) -> Option<Concept> {
         in_place,
     }) = &step.op
     else {
-        return None;
+        return Err(Why::NoLens);
     };
     // ⚠ **Only `-i` is a rewrite.** `sed 's/a/b/' f` prints to stdout and
     // changes nothing — it is a different act with a different concept, and
@@ -109,14 +149,14 @@ pub fn lift(step: &Step) -> Option<Concept> {
     // did not. The reader already draws this line; this reads it rather than
     // re-deciding it.
     if !in_place {
-        return None;
+        return Err(Why::NotInPlace);
     }
     // ⚠ **A remote step's files are never local**, and a concept that lowered to
     // a bare `sed -i` would claim work on the wrong machine. The step says so;
     // `files` is empty for them by construction, which would otherwise look like
     // a command that named nothing.
     if step.host.is_some() {
-        return None;
+        return Err(Why::Remote);
     }
     let subjects = subjects(step, paths);
     // ⚠ **A DESCRIBED subject cannot be lowered, so it is refused by name.**
@@ -136,9 +176,9 @@ pub fn lift(step: &Step) -> Option<Concept> {
         .iter()
         .any(|s| matches!(s, Subject::Bounded(_) | Subject::Located(_)))
     {
-        return None;
+        return Err(Why::Described);
     }
-    Some(Concept::Rewrite {
+    Ok(Concept::Rewrite {
         subjects,
         // A program given as a file is a hole in the same sense a path is: the
         // substitution exists, and not in this text.
@@ -186,7 +226,7 @@ fn subjects(step: &Step, paths: &[String]) -> Vec<Subject> {
 /// ⚠ **A hole lowers to an unexpanded variable, and that is what a hole IS.**
 /// The losslessness claim is that the same holes come back, not fewer — so the
 /// spelling has to be one this reader reads back as unnamed. `?` is not:
-/// measured, it carries no `/` and no extension, so [`looks_like_path`] refuses
+/// measured, it carries no `/` and no extension, so [`crate::shell_ops::looks_like_path`] refuses
 /// it and the subject vanishes entirely, which fails the law. `"$UNNAMED"` is
 /// recorded as an admission and lifts back to [`Subject::Hole`].
 ///

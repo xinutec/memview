@@ -408,6 +408,31 @@ fn perl_with_an_in_place_flag_rewrites_its_operands() {
 }
 
 #[test]
+fn a_value_carrying_an_i_is_not_an_in_place_flag() {
+    // ⚠ **The concept census's second run surfaced `perl -Itest/lib -e '…'`
+    // lifted as a Rewrite** (2026-09-04): the `i` in `lib` — a character of
+    // `-I`'s attached VALUE — read as the in-place flag. `in_place` decides
+    // the operands' direction, so the file this command read was recorded as
+    // one it rewrote. A cluster's letters end where a value-taking flag
+    // starts; nothing after it is a flag.
+    for script in [
+        r#"perl -Itest/lib -e 'print' t/archive.t"#,
+        r#"perl -Mstrict -e 'print' t/archive.t"#,
+    ] {
+        let Op::Transform { in_place, .. } = one(script) else {
+            panic!("not a transform: {script}");
+        };
+        assert!(!in_place, "{script}");
+    }
+    // And `sed -Ei` still spells it: `-E` takes no value, so the scan carries
+    // on through it to the `i`.
+    let Op::Transform { in_place, .. } = one(r#"sed -Ei 's/a/b/' src/geo/osm.ts"#) else {
+        panic!("not a transform");
+    };
+    assert!(in_place);
+}
+
+#[test]
 fn perl_without_the_flag_only_reads() {
     // `-ne` carries no `i`, so nothing was rewritten — and the operand is still
     // a file this command opened.

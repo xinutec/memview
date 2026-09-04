@@ -4,14 +4,14 @@ Design for the layers above the reader: **lifting** what the fleet executed into
 the concepts it was executing, and **lowering** a concept back into a command
 that does the same thing.
 
-**Status: the first lens is BUILT; the vocabulary is one concept.**
+**Status: the first lens and all three instruments are BUILT; the vocabulary
+is one concept, and the queue for the second is now counted, not guessed.**
 `bash-corpus --said` + `said-report` mine and read the description corpus;
-`reader/src/concept.rs` lifts and lowers `Rewrite`, with gates 1–3 in
-`reader/tests/concept.rs`. ⚠ **Instrument 2 — the census — is NOT built**, and
-was skipped rather than dropped: the spike had already named `Rewrite`, so the
-vocabulary today is one concept two people agreed on rather than one the corpus
-ranked. Everything else here is design. Where a step needs sizing, the
-instrument that would size it is named — a count written here would rot.
+`reader/src/concept.rs` lifts and lowers `Rewrite` — and answers every miss by
+name (`concept::Why`) — with gates 1–3 in `reader/tests/concept.rs`;
+`concept-report` is the census, balanced to the unit. Gate 4 is not yet pointed
+at concepts, and no ask card renders one yet. Where a step needs sizing, the
+instrument that sizes it is named — a count written here would rot.
 [execution-model.md](execution-model.md) governs the syntax underneath and
 [reader.md](reader.md) the effects; both stand unchanged, and every decision
 recorded there binds this layer too — soundness refused, outputs never
@@ -362,8 +362,13 @@ single-command concept lowers to.
 So the lens refuses those steps by name and they stay counted L2/L3 leaves.
 **Lowering is where the reader's precision has to be paid for**: `S ⊆ L` is
 falsifiable because an oracle can run the loop, and a concept that flattens it
-to one command has thrown that away. A `Rewrite` that lowers to a loop is the
-next thing this vocabulary needs, and it is a shape question, not a bug.
+to one command has thrown that away.
+
+⚠ **This said a loop-lowering `Rewrite` was "the next thing this vocabulary
+needs", and the census killed it the day after it was written.** The described
+refusal holds **3 steps of 1.7M** (concept-report, 2026-09-04) — the figure
+that sized the decision, kept because it did. A real shape question, with no
+corpus behind it: build nothing until a census says otherwise.
 
 ⚠ **The hole's spelling is load-bearing and the obvious one fails the law.** A
 hole lowered as `?` vanishes: it carries no `/` and no extension, the path guard
@@ -456,15 +461,49 @@ Unchanged from the two layers below, restated once:
    Ranking a kind's words by how much they exceed their corpus-wide rate is the
    measure that would say something, and it is not built — the top-4 share this
    prints is a shape to look at, never a score.
-2. **Concept census — ⚠ NOT over `Op` sequences, which is what this said and is
-   refuted** (memview#1364). `reading.rs::naming` already maps `Op` variants
-   1:1 onto display strings and `shell-files` prints the tally, so a census
-   keyed on the variant would **rediscover its own input and read as success** —
-   [[feedback_agreement_with_the_expected_answer_is_not_corroboration]], caught
-   before it was built rather than after. The key is the variant **plus its
-   fields plus the raw argv**, at `Step`. Which flags a given concept needs
-   falls out of the census; it cannot be decided ahead of it.
-3. **The first lens — `Rewrite`, shell-only.** Measured rather than chosen:
+2. ✅ **Concept census — BUILT 2026-09-04.** `concept-report` reads every step
+   through `concept::lift` and files each exactly once — lifted, refused by
+   name (`Why`), or queued by shape — balanced to the unit. ⚠ **NOT over `Op`
+   sequences, which is what this first said and is refuted** (memview#1364):
+   `reading.rs::naming` maps variants 1:1 onto display strings, so a census
+   keyed on the variant would **rediscover its own input and read as success**
+   — [[feedback_agreement_with_the_expected_answer_is_not_corroboration]],
+   caught before it was built. The key is the operation's phrase **plus the
+   unwrapped command, its subcommand, and its flags with values abstracted**,
+   at `Step`; which flags a given concept needs falls out of it.
+
+   ⚠ **The rank uses rows, and the first run showed why.** The reader unrolls
+   loops, so a step count weights a shape by iterations run — `break` was
+   112,816 steps out of at most 4,238 rows that mention it. A vocabulary is
+   mined from what an author reaches for, so a shape counts once per row; the
+   step count stays beside it as execution mass.
+
+   **What it ranked** (read the figures off a run, not off this list):
+   - **`Page` is the queue's head by a distance** — `head -N`, `tail -N`,
+     `cat`, bare `head`, plus the whole not-in-place transform pool, each of
+     those shapes alone holding more rows than every lifted `Rewrite` combined.
+     The doc's suspicion is now a count.
+   - **The loop-lowering `Rewrite` is dead on arrival** — see the lens section
+     above: 3 steps.
+   - **A step is the wrong unit for the compound seeds.** `Poll` appears only
+     as its scattered constituents — `sleep`, `break`, `seq`, `[` — and
+     `Glance` as separate `git log --oneline -N` and `git status` rows, both
+     high in the ranking. A concept whose body is a loop or a chain needs a
+     key spanning more than one step, and no instrument measures that yet.
+   - `cd` and `echo` top the raw ranking and are context and narration rather
+     than acts — what a concept vocabulary should do with them is an open
+     question, not a queue entry.
+
+   **Its second run found a defect a layer below** — the same way instrument
+   1's first run found `activity.rs` reading `2>/dev/null` as an edit. The
+   first lifted witness was `perl -Itest/lib -e '…'`: `in_place` was detected
+   by `contains('i')` over the whole word, so the `i` in `lib` — a character
+   of `-I`'s attached *value* — marked a file the command read as one it
+   rewrote. Fixed in `shell_ops::spells_in_place`, which ends a cluster where
+   a value-taking flag starts, using the verb's own `valued` list.
+3. ✅ **The first lens — `Rewrite`, shell-only — BUILT 2026-09-03**
+   (`reader/src/concept.rs`; the findings live under *What the first lens
+   found*, above). Measured rather than chosen:
    `sed -i 's/a/b/' f` and `perl -pi -e 's/a/b/' f` both reach
    `Op::Transform { program: "s/a/b/", in_place: true }`, so two spellings meet
    in one key and acceptance test 1 has something real to assert. `Page` was

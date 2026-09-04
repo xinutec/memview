@@ -558,6 +558,37 @@ fn paired_files<'a>(argv: &'a [String], pair_file: &[&str]) -> Vec<&'a str> {
     out
 }
 
+/// Whether one word spells `-i` as a FLAG, not as a character of some other
+/// flag's attached value.
+///
+/// ⚠ **`perl -Itest/lib -e '…'` was in-place to a `contains('i')` test** — the
+/// `i` in `lib` — and `in_place` decides the operands' direction, so a file
+/// the command read was recorded as one it rewrote. Surfaced by the concept
+/// census's second run (2026-09-04), lifted as a `Rewrite` of a test file.
+///
+/// A cluster's letters end where a value-taking flag starts — `valued` is the
+/// verb's own list, so `-I` ends perl's cluster and does not end sed's `-Ei`,
+/// where `-E` takes nothing and the scan carries on to the `i`. Digits pass:
+/// `-0pi` spells a record separator in front of in-place. Anything that could
+/// not be a flag at all ends the word the same way a value does.
+fn spells_in_place(word: &str, valued: &[&str]) -> bool {
+    if !word.starts_with('-') || word.starts_with("--") {
+        return false;
+    }
+    for c in word.chars().skip(1) {
+        if c == 'i' {
+            return true;
+        }
+        let takes_value = valued
+            .iter()
+            .any(|flag| flag.chars().count() == 2 && flag.ends_with(c));
+        if takes_value || !(c.is_ascii_alphabetic() || c.is_ascii_digit()) {
+            return false;
+        }
+    }
+    false
+}
+
 /// Whether any of `flags` appears in `argv`, in either form.
 fn has_flag(argv: &[String], flags: &[&str]) -> bool {
     flags.iter().any(|flag| {
@@ -1525,14 +1556,7 @@ fn act(
             // every one of them as a command that changed nothing. The same
             // shape `Verb::Remove` already uses for `-r`, and for the same
             // reason: a flag cluster is one word carrying several flags.
-            //
-            // Safe for both commands that reach here: `i` in a single-dash
-            // cluster means in-place for `sed` and for `perl`, and no other
-            // flag either of them takes is spelled with it.
-            in_place: honours_i
-                && argv
-                    .iter()
-                    .any(|a| a.starts_with('-') && !a.starts_with("--") && a.contains('i')),
+            in_place: honours_i && argv.iter().any(|a| spells_in_place(a, flags.valued)),
         },
         Verb::Remove => Op::Remove {
             paths: paths(unnamed, &words, cwd, home),
