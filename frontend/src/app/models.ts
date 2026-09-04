@@ -37,7 +37,7 @@ export interface MemoryMeta {
 export interface Origin {
   session: string;
   /** Absent when the session's transcript has been pruned since. */
-  agent?: string | null;
+  agent?: string;
 }
 
 export interface MemoryPage extends MemoryMeta {
@@ -256,7 +256,7 @@ export interface WorkFile {
    * only come from an `ssh` payload, so `shell_*` already says where the
    * numbers came from and this says where the *file* is.
    */
-  host?: string | null;
+  host?: string;
   /**
    * Lines this agent committed to the file, and in how many commits. The same
    * work measured a second way — never added to the counts above, which would
@@ -360,9 +360,9 @@ export interface Moment {
   at: number;
   agent: string;
   /** Absent for work that belongs to no project directory. */
-  project?: string | null;
+  project?: string;
   /** Set when the work happened on another machine, over `ssh`/`kubectl`. */
-  host?: string | null;
+  host?: string;
   kind: string;
   /** How many activities this minute folded into one row. */
   n: number;
@@ -372,7 +372,7 @@ export interface Moment {
    * Absent for work with no prompt above it in its transcript, which is what a
    * resumed session looks like from the outside.
    */
-  episode?: number | null;
+  episode?: number;
   verdict: Verdict;
   /**
    * How many effects opening this row would show.
@@ -444,10 +444,10 @@ export interface Effect {
   agent: string;
   did: Did;
   /** Absent when the subject could not be named — see `Evidence.unnamed`. */
-  path?: string | null;
+  path?: string;
   /** A glob or search pattern, where the subject was a set and not a file. */
-  pattern?: string | null;
-  host?: string | null;
+  pattern?: string;
+  host?: string;
   /** Verbatim. Owner-only for this reason, and never behind a share token. */
   command: string;
   /** Whether the command certainly ran, or only may have — `a && b`. */
