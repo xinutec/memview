@@ -376,8 +376,9 @@ pub struct Summary {
     pub touched: Option<u64>,
     /// How much the transcript weighs, in bytes — the whole conversation as it
     /// stands on disk. Filled by the roster from the same metadata read as
-    /// [`Self::touched`]; see [`crate::past::sized`] for why this is not the
-    /// same fact as [`Self::context`].
+    /// [`Self::touched`]. Not the same fact as [`Self::context`]: this is the
+    /// whole transcript's size on disk, that is the LAST request's prompt in
+    /// tokens.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bytes: Option<u64>,
     pub alive: bool,
@@ -1874,7 +1875,7 @@ impl Session {
     /// Ask this session what the account has spent. See [`protocol::get_usage`].
     ///
     /// The answer does not come back here — it arrives on stdout like everything
-    /// else and is recorded as it passes [`Self::apply`], which is what makes one
+    /// else and is recorded as it passes [`Self::record_usage`], which is what makes one
     /// question enough for every client watching. Failure is not worth
     /// propagating: a session that will not take the question is one whose
     /// figures the console simply does not have.
@@ -1903,7 +1904,7 @@ impl Session {
     /// either, since closing stdin makes its descriptors unkeepable. Both at
     /// once left a stopped session running for two and a quarter hours
     /// (memview #750) — a child of the console with no row anywhere in it, which
-    /// is precisely the state [`crate::roster::Roster::kill_all`] exists to
+    /// is precisely the state [`crate::roster::Roster::finish_stopping`] exists to
     /// avoid. So the *when* is written down where the handover can read it, and
     /// the new image finishes what this one started.
     pub async fn stop(self: &Arc<Self>) {

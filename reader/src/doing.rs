@@ -332,7 +332,7 @@ impl Log {
     /// **66 of 2,815 tail calls** would land in no episode, twenty times the
     /// three calls whose result crossed the same cut. Unlike those three this is
     /// cheap to keep, because the state is an index and a name rather than a row
-    /// position — [`reader::watermark::Resume`] carries it.
+    /// position — [`crate::watermark::Resume`] carries it.
     pub fn reopen(&mut self, episode: Option<u32>, prompt: Option<String>) {
         self.prompt = prompt;
         // ⚠ **An episode this log does not hold cannot be continued.** The index

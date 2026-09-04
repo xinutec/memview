@@ -38,7 +38,7 @@
 //! one states that it does not; see the workspace `Cargo.toml`.
 //!
 //! ⚠ **No gate can see a construct absorbed into a literal**, which is why
-//! [`parse`] refuses rather than absorbs. The gates check what the tree says; only
+//! [`parse()`] refuses rather than absorbs. The gates check what the tree says; only
 //! the parser can be wrong about what is in it.
 
 pub mod ast;

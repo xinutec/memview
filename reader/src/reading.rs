@@ -362,7 +362,7 @@ impl Reading {
     /// `unhandled` into their own bucket must not raise this rate: nothing more
     /// was read, and a coverage figure that improves because calls left the
     /// denominator is a different fact from one that improves because the reader
-    /// learned something ([[feedback_a_threshold_carries_its_denominator]]).
+    /// learned something (\[\[feedback_a_threshold_carries_its_denominator\]\]).
     /// Measured across the union corpus, this refactor left it at 99.3%.
     pub fn understood(&self) -> f64 {
         100.0 * self.handled as f64 / self.commands().max(1) as f64

@@ -1,6 +1,6 @@
 //! Which constructs does a command need, not which one stopped us first.
 //!
-//! ⚠ **The refusal ranking is not a work queue on its own.** [`parse`] stops at
+//! ⚠ **The refusal ranking is not a work queue on its own.** [`crate::syntax::parse::parse`] stops at
 //! the first thing it cannot read, so a command holding a pipe and a redirection
 //! is counted once, under whichever the scan reached first. Reading those
 //! percentages as "what building X would unlock" is wrong in both directions: it
@@ -8,7 +8,7 @@
 //! construct in it modelled before it can be read at all.
 //!
 //! This is the survey that fixes it — a scan that keeps going and returns the
-//! whole set. `survey(t)` empty means [`parse`] would accept `t`.
+//! whole set. `survey(t)` empty means [`crate::syntax::parse::parse`] would accept `t`.
 //!
 //! **It is a scanner, not a parser**, and the difference is deliberate: it needs
 //! to answer a question about text this parser cannot read, so it cannot be
@@ -26,7 +26,7 @@
 //! product once already: see the `)` in [`Survey::process_substitution`].
 //!
 //! ⚠ The survey can only ever be *approximately* right, so it is pinned to the
-//! parser by an invariant rather than trusted: whatever [`parse`] refuses must
+//! parser by an invariant rather than trusted: whatever [`crate::syntax::parse::parse`] refuses must
 //! appear in the survey's set. `reader/tests/syntax.rs` asserts it, and the
 //! corpus report re-checks it on every row.
 

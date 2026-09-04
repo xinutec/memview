@@ -41,8 +41,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Where the copies go. Overridable for the same reason
-/// [`crate::tasks::tasks_root`] is: a test has no home directory worth writing
-/// to, and this one *writes*.
+/// [`crate::past::projects_root`] is: a test has no home directory worth
+/// writing to, and this one *writes*.
 pub fn images_root() -> PathBuf {
     if let Ok(set) = std::env::var("CONSOLE_IMAGE_DIR") {
         return PathBuf::from(set);

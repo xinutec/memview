@@ -39,7 +39,8 @@ use std::path::{Path, PathBuf};
 /// ⚠ **A live transcript can be gigabytes** — 1.7 GB on this Mac in August — so
 /// reading the whole file to print one message is not an option. Eight
 /// megabytes covers hundreds of exchanges of the largest session seen; when it
-/// does not, [`Line`] counting says so rather than quietly showing less.
+/// does not, [`console::conversation::Line`] counting says so rather than
+/// quietly showing less.
 const TAIL: u64 = 8 << 20;
 
 /// How much of a message `log` shows before saying how much it kept back.

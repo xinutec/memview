@@ -157,7 +157,7 @@ pub struct Extract {
     /// over a glob recorded what `wc -l` with no operand records — nothing — and
     /// the corpus read as more completely understood than it is. These are the
     /// commands that used a file, said so, and named it with something the
-    /// transcript does not contain. See [`crate::shell_ops::undetermined`] for
+    /// transcript does not contain. See `shell_ops::undetermined` for
     /// which refusals qualify and, just as importantly, which do not.
     pub unnamed: BTreeMap<String, usize>,
     /// Subjects the text does not determine but does **bound**, by the pattern

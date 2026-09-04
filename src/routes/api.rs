@@ -163,7 +163,7 @@ pub async fn memory(
 /// 2026-09-01 the response is 680 nodes, 2576 edges (3.8 each) and **972 KB**,
 /// because every node carries its `description`. Measure it rather than trusting
 /// a number in a comment — `curl -so /dev/null -w '%{size_download}'` against
-/// this route ([[feedback_a_count_in_prose_rots]]).
+/// this route (\[\[feedback_a_count_in_prose_rots\]\]).
 ///
 /// The one-payload decision still stands on the layout argument alone. What no
 /// longer follows from it is that this is cheap, or that every node belongs on

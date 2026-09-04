@@ -4,7 +4,7 @@
 //!     cargo run --bin shell-report -- /tmp/bash-corpus.jsonl
 //!
 //! With `--said <path>`, a SECOND artefact is written in the same pass: what
-//! the author said each command was for. See [`said`] for why it is a separate
+//! the author said each command was for. See [`said_row`] for why it is a separate
 //! file and not another field on the row.
 //!
 //! One JSON object per line: the command as written, the `cwd` it ran in, and
