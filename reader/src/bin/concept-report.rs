@@ -54,6 +54,7 @@ fn refusal(why: Why) -> &'static str {
 fn concept_name(concept: &Concept) -> &'static str {
     match concept {
         Concept::Rewrite { .. } => "Rewrite",
+        Concept::Page { .. } => "Page",
     }
 }
 

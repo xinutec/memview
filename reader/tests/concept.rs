@@ -17,10 +17,13 @@
 //! in their holes must compare equal — the equality recurrence detection will
 //! later stand on.
 
-use reader::concept::{Concept, Subject, Why, lift, lower};
+use reader::concept::{Concept, Range, Subject, Why, lift, lower};
 use reader::project::read as parse;
 use reader::shell_files::{Step, trace};
-use reader::shell_ops::Op;
+
+/// One command's L3 effect reading, as gate 2 compares it: every file use with
+/// its direction, the two described accounts, and the count of holes.
+type Reading = (Vec<(String, bool)>, Vec<String>, Vec<String>, usize);
 
 const HOME: &str = "/home/example";
 const CWD: &str = "/home/example/Code/health";
@@ -41,19 +44,30 @@ fn only(script: &str) -> Concept {
     lifted.into_iter().next().expect("one")
 }
 
-/// What the reader makes of a command, as the pair gate 2 compares.
-fn read_as(script: &str) -> Vec<(Option<Op>, Vec<String>)> {
+/// What the reader makes of a command, as the pair gate 2 compares: every
+/// file use with its direction, and every account of a subject it could not
+/// name.
+///
+/// ⚠ **The L3 effect reading, deliberately NOT the `Op` variant — recast when
+/// `Page` arrived (2026-09-04).** `head -5 f` is `Op::Read` and
+/// `sed -n '1,5p' f` is `Op::Transform` that prints: the level below
+/// classifies two spellings of one act differently, so holding the lowered
+/// form to variant equality would forbid exactly the unification this layer
+/// exists to make. What the authority below vouches for is WHAT WAS TOUCHED —
+/// each file with its direction — and what it admitted it could not name.
+/// `Rewrite` happens to satisfy the stronger variant-equal form; the law does
+/// not ask for it.
+fn read_as(script: &str) -> Vec<Reading> {
     steps(script)
         .into_iter()
         .map(|step| {
-            let mut wrote: Vec<String> = step
+            let mut used: Vec<(String, bool)> = step
                 .files
                 .iter()
-                .filter(|use_| use_.write)
-                .map(|use_| use_.path.clone())
+                .map(|use_| (use_.path.clone(), use_.write))
                 .collect();
-            wrote.sort();
-            (step.op, wrote)
+            used.sort();
+            (used, step.bounded, step.located, step.unnamed.len())
         })
         .collect()
 }
@@ -155,13 +169,114 @@ fn the_lowered_text_parses() {
     assert!(parse(&text).is_ok(), "did not parse: {text}");
 }
 
+/// ⚠ **Acceptance test 1, for the second lens — and its price is gate 2's
+/// recast.** `head -5 f` and `sed -n '1,5p' f` are one act in two spellings,
+/// and unlike `Rewrite`'s pair they do NOT meet at one `Op`: the reader below
+/// calls one a read and the other a transform that prints. The concept is
+/// where they meet — which is what the layer is for — so gate 2's judge is
+/// the effect reading, not the variant ([`read_as`] says why).
+#[test]
+fn two_spellings_of_one_page_lift_to_the_same_concept() {
+    let head = only("head -5 src/geo/velocity.ts");
+    let sed = only("sed -n '1,5p' src/geo/velocity.ts");
+
+    assert_eq!(head, sed);
+    assert_eq!(
+        head,
+        Concept::Page {
+            subjects: vec![Subject::Named(
+                "/home/example/Code/health/src/geo/velocity.ts".to_string()
+            )],
+            range: Range::First(5),
+        }
+    );
+    // And gate 2 for the pair whose spellings cross the L2 variant line: the
+    // lowered sed page IS the head page, and both read as the same touch.
+    assert_eq!(
+        read_as("sed -n '1,5p' src/geo/velocity.ts"),
+        read_as(&lower(&sed))
+    );
+}
+
+/// **Gate 1 over every range shape**, holes and the subjectless page included.
+/// A bare `head -50` pages what flows in; the corpus is full of them and the
+/// concept says exactly that — no subject, because none was in the text.
+#[test]
+fn every_range_shape_survives_the_round_trip() {
+    for script in [
+        "cat src/a.ts src/b.ts",
+        "head -5 src/geo/velocity.ts",
+        "tail -2 src/geo/velocity.ts",
+        "sed -n '25,40p' src/geo/velocity.ts",
+        "head -5 \"$TARGET\"",
+        "head -50",
+    ] {
+        let concept = only(script);
+        let text = lower(&concept);
+        assert_eq!(only(&text), concept, "lowered `{script}` to `{text}`");
+    }
+}
+
+/// `head f` shows ten lines — POSIX's own default, a documented fact and not
+/// a guess — so the concept carries the number the text left implicit.
+#[test]
+fn a_page_with_no_count_is_the_default_ten() {
+    let Concept::Page { range, .. } = only("head src/geo/velocity.ts") else {
+        panic!("not a page");
+    };
+    assert_eq!(range, Range::First(10));
+}
+
+/// ⚠ **What looks like a page and is not, refused by name.** `tail -f` waits;
+/// `sed '1,5p'` without `-n` prints the WHOLE file and lines 1-5 again;
+/// `head -c` counts bytes; `tail -n +2` drops a prefix; `$`-addresses are not
+/// digit ranges; `cat -n` numbers its output; `wc -l` measures rather than
+/// shows; `xargs head -5` pages files the PIPE names, none of which the argv
+/// spells. Each would lower to a command that does something else.
+#[test]
+fn what_looks_like_a_page_and_is_not_does_not_lift() {
+    for script in [
+        "tail -f var/log/app.log",
+        "sed '1,5p' src/a.ts",
+        "head -c 100 src/a.ts",
+        "tail -n +2 src/a.ts",
+        "sed -n '1,$p' src/a.ts",
+        "cat -n src/a.ts",
+        "wc -l src/a.ts",
+        "xargs head -5",
+    ] {
+        assert!(
+            steps(script).iter().all(|step| lift(step).is_err()),
+            "lifted: {script}"
+        );
+    }
+}
+
+/// ⚠ **A redirect is a subject the argv never spells**, in either direction:
+/// `head -5 < f` reads a file no operand names, and `head -5 f > out` writes
+/// one. A lowered form built from the concept would silently do less, so both
+/// are refused — gate 2 is the reason, applied before the fact.
+#[test]
+fn a_page_fed_or_captured_by_redirection_does_not_lift() {
+    for script in ["head -5 < src/a.ts", "head -5 src/a.ts > /tmp/snippet"] {
+        assert!(
+            steps(script).iter().all(|step| lift(step).is_err()),
+            "lifted: {script}"
+        );
+    }
+}
+
 /// ⚠ **`sed` without `-i` prints and changes nothing**, so it is a different act
 /// and must not lift. Reading both as `Rewrite` would lower to a command that
 /// edits a file the original left alone — the direction that invents work.
 ///
 /// And the two refusals are DIFFERENT answers, which is what the census keys
-/// on: the printing `sed` was looked at and turned down, where `cat` is simply
-/// a shape no lens covers yet.
+/// on: the printing `sed` was looked at and turned down, where `wc` is simply
+/// a shape no lens covers.
+///
+/// ⚠ **`cat` used to be this test's no-lens example and is now a `Page`** — it
+/// shows the whole file. The read that still refuses is one that MEASURES
+/// rather than shows: `wc -l` counts lines, so no `Page` range describes it.
 #[test]
 fn a_transform_that_is_not_in_place_is_not_a_rewrite() {
     assert!(
@@ -170,7 +285,7 @@ fn a_transform_that_is_not_in_place_is_not_a_rewrite() {
             .all(|step| lift(step) == Err(Why::NotInPlace))
     );
     assert!(
-        steps("cat src/geo/velocity.ts")
+        steps("wc -l src/geo/velocity.ts")
             .iter()
             .all(|step| lift(step) == Err(Why::NoLens))
     );
@@ -183,7 +298,9 @@ fn a_transform_that_is_not_in_place_is_not_a_rewrite() {
 #[test]
 fn a_substitution_this_text_does_not_carry_is_a_hole() {
     let concept = only("sed -i -f fix.sed src/geo/velocity.ts");
-    let Concept::Rewrite { substitution, .. } = &concept;
+    let Concept::Rewrite { substitution, .. } = &concept else {
+        panic!("not a rewrite: {concept:?}");
+    };
     assert_eq!(*substitution, None);
     assert!(lower(&concept).contains('?'), "{}", lower(&concept));
 }

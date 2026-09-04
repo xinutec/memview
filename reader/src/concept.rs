@@ -42,7 +42,7 @@
 //! no seed concept's parameters survive at the `Op` alone.
 
 use crate::shell_files::Step;
-use crate::shell_ops::Op;
+use crate::shell_ops::{Op, basename, unwrap_command};
 
 /// A concept's parameter, carrying the precision the reader had and no more.
 ///
@@ -65,12 +65,40 @@ pub enum Subject {
     Hole,
 }
 
+/// Which part of a file a [`Concept::Page`] shows.
+///
+/// ⚠ **The range is the point, and the projection below throws it away** — the
+/// census measured that (memview#1364): `Op::Read` keeps only paths, so
+/// `head -5 f` and `cat f` are one key there. A `Page` that dropped the range
+/// too would be a second name for `Read`. So the range is read off
+/// [`Step::argv`], the one place it survives.
+///
+/// The vocabulary is closed to the shapes the corpus actually spells (measured
+/// 2026-09-04): a count from the top (`head`), a count from the bottom
+/// (`tail`), an explicit line span (`sed -n 'a,bp'`), or the whole file
+/// (`cat`). A byte count, a follow (`tail -f`), a `+N` prefix drop, and a
+/// `$`-relative address are **different acts** and refuse rather than flatten
+/// to one of these.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Range {
+    /// The whole file — `cat`.
+    All,
+    /// The first `n` lines — `head -n`, and `sed -n '1,np'`, which measure to
+    /// the same thing.
+    First(u32),
+    /// The last `n` lines — `tail -n`.
+    Last(u32),
+    /// An explicit line span `a..=b`, `a > 1` — `sed -n 'a,bp'`. A single line
+    /// `sed -n 'np'` is `Lines(n, n)`.
+    Lines(u32, u32),
+}
+
 /// What a command was for.
 ///
-/// One variant today, deliberately. The vocabulary is mined and admitted the way
-/// a syntax construct was — biggest first, refused by name until built — and a
-/// catch-all `Run { argv }` would take the lift rate to 100% on the first day
-/// and mean nothing.
+/// The vocabulary is mined and admitted the way a syntax construct was — biggest
+/// first (the census ranks it), refused by name until built — and a catch-all
+/// `Run { argv }` would take the lift rate to 100% on the first day and mean
+/// nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Concept {
     /// A file changed in place by a program applied to its contents.
@@ -85,6 +113,23 @@ pub enum Concept {
         /// program that is in another file and not in this text.
         substitution: Option<String>,
     },
+    /// A file (or none, for a stream) shown without being changed — the corpus's
+    /// largest concept-shaped mass by a distance (census 2026-09-04: the `head`,
+    /// `tail`, `cat` and `sed -n` pager shapes together dwarf every `Rewrite`).
+    ///
+    /// ⚠ **Its spellings do NOT meet at one `Op`, and that recast gate 2.**
+    /// `head -5 f` is [`Op::Read`] and `sed -n '1,5p' f` is [`Op::Transform`]
+    /// printing — the reader below reads two operations for one act. The concept
+    /// is where they meet, so the level-below authority a lowered `Page` answers
+    /// to is the L3 *effect* reading (what was touched, in which direction), not
+    /// the `Op` variant. `reader/tests/concept.rs::read_as` carries the reason.
+    Page {
+        /// Empty for a stream: `… | head -50` pages what flows in, and no file
+        /// was named. Not a hole — a hole is a subject the text gestured at and
+        /// could not resolve; this is a subject that was never there.
+        subjects: Vec<Subject>,
+        range: Range,
+    },
 }
 
 /// Why a step did not lift.
@@ -93,10 +138,10 @@ pub enum Concept {
 /// inventories before keying misses by reason, and the method learned from that
 /// (`docs/concept-model.md`): the layer starts with its `Why`, so the remainder
 /// is never a bare count. [`Why::NoLens`] is the queue — ranked by shape, it is
-/// where the next concept comes from. The rest are the lens's own refusals:
-/// steps a `Rewrite` *looked at* and turned down, each a design question the
-/// census sizes ([`Why::Described`] is "does `Rewrite` need to lower to a
-/// loop", counted).
+/// where the next concept comes from. The rest are the lenses' own refusals:
+/// steps a lens *looked at* and turned down, each a design question the census
+/// sizes ([`Why::Described`] is "does a concept need to lower to a loop",
+/// counted).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Why {
     /// No lens covers this shape. The counted remainder, and the queue.
@@ -134,27 +179,69 @@ pub fn lift(step: &Step) -> Result<Concept, Why> {
     ) {
         return Err(Why::Carrier);
     }
-    let Some(Op::Transform {
-        program,
-        program_file,
-        paths,
-        in_place,
-    }) = &step.op
-    else {
-        return Err(Why::NoLens);
-    };
-    // ⚠ **Only `-i` is a rewrite.** `sed 's/a/b/' f` prints to stdout and
-    // changes nothing — it is a different act with a different concept, and
-    // lifting both here would make the lowered form change a file the original
-    // did not. The reader already draws this line; this reads it rather than
-    // re-deciding it.
-    if !in_place {
-        return Err(Why::NotInPlace);
+    match &step.op {
+        Some(Op::Transform {
+            program,
+            program_file,
+            paths,
+            in_place: true,
+        }) => {
+            let subjects = subjects_or_refuse(step, paths)?;
+            Ok(Concept::Rewrite {
+                subjects,
+                // A program given as a file is a hole in the same sense a path
+                // is: the substitution exists, and not in this text.
+                substitution: program_file.is_none().then(|| program.clone()),
+            })
+        }
+        // ⚠ **A NOT-in-place transform is a `sed -n` page, or it prints and is
+        // a different act.** `sed 's/a/b/' f` writes the whole file back to
+        // stdout with the edit; a lowered `Page` would claim it showed a span,
+        // which it did not. Only a bare line-address program under `-n` pages.
+        Some(Op::Transform { program, paths, .. }) => match sed_page(step, program) {
+            Some(range) => page(step, paths, range),
+            None => Err(Why::NotInPlace),
+        },
+        // ⚠ **A read is a page only for the four pagers, and only in the
+        // shapes the corpus spells.** `wc -l`, `ls`, `od` also reach
+        // [`Op::Read`]; they measure or list rather than show, so they stay
+        // counted leaves. The range comes from `argv`, since the projection
+        // dropped it.
+        Some(Op::Read { paths }) => match read_page(step) {
+            Some(range) => page(step, paths, range),
+            None => Err(Why::NoLens),
+        },
+        _ => Err(Why::NoLens),
     }
-    // ⚠ **A remote step's files are never local**, and a concept that lowered to
-    // a bare `sed -i` would claim work on the wrong machine. The step says so;
-    // `files` is empty for them by construction, which would otherwise look like
-    // a command that named nothing.
+}
+
+/// Build a [`Concept::Page`] once the range is known, applying the refusals
+/// every single-command concept shares.
+fn page(step: &Step, paths: &[String], range: Range) -> Result<Concept, Why> {
+    // ⚠ **A page reads its operands and writes nothing — so a redirect is a
+    // subject the argv never spells.** `head -5 f > out` writes `out` and
+    // `head -5 < f` reads an `f` no operand names; both show in `step.files`
+    // but not in the `Op`'s paths. A lowered `Page` built from the operands
+    // alone would silently do less, which is gate 2 applied before the fact.
+    if step.files.iter().any(|use_| use_.write)
+        || step
+            .files
+            .iter()
+            .any(|use_| !use_.write && !paths.contains(&use_.path))
+    {
+        return Err(Why::NoLens);
+    }
+    let subjects = subjects_or_refuse(step, paths)?;
+    Ok(Concept::Page { subjects, range })
+}
+
+/// The subjects, or the refusal their kind forces — the checks `Rewrite` and
+/// `Page` share, in the order that lets the cheapest win.
+fn subjects_or_refuse(step: &Step, paths: &[String]) -> Result<Vec<Subject>, Why> {
+    // ⚠ **A remote step's files are never local**, and a lowered local command
+    // would claim work on the wrong machine. The step says so; `files` is empty
+    // for them by construction, which would otherwise look like a command that
+    // named nothing.
     if step.host.is_some() {
         return Err(Why::Remote);
     }
@@ -165,7 +252,7 @@ pub fn lift(step: &Step) -> Result<Concept, Why> {
     // `/home/…/*.ts` and lifting it back gives [`Subject::Named`], because a
     // pattern written literally in an operand position IS a resolved path to
     // this reader. The language came from a loop, and a loop is not what a
-    // `Rewrite` lowers to.
+    // single-command concept lowers to.
     //
     // Silently keeping them would be worse than dropping them: it turns a
     // described middle into a **false lower bound**, which is the one direction
@@ -178,12 +265,123 @@ pub fn lift(step: &Step) -> Result<Concept, Why> {
     {
         return Err(Why::Described);
     }
-    Ok(Concept::Rewrite {
-        subjects,
-        // A program given as a file is a hole in the same sense a path is: the
-        // substitution exists, and not in this text.
-        substitution: program_file.is_none().then(|| program.clone()),
-    })
+    Ok(subjects)
+}
+
+/// The range a `head`/`tail`/`cat` step shows, or `None` if this read is not a
+/// page the lens accepts.
+///
+/// ⚠ **`argv` keeps the wrappers, and `xargs` is the one that must not be
+/// unwrapped away here.** `xargs head -5` pages the files a pipe supplies —
+/// subjects no operand names — and after unwrapping it is indistinguishable
+/// from a stream `head -5`. So it is refused before the command is read, the
+/// same reason a redirect is.
+fn read_page(step: &Step) -> Option<Range> {
+    let argv = unwrap_command(&step.argv);
+    if step.argv.len() > argv.len()
+        && step.argv[..step.argv.len() - argv.len()]
+            .iter()
+            .any(|w| basename(w) == "xargs")
+    {
+        return None;
+    }
+    match basename(argv.first()?) {
+        // ⚠ **`cat` with any flag is not a bare page** — `cat -n` numbers its
+        // output, `cat -A` shows control characters; both change what is seen.
+        "cat" => flagless(argv).then_some(Range::All),
+        "head" => line_count(argv).map(Range::First),
+        "tail" => line_count(argv).map(Range::Last),
+        _ => None,
+    }
+}
+
+/// The span a `sed -n 'a,bp'` shows, or `None` for any other sed program.
+///
+/// ⚠ **`-n` is required and is the whole difference.** Without it `sed '1,5p'`
+/// prints the file AND lines 1-5 again — a different output, so it must not
+/// read as a page. A `$`-relative address (`1,$p`), a `d`elete, or a
+/// substitution all fail the digit parse and refuse.
+fn sed_page(step: &Step, program: &str) -> Option<Range> {
+    let argv = unwrap_command(&step.argv);
+    if !argv.iter().any(|w| w == "-n") {
+        return None;
+    }
+    let body = program.strip_suffix('p')?;
+    match body.split_once(',') {
+        Some((a, b)) => {
+            let (a, b) = (a.parse().ok()?, b.parse().ok()?);
+            Some(if a == 1 {
+                Range::First(b)
+            } else {
+                Range::Lines(a, b)
+            })
+        }
+        None => {
+            let n = body.parse().ok()?;
+            Some(Range::Lines(n, n))
+        }
+    }
+}
+
+/// The line count a `head`/`tail` argv asks for — its `-N`, `-n N` or default
+/// ten — or `None` if a flag makes it something other than a line page.
+///
+/// ⚠ **The default is POSIX's, a documented fact and not a guess**, so the
+/// concept carries the number the text left implicit and the round trip holds.
+/// A byte count (`-c`), a follow (`-f`), a `+N` prefix drop, or any flag this
+/// does not name refuses — each is a different act the lowered form could not
+/// honour.
+fn line_count(argv: &[String]) -> Option<u32> {
+    let mut count = None;
+    let mut i = 1;
+    while i < argv.len() {
+        let Some(rest) = argv[i].strip_prefix('-') else {
+            i += 1; // an operand — a path
+            continue;
+        };
+        if rest.is_empty() {
+            i += 1; // a bare `-`, stdin
+            continue;
+        }
+        if rest.chars().all(|c| c.is_ascii_digit()) {
+            count = Some(digits(rest)?); // -5
+            i += 1;
+            continue;
+        }
+        if argv[i] == "-n" || argv[i] == "--lines" {
+            count = Some(digits(argv.get(i + 1)?)?);
+            i += 2;
+            continue;
+        }
+        if let Some(v) = rest.strip_prefix('n').filter(|v| !v.is_empty()) {
+            count = Some(digits(v)?); // -n5
+            i += 1;
+            continue;
+        }
+        return None; // -c, -f, -q, anything else
+    }
+    Some(count.unwrap_or(10))
+}
+
+/// A plain unsigned count, or `None`.
+///
+/// ⚠ **`u32::parse` accepts a leading `+`, and `tail -n +2` means the
+/// opposite of a count** — it drops the first line and shows the rest, so
+/// `"+2".parse()` reading as `2` lifted a prefix-drop as a two-line tail
+/// (caught by the refusal test, 2026-09-04). Digits only.
+fn digits(word: &str) -> Option<u32> {
+    word.chars()
+        .all(|c| c.is_ascii_digit())
+        .then(|| word.parse().ok())
+        .flatten()
+}
+
+/// Whether a command carries no flags — only `-` (stdin) and operands.
+fn flagless(argv: &[String]) -> bool {
+    !argv
+        .iter()
+        .skip(1)
+        .any(|w| w.starts_with('-') && w.len() > 1)
 }
 
 /// The subjects, read straight off the step's four accounts.
@@ -245,6 +443,26 @@ pub fn lower(concept: &Concept) -> String {
             let program = substitution.as_deref().unwrap_or("?");
             let words: Vec<String> = subjects.iter().map(spell).collect();
             format!("sed -i '{program}' {}", words.join(" "))
+        }
+        // ⚠ **One canonical spelling per range, and `sed -n` is it for a span** —
+        // the same rule `Rewrite` follows in picking `sed -i`. `head -5` and
+        // `sed -n '1,5p'` both lift to `First(5)`, and both lower to `head -5`:
+        // the spelling normalises and the concept is what survives.
+        Concept::Page { subjects, range } => {
+            let words: Vec<String> = subjects.iter().map(spell).collect();
+            let head = match range {
+                Range::All => "cat".to_string(),
+                Range::First(n) => format!("head -{n}"),
+                Range::Last(n) => format!("tail -{n}"),
+                Range::Lines(a, b) => format!("sed -n '{a},{b}p'"),
+            };
+            // A stream page names no file — `head -50` alone. Kept tidy so the
+            // lowered text is what the reader reads back, trailing space and all.
+            if words.is_empty() {
+                head
+            } else {
+                format!("{head} {}", words.join(" "))
+            }
         }
     }
 }

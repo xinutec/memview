@@ -4,14 +4,16 @@ Design for the layers above the reader: **lifting** what the fleet executed into
 the concepts it was executing, and **lowering** a concept back into a command
 that does the same thing.
 
-**Status: the first lens and all three instruments are BUILT; the vocabulary
-is one concept, and the queue for the second is now counted, not guessed.**
-`bash-corpus --said` + `said-report` mine and read the description corpus;
-`reader/src/concept.rs` lifts and lowers `Rewrite` — and answers every miss by
-name (`concept::Why`) — with gates 1–3 in `reader/tests/concept.rs`;
-`concept-report` is the census, balanced to the unit. Gate 4 is not yet pointed
-at concepts, and no ask card renders one yet. Where a step needs sizing, the
-instrument that sizes it is named — a count written here would rot.
+**Status: two lenses and all three instruments are BUILT; the second lens was
+chosen by the census, not guessed.** `bash-corpus --said` + `said-report` mine
+and read the description corpus; `reader/src/concept.rs` lifts and lowers
+`Rewrite` and `Page` — and answers every miss by name (`concept::Why`) — with
+gates 1–3 in `reader/tests/concept.rs`; `concept-report` is the census,
+balanced to the unit. Adding `Page` took the lift rate from 0.18% to **13.06%
+of steps** (census 2026-09-04), which is what one census-ranked lens is worth.
+Gate 4 is not yet pointed at concepts, and no ask card renders one yet. Where a
+step needs sizing, the instrument that sizes it is named — a count written here
+would rot.
 [execution-model.md](execution-model.md) governs the syntax underneath and
 [reader.md](reader.md) the effects; both stand unchanged, and every decision
 recorded there binds this layer too — soundness refused, outputs never
@@ -110,9 +112,18 @@ satisfies the law perfectly. The gates generalise with it:
 - **gate 1** — the law itself: `lift(lower(c)) = c` over every lifted corpus
   command.
 - **gate 2** — the level below is the authority: `lower(lift(t))` must read at
-  L2/L3 **identically** to `t` — same operations, same subjects, same holes.
-  The reader is to L4 what bash's own printer is to L1: an independent judge of
-  the lowered form, and it already exists.
+  L2/L3 the same **effect** as `t` — the same files touched in the same
+  directions, the same subjects, the same holes. The reader is to L4 what bash's
+  own printer is to L1: an independent judge of the lowered form, and it already
+  exists.
+  ⚠ **The effect, NOT the `Op` variant — and `Page` is why** (2026-09-04).
+  `head -5 f` is `Op::Read` and `sed -n '1,5p' f` is `Op::Transform` printing:
+  one act, two operations. Holding the lowered form to variant equality would
+  forbid exactly the cross-spelling unification the layer exists to make, so the
+  authority is what the reader says was *touched*, not which arm it took. Where
+  spellings happen to share an `Op` (`Rewrite`), variant equality holds for
+  free; the gate does not demand it. `reader/tests/concept.rs::read_as` is the
+  judge.
 - **gate 3** — is the lowered text valid at all: `bash -n`, unchanged, plus the
   PATH-shim oracle on fixtures (`reader/tests/oracle.rs`) for semantics.
 - **gate 4** — the author's own statement, below: a lift that contradicts the
@@ -153,15 +164,20 @@ reader already has — exact, located language (`S ⊆ L` with a locus), or a
 hole — so a concept inherits precision instead of flattening it:
 
 ```
-Rewrite  { subject, substitution }          sed -i / perl -pi / python / Edit
-Page     { subject, range }                 sed -n '1,40p' — the corpus's
-                                            commonest use of sed by far
-                                            (shell-files prints the tally)
+Rewrite  { subjects, substitution }         BUILT — sed -i / perl -pi
+Page     { subjects, range }                BUILT — head / tail / cat / sed -n
 Poll     { probe, until, every, bound }     until …; do sleep …; done
 Glance   { repo }                           git log --oneline -N && git status
 Probe    { question, subjects }             the compound inspect-several-things
                                             command with echo "---" separators
 ```
+
+⚠ **`Page`'s range is `First(n)` / `Last(n)` / `Lines(a,b)` / `All`, not a raw
+line-pair** — the shapes the corpus spells, so `head -5` and `sed -n '1,5p'`
+lift equal and a byte count or a `tail -f` refuse rather than flatten. The
+seeds below `Page` stay hunches: `Poll` and `Glance` need a key spanning more
+than one step (the census found their constituents scattered across steps), and
+that instrument is not built.
 
 The vocabulary is **mined, not designed** — the census below ranks what the
 corpus actually holds, and the seeds above are shapes reader.md already tallies
@@ -479,10 +495,12 @@ Unchanged from the two layers below, restated once:
    step count stays beside it as execution mass.
 
    **What it ranked** (read the figures off a run, not off this list):
-   - **`Page` is the queue's head by a distance** — `head -N`, `tail -N`,
-     `cat`, bare `head`, plus the whole not-in-place transform pool, each of
-     those shapes alone holding more rows than every lifted `Rewrite` combined.
-     The doc's suspicion is now a count.
+   - **`Page` was the queue's head by a distance, and is now lens 2 (BUILT
+     2026-09-04).** `head -N`, `tail -N`, `cat`, bare `head`, plus the whole
+     not-in-place `sed -n` pool — each shape alone held more rows than every
+     lifted `Rewrite` combined. Building it took the lift rate to 13.06% of
+     steps: one census-ranked lens against `Rewrite`'s 0.18%. The doc's
+     suspicion became a count, and the count chose the work.
    - **The loop-lowering `Rewrite` is dead on arrival** — see the lens section
      above: 3 steps.
    - **A step is the wrong unit for the compound seeds.** `Poll` appears only
@@ -526,3 +544,14 @@ Unchanged from the two layers below, restated once:
    spellings and compare equal, and two occurrences differing only in their
    holes must compare equal — the equality recurrence detection will later
    stand on.
+4. ✅ **The second lens — `Page`, shell-only — BUILT 2026-09-04**, chosen by
+   the census rather than by the intuition that first named it. Its price was
+   gate 2's recast: `head -5 f` and `sed -n '1,5p' f` are one act at two `Op`
+   variants, so the level-below authority had to become the *effect* reading,
+   not the variant (see gate 2, above). The range lives in `Step.argv` because
+   the projection drops it, and the accepted shapes — `First` / `Last` /
+   `Lines` / `All` — are the ones the corpus spells; `head -c`, `tail -f`,
+   `tail -n +N`, a `$`-address, `cat -n`, `wc`, a redirect and `xargs` all
+   refuse by name rather than mis-lift. The lift rate went 0.18% → 13.06% of
+   steps. Its build repeated instrument 2's lesson — the first lifted witness
+   exposed the `-I`-value defect in the layer below (see instrument 2).
