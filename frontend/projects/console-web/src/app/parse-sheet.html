@@ -66,6 +66,19 @@
           }
         </div>
 
+        <!-- ⚠ **What it is FOR, ABOVE the words, and the order is the point.**
+             Approval today reads argv — which is spelling — and every payload
+             trap in the corpus is a spelling that hides the act. The concept is
+             the one line that says what the command does rather than how it is
+             written, so it leads and the words follow as evidence.
+
+             Absent where no lens covers the command, deliberately: a command
+             with no concept keeps its chip and its `says` and is a counted leaf,
+             never absorbed into a catch-all phrase. -->
+        @if (row.step.concept; as concept) {
+          <p class="concept">{{ concept }}</p>
+        }
+
         <!-- The words the shell would have run, which is not always the words
              that were typed. -->
         <code class="words">{{ row.words }}</code>

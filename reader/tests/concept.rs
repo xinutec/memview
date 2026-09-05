@@ -17,7 +17,7 @@
 //! in their holes must compare equal — the equality recurrence detection will
 //! later stand on.
 
-use reader::concept::{Concept, Range, Subject, Why, lift, lower};
+use reader::concept::{Concept, Range, Subject, Why, describe, lift, lower};
 use reader::project::read as parse;
 use reader::shell_files::{Step, trace};
 
@@ -369,4 +369,67 @@ fn a_hole_survives_being_lowered_and_read_again() {
 
     assert!(text.contains("$UNNAMED"), "{text}");
     assert_eq!(only(&text), concept);
+}
+
+// ── The card's phrase ────────────────────────────────────────
+//
+// `describe` is what the ask card renders, and it is held to two properties the
+// lowered form is not: it must name every subject the concept carries, and a
+// hole must read as a hole. Neither is checked by the round-trip law, because
+// the law never looks at this function.
+
+/// ⚠ **The property that matters most on an approval screen.** A hole lowers to
+/// `"$UNNAMED"` because the reader must read it back as an admission — and on a
+/// card that spelling looks like a variable somebody could go and check. It has
+/// to say, in words, that the command touches a file whose name is not in it.
+#[test]
+fn a_hole_reads_as_a_hole_on_the_card_and_never_as_a_path() {
+    let said = describe(&only("sed -i 's/a/b/' \"$TARGET\""));
+    assert!(
+        said.contains("does not name"),
+        "a hole must be stated, got {said:?}"
+    );
+    assert!(
+        !said.contains("UNNAMED") && !said.contains('$'),
+        "the lowered spelling must not reach the card, got {said:?}"
+    );
+}
+
+/// ⚠ **Every subject, never a count.** "2 files" would let the card claim a
+/// concept while hiding which files, which is the one thing an approval is for.
+#[test]
+fn the_phrase_names_every_subject_the_concept_carries() {
+    let said = describe(&only("sed -i 's/a/b/' one.ts two.ts"));
+    assert!(
+        said.contains("one.ts") && said.contains("two.ts"),
+        "{said:?}"
+    );
+}
+
+/// The whole point of the layer, said on the card: one act, two spellings, one
+/// sentence. If these ever diverge the card is reporting spelling again.
+///
+/// ⚠ **And the path is the RESOLVED one, not the word that was typed.** This
+/// test first expected `notes.md`, the reader answered
+/// `/home/example/Code/health/notes.md`, and the reader was right.
+/// [`Step::argv`] is "the words as the shell would have run them" for exactly
+/// this reason, and on an approval screen it is the difference that decides:
+/// a relative path hides WHICH file, and the working directory it resolves
+/// against is the one thing a person cannot see by reading the command.
+#[test]
+fn two_spellings_of_one_page_describe_identically_and_name_the_resolved_path() {
+    let a = describe(&only("head -5 notes.md"));
+    let b = describe(&only("sed -n '1,5p' notes.md"));
+    assert_eq!(a, b);
+    assert_eq!(a, format!("Show the first 5 lines of {CWD}/notes.md"));
+}
+
+/// A stream page named no file, and inventing one would be the fabrication this
+/// tower refuses at every level.
+#[test]
+fn a_stream_page_says_it_was_given_its_input() {
+    assert_eq!(
+        describe(&only("head -50")),
+        "Show the first 50 lines of what it is given"
+    );
 }

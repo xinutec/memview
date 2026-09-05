@@ -634,6 +634,17 @@ export interface Step {
   /** What its relative paths resolved against. Absent when a `cd` the reader
    *  could not follow made it unknowable. */
   readonly cwd?: string;
+  /**
+   * What the command was FOR, as a sentence — mirrors `parse.rs`.
+   *
+   * ⚠ **Absent is the honest miss and must look like one.** Approval reads argv
+   * today, which means it reads spelling, and a payload trap is a spelling that
+   * hides the act. Where no lens covers the command this is simply not here,
+   * and `kind` and `says` carry the L2/L3 reading instead. Do NOT substitute a
+   * placeholder: "no concept", written as prose, reads as a claim about the
+   * command rather than about this layer's coverage.
+   */
+  readonly concept?: string;
   /** The operation in one word. */
   readonly kind: string;
   /**

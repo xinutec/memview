@@ -277,3 +277,40 @@ fn the_shape_the_phone_is_drawn_from() {
         ]
     );
 }
+
+/// ⚠ **The card's headline, checked at the console boundary and not only in
+/// the reader.** `describe` is tested where it is written; this asserts the
+/// WIRING — that a command a lens covers actually arrives on the line the sheet
+/// renders. A field that is correct in `reader` and never filled here would
+/// pass every test in that crate and show nothing to a person.
+#[test]
+fn a_command_a_lens_covers_arrives_with_its_concept() {
+    let parsed = asked("head -5 notes.md", Some(true));
+    assert_eq!(
+        parsed.steps[0].concept.as_deref(),
+        Some("Show the first 5 lines of /home/example/Code/health/notes.md"),
+        "the resolved path is the point: a relative name hides WHICH file"
+    );
+}
+
+/// ⚠ **Absent is the honest miss, and it has to stay absent.** A command no
+/// lens covers keeps its chip and its `says` and offers no sentence — the
+/// no-absorption rule, enforced at the one place a person would see it broken.
+/// `wc -l` measures rather than shows, so it reaches `Op::Read` and is
+/// deliberately not a `Page`.
+#[test]
+fn a_command_no_lens_covers_offers_no_sentence_rather_than_a_placeholder() {
+    let parsed = asked("wc -l notes.md", Some(true));
+    assert_eq!(parsed.steps[0].concept, None);
+    assert_eq!(parsed.steps[0].kind, "read");
+}
+
+/// The two spellings meet on the card, which is the whole reason the layer
+/// exists: one act, one sentence, whatever it was written as.
+#[test]
+fn two_spellings_of_one_act_show_a_person_the_same_sentence() {
+    let a = asked("head -5 notes.md", Some(true));
+    let b = asked("sed -n '1,5p' notes.md", Some(true));
+    assert_eq!(a.steps[0].concept, b.steps[0].concept);
+    assert_ne!(a.steps[0].kind, b.steps[0].kind, "and the L2 chips differ");
+}

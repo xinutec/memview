@@ -467,6 +467,71 @@ pub fn lower(concept: &Concept) -> String {
     }
 }
 
+/// The concept as a sentence a person reads, for the ask card.
+///
+/// ⚠ **A phrase, not the lowered command, and they are different jobs.**
+/// [`lower`] answers the law — it must read back as this concept — so it is
+/// held to a canonical spelling and prints `sed -n '3,7p' x`. A person
+/// approving a command already has the command; what the card owes them is the
+/// thing argv does not say, which is what it is FOR. `docs/concept-model.md`
+/// names that as the first consumer: approval today reads *spelling*, and every
+/// payload trap in the corpus is a spelling that hides the act.
+///
+/// ⚠ **It lives here rather than in the console, for the reason `parse.rs`
+/// already follows**: a phrase built by the view would be a second reading of
+/// the concept, free to drift from the one the gates hold. The console renders
+/// what this returns.
+///
+/// ⚠ **A hole must READ as a hole.** `"$UNNAMED"` is the right spelling for the
+/// lowered text, because the reader has to read it back as an admission; on a
+/// card it would look like a variable a person could go and check. So it says
+/// so in words, and the card is then honest about the one thing that matters
+/// most: this command touches a file whose name is not in it.
+pub fn describe(concept: &Concept) -> String {
+    match concept {
+        Concept::Rewrite { subjects, .. } => {
+            format!("Rewrite {} in place", named(subjects))
+        }
+        Concept::Page { subjects, range } => {
+            let part = match range {
+                Range::All => "all of".to_string(),
+                Range::First(1) => "the first line of".to_string(),
+                Range::Last(1) => "the last line of".to_string(),
+                Range::First(n) => format!("the first {n} lines of"),
+                Range::Last(n) => format!("the last {n} lines of"),
+                Range::Lines(a, b) if a == b => format!("line {a} of"),
+                Range::Lines(a, b) => format!("lines {a} to {b} of"),
+            };
+            // A stream page named no file — `… | head -50`. Saying "what it is
+            // given" rather than inventing a subject is the same refusal the
+            // lens makes when it declines to read a redirect's target as an
+            // operand.
+            if subjects.is_empty() {
+                format!("Show {part} what it is given")
+            } else {
+                format!("Show {part} {}", named(subjects))
+            }
+        }
+    }
+}
+
+/// The subjects as a phrase, every one of them.
+///
+/// ⚠ **Never a summary.** "2 files" would let the card claim a concept while
+/// hiding which files, which is the one thing approval is for.
+fn named(subjects: &[Subject]) -> String {
+    subjects
+        .iter()
+        .map(|subject| match subject {
+            Subject::Named(path) => path.clone(),
+            Subject::Bounded(pattern) => format!("a file matching {pattern}"),
+            Subject::Located(locus) => format!("a file under {locus}"),
+            Subject::Hole => "a file this command does not name".to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// A subject as the lowered text writes it.
 fn spell(subject: &Subject) -> String {
     match subject {

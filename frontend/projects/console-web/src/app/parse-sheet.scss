@@ -161,6 +161,20 @@ code {
   }
 }
 
+/* ⚠ **The one line here that is not the command, so it must not look like it.**
+   `.words` is monospace and `.says` is a muted italic aside; the concept is
+   neither. It is the sentence a person reads first and decides on, so it takes
+   the body weight and full-contrast colour, and the argv underneath becomes
+   evidence rather than headline. Sitting above `.words` in the markup is half
+   of that; not being dressed as code is the other half. */
+.concept {
+  margin: 0 0 0.25rem;
+  font: var(--mat-sys-body-medium);
+  color: var(--mat-sys-on-surface);
+  overflow-wrap: break-word;
+  text-wrap: pretty;
+}
+
 .words {
   font: var(--mat-sys-body-small);
   font-family: ui-monospace, monospace;
