@@ -1,10 +1,5 @@
-//! Which unnamed subjects a live world could answer at time `t`.
-//!
-//! The static reader says what a command *is*; the dynamic half of
-//! `docs/concept-model.md` says what it *does, here, now* — the same structure
-//! with its holes read off the world. This module is the classifier that sizes
-//! that: given a subject the text could not name, which side of *Reading is not
-//! running* does it fall on?
+//! Which unnamed subjects a live world could answer at time `t` — which side of
+//! *Reading is not running* (`docs/concept-model.md`) each one falls on.
 //!
 //! ```text
 //! $TMPDIR/x            an environment lookup      → answerable
@@ -14,62 +9,49 @@
 //! $f                   bound by the script itself → a hole, and no lookup helps
 //! ```
 //!
-//! ⚠ **This library still touches no filesystem.** It classifies a *shape* and
-//! says whether the world could be asked; asking is the console's job, which is
-//! where `docs/reader.md` put the resolver and why: *"it must live above this
-//! library — `reader` touches no filesystem, and that property is worth more
-//! than the convenience."*
+//! ⚠ **This classifies a shape and never asks the world**; asking is the
+//! console's job (`docs/reader.md`).
 //!
 //! ## Why this is not `opaque-shapes`
 //!
-//! That census cuts the same population by **shape** — is a locus known, is a
-//! language — which is the right question for the static artefact and the wrong
-//! one here. Two subjects with identical shape can fall on opposite sides of
-//! this line, and one bucket held both: memview#1445. Its `BareName` arm was
-//! reached by falling past a whole-word substitution parse, so
-//! `$(cd .. && pwd -P)/dev-lint` was counted as *a bare name, bound elsewhere* —
-//! a label claiming an environment lookup might answer it. 4,118 uses, 74% of
-//! the unnamed population, under a heading asserting the opposite of the truth.
+//! That census cuts the same population by **shape** — locus, language — and
+//! two subjects of identical shape fall on opposite sides of this line. One of
+//! its buckets held both: `$(cd .. && pwd -P)/dev-lint` fell past a whole-word
+//! substitution parse into `BareName`, a label claiming an environment lookup
+//! might answer it — **4,118 uses, 74% of the unnamed population**
+//! (memview#1445).
 //!
-//! So the substitution test comes **first and matches anywhere in the word**,
-//! and there is no arm that absorbs what the arms above could not read.
+//! Hence: the substitution test comes **first and matches anywhere in the
+//! word**, and no arm absorbs what the arms above could not read.
 
 /// What a subject the text could not name would take to answer.
 ///
-/// ⚠ **One variant is answerable and the rest are not, and that asymmetry is a
-/// decision rather than an artefact of this corpus.** Adding a second
-/// answerable arm means reopening *Reading is not running*, which
-/// `docs/concept-model.md` says a measurement may do and convenience may not.
-/// [`Unnamed::ALL`] and the invariant test in `reader/tests/resolvable.rs` make
-/// that impossible to do by accident.
+/// ⚠ **Exactly one variant is answerable, by decision rather than by corpus.**
+/// A second means reopening *Reading is not running*, which
+/// `docs/concept-model.md` lets a measurement do and convenience not;
+/// [`Unnamed::ALL`] and the invariant test make that impossible by accident.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Unnamed {
     /// `$TMPDIR`, `$HOME`, `$AMUN_DIR/photos` — a name the session's
     /// environment **may** hold, answered by a lookup that runs nothing.
     ///
-    /// ⚠ **An UPPER BOUND, and this corpus is why.** The rule is the
-    /// all-uppercase convention, and a convention is not a binding: `docs/
-    /// reader.md` records `A="adb -s host"` and `GEB="ssh -o …"` as *script*
-    /// assignments, and both are all-uppercase. So a word classified here is
-    /// one the environment **could** answer, and some of them are
-    /// [`Unnamed::ScriptBound`] wearing the same spelling.
-    ///
-    /// It cannot be decided from the word — it needs the script's own
-    /// assignments, which a pure word classifier does not have (memview#1447).
-    /// Narrowing the rule by guessing instead — a length floor, an underscore
-    /// requirement — would be a rule with no test, which is the disease
-    /// memview#1445 is about. So the over-count is **named and left**, and it
-    /// runs in the direction that makes the resolver look better than it is,
-    /// which is why the census prints this side as "at most".
+    /// ⚠ **An UPPER BOUND: all-uppercase is a convention, not a binding.**
+    /// `docs/reader.md` records `A="adb -s host"` and `GEB="ssh -o …"` as
+    /// *script* assignments, so some words here are [`Unnamed::ScriptBound`]
+    /// wearing the same spelling. Telling them apart needs the script's own
+    /// assignments, which a word classifier does not have (memview#1447), and
+    /// narrowing by guess — a length floor, an underscore — would be a rule with
+    /// no test. Left, named, and printed by the census as "at most", because the
+    /// error flatters the resolver.
     Environment,
-    /// `$f`, `$d`, `${line}` — a name bound by the script a few lines above.
+    /// `$f`, `$d`, `${line}` — bound by the script a few lines above, where no
+    /// lookup reaches.
     ///
-    /// ⚠ **The split this module exists to make.** It looks exactly like an
-    /// environment name and is answerable by nothing: the binding is inside the
-    /// text, and a subject reaching here means the reader could not follow it
-    /// (an undeterminable loop, a computed assignment). An environment lookup
-    /// will not find it, so counting it beside [`Unnamed::Environment`] reports
-    /// a resolver ceiling that does not exist.
+    /// ⚠ **The split this module exists to make**: identical in spelling to
+    /// [`Unnamed::Environment`] and answerable by nothing, so counting the two
+    /// together reports a resolver ceiling that does not exist. Reaching here
+    /// means the reader could not follow the binding — an undeterminable loop, a
+    /// computed assignment.
     ScriptBound,
     /// `$(…)` or a backtick. Running it is the thing prediction precedes, and
     /// no allowlist of "provably pure" spellings survives contact: `$(git
@@ -86,11 +68,9 @@ pub enum Unnamed {
     NotASubject,
     /// A shape no rule here recognises.
     ///
-    /// ⚠ **Counted as a hole, deliberately.** It is not one by doctrine; it is
-    /// one because nothing has shown it is answerable, and every refusal in
-    /// this reader errs toward undercounting. A census that counted the
-    /// unrecognised as resolvable would flatter exactly the number it exists to
-    /// size.
+    /// ⚠ **Counted as a hole deliberately** — not by doctrine, but because
+    /// nothing has shown it answerable, and every refusal in this reader errs
+    /// toward undercounting.
     Unclassified,
 }
 
@@ -166,22 +146,38 @@ pub fn unnamed(word: &str) -> Unnamed {
     if word.contains("$(") || word.contains('`') {
         return Unnamed::Substitution;
     }
-    let Some(after) = word.split_once('$').map(|(_, rest)| rest) else {
-        return Unnamed::Unclassified;
-    };
-    let name: String = after
-        .trim_start_matches('{')
-        .chars()
-        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
-        .collect();
-    if name.is_empty() {
-        return Unnamed::Unclassified;
+    // ⚠ **Every parameter, not the first** (memview#1455). Resolvability across a
+    // word is a conjunction: `/tmp/$HOME/$f` is unanswerable because `$f` is,
+    // and reading only the first `$` answered `Environment` — the flattering
+    // direction, in the function written to stop #1447 flattering the same
+    // number. The first part the world cannot answer is what the word is.
+    let mut answerable = false;
+    for part in word.split('$').skip(1) {
+        let name: String = part
+            .trim_start_matches('{')
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
+        // `$@`, `$*`, a bare `$`: a expansion this does not model. Unrecognised
+        // counts as a hole, so it settles the word.
+        if name.is_empty() {
+            return Unnamed::Unclassified;
+        }
+        let part = if name.chars().all(|c| c.is_ascii_digit()) {
+            Unnamed::Positional
+        } else if name.chars().all(|c| c.is_ascii_uppercase() || c == '_') {
+            Unnamed::Environment
+        } else {
+            Unnamed::ScriptBound
+        };
+        if !part.answerable() {
+            return part;
+        }
+        answerable = true;
     }
-    if name.chars().all(|c| c.is_ascii_digit()) {
-        return Unnamed::Positional;
+    if answerable {
+        Unnamed::Environment
+    } else {
+        Unnamed::Unclassified
     }
-    if name.chars().all(|c| c.is_ascii_uppercase() || c == '_') {
-        return Unnamed::Environment;
-    }
-    Unnamed::ScriptBound
 }

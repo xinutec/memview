@@ -98,6 +98,29 @@ fn a_script_bound_name_is_not_answerable_however_short_it_is() {
     assert!(!unnamed("$f").answerable());
 }
 
+/// ⚠ **Resolvability across a word is a CONJUNCTION, and the first version read
+/// only the first parameter** (memview#1455). `/tmp/$HOME/$f` answered
+/// `Environment` — answerable — while `$f` makes the word unanswerable, and the
+/// error ran in the flattering direction, in the very function written to stop
+/// #1447 flattering the same number.
+///
+/// The rule is: the FIRST part the world cannot answer is what the word is.
+#[test]
+fn one_unanswerable_part_makes_the_whole_word_unanswerable() {
+    assert_eq!(unnamed("/tmp/$HOME/$f"), Unnamed::ScriptBound);
+    assert_eq!(unnamed("$f/$HOME"), Unnamed::ScriptBound);
+    assert_eq!(unnamed("$HOME/$1.json"), Unnamed::Positional);
+    assert!(!unnamed("/tmp/$HOME/$f").answerable());
+}
+
+/// The converse, so the rule above cannot be satisfied by refusing everything:
+/// a word whose parts are ALL answerable stays answerable.
+#[test]
+fn a_word_whose_parts_are_all_environment_names_stays_answerable() {
+    assert_eq!(unnamed("$HOME/$TMPDIR/x"), Unnamed::Environment);
+    assert!(unnamed("$HOME/$TMPDIR/x").answerable());
+}
+
 /// ⚠ **The known over-count, pinned so it is read rather than discovered.**
 /// The environment arm is the all-uppercase convention, and a convention is not
 /// a binding: `docs/reader.md` records `A="adb -s host"` and `GEB="ssh -o …"`

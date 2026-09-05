@@ -467,30 +467,27 @@ pub fn lower(concept: &Concept) -> String {
     }
 }
 
-/// The concept as a sentence a person reads, for the ask card.
+/// The concept as a sentence a person reads.
 ///
-/// ⚠ **A phrase, not the lowered command, and they are different jobs.**
-/// [`lower`] answers the law — it must read back as this concept — so it is
-/// held to a canonical spelling and prints `sed -n '3,7p' x`. A person
-/// approving a command already has the command; what the card owes them is the
-/// thing argv does not say, which is what it is FOR. `docs/concept-model.md`
-/// names that as the first consumer: approval today reads *spelling*, and every
+/// ⚠ **A phrase, not the lowered command.** [`lower`] answers the law and so
+/// prints canonical shell; someone approving a command already has the command,
+/// and what argv does not say is what it was FOR — which is why
+/// `docs/concept-model.md` makes the ask card the first consumer, and why every
 /// payload trap in the corpus is a spelling that hides the act.
 ///
-/// ⚠ **It lives here rather than in the console, for the reason `parse.rs`
-/// already follows**: a phrase built by the view would be a second reading of
-/// the concept, free to drift from the one the gates hold. The console renders
-/// what this returns.
+/// ⚠ **This is the CONCEPT's phrase, not any one surface's.** A view building
+/// its own would be a second reading, free to drift from the one the gates
+/// hold. A surface too narrow for the whole sentence shortens what this returns
+/// rather than rewording it — at phone width the resolved path is already
+/// carried by the use row and the sheet's footer (memview#1454).
 ///
-/// ⚠ **A hole must READ as a hole.** `"$UNNAMED"` is the right spelling for the
-/// lowered text, because the reader has to read it back as an admission; on a
-/// card it would look like a variable a person could go and check. So it says
-/// so in words, and the card is then honest about the one thing that matters
-/// most: this command touches a file whose name is not in it.
+/// ⚠ **A hole must READ as a hole.** `"$UNNAMED"` is right for the lowered
+/// text, which has to read back as an admission; on a card it looks like a
+/// variable somebody could go and check.
 pub fn describe(concept: &Concept) -> String {
     match concept {
         Concept::Rewrite { subjects, .. } => {
-            format!("Rewrite {} in place", named(subjects))
+            format!("Rewrite {} in place", said(subjects))
         }
         Concept::Page { subjects, range } => {
             let part = match range {
@@ -509,7 +506,7 @@ pub fn describe(concept: &Concept) -> String {
             if subjects.is_empty() {
                 format!("Show {part} what it is given")
             } else {
-                format!("Show {part} {}", named(subjects))
+                format!("Show {part} {}", said(subjects))
             }
         }
     }
@@ -519,7 +516,13 @@ pub fn describe(concept: &Concept) -> String {
 ///
 /// ⚠ **Never a summary.** "2 files" would let the card claim a concept while
 /// hiding which files, which is the one thing approval is for.
-fn named(subjects: &[Subject]) -> String {
+///
+/// ⚠ **The `Bounded` and `Located` arms are UNREACHABLE and therefore
+/// unverified.** [`subjects_or_refuse`] turns both into [`Why::Described`]
+/// before a `Concept` exists, so no test covers them and no corpus command has
+/// ever produced one. They are kept against that refusal being lifted, and
+/// named here so they are not mistaken for exercised code.
+fn said(subjects: &[Subject]) -> String {
     subjects
         .iter()
         .map(|subject| match subject {
