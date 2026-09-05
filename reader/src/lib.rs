@@ -56,6 +56,7 @@ pub mod program;
 pub mod project;
 pub mod python;
 pub mod reading;
+pub mod resolvable;
 pub mod shell;
 pub mod shell_files;
 pub mod shell_ops;
