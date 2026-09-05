@@ -4896,3 +4896,59 @@ test('a tap looks closer, and a second tap shows the whole picture @ phone width
   await page.locator('.frame').press('Enter');
   await expect.poll(() => placed(page)).toMatchObject({ scale: 1, x: 0, y: 0 });
 });
+
+test('the concept leads and the argv follows as evidence @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **The sentence carries a FULL RESOLVED path and that is the point of it** —
+  // a relative name hides WHICH file, and the directory it resolved against is
+  // the one thing a person cannot see by reading the command. It is therefore
+  // the longest unbreakable-ish string on the sheet, and 412px is where it
+  // either wraps or pushes the page sideways. No amount of reading the source
+  // settles that.
+  //
+  // Drawn beside a command NO lens covers, on purpose: absent is the honest
+  // miss, and the two have to be tellable apart at a glance or the layer is
+  // claiming coverage it does not have.
+  await mockRunner(page);
+  await mockParse(page, {
+    steps: [
+      {
+        depth: 0,
+        argv: ['head', '-5', 'rust/backend/src/routes/session.rs'],
+        reached: 'always',
+        cwd: '/home/example/Code/health',
+        concept:
+          'Show the first 5 lines of /home/example/Code/health/rust/backend/src/routes/session.rs',
+        kind: 'read',
+        key: 'read',
+        uses: [
+          {
+            path: '/home/example/Code/health/rust/backend/src/routes/session.rs',
+            write: false,
+            reached: 'always',
+            certain: true,
+          },
+        ],
+      },
+      {
+        depth: 0,
+        argv: ['wc', '-l', 'notes.md'],
+        reached: 'always',
+        cwd: '/home/example/Code/health',
+        kind: 'read',
+        key: 'read',
+        says: 'counts lines',
+      },
+    ],
+  });
+  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await openParse(page);
+
+  // Exactly one of the two steps says what it was for.
+  await expect(page.locator('.concept')).toHaveCount(1);
+  await expect(page.locator('.concept')).toContainText('Show the first 5 lines');
+
+  await expectNoHorizontalOverflow(page, testInfo, SHEET);
+  await expectNoClippedText(page, testInfo, SHEET);
+});
