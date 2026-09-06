@@ -499,3 +499,36 @@ fn the_stamps_are_compared_as_instants_and_not_as_text() {
 
     assert!(found.is_empty(), "{found:?}");
 }
+
+/// ⚠ **Every racy rule must be a rule, and this test exists because one was
+/// not** (memview#1456). `RACY` named `"not-in-index"`, renamed to
+/// `"unreachable"` on 2026-08-02 when the rule became reachability rather than
+/// membership. The dead string compiled, read as deliberate, and matched no
+/// finding — so `memory-lint`'s settle-and-retry protected one of its two rules
+/// and not the likelier one, in a repository where several sessions write
+/// memories at once.
+///
+/// A name outliving its thing is invisible to every gate that does not compare
+/// the two. This is that comparison.
+#[test]
+fn every_racy_rule_is_a_real_rule() {
+    let rules = memview::lint::rule_reasons();
+    for id in memview::lint::RACY {
+        assert!(
+            rules.contains_key(id),
+            "RACY names `{id}`, which is not a rule — renamed or deleted, and \
+             the retry that quietly stopped covering it is what this catches"
+        );
+    }
+}
+
+/// The retry is for rules a mid-write corpus trips, so each must be an ERROR:
+/// a warning does not fail the gate and would need no protection.
+#[test]
+fn every_racy_rule_is_an_error() {
+    let rules = memview::lint::rule_reasons();
+    for id in memview::lint::RACY {
+        let (severity, _) = rules[id];
+        assert_eq!(severity, Severity::Error, "`{id}` is racy but not an error");
+    }
+}

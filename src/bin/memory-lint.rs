@@ -43,16 +43,7 @@ use memview::store::Corpus;
 /// was not measured — same two-edit shape, unmeasured size.
 const SETTLE: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// Rules that a corpus caught mid-write can fail through no fault of its own.
-///
-/// Writing a memory is two edits — the file, then its line in MEMORY.md — and
-/// anything that loads the corpus between them sees a memory that exists and is
-/// not indexed. Both rules are ERRORS, and the pre-commit gate runs this, so a
-/// concurrent session writing a memory could fail an unrelated commit for a
-/// reason that was never the committer's and that evaporates on retry.
-/// `governs-unreciprocated` was a third until 2026-08-25, when the typed-link
-/// requirement was retired — see `feedback_typed_memory_links`.
-const RACY: [&str; 2] = ["not-in-index", "index-points-nowhere"];
+use memview::lint::RACY;
 
 /// Re-read once before reporting a racy rule, and believe the second answer.
 ///

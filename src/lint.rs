@@ -66,6 +66,26 @@ pub const TEASER_MAX: usize = 140;
 /// corpus with two ceilings warns at one size and truncates at another.
 pub use crate::ceiling::INDEX_CEILING;
 
+/// Rules a corpus caught mid-write can fail through no fault of its own.
+///
+/// Writing a memory is two edits — the file, then its line in MEMORY.md — and
+/// anything loading the corpus between them sees a memory that exists and is
+/// not reachable. Both are ERRORS and the pre-commit gate runs this, so a
+/// concurrent session writing a memory can fail an unrelated commit for a
+/// reason that was never the committer's and that evaporates on retry.
+/// `governs-unreciprocated` was a third until 2026-08-25, when the typed-link
+/// requirement was retired — see `feedback_typed_memory_links`.
+///
+/// ⚠ **Here rather than in `bin/memory-lint.rs`, because there it named a rule
+/// that no longer existed.** It listed `"not-in-index"`, renamed to
+/// `"unreachable"` on 2026-08-02 when the rule became reachability rather than
+/// membership. The string still compiled, still read as deliberate, and matched
+/// nothing — so the retry covered one of its two rules, and not the likelier
+/// one (memview#1456). Beside [`RULES`] it is one grep from its subject, and
+/// `every_racy_rule_is_a_real_rule` in `tests/lint.rs` now fails on a rename
+/// instead of silently disarming the retry.
+pub const RACY: [&str; 2] = ["unreachable", "index-points-nowhere"];
+
 /// Every rule, with the severity it currently carries.
 ///
 /// Listed in one place rather than beside each check so that the promotion of a
