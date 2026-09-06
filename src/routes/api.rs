@@ -482,6 +482,18 @@ pub struct Effect {
     pub command: String,
     pub reached: reader::shell::Reached,
     pub verdict: reader::doing::Verdict,
+    /// Whether this use may be attributed — [`reader::doing::Verdict::admits`],
+    /// the join of what the text required and what the call returned.
+    ///
+    /// ⚠ **Computed here because neither field alone answers it, and a client
+    /// joining them would be a third copy of the rule** (`console/src/parse.rs`
+    /// is the second). The timeline tried to decide from `reached` alone, which
+    /// it had typed `boolean` while the wire sends `"a"`, `"s"` or `"?"` — all
+    /// truthy, so *may not have run* never drew once (memview#1459).
+    ///
+    /// ⚠ **One-sided, and a view must not round it**: `false` means "cannot
+    /// say", never "did not run".
+    pub certain: bool,
 }
 
 /// What one turn did, and how much of it there was.
@@ -559,6 +571,7 @@ pub async fn effects(
                     .unwrap_or_default(),
                 reached: row.r,
                 verdict: row.v,
+                certain: row.v.admits(row.r),
             });
         }
     }

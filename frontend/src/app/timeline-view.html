@@ -145,8 +145,15 @@
                       <!-- A command after `&&` runs only if what preceded it
                            worked, and one exit status often cannot say. Said in
                            words rather than folded into the verdict, because the
-                           two are different claims. -->
-                      @if (!e.reached) {
+                           two are different claims.
+
+                           ⚠ `certain`, NOT `reached`: the server joins the
+                           text's condition with the call's outcome
+                           (`Verdict::admits`). This tested `!e.reached` against
+                           a three-valued enum typed `boolean`, so it never
+                           fired and every effect drew as certain
+                           (memview#1459). -->
+                      @if (!e.certain) {
                         <span class="maybe">may not have run</span>
                       }
                       <code class="command">{{ e.command }}</code>

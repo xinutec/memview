@@ -325,18 +325,28 @@ const EFFECTS = {
       path: 'health/packages/health-sync-backend/src/decode/quantiseLegCost.ts',
       command:
         "sed -i '' 's/Math.round/Math.floor/' packages/health-sync-backend/src/decode/quantiseLegCost.ts",
-      reached: true,
+      // ⚠ **And `reached` repeated that mistake, four lines under the warning
+      // about it.** It said `true`; the wire sends `'a'`. Both are truthy, so
+      // the template's `!e.reached` could never fire in production — while this
+      // fixture's `false` below made the assertion at the bottom of this file
+      // pass regardless. A green check over a marker that had never once drawn
+      // (memview#1459). The `did` field was corrected and this one was not.
+      reached: 'a',
       verdict: 'ok',
+      certain: true,
     },
     {
       at: 29_412_600,
       agent: 'health',
       did: 's',
       pattern: 'packages/**/*.spec.ts',
-      // ⚠ A command after `&&` runs only if what preceded it worked.
+      // ⚠ A command after `&&` runs only if what preceded it worked, and an
+      // unrecorded outcome cannot say whether it did — so `Verdict::admits`
+      // refuses it and this is the row that must draw *may not have run*.
       command: 'pnpm run verify && grep -rn quantiseLegCost packages/**/*.spec.ts',
-      reached: false,
+      reached: 's',
       verdict: 'unknown',
+      certain: false,
     },
     {
       // The subject nobody could name. Drawn, never dropped.
@@ -344,8 +354,9 @@ const EFFECTS = {
       agent: 'health',
       did: 'u',
       command: 'nix develop --command bash -c "$(cat /tmp/step.sh)"',
-      reached: true,
+      reached: 'a',
       verdict: 'ok',
+      certain: true,
     },
   ],
   total: 41,
@@ -573,7 +584,13 @@ test('timeline — seven facts on a row, and a turn opened @ phone width', async
   await page.getByText('searched', { exact: true }).waitFor();
 
   // The two things a summary would drop, and the reason this panel exists.
-  await page.getByText('may not have run').waitFor();
+  //
+  // ⚠ **Exactly one of the three, and the count is the point.** This assertion
+  // passed for years over a fixture holding a boolean the wire never sends, so
+  // it proved the template works given a boolean rather than given an effect
+  // (memview#1459). Counting pins which rows draw it, so a condition that fires
+  // for all of them — or none — fails here rather than reading as fine.
+  await expect(page.getByText('may not have run')).toHaveCount(1);
   await page.getByText('and 12 more this could not name a subject for').waitFor();
 
   await expectNoTextOverlaps(page, testInfo);

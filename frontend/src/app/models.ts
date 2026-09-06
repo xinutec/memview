@@ -354,6 +354,17 @@ export interface AgentsResult {
  */
 export type Verdict = 'unknown' | 'ok' | 'failed' | 'rejected';
 
+/**
+ * What the text required for a command to run. Mirrors `shell::Reached`, whose
+ * serde names are the wire's — `'a'` always, `'s'` only if what preceded it
+ * succeeded, `'?'` under a condition the text cannot state.
+ *
+ * ⚠ **Three values, and every one of them is truthy.** Written as `boolean` it
+ * type-checked, mirrored nothing the server sends, and silenced the timeline's
+ * uncertainty marker for the field's whole life (memview#1459).
+ */
+export type Reached = 'a' | 's' | '?';
+
 /** One minute of one session's work. Mirrors `api::Moment`. */
 export interface Moment {
   /** Unix minute, the key this row is opened by — with `agent`. */
@@ -450,9 +461,24 @@ export interface Effect {
   host?: string;
   /** Verbatim. Owner-only for this reason, and never behind a share token. */
   command: string;
-  /** Whether the command certainly ran, or only may have — `a && b`. */
-  reached: boolean;
+  /**
+   * What the TEXT required for this command to run — mirrors `shell::Reached`.
+   *
+   * ⚠ **Not a boolean, and typing it as one hid a defect for the whole life of
+   * the field** (memview#1459). The wire sends `'a'`, `'s'` or `'?'`; all three
+   * are truthy, so a template testing `!e.reached` never fired and every effect
+   * drew as certain. Use [certain] — this alone cannot answer it.
+   */
+  reached: Reached;
   verdict: Verdict;
+  /**
+   * Whether this use may be attributed: the server's join of [reached] and
+   * [verdict], via `Verdict::admits`.
+   *
+   * ⚠ **One-sided — `false` means "cannot say", never "did not run".** Joining
+   * the two fields here would be a third copy of a rule that lives in one place.
+   */
+  certain: boolean;
 }
 
 /** What a turn did, keyed by the `(agent, at)` a timeline row already carries. */
