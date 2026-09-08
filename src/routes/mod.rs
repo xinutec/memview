@@ -8,8 +8,8 @@ use axum::Router;
 use axum::http::{HeaderValue, Response, header};
 use axum::routing::{delete, get, post};
 use tower::ServiceBuilder;
+use tower_http::services::ServeDir;
 use tower_http::services::fs::ServeFileSystemResponseBody;
-use tower_http::services::{ServeDir, ServeFile};
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::Level;
@@ -50,6 +50,38 @@ fn cache_control_for(res: &Response<ServeFileSystemResponseBody>) -> Option<Head
     })
 }
 
+/// Serve the app's page for a client-side ROUTE, and 404 anything that plainly
+/// named a file.
+///
+/// ⚠ **A missing FILE must not be handed the page, and the mistake is
+/// invisible**: the wrong answer is a `200`, so a browser that asked for a
+/// woff2 and got HTML renders broken icons and reports nothing anywhere.
+/// Measured 2026-09-08 — `/media/nope.woff2` answered `200 text/html` (#1478).
+///
+/// The test is a dot in the last path segment. It is a heuristic, and the
+/// alternative — enumerating the bundle's own asset names — would have to be
+/// rebuilt whenever `ng build` changes a hash.
+fn spa(index: &str, path: &str) -> axum::response::Response {
+    use axum::response::IntoResponse as _;
+
+    if path
+        .rsplit('/')
+        .next()
+        .is_some_and(|last| last.contains('.'))
+    {
+        return (axum::http::StatusCode::NOT_FOUND, "not found").into_response();
+    }
+    match std::fs::read_to_string(index) {
+        Ok(page) => axum::response::Html(page).into_response(),
+        Err(error) => {
+            // STATIC_DIR set with no index is a misconfigured deployment, and
+            // saying so beats serving an empty page that looks like the app.
+            tracing::error!("the app's index could not be read: {error}");
+            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "no index").into_response()
+        }
+    }
+}
+
 pub fn router(state: AppState) -> Router {
     let api = Router::new()
         .route("/me", get(api::me))
@@ -78,7 +110,11 @@ pub fn router(state: AppState) -> Router {
     // index.html so deep links (/m/<name>, /share/<token>) load the shell.
     // API-only when STATIC_DIR is unset (dev: `ng serve` proxies).
     let app = if let Some(dir) = state.cfg.static_dir.clone() {
-        let serve = ServeDir::new(&dir).fallback(ServeFile::new(format!("{dir}/index.html")));
+        let index = format!("{dir}/index.html");
+        let serve = ServeDir::new(&dir).fallback(get(move |uri: axum::http::Uri| {
+            let index = index.clone();
+            async move { spa(&index, uri.path()) }
+        }));
         // ⚠ The layer wraps only the STATIC service: an API response is neither
         // a document to revalidate nor an immutable asset, and giving JSON a
         // year-long `immutable` would be the same bug pointing the other way.
