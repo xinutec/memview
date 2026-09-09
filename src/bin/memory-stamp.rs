@@ -59,7 +59,25 @@ fn main() -> Result<()> {
         let name = path.file_name().unwrap_or_default().to_string_lossy();
         match found.get(name.as_ref()) {
             Some(Author { session, at }) => {
-                println!("  {name}\n      {at}  {session}");
+                // ⚠ **Say which fields will actually be written.** Printing
+                // `{at} {session}` was true when every listed memory was missing
+                // both; now that one half can be absent alone, it announced a
+                // `modified:` this will refuse to touch. A dry run that shows
+                // more than the apply does is worse than none.
+                let (no_origin, no_modified) = absent(path);
+                let mut fields = Vec::new();
+                if no_origin {
+                    fields.push(format!("originSessionId: {session}"));
+                }
+                if no_modified {
+                    fields.push(format!("modified: {at}"));
+                } else {
+                    // Context, not a write: the origin time is why that session
+                    // is named, and it is commonly older than the stamp on the
+                    // file, which is a later edit.
+                    fields.push(format!("(first written {at}; modified: kept)"));
+                }
+                println!("  {name}\n      {}", fields.join("\n      "));
                 if apply {
                     stamp(path, session, at)?;
                 }
@@ -78,7 +96,30 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// The memories with no `modified:` in their frontmatter.
+/// Which halves of the stamp a memory is missing: `(originSessionId, modified)`.
+///
+/// The same frontmatter-only test [`unstamped`] applies, so what is reported and
+/// what is written cannot disagree.
+fn absent(path: &Path) -> (bool, bool) {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    let front = text.split("\n---").next().unwrap_or_default();
+    (
+        !front.contains("\n  originSessionId:"),
+        !front.contains("\n  modified:"),
+    )
+}
+
+/// The memories missing EITHER half of the stamp.
+///
+/// ⚠ **Keyed on `modified:` alone, this tool was blind to the field it exists
+/// to recover.** Measured 2026-09-09: 719 of 719 memories carried a `modified:`
+/// — because `missing-modified` is an ERROR and gets fixed — while 12 carried no
+/// `originSessionId`, which `memory-lint` has no rule for at all. So the twelve
+/// were invisible to the check AND to the repair, and this printed "every memory
+/// carries a stamp" over them. What is measured gets fixed; what is not, drifts.
+///
+/// ⚠ **Not a legacy set.** The newest of the twelve was written the same
+/// afternoon the gap was found, so this is a live path and not a backlog.
 fn unstamped(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut out = Vec::new();
     for entry in std::fs::read_dir(dir)?.flatten() {
@@ -93,7 +134,7 @@ fn unstamped(dir: &Path) -> Result<Vec<PathBuf>> {
         };
         // Frontmatter only: a `modified:` in the body is prose, not a stamp.
         let front = text.split("\n---").next().unwrap_or_default();
-        if !front.contains("\n  modified:") {
+        if !front.contains("\n  modified:") || !front.contains("\n  originSessionId:") {
             out.push(path);
         }
     }
@@ -112,11 +153,24 @@ fn stamp(path: &Path, session: &str, at: &str) -> Result<()> {
         .find('\n')
         .map(|n| start + 1 + n)
         .unwrap_or(text.len());
+    // ⚠ **Each field only if ABSENT, and `modified:` was NOT guarded.** A
+    // memory can be missing one and not the other — twelve were on 2026-09-09 —
+    // and appending a second `modified:` would do worse than duplicate it: the
+    // value written here is the write this scan FOUND, so it would overwrite a
+    // deliberate stamp with the file's state BEFORE a later edit. That is the
+    // ordering trap `~/.claude`'s pre-commit hook already warns about, arriving
+    // by a different door.
+    let front = text.split("\n---").next().unwrap_or_default();
     let mut added = String::new();
-    if !text.contains("\n  originSessionId:") {
+    if !front.contains("\n  originSessionId:") {
         added.push_str(&format!("\n  originSessionId: {session}"));
     }
-    added.push_str(&format!("\n  modified: {at}"));
+    if !front.contains("\n  modified:") {
+        added.push_str(&format!("\n  modified: {at}"));
+    }
+    if added.is_empty() {
+        return Ok(());
+    }
     let mut out = text.clone();
     out.insert_str(line_end, &added);
     // ⚠ Rename rather than truncate-then-write: a memory is read by the viewer
