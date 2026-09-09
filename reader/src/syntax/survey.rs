@@ -467,7 +467,44 @@ impl Survey<'_> {
                             heredocs.push((delimiter, strip_tabs));
                         }
                     } else {
-                        // Every other `<`/`>` form is modelled now.
+                        // Every other `<`/`>` form is modelled now — but an
+                        // operator with NOTHING AFTER IT is not, and `parse`
+                        // refuses it (memview#1370). `a >` alone was enough to
+                        // make the second gate print "the survey is a second
+                        // scanner and has drifted; the figures below are
+                        // unsound" — over the very ranking the next build is
+                        // chosen from.
+                        //
+                        // ⚠ **The whole operator must be stepped over BEFORE
+                        // asking, and `>|` is why.** `|` is itself an
+                        // end-of-command byte, so testing after the first `>`
+                        // would call every `>|` empty. `parse` takes the
+                        // operator as one token and then looks; this looks ahead
+                        // by the same amount WITHOUT moving `at`, so the
+                        // scanner's stepping is exactly what it was.
+                        let after = match (byte, self.peek_at(1)) {
+                            (b'>', Some(b'>' | b'|' | b'&')) | (b'<', Some(b'&' | b'>')) => {
+                                self.at + 2
+                            }
+                            _ => self.at + 1,
+                        };
+                        let mut ahead = after;
+                        while matches!(self.bytes.get(ahead), Some(b' ' | b'\t')) {
+                            ahead += 1;
+                        }
+                        // Mirrors `parse.rs::at_end_of_command`, `)` clause and
+                        // all. A copy, because the two scanners are deliberately
+                        // separate — the invariant is what holds them together,
+                        // and sharing the predicate would make the second gate
+                        // agree with itself rather than with the parser.
+                        let ends = matches!(
+                            self.bytes.get(ahead).copied(),
+                            None | Some(b';' | b'\n' | b'|' | b'&' | b'#')
+                        ) || (parens > 0
+                            && self.bytes.get(ahead).copied() == Some(b')'));
+                        if ends {
+                            self.found.insert(Reason::EmptyOperand);
+                        }
                         self.at += 1;
                     }
                 }

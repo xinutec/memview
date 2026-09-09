@@ -2980,3 +2980,64 @@ fn a_substring_length_that_is_not_arithmetic_is_refused() {
         "bash refuses this too, at runtime"
     );
 }
+
+/// ⚠ **The survey has to SEE a dangling redirect, not merely the parser**
+/// (memview#1370).
+///
+/// The two scanners are deliberately separate, and the invariant is that
+/// whatever `parse` refuses appears in the survey's set. `parse.rs::
+/// redirect_target` refuses `EmptyOperand` when nothing follows the operator;
+/// the survey's `<`/`>` branch stepped over it and never asked. So `a >` alone
+/// made `syntax-report` print *"the survey is a second scanner and has drifted;
+/// the figures below are unsound"* — above the refusal ranking that decides what
+/// gets built next.
+#[test]
+fn a_dangling_redirect_is_seen_by_both_scanners() {
+    for text in [
+        "a >", "a <", "a >>", "a >|", "a >&", "a <&", "a <>", "a > ", "a >\n",
+    ] {
+        assert_eq!(refusal(text), Reason::EmptyOperand, "parser, on {text:?}");
+        assert!(
+            survey(text).contains(&Reason::EmptyOperand),
+            "survey, on {text:?}: {:?}",
+            survey(text)
+        );
+    }
+}
+
+/// ⚠ **And must NOT see one where a target exists.** The refusal is for an
+/// operator with no target, never for redirection — this is the over-report the
+/// fix above could have introduced, and the half of the invariant that IS
+/// checked on accepted commands.
+///
+/// `a >| b` is the case that decides the implementation: `|` is an
+/// end-of-command byte, so a test placed after the FIRST `>` calls every `>|`
+/// empty. The whole operator has to be stepped over before asking.
+#[test]
+fn a_redirect_with_a_target_reports_nothing() {
+    for text in [
+        "a > b",
+        "a < b",
+        "a >> b",
+        "a >| b",
+        "a >& 2",
+        "a >&2",
+        "a <& 0",
+        "a <> b",
+        "a > b; c",
+        "a > b | c",
+        "a > b && c",
+        "(a > b)",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+        assert!(
+            survey(text).is_empty(),
+            "{text:?} should need nothing: {:?}",
+            survey(text)
+        );
+    }
+}
