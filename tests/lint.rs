@@ -131,6 +131,55 @@ fn another_sessions_memory_does_not_fail_this_one() {
     ));
 }
 
+/// ⚠ **A missing author is REPORTED, and reported as a WARNING** — two halves of
+/// one claim, pinned together (memview#1499).
+///
+/// Reported at all, because until 2026-09-09 nothing asked. `modified:` was an
+/// ERROR and sat at 719 of 719; `originSessionId` was checked by no rule and had
+/// drifted to 707. What is measured gets fixed; what is not, drifts.
+///
+/// A warning, because the finding is unroutable by construction: the field that
+/// would say whose it is, is the field that is absent. Promoting it would fail
+/// the nightly and no session — the #1047 pathology `passed_for_session` exists
+/// to remove. [`an_unstamped_memory_fails_no_session`] below is the other half.
+#[test]
+fn a_missing_author_is_a_warning_because_nobody_can_be_charged_with_it() {
+    // ⚠ **NOT `findings()`, which filters to `Severity::Error`.** Reaching for
+    // it here reported nothing and then made the negative assertion below pass
+    // for the wrong reason — a warning is invisible to that helper whether or
+    // not the rule fired, so BOTH halves would have been green with no rule at
+    // all (feedback_a_precondition_that_can_pass_wrongly).
+    let reported = |corpus: &Corpus| -> Vec<String> {
+        check(corpus, None)
+            .into_iter()
+            .filter(|f| f.rule == "missing-origin")
+            .map(|f| f.memory)
+            .collect()
+    };
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let corpus = stamped(dir.path(), "project_a", None);
+    assert_eq!(reported(&corpus), ["project_a"]);
+
+    assert_eq!(
+        memview::lint::rule_reasons()
+            .get("missing-origin")
+            .map(|(s, _)| *s),
+        Some(Severity::Warning),
+        "promoting this needs somewhere to route it first — see the rule's own note"
+    );
+
+    // And a memory that HAS one must not be reported, or the rule is just a
+    // count of the corpus.
+    //
+    // ⚠ A SECOND tempdir: `stamped` rewrites the index but leaves the previous
+    // memory file on disk, so reusing this one loads a corpus of both and the
+    // unstamped `project_a` is still correctly reported.
+    let other = tempfile::tempdir().expect("tempdir");
+    let with = stamped(other.path(), "project_b", Some("session-9"));
+    assert!(reported(&with).is_empty(), "{:?}", reported(&with));
+}
+
 /// An unstamped memory belongs to nobody, so it fails no session's gate — the
 /// #1047 class itself, routed to the dashboard rather than to a bystander. The
 /// nightly above is what still refuses to commit it.

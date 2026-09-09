@@ -281,6 +281,32 @@ const RULES: &[(&str, Severity, &str)] = &[
         "a feedback memory needs a bold **How to apply…** section — a rule you cannot act on is a note",
     ),
     (
+        // Introduced 2026-09-09 AT ZERO, having just been worked there: 12 of
+        // 719 memories carried no author and nothing reported it, so the field
+        // was invisible to this check AND to `memory-stamp`, which keyed on a
+        // missing `modified:` alone. All 12 were recovered from the transcripts.
+        // Armed now so it reports a REGRESSION rather than a backlog, which is
+        // the corpus convention and the only moment it is cheap.
+        //
+        // ⚠ **WARNING, and it must NOT be promoted without somewhere to route
+        // it.** A memory with no `originSessionId` cannot be attributed, so
+        // [`passed_for_session`] can never charge it to anybody: at ERROR it
+        // would fail the nightly and no session — precisely the #1047 pathology
+        // that function exists to remove, arriving by a new door. `memory-blame`
+        // cannot route it either, since it files to the author it does not have.
+        // Catching this needs the WRITER at write time (#1498), not a louder
+        // corpus rule.
+        //
+        // ⚠ **`missing-modified` does not cover this path.** All 12 HAD a stamp.
+        // A heredoc creates the file with neither field; a later Edit stamps
+        // `modified:` because the body changed, and never adds the origin
+        // because an edit is not a creation. The stamp heals itself and the
+        // author is lost for good.
+        "missing-origin",
+        Severity::Warning,
+        "no `originSessionId:` — nobody can be asked about it, and a rule that FAILED on it would block the nightly and no session",
+    ),
+    (
         // Introduced 2026-08-24 at ERROR with the corpus at zero — the point of
         // it is to be armed before the cliff, not to describe a fall.
         //
@@ -514,6 +540,17 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
                 "nearing-read-limit",
                 name,
                 format!("{lines} lines, {} from the limit", 2000 - lines),
+            );
+        }
+
+        // Every type, not just feedback: authorship is who to ask, and that
+        // question is asked of a `reference` as often as of a rule.
+        if frontmatter_value(&doc.raw, "originSessionId").is_none() {
+            push(
+                "missing-origin",
+                name,
+                "no `originSessionId:` — `memory-stamp` recovers it from the transcripts"
+                    .to_string(),
             );
         }
 
