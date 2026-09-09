@@ -4900,12 +4900,18 @@ test('a tap looks closer, and a second tap shows the whole picture @ phone width
 test('the concept leads and the argv follows as evidence @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **The sentence carries a FULL RESOLVED path and that is the point of it** —
-  // a relative name hides WHICH file, and the directory it resolved against is
-  // the one thing a person cannot see by reading the command. It is therefore
-  // the longest unbreakable-ish string on the sheet, and 412px is where it
-  // either wraps or pushes the page sideways. No amount of reading the source
-  // settles that.
+  // ⚠ **The WIRE carries a full resolved path; the CARD cuts it to the leaf**
+  // (memview#1454). The comment here used to argue the opposite — that the
+  // sentence spelling the whole path was the point of it — and looking at the
+  // render refuted that: one path was stated FOUR times on one step, three of
+  // them wrapped lines of this sentence, pushing the command being approved
+  // down the card. The path is not lost, and the last assertion below is what
+  // says so: the use row still carries it, once, where direction and certainty
+  // are marked.
+  //
+  // `describe` is unchanged and still returns the full path — it is the
+  // CONCEPT's phrase, not this card's, and shortening it there would hand every
+  // future consumer a 412px column.
   //
   // Drawn beside a command NO lens covers, on purpose: absent is the honest
   // miss, and the two have to be tellable apart at a glance or the layer is
@@ -4947,7 +4953,18 @@ test('the concept leads and the argv follows as evidence @ phone width', async (
 
   // Exactly one of the two steps says what it was for.
   await expect(page.locator('.concept')).toHaveCount(1);
-  await expect(page.locator('.concept')).toContainText('Show the first 5 lines');
+  // The ACT, with the subject named compactly.
+  await expect(page.locator('.concept')).toHaveText('Show the first 5 lines of session.rs');
+  // ⚠ **The negative is the assertion.** Containing the short form would still
+  // pass if the sentence had the whole path in it, since the leaf is a suffix
+  // of the path — so this names what must be ABSENT from the sentence.
+  await expect(page.locator('.concept')).not.toContainText('/home/example');
+  // ⚠ **And the path is still ON the card, which is what makes the cut safe
+  // rather than a loss.** It moved to the one row that also says direction and
+  // certainty, instead of being repeated in prose above it.
+  await expect(page.locator(SHEET)).toContainText(
+    '/home/example/Code/health/rust/backend/src/routes/session.rs',
+  );
 
   await expectNoHorizontalOverflow(page, testInfo, SHEET);
   await expectNoClippedText(page, testInfo, SHEET);

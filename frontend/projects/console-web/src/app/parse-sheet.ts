@@ -106,6 +106,41 @@ export class ParseSheet {
     return undefined;
   }
 
+  /**
+   * The concept's sentence with each path cut to its leaf.
+   *
+   * ⚠ **Shortened HERE, never in `describe`** (memview#1454). That function
+   * returns the CONCEPT's phrase, and shortening it there would make every
+   * future consumer inherit this card's 412px column. What the sentence is FOR
+   * is the act; the path is already carried twice below it — by the use row,
+   * which marks direction and certainty, and by the sheet's footer, which names
+   * the directory relative paths resolve against. Looked at on 2026-09-05 it
+   * stated one path FOUR times on a single step, three of them wrapped lines of
+   * this very sentence, pushing the command being approved down the card.
+   *
+   * ⚠ **A token at a time, so it cannot reach across words.** A sentence names
+   * several subjects joined by `, `, and a match greedy over the whole string
+   * would eat the words between them.
+   *
+   * ⚠ **This would be WRONG for a locus.** `a file under /var/log` cut to
+   * `under log` loses the directory that is the whole of the claim. It is safe
+   * only because `Subject::Located` and `Subject::Bounded` cannot reach
+   * `describe` today — `subjects_or_refuse` refuses both as `Why::Described`
+   * before a `Concept` exists, and both arms are marked unreachable in
+   * `concept.rs`. If that refusal is lifted, this must learn the difference
+   * first.
+   */
+  protected concise(concept: string): string {
+    return concept
+      .split(' ')
+      .map((word) => {
+        const cut = word.lastIndexOf('/');
+        // Not a path, or a trailing slash whose leaf would be nothing.
+        return cut <= 0 || cut === word.length - 1 ? word : word.slice(cut + 1);
+      })
+      .join(' ');
+  }
+
   /** How many uses the whole parse found, for the summary line. */
   protected readonly counted = computed(() => {
     const uses = (this.parsed()?.steps ?? []).flatMap((step) => step.uses ?? []);
