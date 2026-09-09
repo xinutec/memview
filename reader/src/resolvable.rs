@@ -125,7 +125,12 @@ impl Unnamed {
 /// ⚠ **The order is the whole correctness argument, and two of the four steps
 /// are there because getting them wrong has already happened.**
 ///
-/// 1. A word spanning lines is a program body, not a subject.
+/// 1. A word spanning lines is a program body, not a subject — and the `/*`
+///    half of that test carries its own reason, which was lost when this guard
+///    was copied from `opaque-shapes` and read as arbitrary here. A `jq` filter
+///    and a TypeScript body both reach this bucket, and both can open with a
+///    comment; without the test their text lands in a name arm and a program
+///    fragment is counted as a file.
 /// 2. Arithmetic before substitution: `$((300 * i))` contains `$(`, and reading
 ///    it as a substitution files a non-path as an unanswerable subject.
 /// 3. **Substitution anywhere in the word, before any name rule** — the

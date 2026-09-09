@@ -536,6 +536,12 @@ fn said(subjects: &[Subject]) -> String {
 }
 
 /// A subject as the lowered text writes it.
+///
+/// ⚠ **`Bounded` and `Located` are UNREACHABLE here too, for the reason
+/// [`said`] gives** — [`subjects_or_refuse`] turns both into [`Why::Described`]
+/// before a `Concept` exists. Said in both places because they are two
+/// functions: a reader meeting this one alone has nothing to tell it that these
+/// arms are unexercised, and they are phrased as confidently as the live ones.
 fn spell(subject: &Subject) -> String {
     match subject {
         Subject::Named(path) => path.clone(),

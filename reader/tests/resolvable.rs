@@ -185,6 +185,17 @@ fn every_shape_takes_a_side() {
     for shape in Unnamed::ALL {
         // Exactly one of the two, whatever the shape.
         assert_eq!(shape.answerable(), !shape.is_hole() && !shape.excluded());
+        // ⚠ **And that the two do not OVERLAP, which the line above cannot
+        // say.** A shape that was both a hole and excluded would make
+        // `answerable` false twice over and satisfy it — while the census
+        // counted one word under two headings and its columns stopped summing
+        // to the total. The doc above has claimed disjoint since it was
+        // written; only totality was ever tested.
+        assert!(
+            !(shape.is_hole() && shape.excluded()),
+            "{} is both a hole and excluded",
+            shape.label()
+        );
     }
     assert_eq!(
         Unnamed::ALL.iter().filter(|s| s.answerable()).count(),
