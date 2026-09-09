@@ -23,7 +23,34 @@ program = { SOI ~ element* ~ EOI }
 // `binder` and `assign` come first because they decide whether a name may be
 // trusted as a constant later, and both start with something `expr` would
 // happily swallow as an ordinary name.
-element = _{ NEWLINE | binder | assign | augmented | expr | stray }
+element = _{ NEWLINE | funcdef | binder | assign | augmented | expr | stray }
+
+// `def write(fname, content):` — the header WITH its parameters.
+//
+// ⚠ **Its own rule, ahead of `binder`, so that shared rule is untouched.**
+// `binder` carries `for`, `as`, `import`, `class` and `lambda` as well as `def`,
+// and widening it to capture a parameter list would put all six through a
+// changed shape for the sake of one. Placed first, a `def` comes here instead
+// and everything else still goes there.
+//
+// ⚠ **Failure is graceful, and that is the safety argument.** An exotic
+// signature — a default holding a nested call, a decorator, an async def — fails
+// to match, pest backtracks to `binder`, and the reading is exactly what it was
+// before parameters were captured at all.
+//
+// Why capture them: a parameter is the commonest `Why::Outside`, and its value
+// is usually IN the text, at the call site (memview#1142).
+funcdef = { def_kw ~ name ~ "(" ~ params? ~ ")" }
+def_kw  = @{ "def" ~ !name_char }
+params  =  { param ~ ("," ~ param)* ~ ","? }
+
+// Generous on purpose: only the NAME is wanted. A default value, a type
+// annotation or a `*`/`**` prefix is skipped rather than modelled — reading them
+// would be a second expression grammar for no gain, since what the CALLER passes
+// is what decides the value.
+param   =  { stars? ~ name ~ ignored? }
+stars   = @{ "*"{1, 2} }
+ignored = _{ (!("," | ")") ~ ANY)+ }
 
 // `p = 'src/x.ts'`. The lookahead is what makes it an assignment rather than a
 // comparison, and `value` is the WHOLE right-hand side: a statement that goes on

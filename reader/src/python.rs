@@ -431,6 +431,9 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
     let mut looped: BTreeSet<String> = BTreeSet::new();
     let mut imported = BTreeSet::new();
     let mut bound: BTreeMap<String, Vec<Option<String>>> = BTreeMap::new();
+    // Function name to its parameter names, in order — the left half of the
+    // call-site binding below (memview#1142).
+    let mut defs: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for element in elements {
         let mut inner = element.clone().into_inner();
         match element.as_rule() {
@@ -449,6 +452,38 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
                         .or_default()
                         .push(None);
                 }
+            }
+            // `def write(fname, content):` — the NAME binds exactly as it did
+            // when a `def` came through `binder`, and the parameters are new.
+            //
+            // ⚠ **The name must still reach `bound`**, or a call on a function
+            // the program defined itself returns to the worklist as a library
+            // call somebody should teach. `what_it_cannot_read_is_counted_by_name`
+            // catches that, and did, the moment `def` stopped being a `binder`.
+            Rule::funcdef => {
+                // ⚠ **By RULE, not by position.** `def_kw` is atomic and still
+                // yields a pair, so `inner.next()` is the word `def`: binding it
+                // named the KEYWORD and left every function the program defines
+                // back on the worklist as a library call to teach.
+                let Some(name) = inner.find(|part| part.as_rule() == Rule::name) else {
+                    continue;
+                };
+                let name = name.as_str().to_string();
+                bound.entry(name.clone()).or_default().push(None);
+                let params: Vec<String> = element
+                    .clone()
+                    .into_inner()
+                    .find(|part| part.as_rule() == Rule::params)
+                    .into_iter()
+                    .flat_map(|params| params.into_inner())
+                    .filter_map(|param| {
+                        param
+                            .into_inner()
+                            .find(|part| part.as_rule() == Rule::name)
+                            .map(|n| n.as_str().to_string())
+                    })
+                    .collect();
+                defs.insert(name, params);
             }
             // `for p in files`, `with … as f`, `import json`: bound, and to
             // nothing this can name.
@@ -502,6 +537,60 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
             _ => {}
         }
     }
+    // ⚠ **A parameter bound by its call site is bound BY THE PROGRAM**, and is
+    // fed into `bound` exactly as an assignment is (memview#1142). Everything
+    // downstream then applies unchanged: one literal makes a const, two make a
+    // candidate set, anything computed makes it `Why::Computed` rather than
+    // `Why::Outside`. No second resolution path, and no new doctrine — the
+    // reader's "bound exactly once to a literal" rule, one level out.
+    //
+    // Before this, `def write(fname, …)` called with `write('x.md', …)` filed
+    // its `open(fname)` as "from outside the program, so no rule can ever read
+    // it" while the value sat four lines below.
+    {
+        let mut uses_it: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+        for (function, params) in &defs {
+            for param in params {
+                uses_it
+                    .entry(param.as_str())
+                    .or_default()
+                    .insert(function.as_str());
+            }
+        }
+        let mut from_calls: BTreeMap<String, Vec<Option<String>>> = BTreeMap::new();
+        let mut calls = Vec::new();
+        for element in elements {
+            call_arguments(element, &mut calls);
+        }
+        for (callee, args) in calls {
+            let Some(params) = defs.get(&callee) else {
+                continue;
+            };
+            for (at, value) in args.into_iter().enumerate() {
+                let Some(param) = params.get(at) else {
+                    continue;
+                };
+                // ⚠ **One function only.** The reader has no scopes, so a
+                // binding lands in one flat namespace: two functions sharing a
+                // parameter name would each contribute, and `open(p)` in the one
+                // would resolve to the other's argument. That is a FABRICATED
+                // path, which costs more than the miss it replaces.
+                if uses_it.get(param.as_str()).is_none_or(|fns| fns.len() != 1) {
+                    continue;
+                }
+                // ⚠ **And never a name the program also binds itself.** An
+                // assignment, a loop or an import already has an account of it;
+                // adding a call's argument would make a name a set of two
+                // unrelated things.
+                if bound.contains_key(param) || looped.contains(param) || imported.contains(param) {
+                    continue;
+                }
+                from_calls.entry(param.clone()).or_default().push(value);
+            }
+        }
+        bound.extend(from_calls);
+    }
+
     let bound_once: BTreeMap<String, usize> = bound
         .iter()
         .map(|(name, ways)| (name.clone(), ways.len()))
@@ -555,6 +644,57 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
 /// `'src/x.ts'` and `Path('src/x.ts')` are constants; `base + name` is not, and
 /// neither is `'src/x.ts' if flag else 'y.ts'` — which is why this is asked of
 /// the whole right-hand side rather than of its first operand.
+/// Every direct call `f(…)` in the tree, with each positional argument read the
+/// way an assignment's right-hand side is: `Some(literal)`, or `None` for a
+/// value this cannot read.
+///
+/// ⚠ **Direct calls only.** `obj.method(…)` and `f()()` are not a name whose
+/// parameters this knows, and reading them as one would bind a parameter from a
+/// call to something else entirely.
+///
+/// ⚠ **Positional only.** A keyword argument names its parameter rather than
+/// taking a position, and binding it by index would put the value on the wrong
+/// one — a wrong path, which costs more than a missing one.
+fn call_arguments(pair: &Pair<'_, Rule>, out: &mut Vec<(String, Vec<Option<String>>)>) {
+    {
+        {
+            if pair.as_rule() == Rule::expr {
+                let mut inner = pair.clone().into_inner();
+                if let (Some(head), Some(next)) = (inner.next(), inner.next())
+                    && head.as_rule() == Rule::name
+                    && next.as_rule() == Rule::call
+                {
+                    let args: Vec<Option<String>> = next
+                        .clone()
+                        .into_inner()
+                        .filter(|part| part.as_rule() == Rule::args)
+                        .flat_map(|args| args.into_inner())
+                        .filter(|arg| arg.as_rule() == Rule::arg)
+                        .filter(|arg| {
+                            !arg.clone()
+                                .into_inner()
+                                .any(|part| part.as_rule() == Rule::keyword)
+                        })
+                        .map(|arg| {
+                            arg.into_inner()
+                                .find(|part| part.as_rule() == Rule::value)
+                                .and_then(|value| literal(&value))
+                        })
+                        .collect();
+                    out.push((head.as_str().to_string(), args));
+                }
+            }
+        }
+    }
+    // ⚠ **The pair ITSELF first, then its children.** Descending straight into
+    // `into_inner()` skipped exactly the case this exists for: a bare
+    // `write('x.md', …)` statement IS the `expr`, so looking only at its
+    // children never saw the call at all.
+    for inner in pair.clone().into_inner() {
+        call_arguments(&inner, out);
+    }
+}
+
 fn literal(value: &Pair<Rule>) -> Option<String> {
     let mut operands = value.clone().into_inner();
     let only = operands.next()?;

@@ -881,3 +881,90 @@ fn a_reassigned_loop_variable_is_a_computed_value_not_a_loop() {
     assert_eq!(program.why.get(&Why::Loop), None);
     assert_eq!(program.why.get(&Why::Computed), Some(&1));
 }
+
+// --- a parameter bound at its call site (memview#1142) -----------------------
+
+/// ⚠ **`Why::Outside` said "the value came from outside the text, so no rule can
+/// ever read it" — and the value was four lines below.**
+///
+/// This is the shape the corpus writes for every scripted edit and for the
+/// memory writes of 2026-07-02: a helper that takes a path, called with a
+/// literal. The reader resolved `open('x.md','w')` perfectly and refused this,
+/// because it never bound a call's argument to the callee's parameter.
+///
+/// Its cost was not only a census row. `blame::attribute` asks the reader what a
+/// command wrote, so these writes were invisible and `originSessionId` named a
+/// later editor than the creator for thirteen memories (memview#1499).
+#[test]
+fn a_parameter_takes_the_literal_its_call_site_passes() {
+    let program =
+        read("def write(fname, content):\n    open(fname,'w').write(content)\nwrite('x.md','hi')");
+    assert_eq!(
+        program
+            .uses
+            .iter()
+            .map(|u| (u.path.as_str(), u.write))
+            .collect::<Vec<_>>(),
+        [("x.md", true)]
+    );
+    assert!(program.why.is_empty(), "{:?}", program.why);
+}
+
+/// ⚠ **Two functions sharing a parameter name must NOT cross-bind.** The reader
+/// has no scopes, so bindings land in one flat namespace: `a`'s argument would
+/// answer `open(p)` inside `b`. That is a FABRICATED path, and this reader's
+/// whole discipline is that a fabrication costs more than an omission — so both
+/// are refused and stay `Outside`.
+#[test]
+fn a_parameter_two_functions_share_is_refused_rather_than_guessed() {
+    let program =
+        read("def a(p):\n    open(p,'w')\ndef b(p):\n    open(p,'w')\na('one.md')\nb('two.md')");
+    assert!(program.uses.is_empty(), "{:?}", program.uses);
+    assert_eq!(program.why.get(&reader::program::Why::Outside), Some(&2));
+}
+
+/// Called twice with two literals is a SET, not a constant — the existing
+/// bound-twice rule, inherited for free because a call site feeds `bound` the
+/// same way an assignment does rather than through a path of its own.
+#[test]
+fn a_parameter_passed_two_literals_is_a_bounded_set() {
+    let program = read("def w(p):\n    open(p,'w')\nw('one.md')\nw('two.md')");
+    assert!(program.uses.is_empty());
+    assert_eq!(program.bounded.get("{one.md,two.md}"), Some(&1));
+}
+
+/// ⚠ **A name the program also binds itself is left alone.** An assignment has
+/// its own account of the name; adding a call's argument would make one name a
+/// set of two unrelated things.
+#[test]
+fn a_parameter_the_program_also_assigns_is_not_bound_from_a_call() {
+    let program = read("def w(p):\n    open(p,'w')\np = 'assigned.md'\nw('passed.md')");
+    assert!(
+        !program.uses.iter().any(|u| u.path == "passed.md"),
+        "{:?}",
+        program.uses
+    );
+}
+
+/// A call passing something computed leaves the parameter unresolved — but as
+/// `Computed`, not `Outside`: the value IS the program's, and this now knows it.
+#[test]
+fn a_parameter_passed_a_computed_value_is_computed_not_outside() {
+    let program = read("def w(p):\n    open(p,'w')\nw(base + name)");
+    assert!(program.uses.is_empty());
+    assert_eq!(program.why.get(&reader::program::Why::Computed), Some(&1));
+    assert_eq!(program.why.get(&reader::program::Why::Outside), None);
+}
+
+/// ⚠ **A keyword argument names its parameter and does not take a position**, so
+/// binding it by index would put the value on the wrong one — a wrong path,
+/// which costs more than the miss it replaces. Skipped entirely for now.
+#[test]
+fn a_keyword_argument_does_not_bind_by_position() {
+    let program = read("def w(p, q):\n    open(q,'w')\nw(q='real.md', p='decoy.md')");
+    assert!(
+        !program.uses.iter().any(|u| u.path == "decoy.md"),
+        "{:?}",
+        program.uses
+    );
+}
