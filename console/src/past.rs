@@ -212,7 +212,16 @@ pub fn conversations(root: &Path) -> Vec<Conversation> {
 /// line names neither its id nor its name. That would read as free and could be
 /// resumed underneath, giving two processes one transcript. The freshness rule
 /// did guard that case — it just charged everybody two minutes for it.
-fn in_use(conversation: &Conversation, running: &[String]) -> bool {
+pub fn in_use(conversation: &Conversation, running: &Running) -> bool {
+    // ⚠ **Could not ask, so cannot say it is free.** The alternative is what
+    // this was: an unanswerable question read as "nothing is running", which
+    // declares every conversation resumable at exactly the moment the evidence
+    // is missing. Held busy is visible and recoverable — the console says so and
+    // refuses — where the other direction puts two processes on one transcript
+    // and neither sees the other's turns.
+    let Running::Asked(running) = running else {
+        return true;
+    };
     running.iter().any(|argument| {
         argument == &conversation.id
             || conversation
@@ -222,23 +231,54 @@ fn in_use(conversation: &Conversation, running: &[String]) -> bool {
     })
 }
 
+/// What the process table said, or that it could not be asked.
+///
+/// ⚠ **Two states, because collapsing them removed the guard in silence**
+/// (memview#1457). [`arguments`] returned `Vec::new()` for three unrelated
+/// reasons — no `USER`, `ps` failing, and nothing actually running — so
+/// [`in_use`] answered `false` for EVERY conversation and each one read as free.
+/// Two processes then land on one transcript, which is precisely the risk
+/// [`in_use`]'s own doc calls "the risk that remains". An empty answer is never
+/// evidence that nothing is running.
+pub enum Running {
+    /// `ps` answered. Empty means nothing is running, which is a real answer.
+    Asked(Vec<String>),
+    /// The question could not be put at all.
+    Unasked,
+}
+
 /// Every argument of every `claude` this user is running, as separate words.
 ///
 /// Shelled out to rather than taken from a crate: the alternative is a process
 /// -inspection dependency in a binary whose whole job is to be small, to answer a
-/// question `ps` already answers. An empty list — no `ps`, no permission — means
-/// the freshness check stands alone, which is a weaker guard rather than none.
-fn arguments() -> Vec<String> {
+/// question `ps` already answers.
+///
+/// ⚠ **Failing to ask is [`Running::Unasked`], never an empty list.** This said
+/// an empty list "means the freshness check stands alone, which is a weaker
+/// guard rather than none" — and that freshness check was deleted on 2026-08-03
+/// (see [`in_use`]). Nothing was left to stand alone, so the fallback the
+/// comment promised had not existed for over a month.
+fn arguments() -> Running {
     let Ok(user) = std::env::var("USER") else {
-        return Vec::new();
+        // ⚠ Loud, because being silent was the whole defect. launchd DOES inject
+        // `USER` — verified with `ps -E` against the live console, where
+        // `launchctl print` shows only the job's own overrides and lists none.
+        tracing::warn!("cannot read USER — holding every conversation busy");
+        return Running::Unasked;
     };
-    let Ok(output) = std::process::Command::new("ps")
+    let output = match std::process::Command::new("ps")
         .args(["-u", &user, "-o", "args="])
         .output()
-    else {
-        return Vec::new();
+    {
+        Ok(output) => output,
+        Err(e) => {
+            tracing::warn!("cannot run ps ({e}) — holding every conversation busy");
+            return Running::Unasked;
+        }
     };
-    words_of_claude_processes(&String::from_utf8_lossy(&output.stdout))
+    Running::Asked(words_of_claude_processes(&String::from_utf8_lossy(
+        &output.stdout,
+    )))
 }
 
 /// The words of the command lines that actually *are* `claude`.

@@ -378,10 +378,17 @@ impl Roster {
             .any(|conversation| conversation.id == id && conversation.busy)
         {
             // Logged with its own reason, because from the phone a refusal is one
-            // sentence with nothing behind it. The check has two arms — a process
-            // that names the conversation, and a transcript written moments ago —
-            // and which one fired is the whole difference between "wait a minute"
-            // and "close the other window". This is where that survives.
+            // sentence with nothing behind it.
+            //
+            // ⚠ **This claimed the check has TWO arms, and that which one fired
+            // is the difference between "wait a minute" and "close the other
+            // window".** The second — a transcript written moments ago — was
+            // deleted on 2026-08-03, so there has been one arm and no such
+            // difference to preserve (memview#1457). A refusal now means either a
+            // running `claude` names this conversation, or `ps` could not be
+            // asked at all; `past::arguments` logs its own warning for the
+            // second, and that is the line to look for when everything reads
+            // busy at once.
             tracing::info!("refused {id}: past::in_use says something is already there");
             return Err(format!(
                 "{id} looks like it is still in use — close it first. Two processes \

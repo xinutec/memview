@@ -8,8 +8,8 @@
 use std::path::Path;
 
 use console::past::{
-    Counted, conversations, counted, named as named_of, touched as touched_of, transcript_ids,
-    transcript_of, words_of_claude_processes,
+    Counted, Running, conversations, counted, in_use, named as named_of, touched as touched_of,
+    transcript_ids, transcript_of, words_of_claude_processes,
 };
 
 /// A wrapper shell whose *path* says claude — the shape that caused the bug.
@@ -1253,4 +1253,57 @@ fn a_transcript_that_shrank_is_counted_from_the_start() {
         through: 10_000_000,
     };
     assert_eq!(counted(&path, stale).counted.interactions, 2);
+}
+
+// --- an unanswerable question is not "nothing running" (memview#1457) --------
+
+/// A conversation with just enough on it for [`in_use`] to judge.
+fn conversation(id: &str, name: Option<&str>) -> console::past::Conversation {
+    console::past::Conversation {
+        id: id.to_string(),
+        dir: "/home/example/Code/health".to_string(),
+        modified: 0,
+        bytes: 0,
+        name: name.map(str::to_string),
+        context: None,
+        busy: false,
+    }
+}
+
+/// ⚠ **The defect: three failures returned one value.** `arguments()` gave
+/// `Vec::new()` when `USER` was unset, when `ps` could not run, AND when nothing
+/// was running — so `in_use` said false for every conversation, each read as
+/// free, and a session could be resumed underneath a live process. Two processes
+/// on one transcript both append and neither sees the other's turns, which is
+/// the risk `in_use`'s own doc calls "the risk that remains".
+///
+/// Held busy is visible and recoverable; the console refuses and says so, and
+/// `arguments` logs why. The other direction corrupts a transcript silently.
+#[test]
+fn a_conversation_is_held_busy_when_the_process_table_cannot_be_asked() {
+    let it = conversation("abc", Some("health"));
+    assert!(in_use(&it, &Running::Unasked));
+}
+
+/// ⚠ **And the two must not be conflated the other way either.** `ps` answering
+/// with nothing IS an answer — nothing is running — and treating it as a failure
+/// would hold every conversation busy forever, which is a guard that can never
+/// go green.
+#[test]
+fn an_empty_answer_from_ps_still_means_free() {
+    let it = conversation("abc", Some("health"));
+    assert!(!in_use(&it, &Running::Asked(Vec::new())));
+}
+
+/// The ordinary hit, by id and by name, so the change above did not cost the
+/// thing the guard is for.
+#[test]
+fn a_running_claude_naming_it_by_either_id_or_name_is_in_use() {
+    let it = conversation("abc", Some("health"));
+    assert!(in_use(&it, &Running::Asked(vec!["abc".to_string()])));
+    assert!(in_use(&it, &Running::Asked(vec!["health".to_string()])));
+    assert!(!in_use(
+        &it,
+        &Running::Asked(vec!["something-else".to_string()])
+    ));
 }
