@@ -90,6 +90,7 @@ pub fn read(source: &str) -> Program {
     let mut reader = Reader {
         consts: scope.consts,
         candidates: scope.candidates,
+        params: scope.params,
         ranging: scope.ranging,
         looped: scope.looped,
         imported: scope.imported,
@@ -301,6 +302,9 @@ struct Scope {
     /// Names bound exactly once, to a path literal — the only variables this
     /// trusts.
     consts: BTreeMap<String, String>,
+    /// Function parameters, with the literal every call site passes — see
+    /// [`Value::EachOf`] for why these are not `candidates`.
+    params: BTreeMap<String, Vec<String>>,
     /// Names the program bound to SEVERAL literals and nothing else, by the
     /// candidates in order. One of them was the path; which one is not knowable
     /// without running it — see [`crate::program::Program::bounded`].
@@ -434,6 +438,9 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
     // Function name to its parameter names, in order — the left half of the
     // call-site binding below (memview#1142).
     let mut defs: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    // Parameter to the literal each call site passes — kept apart from `bound`
+    // for the reason [`Value::EachOf`] gives.
+    let mut params: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for element in elements {
         let mut inner = element.clone().into_inner();
         match element.as_rule() {
@@ -588,7 +595,19 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
                 from_calls.entry(param.clone()).or_default().push(value);
             }
         }
-        bound.extend(from_calls);
+        // ⚠ **A parameter every call site gives a literal goes to `params`, NOT
+        // to `bound`.** Through `bound` it would become a candidate SET, which
+        // says *one of these* where N call sites mean *all of these* — see
+        // [`Value::EachOf`]. Anything mixed still goes to `bound`, where a
+        // `None` among the values makes it `Why::Computed`: the value is the
+        // program's and this could not read it, which is the honest row.
+        for (param, values) in from_calls {
+            if values.iter().all(Option::is_some) {
+                params.insert(param, values.into_iter().flatten().collect());
+            } else {
+                bound.insert(param, values);
+            }
+        }
     }
 
     let bound_once: BTreeMap<String, usize> = bound
@@ -631,6 +650,7 @@ fn scope(elements: &[Pair<Rule>]) -> Scope {
     looped.retain(|name| bound_once.get(name).is_some_and(|ways| *ways == 1));
     Scope {
         defined,
+        params,
         ranging,
         looped,
         imported,
@@ -733,7 +753,13 @@ fn literal(value: &Pair<Rule>) -> Option<String> {
         // `Unknown` gets. A set here would make the CONSTANTS pass bind a name
         // to one of its own candidates, which is how a set becomes a wrong
         // certainty.
-        Value::List(_) | Value::OneOf(_) | Value::Pattern(_) | Value::Unknown(_) => None,
+        // Neither a list, a choice nor a set of per-call values is a path,
+        // which is the same answer `Unknown` gets.
+        Value::List(_)
+        | Value::OneOf(_)
+        | Value::EachOf(_)
+        | Value::Pattern(_)
+        | Value::Unknown(_) => None,
     }
 }
 
@@ -926,6 +952,26 @@ enum Value {
     /// is not a path: joining onto it, or handing it to a command as a word,
     /// would need the choice this deliberately does not make.
     OneOf(Vec<String>),
+    /// **Every** one of these, one per invocation — a function parameter, with
+    /// the literal each call site passes.
+    ///
+    /// ⚠ **The distinction from [`Value::OneOf`] is the point, and it is
+    /// semantic rather than stylistic** (memview#1499). `p = 'a'; p = 'b';
+    /// open(p)` is ONE open holding one value, and which one is not knowable —
+    /// a set. A parameter bound at three call sites is THREE invocations, each
+    /// with its own value, and all three files were written. Calling that a set
+    /// under-claims: it says *one of these* where the program says *all of
+    /// these*, and a reader asking "did this write X" is told no for a yes.
+    ///
+    /// ⚠ **A parameter's scope IS its function**, which is what makes this sound
+    /// with no block structure: an `open(param)` can only be inside the function
+    /// declaring it, so N calls are N executions of that open. This grammar
+    /// models no indentation on purpose and does not need to here.
+    ///
+    /// ⚠ **Only when EVERY call site passes a literal.** One computed argument
+    /// among them and the parameter goes back to being opaque — a partial list
+    /// would claim a set of writes that is missing a member nobody can name.
+    EachOf(Vec<String>),
     /// No value — and [`Why`] not, carried so that [`Reader::record`] can file
     /// the REASON an operation named nothing, not merely the fact.
     Unknown(Why),
@@ -1391,6 +1437,9 @@ fn method_of(name: &str) -> Option<Method> {
 
 struct Reader {
     candidates: BTreeMap<String, Vec<String>>,
+    /// Function parameters with the literal every call site passes — resolved
+    /// as [`Value::EachOf`], one use per invocation.
+    params: BTreeMap<String, Vec<String>>,
     ranging: BTreeMap<String, Value>,
     looped: BTreeSet<String>,
     imported: BTreeSet<String>,
@@ -1456,6 +1505,7 @@ impl Reader {
                         // can: what is left is a language. See `joined_shape`.
                         Value::List(_)
                         | Value::OneOf(_)
+                        | Value::EachOf(_)
                         | Value::Pattern(_)
                         | Value::Unknown(_) => {
                             return joined_shape(&values);
@@ -1569,6 +1619,13 @@ impl Reader {
                     // A module is not a value, and neither is an attribute of
                     // one: only a name bound to a literal is.
                     None if name.contains('.') => Value::Unknown(Why::Expression),
+                    // ⚠ **Before `consts`, and it cannot collide with one**: a
+                    // parameter is only bound here when the program binds the
+                    // name nowhere else. Asked first so the reading is obvious
+                    // rather than dependent on that guard staying true.
+                    None if self.params.contains_key(&name) => {
+                        Value::EachOf(self.params[&name].clone())
+                    }
                     None => match self.consts.get(&name) {
                         Some(path) => Value::Text(path.clone()),
                         // Bound to several literals: the set, which `record`
@@ -1838,6 +1895,16 @@ impl Reader {
                     *self.out.located.entry(dir).or_insert(0) += 1;
                 }
                 *self.out.bounded.entry(pattern).or_insert(0) += 1;
+            }
+            // ⚠ **N call sites are N invocations, so N uses** — not a set.
+            // See [`Value::EachOf`]: a parameter's scope is its function, so
+            // this open ran once per call, each time with that call's literal.
+            Some(Value::EachOf(paths)) if !paths.is_empty() => {
+                for path in paths {
+                    if !path.is_empty() {
+                        self.out.uses.push(Use { path, write });
+                    }
+                }
             }
             Some(Value::OneOf(set)) if set.len() > 1 => {
                 if let Some(dir) = shared_directory(&set) {

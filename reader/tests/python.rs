@@ -923,13 +923,40 @@ fn a_parameter_two_functions_share_is_refused_rather_than_guessed() {
     assert_eq!(program.why.get(&reader::program::Why::Outside), Some(&2));
 }
 
-/// Called twice with two literals is a SET, not a constant — the existing
-/// bound-twice rule, inherited for free because a call site feeds `bound` the
-/// same way an assignment does rather than through a path of its own.
+/// ⚠ **Called twice with two literals is TWO WRITES, not a set — and this test
+/// asserted the opposite when it was written hours earlier** (memview#1499).
+///
+/// Feeding a call site into `bound` like an assignment made the bound-twice rule
+/// apply, which gave a bounded set for free and looked like a bonus. It is
+/// wrong. `p = 'a'; p = 'b'; open(p)` is ONE open holding one of two values.
+/// `w('one.md'); w('two.md')` is TWO invocations, each writing its own file, and
+/// both files exist afterwards. "One of these" is an under-claim there, and it
+/// is what made `blame::writes` answer no for a yes.
+///
+/// A parameter's scope is its function, so an `open(p)` can only be inside `w`
+/// — which is why counting invocations is sound with no block structure.
 #[test]
-fn a_parameter_passed_two_literals_is_a_bounded_set() {
+fn a_parameter_passed_two_literals_is_two_writes() {
     let program = read("def w(p):\n    open(p,'w')\nw('one.md')\nw('two.md')");
-    assert!(program.uses.is_empty());
+    assert_eq!(
+        program
+            .uses
+            .iter()
+            .map(|u| (u.path.as_str(), u.write))
+            .collect::<Vec<_>>(),
+        [("one.md", true), ("two.md", true)]
+    );
+    // NOT a bound: nothing here is merely narrowed.
+    assert!(program.bounded.is_empty(), "{:?}", program.bounded);
+}
+
+/// The contrast that keeps the distinction honest: an ordinary VARIABLE bound
+/// twice is still a set, because there is one `open` and one of the two values
+/// was live at it. Nothing about parameters changed that.
+#[test]
+fn a_variable_bound_twice_is_still_a_set() {
+    let program = read("p = 'one.md'\np = 'two.md'\nopen(p,'w')");
+    assert!(program.uses.is_empty(), "{:?}", program.uses);
     assert_eq!(program.bounded.get("{one.md,two.md}"), Some(&1));
 }
 
