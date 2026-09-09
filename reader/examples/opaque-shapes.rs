@@ -54,6 +54,19 @@ enum Shape {
     /// `$(git rev-parse HEAD)`, `$(date …)` — a substitution whose value could
     /// be anything at all.
     OpaqueRun,
+    /// A substitution [`substitution`] could not parse: trailing text after the
+    /// `)`, nested parens, a body the corpus truncated.
+    ///
+    /// ⚠ **Its own arm because it used to fall into [`Shape::BareName`], whose
+    /// resolvability is the OPPOSITE** (memview#1445). A bare parameter may be
+    /// answered by reading the environment at ask time; a substitution never is,
+    /// by doctrine — *reading is not running*. Filing one as the other put both
+    /// in a single row of 4,118 labelled "a bare name, bound elsewhere", which
+    /// reads as a claim that the dominant bucket is answerable. It is the same
+    /// animal as `opacity` filing 731 non-Python bodies as Python: a bucket is
+    /// only as good as the guess that fills it, and a census prints the same
+    /// shape of number either way.
+    UnparsedRun,
     /// Deliberately kept, and reported. See the module note.
     Unclassified,
 }
@@ -70,6 +83,7 @@ impl Shape {
             Shape::EnvDir => "an environment directory",
             Shape::BareName => "a bare name, bound elsewhere",
             Shape::OpaqueRun => "a substitution with no locus",
+            Shape::UnparsedRun => "a substitution this could not parse — NOT a bare name",
             Shape::Unclassified => "unclassified",
         }
     }
@@ -169,6 +183,20 @@ fn classify(word: &str) -> Shape {
         if name.chars().all(|c| c.is_ascii_uppercase() || c == '_') {
             return Shape::EnvDir;
         }
+        // ⚠ **Last, and only where the fall-through actually lands** — this is
+        // the memview#1445 fix. `substitution()` above returned None, so a word
+        // still carrying `$(` or a backtick is a substitution it could not
+        // parse: trailing text after the `)`, nested parens, a truncated body.
+        // Reaching the line below, it would be called "a bare name, bound
+        // elsewhere", which claims the opposite resolvability.
+        //
+        // Placed HERE rather than beside the arithmetic guard on purpose: a
+        // word with a literal directory ahead of an unparsed `$( )` has a locus
+        // and is deliberately left to the unclassified bucket by the comment
+        // above, and hoisting this would quietly move that shape too.
+        if word.contains("$(") || word.contains('`') {
+            return Shape::UnparsedRun;
+        }
         return Shape::BareName;
     }
 
@@ -225,6 +253,15 @@ fn main() -> anyhow::Result<()> {
     println!("\nby what generated them:");
     let mut ranked: Vec<_> = by_shape.iter().collect();
     ranked.sort_by_key(|(shape, (uses, _))| (std::cmp::Reverse(*uses), **shape));
+    // ⚠ **"first by name", not "sample"** (memview#1445). `read.by_word` is a
+    // `BTreeMap`, so these four are the alphabetically first members of the
+    // bucket and `$(` sorts ahead of `$A`. Read as a sample they said the
+    // dominant bucket was command substitutions — which would meet
+    // concept-model.md's stated condition for REOPENING the `$(…)` decision, off
+    // four rows chosen by the alphabet. `concept-report` takes the first witness
+    // deliberately, and that is right for a hash-ordered queue; here the order
+    // is a sort. The COUNTS are what any conclusion rests on.
+    println!("\n(witnesses are the first FOUR BY NAME in each bucket, not a sample)");
     for (shape, (uses, distinct)) in &ranked {
         println!("  {uses:>6}  {:>4} distinct  {}", distinct, shape.label());
         for (word, n) in samples.get(shape).into_iter().flatten() {
