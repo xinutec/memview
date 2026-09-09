@@ -120,6 +120,31 @@ impl Unnamed {
     }
 }
 
+/// Every parameter name a word expands, in the order they appear.
+///
+/// ⚠ **The word is not the name.** `$d/gate.json`, `${line}` and `/tmp/$X/y`
+/// each carry one name and none of them IS one, so any question asked of the
+/// name — is it bound in this script, is it all-uppercase — has to come through
+/// here rather than off the word.
+///
+/// An expansion this does not model (`$@`, `$*`, a bare `$`) yields an empty
+/// string in place, so a caller can tell "no parameters" from "a parameter I
+/// could not read" — [`unnamed`] settles the whole word on the second.
+///
+/// Factored out of [`unnamed`] rather than copied, because a second reading of
+/// the same text is a second thing to keep true (memview#1450).
+pub fn names(word: &str) -> Vec<String> {
+    word.split('$')
+        .skip(1)
+        .map(|part| {
+            part.trim_start_matches('{')
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect()
+        })
+        .collect()
+}
+
 /// Classify one unnamed subject, as the text wrote it.
 ///
 /// ⚠ **The order is the whole correctness argument, and two of the four steps
@@ -157,13 +182,8 @@ pub fn unnamed(word: &str) -> Unnamed {
     // direction, in the function written to stop #1447 flattering the same
     // number. The first part the world cannot answer is what the word is.
     let mut answerable = false;
-    for part in word.split('$').skip(1) {
-        let name: String = part
-            .trim_start_matches('{')
-            .chars()
-            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
-            .collect();
-        // `$@`, `$*`, a bare `$`: a expansion this does not model. Unrecognised
+    for name in names(word) {
+        // `$@`, `$*`, a bare `$`: an expansion this does not model. Unrecognised
         // counts as a hole, so it settles the word.
         if name.is_empty() {
             return Unnamed::Unclassified;

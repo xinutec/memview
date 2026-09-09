@@ -163,6 +163,16 @@ pub struct Reading {
     /// what this does not know, stated by the thing that does not know it.
     pub unnamed: usize,
     pub by_word: BTreeMap<String, usize>,
+    /// The same refusals as [`Reading::by_word`], split by WHY — the by-reason
+    /// census #1142 built for Python and shell never had (memview#1450).
+    ///
+    /// ⚠ **Sums to `by_word`, and a test says so.** Two maps over one population
+    /// that can disagree are two accounts of it; the invariant is what makes
+    /// this a split rather than a second guess.
+    pub refused_why: BTreeMap<crate::shell_files::Refused, usize>,
+    /// The refused words their own script binds, by word — the half of the
+    /// split that can be crossed with a spelling-based class (memview#1447).
+    pub refused_bound: BTreeMap<String, usize>,
     /// Subjects a glob loop BOUNDED — still unnamed, but a subset of a pattern
     /// rather than of anything at all.
     pub by_pattern: BTreeMap<String, usize>,
@@ -307,6 +317,17 @@ impl Reading {
             found.javascript.unresolved.values().sum::<usize>() + found.javascript.refused.total();
         for (word, n) in &found.unnamed {
             *self.by_word.entry(word.clone()).or_insert(0) += n;
+        }
+        // ⚠ **The same population as `by_word`, split by reason — and it must SUM
+        // to it.** `by_word` is keyed by word and aggregated over every script,
+        // so the scope that answers "does this script bind the name?" is gone by
+        // the time anything reads it. The split is therefore made at extraction
+        // and only carried here (memview#1450).
+        for (why, n) in &found.refused_why {
+            *self.refused_why.entry(*why).or_insert(0) += n;
+        }
+        for (word, n) in &found.refused_bound {
+            *self.refused_bound.entry(word.clone()).or_insert(0) += n;
         }
         for (pattern, n) in &found.bounded {
             *self.by_pattern.entry(pattern.clone()).or_insert(0) += n;

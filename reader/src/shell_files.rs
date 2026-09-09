@@ -58,6 +58,47 @@ pub struct FileUse {
     pub reached: crate::shell::Reached,
 }
 
+/// Why a word this reader refused could not be resolved.
+///
+/// ⚠ **Deliberately NOT `program::Why`.** That enum belongs to the carried
+/// readers and names reasons a *program* could not be followed; reusing it here
+/// would collapse the one distinction this census exists to make — whether the
+/// value comes from outside the script at all.
+///
+/// ⚠ **Two reasons, not three.** `bind()` collapses *not-keepable* (a `$( )` in
+/// the value) and *bound twice to different values* into a single `None`, so
+/// those cannot be told apart without changing `Option<String>` to carry a
+/// reason. That is the expensive second slice (#1450), and both land in
+/// [`Refused::BoundInScript`] meanwhile — correctly, because for the question
+/// that matters they have the same answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Refused {
+    /// No visible scope binds the name.
+    ///
+    /// **The only reason a lookup at ask time could ever answer**, which is what
+    /// makes this row the ceiling on dynamic resolution rather than a tally.
+    NeverBound,
+    /// A visible scope binds it — valued or not, and the distinction does not
+    /// matter here. The script's own assignment wins, so no environment lookup
+    /// reaches it, and `$A` is not the same unknown as `$TMPDIR`.
+    BoundInScript,
+    /// The word carries an expansion this reader does not model — `$@`, `$*`, a
+    /// bare `$`. Counted rather than folded into either answer above, because
+    /// filing it as never-bound would flatter the ceiling.
+    Unreadable,
+}
+
+impl Refused {
+    /// What the census calls it.
+    pub fn label(self) -> &'static str {
+        match self {
+            Refused::NeverBound => "no scope here binds it — a lookup MAY answer",
+            Refused::BoundInScript => "the script binds it — no lookup reaches it",
+            Refused::Unreadable => "an expansion this reader does not model",
+        }
+    }
+}
+
 /// What one script's worth of commands used, with the misses on the record.
 #[derive(Debug, Default)]
 pub struct Extract {
@@ -213,6 +254,24 @@ pub struct Extract {
     /// counts them, exactly as it counts `bounded`. A locus is a better answer
     /// than a shrug; it is not an answer.
     pub located: BTreeMap<String, usize>,
+    /// Why each refused word was refused — the by-reason census #1142 built for
+    /// Python and this never had for shell (memview#1450).
+    ///
+    /// ⚠ **A count of refusals said nothing about what to build.** `unnamed` is
+    /// keyed by WORD, so the 4,320 refusals were one undifferentiated heap in
+    /// which the only reason that can ever be answered by reading the world —
+    /// a name no scope here binds — was indistinguishable from the one that
+    /// never can.
+    pub refused_why: BTreeMap<Refused, usize>,
+    /// The refused words whose name their own script binds, by word.
+    ///
+    /// ⚠ **The totals cannot answer #1447; only this can.** That ticket asks how
+    /// much of the answerable side is an over-count — how many all-uppercase
+    /// words are the script's own variable wearing the environment's spelling.
+    /// A count per reason cannot say, because the two classifications are made
+    /// in different places over different keys. Crossing them needs the WORDS on
+    /// one side, and this is that side.
+    pub refused_bound: BTreeMap<String, usize>,
     /// Nested scripts the reader could not read, by the construct that stopped
     /// it. Reported rather than dropped: a devshell wrapper whose inner shell
     /// fails to parse is a silent hole in exactly the third of the corpus that
@@ -423,6 +482,16 @@ impl Extract {
         }
         for (word, n) in inner.unnamed {
             *self.unnamed.entry(word).or_insert(0) += n;
+        }
+        // ⚠ **Travels with `unnamed`, or a third of the corpus goes uncounted.**
+        // A devshell wrapper's inner script is extracted separately and merged
+        // here; a reason map that stayed behind would sum to less than the
+        // refusals beside it, and the two are checked against each other.
+        for (why, n) in inner.refused_why {
+            *self.refused_why.entry(why).or_insert(0) += n;
+        }
+        for (word, n) in inner.refused_bound {
+            *self.refused_bound.entry(word).or_insert(0) += n;
         }
         for (pattern, n) in inner.bounded {
             *self.bounded.entry(pattern).or_insert(0) += n;
@@ -1043,6 +1112,33 @@ fn extract_nested(
                         located_here.push(dir);
                     }
                     None => {
+                        // ⚠ **Classified HERE, where the bindings are still in
+                        // hand** (memview#1450). `unnamed` is keyed by word and
+                        // aggregated across every script, so by the time anything
+                        // reads it the scope is gone and this question cannot be
+                        // asked at all — which is why the census was never built.
+                        //
+                        // The word is not the name: `$d/gate.json`, `${line}`,
+                        // `/tmp/$X/y`. `resolvable::names` is the same reading
+                        // `unnamed()` does, factored out rather than repeated.
+                        let names = crate::resolvable::names(&word);
+                        let why = if names.iter().any(String::is_empty) {
+                            Refused::Unreadable
+                        } else if names
+                            .iter()
+                            .any(|name| bound_names(&binds, &cmd.scope).contains(name))
+                        {
+                            // ⚠ **ANY, not all.** One name the script binds is
+                            // enough: the word cannot be answered by a lookup
+                            // even if every other part of it could be.
+                            Refused::BoundInScript
+                        } else {
+                            Refused::NeverBound
+                        };
+                        *out.refused_why.entry(why).or_insert(0) += 1;
+                        if why == Refused::BoundInScript {
+                            *out.refused_bound.entry(word.clone()).or_insert(0) += 1;
+                        }
                         *out.unnamed.entry(word.clone()).or_insert(0) += 1;
                         refused_here.push(word);
                     }
@@ -1583,6 +1679,32 @@ fn visible(
         }
     }
     env
+}
+
+/// Every name a visible scope BINDS, valued or not.
+///
+/// ⚠ **Deliberately not [`visible`], which REMOVES a name bound to `None`.**
+/// That removal is right for expansion: a binding the reader distrusts must
+/// shadow an outer valued one, or an outer value gets substituted for a name the
+/// script has since reassigned. It is wrong for the question this answers —
+/// *is the name the script's own?* A binding with no value is still a binding,
+/// and still means no ask-time environment lookup reaches it.
+///
+/// That distinction is the whole of #1450's cheap slice, and of the split #1447
+/// needs: `$A`, assigned `A="adb -s host"` here, is a different kind of unknown
+/// from `$TMPDIR`, which no scope in this script mentions.
+fn bound_names(
+    binds: &BTreeMap<Vec<usize>, BTreeMap<String, Option<String>>>,
+    scope: &[usize],
+) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    for n in 0..=scope.len() {
+        let Some(here) = binds.get(&scope[..n].to_vec()) else {
+            continue;
+        };
+        out.extend(here.keys().cloned());
+    }
+    out
 }
 
 /// The working directory in force for a scope: its own if it has moved, else

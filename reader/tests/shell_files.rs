@@ -1983,3 +1983,85 @@ fn an_unevaluated_substitution_is_not_cut_into_paths() {
         found.files
     );
 }
+
+// --- why a word was refused (memview#1450, and the split #1447 needs) --------
+
+/// ⚠ **`$A` and `$TMPDIR` are not the same unknown, and until now the census
+/// could not say so.** One is assigned by the script it appears in, so no
+/// environment lookup at ask time reaches it; the other is named by no scope
+/// here, and is the ONLY reason a lookup could ever answer. That distinction is
+/// the ceiling on dynamic resolution, and #1447 says the answerable side was an
+/// upper bound precisely because it could not be drawn.
+///
+/// ⚠ **The bound one carries NO VALUE, and that is not incidental** — see
+/// [`a_valued_binding_never_reaches_the_refusal_at_all`]. A binding the reader
+/// trusts is substituted long before this point, so every name that arrives
+/// here is either distrusted or absent, and those are the two rows.
+#[test]
+fn a_name_the_script_binds_is_told_apart_from_one_it_never_mentions() {
+    use reader::shell_files::Refused;
+    let found = extracted("A=$(which adb)\nwc -l \"$A/log.txt\"\nwc -l \"$TMPDIR/out.txt\"");
+    assert_eq!(found.refused_why.get(&Refused::BoundInScript), Some(&1));
+    assert_eq!(found.refused_why.get(&Refused::NeverBound), Some(&1));
+}
+
+/// ⚠ **A binding with a value is EXPANDED and never refused**, so it cannot
+/// appear in this census at all — which is what the two rows above actually
+/// mean. `A=x; wc -l "$A/log.txt"` reads `x/log.txt` and resolves; it is not an
+/// unnamed subject.
+///
+/// Written down because the first version of the test above used a valued
+/// binding, expected `BoundInScript`, and failed. The code was right. What was
+/// wrong was an assumption about where in the pipeline this question is asked,
+/// and that assumption is the kind a census inherits silently.
+#[test]
+fn a_valued_binding_never_reaches_the_refusal_at_all() {
+    let found = extracted("A=x\nwc -l \"$A/log.txt\"");
+    assert!(found.refused_why.is_empty(), "{:?}", found.refused_why);
+    assert!(found.unnamed.is_empty(), "{:?}", found.unnamed);
+}
+
+/// ⚠ **A binding with NO VALUE is still a binding.** `visible()` removes such a
+/// name — right for expansion, since a distrusted binding must shadow an outer
+/// valued one — and reusing it here would file the commonest script variable in
+/// the corpus as "never bound" and flatter the ceiling. `bound_names` is a
+/// separate reading for that reason.
+#[test]
+fn a_binding_the_reader_distrusts_still_counts_as_bound() {
+    use reader::shell_files::Refused;
+    // The value holds a substitution, so `bind` keeps the name with `None`.
+    let found = extracted("A=$(which adb)\nwc -l \"$A/log.txt\"");
+    assert_eq!(found.refused_why.get(&Refused::BoundInScript), Some(&1));
+    assert_eq!(found.refused_why.get(&Refused::NeverBound), None);
+}
+
+/// ⚠ **ANY name, not all of them.** One name the script binds settles the word:
+/// it cannot be answered by a lookup even if every other part of it could be.
+#[test]
+fn one_bound_name_settles_a_word_with_several() {
+    use reader::shell_files::Refused;
+    let found = extracted("A=$(which adb)\nwc -l \"$TMPDIR/$A/log.txt\"");
+    assert_eq!(found.refused_why.get(&Refused::BoundInScript), Some(&1));
+}
+
+/// ⚠ **THE INVARIANT.** Two maps over one population that can disagree are two
+/// accounts of it. Every refusal has exactly one reason, so the reason map must
+/// sum to the refusals beside it — including through the merge of a nested
+/// script, where a count left behind would be invisible and low.
+#[test]
+fn every_refusal_has_exactly_one_reason() {
+    let found = extracted(
+        "A=x\n\
+         wc -l \"$A/one.txt\"\n\
+         wc -l \"$TMPDIR/two.txt\"\n\
+         wc -l \"$@\"\n\
+         nix develop -c bash -c 'B=y; wc -l \"$B/three.txt\"; wc -l \"$OTHER/four.txt\"'",
+    );
+    assert_eq!(
+        found.refused_why.values().sum::<usize>(),
+        found.unnamed.values().sum::<usize>(),
+        "reasons {:?} against refusals {:?}",
+        found.refused_why,
+        found.unnamed
+    );
+}

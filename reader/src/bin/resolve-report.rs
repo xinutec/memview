@@ -115,6 +115,36 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
+    // ⚠ **The SCRIPT's answer to the same population, and not a second guess**
+    // (memview#1450). Everything above classifies a WORD by its spelling; this
+    // classifies it by whether the script it appeared in binds the name — a
+    // question the word cannot carry, decided at extraction where the bindings
+    // are in hand, and summing to the same total.
+    //
+    // ⚠ **"the script binds it" means bound and DISTRUSTED.** A binding the
+    // reader trusts is substituted before a word is ever refused, so it cannot
+    // appear here; every name reaching this point is either distrusted or
+    // absent. That is what makes "no scope here binds it" the ceiling — the only
+    // row an ask-time lookup could ever answer.
+    println!("\nthe same words, by what the SCRIPT says about the name:");
+    let by_reason: usize = read.refused_why.values().sum();
+    let mut reasons: Vec<_> = read.refused_why.iter().collect();
+    reasons.sort_by_key(|(why, uses)| (std::cmp::Reverse(**uses), **why));
+    for (why, uses) in reasons {
+        let share = if by_reason == 0 {
+            0.0
+        } else {
+            *uses as f64 * 100.0 / by_reason as f64
+        };
+        println!("  {:<46} {uses:>6}  {share:>5.1}%", why.label());
+    }
+    // ⚠ Two accounts of one population that can disagree are two populations.
+    // `every_refusal_has_exactly_one_reason` holds this in the tests; printed
+    // here so a corpus run cannot drift from it quietly either.
+    if by_reason != words {
+        println!("  ⚠ DOES NOT SUM: {by_reason} reasons against {words} words");
+    }
+
     let answerable: usize = by_class
         .iter()
         .filter(|(class, _)| class.answerable())
@@ -139,21 +169,55 @@ fn main() -> anyhow::Result<()> {
         "unnamed words leaked from the census"
     );
 
+    // ⚠ **#1447's question, and only the CROSS of the two classifications can
+    // answer it.** The answerable row is decided by SPELLING: an all-uppercase
+    // name is an environment variable by convention. The convention is not a
+    // binding — this corpus assigns `A="adb -s host"` and `GEB="ssh …"` as
+    // script variables — so some share of that row is the script's own variable,
+    // and the error ran in the direction that flatters the ceiling. Crossing it
+    // against what each word's own script binds turns a named over-count into a
+    // measurement, and on the frozen baseline the answer is 440 of 630.
+    let flattered: usize = read
+        .by_word
+        .iter()
+        .filter(|(word, _)| unnamed(word) == Unnamed::Environment)
+        .filter_map(|(word, _)| read.refused_bound.get(word))
+        .sum();
+    println!(
+        "\n  of the {answerable_uses} answerable by spelling, {flattered} are bound by their own script",
+        answerable_uses = by_class
+            .iter()
+            .filter(|(class, _)| class.answerable())
+            .map(|(_, (uses, _))| uses)
+            .sum::<usize>(),
+    );
+
     // The population the resolver is judged against: everything the text could
     // not resolve to a path, minus what was never a path subject.
     let population = words + bounded + located - excluded;
-    let exact = bounded + answerable;
+    // ⚠ **MEASURED, where this used to be a convention** (memview#1447, #1450).
+    // The all-uppercase spelling cannot tell an exported variable from a
+    // script's own `A="adb -s host"`, which this corpus writes constantly, so
+    // this row was a ceiling that erred toward flattering the resolver and said
+    // so. It is now crossed against what each word's own script binds: of 630
+    // answerable by spelling on the frozen baseline, 440 — SEVENTY PER CENT —
+    // are the script's own variable. Subtracting them is not a tightening of the
+    // estimate, it is the estimate the convention could not make.
+    let looked_up = answerable.saturating_sub(flattered);
+    let exact = bounded + looked_up;
     println!("\nof the {population} subjects the text could not name:");
-    // ⚠ **"at most", and the word is load-bearing.** The readdir half is exact
-    // — a bounded glob resolves to `S = L ∩ Files(D, t)` and nothing else. The
-    // environment half is a SHAPE: the all-uppercase convention cannot tell an
-    // exported variable from a script's own `A="adb -s host"`, which this
-    // corpus writes constantly (docs/reader.md). So this row is a ceiling that
-    // errs toward flattering the resolver, and the honest reading of a fall in
-    // it later is that the classifier learned, not that the corpus changed.
+    // ⚠ **"at most" still, and the word is still load-bearing.** The readdir
+    // half is exact — a bounded glob resolves to `S = L ∩ Files(D, t)` and
+    // nothing else. What remains of the environment half is every name no scope
+    // in its own script binds, which is the most a lookup could ever answer and
+    // not a prediction that it would.
     println!(
-        "  a read would answer it   {exact:>6}  (at most {:.1}%)   {bounded} by one readdir (exact), at most {answerable} by an environment lookup",
+        "  a read would answer it   {exact:>6}  (at most {:.1}%)   {bounded} by one readdir (exact), at most {looked_up} by an environment lookup",
         100.0 * exact as f64 / population.max(1) as f64
+    );
+    println!(
+        "        ↳ was {} before the script's own bindings were counted — {flattered} of {answerable} all-caps names are bound where they appear",
+        bounded + answerable
     );
     println!(
         "  narrowed, not named      {located:>6}  ({:.1}%)   a locus is known and the leaf is not",
