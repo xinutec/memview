@@ -447,7 +447,16 @@ export type Did =
    */
   | 's'
   /** Named a subject the text does not determine — see `Evidence.unnamed`. */
-  | 'u';
+  | 'u'
+  /**
+   * The same, for one whose DIRECTORY the text gave. `path` holds that
+   * directory.
+   *
+   * ⚠ **Not a pattern, and never to be drawn as the file.** A locus is what the
+   * subject is rooted at, not a set it belongs to, so rendering `path` bare
+   * would claim a name the reader declined to give (memview#1458).
+   */
+  | 'l';
 
 /** One thing a turn did, and the command that did it. Mirrors `api::Effect`. */
 export interface Effect {

@@ -501,7 +501,8 @@ pub struct Effect {
 pub struct Evidence {
     pub effects: Vec<Effect>,
     pub total: usize,
-    /// How many of the total were subjects nobody could name.
+    /// How many of the total were subjects nobody could name — bounded, located
+    /// and neither alike, because each is the reader declining to say which file.
     ///
     /// ⚠ **Reported beside the rows rather than left to be counted from them.**
     /// A page of two hundred effects that happens to contain no admission would
@@ -555,7 +556,10 @@ pub async fn effects(
     let (mut total, mut unnamed, mut effects) = (0usize, 0usize, Vec::new());
     for row in log.rows.iter().rev().filter(|row| wanted(row)) {
         total += 1;
-        unnamed += usize::from(row.k == reader::effects::Did::Unnamed);
+        unnamed += usize::from(matches!(
+            row.k,
+            reader::effects::Did::Unnamed | reader::effects::Did::Located
+        ));
         if effects.len() < limit {
             effects.push(Effect {
                 at: row.t,

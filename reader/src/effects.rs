@@ -65,6 +65,15 @@ pub enum Did {
     /// [`crate::shell_files::Extract::bounded`].
     #[serde(rename = "u")]
     Unnamed,
+    /// The same, for a subject whose *directory* the text gave. The path field
+    /// holds that directory — see [`crate::shell_files::Extract::located`].
+    ///
+    /// ⚠ **Kept apart from [`Did::Unnamed`], whose path is a pattern.** A locus
+    /// is what the subject is rooted at, not a set it belongs to, and the
+    /// difference is a `..` nobody can see. Filing one as the other would claim
+    /// containment the reader never established.
+    #[serde(rename = "l")]
+    Located,
 }
 
 /// One thing a turn did to one file.
@@ -80,8 +89,10 @@ pub struct Row {
     pub t: i64,
     /// What became of it.
     pub k: Did,
-    /// Index into [`Effects::paths`]; absent when the subject was not named and
-    /// nothing bounded it either.
+    /// Index into [`Effects::paths`]. What it names is [`Row::k`]'s to say: the
+    /// file itself, or an [`Did::Unnamed`] subject's pattern, or a
+    /// [`Did::Located`] one's directory. Absent when nothing bounded or located
+    /// it either.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub p: Option<u32>,
     /// Index into [`Effects::patterns`], for what a search was looking for.
@@ -123,7 +134,8 @@ pub struct Effect<'a> {
     pub agent: &'a str,
     pub minute: i64,
     pub did: Did,
-    /// The file, or the pattern an unnamed subject is bounded by.
+    /// The file, or the pattern an unnamed subject is bounded by, or the
+    /// directory a located one is rooted at — per [`Effect::did`].
     pub path: Option<&'a str>,
     pub pattern: Option<&'a str>,
     pub host: Option<&'a str>,

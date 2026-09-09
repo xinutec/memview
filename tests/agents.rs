@@ -1422,9 +1422,9 @@ fn the_effects_say_which_file_and_which_command_did_it() {
                 "2026-07-01T10:01:00Z",
             ),
             result("t2"),
-            // ⚠ Two admissions, which have to travel or the artefact reads as a
-            // complete account of the work: one subject a glob BOUNDS, and one
-            // nothing bounds at all.
+            // ⚠ THREE admissions, which have to travel or the artefact reads as
+            // a complete account of the work: one subject a glob BOUNDS, one the
+            // text LOCATES, and one nothing places at all.
             call("t3", "wc -l \"$OUT/report.txt\"", "2026-07-01T10:02:00Z"),
             result("t3"),
             call(
@@ -1433,6 +1433,14 @@ fn the_effects_say_which_file_and_which_command_did_it() {
                 "2026-07-01T10:03:00Z",
             ),
             result("t4"),
+            // ⚠ **The case that was emitted by nothing** (memview#1458). The
+            // directory is written down and the basename is a hole, so the
+            // reader locates it without naming it. `Step` has carried these all
+            // along; the writer knew about the two above and not this one, and
+            // the fixture having no locus is why an exhaustive assert_eq! below
+            // could not notice.
+            call("t5", "wc -l \"src/$name.ts\"", "2026-07-01T10:04:00Z"),
+            result("t5"),
         ]
         .join("\n"),
     )
@@ -1497,6 +1505,16 @@ fn the_effects_say_which_file_and_which_command_did_it() {
                 Some("/code/health/logs/*.log"),
                 None,
                 "wc -l $f",
+            ),
+            // ⚠ **Located, and a THIRD fact again.** The path is the directory
+            // the subject is rooted AT — not a pattern it is a subset of, and
+            // `Located` rather than `Unnamed` for exactly that reason: filing it
+            // as a pattern would claim containment the text never gave.
+            (
+                reader::effects::Did::Located,
+                Some("/code/health/src"),
+                None,
+                "wc -l src/$name.ts",
             ),
         ]
     );

@@ -23,6 +23,9 @@ const DID: Record<Did, string> = {
   // and the artefact keeps them apart on purpose.
   s: 'searched',
   u: 'unnamed',
+  // The reader page's own wording for this class is "located but unnamed"; the
+  // second half is [subject]'s to say.
+  l: 'located',
 };
 
 /** A row's evidence, as the page holds it while the request is in flight. */
@@ -248,8 +251,24 @@ export class TimelineView {
     return DID[effect.did] ?? effect.did;
   }
 
-  /** What it did it to, or the pattern that bounds it, or neither. */
+  /** What it did it to, or the pattern that bounds it, or the directory it is
+   * under, or none of those.
+   *
+   * ⚠ **A locus is spelled out as a phrase, never drawn bare** (memview#1458).
+   * Its `path` is the directory the subject is rooted AT, so printing it alone
+   * would name a file the reader refused to name — and would be indistinguishable
+   * from a `read` of the directory itself.
+   */
   subject(effect: Effect): string {
+    if (effect.did === 'l' && effect.path) return `a file in ${effect.path}`;
     return effect.path ?? effect.pattern ?? 'could not be named';
+  }
+
+  /**
+   * Whether [subject] returned a path, as opposed to a phrase standing in for
+   * one — which must not be styled as though it were a path.
+   */
+  vague(effect: Effect): boolean {
+    return effect.did === 'l' || (!effect.path && !effect.pattern);
   }
 }

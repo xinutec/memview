@@ -358,6 +358,19 @@ const EFFECTS = {
       verdict: 'ok',
       certain: true,
     },
+    {
+      // ⚠ **The subject the text LOCATED but did not name** (memview#1458).
+      // It carries a `path` like a resolved row does, which is the whole trap:
+      // drawn bare it would read as a `wc` of the directory itself.
+      at: 29_412_600,
+      agent: 'health',
+      did: 'l',
+      path: '/Users/example/Code/health/src',
+      command: 'wc -l src/$name.ts',
+      reached: 'a',
+      verdict: 'ok',
+      certain: true,
+    },
   ],
   total: 41,
   unnamed: 12,
@@ -582,6 +595,15 @@ test('timeline — seven facts on a row, and a turn opened @ phone width', async
   // said `w` and `s` at the reader.
   await page.getByText('wrote', { exact: true }).waitFor();
   await page.getByText('searched', { exact: true }).waitFor();
+
+  // ⚠ **A locus is drawn as a PHRASE, and the negative is the real assertion**
+  // (memview#1458). Its `path` is the directory the subject sits in, so a
+  // template printing it bare would say `/…/health/src` on a row whose command
+  // is a `wc` — indistinguishable from having read the directory itself, and
+  // claiming a name the reader deliberately refused to give.
+  await page.getByText('located', { exact: true }).waitFor();
+  await expect(page.getByText('a file in /Users/example/Code/health/src')).toHaveCount(1);
+  await expect(page.getByText('/Users/example/Code/health/src', { exact: true })).toHaveCount(0);
 
   // The two things a summary would drop, and the reason this panel exists.
   //

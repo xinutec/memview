@@ -1881,6 +1881,20 @@ fn scan_transcript(
                         for _ in &step.unnamed {
                             effect(reader::effects::Did::Unnamed, None, None, None);
                         }
+                        // ⚠ **A third vector, and skipping it lost 1,019 rows in
+                        // silence** (memview#1458). `Step` has carried three
+                        // admissions since locus reading landed; this loop knew
+                        // about two, so every subject the text placed well enough
+                        // to locate was counted by the reader and emitted by
+                        // nothing.
+                        for locus in &step.located {
+                            effect(
+                                reader::effects::Did::Located,
+                                Some(locus.as_str()),
+                                None,
+                                None,
+                            );
+                        }
                     }
                 }
                 // A refusal drops the whole call; everything else is recorded

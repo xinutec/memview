@@ -131,6 +131,15 @@ async fn the_owner_opens_a_turn_and_sees_the_command_behind_each_file() {
     );
     // An admission from the same turn, which must travel with it.
     one(Did::Unnamed, None, "wc -l $OUT/report.txt", 100);
+    // ⚠ **A located one counts as an admission too** (memview#1458). It carries
+    // a path, so a counter keyed on "has no path" would read it as resolved —
+    // and `unnamed` is what tells the reader the page is not a complete account.
+    one(
+        Did::Located,
+        Some("/code/health/src"),
+        "wc -l src/$n.ts",
+        100,
+    );
     // A different minute, which the filter must exclude.
     one(
         Did::Read,
@@ -173,8 +182,12 @@ async fn the_owner_opens_a_turn_and_sees_the_command_behind_each_file() {
         body.contains(r#""command":"wc -l $OUT/report.txt""#),
         "{body}"
     );
-    assert!(body.contains(r#""total":2"#), "{body}");
-    assert!(body.contains(r#""unnamed":1"#), "{body}");
+    assert!(body.contains(r#""total":3"#), "{body}");
+    // ⚠ **2, not 1.** The located row is an admission with a path on it; before
+    // #1458 the artefact emitted no such row at all, so this counter had never
+    // been asked whether it spanned the class.
+    assert!(body.contains(r#""unnamed":2"#), "{body}");
+    assert!(body.contains(r#""did":"l""#), "{body}");
 
     // An agent the artefact has never seen matches nothing, rather than
     // matching everything — the difference between "no such agent" and "here is

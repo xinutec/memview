@@ -139,9 +139,7 @@
                   @for (e of ev.effects; track $index) {
                     <li>
                       <span class="did {{ e.did }}">{{ did(e) }}</span>
-                      <span class="subject" [class.unnamed]="!e.path && !e.pattern">{{
-                        subject(e)
-                      }}</span>
+                      <span class="subject" [class.unnamed]="vague(e)">{{ subject(e) }}</span>
                       <!-- A command after `&&` runs only if what preceded it
                            worked, and one exit status often cannot say. Said in
                            words rather than folded into the verdict, because the
