@@ -18,6 +18,47 @@
 /// The stamp line, as the corpus writes it in frontmatter.
 const STAMP: &str = "modified:";
 
+/// Which halves of a memory's provenance its frontmatter does not carry.
+///
+/// Named rather than a `(bool, bool)`: the two are not interchangeable, and a
+/// transposed pair reads as correct at every call site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Missing {
+    /// No `originSessionId:` — who wrote it is unrecorded.
+    pub origin: bool,
+    /// No `modified:` — the age of its claims cannot be judged.
+    pub modified: bool,
+}
+
+impl Missing {
+    /// Whether anything is absent at all.
+    pub fn any(self) -> bool {
+        self.origin || self.modified
+    }
+}
+
+/// What a memory's frontmatter does not say about its own provenance.
+///
+/// ⚠ **Frontmatter only**, for the reason the rest of this module gives: a
+/// `modified:` in the body is prose and not a stamp.
+///
+/// ⚠ **BOTH fields, because asking only about the stamp made `memory-stamp`
+/// blind to the field it exists to recover** (memview#1499). Measured
+/// 2026-09-09: 719 of 719 memories carried a `modified:` and 707 an
+/// `originSessionId`, so every one of the twelve gaps had a stamp, none was
+/// returned, and the tool reported "every memory carries a stamp" over them.
+///
+/// ⚠ **In the library rather than the bin, so a test can reach it.** That
+/// defect survived as long as it did because it lived in a `bin` — the same
+/// argument `memory-lint`'s SETTLE constant already makes against itself.
+pub fn missing(raw: &str) -> Missing {
+    let front = raw.split("\n---").next().unwrap_or_default();
+    Missing {
+        origin: !front.contains("\n  originSessionId:"),
+        modified: !front.contains("\n  modified:"),
+    }
+}
+
 /// Memories in this diff whose body changed but whose stamp did not, in the
 /// order they appear.
 ///

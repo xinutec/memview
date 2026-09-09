@@ -31,6 +31,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use memview::atomic;
 use memview::blame::{Author, attribute};
+use memview::stamped::{Missing, missing};
 
 fn main() -> Result<()> {
     let home = std::env::var("HOME").unwrap_or_default();
@@ -64,12 +65,12 @@ fn main() -> Result<()> {
                 // both; now that one half can be absent alone, it announced a
                 // `modified:` this will refuse to touch. A dry run that shows
                 // more than the apply does is worse than none.
-                let (no_origin, no_modified) = absent(path);
+                let lacks = absent(path);
                 let mut fields = Vec::new();
-                if no_origin {
+                if lacks.origin {
                     fields.push(format!("originSessionId: {session}"));
                 }
-                if no_modified {
+                if lacks.modified {
                     fields.push(format!("modified: {at}"));
                 } else {
                     // Context, not a write: the origin time is why that session
@@ -96,17 +97,9 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// Which halves of the stamp a memory is missing: `(originSessionId, modified)`.
-///
-/// The same frontmatter-only test [`unstamped`] applies, so what is reported and
-/// what is written cannot disagree.
-fn absent(path: &Path) -> (bool, bool) {
-    let text = std::fs::read_to_string(path).unwrap_or_default();
-    let front = text.split("\n---").next().unwrap_or_default();
-    (
-        !front.contains("\n  originSessionId:"),
-        !front.contains("\n  modified:"),
-    )
+/// Which halves of the stamp a memory is missing, read from disk.
+fn absent(path: &Path) -> Missing {
+    missing(&std::fs::read_to_string(path).unwrap_or_default())
 }
 
 /// The memories missing EITHER half of the stamp.
@@ -114,12 +107,16 @@ fn absent(path: &Path) -> (bool, bool) {
 /// ⚠ **Keyed on `modified:` alone, this tool was blind to the field it exists
 /// to recover.** Measured 2026-09-09: 719 of 719 memories carried a `modified:`
 /// — because `missing-modified` is an ERROR and gets fixed — while 12 carried no
-/// `originSessionId`, which `memory-lint` has no rule for at all. So the twelve
-/// were invisible to the check AND to the repair, and this printed "every memory
+/// `originSessionId`, which no rule asked about at all. So the twelve were
+/// invisible to the check AND to the repair, and this printed "every memory
 /// carries a stamp" over them. What is measured gets fixed; what is not, drifts.
 ///
 /// ⚠ **Not a legacy set.** The newest of the twelve was written the same
 /// afternoon the gap was found, so this is a live path and not a backlog.
+///
+/// The predicate itself is [`memview::stamped::missing`], in the library so a
+/// test can reach it — one definition, so what is reported, what is written and
+/// what is selected cannot disagree.
 fn unstamped(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut out = Vec::new();
     for entry in std::fs::read_dir(dir)?.flatten() {
@@ -132,9 +129,7 @@ fn unstamped(dir: &Path) -> Result<Vec<PathBuf>> {
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
-        // Frontmatter only: a `modified:` in the body is prose, not a stamp.
-        let front = text.split("\n---").next().unwrap_or_default();
-        if !front.contains("\n  modified:") || !front.contains("\n  originSessionId:") {
+        if missing(&text).any() {
             out.push(path);
         }
     }
@@ -160,12 +155,12 @@ fn stamp(path: &Path, session: &str, at: &str) -> Result<()> {
     // deliberate stamp with the file's state BEFORE a later edit. That is the
     // ordering trap `~/.claude`'s pre-commit hook already warns about, arriving
     // by a different door.
-    let front = text.split("\n---").next().unwrap_or_default();
+    let lacks = missing(&text);
     let mut added = String::new();
-    if !front.contains("\n  originSessionId:") {
+    if lacks.origin {
         added.push_str(&format!("\n  originSessionId: {session}"));
     }
-    if !front.contains("\n  modified:") {
+    if lacks.modified {
         added.push_str(&format!("\n  modified: {at}"));
     }
     if added.is_empty() {
