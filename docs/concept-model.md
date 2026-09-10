@@ -24,7 +24,30 @@ Counting the operands is what tells the two apart, and both lenses now do
 (`Why::UnreadSubject`, 1,031 rows). **A lens that reads subjects off the
 accounts must also ask whether the accounts are as long as the argv** — silence
 from the level below is not the same as absence in the text.
-Gate 4 is not yet pointed at concepts, and no ask card renders one yet. Where a
+**Gate 4 is BUILT and points at concepts** — `concept-said`, joining 195,304
+rows to the description their author wrote. No ask card renders a concept yet.
+
+⚠ **Its finding is a LIMIT, not a pass.** On rows holding exactly one act the
+author's verb agrees strongly — `Commit` 100% on four verbs (77 of 85 literally
+"commit"), `List` 89%, `Status` 86%, `Page` and `Search` 76%. But `History`'s
+top verb is **"check" (62 of 109), not any history word**: people run
+`git log -1` to verify a commit landed. The concept says *"Show the last
+commit"*; the author says *"Check the commit landed"*. Both are true and they
+are different levels — **a single-command concept names the ACT, and the
+description names the PURPOSE.** The "what was it FOR" this design opens with
+is only partly answerable one command at a time; the rest lives in the episode.
+
+⚠ **Two defects the instrument shipped with, both caught by reading its own
+output, and both worth knowing before building another census.** It first
+assigned each verb to the concept holding the MOST of it, so `Page` (63,864
+rows) owned nearly every verb and `Search`'s own top verb `find` was reported as
+a crossover — the instrument was measuring which concept is biggest, which was
+already known. Ownership is by SHARE now. And it first tallied any row lifting
+to exactly one CONCEPT, which is not the same as one ACT: `git add -A && git
+status --short` was counted as a `Status` whose author said "Stage", because the
+`git add` refused and the trailing `status` lifted. The description was being
+matched against the least important thing in the row. Requiring one act took
+`Page`'s concentration from 52% to 76%. Where a
 step needs sizing, the instrument that sizes it is named — a count written here
 would rot.
 [execution-model.md](execution-model.md) governs the syntax underneath and
