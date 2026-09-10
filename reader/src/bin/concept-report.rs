@@ -57,6 +57,8 @@ fn refusal(why: Why) -> &'static str {
         Why::NotTheContents => "names the directory instead of enumerating it (ls -d)",
         Why::Predicate => "find — its operands are a predicate expression, not a pattern",
         Why::ImplicitLocus => "listing with no operand — the locus is real and unwritten (bare ls)",
+        Why::OtherSelection => "git log picking a different SET (--all, --since, --grep, -S)",
+        Why::Formatted => "git log whose product is not a commit list (--format, -p, --stat)",
     }
 }
 
@@ -67,6 +69,7 @@ fn concept_name(concept: &Concept) -> &'static str {
         Concept::Page { .. } => "Page",
         Concept::Search { .. } => "Search",
         Concept::List { .. } => "List",
+        Concept::History { .. } => "History",
     }
 }
 

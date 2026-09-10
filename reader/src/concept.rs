@@ -199,6 +199,33 @@ pub enum Concept {
         /// than normalised away — `ls d` and `ls -a d` are different sets.
         hidden: bool,
     },
+    /// The most recent commits of a repository — `git log`.
+    ///
+    /// ⚠ **The FIRST concept whose subject is not a file.** A repository is
+    /// context, not an operand: `git log -3` names nothing, and the `-C` that
+    /// could name one is a location rather than a subject. So there is no repo
+    /// field — the concept says what the text says, and where it ran is the
+    /// step's business, exactly as a relative path's directory is.
+    ///
+    /// ⚠ **`git log`'s dominant shape is one shape.** Measured 2026-09-10 over
+    /// 23,160 steps: 94% carry `--oneline` and 87% a count, and 20,846 (90%)
+    /// need nothing but a count, a revision and paths after `--`.
+    History {
+        /// `-3`, `-n 3`, `--max-count=3`. `None` where the text gave none, which
+        /// is git's own unbounded default — NOT a number invented here, and the
+        /// difference matters because `git log` and `git log -1` are very
+        /// different amounts of output.
+        count: Option<u32>,
+        /// `git log 5710b66`, `git log HEAD~4..HEAD` — where history is read
+        /// FROM. Carried as written, the way [`Concept::Rewrite`] carries a
+        /// substitution: it is a literal in the text, opaque to this reader, and
+        /// faithful when written back.
+        from: Option<String>,
+        /// Paths after a `--`, which the author has DECLARED to be paths — the
+        /// same guarantee [`crate::shell_ops::GitOp::Inspect`] relies on. Empty
+        /// is the ordinary case and means the whole repository.
+        paths: Vec<Subject>,
+    },
 }
 
 /// Why a step did not lift.
@@ -277,6 +304,17 @@ pub enum Why {
     /// subject the text never did. Distinct from a stream, where no subject
     /// exists at all — which is why it does not reuse [`Why::UnreadSubject`].
     ImplicitLocus,
+    /// A `git log` whose commits are not "the most recent N" — `--all` reads
+    /// every ref, `--since` a time window, `--grep` and `-S` search the history
+    /// itself, `--diff-filter` and `--follow` filter by what changed. Each picks
+    /// a different SET, and a concept that dropped the flag would name commits
+    /// the command never showed.
+    OtherSelection,
+    /// A `git log` whose product is not a list of commits — `--format` selects
+    /// fields, `-p` prints patches, `--stat` a diffstat, `--name-only` filenames.
+    /// The same commits, a different answer, which is the call [`Why::NotLines`]
+    /// makes for `grep -c`.
+    Formatted,
 }
 
 /// Lift one step into the concept it served, or say why not.
@@ -356,8 +394,124 @@ pub fn lift(step: &Step) -> Result<Concept, Why> {
                 descend: shape.descend,
             })
         }
+        // ⚠ **The SUBCOMMAND is lost at this level when `--` is used** — a
+        // `git log -- p` classifies to [`crate::shell_ops::GitOp::Inspect`],
+        // which is the same variant `git show -- p` reaches. So the subcommand
+        // is read off `argv`, the one place it survives, exactly as `Page`'s
+        // range is. The `Op` is used only for the paths it already resolved.
+        Some(Op::Git(git)) => {
+            let paths: &[String] = match git {
+                crate::shell_ops::GitOp::Inspect { paths } => paths,
+                _ => &[],
+            };
+            history(step, paths)
+        }
         _ => Err(Why::NoLens),
     }
+}
+
+/// `git log` — the most recent commits, or the refusal a flag forces.
+///
+/// ⚠ **Every other subcommand falls to [`Why::NoLens`] and stays in the queue**,
+/// where the census ranks it. `status` (10,739 rows), `commit` (9,541) and `add`
+/// (9,263) are each their own act and each their own lens; naming them here
+/// would be the flattening the vocabulary exists to avoid.
+fn history(step: &Step, paths: &[String]) -> Result<Concept, Why> {
+    // Decoration: it changes how a commit is printed, never which ones.
+    const DECOR: &[&str] = &[
+        "--oneline",
+        "--no-pager",
+        "--abbrev-commit",
+        "--date",
+        "--color",
+        "--no-color",
+        "--decorate",
+        "--graph",
+    ];
+    let argv = unwrap_command(&step.argv);
+    let mut it = argv.iter().map(String::as_str);
+    if it.next().map(basename) != Some("git") {
+        return Err(Why::NoLens);
+    }
+    // ⚠ `git -C dir log` — git's own flags come before the subcommand, and `-C`
+    // takes a value. The location it names is not a subject; see `History`.
+    let mut subcommand = None;
+    while let Some(word) = it.next() {
+        match word {
+            "-C" | "-c" | "--git-dir" | "--work-tree" | "--namespace" => {
+                it.next();
+            }
+            flag if flag.starts_with('-') => {}
+            other => {
+                subcommand = Some(other);
+                break;
+            }
+        }
+    }
+    if subcommand != Some("log") {
+        return Err(Why::NoLens);
+    }
+    let (mut count, mut from, mut after_sep, mut named) = (None, None, false, 0usize);
+    let mut rest = it;
+    while let Some(word) = rest.next() {
+        if word == "--" {
+            after_sep = true;
+            continue;
+        }
+        if after_sep {
+            named += 1;
+            continue;
+        }
+        let Some(body) = word.strip_prefix('-').filter(|b| !b.is_empty()) else {
+            // ⚠ A second revision is a RANGE spelled as two words, and this
+            // reader has no way to say that. One is carried; two refuse.
+            if from.is_some() {
+                return Err(Why::OtherSelection);
+            }
+            from = Some(word.to_string());
+            continue;
+        };
+        if body.chars().all(|c| c.is_ascii_digit()) {
+            count = body.parse().ok();
+            continue;
+        }
+        let base = word.split('=').next().unwrap_or(word);
+        if base == "-n" || base == "--max-count" {
+            count = match word.split_once('=') {
+                Some((_, value)) => value.parse().ok(),
+                None => rest.next().and_then(|v| v.parse().ok()),
+            };
+            if count.is_none() {
+                return Err(Why::NoLens);
+            }
+            continue;
+        }
+        if DECOR.contains(&base) {
+            continue;
+        }
+        return Err(match base {
+            "--all" | "--since" | "--until" | "--before" | "--after" | "--grep" | "-S" | "-G"
+            | "--diff-filter" | "--follow" | "--reverse" | "--author" | "--merges"
+            | "--no-merges" | "--first-parent" => Why::OtherSelection,
+            "--format" | "--pretty" | "-p" | "--patch" | "--stat" | "--name-only"
+            | "--name-status" | "--numstat" | "--shortstat" => Why::Formatted,
+            _ => Why::NoLens,
+        });
+    }
+    if !reads_only(step, paths) {
+        return Err(Why::NoLens);
+    }
+    let subjects = subjects_or_refuse(step, paths)?;
+    // The same guard the other lenses carry: a path the level below could not
+    // resolve would silently narrow the concept to "the whole repository".
+    if named != subjects.len() {
+        return Err(Why::UnreadSubject);
+    }
+    Ok(Concept::History {
+        count,
+        from,
+        paths: subjects,
+    })
 }
 
 /// `ls <dir>` — the entries of a directory, or the refusal its shape forces.
@@ -873,6 +1027,23 @@ pub fn lower(concept: &Concept) -> String {
         // ⚠ **A locus is always written**, because the lift refuses the
         // no-operand form outright — see [`Why::ImplicitLocus`]. So there is no
         // subjectless branch here, unlike `Page` and `Search`.
+        // ⚠ `--oneline` is not written back: it is decoration, and the lift
+        // normalises it away like quoting. What must survive is the count, the
+        // revision and the paths, because each changes WHICH commits appear.
+        Concept::History { count, from, paths } => {
+            let mut out = "git log".to_string();
+            if let Some(n) = count {
+                out.push_str(&format!(" -{n}"));
+            }
+            if let Some(rev) = from {
+                out.push_str(&format!(" {rev}"));
+            }
+            if !paths.is_empty() {
+                out.push_str(" -- ");
+                out.push_str(&paths.iter().map(spell).collect::<Vec<_>>().join(" "));
+            }
+            out
+        }
         Concept::List {
             loci,
             descend,
@@ -956,6 +1127,25 @@ pub fn describe(concept: &Concept) -> String {
                 (false, false) => said(subjects),
             };
             format!("Find lines matching {text} in {where_}{case}{how}")
+        }
+        Concept::History { count, from, paths } => {
+            let how_many = match count {
+                Some(1) => "the last commit".to_string(),
+                Some(n) => format!("the last {n} commits"),
+                // git's own default is unbounded, and saying so beats inventing
+                // a number the text never gave.
+                None => "the commit history".to_string(),
+            };
+            let of = if paths.is_empty() {
+                String::new()
+            } else {
+                format!(" touching {}", said(paths))
+            };
+            let at = match from {
+                Some(rev) => format!(" from {rev}"),
+                None => String::new(),
+            };
+            format!("Show {how_many}{at}{of}")
         }
         Concept::List {
             loci,

@@ -684,3 +684,148 @@ fn a_listing_describes_the_locus_and_its_reach() {
         format!("List everything under {CWD}/src/geo, hidden ones included")
     );
 }
+
+/// ⚠ **Acceptance test 1 for the fifth lens: `--oneline` is DECORATION.**
+/// 94% of `git log` rows carry it (measured 2026-09-10 over 23,160 steps), and
+/// it changes how a commit prints, never which commits appear — so it
+/// normalises away exactly as `grep -n` does.
+#[test]
+fn a_git_log_decoration_flag_is_not_part_of_the_concept() {
+    let bare = only("git log -3");
+    let oneline = only("git log --oneline -3");
+    let decorated = only("git log --oneline --no-pager --abbrev-commit -3");
+
+    assert_eq!(bare, oneline);
+    assert_eq!(bare, decorated);
+    assert_eq!(
+        bare,
+        Concept::History {
+            count: Some(3),
+            from: None,
+            paths: vec![],
+        }
+    );
+}
+
+/// ⚠ **The three spellings of a count are one count**, and the absence of one is
+/// NOT a count. git's own default is unbounded, so inventing a number here would
+/// be the fabrication the layer refuses — unlike `head`, whose ten is POSIX and
+/// documented.
+#[test]
+fn a_git_log_count_is_read_in_every_spelling_and_never_invented() {
+    for script in ["git log -3", "git log -n 3", "git log --max-count=3"] {
+        let Concept::History { count, .. } = only(script) else {
+            panic!("not a history: {script}");
+        };
+        assert_eq!(count, Some(3), "{script}");
+    }
+    let Concept::History { count, .. } = only("git log --oneline") else {
+        panic!("not a history");
+    };
+    assert_eq!(
+        count, None,
+        "no count in the text means no count in the concept"
+    );
+}
+
+/// **Gate 1 over every history shape**, including the revision and the paths
+/// after `--` that the author declared to be paths.
+#[test]
+fn every_history_shape_survives_the_round_trip() {
+    for script in [
+        "git log -3",
+        "git log --oneline",
+        "git log --oneline -1 5710b66",
+        "git log --oneline -3 -- src/a.ts",
+        "git log -- src/a.ts src/b.ts",
+        "git -C /tmp log --oneline -2",
+    ] {
+        let concept = only(script);
+        let text = lower(&concept);
+        assert_eq!(only(&text), concept, "lowered `{script}` to `{text}`");
+    }
+}
+
+/// ⚠ **`git -C dir log` names a LOCATION, not a subject.** A repository is
+/// context the way a working directory is, so the concept carries no repo field
+/// and two logs of the same shape in different repos are the same concept —
+/// which is what recurrence detection needs.
+#[test]
+fn a_repository_is_context_and_not_a_subject() {
+    assert_eq!(
+        only("git -C /tmp log --oneline -2"),
+        only("git log --oneline -2")
+    );
+}
+
+/// ⚠ **What selects different COMMITS, or hands back a different PRODUCT,
+/// refuses by name.** Each is sized by the census and each would otherwise have
+/// the concept name commits the command never showed.
+#[test]
+fn a_git_log_that_selects_or_formats_differently_refuses_by_name() {
+    for (script, why) in [
+        ("git log --all --oneline", Why::OtherSelection),
+        ("git log --oneline --since=2026-09-03", Why::OtherSelection),
+        ("git log --oneline --grep=fix", Why::OtherSelection),
+        ("git log -S needle --oneline", Why::OtherSelection),
+        (
+            "git log --oneline --follow -- src/a.ts",
+            Why::OtherSelection,
+        ),
+        ("git log -1 --format=%ai", Why::Formatted),
+        ("git log --oneline -p", Why::Formatted),
+        ("git log --oneline --stat", Why::Formatted),
+        // Two revisions are a range spelled as two words, which this cannot say.
+        ("git log --oneline HEAD~4 HEAD", Why::OtherSelection),
+    ] {
+        let found: Vec<Why> = steps(script)
+            .iter()
+            .filter_map(|step| lift(step).err())
+            .collect();
+        assert!(
+            found.contains(&why),
+            "`{script}` should refuse {why:?}, got {found:?}"
+        );
+    }
+}
+
+/// ⚠ **Every OTHER git subcommand stays in the queue.** `status`, `commit` and
+/// `add` are ~29,500 rows between them and each is its own act; claiming them
+/// here would be the flattening the vocabulary exists to avoid.
+#[test]
+fn other_git_subcommands_do_not_lift_as_history() {
+    for script in [
+        "git status --short",
+        "git commit -m x",
+        "git add src/a.ts",
+        "git push",
+    ] {
+        let lifted: Vec<Concept> = steps(script)
+            .iter()
+            .filter_map(|step| lift(step).ok())
+            .collect();
+        assert!(lifted.is_empty(), "`{script}` lifted to {lifted:?}");
+    }
+}
+
+/// The card sentence, and the one place the missing count must not read as one.
+#[test]
+fn a_history_describes_how_many_commits_and_from_where() {
+    assert_eq!(describe(&only("git log -1")), "Show the last commit");
+    assert_eq!(
+        describe(&only("git log --oneline -3")),
+        "Show the last 3 commits"
+    );
+    assert_eq!(
+        describe(&only("git log --oneline")),
+        "Show the commit history"
+    );
+    assert_eq!(
+        describe(&only("git log --oneline -1 5710b66")),
+        "Show the last commit from 5710b66"
+    );
+    assert_eq!(
+        describe(&only("git log -3 -- notes.md")),
+        format!("Show the last 3 commits touching {CWD}/notes.md")
+    );
+}

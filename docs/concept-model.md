@@ -4,14 +4,14 @@ Design for the layers above the reader: **lifting** what the fleet executed into
 the concepts it was executing, and **lowering** a concept back into a command
 that does the same thing.
 
-**Status: four lenses and all three instruments are BUILT; every one after the
+**Status: five lenses and all three instruments are BUILT; every one after the
 first was chosen by the census, not guessed.** `bash-corpus --said` + `said-report`
 mine and read the description corpus; `reader/src/concept.rs` lifts and lowers
-`Rewrite`, `Page`, `Search` and `List` — and answers every miss by name (`concept::Why`)
+`Rewrite`, `Page`, `Search`, `List` and `History` — and answers every miss by name (`concept::Why`)
 — with gates 1–3 in `reader/tests/concept.rs`; `concept-report` is the census,
 balanced to the unit. Adding `Page` took the lift rate from 0.18% to **13.06%
-of steps**, `Search` to **17.32%** and `List` to **18.04%** (census 2026-09-10)
-— the diminishing return is the census working, not failing.
+of steps**, `Search` to **17.32%**, `List` to **18.04%** and `History` to **19.30%**
+(census 2026-09-10) — the diminishing return is the census working, not failing.
 
 ⚠ **`Search` also found a fabrication in `Page`, which had shipped with it.** A
 bare word is dropped by the level below rather than guessed at — `looks_like_path`
@@ -180,6 +180,7 @@ Page     { subjects, range }                BUILT — head / tail / cat / sed -n
 Search   { subjects, pattern, fold_case,    BUILT — grep / egrep / fgrep
            descend }
 List     { loci, descend, hidden }          BUILT — ls
+History  { count, from, paths }             BUILT — git log
 Poll     { probe, until, every, bound }     until …; do sleep …; done
 Glance   { repo }                           git log --oneline -N && git status
 Probe    { question, subjects }             the compound inspect-several-things
@@ -200,6 +201,17 @@ basic grep and an alternation to `-E` — measured, both — so a concept that
 dropped it would lower to a command matching different text. `-i` and `-r` are
 carried for the same reason, and `-r` twice over: `grep pattern dir/` without it
 is an error, so a concept that lost it would lower to a command that fails.
+
+⚠ **`History` is the first concept whose subject is not a FILE, and it carries
+no repository.** A repo is context the way a working directory is: `git log -3`
+names nothing, and the `-C` that could name one is a location. So two logs of the
+same shape in different repos are the SAME concept — which is what recurrence
+detection needs, and what a repo field would have destroyed.
+
+⚠ **And its count is `Option`, where `Page`'s is not.** `head f` shows ten lines
+by POSIX, a documented fact the concept may carry; `git log` with no count is
+unbounded, so a number here would be invented. The two look alike and are not:
+one is reading a default, the other is writing one.
 
 ⚠ **`List` is `ls` and NOT `find`, and the census decided that too.** `find`'s
 operands are a predicate expression — 1,277 rows use `-o`, 1,242 `-not`, 281
