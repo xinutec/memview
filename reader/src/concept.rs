@@ -115,6 +115,20 @@ pub enum Pattern {
     Fixed(String),
 }
 
+/// Which number a [`Concept::Measure`] hands back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Quantity {
+    /// `wc -l`.
+    Lines,
+    /// `wc -w`.
+    Words,
+    /// `wc -c` — bytes, for all the letter says character; the character count
+    /// is [`Quantity::Chars`], which POSIX spells `-m`.
+    Bytes,
+    /// `wc -m`.
+    Chars,
+}
+
 /// What a command was for.
 ///
 /// The vocabulary is mined and admitted the way a syntax construct was — biggest
@@ -198,6 +212,27 @@ pub enum Concept {
         /// `-a`. Also changes which names come back, so it is carried rather
         /// than normalised away — `ls d` and `ls -a d` are different sets.
         hidden: bool,
+    },
+    /// One number about a file's CONTENTS — `wc`.
+    ///
+    /// ⚠ **The product is a COUNT, which is the same boundary drawn again.**
+    /// The locus `cat` shows and `grep` scans, read for a number instead:
+    /// `grep -c` refuses ([`Why::NotLines`] — a count of MATCHES is a
+    /// different question), and `du`/`stat` are numbers about the FILE rather
+    /// than its contents — metadata, the [`Concept::List`] `-l` boundary — and
+    /// stay queued with the census sizing them (2026-09-05: `wc -l` 7,979
+    /// rows, `wc -c` 1,365, `du -sh` 724, the `stat` shapes ~480 and carrying
+    /// format strings besides).
+    ///
+    /// ⚠ **One quantity.** Bare `wc` is the POSIX lines-words-bytes triple — a
+    /// real default, readable not writable — but a TABLE is a different
+    /// product from a number, and neither it nor a combined flag made the
+    /// census. Queued, not modelled.
+    Measure {
+        /// Empty for a stream: `… | wc -l` counts what flows in. Not a hole,
+        /// for the reason [`Concept::Page`] gives.
+        subjects: Vec<Subject>,
+        quantity: Quantity,
     },
     /// The most recent commits of a repository — `git log`.
     ///
@@ -406,7 +441,12 @@ pub fn lift(step: &Step) -> Result<Concept, Why> {
         // than either of them owning the variant.
         Some(Op::Read { paths }) => match read_page(step) {
             Some((range, operands)) => page(step, paths, range, operands),
-            None => listing(step, paths),
+            // Only a shape no earlier reader RECOGNISED falls through — a named
+            // refusal (`find`, `ls -l`) is an answer and must not be re-asked.
+            None => match listing(step, paths) {
+                Err(Why::NoLens) => measure(step, paths),
+                other => other,
+            },
         },
         Some(Op::Search { pattern, paths }) => {
             let shape = search_shape(step)?;
@@ -603,6 +643,57 @@ fn listing(step: &Step, paths: &[String]) -> Result<Concept, Why> {
         descend,
         hidden,
     })
+}
+
+/// `wc` — one number per subject, and which number.
+///
+/// ⚠ **Only `wc`.** `du`, `stat` and `od` reach [`Op::Read`] too and stay in
+/// the queue: the first two hand back metadata rather than a reading of the
+/// contents, the `stat` shapes carry format strings — the boundary
+/// [`Why::Formatted`] names one lens over — and the census sizes all three
+/// well below the flags this lens refuses. See [`Concept::Measure`].
+///
+/// ⚠ **Operands are counted PAST a `--`**, the way `status` and `stage` count
+/// and `search_shape` does not (memview#1525): stopping there would drop every
+/// subject after it and refuse the row for a miscount.
+fn measure(step: &Step, paths: &[String]) -> Result<Concept, Why> {
+    let argv = own_command(step).ok_or(Why::NoLens)?;
+    if basename(argv.first().ok_or(Why::NoLens)?) != "wc" {
+        return Err(Why::NoLens);
+    }
+    let (mut quantity, mut operands, mut after_sep) = (None, 0usize, false);
+    for word in argv.iter().skip(1) {
+        if !after_sep && word == "--" {
+            after_sep = true;
+            continue;
+        }
+        let flag = (!after_sep)
+            .then(|| word.strip_prefix('-').filter(|rest| !rest.is_empty()))
+            .flatten();
+        let Some(letters) = flag else {
+            operands += 1;
+            continue;
+        };
+        for letter in letters.chars() {
+            let read = match letter {
+                'l' => Quantity::Lines,
+                'w' => Quantity::Words,
+                'c' => Quantity::Bytes,
+                'm' => Quantity::Chars,
+                // `-L`, the long forms, `--total` — none made the census.
+                _ => return Err(Why::NoLens),
+            };
+            // Two quantities are a TABLE, a different product — see
+            // [`Concept::Measure`]. Queued, where the census can rank it.
+            if quantity.replace(read).is_some() {
+                return Err(Why::NoLens);
+            }
+        }
+    }
+    // Bare `wc` is the POSIX triple, refused for the same reason.
+    let quantity = quantity.ok_or(Why::NoLens)?;
+    let subjects = counted_subjects(step, paths, operands)?;
+    Ok(Concept::Measure { subjects, quantity })
 }
 
 /// `git status` — what the tree has that the last commit does not.
@@ -1279,6 +1370,25 @@ pub fn lower(concept: &Concept) -> String {
                 loci.iter().map(spell).collect::<Vec<_>>().join(" ")
             )
         }
+        // The flag is rebuilt from the field, and `-c` is the canonical
+        // spelling for bytes — the same normalisation `grep -E` gets.
+        Concept::Measure { subjects, quantity } => {
+            let head = match quantity {
+                Quantity::Lines => "wc -l",
+                Quantity::Words => "wc -w",
+                Quantity::Bytes => "wc -c",
+                Quantity::Chars => "wc -m",
+            };
+            // A stream measure names no file — `wc -l` alone, as `Page` does.
+            if subjects.is_empty() {
+                head.to_string()
+            } else {
+                format!(
+                    "{head} {}",
+                    subjects.iter().map(spell).collect::<Vec<_>>().join(" ")
+                )
+            }
+        }
     }
 }
 
@@ -1417,6 +1527,21 @@ pub fn describe(concept: &Concept) -> String {
                 ""
             };
             format!("{what} {}{also}", said(loci))
+        }
+        Concept::Measure { subjects, quantity } => {
+            let what = match quantity {
+                Quantity::Lines => "lines",
+                Quantity::Words => "words",
+                // ⚠ Bytes, not characters — the card must not soften the one
+                // distinction the flag pair exists to draw.
+                Quantity::Bytes => "bytes",
+                Quantity::Chars => "characters",
+            };
+            if subjects.is_empty() {
+                format!("Count the {what} of what it is given")
+            } else {
+                format!("Count the {what} of {}", said(subjects))
+            }
         }
     }
 }

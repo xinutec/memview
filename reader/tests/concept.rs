@@ -17,7 +17,7 @@
 //! in their holes must compare equal — the equality recurrence detection will
 //! later stand on.
 
-use reader::concept::{Concept, Pattern, Range, Subject, Why, describe, lift, lower};
+use reader::concept::{Concept, Pattern, Quantity, Range, Subject, Why, describe, lift, lower};
 use reader::project::read as parse;
 use reader::shell_files::{Step, trace};
 
@@ -230,9 +230,11 @@ fn a_page_with_no_count_is_the_default_ten() {
 /// ⚠ **What looks like a page and is not, refused by name.** `tail -f` waits;
 /// `sed '1,5p'` without `-n` prints the WHOLE file and lines 1-5 again;
 /// `head -c` counts bytes; `tail -n +2` drops a prefix; `$`-addresses are not
-/// digit ranges; `cat -n` numbers its output; `wc -l` measures rather than
-/// shows; `xargs head -5` pages files the PIPE names, none of which the argv
-/// spells. Each would lower to a command that does something else.
+/// digit ranges; `cat -n` numbers its output; `xargs head -5` pages files the
+/// PIPE names, none of which the argv spells. Each would lower to a command
+/// that does something else. (`wc -l` sat in this list while it measured
+/// rather than showed and no lens claimed it; it is the ninth lens's
+/// acceptance test now.)
 #[test]
 fn what_looks_like_a_page_and_is_not_does_not_lift() {
     for script in [
@@ -242,7 +244,6 @@ fn what_looks_like_a_page_and_is_not_does_not_lift() {
         "tail -n +2 src/a.ts",
         "sed -n '1,$p' src/a.ts",
         "cat -n src/a.ts",
-        "wc -l src/a.ts",
         "xargs head -5",
     ] {
         assert!(
@@ -284,8 +285,10 @@ fn a_transform_that_is_not_in_place_is_not_a_rewrite() {
             .iter()
             .all(|step| lift(step) == Err(Why::NotInPlace))
     );
+    // A read that reaches no lens stays queued — `du` measures the file
+    // rather than its contents, so it is not [`Concept::Measure`] either.
     assert!(
-        steps("wc -l src/geo/velocity.ts")
+        steps("du -sh src/geo")
             .iter()
             .all(|step| lift(step) == Err(Why::NoLens))
     );
@@ -655,20 +658,119 @@ fn what_looks_like_a_listing_and_is_not_refuses_by_name() {
     }
 }
 
-/// ⚠ **A listing and a page must not both claim one command.** Both live under
-/// `Op::Read`, so the two readers are asked in order and the page reader
-/// declining is what hands the step on. `cat` is a page and `ls` is a listing,
-/// and neither may answer for the other.
+/// ⚠ **The three readers under `Op::Read` must not claim each other's
+/// commands.** They are asked in order — page, listing, measure — and each
+/// declining is what hands the step on. Only a [`Why::NoLens`] falls through:
+/// a named refusal (`find`, `ls -l`) is an answer, not a hand-off.
 #[test]
-fn a_page_and_a_listing_do_not_claim_each_others_commands() {
+fn a_page_a_listing_and_a_measure_do_not_claim_each_others_commands() {
     assert!(matches!(only("cat src/a.ts"), Concept::Page { .. }));
     assert!(matches!(only("ls src/geo"), Concept::List { .. }));
-    // `wc -l` measures rather than shows or lists, and stays a counted leaf.
-    let lifted: Vec<Concept> = steps("wc -l src/a.ts")
-        .iter()
-        .filter_map(|step| lift(step).ok())
-        .collect();
-    assert!(lifted.is_empty(), "wc lifted to {lifted:?}");
+    assert!(matches!(only("wc -l src/a.ts"), Concept::Measure { .. }));
+}
+
+/// ⚠ **Acceptance test for the ninth lens.** The locus `cat` shows, read for
+/// one number — and the FLAG is the product: `-l` and `-c` are different
+/// questions with different answers, so the quantity is carried, canonically
+/// spelled on the way back down, and said in words on the card.
+#[test]
+fn a_count_of_lines_lifts_lowers_and_reads_back() {
+    let original = "wc -l src/a.ts";
+    let concept = only(original);
+    assert_eq!(
+        concept,
+        Concept::Measure {
+            subjects: vec![Subject::Named(format!("{CWD}/src/a.ts"))],
+            quantity: Quantity::Lines,
+        }
+    );
+    let lowered = lower(&concept);
+    assert_eq!(read_as(original), read_as(&lowered));
+    assert!(parse(&lowered).is_ok(), "did not parse: {lowered}");
+    assert_eq!(lowered, format!("wc -l {CWD}/src/a.ts"));
+    // Gate 1: the lowered text lifts back to the same concept.
+    assert_eq!(only(&lowered), concept);
+    assert_eq!(
+        describe(&concept),
+        format!("Count the lines of {CWD}/src/a.ts")
+    );
+}
+
+/// `-c` is BYTES, and the card says so — softening it to "characters" would
+/// blur the one distinction the `-c`/`-m` pair exists to draw.
+#[test]
+fn a_count_of_bytes_says_bytes() {
+    let concept = only("wc -c src/a.ts");
+    assert!(matches!(
+        concept,
+        Concept::Measure {
+            quantity: Quantity::Bytes,
+            ..
+        }
+    ));
+    assert_eq!(lower(&concept), format!("wc -c {CWD}/src/a.ts"));
+    assert_eq!(
+        describe(&concept),
+        format!("Count the bytes of {CWD}/src/a.ts")
+    );
+}
+
+/// A stream measure named no file, exactly as a stream page does.
+#[test]
+fn a_stream_measure_says_it_was_given_its_input() {
+    let concept = only("wc -l");
+    assert_eq!(
+        concept,
+        Concept::Measure {
+            subjects: vec![],
+            quantity: Quantity::Lines,
+        }
+    );
+    assert_eq!(lower(&concept), "wc -l");
+    assert_eq!(describe(&concept), "Count the lines of what it is given");
+}
+
+/// ⚠ **What measures and answers a different question stays in the queue.**
+/// Bare `wc` is a TABLE (the POSIX triple), `-lc` likewise, `-L` a length;
+/// `du` and `stat` are numbers about the FILE rather than its contents. None
+/// made the census, so each queues for it rather than earning a name.
+#[test]
+fn a_measure_with_another_product_stays_queued() {
+    for script in [
+        "wc src/a.ts",
+        "wc -lc src/a.ts",
+        "wc -L src/a.ts",
+        "wc --lines src/a.ts",
+        "du -sh src/geo",
+        "stat -c %y src/a.ts",
+    ] {
+        let found: Vec<Why> = steps(script)
+            .iter()
+            .filter_map(|step| lift(step).err())
+            .collect();
+        assert!(
+            found.contains(&Why::NoLens),
+            "`{script}` should queue, got {found:?}"
+        );
+    }
+}
+
+/// The shared guards, holding for the ninth lens as for the others: a redirect
+/// is a subject the argv never spells, and `xargs wc -l` counts files a pipe
+/// supplied — which is NOT the stream `wc -l` alone reads.
+#[test]
+fn a_measure_that_redirects_or_is_fed_by_xargs_does_not_lift() {
+    for script in [
+        "wc -l src/a.ts > count.txt",
+        "wc -l < src/a.ts",
+        "xargs wc -l",
+    ] {
+        let lifted: Vec<Concept> = steps(script)
+            .iter()
+            .filter_map(|step| lift(step).ok())
+            .collect();
+        assert!(lifted.is_empty(), "`{script}` lifted to {lifted:?}");
+    }
 }
 
 /// The card sentence. A recursive listing says so, because "the entries of" and

@@ -296,11 +296,13 @@ fn a_command_a_lens_covers_arrives_with_its_concept() {
 /// ⚠ **Absent is the honest miss, and it has to stay absent.** A command no
 /// lens covers keeps its chip and its `says` and offers no sentence — the
 /// no-absorption rule, enforced at the one place a person would see it broken.
-/// `wc -l` measures rather than shows, so it reaches `Op::Read` and is
-/// deliberately not a `Page`.
+/// Bare `wc` reaches `Op::Read` and is deliberately unlensed: the POSIX
+/// lines-words-bytes triple is a TABLE, a different product from the one
+/// number `Measure` carries. (`wc -l` held this seat until it became the
+/// ninth lens.)
 #[test]
 fn a_command_no_lens_covers_offers_no_sentence_rather_than_a_placeholder() {
-    let parsed = asked("wc -l notes.md", Some(true));
+    let parsed = asked("wc notes.md", Some(true));
     assert_eq!(parsed.steps[0].concept, None);
     assert_eq!(parsed.steps[0].kind, "read");
 }

@@ -69,6 +69,7 @@ fn concept_name(concept: &Concept) -> &'static str {
         Concept::Page { .. } => "Page",
         Concept::Search { .. } => "Search",
         Concept::List { .. } => "List",
+        Concept::Measure { .. } => "Measure",
         Concept::History { .. } => "History",
         Concept::Status { .. } => "Status",
         Concept::Stage { .. } => "Stage",
