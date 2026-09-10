@@ -571,7 +571,9 @@ impl Walk {
                 self.arithmetic(target, scope, reached);
                 self.arithmetic(value, scope, reached);
             }
-            Arith::Sequence(parts) => {
+            // A splice is spliced TEXT, so its parts are reached exactly as a
+            // sequence's are — every one of them, in order.
+            Arith::Sequence(parts) | Arith::Spliced(parts) => {
                 for part in parts {
                     self.arithmetic(part, scope, reached);
                 }

@@ -768,6 +768,24 @@ pub enum Arith {
     },
     /// `a, b` — every part evaluated, the last one's value taken.
     Sequence(Vec<Arith>),
+    /// `1$c`, `0x$cmd`, `${c}1` — adjacent parts with NO operator between them.
+    ///
+    /// ⚠ **This is a claim about TEXT, not about a value.** `$(( ))` expands its
+    /// interior and evaluates the resulting string, so with `c=2` the text
+    /// `1$c` becomes `12` and with `c=+2` it becomes `1+2` — one splice, two
+    /// different trees, neither of them knowable here. The parts are kept in
+    /// the order written and nothing is claimed about what they compute.
+    ///
+    /// ⚠ **At least one part is an expansion**, which is what separates this
+    /// from a static error. Nothing a variable can hold rescues `$((1 2))`, and
+    /// the parser goes on refusing it.
+    ///
+    /// ⚠ **Adjacency is load-bearing and the printer must never break it.** A
+    /// space between the parts is not the same program — `1 $c` is an error for
+    /// `c=2` where `1$c` is twelve — and neither is a paren around them:
+    /// `$((1$c * 3))` is `1+2*3` = 7 for `c=+2`, where `$(((1$c) * 3))` is 9.
+    /// So a splice prints with no separator and is never parenthesised.
+    Spliced(Vec<Arith>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

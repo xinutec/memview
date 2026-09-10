@@ -363,6 +363,36 @@ fn print_arith_at(value: &Arith, least: u8) -> String {
                 .join(", "),
             0,
         ),
+        // ⚠ **No separator, and `u8::MAX` so no parens either.** Both would
+        // change the program rather than reformat it: `1 $c` is an error where
+        // `1$c` is twelve, and `(1$c) * 3` is 9 where `1$c * 3` is 7. This is
+        // the one node whose spelling is its meaning.
+        //
+        // ⚠ **And the parts run into each other by construction**, so a
+        // parameter here needs the same braces `${n}_v4` does — `${c}1` printed
+        // bare is `$c1`, which names a different variable. The rule is the
+        // word's, given the text that will actually follow rather than a
+        // segment, because the next part may be a bare number.
+        Arith::Spliced(parts) => {
+            let printed: Vec<String> = parts
+                .iter()
+                .map(|part| print_arith_at(part, u8::MAX))
+                .collect();
+            let mut out = String::new();
+            for (index, part) in parts.iter().enumerate() {
+                let after = printed.get(index + 1).map(String::as_str);
+                match part {
+                    Arith::Expansion(segment) => match &segment.kind {
+                        SegmentKind::Parameter(parameter) => {
+                            out.push_str(&print_parameter(parameter, after));
+                        }
+                        _ => out.push_str(&printed[index]),
+                    },
+                    _ => out.push_str(&printed[index]),
+                }
+            }
+            (out, u8::MAX)
+        }
     };
     if precedence < least {
         format!("({text})")
@@ -596,7 +626,10 @@ pub fn print_word(word: &Word, first: bool) -> String {
             // FOLLOWS it: `$x` beside the literal `y` has to be written `${x}y`
             // or the name reads as `xy`.
             (SegmentKind::Parameter(parameter), _) => {
-                out.push_str(&print_parameter(parameter, word.segments.get(index + 1)));
+                out.push_str(&print_parameter(
+                    parameter,
+                    literal_after(word.segments.get(index + 1)),
+                ));
             }
             _ => out.push_str(&print_segment(segment)),
         }
@@ -632,7 +665,7 @@ pub fn print_value(word: &Word) -> String {
                     quoted: false,
                     ..parameter.clone()
                 },
-                word.segments.get(index + 1),
+                literal_after(word.segments.get(index + 1)),
             )),
             // Bare, because the quotes belong to the node and a value has no
             // room for them: `"$(a)"` and `$(a)` are one argv string.
@@ -665,7 +698,7 @@ fn closing_brackets_after(word: &Word) -> Vec<bool> {
 }
 
 /// `$x`, `${x}`, `"$x"` — the least spelling that reads back as this node.
-fn print_parameter(parameter: &Parameter, next: Option<&Segment>) -> String {
+fn print_parameter(parameter: &Parameter, after: Option<&str>) -> String {
     // ⚠ A subscript or an operator forces the braces, whatever follows: `$a[0]`
     // is the value of `a` beside the literal `[0]`, an entirely different word.
     let bare = if parameter.subscript.is_some() || parameter.op.is_some() {
@@ -675,7 +708,7 @@ fn print_parameter(parameter: &Parameter, next: Option<&Segment>) -> String {
             parameter.name,
             print_subscript(parameter.subscript.as_ref()) + &print_suffix_op(parameter.op.as_ref())
         )
-    } else if needs_braces(&parameter.name, next) {
+    } else if needs_braces(&parameter.name, after) {
         format!("${{{}}}", parameter.name)
     } else {
         format!("${}", parameter.name)
@@ -804,8 +837,25 @@ fn print_operand(word: &Word) -> String {
     out
 }
 
+/// What follows a parameter *inside a word*, where only a literal can extend a
+/// name: a glob, a tilde and another parameter each print as a character a name
+/// cannot hold, so none of them can run on.
+///
+/// ⚠ **Arithmetic does not go through here**, because a splice can put a bare
+/// number or variable after a parameter and neither is a segment at all —
+/// `${c}1` is the case, and it prints its own following text.
+fn literal_after(next: Option<&Segment>) -> Option<&str> {
+    match next.map(|segment| &segment.kind) {
+        Some(SegmentKind::Literal(text)) => Some(text),
+        _ => None,
+    }
+}
+
 /// Would the name run on into what comes next, or is it unspellable bare?
-fn needs_braces(name: &str, next: Option<&Segment>) -> bool {
+///
+/// `after` is the text that will be written immediately behind it, where the
+/// caller knows one — see [`literal_after`] for what counts inside a word.
+fn needs_braces(name: &str, after: Option<&str>) -> bool {
     // A special parameter is one character that cannot start a name, so nothing
     // can extend it: `$@abc` is `$@` and then `abc`.
     let special =
@@ -817,13 +867,7 @@ fn needs_braces(name: &str, next: Option<&Segment>) -> bool {
     if name.len() > 1 && name.chars().all(|c| c.is_ascii_digit()) {
         return true;
     }
-    // Only a literal can extend a name — a glob, a tilde or another parameter
-    // all start with a character a name cannot hold.
-    matches!(
-        next.map(|segment| &segment.kind),
-        Some(SegmentKind::Literal(text))
-            if text.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_')
-    )
+    after.is_some_and(|text| text.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_'))
 }
 
 /// A literal that follows a tilde prefix, spelled so the prefix still ends where

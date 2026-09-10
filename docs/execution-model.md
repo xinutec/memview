@@ -78,6 +78,16 @@ because the command parses. Two defences, neither of them the law:
   `` ` ``, `\` and the quotes, so an unimplemented `${x:-y}` is a parse *error*
   rather than a literal. Nothing observes this after the fact; it has to be
   impossible.
+
+  ⚠ **One node is an exception, and it says so.** `$(( ))` expands its interior
+  and evaluates the resulting *string*, so `$((1$c))` is twelve for `c=2` and
+  three for `c=+2` — one text, two trees, and the difference arrives at runtime.
+  `Arith::Spliced` holds the adjacent parts in the order written and claims
+  nothing about what they compute. It is the one place the paragraph above is
+  suspended, so it is also the one place the printer may not reformat: a space
+  or a paren between the parts is a *different program*, not a different layout.
+  A run with no expansion in it stays refused, because no value rescues
+  `$((1 2))`.
 - **across words, by the second gate** — bash's own printer, below.
 
 ## Second gate: bash's own printer

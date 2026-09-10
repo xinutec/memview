@@ -2641,6 +2641,13 @@ impl<'t> Parser<'t> {
                     Some(Reason::Parameter) => segments.push(self.parameter(false)?),
                     Some(Reason::CommandSubstitution) => segments.push(self.substitution(false)?),
                     Some(Reason::Backtick) => segments.push(self.backtick(false)?),
+                    // ⚠ ANSI-C quoting is legal in EVERY `${…}` operator —
+                    // `${n%%$'\n'*}`, `${n:-$'a'}`, `${n/$'a'/b}` all measured —
+                    // and a `$(…)` in the same position was already read here,
+                    // so refusing this one was a gap rather than a boundary.
+                    // The escapes are what the operand is FOR: a pattern that
+                    // cuts at a newline has no other spelling.
+                    Some(Reason::AnsiQuote) => segments.push(self.ansi_quote()?),
                     Some(reason) => return self.refuse(reason, 1),
                     None => {
                         self.at += 1;
@@ -2892,7 +2899,38 @@ impl<'t> Parser<'t> {
         }
     }
 
+    /// One operand, or a run of them written with nothing in between.
+    ///
+    /// ⚠ **Adjacency, never across a blank.** `$(( ))` splices its interior
+    /// into text before evaluating it, so `1$c` is `12` for `c=2` — but `1 $c`
+    /// is `1 2`, which is an error for that same value, and the two are
+    /// therefore different programs. Reading them as one node would let the
+    /// printer drop the space and quietly write the other one, which is the
+    /// wrong-tree failure the round-trip law exists to catch. So this loop does
+    /// not call [`Self::skip_arith_blanks`], and `1 $c` stays refused.
+    ///
+    /// ⚠ **A run of literals is still refused**, because no value of any
+    /// variable makes `$((1 2))` evaluate — measured, along with `$((a b))`.
+    /// The expansion is what makes the splice a question rather than an error.
     fn arith_operand(&mut self, stop: &[u8]) -> Result<Arith, Refusal> {
+        let first = self.arith_operand_part(stop)?;
+        // ⚠ Deliberately reading the raw byte rather than skipping blanks: see
+        // the note above. A part that cannot begin an operand ends the run, and
+        // an operator between two operands is not this — `arith_binary` has it.
+        if !self.peek().is_some_and(begins_an_operand) {
+            return Ok(first);
+        }
+        let mut parts = vec![first];
+        while self.peek().is_some_and(begins_an_operand) {
+            parts.push(self.arith_operand_part(stop)?);
+        }
+        if !parts.iter().any(|part| matches!(part, Arith::Expansion(_))) {
+            return self.refuse(Reason::Arithmetic, 1);
+        }
+        Ok(Arith::Spliced(parts))
+    }
+
+    fn arith_operand_part(&mut self, stop: &[u8]) -> Result<Arith, Refusal> {
         self.skip_arith_blanks();
         match self.peek() {
             Some(b'(') => {
@@ -2910,11 +2948,19 @@ impl<'t> Parser<'t> {
             // ⚠ An expansion inside arithmetic is still an expansion: `$x` is
             // read by the same reader that reads it anywhere else, so a `$(cmd)`
             // in here recurses into a whole script exactly as it should.
+            //
+            // ⚠ **Which is why arithmetic and a backtick belong here too, and
+            // ANSI-C quoting does not.** `$(( 1 + $(( 2 * 3 )) ))` is 7 and
+            // `$(( ` + "`echo 2`" + ` + 1 ))` is 3, but `$(( $'\x02' ))` is an
+            // operand error — bash reads the quote as text and text is not a
+            // number. Measured, all three (memview#1370).
             Some(b'$') | Some(b'`') => match classify_expansion(self.bytes, self.at, false) {
                 Some(Reason::Parameter) => Ok(Arith::Expansion(Box::new(self.parameter(false)?))),
                 Some(Reason::CommandSubstitution) => {
                     Ok(Arith::Expansion(Box::new(self.substitution(false)?)))
                 }
+                Some(Reason::Arithmetic) => Ok(Arith::Expansion(Box::new(self.arith_expansion()?))),
+                Some(Reason::Backtick) => Ok(Arith::Expansion(Box::new(self.backtick(false)?))),
                 Some(reason) => self.refuse(reason, 1),
                 None => self.refuse(Reason::Arithmetic, 1),
             },
@@ -3432,6 +3478,15 @@ pub fn classify_expansion(bytes: &[u8], at: usize, in_double_quotes: bool) -> Op
         Some(b'@' | b'*' | b'?' | b'$' | b'!' | b'#' | b'-') => Some(Reason::Parameter),
         _ => None,
     }
+}
+
+/// Could this byte begin an arithmetic operand?
+///
+/// ⚠ **Only used to decide adjacency**, so it is deliberately narrower than the
+/// operand reader: `(` is left out, because a run like `1(2)` is not a splice in
+/// any bash and admitting it would turn a refusal into a wrong tree.
+fn begins_an_operand(byte: u8) -> bool {
+    byte == b'$' || byte == b'`' || byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
 /// `${…}`: naming a parameter, or operating on one?

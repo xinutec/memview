@@ -3041,3 +3041,134 @@ fn a_redirect_with_a_target_reports_nothing() {
         );
     }
 }
+
+/// ⚠ **`$(( ))` expands its interior and only THEN evaluates it** (memview#1370).
+///
+/// This parser evaluated the grammar first, so two operands with nothing between
+/// them were refused — and in bash that is how a value is spliced into a number.
+/// Measured: with `c=2`, `$((1$c))` is 12; with `cmd=1f`, `$((0x$cmd))` is 31.
+///
+/// ⚠ **The survey said `{}` for every one of these.** The drift check was
+/// reporting the parser as the one behind, in a direction nobody had read.
+#[test]
+fn arithmetic_splices_an_expansion_into_its_text() {
+    for text in [
+        "x=$((1$c))",
+        "x=$((0x$c))",
+        "x=$((a$c))",
+        "x=$(($c$c))",
+        "x=$((1${c}))",
+        "x=$((${c}1))",
+        "x=$((1$c + 2))",
+        "x=$((16#$m))",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+        assert!(
+            survey(text).is_empty(),
+            "{text:?} should need nothing: {:?}",
+            survey(text)
+        );
+    }
+}
+
+/// ⚠ **A splice is spelling, so the printer may not reformat it.** Both of the
+/// printer's habits change the program here rather than tidy it: a space makes
+/// `1 $c` an error for `c=2`, and a paren makes `$((1$c * 3))` nine instead of
+/// seven for `c=+2`. Measured against bash, both of them.
+///
+/// The round-trip law cannot catch this alone — `1 $c` and `(1$c)` parse back to
+/// a tree of the same shape — so the text is asserted directly.
+#[test]
+fn a_splice_prints_with_no_separator_and_no_parens() {
+    assert_eq!(print(&tree("x=$((1$c))")), "x=$((1$c))");
+    assert_eq!(print(&tree("x=$((1$c * 3))")), "x=$((1$c * 3))");
+}
+
+/// ⚠ **And a run of LITERALS is still refused**, which is what keeps the change
+/// above a reading of bash rather than a widening. No value of any variable
+/// rescues `$((1 2))` or `$((a b))` — bash calls both an arithmetic syntax
+/// error — so admitting them would claim a program that cannot exist.
+///
+/// ⚠ **`$((1 $c))` stays refused too, and the blank is the whole reason.** It is
+/// legal only for values that supply an operator (`c=+2` gives 3) and an error
+/// for those that do not (`c=2` gives `1 2`), so it is a different program from
+/// `$((1$c))` — and one this reader cannot print without choosing between them.
+/// Refusing is the choice that claims nothing.
+///
+/// ⚠ **`bash -n` ACCEPTS `$((1 2))`**, because `-n` does not evaluate
+/// arithmetic. `Reason::Arithmetic` is deliberately absent from
+/// `syntax-report`'s adjudication list for that reason, and must stay off it.
+#[test]
+fn a_run_of_literals_in_arithmetic_is_still_refused() {
+    for text in ["x=$((1 2))", "x=$((a b))", "x=$((1 $c))", "x=$(($c $c))"] {
+        assert_eq!(refusal(text), Reason::Arithmetic, "parser, on {text:?}");
+    }
+}
+
+/// ⚠ **An expansion inside arithmetic includes ARITHMETIC** (memview#1370).
+///
+/// `$(( 1 + $(( 2 * 3 )) ))` is 7 and a backtick in the same position works too,
+/// but the operand reader admitted only `$x` and `$(cmd)` — so a corpus command
+/// computing `$(( 380 * $(( a / b )) ))` was refused while the survey called it
+/// modelled. This was the third drift, and the ticket had guessed it was the
+/// juxtaposition gap; it is its own cause.
+///
+/// ⚠ **ANSI-C quoting is NOT admitted here, and that is not an oversight.**
+/// `$(( $'\x02' ))` is `arithmetic syntax error: operand expected` — bash reads
+/// the quote as text, and text is not a number. Measured, unlike the `${…}`
+/// operand below where the same spelling is legal.
+#[test]
+fn arithmetic_nests_inside_arithmetic() {
+    for text in [
+        "x=$(( 1 + $(( 2 * 3 )) ))",
+        "x=$(( 380 * $(( 6 / 2 )) ))",
+        "x=$(( `echo 2` + 1 ))",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+        assert!(
+            survey(text).is_empty(),
+            "{text:?} should need nothing: {:?}",
+            survey(text)
+        );
+    }
+    assert_eq!(
+        refusal(r"x=$(( $'\x02' ))"),
+        Reason::AnsiQuote,
+        "bash refuses this too, at runtime"
+    );
+}
+
+/// ⚠ **ANSI-C quoting is legal in every `${…}` operator** (memview#1370).
+///
+/// `operand` read a `$(…)` and a backtick in this position and refused `$'…'`
+/// alone, which was a gap rather than a boundary. It is the spelling the operand
+/// is often FOR: a pattern that cuts at a newline has no other one.
+#[test]
+fn ansi_c_quoting_is_read_in_every_parameter_operator() {
+    for text in [
+        r"n=${n%%$'a'*}",
+        r"n=${n%$'a'}",
+        r"n=${n:-$'a'}",
+        r"n=${n/$'a'/b}",
+        r"n=${n%%$'\n'*}",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+        assert!(
+            survey(text).is_empty(),
+            "{text:?} should need nothing: {:?}",
+            survey(text)
+        );
+    }
+}
