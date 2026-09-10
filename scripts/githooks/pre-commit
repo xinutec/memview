@@ -35,5 +35,27 @@ fi
 
 if ! out=$(nix run "git+file:../dev-lint?ref=HEAD#gate" -- . gate.json 2>&1); then
   printf '%s\n' "$out" >&2
+  # ⚠ **A RECORD, not a check — memview#1396 asks a question nothing can answer
+  # retrospectively.** That ticket says to measure how often a gate's only
+  # failing finding lies OUTSIDE the staged set before changing what the gate is
+  # entitled to fail on. Nothing logs a gate run: the output is captured into
+  # `$out` and printed once, so there is no history to count and the working
+  # trees that produced it are gone. This line is the whole instrument.
+  #
+  # ⚠ **The findings are stored RAW, deliberately.** The gate runs a dozen
+  # checks whose output formats differ, so a path parser here would be a second
+  # implementation of a dozen tools and would fail silently on the one that
+  # mattered. A small sample read by hand beats a fragile count — the same
+  # argument `dev-lint` makes for not inferring what it cannot see.
+  #
+  # ⚠ **It must not be able to break a commit that already failed.** Everything
+  # below is guarded: the commit's verdict was decided on the line above.
+  { GATE_LOG="$HOME/.claude/memview/cache/gate-failures.jsonl"
+    mkdir -p "$(dirname "$GATE_LOG")"
+    STAGED=$(git diff --cached --name-only | jq -R . | jq -s -c .)
+    jq -n -c --arg at "$(date -u +%FT%TZ)" --arg repo "$(pwd)" \
+       --argjson staged "$STAGED" --arg out "$out" \
+       '{at: $at, repo: $repo, staged: $staged, findings: $out}' >> "$GATE_LOG"
+  } 2>/dev/null || true
   exit 1
 fi
