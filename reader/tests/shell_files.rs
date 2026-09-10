@@ -2065,3 +2065,56 @@ fn every_refusal_has_exactly_one_reason() {
         found.unnamed
     );
 }
+
+/// ⚠ **`scope` marks SUBSHELLS and nothing else — a loop body is invisible to
+/// it** (memview#1364, measured 2026-09-10).
+///
+/// The multi-step concept seeds (`Poll`, `Glance`, `Probe`) rested on a written
+/// hypothesis: *"`Step.scope` is the chain of subshells a node sits in, so a
+/// loop body's steps share a prefix and unrolled iterations share it too — per
+/// NODE, not per iteration. If it holds, `Poll` and `Glance` need no new
+/// plumbing."*
+///
+/// **It does not hold.** The prefix a loop body shares is the EMPTY one, which
+/// every top-level command shares as well, so the property is true and says
+/// nothing. Only `( … )` moves the scope.
+///
+/// Two consequences, and they are why this is pinned rather than noted:
+///
+/// - A `Poll`'s CONDITION and its BODY are indistinguishable here. `until curl;
+///   do sleep; done` gives two steps that look exactly like `curl; sleep`.
+/// - Unrolled iterations are indistinguishable from siblings. `for f in a b; do
+///   wc -l $f; done` gives two `wc` steps that look exactly like two separately
+///   written commands, so nothing can tell one loop over two files from two
+///   commands over one each.
+///
+/// So a multi-step key needs a NODE identity the steps do not currently carry.
+/// Anyone reaching for `scope` to build one should fail this test first.
+#[test]
+fn scope_cannot_tell_a_loop_body_from_a_top_level_command() {
+    let scopes = |script: &str| -> Vec<Vec<usize>> {
+        let cmds = parse(script).unwrap_or_else(|at| panic!("stopped at {at:?}"));
+        reader::shell_files::trace(&cmds, Some(CWD), HOME)
+            .steps
+            .into_iter()
+            .map(|s| s.scope)
+            .collect()
+    };
+
+    // The poll shape the seed vocabulary names: condition and body, both bare.
+    let bare = |n: usize| -> Vec<Vec<usize>> { vec![Vec::new(); n] };
+    assert_eq!(
+        scopes("until curl -s http://h/health; do sleep 5; done"),
+        bare(2),
+        "a loop's condition and body must be shown to be indistinguishable"
+    );
+    // And identical to the same two commands written flat.
+    assert_eq!(scopes("curl -s http://h/health; sleep 5"), bare(2));
+
+    // Unrolled iterations: header plus one step per iteration, all bare.
+    assert_eq!(scopes("for f in a.ts b.ts; do wc -l $f; done"), bare(3));
+
+    // ⚠ The ONE construct that does move it, so the test says what `scope` is
+    // FOR rather than only what it is not.
+    assert_eq!(scopes("( cd /tmp && ls x )"), vec![vec![1], vec![1]]);
+}
