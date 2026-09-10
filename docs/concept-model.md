@@ -4,14 +4,14 @@ Design for the layers above the reader: **lifting** what the fleet executed into
 the concepts it was executing, and **lowering** a concept back into a command
 that does the same thing.
 
-**Status: three lenses and all three instruments are BUILT; the second and third
-were chosen by the census, not guessed.** `bash-corpus --said` + `said-report`
+**Status: four lenses and all three instruments are BUILT; every one after the
+first was chosen by the census, not guessed.** `bash-corpus --said` + `said-report`
 mine and read the description corpus; `reader/src/concept.rs` lifts and lowers
-`Rewrite`, `Page` and `Search` — and answers every miss by name (`concept::Why`)
+`Rewrite`, `Page`, `Search` and `List` — and answers every miss by name (`concept::Why`)
 — with gates 1–3 in `reader/tests/concept.rs`; `concept-report` is the census,
 balanced to the unit. Adding `Page` took the lift rate from 0.18% to **13.06%
-of steps** and `Search` took it to **17.32%** (census 2026-09-10), which is what
-a census-ranked lens is worth.
+of steps**, `Search` to **17.32%** and `List` to **18.04%** (census 2026-09-10)
+— the diminishing return is the census working, not failing.
 
 ⚠ **`Search` also found a fabrication in `Page`, which had shipped with it.** A
 bare word is dropped by the level below rather than guessed at — `looks_like_path`
@@ -179,6 +179,7 @@ Rewrite  { subjects, substitution }         BUILT — sed -i / perl -pi
 Page     { subjects, range }                BUILT — head / tail / cat / sed -n
 Search   { subjects, pattern, fold_case,    BUILT — grep / egrep / fgrep
            descend }
+List     { loci, descend, hidden }          BUILT — ls
 Poll     { probe, until, every, bound }     until …; do sleep …; done
 Glance   { repo }                           git log --oneline -N && git status
 Probe    { question, subjects }             the compound inspect-several-things
@@ -199,6 +200,20 @@ basic grep and an alternation to `-E` — measured, both — so a concept that
 dropped it would lower to a command matching different text. `-i` and `-r` are
 carried for the same reason, and `-r` twice over: `grep pattern dir/` without it
 is an error, so a concept that lost it would lower to a command that fails.
+
+⚠ **`List` is `ls` and NOT `find`, and the census decided that too.** `find`'s
+operands are a predicate expression — 1,277 rows use `-o`, 1,242 `-not`, 281
+`-prune` — so a `matching` field cannot hold it, and keeping only the `-name`
+value would claim a NARROWER walk than the command made. That is a false lower
+bound, the direction refused everywhere else here, so `find` is turned away
+whole (`Why::Predicate`) until a concept exists that can carry a predicate.
+
+⚠ **And bare `ls` refuses rather than lifting with an empty locus.** It
+enumerates the working directory — a real subject the text never wrote — and
+writing it in would be the same fabrication `Page` shipped. It gets its own
+`Why::ImplicitLocus` rather than reusing `UnreadSubject`, because "the text
+named something nothing resolved" and "the text named nothing and meant here"
+are different failures with different fixes.
 
 ⚠ **Everything that answers a DIFFERENT QUESTION about the same scan refuses by
 name, and the census sizes each one** — `-c` counts (a number), `-l` names the

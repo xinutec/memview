@@ -603,3 +603,84 @@ fn a_page_naming_an_operand_the_reader_cannot_resolve_does_not_lift() {
         );
     }
 }
+
+/// **Gate 1 over every listing shape.** `-R` and `-a` are carried because both
+/// change which names come back; nothing else is.
+#[test]
+fn every_listing_shape_survives_the_round_trip() {
+    for script in [
+        "ls src/geo",
+        "ls -R src/geo",
+        "ls -a src/geo",
+        "ls -Ra src/geo",
+        "ls src/geo src/a.ts",
+    ] {
+        let concept = only(script);
+        let text = lower(&concept);
+        assert_eq!(only(&text), concept, "lowered `{script}` to `{text}`");
+    }
+}
+
+/// ⚠ **The listing boundary, refused BY NAME so the census sizes each.**
+///
+/// `ls -l` hands back mode, size and time — the same locus, a different product,
+/// which is the call `grep -c` gets. `ls -d` NAMES the directory instead of
+/// enumerating it, inverting the act rather than adjusting it. Bare `ls` has a
+/// real locus the text never wrote, and inventing it is the fabrication this
+/// layer refuses everywhere.
+///
+/// ⚠ **`find` is refused WHOLE, and the census is the argument.** Its operands
+/// are a predicate expression — measured 2026-09-10, 1,277 rows use `-o`, 1,242
+/// `-not`, 281 `-prune` — so keeping only the `-name` value would claim a
+/// NARROWER walk than the command made. That is a false lower bound.
+#[test]
+fn what_looks_like_a_listing_and_is_not_refuses_by_name() {
+    for (script, why) in [
+        ("ls -l src/geo", Why::WithMetadata),
+        ("ls -la src/geo", Why::WithMetadata),
+        ("ls -d src/geo", Why::NotTheContents),
+        ("ls", Why::ImplicitLocus),
+        ("find src/geo -name '*.ts'", Why::Predicate),
+        ("find src/geo -name a -o -name b", Why::Predicate),
+        ("ls notes", Why::UnreadSubject),
+    ] {
+        let found: Vec<Why> = steps(script)
+            .iter()
+            .filter_map(|step| lift(step).err())
+            .collect();
+        assert!(
+            found.contains(&why),
+            "`{script}` should refuse {why:?}, got {found:?}"
+        );
+    }
+}
+
+/// ⚠ **A listing and a page must not both claim one command.** Both live under
+/// `Op::Read`, so the two readers are asked in order and the page reader
+/// declining is what hands the step on. `cat` is a page and `ls` is a listing,
+/// and neither may answer for the other.
+#[test]
+fn a_page_and_a_listing_do_not_claim_each_others_commands() {
+    assert!(matches!(only("cat src/a.ts"), Concept::Page { .. }));
+    assert!(matches!(only("ls src/geo"), Concept::List { .. }));
+    // `wc -l` measures rather than shows or lists, and stays a counted leaf.
+    let lifted: Vec<Concept> = steps("wc -l src/a.ts")
+        .iter()
+        .filter_map(|step| lift(step).ok())
+        .collect();
+    assert!(lifted.is_empty(), "wc lifted to {lifted:?}");
+}
+
+/// The card sentence. A recursive listing says so, because "the entries of" and
+/// "everything under" are different amounts of machine to touch.
+#[test]
+fn a_listing_describes_the_locus_and_its_reach() {
+    assert_eq!(
+        describe(&only("ls src/geo")),
+        format!("List the entries of {CWD}/src/geo")
+    );
+    assert_eq!(
+        describe(&only("ls -Ra src/geo")),
+        format!("List everything under {CWD}/src/geo, hidden ones included")
+    );
+}

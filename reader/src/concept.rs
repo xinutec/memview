@@ -174,6 +174,31 @@ pub enum Concept {
         /// concept that dropped it would lower to a command that fails.
         descend: bool,
     },
+    /// The entries of a directory — `ls`.
+    ///
+    /// ⚠ **The product is NAMES, and that is the whole boundary.** `ls -l` adds
+    /// size, mode and time; `du` adds bytes; `wc -l` returns a count. Each reads
+    /// the same locus and hands back something else, so each refuses by name.
+    /// Measured 2026-09-10: of 19,376 `ls` rows, 11,378 are a bare `ls <dir>`
+    /// and ~5,800 carry the `-l` family.
+    ///
+    /// ⚠ **`find` is NOT this concept, and the census is why.** Its operands are
+    /// a predicate EXPRESSION — 1,277 rows use `-o`, 1,242 `-not`, 281 `-prune`
+    /// — so no single `matching` field represents it, and keeping only the
+    /// `-name` value would claim a NARROWER set than the command walked. That is
+    /// a false lower bound, which is the direction this reader refuses
+    /// everywhere else. [`Why::Predicate`] holds it, counted.
+    List {
+        /// The directories enumerated. `ls a b` is one act over two loci, the
+        /// same way `sed -i` is over two files.
+        loci: Vec<Subject>,
+        /// `-R`. The same field `Search` carries, for the same reason: it
+        /// changes which names come back.
+        descend: bool,
+        /// `-a`. Also changes which names come back, so it is carried rather
+        /// than normalised away — `ls d` and `ls -a d` are different sets.
+        hidden: bool,
+    },
 }
 
 /// Why a step did not lift.
@@ -235,6 +260,23 @@ pub enum Why {
     /// produces, and the concept would claim nothing was named when something
     /// was. Counting the operands is what tells the two apart.
     UnreadSubject,
+    /// A listing that hands back more than names — `ls -l` and its family add
+    /// mode, size and time. Same locus, different product, which is the same
+    /// call [`Why::NotLines`] makes for `grep -c`.
+    WithMetadata,
+    /// `ls -d` names the DIRECTORY rather than enumerating it — the one flag
+    /// that inverts the act instead of adjusting it.
+    NotTheContents,
+    /// `find`'s operands are a predicate EXPRESSION — `-o`, `-not`, `-prune`,
+    /// `-type`, `-newermt` — not a pattern. Flattening it to the `-name` value
+    /// would claim a narrower walk than the command made, so it is refused whole
+    /// and counted until a concept exists that can hold a predicate.
+    Predicate,
+    /// A listing with no operand: `ls` alone enumerates the working directory.
+    /// The locus is real and IMPLICIT, so the concept would have to write a
+    /// subject the text never did. Distinct from a stream, where no subject
+    /// exists at all — which is why it does not reuse [`Why::UnreadSubject`].
+    ImplicitLocus,
 }
 
 /// Lift one step into the concept it served, or say why not.
@@ -278,13 +320,14 @@ pub fn lift(step: &Step) -> Result<Concept, Why> {
             None => Err(Why::NotInPlace),
         },
         // ⚠ **A read is a page only for the four pagers, and only in the
-        // shapes the corpus spells.** `wc -l`, `ls`, `od` also reach
-        // [`Op::Read`]; they measure or list rather than show, so they stay
-        // counted leaves. The range comes from `argv`, since the projection
-        // dropped it.
+        // shapes the corpus spells.** `wc -l` and `od` also reach [`Op::Read`];
+        // they MEASURE rather than show, and stay counted leaves. `ls` and
+        // `find` reach it too and are the [`Concept::List`] act — which is why
+        // the page reader is asked first and the listing reader second, rather
+        // than either of them owning the variant.
         Some(Op::Read { paths }) => match read_page(step) {
             Some((range, operands)) => page(step, paths, range, operands),
-            None => Err(Why::NoLens),
+            None => listing(step, paths),
         },
         Some(Op::Search { pattern, paths }) => {
             let shape = search_shape(step)?;
@@ -315,6 +358,77 @@ pub fn lift(step: &Step) -> Result<Concept, Why> {
         }
         _ => Err(Why::NoLens),
     }
+}
+
+/// `ls <dir>` — the entries of a directory, or the refusal its shape forces.
+///
+/// ⚠ **`find` is turned away here rather than read**, and its own `Why` says
+/// why: its operands are a predicate expression, not a locus and a pattern.
+///
+/// ⚠ **The page reader has already declined this step**, so a `cat`/`head`/
+/// `tail`/`sed -n` never reaches here and the two readers cannot both claim one
+/// command. Anything else under [`Op::Read`] that is not a listing — `wc`, `du`,
+/// `od`, `stat` — falls through to [`Why::NoLens`] and stays in the queue, where
+/// the census can rank it.
+fn listing(step: &Step, paths: &[String]) -> Result<Concept, Why> {
+    let argv = unwrap_command(&step.argv);
+    // ⚠ `xargs ls` enumerates directories a PIPE named, the same refusal the
+    // page reader makes and for the same reason.
+    if step.argv.len() > argv.len()
+        && step.argv[..step.argv.len() - argv.len()]
+            .iter()
+            .any(|w| basename(w) == "xargs")
+    {
+        return Err(Why::NoLens);
+    }
+    match basename(argv.first().ok_or(Why::NoLens)?) {
+        "ls" => {}
+        "find" | "fd" => return Err(Why::Predicate),
+        _ => return Err(Why::NoLens),
+    }
+    let mut descend = false;
+    let mut hidden = false;
+    let mut operands = 0;
+    for word in argv.iter().skip(1) {
+        if word == "--" {
+            break;
+        }
+        if word.starts_with("--") {
+            return Err(Why::NoLens);
+        }
+        let Some(letters) = word.strip_prefix('-').filter(|rest| !rest.is_empty()) else {
+            operands += 1;
+            continue;
+        };
+        for letter in letters.chars() {
+            match letter {
+                'R' => descend = true,
+                'a' | 'A' => hidden = true,
+                // The `-l` family hands back mode, size and time beside the
+                // name — the same locus, a different product.
+                'l' | 'h' | 'n' | 'o' | 'g' | 's' | 'i' => return Err(Why::WithMetadata),
+                'd' => return Err(Why::NotTheContents),
+                _ => return Err(Why::NoLens),
+            }
+        }
+    }
+    // ⚠ **`ls` alone is a real locus written implicitly**, and inventing it here
+    // is the fabrication this layer refuses. See [`Why::ImplicitLocus`].
+    if operands == 0 {
+        return Err(Why::ImplicitLocus);
+    }
+    if !reads_only(step, paths) {
+        return Err(Why::NoLens);
+    }
+    let loci = subjects_or_refuse(step, paths)?;
+    if operands != loci.len() {
+        return Err(Why::UnreadSubject);
+    }
+    Ok(Concept::List {
+        loci,
+        descend,
+        hidden,
+    })
 }
 
 /// The modifiers a search argv carries, once every flag has been read.
@@ -756,6 +870,26 @@ pub fn lower(concept: &Concept) -> String {
                 )
             }
         }
+        // ⚠ **A locus is always written**, because the lift refuses the
+        // no-operand form outright — see [`Why::ImplicitLocus`]. So there is no
+        // subjectless branch here, unlike `Page` and `Search`.
+        Concept::List {
+            loci,
+            descend,
+            hidden,
+        } => {
+            let mut head = "ls".to_string();
+            if *descend {
+                head.push_str(" -R");
+            }
+            if *hidden {
+                head.push_str(" -a");
+            }
+            format!(
+                "{head} {}",
+                loci.iter().map(spell).collect::<Vec<_>>().join(" ")
+            )
+        }
     }
 }
 
@@ -822,6 +956,25 @@ pub fn describe(concept: &Concept) -> String {
                 (false, false) => said(subjects),
             };
             format!("Find lines matching {text} in {where_}{case}{how}")
+        }
+        Concept::List {
+            loci,
+            descend,
+            hidden,
+        } => {
+            let what = if *descend {
+                "List everything under"
+            } else {
+                "List the entries of"
+            };
+            // ⚠ Said plainly, because a hidden entry is the one a person
+            // scanning an approval would not otherwise expect to be touched.
+            let also = if *hidden {
+                ", hidden ones included"
+            } else {
+                ""
+            };
+            format!("{what} {}{also}", said(loci))
         }
     }
 }

@@ -53,6 +53,10 @@ fn refusal(why: Why) -> &'static str {
         Why::Filtered => "search with a subject filter (--include, --type)",
         Why::PatternInFlag => "search whose pattern is in a flag (-e, -f)",
         Why::UnreadSubject => "names an operand nothing resolved — silence would read as a stream",
+        Why::WithMetadata => "listing that hands back mode/size/time, not names (ls -l)",
+        Why::NotTheContents => "names the directory instead of enumerating it (ls -d)",
+        Why::Predicate => "find — its operands are a predicate expression, not a pattern",
+        Why::ImplicitLocus => "listing with no operand — the locus is real and unwritten (bare ls)",
     }
 }
 
@@ -62,6 +66,7 @@ fn concept_name(concept: &Concept) -> &'static str {
         Concept::Rewrite { .. } => "Rewrite",
         Concept::Page { .. } => "Page",
         Concept::Search { .. } => "Search",
+        Concept::List { .. } => "List",
     }
 }
 
