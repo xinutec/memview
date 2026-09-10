@@ -4,14 +4,16 @@ Design for the layers above the reader: **lifting** what the fleet executed into
 the concepts it was executing, and **lowering** a concept back into a command
 that does the same thing.
 
-**Status: five lenses and all three instruments are BUILT; every one after the
+**Status: eight lenses and all three instruments are BUILT; every one after the
 first was chosen by the census, not guessed.** `bash-corpus --said` + `said-report`
 mine and read the description corpus; `reader/src/concept.rs` lifts and lowers
-`Rewrite`, `Page`, `Search`, `List` and `History` — and answers every miss by name (`concept::Why`)
+`Rewrite`, `Page`, `Search`, `List`, `History`, `Status`, `Stage` and `Commit` — and answers
+every miss by name (`concept::Why`)
 — with gates 1–3 in `reader/tests/concept.rs`; `concept-report` is the census,
 balanced to the unit. Adding `Page` took the lift rate from 0.18% to **13.06%
-of steps**, `Search` to **17.32%**, `List` to **18.04%** and `History` to **19.30%**
-(census 2026-09-10) — the diminishing return is the census working, not failing.
+of steps**, `Search` to **17.32%**, `List` to **18.04%**, `History` to **19.30%** and the git working-tree three to
+**20.98%** (census 2026-09-10) — the diminishing return is the census working,
+not failing.
 
 ⚠ **`Search` also found a fabrication in `Page`, which had shipped with it.** A
 bare word is dropped by the level below rather than guessed at — `looks_like_path`
@@ -181,6 +183,9 @@ Search   { subjects, pattern, fold_case,    BUILT — grep / egrep / fgrep
            descend }
 List     { loci, descend, hidden }          BUILT — ls
 History  { count, from, paths }             BUILT — git log
+Status   { paths }                          BUILT — git status
+Stage    { subjects, all }                  BUILT — git add
+Commit   { message, amend, no_verify }      BUILT — git commit
 Poll     { probe, until, every, bound }     until …; do sleep …; done
 Glance   { repo }                           git log --oneline -N && git status
 Probe    { question, subjects }             the compound inspect-several-things
@@ -201,6 +206,18 @@ basic grep and an alternation to `-E` — measured, both — so a concept that
 dropped it would lower to a command matching different text. `-i` and `-r` are
 carried for the same reason, and `-r` twice over: `grep pattern dir/` without it
 is an error, so a concept that lost it would lower to a command that fails.
+
+⚠ **A concept must say what APPROVAL needs, and two git ones prove it.**
+`Stage` says *stage*, never *write* — the level below is explicit that `git add`
+changes no file, and a card reading it as a write would be wrong about the one
+thing approval is for. `Commit` names `--no-verify` outright (*"SKIPPING the
+pre-commit gate"*) because that is precisely what a tidy summary would drop and
+an approver most needs told. Neither is decoration; both are the product.
+
+⚠ **A commit message from `-F` is a HOLE, not an empty message** — 2,972 of
+10,758 commit steps take that route, usually `-F -` from stdin. It lowers back
+to `-F -`, never to `-m ''`, because an empty message is a different commit.
+The same distinction `Rewrite` draws for `sed -i -f fix.sed`.
 
 ⚠ **`History` is the first concept whose subject is not a FILE, and it carries
 no repository.** A repo is context the way a working directory is: `git log -3`

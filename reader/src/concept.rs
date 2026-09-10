@@ -226,6 +226,47 @@ pub enum Concept {
         /// is the ordinary case and means the whole repository.
         paths: Vec<Subject>,
     },
+    /// What a repository has that its last commit does not — `git status`.
+    ///
+    /// ⚠ **Essentially parameterless, and the census is why.** Of 15,436 steps,
+    /// 88 carry no flag at all and almost every flag that appears is FORMAT:
+    /// `--short` (9,089), `--porcelain` (4,779), `-sb` (1,391), `-b`. They
+    /// choose a spelling of the same listing, so they normalise away exactly as
+    /// `--oneline` does for [`Concept::History`].
+    Status {
+        /// Restricted to these paths where the text gave any. Empty means the
+        /// whole tree, which is what almost every occurrence means.
+        paths: Vec<Subject>,
+    },
+    /// Files put into the index — `git add`.
+    ///
+    /// ⚠ **Staging changes NO file**, which the level below already says: it is
+    /// [`crate::shell_ops::GitOp::Stage`], a variant that exists precisely to
+    /// keep that decision visible. The concept inherits it — an ask card must
+    /// not read a stage as a write.
+    Stage {
+        subjects: Vec<Subject>,
+        /// `-A`. Load-bearing rather than decoration: it stages deletions and
+        /// everything else in the tree, so the set is not the operands. With no
+        /// operand it means the whole repository, which the lift refuses for the
+        /// reason [`Why::ImplicitLocus`] gives.
+        all: bool,
+    },
+    /// A commit written — `git commit`.
+    ///
+    /// ⚠ **The message is the AUTHOR'S OWN description of the work**, which is
+    /// the thing gate 4 wants and has never had in the argv. It is carried as
+    /// written.
+    Commit {
+        /// `None` where the message is real and NOT in this text — `-F file`,
+        /// or `-F -` reading stdin, which is 2,972 of 10,758 steps. Exactly the
+        /// sense [`Concept::Rewrite`]'s `substitution` is `None`.
+        message: Option<String>,
+        amend: bool,
+        /// `--no-verify` — the hooks do not run. Carried because it is the one
+        /// thing an approver most needs told: this commit skips the gate.
+        no_verify: bool,
+    },
 }
 
 /// Why a step did not lift.
@@ -400,9 +441,15 @@ pub fn lift(step: &Step) -> Result<Concept, Why> {
         // is read off `argv`, the one place it survives, exactly as `Page`'s
         // range is. The `Op` is used only for the paths it already resolved.
         Some(Op::Git(git)) => {
+            // ⚠ **Every variant that resolved paths, not just `Inspect`.**
+            // `git add` reaches `Stage { paths }` and reading only `Inspect`
+            // dropped them, so every `git add` refused as `UnreadSubject` —
+            // caught by the round-trip test, which is what it is for.
             let paths: &[String] = match git {
-                crate::shell_ops::GitOp::Inspect { paths } => paths,
-                _ => &[],
+                crate::shell_ops::GitOp::Inspect { paths }
+                | crate::shell_ops::GitOp::Stage { paths }
+                | crate::shell_ops::GitOp::Alter { paths } => paths,
+                crate::shell_ops::GitOp::Other { .. } => &[],
             };
             history(step, paths)
         }
@@ -448,8 +495,12 @@ fn history(step: &Step, paths: &[String]) -> Result<Concept, Why> {
             }
         }
     }
-    if subcommand != Some("log") {
-        return Err(Why::NoLens);
+    match subcommand {
+        Some("log") => {}
+        Some("status") => return status(step, paths, it),
+        Some("add" | "stage") => return stage(step, paths, it),
+        Some("commit") => return commit(step, it),
+        _ => return Err(Why::NoLens),
     }
     let (mut count, mut from, mut after_sep, mut named) = (None, None, false, 0usize);
     let mut rest = it;
@@ -582,6 +633,154 @@ fn listing(step: &Step, paths: &[String]) -> Result<Concept, Why> {
         loci,
         descend,
         hidden,
+    })
+}
+
+/// `git status` — what the tree has that the last commit does not.
+///
+/// ⚠ **Every flag here is a spelling of one listing.** `--short`, `--porcelain`
+/// and `-sb` differ in punctuation and stability, not in which paths appear, so
+/// they normalise away. What does NOT is a flag that changes the SET.
+fn status<'a>(
+    step: &Step,
+    paths: &[String],
+    rest: impl Iterator<Item = &'a str>,
+) -> Result<Concept, Why> {
+    let mut named = 0usize;
+    let mut after_sep = false;
+    for word in rest {
+        if word == "--" {
+            after_sep = true;
+            continue;
+        }
+        if after_sep {
+            named += 1;
+            continue;
+        }
+        let Some(_) = word.strip_prefix('-').filter(|b| !b.is_empty()) else {
+            // A path without a `--` — git allows it, but nothing declared it a
+            // path, so the guarantee `Inspect` rests on is absent.
+            return Err(Why::UnreadSubject);
+        };
+        let base = word.split('=').next().unwrap_or(word);
+        match base {
+            "--short" | "-s" | "--porcelain" | "--branch" | "-b" | "-sb" | "--no-color"
+            | "--color" | "--long" | "-uno" | "--ahead-behind" => {}
+            // A different SET: only staged changes, or a different rule for
+            // untracked files.
+            "--cached" | "--untracked-files" | "-u" | "--ignored" | "--ignore-submodules" => {
+                return Err(Why::OtherSelection);
+            }
+            _ => return Err(Why::NoLens),
+        }
+    }
+    if !reads_only(step, paths) {
+        return Err(Why::NoLens);
+    }
+    let subjects = subjects_or_refuse(step, paths)?;
+    if named != subjects.len() {
+        return Err(Why::UnreadSubject);
+    }
+    Ok(Concept::Status { paths: subjects })
+}
+
+/// `git add` — files put into the index.
+fn stage<'a>(
+    step: &Step,
+    paths: &[String],
+    rest: impl Iterator<Item = &'a str>,
+) -> Result<Concept, Why> {
+    let (mut all, mut operands) = (false, 0usize);
+    for word in rest {
+        if word == "--" {
+            continue;
+        }
+        let Some(_) = word.strip_prefix('-').filter(|b| !b.is_empty()) else {
+            operands += 1;
+            continue;
+        };
+        let base = word.split('=').next().unwrap_or(word);
+        match base {
+            "-A" | "--all" | "-An" => all = true,
+            "-f" | "--force" | "-v" | "--verbose" => {}
+            // `-u` stages tracked files only, `-p` is interactive, `-n` and
+            // `--dry-run` stage NOTHING — a lowered `Stage` would do what they
+            // deliberately did not.
+            "-u" | "--update" | "-p" | "--patch" | "-n" | "--dry-run" | "-N"
+            | "--intent-to-add" | "-i" | "--interactive" => return Err(Why::OtherSelection),
+            _ => return Err(Why::NoLens),
+        }
+    }
+    // ⚠ `git add -A` alone stages the whole repository — a real subject the
+    // text never wrote, which is [`Why::ImplicitLocus`] again.
+    if operands == 0 {
+        return Err(Why::ImplicitLocus);
+    }
+    let subjects = subjects_or_refuse(step, paths)?;
+    if operands != subjects.len() {
+        return Err(Why::UnreadSubject);
+    }
+    Ok(Concept::Stage { subjects, all })
+}
+
+/// `git commit` — a commit written, and the message that says why.
+///
+/// ⚠ **No path guard here.** Staging already happened; a commit writes the
+/// repository rather than the operands, and `step.files` is empty for it. The
+/// other lenses' `reads_only` check would be asking the wrong question.
+fn commit<'a>(step: &Step, rest: impl Iterator<Item = &'a str>) -> Result<Concept, Why> {
+    let (mut message, mut amend, mut no_verify, mut from_file) = (None, false, false, false);
+    let mut operands = 0usize;
+    let mut rest = rest.peekable();
+    while let Some(word) = rest.next() {
+        if word == "--" {
+            continue;
+        }
+        let Some(_) = word.strip_prefix('-').filter(|b| !b.is_empty()) else {
+            operands += 1;
+            continue;
+        };
+        let base = word.split('=').next().unwrap_or(word);
+        match base {
+            "-m" | "--message" => {
+                message = match word.split_once('=') {
+                    Some((_, v)) => Some(v.to_string()),
+                    None => rest.next().map(str::to_string),
+                };
+                if message.is_none() {
+                    return Err(Why::NoLens);
+                }
+            }
+            // The message exists and is not in this text — a hole, exactly as
+            // `sed -i -f fix.sed` is for a substitution.
+            "-F" | "--file" => {
+                from_file = true;
+                rest.next();
+            }
+            "--amend" => amend = true,
+            "--no-verify" | "-n" => no_verify = true,
+            "-q" | "--quiet" | "--no-edit" | "-v" | "--verbose" | "-s" | "--signoff" => {}
+            // `-a` stages AND commits: two acts, and a lowered `Commit` alone
+            // would silently do less.
+            "-a" | "--all" | "--reset-author" | "--author" | "--date" | "--fixup" | "--squash"
+            | "-C" | "--reuse-message" => return Err(Why::OtherSelection),
+            _ => return Err(Why::NoLens),
+        }
+    }
+    // `git commit -- paths` commits only those paths, which this cannot say.
+    if operands > 0 {
+        return Err(Why::OtherSelection);
+    }
+    if message.is_none() && !from_file {
+        // No `-m` and no `-F`: the message comes from an editor, and nothing in
+        // the text or the transcript records what was typed there.
+        return Err(Why::NoLens);
+    }
+    let _ = step;
+    Ok(Concept::Commit {
+        message,
+        amend,
+        no_verify,
     })
 }
 
@@ -1027,6 +1226,43 @@ pub fn lower(concept: &Concept) -> String {
         // ⚠ **A locus is always written**, because the lift refuses the
         // no-operand form outright — see [`Why::ImplicitLocus`]. So there is no
         // subjectless branch here, unlike `Page` and `Search`.
+        // ⚠ `--short` is not written back for the same reason `--oneline` is
+        // not: it chooses a spelling of one listing.
+        Concept::Status { paths } => match paths.is_empty() {
+            true => "git status".to_string(),
+            false => format!(
+                "git status -- {}",
+                paths.iter().map(spell).collect::<Vec<_>>().join(" ")
+            ),
+        },
+        Concept::Stage { subjects, all } => {
+            let flag = if *all { " -A" } else { "" };
+            format!(
+                "git add{flag} {}",
+                subjects.iter().map(spell).collect::<Vec<_>>().join(" ")
+            )
+        }
+        // ⚠ A message that was never in the text lowers to `-F -`, which reads
+        // back as the same hole. Spelling it `-m ''` would invent an empty
+        // message, and an empty message is a different commit.
+        Concept::Commit {
+            message,
+            amend,
+            no_verify,
+        } => {
+            let mut out = "git commit".to_string();
+            if *amend {
+                out.push_str(" --amend");
+            }
+            if *no_verify {
+                out.push_str(" --no-verify");
+            }
+            match message {
+                Some(text) => out.push_str(&format!(" -m '{text}'")),
+                None => out.push_str(" -F -"),
+            }
+            out
+        }
         // ⚠ `--oneline` is not written back: it is decoration, and the lift
         // normalises it away like quoting. What must survive is the count, the
         // revision and the paths, because each changes WHICH commits appear.
@@ -1127,6 +1363,40 @@ pub fn describe(concept: &Concept) -> String {
                 (false, false) => said(subjects),
             };
             format!("Find lines matching {text} in {where_}{case}{how}")
+        }
+        Concept::Status { paths } => match paths.is_empty() {
+            true => "Show what the working tree has that the last commit does not".to_string(),
+            false => format!("Show what has changed in {}", said(paths)),
+        },
+        // ⚠ Says STAGE, never "write" — the level below is explicit that this
+        // changes no file, and a card that read it as a write would be wrong
+        // about the one thing approval is for.
+        Concept::Stage { subjects, all } => {
+            let how = if *all { ", deletions included" } else { "" };
+            format!("Stage {}{how}", said(subjects))
+        }
+        Concept::Commit {
+            message,
+            amend,
+            no_verify,
+        } => {
+            let what = if *amend {
+                "Amend the last commit"
+            } else {
+                "Commit the staged changes"
+            };
+            let saying = match message {
+                Some(text) => format!(" saying \"{text}\""),
+                None => " with a message this command does not carry".to_string(),
+            };
+            // ⚠ Named outright: skipping the hooks is the thing an approver most
+            // needs told, and it is invisible in a tidy summary.
+            let gate = if *no_verify {
+                " — SKIPPING the pre-commit gate"
+            } else {
+                ""
+            };
+            format!("{what}{saying}{gate}")
         }
         Concept::History { count, from, paths } => {
             let how_many = match count {

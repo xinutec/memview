@@ -789,17 +789,17 @@ fn a_git_log_that_selects_or_formats_differently_refuses_by_name() {
     }
 }
 
-/// ⚠ **Every OTHER git subcommand stays in the queue.** `status`, `commit` and
-/// `add` are ~29,500 rows between them and each is its own act; claiming them
-/// here would be the flattening the vocabulary exists to avoid.
+/// ⚠ **Every git subcommand is its OWN act and none may answer for another.**
+/// `status`, `commit` and `add` have concepts of their own now; `push`, `diff`
+/// and `show` stay in the queue where the census ranks them. Claiming any of
+/// them as a `History` would be the flattening the vocabulary exists to avoid.
 #[test]
-fn other_git_subcommands_do_not_lift_as_history() {
-    for script in [
-        "git status --short",
-        "git commit -m x",
-        "git add src/a.ts",
-        "git push",
-    ] {
+fn each_git_subcommand_lifts_to_its_own_concept_or_none() {
+    assert!(matches!(only("git status --short"), Concept::Status { .. }));
+    assert!(matches!(only("git commit -m x"), Concept::Commit { .. }));
+    assert!(matches!(only("git add src/a.ts"), Concept::Stage { .. }));
+    assert!(matches!(only("git log -3"), Concept::History { .. }));
+    for script in ["git push", "git diff --stat", "git show HEAD"] {
         let lifted: Vec<Concept> = steps(script)
             .iter()
             .filter_map(|step| lift(step).ok())
@@ -827,5 +827,121 @@ fn a_history_describes_how_many_commits_and_from_where() {
     assert_eq!(
         describe(&only("git log -3 -- notes.md")),
         format!("Show the last 3 commits touching {CWD}/notes.md")
+    );
+}
+
+/// **Gate 1 over the three working-tree concepts.** `--short` and `-q` are
+/// spellings; `-A`, `--amend` and `--no-verify` are not.
+#[test]
+fn every_git_working_tree_shape_survives_the_round_trip() {
+    for script in [
+        "git status",
+        "git status --short",
+        "git status --porcelain -b",
+        "git status -- src/a.ts",
+        "git add src/a.ts",
+        "git add -A src/a.ts src/b.ts",
+        "git commit -m 'fix the thing'",
+        "git commit -q -m 'fix the thing'",
+        "git commit --amend --no-edit -m x",
+        "git commit --no-verify -m x",
+        "git commit -F -",
+    ] {
+        let concept = only(script);
+        let text = lower(&concept);
+        assert_eq!(only(&text), concept, "lowered `{script}` to `{text}`");
+    }
+}
+
+/// ⚠ **A message from a FILE is a hole, not an empty message.** `git commit -F -`
+/// reads stdin; the message is real and is not in this text, exactly as
+/// `sed -i -f fix.sed` has a substitution that is not. 2,972 of 10,758 commit
+/// steps take this route, so it is the ordinary case and not an edge.
+///
+/// ⚠ And a hole must not lower to `-m ''`, which would invent an EMPTY message —
+/// a different commit. It lowers to `-F -`, which reads back as the same hole.
+#[test]
+fn a_commit_message_that_is_not_in_the_text_is_a_hole() {
+    let held = only("git commit -F -");
+    assert_eq!(
+        held,
+        Concept::Commit {
+            message: None,
+            amend: false,
+            no_verify: false
+        }
+    );
+    assert_ne!(
+        held,
+        only("git commit -m ''"),
+        "a hole and an empty message are different commits"
+    );
+    assert_eq!(lower(&held), "git commit -F -");
+}
+
+/// ⚠ **What stages differently, commits differently, or reports a different SET
+/// refuses by name.** `-n`/`--dry-run` stages NOTHING, `-p` is interactive,
+/// `commit -a` stages and commits in one act, `status --cached` reports only
+/// what is staged. Each would have a lowered concept do something the command
+/// did not.
+#[test]
+fn a_git_working_tree_command_that_does_something_else_refuses_by_name() {
+    for (script, why) in [
+        ("git add -n src/a.ts", Why::OtherSelection),
+        ("git add -p src/a.ts", Why::OtherSelection),
+        ("git add -u src/a.ts", Why::OtherSelection),
+        ("git commit -a -m x", Why::OtherSelection),
+        ("git commit --fixup HEAD", Why::OtherSelection),
+        ("git status --cached", Why::OtherSelection),
+        // `git add -A` alone stages the whole repository — a real subject the
+        // text never wrote.
+        ("git add -A", Why::ImplicitLocus),
+    ] {
+        let found: Vec<Why> = steps(script)
+            .iter()
+            .filter_map(|step| lift(step).err())
+            .collect();
+        assert!(
+            found.contains(&why),
+            "`{script}` should refuse {why:?}, got {found:?}"
+        );
+    }
+}
+
+/// ⚠ **A commit with no `-m` and no `-F` does not lift at all.** The message was
+/// typed into an editor, and nothing in the text or the transcript records what
+/// it said — so the concept would have to invent the one field that matters.
+#[test]
+fn a_commit_whose_message_was_typed_into_an_editor_does_not_lift() {
+    let lifted: Vec<Concept> = steps("git commit")
+        .iter()
+        .filter_map(|step| lift(step).ok())
+        .collect();
+    assert!(lifted.is_empty(), "lifted to {lifted:?}");
+}
+
+/// The card sentences. Staging must never read as a write, and skipping the
+/// gate must be said outright — both are what approval is FOR.
+#[test]
+fn the_git_working_tree_cards_say_what_approval_needs() {
+    assert_eq!(
+        describe(&only("git status --short")),
+        "Show what the working tree has that the last commit does not"
+    );
+    assert_eq!(
+        describe(&only("git add -A notes.md")),
+        format!("Stage {CWD}/notes.md, deletions included")
+    );
+    assert_eq!(
+        describe(&only("git commit -m 'fix the thing'")),
+        "Commit the staged changes saying \"fix the thing\""
+    );
+    assert_eq!(
+        describe(&only("git commit --no-verify -m x")),
+        "Commit the staged changes saying \"x\" — SKIPPING the pre-commit gate"
+    );
+    assert_eq!(
+        describe(&only("git commit -F -")),
+        "Commit the staged changes with a message this command does not carry"
     );
 }
