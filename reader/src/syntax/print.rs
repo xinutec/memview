@@ -819,13 +819,23 @@ fn print_suffix_op(op: Option<&ParameterOp>) -> String {
 /// word to bash with the space bare — and a quote here would be read back as
 /// part of the value. What must still be escaped is the handful of characters
 /// that would end the expansion or change its operator.
+///
+/// ⚠ **`*` and `?` are on that list because this operand is a PATTERN.** A
+/// literal one can only have arrived escaped or quoted — `${p%%\?*}` and
+/// `${x:-'*'}` — and printing it bare reads back as a glob, which is a
+/// different program: `${p%%?*}` cuts at the first character rather than at a
+/// question mark. Caught by the round-trip law on one corpus command, the only
+/// `A₂ ≠ A₁` there was.
 fn print_operand(word: &Word) -> String {
     let mut out = String::new();
     for segment in &word.segments {
         match &segment.kind {
             SegmentKind::Literal(text) => {
                 for c in text.chars() {
-                    if matches!(c, '}' | '{' | '$' | '`' | '\\' | '"' | '\'' | '/') {
+                    if matches!(
+                        c,
+                        '}' | '{' | '$' | '`' | '\\' | '"' | '\'' | '/' | '*' | '?'
+                    ) {
                         out.push('\\');
                     }
                     out.push(c);

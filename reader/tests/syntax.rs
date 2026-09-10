@@ -3109,6 +3109,37 @@ fn a_run_of_literals_in_arithmetic_is_still_refused() {
     }
 }
 
+/// ⚠ **A `${…}` operand is a PATTERN, so a literal `*` has to stay escaped.**
+///
+/// `${p%%\?*}` holds the literal `?` and then the glob; printed bare as
+/// `${p%%?*}` it reads back as two globs and cuts at the first character
+/// instead of at a question mark. The quoting route reaches the same wrong tree
+/// — `${x:-'*'}` — because the operand printer adds no quotes by design.
+///
+/// ⚠ **This is the failure mode the law is FOR**, and the only `A₂ ≠ A₁` on the
+/// corpus: one command in 211,920, reduced to two characters. A misparse that
+/// printed faithfully would have been invisible here.
+#[test]
+fn an_escaped_pattern_character_survives_the_operand_printer() {
+    for text in [
+        r"x=${p%%\?*}",
+        r"x=${p%%\*a}",
+        r"x=${x:-'*'}",
+        r"x=${x:-'?'}",
+        r"x=${p%%?*}",
+        r"x=${p%%a}",
+    ] {
+        assert!(
+            check(text).holds(),
+            "the law failed on {text:?}: {}",
+            check(text).label()
+        );
+    }
+    // ⚠ And the two are still DIFFERENT programs after a round trip, which is
+    // what the law would not notice if the printer collapsed them both.
+    assert_ne!(tree(r"x=${p%%\?*}"), tree(r"x=${p%%?*}"));
+}
+
 /// ⚠ **An expansion inside arithmetic includes ARITHMETIC** (memview#1370).
 ///
 /// `$(( 1 + $(( 2 * 3 )) ))` is 7 and a backtick in the same position works too,
