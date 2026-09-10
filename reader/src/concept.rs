@@ -93,6 +93,28 @@ pub enum Range {
     Lines(u32, u32),
 }
 
+/// The language a [`Concept::Search`] pattern is written in.
+///
+/// ⚠ **This is MEANING, not spelling, so it is carried rather than normalised
+/// away.** `a|b` matches the three characters under basic grep and either letter
+/// under `-E` — measured, both. A concept that dropped the dialect would lower
+/// to a command matching different lines, which is the one thing [`lower`] may
+/// not do. Contrast `sed -i` standing in for `perl -pi`, where the language is
+/// genuinely spelling because the act is identical.
+///
+/// The three the corpus spells. `grep -P` and rg's own dialect are neither of
+/// these and refuse rather than flatten to [`Pattern::Extended`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Pattern {
+    /// A basic regular expression — `grep`'s default, where `|` and `+` are
+    /// ordinary characters.
+    Basic(String),
+    /// An extended one — `grep -E`, `egrep`.
+    Extended(String),
+    /// A fixed string, no metacharacters at all — `grep -F`, `fgrep`.
+    Fixed(String),
+}
+
 /// What a command was for.
 ///
 /// The vocabulary is mined and admitted the way a syntax construct was — biggest
@@ -130,6 +152,28 @@ pub enum Concept {
         subjects: Vec<Subject>,
         range: Range,
     },
+    /// The lines of a file that match a pattern — the largest shape left in the
+    /// queue after `Page` (census 2026-09-10: 119,690 rows across every search
+    /// spelling, of which this lens accepts 65,209).
+    ///
+    /// ⚠ **Only the act that PRODUCES MATCHING LINES.** `-c` counts them, `-l`
+    /// names the files, `-q` answers yes or no and prints nothing, `-o` prints
+    /// the matched fragment rather than the line. Each is a different product
+    /// from the same scan, so each refuses by name and the census sizes it —
+    /// 22,630 rows between them, which is what a later lens would be worth.
+    Search {
+        /// Empty for a stream: `… | grep -n foo` searches what flows in. Not a
+        /// hole, for the reason [`Concept::Page`] gives.
+        subjects: Vec<Subject>,
+        pattern: Pattern,
+        /// `-i`. Carried rather than dropped because it changes which lines come
+        /// back, exactly as the dialect does.
+        fold_case: bool,
+        /// `-r` — the subjects are trees to walk, not files to read. Load-bearing
+        /// for the lowering: `grep pattern dir/` without it is an error, so a
+        /// concept that dropped it would lower to a command that fails.
+        descend: bool,
+    },
 }
 
 /// Why a step did not lift.
@@ -160,6 +204,37 @@ pub enum Why {
     /// A described subject — `S ⊆ L`, a loop's language — which no single
     /// command can lower without promoting it to a false lower bound.
     Described,
+    /// A search whose product is not the matching lines — `-c` counts, `-l` and
+    /// `-L` name files, `-q` answers with an exit status, `-o` prints fragments.
+    /// The same scan, a different answer.
+    NotLines,
+    /// A search that shows more than the matches — `-A`, `-B`, `-C` — or fewer,
+    /// `-m` stopping at a cap. The span is the point, the way a `Page`'s range
+    /// is, so flattening it would claim lines the command did not show.
+    WithContext,
+    /// `grep -v` — the complement of the pattern. Every line BUT the matches is
+    /// a different set, and a lens that ignored the flag would name the exact
+    /// lines the command suppressed.
+    Inverted,
+    /// `--include`, `--exclude-dir`, rg's `--type` — a filter on which files are
+    /// searched, which [`Subject`] has no way to say. A lowered form without it
+    /// would search more than the command did.
+    Filtered,
+    /// `grep -e PAT` and `grep -f FILE` put the pattern somewhere other than the
+    /// leading operand, and [`crate::shell_ops::Op::Search`] takes the leading
+    /// operand as the pattern — so lifting these would name a FILE as the thing
+    /// searched for.
+    PatternInFlag,
+    /// The text named an operand the level below could not turn into a subject.
+    ///
+    /// ⚠ **Refused because SILENCE HERE READS AS A STREAM.** `grep -rn foo src`
+    /// loses `src` — [`crate::shell_ops::looks_like_path`] cannot tell a bare
+    /// word from a bare directory, and says so — and it is not admitted as a
+    /// hole either, because most such words are genuinely not files. So the
+    /// subjects come back empty, which is the same shape a piped `… | grep foo`
+    /// produces, and the concept would claim nothing was named when something
+    /// was. Counting the operands is what tells the two apart.
+    UnreadSubject,
 }
 
 /// Lift one step into the concept it served, or say why not.
@@ -199,7 +274,7 @@ pub fn lift(step: &Step) -> Result<Concept, Why> {
         // stdout with the edit; a lowered `Page` would claim it showed a span,
         // which it did not. Only a bare line-address program under `-n` pages.
         Some(Op::Transform { program, paths, .. }) => match sed_page(step, program) {
-            Some(range) => page(step, paths, range),
+            Some((range, operands)) => page(step, paths, range, operands),
             None => Err(Why::NotInPlace),
         },
         // ⚠ **A read is a page only for the four pagers, and only in the
@@ -208,31 +283,193 @@ pub fn lift(step: &Step) -> Result<Concept, Why> {
         // counted leaves. The range comes from `argv`, since the projection
         // dropped it.
         Some(Op::Read { paths }) => match read_page(step) {
-            Some(range) => page(step, paths, range),
+            Some((range, operands)) => page(step, paths, range, operands),
             None => Err(Why::NoLens),
         },
+        Some(Op::Search { pattern, paths }) => {
+            let shape = search_shape(step)?;
+            // ⚠ **A search reads its operands and writes nothing**, so the same
+            // guard `Page` applies holds here for the same reason: `grep -n foo
+            // f > hits` writes `hits` and `grep -n foo < f` reads an `f` no
+            // operand names. Both show in `step.files` and neither is in the
+            // `Op`'s paths.
+            if !reads_only(step, paths) {
+                return Err(Why::NoLens);
+            }
+            let subjects = subjects_or_refuse(step, paths)?;
+            // ⚠ **An operand that produced no subject would read as a stream.**
+            // See [`Why::UnreadSubject`]: the level below drops a bare word
+            // rather than guess, so the count is the only thing that can tell
+            // "searched a directory nobody could resolve" from "searched what
+            // the pipe gave it". Every flag this lens accepts is valueless, so
+            // an operand after the pattern is a subject and nothing else.
+            if shape.operands != subjects.len() + 1 {
+                return Err(Why::UnreadSubject);
+            }
+            Ok(Concept::Search {
+                subjects,
+                pattern: shape.dialect(pattern.clone()),
+                fold_case: shape.fold_case,
+                descend: shape.descend,
+            })
+        }
         _ => Err(Why::NoLens),
     }
 }
 
+/// The modifiers a search argv carries, once every flag has been read.
+struct Shape {
+    extended: bool,
+    fixed: bool,
+    fold_case: bool,
+    descend: bool,
+    /// Every word that is not a flag — the pattern, then one per subject.
+    operands: usize,
+}
+
+impl Shape {
+    fn dialect(&self, pattern: String) -> Pattern {
+        match (self.fixed, self.extended) {
+            (true, _) => Pattern::Fixed(pattern),
+            (false, true) => Pattern::Extended(pattern),
+            (false, false) => Pattern::Basic(pattern),
+        }
+    }
+}
+
+/// What a search argv asks for beyond its pattern and subjects, or the refusal a
+/// flag forces.
+///
+/// ⚠ **The dialect and the recursion start from the PROGRAM, not from zero.**
+/// `egrep` is `grep -E` and `rg` both descends and reads its own dialect by
+/// default, so a reader that only looked at flags would call `egrep 'a|b'` basic
+/// and lower it to a command matching three literal characters.
+///
+/// ⚠ **rg's dialect is NOT `-E`.** It is Rust's regex crate — no backreferences,
+/// different classes — so it is admitted only where the two agree, which this
+/// lens cannot check. `rg` refuses; `ag` and `ack` refuse for the same reason.
+/// They are 193 rows against grep's 119,000, and claiming them would be the kind
+/// of flattening the whole vocabulary is built to avoid.
+///
+/// ⚠ **`argv` keeps the wrappers, and `xargs` must not be unwrapped away** — the
+/// same refusal [`read_page`] makes, for the same reason: `xargs grep -l foo`
+/// searches files a pipe supplied, which no operand names.
+fn search_shape(step: &Step) -> Result<Shape, Why> {
+    let argv = unwrap_command(&step.argv);
+    if step.argv.len() > argv.len()
+        && step.argv[..step.argv.len() - argv.len()]
+            .iter()
+            .any(|w| basename(w) == "xargs")
+    {
+        return Err(Why::NoLens);
+    }
+    let mut shape = match basename(argv.first().ok_or(Why::NoLens)?) {
+        "grep" => Shape {
+            extended: false,
+            fixed: false,
+            fold_case: false,
+            descend: false,
+            operands: 0,
+        },
+        "egrep" => Shape {
+            extended: true,
+            fixed: false,
+            fold_case: false,
+            descend: false,
+            operands: 0,
+        },
+        "fgrep" => Shape {
+            extended: false,
+            fixed: true,
+            fold_case: false,
+            descend: false,
+            operands: 0,
+        },
+        _ => return Err(Why::NoLens),
+    };
+    for word in argv.iter().skip(1) {
+        // Everything after `--` is an operand, however it is spelled.
+        if word == "--" {
+            break;
+        }
+        if word.starts_with("--") {
+            return Err(match word.split('=').next().unwrap_or(word) {
+                "--include" | "--exclude" | "--exclude-dir" | "--glob" | "--type" => Why::Filtered,
+                "--count"
+                | "--files-with-matches"
+                | "--files-without-match"
+                | "--quiet"
+                | "--silent"
+                | "--only-matching" => Why::NotLines,
+                "--invert-match" => Why::Inverted,
+                "--after-context" | "--before-context" | "--context" | "--max-count" => {
+                    Why::WithContext
+                }
+                "--regexp" | "--file" => Why::PatternInFlag,
+                _ => Why::NoLens,
+            });
+        }
+        let Some(letters) = word.strip_prefix('-').filter(|rest| !rest.is_empty()) else {
+            shape.operands += 1; // an operand, or a bare `-` for stdin
+            continue;
+        };
+        for letter in letters.chars() {
+            match letter {
+                // ⚠ A digit is a flag's VALUE riding in the same word — `-A6`,
+                // `-m1`. The letter it belongs to has already been read, so the
+                // digits say nothing more.
+                '0'..='9' => {}
+                'E' => shape.extended = true,
+                'F' => shape.fixed = true,
+                'i' => shape.fold_case = true,
+                'r' | 'R' => shape.descend = true,
+                // Presentational: the same lines, decorated. `-n` numbers them,
+                // `-h` drops the filename, `-a` reads binary as text.
+                'n' | 'h' | 'H' | 'a' | 's' | 'w' | 'x' => {}
+                'c' | 'l' | 'L' | 'q' | 'o' => return Err(Why::NotLines),
+                'v' => return Err(Why::Inverted),
+                'A' | 'B' | 'C' | 'm' => return Err(Why::WithContext),
+                'e' | 'f' => return Err(Why::PatternInFlag),
+                _ => return Err(Why::NoLens),
+            }
+        }
+    }
+    Ok(shape)
+}
+
 /// Build a [`Concept::Page`] once the range is known, applying the refusals
 /// every single-command concept shares.
-fn page(step: &Step, paths: &[String], range: Range) -> Result<Concept, Why> {
+fn page(step: &Step, paths: &[String], range: Range, operands: usize) -> Result<Concept, Why> {
     // ⚠ **A page reads its operands and writes nothing — so a redirect is a
     // subject the argv never spells.** `head -5 f > out` writes `out` and
     // `head -5 < f` reads an `f` no operand names; both show in `step.files`
     // but not in the `Op`'s paths. A lowered `Page` built from the operands
     // alone would silently do less, which is gate 2 applied before the fact.
-    if step.files.iter().any(|use_| use_.write)
-        || step
-            .files
-            .iter()
-            .any(|use_| !use_.write && !paths.contains(&use_.path))
-    {
+    if !reads_only(step, paths) {
         return Err(Why::NoLens);
     }
     let subjects = subjects_or_refuse(step, paths)?;
+    // ⚠ **The same guard `Search` needed, and `Page` shipped without it.**
+    // `cat notes` lifted to a subjectless page and described as "all of what it
+    // is given" — a stream, about a file the text named. See
+    // [`Why::UnreadSubject`].
+    if operands != subjects.len() {
+        return Err(Why::UnreadSubject);
+    }
     Ok(Concept::Page { subjects, range })
+}
+
+/// Does this step read exactly the operands the op named, and write nothing?
+///
+/// Shared by the two lenses that only look at files, so a redirect cannot be
+/// invisible to one of them. Split out when `Search` landed and needed the
+/// identical check; `Page`'s comment above is the argument for both.
+fn reads_only(step: &Step, paths: &[String]) -> bool {
+    !step.files.iter().any(|use_| use_.write)
+        && !step
+            .files
+            .iter()
+            .any(|use_| !use_.write && !paths.contains(&use_.path))
 }
 
 /// The subjects, or the refusal their kind forces — the checks `Rewrite` and
@@ -276,7 +513,7 @@ fn subjects_or_refuse(step: &Step, paths: &[String]) -> Result<Vec<Subject>, Why
 /// subjects no operand names — and after unwrapping it is indistinguishable
 /// from a stream `head -5`. So it is refused before the command is read, the
 /// same reason a redirect is.
-fn read_page(step: &Step) -> Option<Range> {
+fn read_page(step: &Step) -> Option<(Range, usize)> {
     let argv = unwrap_command(&step.argv);
     if step.argv.len() > argv.len()
         && step.argv[..step.argv.len() - argv.len()]
@@ -288,11 +525,23 @@ fn read_page(step: &Step) -> Option<Range> {
     match basename(argv.first()?) {
         // ⚠ **`cat` with any flag is not a bare page** — `cat -n` numbers its
         // output, `cat -A` shows control characters; both change what is seen.
-        "cat" => flagless(argv).then_some(Range::All),
-        "head" => line_count(argv).map(Range::First),
-        "tail" => line_count(argv).map(Range::Last),
+        "cat" => flagless(argv).then(|| (Range::All, plain_operands(argv))),
+        "head" => line_count(argv).map(|(n, operands)| (Range::First(n), operands)),
+        "tail" => line_count(argv).map(|(n, operands)| (Range::Last(n), operands)),
         _ => None,
     }
+}
+
+/// Every word after the command that is not a flag, and not the stdin `-`.
+///
+/// ⚠ **Only sound where no accepted flag takes a SEPARATE value**, which is why
+/// `head` and `tail` count inside [`line_count`] instead: `head -n 5 f` would
+/// read the `5` as an operand here and call the page a two-subject one.
+fn plain_operands(argv: &[String]) -> usize {
+    argv.iter()
+        .skip(1)
+        .filter(|word| !word.starts_with('-'))
+        .count()
 }
 
 /// The span a `sed -n 'a,bp'` shows, or `None` for any other sed program.
@@ -301,7 +550,7 @@ fn read_page(step: &Step) -> Option<Range> {
 /// prints the file AND lines 1-5 again — a different output, so it must not
 /// read as a page. A `$`-relative address (`1,$p`), a `d`elete, or a
 /// substitution all fail the digit parse and refuse.
-fn sed_page(step: &Step, program: &str) -> Option<Range> {
+fn sed_page(step: &Step, program: &str) -> Option<(Range, usize)> {
     let argv = unwrap_command(&step.argv);
     if !argv.iter().any(|w| w == "-n") {
         return None;
@@ -310,15 +559,19 @@ fn sed_page(step: &Step, program: &str) -> Option<Range> {
     match body.split_once(',') {
         Some((a, b)) => {
             let (a, b) = (a.parse().ok()?, b.parse().ok()?);
-            Some(if a == 1 {
+            let range = if a == 1 {
                 Range::First(b)
             } else {
                 Range::Lines(a, b)
-            })
+            };
+            // ⚠ The sed PROGRAM is an operand as well as the files, so one is
+            // subtracted here rather than in `page`, which must not need to know
+            // which spelling it was handed.
+            Some((range, plain_operands(argv).checked_sub(1)?))
         }
         None => {
             let n = body.parse().ok()?;
-            Some(Range::Lines(n, n))
+            Some((Range::Lines(n, n), plain_operands(argv).checked_sub(1)?))
         }
     }
 }
@@ -331,16 +584,18 @@ fn sed_page(step: &Step, program: &str) -> Option<Range> {
 /// A byte count (`-c`), a follow (`-f`), a `+N` prefix drop, or any flag this
 /// does not name refuses — each is a different act the lowered form could not
 /// honour.
-fn line_count(argv: &[String]) -> Option<u32> {
+fn line_count(argv: &[String]) -> Option<(u32, usize)> {
     let mut count = None;
+    let mut operands = 0;
     let mut i = 1;
     while i < argv.len() {
         let Some(rest) = argv[i].strip_prefix('-') else {
-            i += 1; // an operand — a path
+            operands += 1; // an operand — a path
+            i += 1;
             continue;
         };
         if rest.is_empty() {
-            i += 1; // a bare `-`, stdin
+            i += 1; // a bare `-`, stdin — named, but not a file to resolve
             continue;
         }
         if rest.chars().all(|c| c.is_ascii_digit()) {
@@ -360,7 +615,7 @@ fn line_count(argv: &[String]) -> Option<u32> {
         }
         return None; // -c, -f, -q, anything else
     }
-    Some(count.unwrap_or(10))
+    Some((count.unwrap_or(10), operands))
 }
 
 /// A plain unsigned count, or `None`.
@@ -464,6 +719,43 @@ pub fn lower(concept: &Concept) -> String {
                 format!("{head} {}", words.join(" "))
             }
         }
+        // ⚠ **`grep` is the canonical spelling and the flags are rebuilt from
+        // the fields, not remembered.** `egrep foo` and `grep -E foo` both lift
+        // to `Extended` and both lower to `grep -E`; that is the same
+        // normalisation `sed -i` performs for `perl -pi`. The order is fixed so
+        // the lowered text is a function of the concept alone.
+        Concept::Search {
+            subjects,
+            pattern,
+            fold_case,
+            descend,
+        } => {
+            let (dialect, text) = match pattern {
+                Pattern::Basic(text) => ("", text),
+                Pattern::Extended(text) => (" -E", text),
+                Pattern::Fixed(text) => (" -F", text),
+            };
+            let mut head = format!("grep{dialect}");
+            if *fold_case {
+                head.push_str(" -i");
+            }
+            if *descend {
+                head.push_str(" -r");
+            }
+            // ⚠ Quoted, always. A pattern is a regular expression and holds `|`,
+            // `*` and spaces; unquoted it would be read back as several operands
+            // or expanded by the shell, and the law would catch neither because
+            // both would still parse.
+            let head = format!("{head} '{text}'");
+            if subjects.is_empty() {
+                head
+            } else {
+                format!(
+                    "{head} {}",
+                    subjects.iter().map(spell).collect::<Vec<_>>().join(" ")
+                )
+            }
+        }
     }
 }
 
@@ -508,6 +800,28 @@ pub fn describe(concept: &Concept) -> String {
             } else {
                 format!("Show {part} {}", said(subjects))
             }
+        }
+        Concept::Search {
+            subjects,
+            pattern,
+            fold_case,
+            descend,
+        } => {
+            let (text, how) = match pattern {
+                Pattern::Basic(text) => (text, ""),
+                Pattern::Extended(text) => (text, ""),
+                // ⚠ Worth saying, because it is the case where the punctuation
+                // in the pattern means nothing: `*` is an asterisk, not a
+                // repeat. A card that read it as a regex would mislead.
+                Pattern::Fixed(text) => (text, ", as a literal string"),
+            };
+            let case = if *fold_case { ", ignoring case" } else { "" };
+            let where_ = match (subjects.is_empty(), descend) {
+                (true, _) => "what it is given".to_string(),
+                (false, true) => format!("everything under {}", said(subjects)),
+                (false, false) => said(subjects),
+            };
+            format!("Find lines matching {text} in {where_}{case}{how}")
         }
     }
 }

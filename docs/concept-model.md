@@ -4,13 +4,24 @@ Design for the layers above the reader: **lifting** what the fleet executed into
 the concepts it was executing, and **lowering** a concept back into a command
 that does the same thing.
 
-**Status: two lenses and all three instruments are BUILT; the second lens was
-chosen by the census, not guessed.** `bash-corpus --said` + `said-report` mine
-and read the description corpus; `reader/src/concept.rs` lifts and lowers
-`Rewrite` and `Page` — and answers every miss by name (`concept::Why`) — with
-gates 1–3 in `reader/tests/concept.rs`; `concept-report` is the census,
+**Status: three lenses and all three instruments are BUILT; the second and third
+were chosen by the census, not guessed.** `bash-corpus --said` + `said-report`
+mine and read the description corpus; `reader/src/concept.rs` lifts and lowers
+`Rewrite`, `Page` and `Search` — and answers every miss by name (`concept::Why`)
+— with gates 1–3 in `reader/tests/concept.rs`; `concept-report` is the census,
 balanced to the unit. Adding `Page` took the lift rate from 0.18% to **13.06%
-of steps** (census 2026-09-04), which is what one census-ranked lens is worth.
+of steps** and `Search` took it to **17.32%** (census 2026-09-10), which is what
+a census-ranked lens is worth.
+
+⚠ **`Search` also found a fabrication in `Page`, which had shipped with it.** A
+bare word is dropped by the level below rather than guessed at — `looks_like_path`
+cannot tell `src` from a bare directory and says so — so `cat notes` lifted with
+NO subjects, which is the shape a piped `… | cat` produces. The card would have
+said *"Show all of what it is given"* about a file the text named outright.
+Counting the operands is what tells the two apart, and both lenses now do
+(`Why::UnreadSubject`, 1,031 rows). **A lens that reads subjects off the
+accounts must also ask whether the accounts are as long as the argv** — silence
+from the level below is not the same as absence in the text.
 Gate 4 is not yet pointed at concepts, and no ask card renders one yet. Where a
 step needs sizing, the instrument that sizes it is named — a count written here
 would rot.
@@ -166,6 +177,8 @@ hole — so a concept inherits precision instead of flattening it:
 ```
 Rewrite  { subjects, substitution }         BUILT — sed -i / perl -pi
 Page     { subjects, range }                BUILT — head / tail / cat / sed -n
+Search   { subjects, pattern, fold_case,    BUILT — grep / egrep / fgrep
+           descend }
 Poll     { probe, until, every, bound }     until …; do sleep …; done
 Glance   { repo }                           git log --oneline -N && git status
 Probe    { question, subjects }             the compound inspect-several-things
@@ -178,6 +191,23 @@ lift equal and a byte count or a `tail -f` refuse rather than flatten. The
 seeds below `Page` stay hunches: `Poll` and `Glance` need a key spanning more
 than one step (the census found their constituents scattered across steps), and
 that instrument is not built.
+
+⚠ **`Search` carries only what changes WHICH LINES COME BACK**, and the line
+between that and spelling is where the design is. `-n` numbers the same lines
+and normalises away; the dialect does not, because `a|b` is three characters to
+basic grep and an alternation to `-E` — measured, both — so a concept that
+dropped it would lower to a command matching different text. `-i` and `-r` are
+carried for the same reason, and `-r` twice over: `grep pattern dir/` without it
+is an error, so a concept that lost it would lower to a command that fails.
+
+⚠ **Everything that answers a DIFFERENT QUESTION about the same scan refuses by
+name, and the census sizes each one** — `-c` counts (a number), `-l` names the
+files, `-q` returns an exit status and prints nothing, `-o` prints the fragment
+rather than the line, `-v` returns the complement, `-A`/`-B`/`-C` return the
+neighbours. That is 46,000 rows held back on purpose. Each is a lens somebody
+can build with a row count already attached, which is the point of refusing by
+name rather than flattening: the alternative would have `Search` claim lines
+its command never printed.
 
 The vocabulary is **mined, not designed** — the census below ranks what the
 corpus actually holds, and the seeds above are shapes reader.md already tallies

@@ -17,7 +17,7 @@
 //! in their holes must compare equal — the equality recurrence detection will
 //! later stand on.
 
-use reader::concept::{Concept, Range, Subject, Why, describe, lift, lower};
+use reader::concept::{Concept, Pattern, Range, Subject, Why, describe, lift, lower};
 use reader::project::read as parse;
 use reader::shell_files::{Step, trace};
 
@@ -432,4 +432,174 @@ fn a_stream_page_says_it_was_given_its_input() {
         describe(&only("head -50")),
         "Show the first 50 lines of what it is given"
     );
+}
+
+/// ⚠ **Acceptance test 1, for the third lens.** `egrep` IS `grep -E`, so two
+/// spellings of one act must lift equal and the dialect must survive as a field
+/// rather than as the program's name.
+#[test]
+fn two_spellings_of_one_search_lift_to_the_same_concept() {
+    let egrep = only("egrep 'a|b' src/geo/velocity.ts");
+    let grep = only("grep -E 'a|b' src/geo/velocity.ts");
+
+    assert_eq!(egrep, grep);
+    assert_eq!(
+        grep,
+        Concept::Search {
+            subjects: vec![Subject::Named(
+                "/home/example/Code/health/src/geo/velocity.ts".to_string()
+            )],
+            pattern: Pattern::Extended("a|b".to_string()),
+            fold_case: false,
+            descend: false,
+        }
+    );
+}
+
+/// ⚠ **And a dialect is MEANING, so the two must NOT compare equal.** `a|b` is
+/// three literal characters to basic grep and an alternation to `-E` — measured
+/// in bash, both. A lens that dropped the dialect would make these one concept
+/// and lower it to a command matching different lines.
+#[test]
+fn a_search_dialect_is_not_spelling() {
+    let basic = only("grep 'a|b' src/geo/velocity.ts");
+    let extended = only("grep -E 'a|b' src/geo/velocity.ts");
+    assert_ne!(basic, extended);
+
+    let fixed = only("fgrep 'a|b' src/geo/velocity.ts");
+    assert_ne!(basic, fixed);
+    assert_ne!(extended, fixed);
+}
+
+/// **Gate 1 over every search shape**, holes and the subjectless stream
+/// included. `-n` normalises away because it decorates the same lines; `-i` and
+/// `-r` do not, because they change which lines come back.
+#[test]
+fn every_search_shape_survives_the_round_trip() {
+    for script in [
+        "grep foo src/a.ts",
+        "grep -n foo src/a.ts src/b.ts",
+        "grep -E '^(a|b)$' src/a.ts",
+        "fgrep 'a.b' src/a.ts",
+        "grep -i foo src/a.ts",
+        "grep -rn foo src/geo",
+        "grep -in foo \"$TARGET\"",
+        "grep -n foo",
+    ] {
+        let concept = only(script);
+        let text = lower(&concept);
+        assert_eq!(only(&text), concept, "lowered `{script}` to `{text}`");
+    }
+}
+
+/// **Gate 2 for the third lens** — the lowered command reads as the same work
+/// over the same files.
+///
+/// **Gate 3** rides along: the lowered text has to parse, and a pattern holding
+/// `|` and a space is exactly what would break it if the quoting were dropped.
+#[test]
+fn a_lowered_search_reads_as_the_same_work_and_parses() {
+    let original = "egrep -n 'a|b c' src/geo/velocity.ts";
+    let lowered = lower(&only(original));
+
+    assert_eq!(read_as(original), read_as(&lowered));
+    assert!(parse(&lowered).is_ok(), "did not parse: {lowered}");
+    assert_eq!(
+        lowered,
+        "grep -E 'a|b c' /home/example/Code/health/src/geo/velocity.ts"
+    );
+}
+
+/// ⚠ **What scans like a search and answers a different question, refused BY
+/// NAME so the census can size each one.** These are not gaps — every one is a
+/// design question with a row count behind it, and flattening any of them would
+/// have the concept claim lines the command never printed.
+#[test]
+fn a_search_with_another_product_refuses_by_name() {
+    for (script, why) in [
+        ("grep -c foo src/a.ts", Why::NotLines),
+        ("grep -l foo src/a.ts", Why::NotLines),
+        ("grep -q foo src/a.ts", Why::NotLines),
+        ("grep -o foo src/a.ts", Why::NotLines),
+        ("grep -v foo src/a.ts", Why::Inverted),
+        ("grep -A 5 foo src/a.ts", Why::WithContext),
+        ("grep -B6 foo src/a.ts", Why::WithContext),
+        ("grep -m1 foo src/a.ts", Why::WithContext),
+        ("grep -rn --include=*.ts foo src", Why::Filtered),
+        ("grep -e foo src/a.ts", Why::PatternInFlag),
+        ("rg -n foo src/a.ts", Why::NoLens),
+        // ⚠ The level below drops a bare word rather than guess what it is,
+        // so the subjects come back empty — the same shape a pipe produces.
+        ("grep -rn foo src", Why::UnreadSubject),
+        ("grep -n foo notes", Why::UnreadSubject),
+    ] {
+        let found: Vec<Why> = steps(script)
+            .iter()
+            .filter_map(|step| lift(step).err())
+            .collect();
+        assert!(
+            found.contains(&why),
+            "`{script}` should refuse {why:?}, got {found:?}"
+        );
+    }
+}
+
+/// ⚠ **A redirect is a subject the argv never spells**, and the guard `Page`
+/// carries had to be shared rather than repeated — a search writing its hits to
+/// a file would otherwise lower to one that prints them instead.
+#[test]
+fn a_search_that_redirects_or_reads_a_stream_does_not_lift() {
+    for script in [
+        "grep -n foo src/a.ts > hits.txt",
+        "grep -n foo < src/a.ts",
+        "xargs grep -n foo",
+    ] {
+        let lifted: Vec<Concept> = steps(script)
+            .iter()
+            .filter_map(|step| lift(step).ok())
+            .collect();
+        assert!(lifted.is_empty(), "`{script}` lifted to {lifted:?}");
+    }
+}
+
+/// The card sentence, which is what a person approving actually reads. A
+/// recursive search says so, because "in src" and "everything under src" are
+/// different amounts of machine to touch.
+#[test]
+fn a_search_describes_what_it_looks_for_and_where() {
+    assert_eq!(
+        describe(&only("grep -n foo notes.md")),
+        format!("Find lines matching foo in {CWD}/notes.md")
+    );
+    assert_eq!(
+        describe(&only("grep -rin foo src/geo")),
+        format!("Find lines matching foo in everything under {CWD}/src/geo, ignoring case")
+    );
+    assert_eq!(
+        describe(&only("grep -n foo")),
+        "Find lines matching foo in what it is given"
+    );
+}
+
+/// ⚠ **The same trap the `Search` lens found, asked of `Page`.** A bare word is
+/// dropped by the level below rather than guessed at, so `cat notes` would come
+/// back with no subjects — which is the shape `… | cat` produces, and would have
+/// the card say "what it is given" about a file the text named.
+#[test]
+fn a_page_naming_an_operand_the_reader_cannot_resolve_does_not_lift() {
+    for script in [
+        "cat notes",
+        "head -5 notes",
+        "tail -n 3 notes",
+        "sed -n '1,5p' notes",
+    ] {
+        let lifted: Vec<Concept> = steps(script)
+            .iter()
+            .filter_map(|step| lift(step).ok())
+            .collect();
+        assert!(
+            lifted.is_empty(),
+            "`{script}` lifted to {lifted:?} — it names an operand nothing resolved"
+        );
+    }
 }

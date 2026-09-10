@@ -47,6 +47,12 @@ fn refusal(why: Why) -> &'static str {
         Why::NotInPlace => "not in place — prints, a different act",
         Why::Remote => "remote — another machine's world",
         Why::Described => "described subject — a loop's language, unlowerable",
+        Why::NotLines => "search whose product is not lines (-c, -l, -q, -o)",
+        Why::WithContext => "search showing more or fewer than the matches (-A, -B, -C, -m)",
+        Why::Inverted => "search for the complement (-v)",
+        Why::Filtered => "search with a subject filter (--include, --type)",
+        Why::PatternInFlag => "search whose pattern is in a flag (-e, -f)",
+        Why::UnreadSubject => "names an operand nothing resolved — silence would read as a stream",
     }
 }
 
@@ -55,6 +61,7 @@ fn concept_name(concept: &Concept) -> &'static str {
     match concept {
         Concept::Rewrite { .. } => "Rewrite",
         Concept::Page { .. } => "Page",
+        Concept::Search { .. } => "Search",
     }
 }
 
