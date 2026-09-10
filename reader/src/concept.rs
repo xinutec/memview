@@ -410,24 +410,14 @@ pub fn lift(step: &Step) -> Result<Concept, Why> {
         },
         Some(Op::Search { pattern, paths }) => {
             let shape = search_shape(step)?;
-            // ⚠ **A search reads its operands and writes nothing**, so the same
-            // guard `Page` applies holds here for the same reason: `grep -n foo
-            // f > hits` writes `hits` and `grep -n foo < f` reads an `f` no
-            // operand names. Both show in `step.files` and neither is in the
-            // `Op`'s paths.
-            if !reads_only(step, paths) {
-                return Err(Why::NoLens);
-            }
-            let subjects = subjects_or_refuse(step, paths)?;
-            // ⚠ **An operand that produced no subject would read as a stream.**
-            // See [`Why::UnreadSubject`]: the level below drops a bare word
-            // rather than guess, so the count is the only thing that can tell
-            // "searched a directory nobody could resolve" from "searched what
-            // the pipe gave it". Every flag this lens accepts is valueless, so
-            // an operand after the pattern is a subject and nothing else.
-            if shape.operands != subjects.len() + 1 {
-                return Err(Why::UnreadSubject);
-            }
+            // Every flag this lens accepts is valueless, so the pattern is the
+            // first operand and each word after it is a subject. `None` when
+            // there are no operands at all — `grep -- pat` counts none, because
+            // [`search_shape`] stops counting at `--` — and it must refuse at
+            // the COUNT check, not before it: measured 2026-09-10, nine remote
+            // `grep -- pat` steps refuse as Remote, which outranks a miscount
+            // in every lens.
+            let subjects = counted_subjects(step, paths, shape.operands.checked_sub(1))?;
             Ok(Concept::Search {
                 subjects,
                 pattern: shape.dialect(pattern.clone()),
@@ -475,7 +465,7 @@ fn history(step: &Step, paths: &[String]) -> Result<Concept, Why> {
         "--decorate",
         "--graph",
     ];
-    let argv = unwrap_command(&step.argv);
+    let argv = own_command(step).ok_or(Why::NoLens)?;
     let mut it = argv.iter().map(String::as_str);
     if it.next().map(basename) != Some("git") {
         return Err(Why::NoLens);
@@ -499,7 +489,7 @@ fn history(step: &Step, paths: &[String]) -> Result<Concept, Why> {
         Some("log") => {}
         Some("status") => return status(step, paths, it),
         Some("add" | "stage") => return stage(step, paths, it),
-        Some("commit") => return commit(step, it),
+        Some("commit") => return commit(it),
         _ => return Err(Why::NoLens),
     }
     let (mut count, mut from, mut after_sep, mut named) = (None, None, false, 0usize);
@@ -549,15 +539,9 @@ fn history(step: &Step, paths: &[String]) -> Result<Concept, Why> {
             _ => Why::NoLens,
         });
     }
-    if !reads_only(step, paths) {
-        return Err(Why::NoLens);
-    }
-    let subjects = subjects_or_refuse(step, paths)?;
-    // The same guard the other lenses carry: a path the level below could not
-    // resolve would silently narrow the concept to "the whole repository".
-    if named != subjects.len() {
-        return Err(Why::UnreadSubject);
-    }
+    // A path the level below could not resolve would silently narrow the
+    // concept to "the whole repository".
+    let subjects = counted_subjects(step, paths, named)?;
     Ok(Concept::History {
         count,
         from,
@@ -576,16 +560,7 @@ fn history(step: &Step, paths: &[String]) -> Result<Concept, Why> {
 /// `od`, `stat` — falls through to [`Why::NoLens`] and stays in the queue, where
 /// the census can rank it.
 fn listing(step: &Step, paths: &[String]) -> Result<Concept, Why> {
-    let argv = unwrap_command(&step.argv);
-    // ⚠ `xargs ls` enumerates directories a PIPE named, the same refusal the
-    // page reader makes and for the same reason.
-    if step.argv.len() > argv.len()
-        && step.argv[..step.argv.len() - argv.len()]
-            .iter()
-            .any(|w| basename(w) == "xargs")
-    {
-        return Err(Why::NoLens);
-    }
+    let argv = own_command(step).ok_or(Why::NoLens)?;
     match basename(argv.first().ok_or(Why::NoLens)?) {
         "ls" => {}
         "find" | "fd" => return Err(Why::Predicate),
@@ -622,13 +597,7 @@ fn listing(step: &Step, paths: &[String]) -> Result<Concept, Why> {
     if operands == 0 {
         return Err(Why::ImplicitLocus);
     }
-    if !reads_only(step, paths) {
-        return Err(Why::NoLens);
-    }
-    let loci = subjects_or_refuse(step, paths)?;
-    if operands != loci.len() {
-        return Err(Why::UnreadSubject);
-    }
+    let loci = counted_subjects(step, paths, operands)?;
     Ok(Concept::List {
         loci,
         descend,
@@ -674,13 +643,7 @@ fn status<'a>(
             _ => return Err(Why::NoLens),
         }
     }
-    if !reads_only(step, paths) {
-        return Err(Why::NoLens);
-    }
-    let subjects = subjects_or_refuse(step, paths)?;
-    if named != subjects.len() {
-        return Err(Why::UnreadSubject);
-    }
+    let subjects = counted_subjects(step, paths, named)?;
     Ok(Concept::Status { paths: subjects })
 }
 
@@ -716,10 +679,7 @@ fn stage<'a>(
     if operands == 0 {
         return Err(Why::ImplicitLocus);
     }
-    let subjects = subjects_or_refuse(step, paths)?;
-    if operands != subjects.len() {
-        return Err(Why::UnreadSubject);
-    }
+    let subjects = counted_subjects(step, paths, operands)?;
     Ok(Concept::Stage { subjects, all })
 }
 
@@ -728,7 +688,7 @@ fn stage<'a>(
 /// ⚠ **No path guard here.** Staging already happened; a commit writes the
 /// repository rather than the operands, and `step.files` is empty for it. The
 /// other lenses' `reads_only` check would be asking the wrong question.
-fn commit<'a>(step: &Step, rest: impl Iterator<Item = &'a str>) -> Result<Concept, Why> {
+fn commit<'a>(rest: impl Iterator<Item = &'a str>) -> Result<Concept, Why> {
     let (mut message, mut amend, mut no_verify, mut from_file) = (None, false, false, false);
     let mut operands = 0usize;
     let mut rest = rest.peekable();
@@ -776,7 +736,6 @@ fn commit<'a>(step: &Step, rest: impl Iterator<Item = &'a str>) -> Result<Concep
         // the text or the transcript records what was typed there.
         return Err(Why::NoLens);
     }
-    let _ = step;
     Ok(Concept::Commit {
         message,
         amend,
@@ -818,18 +777,8 @@ impl Shape {
 /// They are 193 rows against grep's 119,000, and claiming them would be the kind
 /// of flattening the whole vocabulary is built to avoid.
 ///
-/// ⚠ **`argv` keeps the wrappers, and `xargs` must not be unwrapped away** — the
-/// same refusal [`read_page`] makes, for the same reason: `xargs grep -l foo`
-/// searches files a pipe supplied, which no operand names.
 fn search_shape(step: &Step) -> Result<Shape, Why> {
-    let argv = unwrap_command(&step.argv);
-    if step.argv.len() > argv.len()
-        && step.argv[..step.argv.len() - argv.len()]
-            .iter()
-            .any(|w| basename(w) == "xargs")
-    {
-        return Err(Why::NoLens);
-    }
+    let argv = own_command(step).ok_or(Why::NoLens)?;
     let mut shape = match basename(argv.first().ok_or(Why::NoLens)?) {
         "grep" => Shape {
             extended: false,
@@ -907,30 +856,55 @@ fn search_shape(step: &Step) -> Result<Shape, Why> {
 /// Build a [`Concept::Page`] once the range is known, applying the refusals
 /// every single-command concept shares.
 fn page(step: &Step, paths: &[String], range: Range, operands: usize) -> Result<Concept, Why> {
-    // ⚠ **A page reads its operands and writes nothing — so a redirect is a
-    // subject the argv never spells.** `head -5 f > out` writes `out` and
-    // `head -5 < f` reads an `f` no operand names; both show in `step.files`
-    // but not in the `Op`'s paths. A lowered `Page` built from the operands
-    // alone would silently do less, which is gate 2 applied before the fact.
+    let subjects = counted_subjects(step, paths, operands)?;
+    Ok(Concept::Page { subjects, range })
+}
+
+/// The subjects, once the guards every file-reading lens shares have run:
+/// nothing touched beyond the operands, every operand resolved, one subject per
+/// operand.
+///
+/// ⚠ **One copy, because the copies drifted.** Both defects this file records —
+/// `Page` shipping without the count guard `Search` carried, the git dispatch
+/// reading paths from `Inspect` only — were one site missing its copy of a
+/// check the others had. A lens that names subjects ends here, or says in a
+/// comment why it cannot (see [`commit`]).
+///
+/// The two checks, and why each exists:
+///
+/// - **A redirect is a subject the argv never spells.** `head -5 f > out`
+///   writes `out` and `grep foo < f` reads an `f` no operand names; both show
+///   in `step.files` and neither is in the `Op`'s paths. A concept built from
+///   the operands alone would silently do less — gate 2 applied before the
+///   fact.
+/// - **An operand that produced no subject would read as a stream.** The level
+///   below drops a bare word rather than guess — see [`Why::UnreadSubject`] —
+///   so the count is the only thing that can tell "acted on a path nobody
+///   could resolve" from "acted on what the pipe gave it".
+///
+/// `operands` is the subject count the argv promises — `None` for a shape that
+/// can promise none, which refuses HERE, at the count check, so that the guards
+/// above it keep outranking it.
+fn counted_subjects(
+    step: &Step,
+    paths: &[String],
+    operands: impl Into<Option<usize>>,
+) -> Result<Vec<Subject>, Why> {
     if !reads_only(step, paths) {
         return Err(Why::NoLens);
     }
     let subjects = subjects_or_refuse(step, paths)?;
-    // ⚠ **The same guard `Search` needed, and `Page` shipped without it.**
-    // `cat notes` lifted to a subjectless page and described as "all of what it
-    // is given" — a stream, about a file the text named. See
-    // [`Why::UnreadSubject`].
-    if operands != subjects.len() {
+    if operands.into() != Some(subjects.len()) {
         return Err(Why::UnreadSubject);
     }
-    Ok(Concept::Page { subjects, range })
+    Ok(subjects)
 }
 
 /// Does this step read exactly the operands the op named, and write nothing?
 ///
-/// Shared by the two lenses that only look at files, so a redirect cannot be
-/// invisible to one of them. Split out when `Search` landed and needed the
-/// identical check; `Page`'s comment above is the argument for both.
+/// The first guard of [`counted_subjects`], which is its only caller — named
+/// separately because it answers a different question (about `step.files`) than
+/// the subject checks below it.
 fn reads_only(step: &Step, paths: &[String]) -> bool {
     !step.files.iter().any(|use_| use_.write)
         && !step
@@ -972,23 +946,31 @@ fn subjects_or_refuse(step: &Step, paths: &[String]) -> Result<Vec<Subject>, Why
     Ok(subjects)
 }
 
-/// The range a `head`/`tail`/`cat` step shows, or `None` if this read is not a
-/// page the lens accepts.
+/// The step's own command with its wrappers unwrapped — or `None` when `xargs`
+/// is among them.
 ///
 /// ⚠ **`argv` keeps the wrappers, and `xargs` is the one that must not be
-/// unwrapped away here.** `xargs head -5` pages the files a pipe supplies —
+/// unwrapped away.** `xargs head -5` pages the files a pipe supplies —
 /// subjects no operand names — and after unwrapping it is indistinguishable
 /// from a stream `head -5`. So it is refused before the command is read, the
 /// same reason a redirect is.
-fn read_page(step: &Step) -> Option<(Range, usize)> {
+///
+/// ⚠ **One copy, for the same reason [`counted_subjects`] is** — this lived as
+/// three, and the git family had none, so `xargs git log` lifted to a
+/// whole-repository `History` about paths only the pipe knew.
+fn own_command(step: &Step) -> Option<&[String]> {
     let argv = unwrap_command(&step.argv);
-    if step.argv.len() > argv.len()
-        && step.argv[..step.argv.len() - argv.len()]
-            .iter()
-            .any(|w| basename(w) == "xargs")
-    {
+    let wrappers = &step.argv[..step.argv.len() - argv.len()];
+    if wrappers.iter().any(|w| basename(w) == "xargs") {
         return None;
     }
+    Some(argv)
+}
+
+/// The range a `head`/`tail`/`cat` step shows, or `None` if this read is not a
+/// page the lens accepts.
+fn read_page(step: &Step) -> Option<(Range, usize)> {
+    let argv = own_command(step)?;
     match basename(argv.first()?) {
         // ⚠ **`cat` with any flag is not a bare page** — `cat -n` numbers its
         // output, `cat -A` shows control characters; both change what is seen.
