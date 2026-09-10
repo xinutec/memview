@@ -56,19 +56,39 @@ pub struct Commit {
 /// Depth two, which is what the layout is: `~/Code/<repo>` and nothing nested
 /// (checked — there are no submodules and no worktree `.git` files). A deeper
 /// walk would have to skip `node_modules`, and would find nothing for it.
-pub fn repositories(code_root: &Path) -> Vec<PathBuf> {
+/// ⚠ **A failure here must not read as an empty fleet** — the same rule
+/// [`history`] arrived at for its spawn, one level earlier. This was `let
+/// Ok(entries) … else { return out }` with `.flatten()` and `.exists()`, which
+/// between them turn every IO error — a directory unlistable under fd
+/// pressure, a transient `EMFILE` from three gates running beside each other —
+/// into "there are no repositories": attribution silently zero, blamed on the
+/// miner (memview#1243, in-gate at load 19.5, 2026-09-10). An error is an
+/// error; empty is a CLAIM.
+///
+/// The one exception is an ABSENT root: that is a definite answer — no fleet —
+/// not a failed question, and the fixtures that run a scan with no code
+/// checkout state it as their contract.
+pub fn repositories(code_root: &Path) -> anyhow::Result<Vec<PathBuf>> {
     let mut out = Vec::new();
-    let Ok(entries) = std::fs::read_dir(code_root) else {
-        return out;
+    let entries = match std::fs::read_dir(code_root) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(out),
+        other => other.with_context(|| format!("listing {}", code_root.display()))?,
     };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.join(".git").exists() {
+    for entry in entries {
+        let path = entry
+            .with_context(|| format!("listing {}", code_root.display()))?
+            .path();
+        // `try_exists`, because `exists()` reports "could not ask" as `false`.
+        let is_repo = path
+            .join(".git")
+            .try_exists()
+            .with_context(|| format!("probing {}", path.display()))?;
+        if is_repo {
             out.push(path);
         }
     }
     out.sort();
-    out
+    Ok(out)
 }
 
 /// Every commit in one repository, with per-file line counts.
@@ -93,20 +113,25 @@ pub fn history(repo: &Path, code_root: &Path) -> anyhow::Result<Vec<Commit>> {
         .to_string();
     // \x01 as the field separator: it cannot occur in a commit subject, where a
     // tab or a pipe easily can.
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        // `-C` names the directory to work in; it does NOT override an inherited
-        // GIT_DIR, which wins and would silently read a different repository.
-        // Anything started from a git hook has one set — the miner is normally
-        // run from a nightly job, but "normally" is not a guarantee, and a
-        // history read from the wrong repo is attributed to the wrong sessions
-        // with nothing to give it away.
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_INDEX_FILE")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_OBJECT_DIRECTORY")
-        .env_remove("GIT_COMMON_DIR")
+    let mut cmd = Command::new("git");
+    cmd.arg("-C").arg(repo);
+    // `-C` names the directory to work in; it does NOT override an inherited
+    // GIT_DIR, which wins and would silently read a different repository.
+    // Anything started from a git hook has one set — the miner is normally
+    // run from a nightly job, but "normally" is not a guarantee, and a
+    // history read from the wrong repo is attributed to the wrong sessions
+    // with nothing to give it away.
+    //
+    // ⚠ **Strip EVERY GIT_* variable, not a list.** The fixture that tests
+    // this learned it on 2026-09-02 — an enumerated subset that missed one
+    // variable bound a fresh repo to the committing repo's dirs — and this
+    // was still the pre-lesson list of five. A prefix cannot drift.
+    for (key, _) in std::env::vars() {
+        if key.starts_with("GIT_") {
+            cmd.env_remove(key);
+        }
+    }
+    let out = cmd
         .args([
             "log",
             "--numstat",
@@ -200,7 +225,7 @@ pub fn renamed(path: &str) -> (Option<String>, String) {
 /// Every commit under the code root, newest first within each repository.
 pub fn all(code_root: &Path) -> anyhow::Result<Vec<Commit>> {
     let mut every = Vec::new();
-    for repo in repositories(code_root) {
+    for repo in repositories(code_root)? {
         every.extend(history(&repo, code_root)?);
     }
     Ok(every)
