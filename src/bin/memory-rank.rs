@@ -30,6 +30,13 @@
 //! was believed: #1214 was filed on a wrong premise taken from this very
 //! paragraph, which is what a stale docstring costs.
 //!
+//! ⚠ **A corpus grep that MATCHED is counted apart and never scored.** A grep
+//! that printed a line of a memory put it in front of somebody — 125 memories,
+//! ~17% of the corpus, arrive only that way (memview#1238). It is shown beside
+//! a row and added to nothing: 8 agents run corpus-wide greps, so scoring it
+//! would lift the least-read memories most and compress the bottom of the list,
+//! which is where every demotion decision is made.
+//!
 //! ⚠ **What IS discarded is `maybe_reads`.** A shell read whose success cannot
 //! be established — after `&&`, or inside a script with one exit status — is
 //! collected under that name and never consulted by the ranking, so a memory
@@ -91,6 +98,15 @@ struct Standing {
     /// decides. Measured 2026-08-27: 6 memories corpus-wide have no proven open
     /// and some unproven one, 2 of them indexed (#1214).
     maybe_reads: usize,
+    /// Times a corpus-wide search printed a LINE of this memory back.
+    ///
+    /// ⚠ **Shown, never scored — the same standing `maybe_reads` has, and for
+    /// a different reason.** A grep match is real evidence the memory reached
+    /// somebody: 125 memories, ~17% of the corpus, arrive only this way
+    /// (memview#1238). But 8 agents run corpus-wide greps, so adding it to the
+    /// ranking would lift the LEAST-read memories most and compress exactly the
+    /// bottom of the list where every demotion decision is made.
+    grep_matches: usize,
     /// Days since it was last opened at all, or `None` if never.
     last_open: Option<i64>,
     /// Whether `MEMORY.md` links it directly.
@@ -194,6 +210,12 @@ fn main() -> Result<()> {
                 .filter_map(|agent| agent.memories.get(name))
                 .map(|use_| use_.maybe_reads)
                 .sum();
+            let grep_matches = mined
+                .agents
+                .iter()
+                .filter_map(|agent| agent.memories.get(name))
+                .map(|use_| use_.grep_matches)
+                .sum();
             let reads = days.map(|d| d.reads.clone()).unwrap_or_default();
             let edits = days.map(|d| d.edits.clone()).unwrap_or_default();
             Standing {
@@ -201,6 +223,7 @@ fn main() -> Result<()> {
                 read_halved: weighted(reads.iter().copied(), today, half_life / 2.0),
                 edit: weighted(edits.iter().copied(), today, half_life),
                 maybe_reads,
+                grep_matches,
                 last_open: reads.iter().max().map(|d| today - d),
                 indexed: listed.contains(name),
                 entry_cost: index_entry_cost(&index, name),
@@ -267,6 +290,9 @@ fn report(
         "  {:<58} {:>7} {:>7} {:>6} {:>5} {:>6}  home",
         "memory", "opens", "halved", "edits", "bytes", "maybe"
     );
+    // ⚠ `grep` is printed beside a row that has one, never added to `opens`.
+    // A reader deciding a demotion needs to see that a memory reached somebody
+    // by a route the ranking cannot score.
     let picked: Vec<&Standing> = standings
         .iter()
         .filter(|s| s.indexed && may_demote(s.role) && s.read <= 1.0 && !s.homes.is_empty())
@@ -292,13 +318,18 @@ fn report(
         }
         let home = s.homes.first().map(String::as_str).unwrap_or("—");
         println!(
-            "  {:<58} {:>7.2} {:>7.2} {:>6.2} {:>5} {:>6}  {home}{}",
+            "  {:<58} {:>7.2} {:>7.2} {:>6.2} {:>5} {:>6}  {home}{}{}",
             s.name,
             s.read,
             s.read_halved,
             s.edit,
             s.entry_cost,
             s.maybe_reads,
+            if s.grep_matches > 0 {
+                format!("   grep×{}", s.grep_matches)
+            } else {
+                String::new()
+            },
             if safe { "" } else { "   ⚠ STRANDS" }
         );
     }
@@ -340,8 +371,28 @@ fn report(
         let last = s
             .last_open
             .map_or("never".to_string(), |d| format!("{d}d ago"));
-        println!("  {:<58} {:>7.2}  last {last}", s.name, s.read);
+        // ⚠ A grep match belongs HERE more than anywhere: this section exists
+        // to show a memory was reached without the index carrying it, and a
+        // corpus search that printed a line of it is exactly that.
+        let grep = if s.grep_matches > 0 {
+            format!("   grep×{}", s.grep_matches)
+        } else {
+            String::new()
+        };
+        println!("  {:<58} {:>7.2}  last {last}{grep}", s.name, s.read);
     }
+    // ⚠ **Printed whether or not a row above carries one.** The reach is a
+    // corpus-wide fact and the sections above are all top-15 slices, so a
+    // reader who saw no `grep×` would otherwise conclude the route is unused
+    // when it is how ~17% of the corpus arrives (memview#1238).
+    let reached: Vec<&Standing> = standings.iter().filter(|s| s.grep_matches > 0).collect();
+    let unindexed = reached.iter().filter(|s| !s.indexed).count();
+    println!(
+        "\n  {} memories were reached by a corpus SEARCH that printed a line of them\
+         \n  ({unindexed} of them unindexed). Shown, never scored: 8 agents grep the whole\
+         \n  corpus, so ranking on it would lift the least-read memories most.",
+        reached.len()
+    );
     println!();
 
     println!("TRIPWIRES — reported apart, never ranked against the rest.");
