@@ -176,6 +176,30 @@ pub struct MemoryUse {
     /// the text or changed nothing, and its result says which.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub maybe_reads: usize,
+    /// Times a corpus-wide search PRINTED A LINE of this memory back.
+    ///
+    /// ⚠ **A third kind of evidence, and folding it into either neighbour
+    /// would be wrong.** A `grep` that matched put a line of the memory in
+    /// front of the session, which `reads` (the file was opened) overstates
+    /// and silence understates — measured 2026-09-11: 82 distinct memories
+    /// reached this way across 13 sessions, ~11% of the corpus, by a route
+    /// that counted as never opened. It is NOT `maybe_reads` either: that
+    /// holds a DIFFERENT weakness, a command whose success cannot be
+    /// established, and `Held::Unproven` would then fire for two reasons
+    /// wanting different answers (memview#1238).
+    ///
+    /// ⚠ **`reads` must keep its meaning even now that #884 is closed.** That
+    /// study's inputs are recomputed from the transcripts on every mine, so
+    /// redefining `reads` would stop its recorded harvest reproducing from its
+    /// own inputs, and a later reader could not tell a redefinition from a
+    /// corpus change.
+    ///
+    /// ⚠ **Never added into BREADTH without a decision.** Breadth is distinct
+    /// agents against a threshold of 6, and 8 agents run corpus-wide greps —
+    /// counting a grep as an open of everything it scanned would take 167 of
+    /// 718 memories over the bar to 718 of 718.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub grep_matches: usize,
     /// Times a command that **may** have changed it did. See
     /// [`maybe_reads`](Self::maybe_reads).
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -1389,6 +1413,74 @@ const REFUSED: &[u8] = b"\"content\":\"The user doesn't want to proceed with thi
 /// [`reader::doing::Verdict::Unknown`] and admits nothing. Dropping the
 /// successes to save space would make silence and success the same answer.
 /// The map is per transcript and freed with it, so there is no space to save.
+/// Memories a corpus-wide search printed a LINE of, and how many times.
+///
+/// ⚠ **The colon is the whole discriminator, and it is measured rather than
+/// assumed.** `grep` prints `path:line:text`, so a memory that MATCHED appears
+/// as `/memory/<name>.md:`. Scanning for the bare `/memory/<name>.md` instead
+/// finds 13,276 result lines against this form's 121 — and almost all of them
+/// are the `Read` tool's own result envelope, `"file":{"filePath":…}`, which is
+/// ALREADY counted as a read. Counting those again would double the strongest
+/// evidence in the corpus (measured over all 79 transcripts, 2026-09-11).
+///
+/// It also excludes exactly what this ticket's argument excludes: `grep -l`
+/// prints a bare filename and put no LINE in front of anybody, and a directory
+/// listing prints relative names with no `/memory/` prefix at all.
+///
+/// ⚠ **Pre-filtered on bytes before any UTF-8 work**, in the style of
+/// [`tool_result`] above: a result carries the command's whole output, which is
+/// most of the corpus's bytes, and almost none of it mentions a memory.
+fn grep_matched_memories(text: &[u8], memory_root: &str) -> BTreeMap<String, usize> {
+    // ⚠ Built from `memory_root`, never a hardcoded `/memory/`. The literal
+    // happens to be right for the live corpus and silently matches nothing in
+    // any test or on any other machine — the shell site one screen up takes
+    // the root for the same reason.
+    let needle = format!("{}/", memory_root.trim_end_matches('/'));
+    let needle = needle.as_bytes();
+    const _: () = ();
+    let mut out = BTreeMap::new();
+    for line in text.split(|c| *c == b'\n') {
+        if find_at(line, b"\"type\":\"tool_result\"", 0).is_none()
+            || find_at(line, needle, 0).is_none()
+        {
+            continue;
+        }
+        // ⚠ Counted ONCE per result, not once per matching line. A grep over
+        // the corpus prints one line per hit, so a memory with forty matches
+        // would otherwise outweigh forty memories with one — and what this
+        // records is that the session was shown the memory, not how loudly.
+        let mut seen: BTreeSet<String> = BTreeSet::new();
+        let mut at = 0;
+        while let Some(found) = find_at(line, needle, at) {
+            let start = found + needle.len();
+            let rest = &line[start..];
+            let Some(end) = rest.iter().position(|c| !is_name_byte(*c)) else {
+                break;
+            };
+            at = start + end;
+            // The stem must be followed by exactly `.md:` — see above.
+            if !rest[end..].starts_with(b".md:") {
+                continue;
+            }
+            if end == 0 {
+                continue;
+            }
+            if let Ok(name) = std::str::from_utf8(&rest[..end]) {
+                seen.insert(name.to_string());
+            }
+        }
+        for name in seen {
+            *out.entry(name).or_default() += 1;
+        }
+    }
+    out
+}
+
+/// A byte that may appear in a memory's canonical id (its filename stem).
+fn is_name_byte(c: u8) -> bool {
+    c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_'
+}
+
 fn outcomes(text: &[u8]) -> std::collections::HashMap<String, reader::doing::Verdict> {
     let mut out = std::collections::HashMap::new();
     for line in text.split(|c| *c == b'\n') {
@@ -1701,6 +1793,12 @@ fn scan_transcript(
     // What became of each call — read ahead, because the answer is always below
     // the question.
     let outcomes = outcomes(text);
+    // ⚠ **A whole-transcript pass, not a per-line one inside the walk below.**
+    // The evidence is a tool RESULT, which the walk below does not visit as a
+    // tool call — there is no `tool_use` line to hang it on.
+    for (name, hits) in grep_matched_memories(text, memory_root) {
+        memories.entry(name).or_default().grep_matches += hits;
+    }
     // What the shell said it could not do, which no verdict can carry — see
     // [`refusals`]. A `cd` it refused must not be applied to the walk below.
     let refusals = refusals(text);
@@ -2656,11 +2754,13 @@ impl Merge for MemoryUse {
             edits,
             maybe_reads,
             maybe_edits,
+            grep_matches,
         } = other;
         self.reads += reads;
         self.edits += edits;
         self.maybe_reads += maybe_reads;
         self.maybe_edits += maybe_edits;
+        self.grep_matches += grep_matches;
     }
 }
 

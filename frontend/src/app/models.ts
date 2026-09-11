@@ -198,6 +198,19 @@ export interface MemoryUse {
    */
   maybe_reads?: number;
   maybe_edits?: number;
+  /**
+   * Times a corpus-wide search printed a LINE of this memory back.
+   *
+   * A third kind of evidence, kept apart from both neighbours. A `grep` that
+   * matched put a line in front of the session, which `reads` (the file was
+   * opened) overstates and silence understates; it is not `maybe_reads`
+   * either, which holds a different weakness — a command whose success cannot
+   * be established.
+   *
+   * Absent from the artefact when zero. NOT part of breadth: 8 agents run
+   * corpus-wide greps, so folding it in would put every memory over the bar.
+   */
+  grep_matches?: number;
 }
 
 /**

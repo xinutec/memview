@@ -2215,3 +2215,74 @@ fn a_sighting_only_one_half_has_survives_the_merge() {
     assert_eq!(into.len(), 2);
     assert_eq!(into["bbb"].1, "recall");
 }
+
+/// ⚠ **A corpus grep is an open of what it MATCHED** — memview#1238. Counting
+/// it as an open of everything scanned takes every memory over the breadth bar;
+/// counting it as nothing loses ~11% of the corpus's reach.
+///
+/// The colon is the discriminator and it is load-bearing: the `Read` tool's own
+/// result envelope carries the path WITHOUT one and is already counted as a
+/// read, so a scan that ignored the colon would double-count the strongest
+/// evidence in the corpus. `grep -l` is excluded for the same reason it is
+/// excluded by this ticket's argument — it printed a filename, not a LINE.
+#[test]
+fn a_grep_that_printed_a_line_of_a_memory_counts_apart_from_a_read() {
+    let agents = mine(
+        &[(
+            "s1",
+            vec![
+                // grep output: two memories, `path:line:text`
+                r#"{"timestamp":"2026-07-01T10:00:00Z","message":{"content":[{"type":"tool_result","tool_use_id":"a","content":"/mem/feedback_alpha.md:12:a matching line\n/mem/reference_beta.md:3:another"}]}}"#,
+                // the Read tool's own envelope — same path, NO colon
+                r#"{"timestamp":"2026-07-01T10:01:00Z","message":{"content":[{"type":"tool_result","tool_use_id":"b","content":{"type":"text","file":{"filePath":"/mem/project_gamma.md"}}}]}}"#,
+                // `grep -l`: a filename, no line
+                r#"{"timestamp":"2026-07-01T10:02:00Z","message":{"content":[{"type":"tool_result","tool_use_id":"c","content":"/mem/project_delta.md"}]}}"#,
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        )],
+        &[],
+    );
+    let uses = &agents[0].memories;
+    assert_eq!(uses.get("feedback_alpha").map(|u| u.grep_matches), Some(1));
+    assert_eq!(uses.get("reference_beta").map(|u| u.grep_matches), Some(1));
+    // ⚠ Neither colon-less form may arrive through this route.
+    assert!(
+        uses.get("project_gamma")
+            .is_none_or(|u| u.grep_matches == 0)
+    );
+    assert!(
+        uses.get("project_delta")
+            .is_none_or(|u| u.grep_matches == 0)
+    );
+    // ⚠ And a grep match is NOT a read: the counters stay apart.
+    assert_eq!(uses.get("feedback_alpha").map(|u| u.reads), Some(0));
+}
+
+/// One result naming a memory forty times is one sighting, not forty. A grep
+/// prints a line per hit, so counting per line would let one memory with many
+/// matches outweigh many memories with one — and what this records is that the
+/// session was shown the memory, not how loudly.
+#[test]
+fn a_memory_matched_many_times_in_one_result_counts_once() {
+    let agents = mine(
+        &[(
+            "s1",
+            vec![
+                r#"{"timestamp":"2026-07-01T10:00:00Z","message":{"content":[{"type":"tool_result","tool_use_id":"a","content":"/mem/feedback_alpha.md:1:x\n/mem/feedback_alpha.md:2:y\n/mem/feedback_alpha.md:3:z"}]}}"#,
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        )],
+        &[],
+    );
+    assert_eq!(
+        agents[0]
+            .memories
+            .get("feedback_alpha")
+            .map(|u| u.grep_matches),
+        Some(1)
+    );
+}
