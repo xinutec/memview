@@ -450,7 +450,63 @@ impl Corpus {
 /// `setext` underlining, mis-read any link whose title contained `](`, and
 /// happily indexed links inside fenced code — three ways for the legend to
 /// disagree with the page it is a legend for.
-fn index_sections(index_md: &str) -> (BTreeMap<String, String>, Vec<String>) {
+/// One entry of the written index: what it links, how it is labelled, and the
+/// `##` heading it sits under — in document order.
+///
+/// ⚠ **Parsed, never matched with a pattern.** [`index_sections`]' own note
+/// records what a hand-rolled reader cost: it missed `setext` underlining,
+/// mis-read any link whose title contained `](`, and indexed links inside
+/// fenced code. A second reader of this file would reacquire all three, so
+/// there is one walk and both callers take what they need from it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct IndexEntry {
+    pub name: String,
+    /// The link's visible label — the cue a reader actually meets.
+    pub label: String,
+    pub section: Option<String>,
+}
+
+/// Every link in the written index, in the order it appears.
+///
+/// First mention wins per name, the same rule [`index_sections`] applies to
+/// placement: a name listed twice is one entry with one cue, and the later
+/// mention is a cross-reference.
+pub(crate) fn index_entries(index_md: &str) -> Vec<IndexEntry> {
+    let options = markdown_options();
+    let arena = Arena::new();
+    let root = parse_document(&arena, index_md, &options);
+    let mut out: Vec<IndexEntry> = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut current: Option<String> = None;
+    for node in root.descendants() {
+        let value = node.data.borrow().value.clone();
+        match value {
+            NodeValue::Heading(h) if h.level == 2 => {
+                let title = node_text(node);
+                if !title.is_empty() {
+                    current = Some(title);
+                }
+            }
+            NodeValue::Link(link) => {
+                let Some(stem) = md_link_stem(&link.url) else {
+                    continue;
+                };
+                if !seen.insert(stem.to_string()) {
+                    continue;
+                }
+                out.push(IndexEntry {
+                    name: stem.to_string(),
+                    label: node_text(node).trim().to_string(),
+                    section: current.clone(),
+                });
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+pub(crate) fn index_sections(index_md: &str) -> (BTreeMap<String, String>, Vec<String>) {
     let options = markdown_options();
     let arena = Arena::new();
     let root = parse_document(&arena, index_md, &options);
