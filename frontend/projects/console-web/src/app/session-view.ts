@@ -322,6 +322,24 @@ export class SessionView implements OnDestroy {
    * "as much as fits in one screenful more".
    */
   private pages = signal(0);
+  /**
+   * Whether the view is where `follow` means it to be, or a reposition is
+   * still pending.
+   *
+   * ⚠ **The observer below must not be armed while this is false.** An
+   * `IntersectionObserver` delivers a guaranteed initial callback with the
+   * CURRENT state, and `follow` repositions a FRAME later — so on a busy main
+   * thread the callback arrived while `scrollTop` was still 0, the brink mark
+   * sat inside the 400px margin, and a page was fetched for a reader sitting
+   * at the newest message. Reproduced 2026-09-11 by replacing that frame with
+   * a 150ms timeout (memview#1243).
+   *
+   * ⚠ **Cleared on EVERY entries change, not once at startup.** The transcript
+   * arrives progressively, so `follow` re-scrolls after each change and the
+   * window reopens each time. A first-placement-only guard was tried and
+   * REFUTED — it passed unperturbed and still failed under the perturbation.
+   */
+  private settled = signal(false);
 
   constructor() {
     effect((onCleanup) => {
@@ -402,7 +420,15 @@ export class SessionView implements OnDestroy {
     // by the layout harness, which kept reporting scrollY 0.
     effect(() => {
       this.entries();
-      requestAnimationFrame(() => this.follow());
+      // A reposition is now owed; the observer stays disarmed until it lands.
+      this.settled.set(false);
+      requestAnimationFrame(() => {
+        this.follow();
+        // ⚠ Unconditionally, even when `follow` DECLINES — a reader who has
+        // scrolled away is settled where they put themselves, and leaving this
+        // false would disarm the observer for the rest of the session.
+        this.settled.set(true);
+      });
     });
     // The second hand, wound only while something is running — see [now]. Both
     // conditions matter: a session can be working with no call in flight (it is
@@ -451,6 +477,13 @@ export class SessionView implements OnDestroy {
     // [pages].
     effect((onCleanup) => {
       this.pages();
+      // ⚠ **Disarmed while a reposition is owed — see [settled].** Reading the
+      // signal here means the effect re-runs when it flips, so the observer is
+      // disconnected by the cleanup and re-observed after the scroll lands,
+      // which delivers a FRESH initial callback against the settled position.
+      // Merely ignoring the callback would not: an observer reports
+      // transitions, and a dropped one does not come back.
+      if (!this.settled()) return;
       const mark = this.brink()?.nativeElement;
       const box = this.scroller()?.nativeElement;
       if (!mark || !box || typeof IntersectionObserver === 'undefined') return;
