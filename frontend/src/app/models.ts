@@ -17,6 +17,17 @@ export interface MemoryMeta {
    * is meaningful: it cannot be assembled into the index.
    */
   teaser: string | null;
+  /**
+   * What the index line is FOR — `tripwire` (acts on a session that did NOT
+   * come looking) or `pointer` (says where something is; you arrive
+   * deliberately), as the author declared it in the memory's frontmatter.
+   *
+   * Free-form because the vocabulary belongs to the Rust side: anything
+   * unrecognised resolves to no role there, so a typo reads as UNJUDGED rather
+   * than as a third kind nothing understands. Null is unexamined and never
+   * "safe to demote".
+   */
+  role: string | null;
   /** user | feedback | project | reference (free-form fallback). */
   mtype: string;
   modified: string | null;

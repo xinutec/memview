@@ -51,7 +51,7 @@ fn main() -> Result<()> {
     }
 
     let corpus = Corpus::load(&memory_dir)?;
-    let findings: Vec<Finding> = lint::check(&corpus, None)
+    let findings: Vec<Finding> = lint::check(&corpus, None, None)
         .into_iter()
         .filter(|f| f.severity == Severity::Error)
         .collect();

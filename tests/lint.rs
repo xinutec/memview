@@ -19,7 +19,7 @@ fn corpus(dir: &std::path::Path, index: &str, docs: &[(&str, &str)]) -> Corpus {
 }
 
 fn findings(corpus: &Corpus, rule: &str) -> Vec<String> {
-    check(corpus, None)
+    check(corpus, None, None)
         .into_iter()
         .filter(|f| f.rule == rule && f.severity == Severity::Error)
         .map(|f| f.memory)
@@ -150,7 +150,7 @@ fn a_missing_author_is_a_warning_because_nobody_can_be_charged_with_it() {
     // not the rule fired, so BOTH halves would have been green with no rule at
     // all (feedback_a_precondition_that_can_pass_wrongly).
     let reported = |corpus: &Corpus| -> Vec<String> {
-        check(corpus, None)
+        check(corpus, None, None)
             .into_iter()
             .filter(|f| f.rule == "missing-origin")
             .map(|f| f.memory)
@@ -209,7 +209,7 @@ fn an_error_in_the_index_still_fails_a_session() {
 
 /// Any finding of a rule, whatever its severity — `findings` keeps only errors.
 fn of_rule(corpus: &Corpus, rule: &str) -> Vec<String> {
-    check(corpus, None)
+    check(corpus, None, None)
         .into_iter()
         .filter(|f| f.rule == rule)
         .map(|f| f.detail)
@@ -334,7 +334,7 @@ fn a_memory_that_does_not_quote_the_figure_is_untouched() {
 // ── The injection ceiling, as a check rather than as prose (#822) ────────────
 
 fn all_findings(corpus: &Corpus, rule: &str) -> Vec<memview::lint::Finding> {
-    check(corpus, None)
+    check(corpus, None, None)
         .into_iter()
         .filter(|f| f.rule == rule)
         .collect()
@@ -580,4 +580,56 @@ fn every_racy_rule_is_an_error() {
         let (severity, _) = rules[id];
         assert_eq!(severity, Severity::Error, "`{id}` is racy but not an error");
     }
+}
+
+/// The three ways an indexed memory can carry a role, and the one way it cannot
+/// — memview#1537.
+///
+/// ⚠ **The record counts as a judgement.** 597 memories were judged into
+/// `memory-roles.json` before the frontmatter field existed, and a rule that
+/// read only the frontmatter would report a gap of 597 that is not there. The
+/// field is how a memory declares its own role from now on; the record is what
+/// the corpus already knows.
+#[test]
+fn an_indexed_memory_needs_a_role_from_either_source() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let d = dir.path();
+    let index = "- [a](declares.md)\n- [b](in_record.md)\n- [c](neither.md)\n- [d](typo.md)\n";
+    for (name, role) in [
+        ("declares", Some("tripwire")),
+        ("in_record", None),
+        ("neither", None),
+        // ⚠ An unrecognised word must read as UNJUDGED, not as a third kind —
+        // otherwise a typo silently exempts a memory from demotion forever,
+        // which is the failure this rule exists to catch.
+        ("typo", Some("tripwyre")),
+    ] {
+        let front = role.map_or(String::new(), |r| format!("role: {r}\n"));
+        std::fs::write(
+            d.join(format!("{name}.md")),
+            format!(
+                "---\nname: {name}\ndescription: d\n{front}metadata:\n  type: project\n---\n\nbody\n"
+            ),
+        )
+        .expect("write");
+    }
+    std::fs::write(d.join("MEMORY.md"), index).expect("write index");
+    let corpus = Corpus::load(d).expect("loads");
+
+    let roles = serde_json::json!({ "roles": { "in_record": "pointer" } });
+    let flagged: Vec<String> = check(&corpus, None, Some(&roles))
+        .into_iter()
+        .filter(|f| f.rule == "unjudged-role")
+        .map(|f| f.memory)
+        .collect();
+    assert_eq!(flagged, vec!["neither".to_string(), "typo".to_string()]);
+
+    // ⚠ Without the record the rule is SKIPPED, not inverted — a lint run on a
+    // fresh checkout must not invent 597 findings it has no evidence for.
+    let none: Vec<String> = check(&corpus, None, None)
+        .into_iter()
+        .filter(|f| f.rule == "unjudged-role")
+        .map(|f| f.memory)
+        .collect();
+    assert!(none.is_empty(), "skipped without the record, got {none:?}");
 }

@@ -46,16 +46,22 @@
 //! prefix.** For the best entries the index line IS the memory — read from the
 //! teaser, file never opened — so breadth under-measures exactly the rules doing
 //! their job. `Tier::Thin` is breadth-derived, so a demotion filter that reads
-//! only the tier selects those entries first. `memory-rank` holds them back by a
-//! `feedback_`/`user_` prefix test; #884's finding is that the prefix is the
-//! wrong classifier, since `reference_` is mostly tripwires.
+//! only the tier selects those entries first. `memory-rank` held them back by a
+//! `feedback_`/`user_` prefix test until 2026-09-11; #884's finding is that the
+//! prefix is the wrong classifier, since `reference_` is mostly tripwires, and
+//! that tool now decides by role as this one always has.
 //!
-//! So a demotion is proposed only for a memory `memory-roles.json` judges a
-//! POINTER. A tripwire is held because demoting it deletes the only place it
-//! fires; an unjudged memory is held because an absent judgement is not a
-//! pointer. Dropping the prefix test without putting this in its place is what
-//! left the half unguarded, and only #884's freeze stopped it reaching a
-//! proposal (#1234).
+//! So a demotion is proposed only for a memory judged a POINTER. A tripwire is
+//! held because demoting it deletes the only place it fires; an unjudged memory
+//! is held because an absent judgement is not a pointer. Dropping the prefix
+//! test without putting this in its place is what left the half unguarded, and
+//! only #884's freeze stopped it reaching a proposal (#1234).
+//!
+//! The judgement resolves through [`memview::study::role_for`]: the memory's
+//! own `role:` frontmatter first, `memory-roles.json` behind it. The record is
+//! a model's classification #884 was pre-registered on and so cannot grow, and
+//! a memory written after a pass was exempt from demotion forever until the
+//! frontmatter half landed (memview#1537).
 //!
 //! Reads four private files under `~/.claude` — memory NAMES are private and
 //! none of them may ever be committed to this public repo.
@@ -67,7 +73,7 @@ use memview::agents::{MemoryDays, day_number};
 use memview::store::{
     Corpus, homes_for, incoming_links, index_entry_cost, index_links, reachable_without,
 };
-use memview::study::role_of;
+use memview::study::role_for;
 use memview::tiers::{
     Entry, Held, HeldEntry, Role, Thresholds, census, expired, median_entry_cost, propose,
 };
@@ -240,7 +246,13 @@ fn main() -> Result<()> {
                     .map(|d| today - d),
                 indexed: listed.contains(name),
                 entry_cost: index_entry_cost(&index, name),
-                role: role_of(&roles, name.as_str()),
+                // The author's own declaration first, the #884 record behind
+                // it — see `study::role_for`.
+                role: role_for(
+                    corpus.docs.get(name).and_then(|d| d.meta.role.as_deref()),
+                    &roles,
+                    name.as_str(),
+                ),
                 homes: homes_for(&incoming, name, &reached),
                 frozen: frozen.contains(name),
                 depth: depths.get(name).copied(),

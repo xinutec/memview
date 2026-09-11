@@ -52,7 +52,8 @@
 //! memories were ranked by a number their success mode suppresses and the
 //! demotion list was in large part a list of what was working (memview#884).
 //! `memory-tiers` already decided by role; this now agrees with it, and both
-//! read the file through [`memview::study::role_of`] so they cannot drift.
+//! resolve through [`memview::study::role_for`] so they cannot drift — the
+//! memory's own `role:` frontmatter first, the record behind it.
 //!
 //! **The ratchet.** Being listed causes opens; demoting cuts opens, which then
 //! justifies staying demoted. The measurement is entangled with the intervention
@@ -66,7 +67,7 @@ use memview::agents::{HALF_LIFE_DAYS, day_number, weighted};
 use memview::store::{
     Corpus, homes_for, incoming_links, index_entry_cost, index_links, reachable_without,
 };
-use memview::study::{Role, role_of};
+use memview::study::{Role, role_for};
 
 /// How a memory stands: what it cost, what it was used for, and whether the
 /// index is what is holding it up.
@@ -99,12 +100,12 @@ struct Standing {
     /// Reachable memories that already link it — the homes a demotion could land
     /// in without stranding it.
     homes: Vec<String>,
-    /// What `memory-roles.json` judges the index line to be — the classifier
-    /// this report used to guess from the name prefix.
+    /// What the index line is FOR — the classifier this report used to guess
+    /// from the name prefix.
     ///
     /// ⚠ **`None` is unexamined, not "safe to demote".** See
-    /// [`memview::study::role_of`]: an absent judgement holds, and the count of
-    /// them is printed rather than left to vanish between the two halves.
+    /// [`memview::study::role_for`]: an absent judgement holds, and the count
+    /// of them is printed rather than left to vanish between the two halves.
     role: Option<Role>,
 }
 
@@ -204,7 +205,9 @@ fn main() -> Result<()> {
                 indexed: listed.contains(name),
                 entry_cost: index_entry_cost(&index, name),
                 homes: homes_for(&incoming, name, &reached),
-                role: role_of(&roles, name),
+                // The author's own declaration first, the #884 record behind
+                // it — see `study::role_for`.
+                role: role_for(corpus.docs[name].meta.role.as_deref(), &roles, name),
                 name: name.clone(),
             }
         })

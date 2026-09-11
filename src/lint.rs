@@ -99,6 +99,21 @@ const RULES: &[(&str, Severity, &str)] = &[
          one line, at most TEASER_MAX bytes",
     ),
     (
+        // Introduced 2026-09-11 as a WARNING although the count was already
+        // ZERO, which the two-tier design would normally let go straight to
+        // ERROR. The ratchet's condition is "worked down to zero"; this
+        // reached zero minutes earlier, when 27 indexed memories were judged
+        // in one pass (memview#1537), and a rule that has never been observed
+        // stable should not decide whether sixteen other sessions can commit.
+        // Promote it once it has held — that is the one-word edit the design
+        // is built around.
+        "unjudged-role",
+        Severity::Warning,
+        "an indexed memory with no `role:` and no entry in the judgement record \
+         — an unjudged memory is held from demotion forever, so the index can \
+         only grow (memview#1537)",
+    ),
+    (
         "link-extension",
         Severity::Error,
         "a `[[name.md]]` wikilink can never resolve — the canonical id is the filename stem",
@@ -419,7 +434,15 @@ pub fn rule_reasons() -> BTreeMap<&'static str, (Severity, &'static str)> {
 ///
 /// Findings come back sorted by severity then memory, so the output reads as a
 /// worklist and a run with nothing to say prints nothing.
-pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
+/// `roles` is `memory-roles.json`, or `None` where the caller has no reason to
+/// hold it — the `unjudged-role` rule is skipped then rather than reporting a
+/// gap it cannot see. Passing it is what lets the rule tell an unjudged memory
+/// from one judged in the record but not in its own frontmatter.
+pub fn check(
+    corpus: &Corpus,
+    couse: Option<&CoUse>,
+    roles: Option<&serde_json::Value>,
+) -> Vec<Finding> {
     let mut findings = Vec::new();
     let mut push = |rule: &'static str, memory: &str, detail: String| {
         findings.push(Finding {
@@ -622,6 +645,26 @@ pub fn check(corpus: &Corpus, couse: Option<&CoUse>) -> Vec<Finding> {
         for target in &targets {
             if !corpus.docs.contains_key(target) {
                 push("index-points-nowhere", "MEMORY.md", format!("{target}.md"));
+            }
+        }
+        // ⚠ **Only the INDEXED set, because only it can reach a proposal.**
+        // `memory-tiers` and `memory-rank` both hold an unjudged memory — an
+        // absent judgement is not a pointer — so an unjudged INDEXED entry is
+        // exempt from demotion forever and the root can only grow. An unjudged
+        // unindexed one costs nothing and is not this rule's business.
+        if let Some(roles) = roles {
+            for target in &targets {
+                let Some(doc) = corpus.docs.get(target) else {
+                    continue; // already reported as index-points-nowhere
+                };
+                if crate::study::role_for(doc.meta.role.as_deref(), roles, target).is_none() {
+                    push(
+                        "unjudged-role",
+                        target,
+                        "no `role: tripwire|pointer` in its frontmatter and none in the record"
+                            .to_string(),
+                    );
+                }
             }
         }
         // Walk out from the index through the wikilinks, as a reader would —

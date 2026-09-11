@@ -198,9 +198,30 @@ top of it:
     remain a floor, and the floor leans toward whoever reads in bulk.
   * **The teaser paradox.** For the entries that work best the index line IS the
     memory — a reader acts on "no CoA" and never opens the file. Opens therefore
-    under-measure the best-compressed behavioural rules, which is why `feedback`
-    is reported apart from `reference` and `project` and never ranked against
-    them.
+    under-measure the best-compressed rules, which is why tripwires are reported
+    apart and never ranked against the rest.
+
+    ⚠ **Which entries those are is declared, not guessed from the name.** Until
+    2026-09-11 `memory-rank` split on a `feedback_`/`user_` prefix. That is
+    right for those two prefixes and wrong for the rest — 136 `reference_` and
+    56 `project_` entries are tripwires too, so 192 memories were ranked by a
+    number their success mode suppresses and the demotion list was in large
+    part a list of what was working (memview#884). A memory now says which it
+    is in its own frontmatter:
+
+        role: tripwire   # acts on a session that did NOT come looking —
+                         # a prohibition, a correction of a natural default,
+                         # or a settled decision that would be re-litigated
+        role: pointer    # says where something is or what it is;
+                         # you arrive deliberately
+
+    Absent is UNEXAMINED, never "safe to demote": both tools hold an unjudged
+    memory, so an indexed one would be exempt from demotion forever and the
+    root could only grow. `memory-lint`'s `unjudged-role` reports that, reading
+    the frontmatter first and `memory-roles.json` behind it — the record is one
+    model's classification that memview#884 was pre-registered on, so it cannot
+    be re-run without becoming a different experiment and it cannot grow with
+    the corpus. The frontmatter is the half that keeps up (memview#1537).
   * **The ratchet.** Being listed causes opens; demoting cuts opens, which then
     justifies staying demoted. The DEMOTED BUT STILL CONSULTED section exists as
     the counter-evidence.

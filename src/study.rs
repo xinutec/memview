@@ -47,11 +47,38 @@ pub enum Role {
 /// report how many it is holding rather than let them fall silently out of both
 /// halves of a report.
 pub fn role_of(roles: &serde_json::Value, name: &str) -> Option<Role> {
-    match roles["roles"][name].as_str() {
+    named_role(roles["roles"][name].as_str())
+}
+
+/// The vocabulary itself — the one place these two words are spelled.
+///
+/// ⚠ **Anything unrecognised is `None`, never a third kind.** A typo in a
+/// memory's frontmatter must read as unjudged, which holds it, rather than as
+/// a role nothing else understands.
+pub fn named_role(text: Option<&str>) -> Option<Role> {
+    match text {
         Some("tripwire") => Some(Role::Tripwire),
         Some("pointer") => Some(Role::Pointer),
         _ => None,
     }
+}
+
+/// What a memory's role is, taking the AUTHOR'S declaration over the record.
+///
+/// ⚠ **The file wins, and the order is the whole design.** `memory-roles.json`
+/// is one model's classification made in two passes (2026-08-18, 2026-08-31)
+/// and extended by a third on 2026-09-11; it is what memview#884 was
+/// pre-registered on, so it cannot be re-run without becoming a different
+/// experiment. It therefore cannot keep up with a growing corpus, and every
+/// memory written after a pass stayed exempt from demotion forever
+/// (memview#1537).
+///
+/// Reading the frontmatter first fixes that without touching the record:
+/// a memory declares its own role while it is being written, the 597 already
+/// judged keep working from the file behind it, and nothing needed a
+/// backfill across the corpus to begin.
+pub fn role_for(declared: Option<&str>, roles: &serde_json::Value, name: &str) -> Option<Role> {
+    named_role(declared).or_else(|| role_of(roles, name))
 }
 
 /// One memory's exposure and outcome.

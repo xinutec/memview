@@ -57,6 +57,9 @@ struct Frontmatter {
     /// The memory's own line in the index, written here rather than in
     /// MEMORY.md. See [`MemoryMeta::teaser`].
     teaser: Option<String>,
+    /// `tripwire` or `pointer`, declared by whoever wrote the memory. See
+    /// [`MemoryMeta::role`].
+    role: Option<String>,
     #[serde(default)]
     metadata: Option<FrontmatterMeta>,
 }
@@ -94,6 +97,23 @@ pub struct MemoryMeta {
     /// assembled into the index, which is the first signal the corpus has had
     /// about what is index-eligible (memview#822, #1310).
     pub teaser: Option<String>,
+    /// What the index line is FOR — `tripwire` or `pointer`, as the author
+    /// declared it.
+    ///
+    /// ⚠ **Held as the raw string, because the vocabulary belongs to
+    /// [`crate::study::Role`] and not to the store.** Anything unrecognised
+    /// arrives here and is resolved to `None` there, so a typo reads as
+    /// unjudged rather than as a silent third kind.
+    ///
+    /// ⚠ **Absent is UNEXAMINED, never "safe to demote".** Until 2026-09-11
+    /// this judgement lived only in `memory-roles.json`, a model's one-pass
+    /// classification that memview#884 was pre-registered on — so it could not
+    /// grow with the corpus, and every memory written after a pass was exempt
+    /// from demotion forever (memview#1537). Declaring it here is the half that
+    /// keeps up: the author knows what they meant, and says so while writing.
+    /// The file is consulted first and the record second, so nothing had to be
+    /// backfilled across 597 memories to start.
+    pub role: Option<String>,
     /// user | feedback | project | reference (from metadata.type, falling
     /// back to the filename prefix).
     pub mtype: String,
@@ -230,6 +250,10 @@ impl Corpus {
                             .teaser
                             .map(|t| t.trim().to_string())
                             .filter(|t| !t.is_empty()),
+                        role: fm
+                            .role
+                            .map(|r| r.trim().to_lowercase())
+                            .filter(|r| !r.is_empty()),
                         mtype,
                         modified,
                         created,

@@ -67,8 +67,9 @@ fn settle(
     corpus: Corpus,
     dir: &str,
     couse: Option<&CoUse>,
+    roles: Option<&serde_json::Value>,
 ) -> Result<(Corpus, Vec<lint::Finding>)> {
-    let findings = lint::check(&corpus, couse);
+    let findings = lint::check(&corpus, couse, roles);
     let racy = findings.iter().any(|f| RACY.contains(&f.rule));
     if !racy {
         return Ok((corpus, findings));
@@ -78,7 +79,7 @@ fn settle(
     );
     std::thread::sleep(SETTLE);
     let corpus = Corpus::load(dir)?;
-    let findings = lint::check(&corpus, couse);
+    let findings = lint::check(&corpus, couse, roles);
     Ok((corpus, findings))
 }
 
@@ -95,7 +96,17 @@ fn main() -> Result<()> {
         .parent()
         .map(|p| p.join("couse.json"))
         .and_then(|p| CoUse::load(&p));
-    let (corpus, mut findings) = settle(corpus, &dir, couse.as_ref())?;
+    // ⚠ **Absent is tolerated here and NOT in `memory-rank`**, and the two are
+    // different questions. That tool decides what to PROPOSE demoting, so a
+    // missing judgement would silently reinstate the classifier #884 measured
+    // wrong; this one only reports a gap, and a lint that refuses to run at all
+    // because a private analysis file is missing is a lint nobody can run on a
+    // fresh checkout. The rule is skipped, which `check` documents.
+    let roles: Option<serde_json::Value> =
+        std::fs::read_to_string(reader::home::file("memory-roles.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok());
+    let (corpus, mut findings) = settle(corpus, &dir, couse.as_ref(), roles.as_ref())?;
 
     // The one pass that leaves the corpus and asks whether what it says is still
     // true. `CODE_ROOT` overrides for a checkout somewhere else; the default is
