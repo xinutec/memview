@@ -4,16 +4,34 @@ Design for the layers above the reader: **lifting** what the fleet executed into
 the concepts it was executing, and **lowering** a concept back into a command
 that does the same thing.
 
-**Status: eight lenses and all three instruments are BUILT; every one after the
+**Status: nine lenses and all three instruments are BUILT; every one after the
 first was chosen by the census, not guessed.** `bash-corpus --said` + `said-report`
 mine and read the description corpus; `reader/src/concept.rs` lifts and lowers
-`Rewrite`, `Page`, `Search`, `List`, `History`, `Status`, `Stage` and `Commit` — and answers
-every miss by name (`concept::Why`)
+`Rewrite`, `Page`, `Search`, `List`, `Measure`, `History`, `Status`, `Stage` and
+`Commit` — and answers every miss by name (`concept::Why`)
 — with gates 1–3 in `reader/tests/concept.rs`; `concept-report` is the census,
 balanced to the unit. Adding `Page` took the lift rate from 0.18% to **13.06%
-of steps**, `Search` to **17.32%**, `List` to **18.04%**, `History` to **19.30%** and the git working-tree three to
-**20.98%** (census 2026-09-10) — the diminishing return is the census working,
+of steps**, `Search` to **17.32%**, `List` to **18.04%**, `History` to **19.30%**, the git working-tree three to
+**20.98%**, `Measure` to **21.86%** and repairing the `--` operand count to
+**21.87%** (census 2026-09-11) — the diminishing return is the census working,
 not failing.
+
+⚠ **Do not quote these figures from here — run `concept-report`.** They are a
+reading of the frozen `bash-corpus-2026-09-05-resolver-baseline.jsonl`, and the
+nightly corpus has moved since. The SHAPE (a curve flattening as the census is
+obeyed) is the durable claim; the numbers are its evidence on the day.
+
+⚠ **The single-step queue is essentially exhausted, and a tenth lens is not the
+next work.** 70.2% of what remains touches no file at all (`cd`, `echo`, `sleep`)
+and another 10.9% is a carrier whose content lifts as its own steps. Gate 4's
+finding below says why the next layer is the EPISODE.
+
+⚠ **A shared guard belongs in ONE place.** `counted_subjects` (reads-only,
+resolvable, one subject per operand) and `own_command` (the `xargs` refusal) were
+five and three hand-copies. Every defect this document records was one site
+missing a check the others had — and the `xargs` guard was absent from the git
+family entirely, producing a FALSE LIFT: `git merge-base … | xargs git log -1`
+read as the repository's latest commit when the commit came from the pipe.
 
 ⚠ **`Search` also found a fabrication in `Page`, which had shipped with it.** A
 bare word is dropped by the level below rather than guessed at — `looks_like_path`
