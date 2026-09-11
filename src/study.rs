@@ -32,6 +32,28 @@ pub enum Role {
     Pointer,
 }
 
+/// What `memory-roles.json` judges one name to be, if it judges it at all.
+///
+/// ⚠ **One reader, because three tools decide demotion from this file.**
+/// `memory-tiers` holds a demotion unless the entry is judged a pointer,
+/// `memory-rank` reports the candidates, and this study split its arms by it. A
+/// second copy of the string match is how two tools come to disagree about the
+/// same memory — which is the shape memview#884 spent a month confirming, where
+/// `memory-rank`'s `feedback_`/`user_` prefix test and `memory-tiers`' role test
+/// gave opposite answers for 192 entries.
+///
+/// ⚠ **`None` is a THIRD state and is never a pointer.** An unjudged memory is
+/// not "safe to demote", it is unexamined. A caller must hold it, and should
+/// report how many it is holding rather than let them fall silently out of both
+/// halves of a report.
+pub fn role_of(roles: &serde_json::Value, name: &str) -> Option<Role> {
+    match roles["roles"][name].as_str() {
+        Some("tripwire") => Some(Role::Tripwire),
+        Some("pointer") => Some(Role::Pointer),
+        _ => None,
+    }
+}
+
 /// One memory's exposure and outcome.
 #[derive(Debug, Clone)]
 pub struct Subject {

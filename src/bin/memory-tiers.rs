@@ -67,6 +67,7 @@ use memview::agents::{MemoryDays, day_number};
 use memview::store::{
     Corpus, homes_for, incoming_links, index_entry_cost, index_links, reachable_without,
 };
+use memview::study::role_of;
 use memview::tiers::{
     Entry, Held, HeldEntry, Role, Thresholds, census, expired, median_entry_cost, propose,
 };
@@ -239,11 +240,7 @@ fn main() -> Result<()> {
                     .map(|d| today - d),
                 indexed: listed.contains(name),
                 entry_cost: index_entry_cost(&index, name),
-                role: match roles["roles"][name.as_str()].as_str() {
-                    Some("tripwire") => Some(Role::Tripwire),
-                    Some("pointer") => Some(Role::Pointer),
-                    _ => None,
-                },
+                role: role_of(&roles, name.as_str()),
                 homes: homes_for(&incoming, name, &reached),
                 frozen: frozen.contains(name),
                 depth: depths.get(name).copied(),

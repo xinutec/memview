@@ -42,8 +42,17 @@
 //! memory — a reader follows "no CoA" or "terse" straight from the teaser and
 //! never opens the file. So opens under-measure exactly the rules doing their
 //! job most efficiently, and a naive frequency cut would demote the
-//! best-compressed behavioural rules first. `feedback` is therefore reported
-//! apart from `reference` and `project`, never ranked against them.
+//! best-compressed tripwires first. They are therefore reported apart, never
+//! ranked against the rest.
+//!
+//! ⚠ **Which entries those are is a JUDGEMENT read from `memory-roles.json`,
+//! not a guess from the name.** This split on a `feedback_`/`user_` prefix
+//! until 2026-09-11, which is right for those two prefixes and wrong for the
+//! rest: 136 `reference_` and 56 `project_` entries are tripwires too, so 192
+//! memories were ranked by a number their success mode suppresses and the
+//! demotion list was in large part a list of what was working (memview#884).
+//! `memory-tiers` already decided by role; this now agrees with it, and both
+//! read the file through [`memview::study::role_of`] so they cannot drift.
 //!
 //! **The ratchet.** Being listed causes opens; demoting cuts opens, which then
 //! justifies staying demoted. The measurement is entangled with the intervention
@@ -57,6 +66,7 @@ use memview::agents::{HALF_LIFE_DAYS, day_number, weighted};
 use memview::store::{
     Corpus, homes_for, incoming_links, index_entry_cost, index_links, reachable_without,
 };
+use memview::study::{Role, role_of};
 
 /// How a memory stands: what it cost, what it was used for, and whether the
 /// index is what is holding it up.
@@ -89,6 +99,13 @@ struct Standing {
     /// Reachable memories that already link it — the homes a demotion could land
     /// in without stranding it.
     homes: Vec<String>,
+    /// What `memory-roles.json` judges the index line to be — the classifier
+    /// this report used to guess from the name prefix.
+    ///
+    /// ⚠ **`None` is unexamined, not "safe to demote".** See
+    /// [`memview::study::role_of`]: an absent judgement holds, and the count of
+    /// them is printed rather than left to vanish between the two halves.
+    role: Option<Role>,
 }
 
 fn main() -> Result<()> {
@@ -108,6 +125,16 @@ fn main() -> Result<()> {
             .to_string_lossy()
             .into_owned()
     });
+
+    // ⚠ **Loaded with `?`, so a missing judgement is an ERROR and never a
+    // report that quietly proposes everything.** The whole point of reading
+    // this file is that the prefix test it replaces was wrong for 192 entries
+    // (memview#884); falling back to that test when the file is absent would
+    // reinstate the defect exactly when nobody could see it happening.
+    let roles: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(reader::home::file("memory-roles.json"))
+            .with_context(|| "reading memory-roles.json — the tripwire/pointer judgement")?,
+    )?;
 
     let corpus = Corpus::load(&memory_dir)?;
     // ⚠ **Brought up to date before it is read, not checked and complained
@@ -177,6 +204,7 @@ fn main() -> Result<()> {
                 indexed: listed.contains(name),
                 entry_cost: index_entry_cost(&index, name),
                 homes: homes_for(&incoming, name, &reached),
+                role: role_of(&roles, name),
                 name: name.clone(),
             }
         })
@@ -187,9 +215,25 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// Whether this is a rule to be absorbed rather than a fact to be looked up.
-fn behavioural(name: &str) -> bool {
-    name.starts_with("feedback_") || name.starts_with("user_")
+/// Whether this entry may be PROPOSED for demotion — judged a pointer, and
+/// nothing else.
+///
+/// ⚠ **This replaced a name-prefix test, and that was memview#884's finding.**
+/// The old rule was `feedback_` or `user_`, on the reasoning that those are
+/// rules to absorb rather than facts to look up. It is right about those two
+/// prefixes and wrong about the rest: classifying all 480 arm members put 136
+/// `reference_` and 56 `project_` entries at tripwire, so **192 memories were
+/// ranked by a number their success mode suppresses** — a tripwire works by
+/// being read in the index and never opened, so a low open count is evidence it
+/// is working. The list of what to demote was in large part a list of what was
+/// working.
+///
+/// The harvest that was meant to settle it came back uninterpretable (every arm
+/// inside its own null band, the design failing its own placebo by 2-4x the
+/// bands), so this rests on the ARGUMENT rather than on an effect size — which
+/// is what #884 closed recommending, and `memory-tiers` already did.
+fn may_demote(role: Option<Role>) -> bool {
+    matches!(role, Some(Role::Pointer))
 }
 
 fn report(
@@ -222,7 +266,7 @@ fn report(
     );
     let picked: Vec<&Standing> = standings
         .iter()
-        .filter(|s| s.indexed && !behavioural(&s.name) && s.read <= 1.0 && !s.homes.is_empty())
+        .filter(|s| s.indexed && may_demote(s.role) && s.read <= 1.0 && !s.homes.is_empty())
         .take(25)
         .collect();
 
@@ -275,9 +319,7 @@ fn report(
     println!("  Demoting one of these strands it. Give it a home first, or leave it listed.");
     for s in standings
         .iter()
-        .filter(|s| {
-            s.indexed && s.homes.is_empty() && s.read <= 1.0 && !behavioural(s.name.as_str())
-        })
+        .filter(|s| s.indexed && s.homes.is_empty() && s.read <= 1.0 && may_demote(s.role))
         .take(15)
     {
         println!("  {:<58} {:>7.2}", s.name, s.read);
@@ -299,18 +341,30 @@ fn report(
     }
     println!();
 
-    println!("RULES — reported apart, never ranked against the rest.");
+    println!("TRIPWIRES — reported apart, never ranked against the rest.");
     println!("  For these the index LINE is the memory: it is followed from the teaser and");
     println!("  the file is never opened, so a low count here is evidence of working well.");
     let mut rules: Vec<&Standing> = standings
         .iter()
-        .filter(|s| behavioural(&s.name) && s.indexed)
+        .filter(|s| matches!(s.role, Some(Role::Tripwire)) && s.indexed)
         .collect();
     rules.sort_by(|a, b| a.read.total_cmp(&b.read));
     let never = rules.iter().filter(|s| s.read == 0.0).count();
     println!(
-        "  {} indexed rules, {never} of them never opened in the window\n",
+        "  {} indexed tripwires, {never} of them never opened in the window",
         rules.len()
+    );
+    // ⚠ **The third state, printed rather than dropped.** An unjudged entry is
+    // in neither half — not proposed, not counted as a tripwire — and without
+    // this line it would simply be absent from both, which reads as a corpus
+    // smaller than it is. The judgement is one unblinded pass (#884), so the
+    // size of what it does not cover is part of reading the report.
+    let unjudged = standings
+        .iter()
+        .filter(|s| s.indexed && s.role.is_none())
+        .count();
+    println!(
+        "  {unjudged} indexed memories carry NO judgement — held, and in neither half above\n"
     );
 
     // The stability check, stated rather than assumed: if the ordering moves
