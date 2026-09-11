@@ -196,6 +196,16 @@ top of it:
     dropped is `maybe_reads`: a read whose success cannot be established, which
     the ranking collects and never consults (memview#1214). So the figures
     remain a floor, and the floor leans toward whoever reads in bulk.
+
+    ⚠ **A corpus SEARCH that matched is counted apart, and scored nowhere.**
+    A `grep` that printed a line of a memory put it in front of somebody —
+    measured 2026-09-11: 125 memories, ~17% of the corpus, reach a session ONLY
+    that way, and 60 of them are unindexed (memview#1238). It is its own counter
+    rather than folded into `reads` (the file was not opened) or `maybe_reads`
+    (a different weakness — a command whose success cannot be established).
+    ⚠ **And it is deliberately NOT part of breadth**: 8 agents grep the whole
+    corpus, so scoring it would lift the LEAST-read memories most and compress
+    exactly the bottom of the list where every demotion is decided.
   * **The teaser paradox.** For the entries that work best the index line IS the
     memory — a reader acts on "no CoA" and never opens the file. Opens therefore
     under-measure the best-compressed rules, which is why tripwires are reported
@@ -222,6 +232,18 @@ top of it:
     model's classification that memview#884 was pre-registered on, so it cannot
     be re-run without becoming a different experiment and it cannot grow with
     the corpus. The frontmatter is the half that keeps up (memview#1537).
+
+    ⚠ **And most tripwire lines do not state a claim, so the index is largely a
+    REMINDER device.** Measured 2026-09-11: of 290 indexed tripwires, 130 state
+    a claim and 160 do not — `cd`, `ng`, `rel`, `std`, `TDD`. The control is
+    what makes that mean something: 47 of 56 indexed POINTERS are also bare
+    labels, which is CORRECT for a pointer. A bare label is a MNEMONIC — it
+    recalls the rule to somebody who has already read the file — and cannot
+    warn a reader who has not, which is the one thing a tripwire is for.
+    `memory-lint`'s `mute-tripwire` counts them. ⚠ It can NEVER be promoted to
+    an error by writing longer lines: taking them to a claim costs ~4,000 bytes
+    against 148 of headroom, so zero is reached by demoting or by the corpus
+    shrinking (memview#822).
   * **The ratchet.** Being listed causes opens; demoting cuts opens, which then
     justifies staying demoted. The DEMOTED BUT STILL CONSULTED section exists as
     the counter-evidence.
