@@ -50,12 +50,39 @@ if ! out=$(nix run "git+file:../dev-lint?ref=HEAD#gate" -- . gate.json 2>&1); th
   #
   # ⚠ **It must not be able to break a commit that already failed.** Everything
   # below is guarded: the commit's verdict was decided on the line above.
+  #
+  # ⚠ **And the per-check LOGS are copied aside, because /tmp is swept daily
+  # (memview#1243).** `$out` is the gate's summary; the diagnosis lives in the
+  # per-check files it points at, under /tmp. That ticket's only open item is a
+  # ui-check failure nobody has ever read, and its stated next step was "capture
+  # the output BEFORE re-running" — a plan that depends on somebody being
+  # unhurried at the one moment they are not. The instinct on a flaky failure is
+  # to re-run, which destroys the only evidence. So it is taken automatically.
   { GATE_LOG="$HOME/.claude/memview/cache/gate-failures.jsonl"
     mkdir -p "$(dirname "$GATE_LOG")"
     STAGED=$(git diff --cached --name-only | jq -R . | jq -s -c .)
+    # ⚠ `pwd -P`: the gate names its log directory from the PHYSICAL path, and
+    # ~/Code/memview is a symlink onto /Volumes/Backup. The logical path finds
+    # nothing and would fail silently, which is the shape of bug this whole
+    # record exists to catch.
+    SRC="/tmp/gate-log_$(pwd -P | sed 's|^/||; s|/|_|g')"
+    KEEP=""
+    if [ -d "$SRC" ]; then
+      KEEP="$HOME/.claude/memview/cache/gate-logs/$(date -u +%Y%m%dT%H%M%SZ)"
+      mkdir -p "$KEEP"
+      # ⚠ `-p` keeps the MTIMES, and they are the point. The gate overwrites
+      # only the checks that ran, so this directory holds logs from earlier
+      # runs too — a reader tells this run's from the rest by time. Copying the
+      # lot and preserving that is honest; guessing which check failed would
+      # need a parser for a dozen output formats, which the note above already
+      # refuses for the same reason.
+      cp -Rp "$SRC"/. "$KEEP"/ 2>/dev/null
+    fi
+    # Not pruned. A snapshot is ~96 KB and a gate failure is rare; a cleanup
+    # that deleted the evidence this exists to preserve would be the joke.
     jq -n -c --arg at "$(date -u +%FT%TZ)" --arg repo "$(pwd)" \
-       --argjson staged "$STAGED" --arg out "$out" \
-       '{at: $at, repo: $repo, staged: $staged, findings: $out}' >> "$GATE_LOG"
+       --argjson staged "$STAGED" --arg out "$out" --arg logs "$KEEP" \
+       '{at: $at, repo: $repo, staged: $staged, findings: $out, logs: $logs}' >> "$GATE_LOG"
   } 2>/dev/null || true
   exit 1
 fi
