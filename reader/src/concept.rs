@@ -609,9 +609,20 @@ fn listing(step: &Step, paths: &[String]) -> Result<Concept, Why> {
     let mut descend = false;
     let mut hidden = false;
     let mut operands = 0;
+    let mut after_sep = false;
     for word in argv.iter().skip(1) {
-        if word == "--" {
-            break;
+        // ⚠ **`--` ends the FLAGS, not the loop** — and this read `break`, which
+        // stopped the COUNT with them (memview#1525). Every operand after the
+        // separator vanished, the count came out short of `subjects.len()`, and
+        // the row refused [`Why::UnreadSubject`] — a listing the lens could
+        // read, turned away for a miscount its own comment denied.
+        if !after_sep && word == "--" {
+            after_sep = true;
+            continue;
+        }
+        if after_sep {
+            operands += 1;
+            continue;
         }
         if word.starts_with("--") {
             return Err(Why::NoLens);
@@ -745,8 +756,20 @@ fn stage<'a>(
     rest: impl Iterator<Item = &'a str>,
 ) -> Result<Concept, Why> {
     let (mut all, mut operands) = (false, 0usize);
+    // ⚠ The same invariant the other four readers hold: `--` ends the flags, and
+    // a word after it is an operand HOWEVER IT IS SPELLED. This wrote
+    // `continue`, which skipped the separator and then read `-weird-name` as a
+    // flag — conservative (it refuses rather than mis-lifts) but wrong about
+    // what the author declared. Fixed with memview#1525's two `break` sites,
+    // because three of five readers right is how that defect started.
+    let mut after_sep = false;
     for word in rest {
-        if word == "--" {
+        if !after_sep && word == "--" {
+            after_sep = true;
+            continue;
+        }
+        if after_sep {
+            operands += 1;
             continue;
         }
         let Some(_) = word.strip_prefix('-').filter(|b| !b.is_empty()) else {
@@ -783,8 +806,17 @@ fn commit<'a>(rest: impl Iterator<Item = &'a str>) -> Result<Concept, Why> {
     let (mut message, mut amend, mut no_verify, mut from_file) = (None, false, false, false);
     let mut operands = 0usize;
     let mut rest = rest.peekable();
+    // The same invariant as [`stage`], and it matters here even though every
+    // operand refuses: `git commit -- -weird-name` commits ONE path, which is
+    // [`Why::OtherSelection`], not a flag this reader failed to recognise.
+    let mut after_sep = false;
     while let Some(word) = rest.next() {
-        if word == "--" {
+        if !after_sep && word == "--" {
+            after_sep = true;
+            continue;
+        }
+        if after_sep {
+            operands += 1;
             continue;
         }
         let Some(_) = word.strip_prefix('-').filter(|b| !b.is_empty()) else {
@@ -894,10 +926,20 @@ fn search_shape(step: &Step) -> Result<Shape, Why> {
         },
         _ => return Err(Why::NoLens),
     };
+    let mut after_sep = false;
     for word in argv.iter().skip(1) {
-        // Everything after `--` is an operand, however it is spelled.
-        if word == "--" {
-            break;
+        // ⚠ **Everything after `--` is an operand, however it is spelled** — and
+        // this said so in a comment above a `break`, which counted none of them
+        // (memview#1525). The pattern that holds it is the one `status`,
+        // `stage` and `history` already used; only the two readers that wrote
+        // `break` were wrong.
+        if !after_sep && word == "--" {
+            after_sep = true;
+            continue;
+        }
+        if after_sep {
+            shape.operands += 1;
+            continue;
         }
         if word.starts_with("--") {
             return Err(match word.split('=').next().unwrap_or(word) {

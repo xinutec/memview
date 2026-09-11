@@ -1047,3 +1047,57 @@ fn the_git_working_tree_cards_say_what_approval_needs() {
         "Commit the staged changes with a message this command does not carry"
     );
 }
+
+/// ⚠ **`--` ends the FLAGS, not the count** — memview#1525. Two readers wrote
+/// `break` where the other three set a flag, so every operand after a separator
+/// vanished: the count came out short of `subjects.len()` and the row refused
+/// [`Why::UnreadSubject`], which is a miscount wearing the name of a real
+/// refusal. The comment above one of them asserted the opposite.
+///
+/// All five readers that take operands are checked here, so a sixth written
+/// from any one of them inherits a right answer.
+#[test]
+fn every_reader_counts_the_operands_after_a_separator() {
+    assert_eq!(
+        only("grep -n foo -- src/a.ts"),
+        only("grep -n foo src/a.ts"),
+        "a search's subject after `--` is the same subject"
+    );
+    assert_eq!(
+        only("ls -- src/geo"),
+        only("ls src/geo"),
+        "a listing's locus after `--` is the same locus"
+    );
+    // ⚠ NOT compared against `git status src/a.ts` — that shape refuses on
+    // purpose, because nothing DECLARED the word a path (see `status`). The
+    // separator is what makes it a subject here, so the concept is the assertion.
+    assert_eq!(
+        only("git status -- src/a.ts"),
+        Concept::Status {
+            paths: vec![Subject::Named(format!("{CWD}/src/a.ts"))],
+        },
+        "status already counted past the separator"
+    );
+    assert!(matches!(only("git add -- src/a.ts"), Concept::Stage { .. }));
+    assert!(matches!(
+        only("git log -3 -- src/a.ts"),
+        Concept::History { .. }
+    ));
+}
+
+/// ⚠ **A path is a path however it is SPELLED** — that is what the author
+/// declared by writing `--`. A `-`-leading operand after the separator must not
+/// be read back as a flag.
+#[test]
+fn a_dash_leading_operand_after_a_separator_is_a_subject() {
+    // `git commit -- <path>` commits only those paths, which `Commit` cannot
+    // say — so it refuses BY SELECTION, not as an unrecognised flag.
+    let found: Vec<Why> = steps("git commit -m 'x' -- -weird-name")
+        .iter()
+        .filter_map(|step| lift(step).err())
+        .collect();
+    assert!(
+        found.contains(&Why::OtherSelection),
+        "expected OtherSelection, got {found:?}"
+    );
+}
