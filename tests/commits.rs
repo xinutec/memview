@@ -101,3 +101,39 @@ fn an_ordinary_path_is_left_alone() {
         assert_eq!((was, out), (None, path.to_string()));
     }
 }
+
+/// ⚠ A plain FILE in the scan root must answer "not a repository", not abort
+/// the scan. `~/Code` holds `.gitignore` and `check` beside the checkouts;
+/// `try_exists` on `<file>/.git` is `NotADirectory`, and when the IO-error
+/// hardening landed (2026-09-10) that error propagated and killed the nightly
+/// `claude-sync` outright — `probing …/.gitignore: Not a directory (os error
+/// 20)`. The point of the hardening is that `EMFILE` must not read as "no
+/// fleet"; ENOTDIR is a definite answer, not a failed question.
+#[test]
+fn a_loose_file_beside_the_checkouts_is_not_a_repository() {
+    use memview::commits::repositories;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("a-repo/.git")).expect("repo");
+    std::fs::create_dir(root.join("not-a-repo")).expect("plain dir");
+    std::fs::write(root.join(".gitignore"), "target\n").expect("loose file");
+    std::fs::write(root.join("check"), "#!/bin/sh\n").expect("loose file");
+
+    let found = repositories(root).expect("a loose file must not abort the scan");
+    assert_eq!(found, vec![root.join("a-repo")]);
+}
+
+/// An absent root is "no fleet", which several fixtures rely on.
+#[test]
+fn an_absent_scan_root_is_no_fleet_rather_than_an_error() {
+    use memview::commits::repositories;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let missing = dir.path().join("nothing-here");
+    assert!(
+        repositories(&missing)
+            .expect("absent root is a definite answer")
+            .is_empty()
+    );
+}

@@ -65,9 +65,19 @@ pub struct Commit {
 /// miner (memview#1243, in-gate at load 19.5, 2026-09-10). An error is an
 /// error; empty is a CLAIM.
 ///
-/// The one exception is an ABSENT root: that is a definite answer — no fleet —
-/// not a failed question, and the fixtures that run a scan with no code
-/// checkout state it as their contract.
+/// Two answers are DEFINITE rather than failed questions, and both are let
+/// through as "not a repository":
+///
+///   * an ABSENT root — no fleet; the fixtures that run a scan with no code
+///     checkout state it as their contract;
+///   * `ENOTDIR` from `<entry>/.git`, which is what a plain FILE sitting in the
+///     scan root answers. ⚠ This was the regression the hardening shipped with:
+///     `~/Code/.gitignore` and `~/Code/check` are files, `try_exists` on
+///     `<file>/.git` is `NotADirectory`, and the nightly `claude-sync` died on
+///     the first of them with `probing /Users/pippijn/Code/.gitignore: Not a
+///     directory (os error 20)` — the old `.exists()` had swallowed it as
+///     `false`. A regular file is definitively not a checkout; `EMFILE` and
+///     `EACCES` still propagate, which is the whole point of asking.
 pub fn repositories(code_root: &Path) -> anyhow::Result<Vec<PathBuf>> {
     let mut out = Vec::new();
     let entries = match std::fs::read_dir(code_root) {
@@ -79,10 +89,10 @@ pub fn repositories(code_root: &Path) -> anyhow::Result<Vec<PathBuf>> {
             .with_context(|| format!("listing {}", code_root.display()))?
             .path();
         // `try_exists`, because `exists()` reports "could not ask" as `false`.
-        let is_repo = path
-            .join(".git")
-            .try_exists()
-            .with_context(|| format!("probing {}", path.display()))?;
+        let is_repo = match path.join(".git").try_exists() {
+            Err(e) if e.kind() == std::io::ErrorKind::NotADirectory => false,
+            other => other.with_context(|| format!("probing {}", path.display()))?,
+        };
         if is_repo {
             out.push(path);
         }
