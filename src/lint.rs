@@ -114,6 +114,17 @@ const RULES: &[(&str, Severity, &str)] = &[
          only grow (memview#1537)",
     ),
     (
+        // Introduced 2026-09-11 with 160 live violations, so a WARNING for a
+        // long time. ⚠ It may NEVER be promoted by writing longer lines: the
+        // index has 148 bytes of headroom and taking those 160 to a claim
+        // costs ~4,000. Zero is reached by demoting them or by the corpus
+        // getting smaller, not by editing toward the rule (memview#822).
+        "mute-tripwire",
+        Severity::Warning,
+        "a memory judged TRIPWIRE whose index line states no claim — it reminds \
+         a reader who already knows it and warns nobody else",
+    ),
+    (
         "link-extension",
         Severity::Error,
         "a `[[name.md]]` wikilink can never resolve — the canonical id is the filename stem",
@@ -438,6 +449,22 @@ pub fn rule_reasons() -> BTreeMap<&'static str, (Severity, &'static str)> {
 /// hold it — the `unjudged-role` rule is skipped then rather than reporting a
 /// gap it cannot see. Passing it is what lets the rule tell an unjudged memory
 /// from one judged in the record but not in its own frontmatter.
+/// Whether an index line asserts something a reader could be wrong about.
+///
+/// ⚠ **Deliberately crude, and a FLOOR rather than a judgement.** Emphasis or a
+/// clause of four words or more; anything shorter is a bare label. It cannot
+/// tell a good claim from a bad one and does not try — what it separates is
+/// `cd` and `TDD` from a sentence, which is the distinction that decides
+/// whether a line can act on anybody at all.
+///
+/// ⚠ **A bare label is not USELESS**, and the rule's wording says so. `TDD`
+/// recalls the rule to a reader who has already read the file: it is a
+/// mnemonic. What it cannot do is warn a reader who has not, which is the one
+/// thing a tripwire exists for.
+fn states_a_claim(label: &str) -> bool {
+    label.contains("**") || label.split_whitespace().count() >= 4
+}
+
 pub fn check(
     corpus: &Corpus,
     couse: Option<&CoUse>,
@@ -653,16 +680,32 @@ pub fn check(
         // exempt from demotion forever and the root can only grow. An unjudged
         // unindexed one costs nothing and is not this rule's business.
         if let Some(roles) = roles {
-            for target in &targets {
-                let Some(doc) = corpus.docs.get(target) else {
+            // One parsed reading of the file — see `store::index_entries`.
+            for entry in crate::store::index_entries(index) {
+                let Some(doc) = corpus.docs.get(&entry.name) else {
                     continue; // already reported as index-points-nowhere
                 };
-                if crate::study::role_for(doc.meta.role.as_deref(), roles, target).is_none() {
+                let Some(role) =
+                    crate::study::role_for(doc.meta.role.as_deref(), roles, &entry.name)
+                else {
                     push(
                         "unjudged-role",
-                        target,
+                        &entry.name,
                         "no `role: tripwire|pointer` in its frontmatter and none in the record"
                             .to_string(),
+                    );
+                    continue;
+                };
+                // ⚠ **Only a TRIPWIRE, because a bare label is CORRECT for a
+                // pointer.** Measured 2026-09-11: 47 of 56 indexed pointers
+                // state no claim, which is the control that makes the tripwire
+                // figure mean anything — 160 of 290, where the line's whole job
+                // is to act on a reader who did not come looking.
+                if role == crate::study::Role::Tripwire && !states_a_claim(&entry.label) {
+                    push(
+                        "mute-tripwire",
+                        &entry.name,
+                        format!("line reads {:?}", entry.label),
                     );
                 }
             }

@@ -633,3 +633,42 @@ fn an_indexed_memory_needs_a_role_from_either_source() {
         .collect();
     assert!(none.is_empty(), "skipped without the record, got {none:?}");
 }
+
+/// ⚠ **A bare label is CORRECT for a pointer and mute for a tripwire** —
+/// memview#822. A tripwire's line has to act on a reader who did not come
+/// looking, so a line stating no claim reminds somebody who already knows it
+/// and warns nobody else. The pointer half of this test is the control that
+/// makes the tripwire half mean anything.
+#[test]
+fn a_tripwire_whose_line_states_no_claim_is_reported_and_a_pointers_is_not() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let d = dir.path();
+    let index = concat!(
+        "## Rules\n",
+        "- [TDD](mute_trip.md)\n",
+        "- [**a SILENT ablation is TWO findings**](bold_trip.md)\n",
+        "- [the state doc already held it](wordy_trip.md)\n",
+        "- [amun](mute_pointer.md)\n"
+    );
+    for name in ["mute_trip", "bold_trip", "wordy_trip", "mute_pointer"] {
+        std::fs::write(
+            d.join(format!("{name}.md")),
+            format!("---\nname: {name}\ndescription: d\nmetadata:\n  type: project\n---\n\nb\n"),
+        )
+        .expect("write");
+    }
+    std::fs::write(d.join("MEMORY.md"), index).expect("write index");
+    let corpus = Corpus::load(d).expect("loads");
+    let roles = serde_json::json!({ "roles": {
+        "mute_trip": "tripwire", "bold_trip": "tripwire",
+        "wordy_trip": "tripwire", "mute_pointer": "pointer",
+    }});
+    let flagged: Vec<String> = check(&corpus, None, Some(&roles))
+        .into_iter()
+        .filter(|f| f.rule == "mute-tripwire")
+        .map(|f| f.memory)
+        .collect();
+    // Only the bare-label TRIPWIRE. Emphasis counts as a claim, so does a
+    // clause of four words; and the pointer is left alone by design.
+    assert_eq!(flagged, vec!["mute_trip".to_string()]);
+}
