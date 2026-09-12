@@ -1,6 +1,6 @@
 //! The document-graph rules: whether the corpus is navigable at all.
 
-use memview::lint::{Severity, check, passed_for_session};
+use memview::lint::{Severity, Wrote, check, passed_for_session, wrote_by};
 use memview::store::Corpus;
 
 /// A corpus of an index plus `(name, body)` memories.
@@ -98,13 +98,25 @@ fn an_error(memory: &str) -> memview::lint::Finding {
     }
 }
 
+/// No write record for anything — the behaviour before memview#1553, and the
+/// one the cases below it are about. It is also the live fallback whenever
+/// `last-writer.json` cannot be read, so these are not hypothetical inputs.
+fn unrecorded(_: &str) -> Wrote {
+    Wrote::Unrecorded
+}
+
 /// Outside a session — the nightly, which gates the corpus commit — every error
 /// still fails. This is what keeps the corpus's own standard where it was.
 #[test]
 fn without_a_session_any_error_still_fails() {
     let dir = tempfile::tempdir().expect("tempdir");
     let corpus = stamped(dir.path(), "project_a", Some("session-2"));
-    assert!(!passed_for_session(&corpus, &[an_error("project_a")], None));
+    assert!(!passed_for_session(
+        &corpus,
+        &[an_error("project_a")],
+        None,
+        unrecorded
+    ));
 }
 
 /// A session still fails on what it wrote itself.
@@ -115,7 +127,8 @@ fn a_session_still_fails_on_its_own_memory() {
     assert!(!passed_for_session(
         &corpus,
         &[an_error("project_a")],
-        Some("session-1")
+        Some("session-1"),
+        unrecorded
     ));
 }
 
@@ -127,7 +140,8 @@ fn another_sessions_memory_does_not_fail_this_one() {
     assert!(passed_for_session(
         &corpus,
         &[an_error("project_a")],
-        Some("session-1")
+        Some("session-1"),
+        unrecorded
     ));
 }
 
@@ -190,7 +204,8 @@ fn an_unstamped_memory_fails_no_session() {
     assert!(passed_for_session(
         &corpus,
         &[an_error("project_a")],
-        Some("session-1")
+        Some("session-1"),
+        unrecorded
     ));
 }
 
@@ -203,8 +218,87 @@ fn an_error_in_the_index_still_fails_a_session() {
     assert!(!passed_for_session(
         &corpus,
         &[an_error("MEMORY.md")],
-        Some("session-1")
+        Some("session-1"),
+        unrecorded
     ));
+}
+
+// --- who BROKE it, not whose it is (memview#1553) ----------------------------
+
+/// ⚠ **The case the whole ticket is about: I damaged a memory I did not write.**
+///
+/// `project_a` belongs to `session-2`, so attribution by `originSessionId` alone
+/// answers "not yours" and passes — which is what happened for real, when a bad
+/// `re.sub` wrote a literal `\g<1>` over another session's `modified:` key and
+/// the two errors that followed, thirty seconds old and mine, printed as *"none
+/// of them this session's"*.
+#[test]
+fn damaging_another_sessions_memory_fails_this_session() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let corpus = stamped(dir.path(), "project_a", Some("session-2"));
+    assert!(!passed_for_session(
+        &corpus,
+        &[an_error("project_a")],
+        Some("session-1"),
+        |_| Wrote::Mine
+    ));
+}
+
+/// ⚠ **And the tolerance #1047 bought is KEPT** — this is the control that
+/// stops the fix above from becoming "fail on every error", which is what #1047
+/// was written to remove. Somebody else's memory, somebody else's last write:
+/// still not this session's problem.
+#[test]
+fn inheriting_another_sessions_error_still_fails_nobody() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let corpus = stamped(dir.path(), "project_a", Some("session-2"));
+    assert!(passed_for_session(
+        &corpus,
+        &[an_error("project_a")],
+        Some("session-1"),
+        |_| Wrote::Another
+    ));
+}
+
+/// ⚠ **The residual, pinned so it is a decision and not a surprise.** With no
+/// recorded writer the verdict falls back to `originSessionId` and this passes.
+/// Measured 2026-09-12: 3 of the 155 memories edited in the previous week had
+/// no record — so this path is rare where it matters and common across the
+/// corpus as a whole (343 of 733), which is why the narrow number is the one
+/// worth quoting.
+#[test]
+fn an_unrecorded_writer_keeps_the_old_answer() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let corpus = stamped(dir.path(), "project_a", Some("session-2"));
+    assert!(passed_for_session(
+        &corpus,
+        &[an_error("project_a")],
+        Some("session-1"),
+        unrecorded
+    ));
+}
+
+/// A session's own memory fails it whatever the record says — the older claim
+/// still stands on its own.
+#[test]
+fn my_own_memory_fails_me_even_when_somebody_else_wrote_last() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let corpus = stamped(dir.path(), "project_a", Some("session-1"));
+    assert!(!passed_for_session(
+        &corpus,
+        &[an_error("project_a")],
+        Some("session-1"),
+        |_| Wrote::Another
+    ));
+}
+
+/// The three-way read, which exists so that "somebody else" and "nothing
+/// recorded" cannot be collapsed into one `false`.
+#[test]
+fn a_recorded_writer_is_read_three_ways() {
+    assert_eq!(wrote_by(Some("memview"), "memview"), Wrote::Mine);
+    assert_eq!(wrote_by(Some("life"), "memview"), Wrote::Another);
+    assert_eq!(wrote_by(None, "memview"), Wrote::Unrecorded);
 }
 
 /// Any finding of a rule, whatever its severity — `findings` keeps only errors.

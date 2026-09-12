@@ -1480,7 +1480,32 @@ pub fn passed(findings: &[Finding]) -> bool {
 /// is the intended routing and not an oversight — it is unattributable by
 /// construction, and the dashboard is the answer for it. `missing-modified`
 /// stays an ERROR so the nightly still refuses to commit it.
-pub fn passed_for_session(corpus: &Corpus, findings: &[Finding], session: Option<&str>) -> bool {
+///
+/// ⚠ **`originSessionId` alone answers "whose memory is this", never "who broke
+/// it"** — and those are different acts with the same signature (memview#1553).
+/// Reproduced by accident: a bad `re.sub` wrote a literal `\g<1>` over another
+/// session's `modified:` key, the frontmatter stopped parsing, and the two
+/// errors that resulted — thirty seconds old and mine — printed as *"none of
+/// them this session's"*. Creation is the wrong question, because most memories
+/// a session edits it did not write.
+///
+/// So `wrote` is consulted as well: the recorded LAST WRITER of that memory's
+/// file, which is what `last-writer.json` folds out of the transcripts.
+///
+/// ⚠ **[`Wrote::Unrecorded`] keeps the old behaviour, and that residual is
+/// real.** Measured 2026-09-12 over the live corpus: 390 of 733 memories have a
+/// recorded writer, which sounds thin until the population is narrowed to the
+/// one that matters — of the 155 edited in the previous seven days, **152 are
+/// recorded and 3 are not**. A memory nobody has touched is not one this session
+/// damaged, so the corpus-wide 53% is a diluted number and 98% is the honest
+/// one. This closes most of the class, not all of it; do not describe it as
+/// closing the class.
+pub fn passed_for_session(
+    corpus: &Corpus,
+    findings: &[Finding],
+    session: Option<&str>,
+    wrote: impl Fn(&str) -> Wrote,
+) -> bool {
     let Some(session) = session else {
         return passed(findings);
     };
@@ -1491,9 +1516,41 @@ pub fn passed_for_session(corpus: &Corpus, findings: &[Finding], session: Option
                 None => true,
                 Some(doc) => {
                     frontmatter_value(&doc.raw, "originSessionId").as_deref() == Some(session)
+                        // Not `||` over one expression on purpose: the two
+                        // reasons a finding is yours are worth telling apart in
+                        // a debugger, and the second is the newer claim.
+                        || wrote(&finding.memory) == Wrote::Mine
                 }
             }
     })
+}
+
+/// What the write record says about who last touched a memory.
+///
+/// ⚠ **Three answers, not a `bool`.** "Somebody else wrote it" and "nothing is
+/// recorded" both mean *not this session*, and collapsing them would hide the
+/// residual above behind a value that reads as a measurement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Wrote {
+    /// The record names this session as the last writer.
+    Mine,
+    /// The record names somebody else.
+    Another,
+    /// The record has nothing for this memory.
+    Unrecorded,
+}
+
+/// Read a recorded writer as this session sees it.
+///
+/// ⚠ **In the library rather than in `memory-lint`, so a test can reach it.**
+/// The three-way answer is the whole point of this change and a bin cannot be
+/// tested — the same argument `stamped::missing` already makes about itself.
+pub fn wrote_by(recorded: Option<&str>, me: &str) -> Wrote {
+    match recorded {
+        None => Wrote::Unrecorded,
+        Some(who) if who == me => Wrote::Mine,
+        Some(_) => Wrote::Another,
+    }
 }
 
 /// How many findings each rule produced, for the summary line.

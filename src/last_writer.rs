@@ -89,6 +89,26 @@ impl LastWriter {
         self.0.get(path)
     }
 
+    /// The agent last recorded writing a memory, named the way the corpus names
+    /// it — a filename stem, or `MEMORY.md` for the index.
+    ///
+    /// ⚠ **`memory_dir` must be the LOGICAL spelling.** The record keys these
+    /// under `~/.claude/projects/…`; handing it a resolved
+    /// `/Volumes/Backup/claude/…` matched 1 of 733 memories where the logical
+    /// spelling matched 390 — and a miss looks exactly like an empty record
+    /// (memview#1553; #1556 is the guard that cannot catch this one).
+    pub fn of_memory(&self, memory_dir: &str, memory: &str) -> Option<&str> {
+        let dir = memory_dir.trim_end_matches('/');
+        // The index is named in full; every other memory is a stem.
+        let file = if memory.ends_with(".md") {
+            memory.to_string()
+        } else {
+            format!("{memory}.md")
+        };
+        self.who_wrote(&format!("{dir}/{file}"))
+            .map(|wrote| wrote.who.as_str())
+    }
+
     pub fn len(&self) -> usize {
         self.0.len()
     }

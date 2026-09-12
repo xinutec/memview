@@ -200,7 +200,27 @@ fn main() -> Result<()> {
     // and every error still fails, which is what keeps the corpus out of its
     // history until it is fixed. See [`lint::passed_for_session`].
     let session = std::env::var("CLAUDE_CODE_SESSION_ID").ok();
-    if lint::passed_for_session(&corpus, &findings, session.as_deref()) {
+    // ⚠ **And what this session last WROTE, a different question from what it
+    // created** (memview#1553): damaging a memory somebody else wrote used to
+    // read as not-yours and pass.
+    //
+    // ⚠ **Looked up only when it can change the answer.** Refreshing the record
+    // costs a mine catch-up, and with no session or no errors the verdict is
+    // already settled — so a clean run pays nothing.
+    let writers = if session.is_some() && !lint::passed(&findings) {
+        last_writers()
+    } else {
+        None
+    };
+    // ⚠ **An absent record yields `Unrecorded`, keeping the OLD behaviour.**
+    // Treating "could not ask" as "not yours" silently would be the same
+    // masking this rule exists to remove; `last_writers` has already said on
+    // stderr why it is missing.
+    let wrote = |memory: &str| match &writers {
+        Some((record, dir, me)) => lint::wrote_by(record.of_memory(dir, memory), me),
+        None => lint::Wrote::Unrecorded,
+    };
+    if lint::passed_for_session(&corpus, &findings, session.as_deref(), wrote) {
         if lint::passed(&findings) {
             println!("\nno errors");
         } else {
@@ -214,4 +234,34 @@ fn main() -> Result<()> {
     } else {
         std::process::exit(1);
     }
+}
+
+/// The write record, this session's name in it, and where memories live.
+///
+/// ⚠ **Every failure here SKIPS LOUDLY and returns `None`.** The caller then
+/// falls back to attribution by `originSessionId` alone, which is the behaviour
+/// that existed before — never to "nothing is yours". A check that quietly
+/// passes when its evidence is missing is the shape this whole rule exists to
+/// remove, and it would be invisible in a gate log that only prints failures.
+fn last_writers() -> Option<(memview::last_writer::LastWriter, String, String)> {
+    let at = memview::fresh::Where::from_env();
+    let (record, roster) = match memview::fresh::last_writer(&at) {
+        Ok(both) => both,
+        Err(why) => {
+            eprintln!(
+                "⚠ no write record ({why}) — findings are attributed by `originSessionId` \
+                 alone, so damage to another session's memory will NOT fail this run."
+            );
+            return None;
+        }
+    };
+    // ⚠ **The agent NAME, from the roster.** The record names agents (`memview`,
+    // `life`), not session ids, and deriving one from the other by hand is how
+    // `staged-check` once made every file read as somebody else's.
+    let me = std::env::var("CLAUDE_AGENT_NAME").ok().or_else(|| {
+        std::env::var("CLAUDE_CODE_SESSION_ID")
+            .ok()
+            .and_then(|id| roster.name_of_session(&id).map(str::to_string))
+    })?;
+    Some((record, at.memory_dir, me))
 }
