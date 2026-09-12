@@ -613,13 +613,28 @@ fn cycles(parent_of: &HashMap<String, String>) -> Vec<Violation> {
 ///
 /// So inside a session only that session's OWN transcript fails it, which is the
 /// one file its author could still have done something about. Outside a session
-/// — `None`, the nightly — the count is reported in full; the nightly does not
-/// gate on it either, it counts it into fleetwatch so the TREND is visible.
-/// Same routing as `lint::passed_for_session` for the corpus, and for the same
-/// reason: a shared substrate must not fail whoever happens to commit next.
-pub fn fatal_damage(damaged: usize, mine: usize, session: Option<&str>) -> usize {
+/// — `None`, the nightly — the count is reported in full and gates NOTHING; it
+/// rides into fleetwatch so the TREND is visible. Same routing as
+/// `lint::passed_for_session` for the corpus, and for the same reason: a shared
+/// substrate must not fail whoever happens to commit next.
+///
+/// ⚠ **This paragraph described the nightly for three weeks while the code did
+/// the opposite** (memview#1546). `None => damaged` made `verify/memview` red
+/// from 2026-08-20 over two unrepairable files, hiding the 19 checks that do
+/// test the code. Two damaged transcripts exist and always will, so that branch
+/// could not go green — the failure mode this very docstring names.
+///
+/// ⚠ **The cost, said plainly: outside a session damage can no longer turn this
+/// check red.** That is deliberate but it is not free — a check that cannot fail
+/// is weak. It is the better half of the trade because the alternative cannot
+/// PASS, and a permanently-red check takes 19 healthy ones down with it. The
+/// alarm did not disappear, it moved somewhere that can act on a rising number:
+/// `claude-sync.sh` runs this with `|| true`, parses the count into
+/// `transcripts_damaged`, and `mem_check.py`'s `delivery` section warns on it
+/// with the value attached. Do not restore the gate here; raise it there.
+pub fn fatal_damage(mine: usize, session: Option<&str>) -> usize {
     match session {
-        None => damaged,
+        None => 0,
         Some(_) => mine,
     }
 }

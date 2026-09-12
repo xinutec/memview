@@ -157,12 +157,19 @@ fn main() -> Result<()> {
             println!("  {count:8}  {rule}");
         }
     }
-    if transcript::fatal_damage(damaged, mine, session.as_deref()) > 0 {
+    if transcript::fatal_damage(mine, session.as_deref()) > 0 {
         std::process::exit(1);
     }
     if damaged > 0 {
+        // ⚠ Two unlike reasons for the same pass, and outside a session the old
+        // single wording named a session that does not exist. Whoever reads a
+        // nightly log has to be able to tell that the count gates nothing.
+        let why = match session {
+            Some(_) => "none of them this session's",
+            None => "unrepairable, and no run gates on them",
+        };
         println!(
-            "\n{damaged} damaged, none of them this session's — not failing. \
+            "\n{damaged} damaged, {why} — not failing. \
              The nightly counts them into fleetwatch (mem_check `delivery`)."
         );
         return Ok(());

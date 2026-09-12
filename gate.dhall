@@ -286,6 +286,13 @@ in  { name = "memview"
             this gate became unpassable on 2026-08-21 (#1062). The count is
             still printed, and the nightly trends it into fleetwatch
             (`mem_check.py`, `delivery`). See `fatal_damage`.
+
+            ⚠ **And outside a session there is no "this session", so it fails on
+            NOTHING** — which this row left implicit and the code got wrong for
+            three weeks (#1546). The nightly runs unattended with no
+            `CLAUDE_CODE_SESSION_ID`, took the other branch, and held this row
+            red from 2026-08-20 over two permanently damaged files — hiding the
+            19 checks beside it that were green the whole time.
         -}
         G.Check::{
         , name = "transcript-lint (the conversations)"

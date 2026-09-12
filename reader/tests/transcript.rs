@@ -114,25 +114,34 @@ fn the_cli_s_own_description_is_not_a_name() {
 
 use reader::transcript::fatal_damage;
 
-/// Outside a session — the nightly — every damaged file counts. Nothing about
-/// the standard moved.
+/// ⚠ **Outside a session — the nightly — damage fails NOTHING** (memview#1546).
+///
+/// This test asserted the reverse until 2026-09-12, and it was the reverse that
+/// was wrong: two unrepairable transcripts held `verify/memview` red from
+/// 2026-08-20, hiding the 19 checks that do test the code. Damage is permanent,
+/// so "every damaged file counts" is a gate that can never go green — which is
+/// the standard #1062 set, applied to the one caller it had missed.
+///
+/// The count is not lost. `claude-sync.sh` parses it into `transcripts_damaged`
+/// and `mem_check.py`'s `delivery` warns on the value. **If you are here to make
+/// the nightly notice damage again, raise it there — not by failing this.**
 #[test]
-fn without_a_session_all_damage_counts() {
-    assert_eq!(fatal_damage(3, 0, None), 3);
+fn without_a_session_damage_fails_nothing() {
+    assert_eq!(fatal_damage(0, None), 0);
 }
 
 /// ⚠ The point: another session's damaged transcript does not fail this run.
 /// Damage cannot be repaired, so failing on it failed forever, for everybody.
 #[test]
 fn another_sessions_damage_does_not_fail_this_run() {
-    assert_eq!(fatal_damage(3, 0, Some("session-1")), 0);
+    assert_eq!(fatal_damage(0, Some("session-1")), 0);
 }
 
 /// A session still fails on its own transcript — the one file its author could
 /// have done something about.
 #[test]
 fn a_session_still_fails_on_its_own_transcript() {
-    assert_eq!(fatal_damage(3, 1, Some("session-1")), 1);
+    assert_eq!(fatal_damage(1, Some("session-1")), 1);
 }
 
 // ── human_turns: one test per fact the crate now owns (memview#1215) ─────────
