@@ -318,11 +318,14 @@ struct Parser<'t> {
 }
 
 /// A heredoc's opener, held until the line it was written on ends.
+///
+/// ⚠ No `span`: it existed only to place the collision refusal `finish_body`
+/// used to raise, and that refusal cannot arise any more (memview#1564). A field
+/// kept "in case" is one the next reader has to work out the purpose of.
 struct Pending {
     delimiter: String,
     quoted: bool,
     strip_tabs: bool,
-    span: Span,
 }
 
 impl<'t> Parser<'t> {
@@ -469,10 +472,53 @@ impl<'t> Parser<'t> {
     /// The printer writes the delimiter back, so `t₂` is terminated where `t₁`
     /// was not. That is a normalisation the law permits, and it is the same
     /// tree.
+    /// ⚠ **The terminator is matched against the JOINED line, not the raw one**
+    /// (memview#1564). For an unquoted delimiter bash removes `\`-newline as it
+    /// reads, so the delimiter is compared against what the continuations make.
+    /// Matching raw lines instead produced a WRONG TREE, unrefused, in both
+    /// directions — measured against `bash` itself, 2026-09-12:
+    ///
+    /// ```text
+    ///   cat <<EOF / X\ / EOF / echo after
+    ///     ours   2 items — body "X", then `echo after` as a COMMAND
+    ///     bash   1 item  — `X\⏎EOF` joins to `XEOF`, no terminator, so the
+    ///                      heredoc runs to end of file and swallows `echo after`
+    ///
+    ///   cat <<EOF / EO\ / F / EOF
+    ///     ours   one heredoc whose body is `EOF`
+    ///     bash   `EO\⏎F` IS the terminator: empty body, then a stray `EOF`
+    /// ```
+    ///
+    /// The first is the one that mattered: nothing refused it, so a reader was
+    /// told a command ran that bash never ran — a false lower bound, which is
+    /// the single thing `S ⊆ L` forbids.
+    ///
+    /// ⚠ **A QUOTED delimiter joins NOTHING and still matches raw lines.**
+    /// Measured the same way: `<<'EOF'` over `EO\` + `F` prints both lines and
+    /// terminates at the literal `EOF`. So this is not "always join" — the two
+    /// cases genuinely differ, and treating them alike would break the quoted
+    /// one to fix the unquoted one.
     fn heredoc_body(&mut self, pending: &Pending) -> Result<Heredoc, Refusal> {
         let mut body = String::new();
+        // The raw lines of the logical line being assembled, kept verbatim
+        // because the BODY is the text as written — `finish_body` joins it. Only
+        // the terminator test looks at the joined form.
+        let mut raw = String::new();
+        let mut logical = String::new();
         loop {
             if self.at >= self.bytes.len() {
+                // ⚠ **A continuation with nothing after it still COMPLETES its
+                // line**, so the terminator test applies to it as well. Measured:
+                // `cat <<EOF⏎EOF\` with no final newline runs clean under bash —
+                // `EOF\` joins with nothing, becomes `EOF`, and terminates the
+                // body. Reaching `finish_body` with it instead was the last way
+                // the removed collision refusal could still fire.
+                if logical == pending.delimiter {
+                    return self.finish_body(pending, body);
+                }
+                // Otherwise the lines are body, and bash says as much with
+                // `here-document delimited by end-of-file`.
+                body.push_str(&raw);
                 return self.finish_body(pending, body);
             }
             let from = self.at;
@@ -493,31 +539,50 @@ impl<'t> Parser<'t> {
             } else {
                 line
             };
-            if line == pending.delimiter {
+            raw.push_str(line);
+            raw.push('\n');
+            // A quoted body is never joined, so every raw line is a whole
+            // logical line and this reduces to the old behaviour exactly.
+            let carries_on = !pending.quoted && continues(line);
+            logical.push_str(if carries_on {
+                &line[..line.len() - 1]
+            } else {
+                line
+            });
+            if carries_on {
+                continue;
+            }
+            if logical == pending.delimiter {
                 return self.finish_body(pending, body);
             }
-            body.push_str(line);
-            body.push('\n');
+            body.push_str(&raw);
+            raw.clear();
+            logical.clear();
         }
     }
 
     /// Resolve a body once its extent is known, however it ended.
+    ///
+    /// ⚠ **No collision check any more, because a collision can no longer
+    /// arise** (memview#1564, closing #1509). This used to refuse a joined body
+    /// holding a line equal to the delimiter — `EO\⏎F` becoming `EOF` — as
+    /// `Reason::EmptyOperand`, saying the printer had no spelling for it. Now
+    /// that `heredoc_body` tests the JOINED line, such a line is the terminator
+    /// and never reaches the body: every logical line here was compared against
+    /// the delimiter and differed, and joining the raw text reproduces exactly
+    /// those lines.
+    ///
+    /// That also retires the miscount #1509 was about. The refusal claimed the
+    /// TEXT was broken, sat on `syntax-report`'s `bash -n` adjudication list on
+    /// that basis, and bash ACCEPTS the input — so it would have been reported
+    /// as our bug. It is gone rather than renamed, so no new `Reason` was spent
+    /// and the survey has nothing further to learn to report.
     fn finish_body(&self, pending: &Pending, body: String) -> Result<Heredoc, Refusal> {
         let body = if pending.quoted {
             body
         } else {
             join_continuations(&body)
         };
-        // ⚠ Joining can *create* a terminator: a body holding `EO\⏎F` becomes a
-        // line reading `EOF`, and printing that back would end the heredoc
-        // early. Refused rather than printed, because the printer has no other
-        // spelling available to it.
-        if body.lines().any(|line| line == pending.delimiter) {
-            return Err(Refusal {
-                reason: Reason::EmptyOperand,
-                span: pending.span,
-            });
-        }
         Ok(Heredoc {
             delimiter: pending.delimiter.clone(),
             quoted: pending.quoted,
@@ -1643,13 +1708,11 @@ impl<'t> Parser<'t> {
                     at += 1;
                 }
                 self.at = at;
-                let start_of_delimiter = self.at;
                 let (delimiter, quoted) = self.heredoc_delimiter()?;
                 self.pending.push(Pending {
                     delimiter,
                     quoted,
                     strip_tabs,
-                    span: Span::new(start_of_delimiter, self.at),
                 });
                 return Ok(Some(Redirect {
                     fd: fd.or(Some(0)),
@@ -3568,6 +3631,18 @@ fn braced_parameter(bytes: &[u8], from: usize) -> Reason {
 /// after it, so an escaped backslash protects the newline that follows: `a\\⏎b`
 /// stays two lines while `a\⏎b` becomes one. Measured — a naive
 /// `replace("\\\n", "")` gets the first wrong.
+/// Whether a raw line ends in a continuation — an ODD run of backslashes.
+///
+/// ⚠ **Parity, not "ends with a backslash".** Each `\` escapes the next, so a
+/// line ending `\\` is a literal backslash and the newline survives. Measured
+/// against bash, 2026-09-12: over a heredoc body, `EO\` joins, `EO\\` does not,
+/// and `EO\\\` joins again. This is the same rule [`join_continuations`] applies
+/// byte by byte, asked one line at a time so the terminator can be tested before
+/// the body is built.
+fn continues(line: &str) -> bool {
+    line.bytes().rev().take_while(|&b| b == b'\\').count() % 2 == 1
+}
+
 fn join_continuations(body: &str) -> String {
     let bytes = body.as_bytes();
     let mut out = String::with_capacity(body.len());

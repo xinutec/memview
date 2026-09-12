@@ -868,6 +868,27 @@ fn here(text: &str) -> reader::syntax::ast::Heredoc {
     }
 }
 
+/// The first heredoc in a script of ANY shape.
+///
+/// ⚠ [`here`] asserts a single-item script, which is right for the cases it was
+/// written for and wrong for the ones where the terminator decides how many
+/// commands there are (memview#1564): the whole question there is whether the
+/// text after the body is a command or is body, so the item count is the
+/// finding and cannot also be a precondition.
+fn first_here(text: &str) -> reader::syntax::ast::Heredoc {
+    for item in &tree(text).items {
+        let Item::List(list) = item else { continue };
+        for command in &list.first.commands {
+            for redirect in &command.redirects {
+                if let RedirectTarget::Here(here) = &redirect.target {
+                    return here.clone();
+                }
+            }
+        }
+    }
+    panic!("{text:?} holds no heredoc");
+}
+
 #[test]
 fn every_quoted_spelling_of_a_delimiter_is_one_tree() {
     // ⚠ The distinction bash itself does not keep: `declare -f` prints all four
@@ -986,11 +1007,71 @@ fn a_backslash_newline_joins_an_unquoted_body_and_not_a_quoted_one() {
     assert_eq!(here("cat <<EOF\n\\$lit\nEOF").body, "\\$lit\n");
 }
 
+/// ⚠ **A join that FORMS the delimiter is the terminator** (memview#1564).
+///
+/// This asserted a refusal until 2026-09-12, reasoning that `EO\` + `F` makes a
+/// body line reading `EOF` the printer could not write back. Both halves were
+/// wrong: bash joins `\`-newline BEFORE looking for the terminator, so the
+/// joined line never becomes body at all — it ENDS the heredoc.
+///
+/// Measured against bash rather than argued: the body is empty and the trailing
+/// `EOF` is a stray command, which is why bash says
+/// `line 4: EOF: command not found`.
 #[test]
-fn a_join_that_would_forge_a_terminator_is_refused() {
-    // `EO\` + `F` becomes the line `EOF`, which the printer has no way to write
-    // back without ending the heredoc early.
-    assert_eq!(refusal("cat <<EOF\nEO\\\nF\nEOF"), Reason::EmptyOperand);
+fn a_join_that_forms_the_delimiter_terminates_the_body() {
+    let text = "cat <<EOF\nEO\\\nF\nEOF";
+    assert_eq!(
+        tree(text).items.len(),
+        2,
+        "the trailing `EOF` is its own command"
+    );
+    assert_eq!(first_here(text).body, "");
+}
+
+/// The same rule the other way round, and the case that was a WRONG TREE rather
+/// than a refusal: a raw line spelling the delimiter does NOT terminate when a
+/// continuation has swallowed it.
+///
+/// `X\` + `EOF` joins to `XEOF`, so nothing terminates and the heredoc runs to
+/// the end of the input, taking `echo after` with it as body text. We used to
+/// stop at the raw `EOF` and report `echo after` as a command that runs — a
+/// false lower bound, told to every reader asking what this command did.
+#[test]
+fn a_continuation_that_swallows_the_delimiter_keeps_the_body_open() {
+    let text = "cat <<EOF\nX\\\nEOF\necho after\n";
+    assert_eq!(
+        tree(text).items.len(),
+        1,
+        "`echo after` is body, not a command"
+    );
+    assert_eq!(first_here(text).body, "XEOF\necho after\n");
+}
+
+/// ⚠ **A QUOTED delimiter joins nothing, so neither rule above applies.**
+/// Pinned because the fix would be easy to write as "always join", which would
+/// break this: `<<'EOF'` over `EO\` + `F` keeps both lines and terminates at the
+/// literal `EOF`.
+#[test]
+fn a_quoted_delimiter_matches_raw_lines_and_joins_nothing() {
+    assert_eq!(here("cat <<'EOF'\nEO\\\nF\nEOF").body, "EO\\\nF\n");
+    let swallowed = "cat <<'EOF'\nX\\\nEOF\necho after\n";
+    assert_eq!(tree(swallowed).items.len(), 2, "`echo after` still runs");
+    assert_eq!(first_here(swallowed).body, "X\\\n");
+}
+
+/// Parity, not "ends with a backslash": an escaped backslash does not continue
+/// the line, so the delimiter is never formed. bash joins on `\`, not on `\\`.
+#[test]
+fn an_escaped_backslash_does_not_join_the_next_line() {
+    assert_eq!(here("cat <<EOF\nEO\\\\\nF\nEOF").body, "EO\\\\\nF\n");
+}
+
+/// A continuation with nothing after it still completes its line, so it can be
+/// the terminator. Measured: bash runs `cat <<EOF⏎EOF\` clean, with an empty
+/// body and no end-of-file warning.
+#[test]
+fn a_trailing_continuation_can_still_form_the_delimiter() {
+    assert_eq!(here("cat <<EOF\nEOF\\\n").body, "");
 }
 
 #[test]
