@@ -423,11 +423,28 @@ export class SessionView implements OnDestroy {
       // A reposition is now owed; the observer stays disarmed until it lands.
       this.settled.set(false);
       requestAnimationFrame(() => {
-        this.follow();
-        // ⚠ Unconditionally, even when `follow` DECLINES — a reader who has
-        // scrolled away is settled where they put themselves, and leaving this
-        // false would disarm the observer for the rest of the session.
-        this.settled.set(true);
+        // ⚠ **`finally`, because this signal being false DISABLES the observer**
+        // — so anything that skips the set kills earlier-loading for the rest of
+        // the session, not merely for this frame. `follow` reads layout,
+        // consults a state machine and writes telemetry; a throw anywhere in
+        // there left `settled` false for ever, and a reader who then scrolled to
+        // the top got nothing, silently and permanently.
+        //
+        // ⚠ **The hole did not exist before 9ae8a82** and is that commit's
+        // doing: until then a fault in `follow` cost one reposition, because
+        // nothing else waited on it having finished. Measured 2026-09-12 by
+        // injecting a throw after `follow`'s real work — 5/5 runs of the
+        // earlier-fetch test failed on the shipped code, 5/5 passed both with
+        // this `finally` and on the pre-9ae8a82 code, which is the asymmetry
+        // that names the cause. Same assertion the nightly failed at 03:40 that
+        // morning (memview#1243).
+        try {
+          this.follow();
+        } finally {
+          // Set even when `follow` DECLINES — a reader who has scrolled away is
+          // settled where they put themselves.
+          this.settled.set(true);
+        }
       });
     });
     // The second hand, wound only while something is running — see [now]. Both
