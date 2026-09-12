@@ -71,7 +71,7 @@ fn main() -> Result<()> {
     // lines of path derivation copied into each repo's hook, which is the same
     // claim in two places waiting to disagree. The tool knows the record; the
     // hook should only have to name its own directory.
-    let repo = match memview::staged::wrong_shape(&last, &repo) {
+    let repo = match memview::staged::wrong_shape(&last, &repo, &staged) {
         None => repo,
         Some(shape) => {
             let same_dir =

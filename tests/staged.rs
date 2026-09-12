@@ -284,7 +284,7 @@ fn a_resolved_symlink_is_reported_rather_than_read_as_clean() {
     ));
     let last = wrote(&rows);
 
-    let shape = memview::staged::wrong_shape(&last, "/Volumes/Backup/code/memview")
+    let shape = memview::staged::wrong_shape(&last, "/Volumes/Backup/code/memview", &[])
         .expect("the lopsided spelling must be reported");
     assert_eq!(
         shape.given, 1,
@@ -295,7 +295,7 @@ fn a_resolved_symlink_is_reported_rather_than_read_as_clean() {
 
     // And the spelling the record knows best raises nothing.
     assert_eq!(
-        memview::staged::wrong_shape(&last, "/Users/example/Code/memview"),
+        memview::staged::wrong_shape(&last, "/Users/example/Code/memview", &[]),
         None,
     );
 }
@@ -310,7 +310,7 @@ fn a_repo_with_no_entries_at_all_is_reported() {
         100,
         Did::Wrote,
     )]);
-    assert!(memview::staged::wrong_shape(&last, "/elsewhere/memview").is_some());
+    assert!(memview::staged::wrong_shape(&last, "/elsewhere/memview", &[]).is_some());
 }
 
 /// ⚠ A sibling repository whose name merely STARTS the same must not be taken
@@ -327,7 +327,55 @@ fn a_sibling_repo_is_not_mistaken_for_this_one() {
     // spelling of `memview`, so there is nothing to report and also nothing
     // to match.
     assert_eq!(
-        memview::staged::wrong_shape(&last, "/Users/example/Code/memview"),
+        memview::staged::wrong_shape(&last, "/Users/example/Code/memview", &[]),
+        None
+    );
+}
+
+/// ⚠ **Two spellings of one repository whose BASENAMES DIFFER** (memview#1556).
+///
+/// The corpus is reached as `/Volumes/Backup/claude` and as `~/.claude`, so a
+/// needle built from the caller's last path segment — `/claude/` — never matches
+/// `/.claude/`. Measured 2026-09-12: feeding all 733 memory paths under the
+/// resolved spelling reported ONE known writer and no complaint, where the
+/// logical spelling reported 390. **The guard was silent across a 390-to-1
+/// discrepancy**, which is precisely what it exists to catch.
+///
+/// A real directory and a real symlink, because the fix's exact route is
+/// `canonicalize` and a fixture of paths that do not exist cannot exercise it —
+/// which is the reason this defect survived: every existing case here shares a
+/// basename and so never needed the exact test.
+#[test]
+fn two_spellings_with_different_basenames_are_still_one_repository() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let real = tmp.path().join("real-corpus");
+    std::fs::create_dir_all(real.join("projects")).expect("real dir");
+    std::fs::write(real.join("projects/x.md"), "x").expect("file");
+    let dotted = tmp.path().join(".dotted");
+    std::os::unix::fs::symlink(&real, &dotted).expect("symlink");
+
+    // The record holds the DOTTED spelling; the caller hands over the resolved
+    // one, which is what `pwd -P` and `git rev-parse --show-toplevel` produce.
+    let key = format!("{}/projects/x.md", dotted.display());
+    let last = wrote(&[("hardware", &key, 100, Did::Wrote)]);
+
+    let shape = memview::staged::wrong_shape(
+        &last,
+        &real.display().to_string(),
+        &["projects/x.md".to_string()],
+    )
+    .expect("a spelling the record knows better must be reported");
+    assert_eq!(shape.given, 0);
+    assert_eq!(shape.better, dotted.display().to_string());
+    assert_eq!(shape.better_count, 1);
+
+    // And handed the spelling the record uses, there is nothing to report.
+    assert_eq!(
+        memview::staged::wrong_shape(
+            &last,
+            &dotted.display().to_string(),
+            &["projects/x.md".to_string()]
+        ),
         None
     );
 }
