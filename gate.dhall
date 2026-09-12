@@ -65,6 +65,21 @@ warning; and dev-lint is pinned to its committed HEAD rather than run out of its
 worktree, which is what stops a neighbour's half-finished edit failing this gate
 for a reason no commit anywhere explains.
 
+⚠ **That last sentence was HALF TRUE for six weeks, and the missing half cost a
+gate run** (memview#1557). It described the argv, which is pinned. The import on
+the line below is `../dev-lint/gate/schema.dhall` — this repository's neighbour's
+WORKING TREE — so the rendered table depended on somebody else's unsaved edit,
+and `the table matches its Dhall` failed naming `gate.json`, a file that was
+correct. 25 tables import that schema and 23 carry that row, so it was never a
+memview problem.
+
+Fixed in dev-lint rather than here: `--check-table` now renders against the
+schema compiled into the gate binary, which is the same committed HEAD the argv
+already names. The import below is unchanged and still reads the worktree for
+`dhall-to-json` by hand — that is the command the stale message prints, so a
+schema change must be COMMITTED in dev-lint before re-rendering here, or the two
+disagree. The gate says so when they do.
+
 -}
 
 let G = ../dev-lint/gate/schema.dhall
