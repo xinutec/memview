@@ -653,7 +653,11 @@ export class GraphView {
     // trade the close-in view that makes a step legible for very little. A dash
     // running off the edge is itself the signal that the work reaches somewhere
     // far away, and the list below the canvas names every one of them.
-    const goal = frameFor(layout, centre, this.lit(), this.width, this.height, FIT_MARGIN);
+    const goal = frameFor(layout, centre, this.lit(), this.width, this.height, FIT_MARGIN, {
+      yaw: this.camera.yaw,
+      pitch: this.camera.pitch,
+      distance: this.camera.distance,
+    });
     const cam = this.camera;
 
     if (!this.fitted) {

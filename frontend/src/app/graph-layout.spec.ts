@@ -479,6 +479,51 @@ describe('boundingRadius', () => {
 describe('frameFor', () => {
   const spread = createLayout(NAMES, EDGES, SECTIONS);
 
+  /** How far the framed nodes reach, as a fraction of each half-canvas. */
+  const reach = (zoom: number, w: number, h: number) => {
+    const cam = { yaw: 0.6, pitch: -0.25, distance: 900, zoom, target: { x: 0, y: 0, z: 0 } };
+    let x = 0;
+    let y = 0;
+    for (const node of spread.nodes) {
+      const at = project(node.pos, cam, w, h);
+      x = Math.max(x, Math.abs(at.x - w / 2) / (w / 2));
+      y = Math.max(y, Math.abs(at.y - h / 2) / (h / 2));
+    }
+    return { x, y };
+  };
+
+  /**
+   * ⚠ **The bounding SPHERE wastes the narrower dimension** (memview#1306c).
+   * One radius against `min(width, height)` fills whichever way the blob is
+   * widest and leaves the other short — on the cold view at phone width, about
+   * a third of the canvas empty above and below.
+   *
+   * Asserted as "fills at least one dimension", not as an exact zoom: the
+   * number depends on the fixture, the claim does not.
+   */
+  it('fills the canvas when it is given the camera, and does not without', () => {
+    const view = { yaw: 0.6, pitch: -0.25, distance: 900 };
+    const sphere = frameFor(spread, null, null, 412, 620).zoom;
+    const box = frameFor(spread, null, null, 412, 620, 1.15, view).zoom;
+
+    const filled = reach(box, 412, 620);
+    expect(Math.max(filled.x, filled.y)).toBeGreaterThan(0.8);
+    expect(Math.max(filled.x, filled.y)).toBeLessThanOrEqual(1);
+
+    // And it is the sphere that was leaving the room — same nodes, less canvas.
+    const wasted = reach(sphere, 412, 620);
+    expect(Math.max(wasted.x, wasted.y)).toBeLessThan(Math.max(filled.x, filled.y));
+  });
+
+  /** Neither dimension may overflow: filling is not the same as clipping. */
+  it('keeps every framed node on the canvas', () => {
+    const view = { yaw: 0.6, pitch: -0.25, distance: 900 };
+    const box = frameFor(spread, null, null, 412, 620, 1.15, view).zoom;
+    const filled = reach(box, 412, 620);
+    expect(filled.x).toBeLessThanOrEqual(1);
+    expect(filled.y).toBeLessThanOrEqual(1);
+  });
+
   it('looks at the whole corpus from the origin when nothing is focused', () => {
     const framing = frameFor(spread, null, null, 412, 620);
     expect(framing.target).toEqual({ x: 0, y: 0, z: 0 });

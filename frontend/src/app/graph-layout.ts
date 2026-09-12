@@ -417,6 +417,14 @@ export interface Framing {
  * With no centre this frames the whole corpus about the origin, which is the
  * unfocused view.
  */
+/**
+ * ⚠ **`view` picks WHICH fit.** With the camera's angles the frame is the
+ * projected bounding box ([`fitBox`]) and fills both dimensions; without them
+ * only the angle-independent bounding sphere is available ([`fitZoom`]), which
+ * wastes the narrower one. The sphere is not wrong, it is what can be computed
+ * without knowing where the camera is standing — so it stays the default rather
+ * than being replaced by a guessed set of angles.
+ */
 export function frameFor(
   layout: Layout,
   centre: string | null,
@@ -424,6 +432,7 @@ export function frameFor(
   width: number,
   height: number,
   margin = 1.15,
+  view?: Pick<Camera, 'yaw' | 'pitch' | 'distance'>,
 ): Framing {
   const i = centre === null ? undefined : layout.index.get(centre);
   const at = i === undefined ? ORIGIN : layout.nodes[i].pos;
@@ -431,6 +440,9 @@ export function frameFor(
   // holding the reference would make the camera track a moving node silently
   // and skip the easing the caller is about to do.
   const target = { x: at.x, y: at.y, z: at.z };
+  if (view !== undefined) {
+    return { target, zoom: fitBox(layout, target, names, view, width, height, margin) };
+  }
   const radius = Math.max(MIN_FRAME_RADIUS, boundingRadius(layout, target, names ?? undefined));
   return { target, zoom: fitZoom(radius, width, height, margin) };
 }
@@ -497,6 +509,56 @@ export function panDelta(dx: number, dy: number, cam: Camera): Vec3 {
  */
 export function fitZoom(radius: number, width: number, height: number, margin = 1.15): number {
   return Math.min(width, height) / 2 / Math.max(1, radius * margin);
+}
+
+/**
+ * The zoom that frames the same nodes against the projected BOUNDING BOX rather
+ * than a bounding sphere.
+ *
+ * ⚠ **A sphere fits the wider extent and wastes the narrower one**
+ * (memview#1306c). [`fitZoom`] divides `min(width, height)` by ONE radius, so a
+ * blob that projects wider than it is tall — which this corpus does — fills the
+ * binding dimension and leaves the other empty. Measured on the cold `/graph`
+ * view at phone width: about a third of the canvas empty above and below.
+ *
+ * ⚠ **Exact rather than iterative, because the projection is LINEAR in zoom.**
+ * [`project`] computes `scale = zoom * distance / depth`, and `depth` does not
+ * depend on zoom — so a node's offset from the centre is proportional to it.
+ * Measuring each offset at `zoom: 1` gives the reach per unit of zoom, and the
+ * fit is then a division.
+ *
+ * ⚠ **Measured THROUGH [`project`], not by repeating its arithmetic.** A second
+ * copy of the rotation would be a fit that drifts from what is drawn, and two
+ * implementations of one idea disagreeing silently is the failure this module is
+ * careful about everywhere else.
+ */
+export function fitBox(
+  layout: Layout,
+  target: Vec3,
+  names: ReadonlySet<string> | null,
+  view: Pick<Camera, 'yaw' | 'pitch' | 'distance'>,
+  width: number,
+  height: number,
+  margin = 1.15,
+): number {
+  const probe: Camera = { ...view, target, zoom: 1 };
+  let reachX = 0;
+  let reachY = 0;
+  for (const node of layout.nodes) {
+    if (names !== null && !names.has(node.name)) continue;
+    const at = project(node.pos, probe, width, height);
+    reachX = Math.max(reachX, Math.abs(at.x - width / 2));
+    reachY = Math.max(reachY, Math.abs(at.y - height / 2));
+  }
+  // Nothing framed, or every framed node on top of the target. A zero reach
+  // divides to Infinity and would snap the camera inside a single dot, so this
+  // hands back the sphere fit, which carries its own floor.
+  if (reachX <= 0 && reachY <= 0) {
+    return fitZoom(MIN_FRAME_RADIUS, width, height, margin);
+  }
+  const forWidth = reachX > 0 ? width / 2 / (reachX * margin) : Infinity;
+  const forHeight = reachY > 0 ? height / 2 / (reachY * margin) : Infinity;
+  return Math.min(forWidth, forHeight);
 }
 
 /**
