@@ -14,10 +14,24 @@ const HEAD: &str = "diff --git a/memory/project_x.md b/memory/project_x.md\n\
                     +++ b/memory/project_x.md\n\
                     @@ -1,4 +1,4 @@\n";
 
+/// Every path resolves to a memory that carries a stamp, so the cases below
+/// exercise the DIFF reader and nothing else. The skip these would otherwise
+/// hit has its own tests further down.
+fn a_memory(_path: &str) -> Option<String> {
+    Some(frontmatter(true, true))
+}
+
+/// Just the names, for the cases that assert on the stale list.
+fn stale(diff: &str) -> Vec<String> {
+    let found = unstamped(diff, a_memory);
+    assert!(found.unread.is_empty(), "{found:?}");
+    found.stale
+}
+
 #[test]
 fn a_body_edit_without_a_stamp_edit_is_reported() {
     let diff = format!("{HEAD}-old prose\n+new prose\n");
-    assert_eq!(unstamped(&diff), vec!["memory/project_x.md".to_string()]);
+    assert_eq!(stale(&diff), vec!["memory/project_x.md".to_string()]);
 }
 
 #[test]
@@ -27,7 +41,7 @@ fn a_body_edit_with_the_stamp_moved_is_clean() {
          +  modified: 2026-08-29T00:00:00.000Z\n\
          -old prose\n+new prose\n"
     );
-    assert!(unstamped(&diff).is_empty());
+    assert!(stale(&diff).is_empty());
 }
 
 /// Stamping and nothing else is legitimate — `memory-stamp` repairing a missing
@@ -39,7 +53,7 @@ fn moving_only_the_stamp_is_not_a_finding() {
         "{HEAD}-  modified: 2026-08-01T00:00:00.000Z\n\
          +  modified: 2026-08-29T00:00:00.000Z\n"
     );
-    assert!(unstamped(&diff).is_empty());
+    assert!(stale(&diff).is_empty());
 }
 
 /// ⚠ A NEW memory has no previous stamp to advance. Reporting it would fail
@@ -52,7 +66,7 @@ fn a_newly_added_memory_is_not_reported() {
                 +++ b/memory/project_new.md\n\
                 @@ -0,0 +1,3 @@\n\
                 +---\n+name: project_new\n+---\n";
-    assert!(unstamped(diff).is_empty());
+    assert!(stale(diff).is_empty());
 }
 
 /// ⚠ **The `+++`/`---` headers start with the same characters as content.**
@@ -61,7 +75,7 @@ fn a_newly_added_memory_is_not_reported() {
 #[test]
 fn the_file_headers_are_not_read_as_content() {
     // A diff with headers and nothing else cannot be a body change.
-    assert!(unstamped(HEAD).is_empty());
+    assert!(stale(HEAD).is_empty());
 }
 
 #[test]
@@ -75,7 +89,7 @@ fn several_files_are_judged_independently() {
                  --- a/memory/b.md\n+++ b/memory/b.md\n\
                  -x\n+y\n";
     assert_eq!(
-        unstamped(&format!("{clean}{dirty}")),
+        stale(&format!("{clean}{dirty}")),
         vec!["memory/b.md".to_string()]
     );
 }
@@ -86,7 +100,7 @@ fn several_files_are_judged_independently() {
 fn a_file_that_is_not_a_memory_is_ignored() {
     let diff = "diff --git a/src/lib.rs b/src/lib.rs\n\
                 --- a/src/lib.rs\n+++ b/src/lib.rs\n-x\n+y\n";
-    assert!(unstamped(diff).is_empty());
+    assert!(stale(diff).is_empty());
 }
 
 /// The last file in a diff has no `diff --git` after it to close it, so a
@@ -95,7 +109,77 @@ fn a_file_that_is_not_a_memory_is_ignored() {
 #[test]
 fn the_last_file_in_the_diff_is_still_judged() {
     let diff = format!("{HEAD}-old\n+new\n");
-    assert_eq!(unstamped(&diff).len(), 1);
+    assert_eq!(stale(&diff).len(), 1);
+}
+
+// --- a file with no stamp to move (memview#1319) -----------------------------
+
+/// A diff touching one path's body, in the shape the corpus produces.
+fn body_edit(path: &str) -> String {
+    format!("diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n-old line\n+new line\n")
+}
+
+/// ⚠ **The index is not a memory and never can be.** `MEMORY.md` opens
+/// `# Memory index` with no frontmatter by design, so it has no `modified:` to
+/// advance — and the index rule is "to add a line, take one out in the same
+/// edit", so nearly every memory written touches it. This fired at every commit
+/// until 2026-09-12.
+#[test]
+fn the_index_has_no_stamp_to_move_and_is_skipped() {
+    let found = unstamped(&body_edit("memory/MEMORY.md"), |_| {
+        Some("# Memory index\n\nA line about a memory.\n".to_string())
+    });
+    assert_eq!(found, memview::stamped::Stale::default(), "{found:?}");
+}
+
+/// ⚠ **The predicate is the missing stamp, NOT the name.** This is the test
+/// that tells the two apart: same filename, but this one carries frontmatter
+/// with a stamp, so it is a memory and it is reported. A `== "MEMORY.md"` test
+/// would wrongly pass here — and would break silently the day the index is
+/// renamed (`feedback_a_name_outlives_its_thing`).
+#[test]
+fn a_file_named_like_the_index_but_carrying_a_stamp_is_still_reported() {
+    let found = unstamped(&body_edit("memory/MEMORY.md"), |_| {
+        Some(frontmatter(true, true))
+    });
+    assert_eq!(found.stale, vec!["memory/MEMORY.md".to_string()]);
+}
+
+/// The other direction of the same point: a future index under any name is
+/// skipped, because nothing about the skip consults the name.
+#[test]
+fn any_file_without_frontmatter_is_skipped_whatever_it_is_called() {
+    let found = unstamped(&body_edit("memory/INDEX-v2.md"), |_| {
+        Some("# Another index\n\nprose\n".to_string())
+    });
+    assert!(
+        found.stale.is_empty() && found.unread.is_empty(),
+        "{found:?}"
+    );
+}
+
+/// ⚠ **An unreadable file is REPORTED, not treated as exempt.** "Could not read
+/// it" and "it has no stamp" are the same silence from here, so skipping on
+/// `None` would make this rule pass on everything the day it is run from the
+/// wrong directory — a check that goes quiet is worse than one that fails.
+#[test]
+fn a_file_that_cannot_be_read_is_reported_rather_than_skipped() {
+    let found = unstamped(&body_edit("memory/project_x.md"), |_| None);
+    assert!(found.stale.is_empty(), "{found:?}");
+    assert_eq!(found.unread, vec!["memory/project_x.md".to_string()]);
+}
+
+/// A commit where every stamp moved must consult no file at all — the ordinary
+/// commit, and the reason the resolver runs after the diff rather than during.
+#[test]
+fn a_clean_commit_reads_no_files() {
+    let diff = format!(
+        "{HEAD}-  modified: 2026-08-01T00:00:00.000Z\n\
+         +  modified: 2026-08-29T00:00:00.000Z\n\
+         -old prose\n+new prose\n"
+    );
+    let found = unstamped(&diff, |path| panic!("read {path}, but nothing was stale"));
+    assert_eq!(found, memview::stamped::Stale::default());
 }
 
 // --- what a memory does not say about itself (memview#1499) ------------------

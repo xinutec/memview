@@ -59,13 +59,54 @@ pub fn missing(raw: &str) -> Missing {
     }
 }
 
+/// What a diff says about stamps: which memories went stale, and which files
+/// could not be judged at all.
+///
+/// Two lists rather than one, because they call for different words from the
+/// caller — the first is the author's mistake, the second is this tool failing
+/// to do its job, and collapsing them would let the second pass as "nothing
+/// wrong".
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Stale {
+    /// Memories whose body moved while their `modified:` did not.
+    pub stale: Vec<String>,
+    /// Candidates whose body could not be read, so whether they carry a stamp
+    /// is unknown. Never silently dropped — see [`unstamped`].
+    pub unread: Vec<String>,
+}
+
 /// Memories in this diff whose body changed but whose stamp did not, in the
 /// order they appear.
 ///
 /// A file that is being ADDED is not reported: it has no previous stamp to
 /// advance, and a new memory carrying one is the ordinary case. A file being
-/// DELETED is not reported either — there is nothing left to be stale.
-pub fn unstamped(diff: &str) -> Vec<String> {
+/// DELETED is not reported either — every line of it is a removal, the
+/// `modified:` line included, so its stamp counts as moved.
+///
+/// ⚠ **A file with no `modified:` at all is SKIPPED, not reported**
+/// (memview#1319). `MEMORY.md` is the index, not a memory: it has no
+/// frontmatter by design, so it has no stamp to advance and never will. The
+/// index rule is "to add a line, take one out in the same edit", so nearly
+/// every memory written touches it — and this check fired on it at every single
+/// commit, a check that cannot go green on a file it is applied to. On
+/// 2026-09-01 it fired twice in one session: once falsely on `MEMORY.md`, once
+/// TRULY on a memory a python rewrite had skipped. Identical output, so the
+/// false one is what made the true one easy to wave through.
+///
+/// ⚠ **The predicate is "no stamp to move", NOT the name `MEMORY.md`.** A name
+/// test misses the next index and breaks silently the day the file is renamed
+/// (`feedback_a_name_outlives_its_thing`). Absence of a stamp is the same
+/// predicate the corpus already uses to decide what IS a memory, and it makes
+/// the skip true by construction: there is nothing this rule could demand.
+/// Whether a memory SHOULD have a stamp stays `memory-lint`'s `missing-modified`
+/// — the division this module's own header draws.
+///
+/// `body` resolves a diff path to that file's text. ⚠ **It returns `Option`,
+/// and `None` is reported rather than skipped**: "could not read it" and "it is
+/// not a memory" are the same silence, and treating an unreadable file as
+/// exempt is how this rule would go quiet everywhere at once if it were ever
+/// run from the wrong directory.
+pub fn unstamped(diff: &str, body: impl Fn(&str) -> Option<String>) -> Stale {
     let mut out = Vec::new();
     let mut file: Option<String> = None;
     let mut added = false;
@@ -121,5 +162,16 @@ pub fn unstamped(diff: &str) -> Vec<String> {
         }
     }
     finish(&mut file, added, body_changed, stamp_changed);
-    out
+
+    // Resolved only for files that would otherwise be reported, so a commit
+    // where every stamp moved — the ordinary one — reads no files at all.
+    let mut found = Stale::default();
+    for name in out {
+        match body(&name) {
+            Some(text) if missing(&text).modified => {}
+            Some(_) => found.stale.push(name),
+            None => found.unread.push(name),
+        }
+    }
+    found
 }

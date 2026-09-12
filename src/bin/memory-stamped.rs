@@ -29,16 +29,40 @@ fn main() -> Result<()> {
     let mut diff = String::new();
     std::io::stdin().read_to_string(&mut diff)?;
 
-    let found = memview::stamped::unstamped(&diff);
-    if found.is_empty() {
+    // ⚠ The diff's paths are repo-relative and the hook runs at the repo root,
+    // so this reads the WORKING TREE, not the index. For the one question asked
+    // of it — does this file carry a `modified:` at all — the two cannot
+    // disagree in a way that matters: becoming a memory is not something a
+    // commit does halfway. Still no `git` call, for the reason the module header
+    // gives (a hook exports `GIT_DIR` to every child).
+    let found = memview::stamped::unstamped(&diff, |path| std::fs::read_to_string(path).ok());
+
+    if !found.unread.is_empty() {
+        eprintln!(
+            "\n{} file(s) changed their body, but could not be read to see whether\n\
+             they carry a `modified:` at all:\n",
+            found.unread.len()
+        );
+        for name in &found.unread {
+            eprintln!("    {name}");
+        }
+        eprintln!(
+            "\nRun this from the root of the repo the diff came from. Reported rather than\n\
+             skipped on purpose: an unreadable file and a file with no stamp look identical\n\
+             from here, and treating them alike would silence this check everywhere at once.\n"
+        );
+        std::process::exit(1);
+    }
+
+    if found.stale.is_empty() {
         return Ok(());
     }
 
     eprintln!(
         "\n{} memory/memories changed without moving `modified:`:\n",
-        found.len()
+        found.stale.len()
     );
-    for name in &found {
+    for name in &found.stale {
         eprintln!("    {name}");
     }
     eprintln!(
