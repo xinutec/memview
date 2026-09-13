@@ -127,12 +127,10 @@ struct Standing {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
-    let half_life = args
-        .iter()
-        .position(|a| a == "--half-life")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|n| n.parse().ok())
-        .unwrap_or(HALF_LIFE_DAYS);
+    // ⚠ Refuses a bad value rather than defaulting past it: this printed the same
+    // ranking for `--half-life bogus` as for no flag at all, so a figure quoted
+    // from it could be the default wearing a parameter's name. See `flags`.
+    let half_life = memview::flags::value_of(&args, "--half-life", HALF_LIFE_DAYS)?;
 
     let home = std::env::var("HOME").unwrap_or_default();
     let memory_dir = std::env::var("MEMORY_DIR")

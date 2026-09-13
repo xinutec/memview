@@ -97,19 +97,20 @@ const CROSSED_WITHIN: i64 = 7;
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
-    let flag = |name: &str| -> Option<String> {
-        args.iter()
-            .position(|a| a == name)
-            .and_then(|i| args.get(i + 1))
-            .cloned()
-    };
+    // ⚠ Both refuse a bad value rather than defaulting past it. These thresholds
+    // decide which memories are demoted, and `--breadth bogus` used to produce the
+    // default tiering while reading as a parameterised run. See `flags`.
     let at = Thresholds {
-        lease_days: flag("--lease-days")
-            .and_then(|n| n.parse().ok())
-            .unwrap_or(Thresholds::default().lease_days),
-        tenure_breadth: flag("--breadth")
-            .and_then(|n| n.parse().ok())
-            .unwrap_or(Thresholds::default().tenure_breadth),
+        lease_days: memview::flags::value_of(
+            &args,
+            "--lease-days",
+            Thresholds::default().lease_days,
+        )?,
+        tenure_breadth: memview::flags::value_of(
+            &args,
+            "--breadth",
+            Thresholds::default().tenure_breadth,
+        )?,
         ..Thresholds::default()
     };
 

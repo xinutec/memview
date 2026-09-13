@@ -18,6 +18,7 @@ pub mod couse;
 pub mod dates;
 pub mod error;
 pub mod filing;
+pub mod flags;
 pub mod fresh;
 pub mod index_history;
 pub mod last_writer;
