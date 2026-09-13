@@ -1241,22 +1241,31 @@ fn unresolved_in_any(shas: &BTreeSet<String>, repos: &[std::path::PathBuf]) -> B
 /// Found because the same inheritance made the test helper write into memview's
 /// index; that cost two failed commits (`error: Error building trees`). The
 /// production path had the identical bug one function away.
+///
+/// ⚠ **Strip by PREFIX, never by a list.** This held an enumerated nine until
+/// 2026-09-13 — the shape `src/commits.rs` records as having already failed once:
+/// on 2026-09-02 a subset that missed one variable let a fresh repo bind to the
+/// committing repo's dirs, and the reader then found no repository at all. That
+/// lesson reached `commits.rs` and not here, so the two call sites carried
+/// different spellings of one guard, the other commented "a prefix cannot drift"
+/// and this one still a list.
+///
+/// ⚠ **No live defect was demonstrated, and that is stated rather than implied.**
+/// Every off-list variable tried against this exact call resolved the sha
+/// correctly — `GIT_CONFIG_COUNT`/`KEY`/`VALUE`, `GIT_CONFIG_GLOBAL`,
+/// `GIT_CONFIG_SYSTEM`, `GIT_NAMESPACE`, `GIT_LITERAL_PATHSPECS`. Object lookup
+/// turns on `GIT_DIR`, `GIT_OBJECT_DIRECTORY` and `GIT_ALTERNATE_OBJECT_DIRECTORIES`,
+/// and the old list did name all three. So this is drift-proofing and consistency
+/// between two guards, NOT a bug that was silently answering from the wrong
+/// repository — do not cite it as one.
 fn git_batch_check(repo: &std::path::Path, input: &str) -> std::io::Result<String> {
     use std::io::Write;
     let mut cmd = std::process::Command::new("git");
     cmd.arg("-C").arg(repo).args(["cat-file", "--batch-check"]);
-    for var in [
-        "GIT_DIR",
-        "GIT_INDEX_FILE",
-        "GIT_WORK_TREE",
-        "GIT_OBJECT_DIRECTORY",
-        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-        "GIT_COMMON_DIR",
-        "GIT_CEILING_DIRECTORIES",
-        "GIT_PREFIX",
-        "GIT_CONFIG_PARAMETERS",
-    ] {
-        cmd.env_remove(var);
+    for (key, _) in std::env::vars() {
+        if key.starts_with("GIT_") {
+            cmd.env_remove(key);
+        }
     }
     let mut child = cmd
         .stdin(std::process::Stdio::piped())
