@@ -282,6 +282,48 @@ const plan = layout.planLabels(
 // about six regions hold a node close enough to host readable text at 412px. The
 // lever is the layout, not the labeller. Kept so the next attempt starts from the
 // measurement rather than from the intuition.
+// ---- the OVERVIEW: what the graph looks like collapsed to one dot per group.
+//
+// memview#1306: the cold view draws 734 dots and reads as confetti. The fix is to
+// open on groups, and every number that decides whether that works is here rather
+// than judged by eye — the same argument the rest of this file makes.
+//
+// ⚠ The grouping is HYBRID by measurement, not by preference: MEMORY.md's authored
+// `##` headings cover 47% of the corpus (349 indexed of 734, and memview#1210 has
+// CLOSED the index), so authored-only draws half the memories nowhere and a single
+// catch-all becomes six times the size of the next group.
+// ⚠ **The SYNTHETIC corpus cannot exercise either half of this, and the gate runs
+// the synthetic corpus.** Its fixture gives every node a section, so `hybridGroups`
+// finds nothing to derive (12 authored + 0 derived) and no edge falls below the
+// threshold (0 hidden). On the live corpus it is 15 authored + 14 derived with 134
+// of 202 edges hidden. Same shape of blind spot the affinity guards had above.
+//
+// Left that way ON PURPOSE: the fixture's section membership also drives
+// `intraOverInter`, and degrading it to match reality would move a threshold that
+// is measuring something else. The grouping logic is covered by 15 specs in
+// `graph-layout.spec.ts`; what this run covers is the layout pressure, and for the
+// overview numbers that means running it against a saved `/api/graph`.
+const OVERVIEW_MIN_WEIGHT = 8;
+const groupOf = layout.hybridGroups(
+  graph.nodes.map((n) => n.name),
+  graph.edges,
+  (name) => curated.get(name) ?? null,
+);
+const overview = layout.groupGraph(
+  graph.nodes.map((n) => n.name),
+  graph.edges,
+  (name) => groupOf.get(name) ?? null,
+);
+const derivedGroups = overview.nodes.filter((n) => n.key.startsWith(layout.DERIVED_PREFIX));
+const shownEdges = overview.edges.filter((e) => e.weight >= OVERVIEW_MIN_WEIGHT);
+// ⚠ Reported, never silently dropped. 68 edges shown out of 202 looks exactly like
+// 68 being all there is — the rule `planLabels` already follows for labels.
+const hiddenEdges = overview.edges.length - shownEdges.length;
+const linkedAtThreshold = new Set(shownEdges.flatMap((e) => [e.source, e.target]));
+const overviewDensity = overview.nodes.length > 1
+  ? (shownEdges.length / ((overview.nodes.length * (overview.nodes.length - 1)) / 2)) * 100
+  : 0;
+
 const labelCells = (() => {
   const COLS = 4;
   const ROWS = 4;
@@ -495,6 +537,12 @@ const report = {
   labelsOffCanvas: plan.offCanvas,
   labelsOverBudget: plan.overBudget,
   labelCells,
+  overviewGroups: `${overview.nodes.length} (${overview.nodes.length - derivedGroups.length} authored + ${derivedGroups.length} derived)`,
+  overviewPlaced: `${graph.nodes.length - overview.ungrouped.length}/${graph.nodes.length}`,
+  overviewLargest: overview.nodes.length ? `${overview.nodes[0].key} = ${overview.nodes[0].members.length}` : 'none',
+  overviewEdges: `${shownEdges.length} shown, ${hiddenEdges} hidden below weight ${OVERVIEW_MIN_WEIGHT}`,
+  overviewDensity: `${overviewDensity.toFixed(0)}%`,
+  overviewLinked: `${linkedAtThreshold.size}/${overview.nodes.length}`,
   labelBudget: layout.LABEL_BUDGET,
   intraOverInter: Number(ratio.toFixed(3)),
   hopsMedian: walk.median,
