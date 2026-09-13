@@ -907,12 +907,19 @@ export class GraphView {
     // drawing (memview#1306).
     const graph = this.visible();
     if (!graph) return;
+    // ⚠ A region dot belongs to NO group — it IS one. Anchoring the 29 of them to
+    // the corpus's ~20 derived clusters pulled them toward territory that has
+    // nothing to do with the regions on screen, which is what clumped them into a
+    // central band (#1306).
+    const overview = this.regions() !== null;
     const groupOf = new Map<string, string>();
     const groups: string[] = [];
-    for (const row of this.clusters()) {
-      if (row.alone) continue;
-      groups.push(row.core);
-      for (const member of row.members) groupOf.set(member, row.core);
+    if (!overview) {
+      for (const row of this.clusters()) {
+        if (row.alone) continue;
+        groups.push(row.core);
+        for (const member of row.members) groupOf.set(member, row.core);
+      }
     }
     this.layout = createLayout(
       graph.nodes.map((n) => ({ name: n.name, group: groupOf.get(n.name) ?? null })),
