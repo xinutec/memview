@@ -266,6 +266,35 @@ const plan = layout.planLabels(
   WIDTH,
 );
 
+// How much of the canvas the text actually speaks for — the one thing no other
+// line here can say. Ten labels in one corner and ten spread across the picture
+// score identically on `labelsDrawn`, `labelsCollided` and all the rest.
+//
+// ⚠ **Added 2026-09-13 because it REFUTED the change it was written for.**
+// #1306(b) decided the graph should name one landmark per region instead of the
+// top-ranked names. Built, tested, measured on the real 734-node corpus:
+//
+//     no spread rule    10 labels, 6/16 cells
+//     one per region    10 labels, 6/16 cells   (and 4 collisions against 1)
+//
+// Identical coverage, so the rule was reverted. Label spread is not bounded by
+// which candidates are SELECTED — it is bounded by where the NODES are, and only
+// about six regions hold a node close enough to host readable text at 412px. The
+// lever is the layout, not the labeller. Kept so the next attempt starts from the
+// measurement rather than from the intuition.
+const labelCells = (() => {
+  const COLS = 4;
+  const ROWS = 4;
+  const seen = new Set(
+    plan.drawn.map((l) => {
+      const cx = Math.min(COLS - 1, Math.max(0, Math.floor((l.x / WIDTH) * COLS)));
+      const cy = Math.min(ROWS - 1, Math.max(0, Math.floor((l.y / HEIGHT) * ROWS)));
+      return cy * COLS + cx;
+    }),
+  );
+  return `${seen.size}/${COLS * ROWS}`;
+})();
+
 /** Mean distance between nodes in the same section, and across sections. */
 function sectionSeparation() {
   let intra = 0;
@@ -465,6 +494,7 @@ const report = {
   labelsCollided: plan.collided,
   labelsOffCanvas: plan.offCanvas,
   labelsOverBudget: plan.overBudget,
+  labelCells,
   labelBudget: layout.LABEL_BUDGET,
   intraOverInter: Number(ratio.toFixed(3)),
   hopsMedian: walk.median,
