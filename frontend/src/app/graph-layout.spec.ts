@@ -1028,3 +1028,55 @@ describe('hybridGroups', () => {
     expect(hybridGroups([], [], () => null).size).toBe(0);
   });
 });
+
+describe('groupGraph core', () => {
+  const NAMES = ['hub', 'leaf1', 'leaf2', 'other'];
+  const of = (name: string) => (name === 'other' ? 'B' : 'A');
+
+  it('names the most-connected member as the core', () => {
+    // ⚠ The core is the REAL memory an overview dot stands on, so it has to be
+    // the one a reader recognises — not whichever member was listed first.
+    const g = groupGraph(
+      NAMES,
+      [
+        { source: 'hub', target: 'leaf1' },
+        { source: 'hub', target: 'leaf2' },
+        { source: 'hub', target: 'other' },
+      ],
+      of,
+    );
+    const a = g.nodes.find((n) => n.key === 'A');
+    expect(a?.core).toBe('hub');
+    expect(a?.members[0]).toBe('hub');
+  });
+
+  it('counts degree over the whole graph, not only links inside the group', () => {
+    // `out` has one link and it LEAVES the group; `in1` has one that stays. Both
+    // have degree 1, so the tiebreak decides — but a core computed from internal
+    // links alone would rank them differently, and the member a reader knows is
+    // usually the one citing outwards.
+    // `out` has two links and BOTH leave the group; `in1` has one that stays.
+    // Counting only internal links would score out=0, in1=1 and pick `in1`.
+    const g = groupGraph(
+      ['out', 'in1', 'in2', 'far1', 'far2'],
+      [
+        { source: 'out', target: 'far1' },
+        { source: 'out', target: 'far2' },
+        { source: 'in1', target: 'in2' },
+      ],
+      (n) => (n.startsWith('far') ? 'B' : 'A'),
+    );
+    expect(g.nodes.find((n) => n.key === 'A')?.core).toBe('out');
+  });
+
+  it('breaks a degree tie on the name, so the core is deterministic', () => {
+    const g = groupGraph(['zeta', 'alpha'], [], () => 'A');
+    expect(g.nodes[0].core).toBe('alpha');
+  });
+
+  it('gives a single-member group that member as its core', () => {
+    const g = groupGraph(['only'], [], () => 'A');
+    expect(g.nodes[0].core).toBe('only');
+    expect(g.nodes[0].members).toEqual(['only']);
+  });
+});

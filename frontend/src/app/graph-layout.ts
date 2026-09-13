@@ -1145,7 +1145,23 @@ export function planLabels(
  */
 export interface GroupNode {
   readonly key: string;
+  /** Members, most-connected first — so `members[0]` is {@link GroupNode.core}. */
   readonly members: readonly string[];
+  /**
+   * The most-connected member, and the REAL memory this group's dot stands on.
+   *
+   * ⚠ **This is what lets an overview stay made of memories.** A group is not a
+   * memory — it has no description, teaser or role — so a dot invented for it
+   * would break the moment anyone clicked it, which is the failure this repo
+   * keeps recording. Anchoring the dot on a member that genuinely exists means
+   * hit-testing, the detail panel and walking all keep working unchanged, and
+   * clicking a region takes you into it rather than nowhere.
+   *
+   * Same definition as {@link Cluster.core}, and named after a member rather
+   * than by summarising them for the same reason: "the dev-lint region" is
+   * checkable, "tooling and quality" is not.
+   */
+  readonly core: string;
   /**
    * Links whose two ends are both inside this group.
    *
@@ -1249,8 +1265,24 @@ export function groupGraph(
     else between.set(id, { source, target, weight: 1 });
   }
 
+  // Degree over the WHOLE graph, not within the group: the core is the member a
+  // reader is most likely to recognise, and its standing comes from every link it
+  // has, not only the ones that happen to stay inside this region.
+  const degree = new Map<string, number>();
+  for (const edge of edges) {
+    for (const end of [edge.source, edge.target]) {
+      if (keyOf.has(end)) degree.set(end, (degree.get(end) ?? 0) + 1);
+    }
+  }
   const nodes: GroupNode[] = [...members.entries()]
-    .map(([key, ms]) => ({ key, members: ms, internal: internal.get(key) ?? 0 }))
+    .map(([key, ms]) => {
+      // Most-connected first, name as the tiebreak so the core does not depend on
+      // which memory the API happened to list first.
+      const ordered = [...ms].sort(
+        (a, b) => (degree.get(b) ?? 0) - (degree.get(a) ?? 0) || a.localeCompare(b),
+      );
+      return { key, members: ordered, core: ordered[0], internal: internal.get(key) ?? 0 };
+    })
     .sort((x, y) => y.members.length - x.members.length || x.key.localeCompare(y.key));
 
   const groupEdges: GroupEdge[] = [...between.values()].sort(
