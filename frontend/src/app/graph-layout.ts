@@ -1259,3 +1259,75 @@ export function groupGraph(
 
   return { nodes, edges: groupEdges, ungrouped };
 }
+
+/**
+ * Marks a group name this code invented, as opposed to one Pippijn wrote.
+ *
+ * ⚠ **The two kinds of dot must stay tellable apart.** An authored `##` heading
+ * is a claim a person made and maintains; a derived group is a clustering's
+ * opinion, and `feedback_no_user_edits_of_algorithm_output` says he does not
+ * hand-edit those. A picture that presented them identically would invite exactly
+ * that — correcting an algorithm's guess as though it were his own filing.
+ */
+export const DERIVED_PREFIX = 'derived: ';
+
+/**
+ * Where each memory belongs in the overview: the authored section if it has one,
+ * otherwise the derived cluster it fell into.
+ *
+ * ⚠ **Why a hybrid at all, measured 2026-09-13 on the live 734-node corpus.** The
+ * authored `##` headings cover 47% of memories — `section` is assigned by walking
+ * MEMORY.md, which indexes 349 of 734 — and memview#1210 has now CLOSED the index
+ * at its ceiling, so the uncovered majority is permanent and grows. The four
+ * candidate shapes were measured before this was written:
+ *
+ *     authored only              15 groups, 389 memories drawn NOWHERE
+ *     authored + one catch-all   16 groups, catch-all holds 389 — 6x the next,
+ *                                and owns the three strongest links in the picture
+ *     derived throughout         14 groups, covers all, but is the
+ *                                algorithm-imposed top level the 2026-09-01
+ *                                decision rejected
+ *     hybrid (this)              29 groups, covers all, largest 63, no blob
+ *
+ * ⚠ **Its cost, stated rather than discovered later: 29 groups and 202 edges**,
+ * against a `READABLE_CLUSTERS` target that picks the 20-rung on this corpus. If
+ * the picture is too dense the lever is `rung` below — NOT falling back to a
+ * shape that hides half the corpus.
+ *
+ * `rung` selects which level of {@link clusterLevels} names the derived groups;
+ * the default is the coarsest, which on this corpus is 14 and closest to the
+ * authored hierarchy's 15.
+ */
+export function hybridGroups(
+  names: readonly string[],
+  edges: readonly Edge[],
+  sectionOf: (name: string) => string | null,
+  rung?: number,
+): Map<string, string> {
+  const levels = clusterLevels(names, edges);
+  // The coarsest rung by default. `levels` is never empty for a non-empty graph,
+  // but an empty corpus must not index into nothing.
+  const chosen = levels.length === 0 ? [] : (levels[rung ?? levels.length - 1] ?? []);
+  const derived = new Map<string, string>();
+  for (const cluster of chosen) {
+    for (const member of cluster.members) {
+      derived.set(member, `${DERIVED_PREFIX}${cluster.core}`);
+    }
+  }
+
+  const of = new Map<string, string>();
+  for (const name of names) {
+    const authored = sectionOf(name);
+    if (authored !== null && authored !== '') {
+      of.set(name, authored);
+      continue;
+    }
+    const fallback = derived.get(name);
+    // ⚠ A memory in NO cluster and NO section still needs a home, or the overview
+    // silently loses it — which is the failure the authored-only shape was
+    // rejected for. A singleton cluster is the honest answer: it belongs with
+    // nothing, and saying so is the point.
+    of.set(name, fallback ?? `${DERIVED_PREFIX}${name}`);
+  }
+  return of;
+}

@@ -8,8 +8,10 @@ import {
   createLayout,
   Edge,
   fitZoom,
+  DERIVED_PREFIX,
   frameFor,
   groupGraph,
+  hybridGroups,
   LABEL_BUDGET,
   LabelCandidate,
   LayoutInput,
@@ -971,5 +973,58 @@ describe('groupGraph', () => {
   it('ignores an edge naming a memory the graph does not have', () => {
     const g = groupGraph(NAMES, [{ source: 'a1', target: 'ghost' }], of);
     expect(g.edges).toEqual([]);
+  });
+});
+
+describe('hybridGroups', () => {
+  // Two linked pairs so the clusterer has something to find, plus a memory with
+  // an authored section and one with neither.
+  const NAMES = ['filed', 'x1', 'x2', 'y1', 'y2', 'orphan'];
+  const EDGES: Edge[] = [
+    { source: 'x1', target: 'x2' },
+    { source: 'y1', target: 'y2' },
+  ];
+  const authored = (name: string) => (name === 'filed' ? 'Rules — code & verify' : null);
+
+  it('keeps an authored section exactly as written', () => {
+    // ⚠ Verbatim, em dash and ampersand included: this is Pippijn's own heading
+    // and the overview must not restyle it into something he did not write.
+    const of = hybridGroups(NAMES, EDGES, authored);
+    expect(of.get('filed')).toBe('Rules — code & verify');
+  });
+
+  it('marks a derived group so it cannot be mistaken for an authored one', () => {
+    const of = hybridGroups(NAMES, EDGES, authored);
+    expect(of.get('x1')?.startsWith(DERIVED_PREFIX)).toBe(true);
+    expect(of.get('filed')?.startsWith(DERIVED_PREFIX)).toBe(false);
+  });
+
+  it('puts two linked memories in the same derived group', () => {
+    const of = hybridGroups(NAMES, EDGES, authored);
+    expect(of.get('x1')).toBe(of.get('x2'));
+  });
+
+  it('gives every memory a home, including one with no section and no cluster', () => {
+    // ⚠ The failure the authored-only shape was rejected for: 389 of 734 drawn
+    // nowhere. Nothing may fall out of the overview silently.
+    const of = hybridGroups(NAMES, EDGES, authored);
+    expect(of.size).toBe(NAMES.length);
+    for (const name of NAMES) expect(of.get(name)).toBeTruthy();
+  });
+
+  it('treats an empty section string as unfiled rather than as a group named ""', () => {
+    const of = hybridGroups(NAMES, EDGES, (n) => (n === 'filed' ? '' : null));
+    expect(of.get('filed')?.startsWith(DERIVED_PREFIX)).toBe(true);
+  });
+
+  it('an authored section wins over the cluster the memory also falls in', () => {
+    // Both halves apply to `x1`; the authored one is a claim a person made.
+    const of = hybridGroups(NAMES, EDGES, (n) => (n === 'x1' ? 'Apps & tooling' : null));
+    expect(of.get('x1')).toBe('Apps & tooling');
+    expect(of.get('x2')?.startsWith(DERIVED_PREFIX)).toBe(true);
+  });
+
+  it('handles an empty corpus without reaching into an empty ladder', () => {
+    expect(hybridGroups([], [], () => null).size).toBe(0);
   });
 });
