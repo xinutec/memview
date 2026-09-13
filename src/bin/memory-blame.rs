@@ -24,6 +24,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result};
 use memview::blame::{MARKER, attribute, open_task_in, subject};
+use memview::filing;
 use memview::lint::{self, Finding, Severity};
 use memview::store::Corpus;
 
@@ -205,9 +206,13 @@ fn file_for(agent: &str, findings: &[&Finding]) -> Result<String> {
         argv.extend_from_slice(&["--body", &body]);
         run(&argv)
     };
+    // ⚠ The predicate is `filing::is_duplicate_refusal`, in the library so
+    // `tests/filing.rs` can pin the service's live wordings. It used to be a
+    // `contains("already filed")` here — a string the service does not emit, so
+    // this arm never ran and the fix the comment above describes was inert.
     let out = match file(&[]) {
         Ok(out) => out,
-        Err(refused) if format!("{refused:#}").contains("already filed") => {
+        Err(refused) if filing::is_duplicate_refusal(&format!("{refused:#}")) => {
             file(&["--no-duplicate-check"])?
         }
         Err(other) => return Err(other),
