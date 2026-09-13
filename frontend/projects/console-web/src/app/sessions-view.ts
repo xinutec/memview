@@ -7,6 +7,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatBottomSheet } from '@angular/material/bottom-sheet';
 import { Router, RouterLink } from '@angular/router';
 
+import { CacheHeat } from './cache-heat';
 import { ConsoleApi } from './console-api';
 import { Dismiss } from './dismiss';
 import { reason } from './errors';
@@ -115,6 +116,7 @@ const RANK = { working: 0, waiting: 1, background: 2, idle: 3, off: 4 } as const
     MatIconModule,
     MatProgressBarModule,
     UsageStrip,
+    CacheHeat,
   ],
 })
 export class SessionsView {
@@ -377,6 +379,13 @@ export class SessionsView {
     if (minutes < 60) return `${Math.round(minutes)}m ago`;
     if (minutes < 60 * 24) return `${Math.round(minutes / 60)}h ago`;
     return `${Math.round(minutes / 1440)}d ago`;
+  }
+
+  /** What the reddening clock means, for a title and a screen reader. */
+  cacheSays(at: number): string {
+    const minutes = Math.round(Math.max(0, (Date.now() - at) / 60000));
+    if (minutes >= 60) return 'past the hour the prompt cache lasts';
+    return `${minutes}m into the hour the prompt cache lasts`;
   }
 
   /** The last path element, which is what a repository is called.

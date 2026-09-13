@@ -218,6 +218,30 @@
   font-variant-numeric: tabular-nums;
 }
 
+// The age and its clock travel together, so `flex-wrap` above cannot leave the
+// icon at the end of one line and the time at the start of the next.
+.since {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+// Reddens across the hour the prompt cache lasts. `--heat` is 0..1 from
+// [[CacheHeat]]; the colour is mixed HERE rather than computed in TypeScript so
+// both ends stay theme tokens and follow light and dark — the same reason
+// `coloured.ts` uses classes instead of inline style.
+.cache {
+  --heat: 0;
+  font-size: 0.95rem;
+  width: 0.95rem;
+  height: 0.95rem;
+  color: color-mix(
+    in oklab,
+    var(--mat-sys-error) calc(var(--heat) * 100%),
+    var(--mat-sys-on-surface-variant)
+  );
+}
+
 .model {
   font-family: ui-monospace, monospace;
 }
