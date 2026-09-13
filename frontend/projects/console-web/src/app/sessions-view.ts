@@ -7,7 +7,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatBottomSheet } from '@angular/material/bottom-sheet';
 import { Router, RouterLink } from '@angular/router';
 
-import { CacheHeat } from './cache-heat';
+import { CacheHeat, withinCacheHour } from './cache-heat';
 import { ConsoleApi } from './console-api';
 import { Dismiss } from './dismiss';
 import { reason } from './errors';
@@ -381,11 +381,17 @@ export class SessionsView {
     return `${Math.round(minutes / 1440)}d ago`;
   }
 
+  /** Whether the prompt cache's hour is still running, and so whether to show it. */
+  withinHour(at: number): boolean {
+    return withinCacheHour(at);
+  }
+
   /** What the reddening clock means, for a title and a screen reader. */
   cacheSays(at: number): string {
-    const minutes = Math.round(Math.max(0, (Date.now() - at) / 60000));
-    if (minutes >= 60) return 'past the hour the prompt cache lasts';
-    return `${minutes}m into the hour the prompt cache lasts`;
+    const left = Math.max(0, Math.round(60 - (Date.now() - at) / 60000));
+    // Says what is LEFT rather than what has passed: the number the reader acts
+    // on is how long they still have.
+    return `${left}m left of the hour the prompt cache lasts`;
   }
 
   /** The last path element, which is what a repository is called.

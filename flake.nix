@@ -38,6 +38,11 @@
             ./console
             ./reader
             ./src
+            # ⚠ One FILE, not the frontend. `console/tests/parse.rs` compares the
+            # runner's output against this golden, and without it the read
+            # returns "" and the test reports a diff against nothing — which
+            # reads as a parser regression rather than a missing fixture.
+            ./frontend/projects/console-web/e2e/parsed.fixture.json
           ];
         };
       in {
@@ -63,10 +68,23 @@
           cargoLock.lockFile = ./Cargo.lock;
           cargoBuildFlags = [ "--package" "console" ];
 
-          # The gate runs the tests, against the whole workspace, with the corpus
-          # and the transcripts this sandbox has none of. A second run here would
-          # be a slower way to learn less.
-          doCheck = false;
+          # ⚠ **Scoped, or the check runs NOTHING.** `cargoCheckHook` does not
+          # inherit `cargoBuildFlags`: left to itself it ran the workspace's lib
+          # and bin unittests, every one of which is empty, and reported success
+          # having executed 0 tests. `doCheck = true` alone would satisfy
+          # `nix-rust-package-docheck-false` while testing nothing, which is the
+          # defect that rule exists to catch.
+          cargoTestFlags = [ "--package" "console" ];
+          # `console/tests/orphan.rs` shells out to `ps` to prove a child was
+          # reaped; the sandbox has no `ps`, and the failure reads as a broken
+          # test rather than a missing tool.
+          nativeCheckInputs = [ pkgs.procps ];
+          # `past.rs` asks `ps -u $USER` which processes are running a
+          # conversation, and holds everything BUSY when it cannot ask — a
+          # deliberate fail-safe. The sandbox sets no `USER`, so two tests saw
+          # that fallback rather than the thing they test.
+          preCheck = "export USER=nixbld";
+          doCheck = true;
 
           meta.mainProgram = "console";
         };
@@ -91,8 +109,15 @@
           src = workspace;
           cargoLock.lockFile = ./Cargo.lock;
           cargoBuildFlags = [ "--package" "console" "--bin" "sessions" ];
-          # As above: the gate runs the tests, with a corpus this sandbox has not.
-          doCheck = false;
+
+          # As the console above, and for the same four reasons: the check hook
+          # does not inherit `cargoBuildFlags`, `orphan.rs` shells out to `ps`,
+          # `parse.rs` reads a golden under `frontend/`, and `past.rs` holds every
+          # conversation busy when `USER` is unset. Same binary, same suite.
+          cargoTestFlags = [ "--package" "console" ];
+          nativeCheckInputs = [ pkgs.procps ];
+          preCheck = "export USER=nixbld";
+          doCheck = true;
           meta.mainProgram = "sessions";
         };
         default = self.packages.${pkgs.stdenv.hostPlatform.system}.console;

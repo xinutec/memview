@@ -245,19 +245,26 @@
                below reports and read from the same place — the transcript. It
                used to be the age of the process, so a session worked all night
                said `13h ago` while it was answering. -->
-          <span class="since">
-            <!-- Reddens across the hour the prompt cache lasts. Live rows only:
-                 a finished conversation has no cache to keep, so the same icon
-                 there would be permanently red and say nothing. -->
-            <mat-icon
-              class="cache"
+          <!-- Reddens across the hour the prompt cache lasts, then GOES: past the
+               hour there is no decision left to make. Live rows only — a finished
+               conversation has no cache to keep. -->
+          @if (withinHour(row.at)) {
+            <span
+              class="since"
+              [class.urgent]="(row.at | cacheHeat) > 0.5"
               [style.--heat]="row.at | cacheHeat"
-              [attr.aria-label]="cacheSays(row.at)"
-              [title]="cacheSays(row.at)"
-              >schedule</mat-icon
             >
-            {{ ago(row.at) }}
-          </span>
+              <mat-icon
+                class="cache"
+                [attr.aria-label]="cacheSays(row.at)"
+                [title]="cacheSays(row.at)"
+                >schedule</mat-icon
+              >
+              {{ ago(row.at) }}
+            </span>
+          } @else {
+            <span>{{ ago(row.at) }}</span>
+          }
           <span>{{ session.interactions }} interactions</span>
           <!-- How full it is, which is the other half of "how far into this am
                I" and the half that says whether a compaction is coming. -->
