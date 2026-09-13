@@ -1147,6 +1147,21 @@ fn repos_under(code_root: &std::path::Path) -> Vec<std::path::PathBuf> {
         // is a maintenance trap. Relative to the root's parent, like the archive
         // above, so a test root reaches nothing real.
         collect(parent.join(".config"));
+        // ⚠ **`~/.claude` IS a repository, not a directory holding some** — which
+        // is why `collect` cannot reach it: that walks a directory's children.
+        //
+        // Measured 2026-09-13: all three `unresolvable-commit` warnings in the
+        // corpus were claude-config commits, and all three resolve here. The rule
+        // was 3-for-3 wrong, and its own text accused a "mistyped sha" or "a repo
+        // that is not cloned on this machine" about the repository the corpus
+        // itself lives in — the shape that teaches a reader to skim the rule.
+        //
+        // Same defect as `~/.config` above, recorded separately because the SHAPE
+        // differs: anyone adding a third location has to know which kind it is.
+        let claude = parent.join(".claude");
+        if claude.join(".git").exists() {
+            repos.push(claude);
+        }
     }
     repos
 }
