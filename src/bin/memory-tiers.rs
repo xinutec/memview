@@ -104,8 +104,8 @@ fn main() -> Result<()> {
     )?;
     let args: Vec<String> = std::env::args().collect();
     // ⚠ Both refuse a bad value rather than defaulting past it. These thresholds
-    // decide which memories are demoted, and `--breadth bogus` used to produce the
-    // default tiering while reading as a parameterised run. See `flags`.
+    // decide which memories are demoted, and a defaulted-past `--breadth bogus`
+    // would produce the default tiering while reading as parameterised. See `flags`.
     let at = Thresholds {
         lease_days: memview::flags::value_of(
             &args,

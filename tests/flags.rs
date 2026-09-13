@@ -18,7 +18,7 @@ fn a_good_value_is_honoured() {
     assert_eq!(value_of(&args, "--half-life", 45_i64).unwrap(), 3);
 }
 
-/// ⚠ The measured regression: this used to return the default, so the run was
+/// ⚠ A bad value must not read as an absent one: defaulting past it makes the run
 /// indistinguishable from one that passed no flag at all.
 #[test]
 fn an_unparseable_value_is_refused_not_defaulted() {

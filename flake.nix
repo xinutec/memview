@@ -69,9 +69,9 @@
           cargoBuildFlags = [ "--package" "console" ];
 
           # ⚠ **Scoped, or the check runs NOTHING.** `cargoCheckHook` does not
-          # inherit `cargoBuildFlags`: left to itself it ran the workspace's lib
-          # and bin unittests, every one of which is empty, and reported success
-          # having executed 0 tests. `doCheck = true` alone would satisfy
+          # inherit `cargoBuildFlags`: left to itself it runs the workspace's lib
+          # and bin unittests, every one empty, and reports success having executed
+          # 0 tests. `doCheck = true` alone therefore satisfies
           # `nix-rust-package-docheck-false` while testing nothing, which is the
           # defect that rule exists to catch.
           cargoTestFlags = [ "--package" "console" ];
@@ -81,7 +81,7 @@
           nativeCheckInputs = [ pkgs.procps ];
           # `past.rs` asks `ps -u $USER` which processes are running a
           # conversation, and holds everything BUSY when it cannot ask — a
-          # deliberate fail-safe. The sandbox sets no `USER`, so two tests saw
+          # deliberate fail-safe. The sandbox sets no `USER`, so two tests meet
           # that fallback rather than the thing they test.
           preCheck = "export USER=nixbld";
           doCheck = true;

@@ -210,9 +210,9 @@ fn file_for(agent: &str, findings: &[&Finding]) -> Result<String> {
         run(&argv)
     };
     // ⚠ The predicate is `filing::is_duplicate_refusal`, in the library so
-    // `tests/filing.rs` can pin the service's live wordings. It used to be a
-    // `contains("already filed")` here — a string the service does not emit, so
-    // this arm never ran and the fix the comment above describes was inert.
+    // `tests/filing.rs` can pin the service's live wordings. A `contains` here on
+    // the refusal's PROSE matches nothing the service emits, and this arm then
+    // never runs.
     let out = match file(&[]) {
         Ok(out) => out,
         Err(refused) if filing::is_duplicate_refusal(&format!("{refused:#}")) => {

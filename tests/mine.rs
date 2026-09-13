@@ -382,11 +382,10 @@ fn a_resumed_mine_does_not_double_the_commit_counts() {
     };
 
     let (first, carried) = run(None);
-    // ⚠ **Two failures used to look identical here** (memview#1596). A sum over an
-    // EMPTY agent list is 0, and so is an agent that was found but lost its
-    // commit — and the second reads as "the miner drops commits", which is the
-    // serious claim. This failed once in-gate on 2026-09-13 and the log could not
-    // say which half broke, so ask the narrower question first.
+    // ⚠ **Two failures look identical to a sum** (memview#1596): an EMPTY agent
+    // list is 0, and so is an agent found but missing its commit. The second reads
+    // as "the miner drops commits", which is the serious claim, so ask the
+    // narrower question first.
     assert!(
         !first.agents.is_empty(),
         "the fixture must find at least one agent — no agent means the TRANSCRIPT \

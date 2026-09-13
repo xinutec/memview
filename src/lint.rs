@@ -1242,13 +1242,10 @@ fn unresolved_in_any(shas: &BTreeSet<String>, repos: &[std::path::PathBuf]) -> B
 /// index; that cost two failed commits (`error: Error building trees`). The
 /// production path had the identical bug one function away.
 ///
-/// ⚠ **Strip by PREFIX, never by a list.** This held an enumerated nine until
-/// 2026-09-13 — the shape `src/commits.rs` records as having already failed once:
-/// on 2026-09-02 a subset that missed one variable let a fresh repo bind to the
-/// committing repo's dirs, and the reader then found no repository at all. That
-/// lesson reached `commits.rs` and not here, so the two call sites carried
-/// different spellings of one guard, the other commented "a prefix cannot drift"
-/// and this one still a list.
+/// ⚠ **Strip by PREFIX, never by a list.** An enumerated set silently misses
+/// whatever git adds next; `src/commits.rs` carries the same guard and the same
+/// reason, after a subset that missed one variable let a fresh repo bind to the
+/// committing repo's dirs.
 ///
 /// ⚠ **No live defect was demonstrated, and that is stated rather than implied.**
 /// Every off-list variable tried against this exact call resolved the sha

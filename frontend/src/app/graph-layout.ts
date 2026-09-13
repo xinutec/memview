@@ -1258,7 +1258,7 @@ export function groupGraph(
     // ⚠ A NUL separator, spelled as an ESCAPE. A space would collide — a group
     // key here is an authored `##` heading and `Rules — code & verify` holds
     // several — but a raw NUL byte in the source is invisible to every reader and
-    // to grep. This file had one until 2026-09-13.
+    // to grep.
     const id = `${source}\u0000${target}`;
     const seen = between.get(id);
     if (seen) between.set(id, { source, target, weight: seen.weight + 1 });

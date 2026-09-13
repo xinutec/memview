@@ -270,9 +270,8 @@ const plan = layout.planLabels(
 // line here can say. Ten labels in one corner and ten spread across the picture
 // score identically on `labelsDrawn`, `labelsCollided` and all the rest.
 //
-// ⚠ **Added 2026-09-13 because it REFUTED the change it was written for.**
-// #1306(b) decided the graph should name one landmark per region instead of the
-// top-ranked names. Built, tested, measured on the real 734-node corpus:
+// ⚠ **A one-landmark-per-region rule was built and REVERTED on this number.**
+// Measured on the real 734-node corpus (#1306):
 //
 //     no spread rule    10 labels, 6/16 cells
 //     one per region    10 labels, 6/16 cells   (and 4 collisions against 1)
