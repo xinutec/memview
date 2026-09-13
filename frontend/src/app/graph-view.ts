@@ -28,6 +28,7 @@ import {
   clusterLevels,
   companionsOf,
   createLayout,
+  DERIVED_PREFIX,
   groupGraph,
   hybridGroups,
   frameFor,
@@ -251,6 +252,8 @@ export class GraphView {
     graph: GraphData;
     size: Map<string, number>;
     label: Map<string, string>;
+    /** Region names this code invented, as DRAWN — the marker already stripped. */
+    derived: Set<string>;
     hidden: number;
   } | null>(() => {
     const graph = this.data();
@@ -287,6 +290,11 @@ export class GraphView {
       size: new Map(groups.nodes.map((g) => [g.core, g.members.length])),
       // Called by its region, not by the core memory it stands on.
       label: new Map(groups.nodes.map((g) => [g.core, g.key])),
+      derived: new Set(
+        groups.nodes
+          .filter((g) => g.key.startsWith(DERIVED_PREFIX))
+          .map((g) => g.key.slice(DERIVED_PREFIX.length)),
+      ),
       hidden: groups.edges.length - kept.length,
     };
   });
@@ -559,7 +567,7 @@ export class GraphView {
    * re-framing under them would undo the very thing they just did.
    */
   private userPanned = false;
-  private theme = { text: '#000', edge: 'rgba(0,0,0,0.15)', halo: '#fff' };
+  private theme = { text: '#000', edge: 'rgba(0,0,0,0.15)', halo: '#fff', derived: '#666' };
 
   /**
    * A walk read from the URL that has not been applied yet.
@@ -649,6 +657,8 @@ export class GraphView {
       text: resolve('--mat-sys-on-surface'),
       edge: resolve('--mat-sys-outline-variant'),
       halo: resolve('--mat-sys-surface'),
+      // A region name this code invented, rather than one a session wrote.
+      derived: resolve('--mat-sys-on-surface-variant'),
     };
     probe.remove();
   }
@@ -1098,8 +1108,10 @@ export class GraphView {
         .filter((e) => e.lit || e.companion || e.node === selected || e.node === hovered)
         .map((e) => ({
           // A region dot is labelled by its region, not by the core memory it
-          // happens to stand on.
-          name: this.regions()?.label.get(e.node.name) ?? e.node.name,
+          // happens to stand on. The `derived:` marker is stripped and carried in
+          // COLOUR instead: it cost nine of about thirty characters at phone
+          // width, on 14 of the 29 regions.
+          name: (this.regions()?.label.get(e.node.name) ?? e.node.name).replace(DERIVED_PREFIX, ''),
           x: e.x,
           y: e.y,
           radius: e.radius,
@@ -1119,13 +1131,17 @@ export class GraphView {
     );
     this.labelPlan = plan;
 
+    const invented = this.regions()?.derived ?? new Set<string>();
     for (const label of plan.drawn) {
       // Halo behind the text so a label crossing a dense region stays readable.
       ctx.lineWidth = 3;
       ctx.strokeStyle = this.theme.halo;
       ctx.strokeText(label.name, label.x, label.y);
       ctx.lineWidth = 1;
-      ctx.fillStyle = this.theme.text;
+      // Dimmer where this code named the region rather than a session
+      // (feedback_no_user_edits_of_algorithm_output): the two kinds of name must
+      // stay tellable apart, or an algorithm's guess reads as his own filing.
+      ctx.fillStyle = invented.has(label.name) ? this.theme.derived : this.theme.text;
       ctx.fillText(label.name, label.x, label.y);
     }
   }

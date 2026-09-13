@@ -366,7 +366,10 @@ const overviewReport = (() => {
   const oCand = oState.nodes.map((nd) => {
     const p = layout.project(nd.pos, oCam, WIDTH, HEIGHT);
     return {
-      name: label.get(nd.name) ?? nd.name,
+      // Stripped, as the view draws it: the `derived:` marker is carried in
+      // COLOUR, not characters. Measuring the unstripped name would model a
+      // picture nobody renders — the divergence this file exists to catch.
+      name: (label.get(nd.name) ?? nd.name).replace(layout.DERIVED_PREFIX, ''),
       x: p.x,
       y: p.y,
       radius: Math.max(1.2, (1.6 + Math.min(1, Math.sqrt(size.get(nd.name) ?? 1) / 8) * 4.2) * p.scale),
