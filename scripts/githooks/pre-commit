@@ -21,7 +21,19 @@ cd "$(git rev-parse --show-toplevel)"
 # is a warning nobody ever sees.
 # ⚠ `$HOME`, never a literal home directory: this repo is public, and a hook
 # welded to one machine's layout is a hook nobody else can run.
-STAGED_CHECK="$HOME/Library/Caches/cargo/target/release/staged-check"
+#
+# ⚠ **Tier 1 was an absolute cache path until 2026-09-13, and that directory had
+# been deleted since 2026-09-05** (the fleet went back to a per-repo `target/`).
+# It never matched, so the fallback always won and this hook ran whatever copy
+# the 00:30 nightly last installed — a `staged-check` rebuilt in this very
+# checkout could not reach a commit here for up to a day, which is the opposite
+# of what tier 1 is for. Nothing failed, and that is why it went a week
+# unnoticed (#1578).
+#
+# Repo-relative now: this binary is THIS repo's, the hook has already `cd`ed to
+# the toplevel, and a relative path cannot rot independently of the checkout the
+# way an absolute cache path did.
+STAGED_CHECK="target/release/staged-check"
 [[ -x $STAGED_CHECK ]] || STAGED_CHECK="$HOME/.local/bin/staged-check"
 if [[ -x $STAGED_CHECK ]]; then
   # ⚠ It resolves the record's own spelling of this directory itself — see
