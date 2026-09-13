@@ -29,6 +29,9 @@ use memview::cites::{citations, cited_paths, is_ours, repo_of, still_asks};
 use memview::store::Corpus;
 
 fn main() -> Result<()> {
+    // Refuse a flag this tool does not know, rather than running as if it were
+    // absent (memview#1588).
+    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
     let home = std::env::var("HOME").unwrap_or_default();
     let memory_dir = std::env::var("MEMORY_DIR")
         .unwrap_or_else(|_| format!("{home}/.claude/projects/-Users-pippijn-Code/memory"));

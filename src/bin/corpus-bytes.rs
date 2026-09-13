@@ -35,6 +35,9 @@ fn label(kind: &Kind) -> String {
 }
 
 fn main() -> Result<()> {
+    // Refuse a flag this tool does not know, rather than running as if it were
+    // absent (memview#1588).
+    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--json"])?;
     // ⚠ `--json` writes the artefact a collector reads; it never reads 6 GB
     // itself. `claude_disk.py` runs every 600 s off ~0.7 s of stat calls, and a
     // 33-second content walk cannot ride that cadence (memview#1200).

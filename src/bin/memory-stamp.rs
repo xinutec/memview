@@ -34,6 +34,9 @@ use memview::blame::{Author, attribute};
 use memview::stamped::{Missing, missing};
 
 fn main() -> Result<()> {
+    // Refuse a flag this tool does not know, rather than running as if it were
+    // absent (memview#1588).
+    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--apply"])?;
     let home = std::env::var("HOME").unwrap_or_default();
     let apply = std::env::args().any(|a| a == "--apply");
     let dir = std::env::args()

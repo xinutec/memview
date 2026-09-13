@@ -12,6 +12,12 @@ use memview::agents;
 use memview::couse::stamp;
 
 fn main() -> Result<()> {
+    // Refuse a flag this tool does not know, rather than running as if it were
+    // absent (memview#1588).
+    memview::flags::reject_unknown(
+        &std::env::args().collect::<Vec<_>>(),
+        &["--exports", "--resume"],
+    )?;
     let home = std::env::var("HOME").unwrap_or_default();
     // ⚠ **Flags taken out before the positionals are counted.** `root` and `out`
     // are read by position, so a bare `--resume` would otherwise become the

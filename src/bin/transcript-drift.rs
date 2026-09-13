@@ -25,6 +25,9 @@ use anyhow::{Context, Result};
 use reader::watermark::{Drift, Watermark, drift, observe};
 
 fn main() -> Result<()> {
+    // Refuse a flag this tool does not know, rather than running as if it were
+    // absent (memview#1588).
+    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
     let at = reader::home::cache("transcript-drift.json");
     // ⚠ **An absent file and an unreadable one are different answers.** Absent
     // is a legitimate first run. Unreadable is a lost baseline, and defaulting

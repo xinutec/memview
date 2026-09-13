@@ -15,6 +15,9 @@ use std::io::Read;
 use anyhow::Result;
 
 fn main() -> Result<()> {
+    // Refuse a flag this tool does not know, rather than running as if it were
+    // absent (memview#1588).
+    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
     // ⚠ The ABSOLUTE repository path: the artefact keys paths that way.
     let repo = std::env::args().nth(1).unwrap_or_else(|| {
         std::env::current_dir()

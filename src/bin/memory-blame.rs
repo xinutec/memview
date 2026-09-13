@@ -29,6 +29,9 @@ use memview::lint::{self, Finding, Severity};
 use memview::store::Corpus;
 
 fn main() -> Result<()> {
+    // Refuse a flag this tool does not know, rather than running as if it were
+    // absent (memview#1588).
+    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--file"])?;
     let args: Vec<String> = std::env::args().collect();
     let file = args.iter().any(|a| a == "--file");
 

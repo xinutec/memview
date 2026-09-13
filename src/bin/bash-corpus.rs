@@ -65,6 +65,9 @@ fn said_row(at: &Option<String>, command: &str, description: &str) -> serde_json
 }
 
 fn main() -> anyhow::Result<()> {
+    // Refuse a flag this tool does not know, rather than running as if it were
+    // absent (memview#1588).
+    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--said"])?;
     let home = std::env::var("HOME").unwrap_or_default();
     let mut args = std::env::args().skip(1);
     let mut root = None;

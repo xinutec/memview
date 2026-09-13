@@ -41,6 +41,9 @@ const PLACEBO_DAYS: [i64; 3] = [-28, -21, -14];
 const SEED: u64 = 20_260_831;
 
 fn main() -> Result<()> {
+    // Refuse a flag this tool does not know, rather than running as if it were
+    // absent (memview#1588).
+    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--harvest"])?;
     let harvest = std::env::args().any(|a| a == "--harvest");
 
     let t = day_number(T).context("t is not a date")?;

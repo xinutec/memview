@@ -26,6 +26,9 @@ use std::io::Read;
 use anyhow::Result;
 
 fn main() -> Result<()> {
+    // Refuse a flag this tool does not know, rather than running as if it were
+    // absent (memview#1588).
+    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
     let mut diff = String::new();
     std::io::stdin().read_to_string(&mut diff)?;
 

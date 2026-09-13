@@ -96,6 +96,12 @@ const HARVEST: &str = "2026-09-11";
 const CROSSED_WITHIN: i64 = 7;
 
 fn main() -> Result<()> {
+    // Refuse a flag this tool does not know, rather than running as if it were
+    // absent (memview#1588).
+    memview::flags::reject_unknown(
+        &std::env::args().collect::<Vec<_>>(),
+        &["--breadth", "--lease-days"],
+    )?;
     let args: Vec<String> = std::env::args().collect();
     // ⚠ Both refuse a bad value rather than defaulting past it. These thresholds
     // decide which memories are demoted, and `--breadth bogus` used to produce the

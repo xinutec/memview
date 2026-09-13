@@ -17,6 +17,9 @@ use memview::couse;
 use memview::store::Corpus;
 
 fn main() -> Result<()> {
+    // Refuse a flag this tool does not know, rather than running as if it were
+    // absent (memview#1588).
+    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
     let home = std::env::var("HOME").unwrap_or_default();
     let dir: PathBuf = std::env::args()
         .nth(1)

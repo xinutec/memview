@@ -84,6 +84,9 @@ fn settle(
 }
 
 fn main() -> Result<()> {
+    // Refuse a flag this tool does not know, rather than running as if it were
+    // absent (memview#1588).
+    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
     let dir = std::env::args().nth(1).unwrap_or_else(|| {
         let home = std::env::var("HOME").unwrap_or_default();
         format!("{home}/.claude/projects/-Users-pippijn-Code/memory")

@@ -19,6 +19,9 @@ use anyhow::{Context, Result};
 use memview::store::Corpus;
 
 fn main() -> Result<()> {
+    // Refuse a flag this tool does not know, rather than running as if it were
+    // absent (memview#1588).
+    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--write"])?;
     let home = std::env::var("HOME").unwrap_or_default();
     let dir = std::env::var("MEMORY_DIR")
         .unwrap_or_else(|_| format!("{home}/.claude/projects/-Users-pippijn-Code/memory"));

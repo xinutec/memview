@@ -126,6 +126,9 @@ struct Standing {
 }
 
 fn main() -> Result<()> {
+    // Refuse a flag this tool does not know, rather than running as if it were
+    // absent (memview#1588).
+    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--half-life"])?;
     let args: Vec<String> = std::env::args().collect();
     // ⚠ Refuses a bad value rather than defaulting past it: this printed the same
     // ranking for `--half-life bogus` as for no flag at all, so a figure quoted

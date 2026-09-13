@@ -27,6 +27,9 @@ use anyhow::{Context, Result};
 use memview::dates::{created_in, with_created};
 
 fn main() -> Result<()> {
+    // Refuse a flag this tool does not know, rather than running as if it were
+    // absent (memview#1588).
+    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--apply"])?;
     let apply = std::env::args().any(|a| a == "--apply");
     let memory_dir = std::env::var("MEMORY_DIR").unwrap_or_else(|_| {
         reader::home::claude_dir()

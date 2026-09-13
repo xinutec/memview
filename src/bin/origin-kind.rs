@@ -35,6 +35,9 @@ fn bash_could_create(cmd: &str, name: &str) -> bool {
 }
 
 fn main() -> anyhow::Result<()> {
+    // Refuse a flag this tool does not know, rather than running as if it were
+    // absent (memview#1588).
+    memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
     let home = std::env::var("HOME")?;
     let dir = format!("{home}/.claude/projects/-Users-pippijn-Code/memory");
     let root = format!("{home}/.claude/projects");
