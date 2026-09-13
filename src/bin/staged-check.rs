@@ -109,8 +109,14 @@ fn main() -> Result<()> {
     for f in &foreign {
         eprintln!("    {:<50} last written by {}", f.path, f.who);
     }
+    // ⚠ **Say that it is proceeding, or two imperatives read as a refusal**
+    // (memview#1578). The lines above are advice, not a verdict, and this tool
+    // exits 0 whatever it finds — but nothing said so, and on 2026-09-03 a
+    // session read the pair as a block, launched a SECOND commit, and collided
+    // with the first one's worktree lock.
     eprintln!(
-        "`git commit` takes the whole INDEX. Unstage what is not yours, or commit deliberately."
+        "Reported, not blocking — this check never fails a commit. `git commit` takes \
+         the whole INDEX, so unstage what is not yours, or commit deliberately."
     );
     Ok(())
 }
