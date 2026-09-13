@@ -1,15 +1,10 @@
 ---
 name: build
 
-# memview (Rust backend + Angular frontend) — gate on fmt + clippy + cargo test
-# and the frontend's eslint + unit tests + prod build + the shared phone-layout
-# harness, then build and push xinutec/memview:latest to Docker Hub. The k8s
-# manifests and the deploy live in the home monorepo
-# (xinutec/pippijn code/kubes/memview/k8s); the image tag is the only contract
-# between this repo and the deploy.
-#
-# No corpus anywhere in here: the tests run against synthetic fixtures in
-# tests/fixtures/memory, and the real memory directory is a runtime mount.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [main]
@@ -39,35 +34,20 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v6
-      # Before setup-node, which is what this action is for: setup-node's
-      # `cache: pnpm` shells out to `pnpm store path`, so pnpm has to exist
-      # first. The major is floating rather than pinned — pinning it here would
-      # be a second version number held level with the flake's by hand, and the
-      # lockfile is the thing that actually has to match.
       - uses: pnpm/action-setup@v6
         with:
           version: 11
-      # The store is content-addressed here too, so caching it shares packages
-      # across runs the same way the machine-wide store shares them across repos.
       - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
-      # pnpm's ci: install exactly the lockfile, or fail.
       - run: pnpm install --frozen-lockfile
       - run: pnpm run lint
       - run: pnpm test
-      # `pnpm run build`, not `ng build`: the workspace holds two applications
-      # and a bare `ng build` builds only the default one. The console's layout
-      # harness then had no bundle to serve and CI failed on a webServer
-      # timeout, which reads as an infrastructure flake and was a missing build.
       - run: pnpm run build
-      # Real-browser render check: icon fonts load, no text overlaps or overflow.
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm run ui-check
-      # The graph layout, measured. Runs against a synthetic corpus-scale graph
-      # because the real corpus is deliberately absent from CI.
       - run: node ../scripts/graph-report.mjs
 
   image:
