@@ -15,7 +15,14 @@
 
 @if (data(); as graph) {
   <p class="scale">
-    {{ graph.nodes.length }} memories in {{ clusters().length }} regions
+    @if (regionsDrawn(); as regions) {
+      {{ graph.nodes.length }} memories in {{ regions }} regions
+      @if (regionsHidden() > 0) {
+        <span class="mined">· {{ regionsHidden() }} weaker links between them not drawn</span>
+      }
+    } @else {
+      {{ graph.nodes.length }} memories in {{ clusters().length }} regions
+    }
     @if (minedAt(); as when) {
       <span class="mined">· used-together from {{ when }}</span>
     }

@@ -28,6 +28,8 @@ import {
   clusterLevels,
   companionsOf,
   createLayout,
+  groupGraph,
+  hybridGroups,
   frameFor,
   neighbourhood,
   neighboursOf,
@@ -68,6 +70,14 @@ const ZOOM_EPSILON = 0.002;
  * hold at once, and the ladder is exposed so they can go finer or coarser.
  */
 const READABLE_CLUSTERS = 20;
+/**
+ * The weakest link the overview draws. Measured on the live corpus (#1306):
+ * every link is 202 edges over 29 regions — 50% of a complete graph, a hairball.
+ *
+ *     >=8    68 edges  17%  28/29 regions still linked   <- here
+ *     >=13   47        12%  26/29                        <- regions start dropping out
+ */
+const OVERVIEW_MIN_WEIGHT = 8;
 
 /**
  * What the size of a dot means. One control, where there were four toggles.
@@ -228,6 +238,69 @@ export class GraphView {
   readonly metric = signal<Metric>(DEFAULT_METRIC);
   /** Which cluster is being read as a whole, by legend index. */
   readonly focusedCluster = signal<number | null>(null);
+
+  /**
+   * The corpus collapsed to one dot per region — the cold view's whole picture,
+   * and null once a walk starts (the focused view is already good).
+   *
+   * ⚠ **Each dot IS a memory** — the region's most-connected member — so clicking
+   * one walks into that region. A synthesised group node would have no
+   * description, teaser or role and would break on the first click.
+   */
+  private readonly regions = computed<{
+    graph: GraphData;
+    size: Map<string, number>;
+    label: Map<string, string>;
+    hidden: number;
+  } | null>(() => {
+    const graph = this.data();
+    if (!graph || this.trail().length > 0) return null;
+    const names = graph.nodes.map((n) => n.name);
+    const section = new Map(graph.nodes.map((n) => [n.name, n.section ?? null]));
+    const groupOf = hybridGroups(names, graph.edges, (name) => section.get(name) ?? null);
+    const groups = groupGraph(names, graph.edges, (name) => groupOf.get(name) ?? null);
+
+    const byName = new Map(graph.nodes.map((n) => [n.name, n]));
+    const nodes = groups.nodes
+      .map((g) => byName.get(g.core))
+      .filter((n): n is GraphNode => n !== undefined);
+    const drawn = new Set(nodes.map((n) => n.name));
+    const coreOf = new Map(groups.nodes.map((g) => [g.key, g.core]));
+
+    // `hidden` is reported for the reason `planLabels` reports its drops: 68 of
+    // 202 shown looks identical to 68 being all there is.
+    const kept = groups.edges.filter((e) => e.weight >= OVERVIEW_MIN_WEIGHT);
+    const edges = kept
+      .map((e) => ({
+        source: coreOf.get(e.source) ?? '',
+        target: coreOf.get(e.target) ?? '',
+        // Many links with different relations collapse here, so there is no
+        // single claim to report.
+        relation: null,
+      }))
+      .filter((e) => drawn.has(e.source) && drawn.has(e.target));
+
+    return {
+      // No affinities: they pull between individual memories, most of which are
+      // not drawn here.
+      graph: { ...graph, nodes, edges, affinities: [] },
+      size: new Map(groups.nodes.map((g) => [g.core, g.members.length])),
+      // Called by its region, not by the core memory it stands on.
+      label: new Map(groups.nodes.map((g) => [g.core, g.key])),
+      hidden: groups.edges.length - kept.length,
+    };
+  });
+
+  /** How many regions are DRAWN, or null while walking. Not `clusters().length`:
+   * that is the derived ladder used for colour, and the overview groups
+   * differently, so the two disagree (20 against 29 on the live corpus). */
+  readonly regionsDrawn = computed<number | null>(() => this.regions()?.graph.nodes.length ?? null);
+
+  /** Links between regions the threshold hides, so a sparse map is not read as a sparse corpus. */
+  readonly regionsHidden = computed<number>(() => this.regions()?.hidden ?? 0);
+
+  /** The graph actually on screen: regions while cold, memories once walking. */
+  private readonly visible = computed<GraphData | null>(() => this.regions()?.graph ?? this.data());
 
   /**
    * The cluster ladder, coarsening from left to right.
@@ -829,7 +902,10 @@ export class GraphView {
    * connection to.
    */
   private rebuildLayout(): void {
-    const graph = this.data();
+    // ⚠ `visible()`, not `data()`: while cold this lays out the ~29 REGION dots,
+    // and a layout built from the full corpus would settle 734 nodes nobody is
+    // drawing (memview#1306).
+    const graph = this.visible();
     if (!graph) return;
     const groupOf = new Map<string, string>();
     const groups: string[] = [];
@@ -863,7 +939,7 @@ export class GraphView {
   private draw(): void {
     const ctx = this.ctx;
     const layout = this.layout;
-    const graph = this.data();
+    const graph = this.visible();
     if (!ctx || !layout || !graph || this.width === 0) return;
 
     ctx.clearRect(0, 0, this.width, this.height);
@@ -890,7 +966,12 @@ export class GraphView {
       const isCompanion = !isLit && companions.has(node.name);
       if (isolate && !isLit && !isCompanion) continue;
       const p = project(layout.nodes[i].pos, this.camera, this.width, this.height);
-      const radius = (1.6 + this.weight(node) * 4.2) * p.scale;
+      // A region's dot is sized by how much it stands for; a memory's by the
+      // reader's chosen metric. sqrt, because 63 members against 1 is a 63x
+      // range and a linear dot would swamp the picture.
+      const members = this.regions()?.size.get(node.name);
+      const heft = members === undefined ? this.weight(node) : Math.min(1, Math.sqrt(members) / 8);
+      const radius = (1.6 + heft * 4.2) * p.scale;
       const entry: Placed = {
         node,
         x: p.x,
@@ -1009,7 +1090,9 @@ export class GraphView {
       placed
         .filter((e) => e.lit || e.companion || e.node === selected || e.node === hovered)
         .map((e) => ({
-          name: e.node.name,
+          // A region dot is labelled by its region, not by the core memory it
+          // happens to stand on.
+          name: this.regions()?.label.get(e.node.name) ?? e.node.name,
           x: e.x,
           y: e.y,
           radius: e.radius,
@@ -1021,6 +1104,11 @@ export class GraphView {
         })),
       (text) => ctx.measureText(text).width,
       this.width,
+      // Every region gets a shot at a name: the overview exists so a reader knows
+      // WHERE they are, and 19 of 29 dots anonymous defeats that. The budget of 10
+      // is tuned for 734 memories. `planLabels` fills up to the budget and drops
+      // what collides, so asking for all of them draws as many as actually fit.
+      this.regionsDrawn() ?? undefined,
     );
     this.labelPlan = plan;
 
