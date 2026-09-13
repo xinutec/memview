@@ -45,6 +45,14 @@ interface Row {
   /** Present when there is a transcript to resume. */
   readonly past?: Conversation;
   /**
+   * Whether a prompt has been sent, and so whether there is a cache to lose.
+   *
+   * A session fresh out of `/compact` has sent none: its next turn re-reads
+   * everything regardless, so counting down an hour it is not in would be a
+   * deadline against nothing.
+   */
+  readonly cached?: boolean;
+  /**
    * How full its context is, as `496k / 1M` — the same fact the session's own
    * header shows, and read the same way for a row that is running and a row
    * that is not. Undefined when nothing has said.
@@ -200,6 +208,9 @@ export class SessionsView {
         named: !!session.name,
         live: session,
         context: fullness(session.context, session.window),
+        // `context` is the last request's prompt size, so absent means no
+        // request has gone out yet — nothing is cached.
+        cached: !!session.context,
         gist: gists[session.id],
         tasks: tasks[session.id],
         rank: !session.alive
