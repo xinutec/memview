@@ -337,6 +337,65 @@ const labelCells = (() => {
   return `${seen.size}/${COLS * ROWS}`;
 })();
 
+// The overview's OWN label pressure, laid out and projected the way the view
+// does it. `labelCells` above measures the 734-memory picture; this measures the
+// 29-region one, and they are different pictures.
+//
+// ⚠ Why this exists: the label-spread rule was built and REVERTED on the finding
+// that spread is bounded by where the nodes are — measured on 734 nodes. The
+// overview has 29. That measurement does not carry over, and re-taking it is
+// cheaper than re-arguing it.
+const overviewReport = (() => {
+  const cores = overview.nodes.map((g) => g.core);
+  const drawnSet = new Set(cores);
+  const coreOf = new Map(overview.nodes.map((g) => [g.key, g.core]));
+  const oEdges = shownEdges
+    .map((e) => ({ source: coreOf.get(e.source), target: coreOf.get(e.target) }))
+    .filter((e) => drawnSet.has(e.source) && drawnSet.has(e.target));
+  const oInputs = cores.map((name) => ({ name, group: null }));
+  const oState = layout.createLayout(oInputs, oEdges, [], []);
+  let n = 0;
+  while (n < 2000 && oState.alpha > layout.SETTLED) {
+    layout.stepLayout(oState);
+    n++;
+  }
+  const oZoom = layout.fitZoom(layout.boundingRadius(oState), WIDTH, HEIGHT);
+  const oCam = { yaw: 0.6, pitch: 0.35, distance: 900, zoom: oZoom, target: { x: 0, y: 0, z: 0 } };
+  const size = new Map(overview.nodes.map((g) => [g.core, g.members.length]));
+  const label = new Map(overview.nodes.map((g) => [g.core, g.key]));
+  const oCand = oState.nodes.map((nd) => {
+    const p = layout.project(nd.pos, oCam, WIDTH, HEIGHT);
+    return {
+      name: label.get(nd.name) ?? nd.name,
+      x: p.x,
+      y: p.y,
+      radius: Math.max(1.2, (1.6 + Math.min(1, Math.sqrt(size.get(nd.name) ?? 1) / 8) * 4.2) * p.scale),
+      degree: size.get(nd.name) ?? 1,
+      pinned: false,
+    };
+  });
+  // The view gives every region a shot at a name, so measure that, not the
+  // 734-memory budget of 10.
+  const oPlan = layout.planLabels(oCand, measure, WIDTH, oCand.length);
+  const COLS = 4;
+  const ROWS = 4;
+  const cells = new Set(
+    oPlan.drawn.map((l) => {
+      const cx = Math.min(COLS - 1, Math.max(0, Math.floor((l.x / WIDTH) * COLS)));
+      const cy = Math.min(ROWS - 1, Math.max(0, Math.floor((l.y / HEIGHT) * ROWS)));
+      return cy * COLS + cx;
+    }),
+  );
+  const on = oCand.filter((c) => c.x >= 0 && c.x <= WIDTH && c.y >= 0 && c.y <= HEIGHT).length;
+  return {
+    drawn: `${oPlan.drawn.length}/${oCand.length}`,
+    collided: oPlan.collided,
+    offCanvas: oPlan.offCanvas,
+    cells: `${cells.size}/${COLS * ROWS}`,
+    onCanvas: `${on}/${oCand.length}`,
+  };
+})();
+
 /** Mean distance between nodes in the same section, and across sections. */
 function sectionSeparation() {
   let intra = 0;
@@ -543,6 +602,9 @@ const report = {
   overviewEdges: `${shownEdges.length} shown, ${hiddenEdges} hidden below weight ${OVERVIEW_MIN_WEIGHT}`,
   overviewDensity: `${overviewDensity.toFixed(0)}%`,
   overviewLinked: `${linkedAtThreshold.size}/${overview.nodes.length}`,
+  overviewLabels: `${overviewReport.drawn} drawn, ${overviewReport.collided} collided, ${overviewReport.offCanvas} off-canvas`,
+  overviewCells: overviewReport.cells,
+  overviewOnCanvas: overviewReport.onCanvas,
   labelBudget: layout.LABEL_BUDGET,
   intraOverInter: Number(ratio.toFixed(3)),
   hopsMedian: walk.median,
