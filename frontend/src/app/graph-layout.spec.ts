@@ -9,6 +9,7 @@ import {
   Edge,
   fitZoom,
   frameFor,
+  groupGraph,
   LABEL_BUDGET,
   LabelCandidate,
   LayoutInput,
@@ -886,5 +887,89 @@ describe('affinities', () => {
     // must not widen it. Strict inequality would demand the pull win against a
     // settled link, which is not the claim — the claim is only "never apart".
     expect(linkAndAffinity).toBeLessThanOrEqual(linkAlone * 1.001);
+  });
+});
+
+describe('groupGraph', () => {
+  const NAMES = ['a1', 'a2', 'a3', 'b1', 'b2', 'loose'];
+  const SECTION: Record<string, string | null> = {
+    a1: 'A',
+    a2: 'A',
+    a3: 'A',
+    b1: 'B',
+    b2: 'B',
+    loose: null,
+  };
+  const of = (name: string) => SECTION[name] ?? null;
+
+  it('collapses members into one node per group, biggest first', () => {
+    const g = groupGraph(NAMES, [], of);
+    expect(g.nodes.map((n) => n.key)).toEqual(['A', 'B']);
+    expect(g.nodes[0].members).toEqual(['a1', 'a2', 'a3']);
+  });
+
+  it('sums the links between two groups into one weighted edge', () => {
+    // Three separate citations across the same boundary are one relationship of
+    // strength three, not three lines.
+    const g = groupGraph(
+      NAMES,
+      [
+        { source: 'a1', target: 'b1' },
+        { source: 'a2', target: 'b1' },
+        { source: 'b2', target: 'a3' },
+      ],
+      of,
+    );
+    expect(g.edges).toEqual([{ source: 'A', target: 'B', weight: 3 }]);
+  });
+
+  it('counts a link inside a group as internal, never as a connection out', () => {
+    // ⚠ Density is what separates a real region from a bag of things that share
+    // a heading; folding these into the cross-group count loses that AND invents
+    // a link.
+    const g = groupGraph(NAMES, [{ source: 'a1', target: 'a2' }], of);
+    expect(g.nodes[0]).toMatchObject({ key: 'A', internal: 1 });
+    expect(g.edges).toEqual([]);
+  });
+
+  it('names what the grouping placed nowhere instead of bucketing it', () => {
+    // ⚠ Measured 2026-09-13: this is 389 of 734 on the real corpus, so it is the
+    // majority case and not an edge case.
+    const g = groupGraph(NAMES, [], of);
+    expect(g.ungrouped).toEqual(['loose']);
+    expect(g.nodes.map((n) => n.key)).not.toContain('loose');
+  });
+
+  it('drops a link with one end ungrouped rather than attributing it', () => {
+    // It reaches somewhere the overview cannot draw, so counting it anywhere
+    // would show a region as connected to something the reader cannot follow.
+    const g = groupGraph(NAMES, [{ source: 'a1', target: 'loose' }], of);
+    expect(g.edges).toEqual([]);
+    expect(g.nodes[0].internal).toBe(0);
+  });
+
+  it('reads a link the same way whichever end is written first', () => {
+    // Direction is a property of one citation and averages to noise between
+    // regions, so A->B and B->A are the same relationship.
+    const g = groupGraph(
+      NAMES,
+      [
+        { source: 'a1', target: 'b1' },
+        { source: 'b2', target: 'a2' },
+      ],
+      of,
+    );
+    expect(g.edges).toEqual([{ source: 'A', target: 'B', weight: 2 }]);
+  });
+
+  it('gives an empty ungrouped list when the grouping covers everything', () => {
+    const g = groupGraph(NAMES, [], (n) => SECTION[n] ?? 'unindexed');
+    expect(g.ungrouped).toEqual([]);
+    expect(g.nodes.map((n) => n.key)).toContain('unindexed');
+  });
+
+  it('ignores an edge naming a memory the graph does not have', () => {
+    const g = groupGraph(NAMES, [{ source: 'a1', target: 'ghost' }], of);
+    expect(g.edges).toEqual([]);
   });
 });

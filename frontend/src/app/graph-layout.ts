@@ -1135,3 +1135,127 @@ export function planLabels(
     overBudget: ranked.length - attempted,
   };
 }
+
+/**
+ * One dot in the overview: a group standing for many memories.
+ *
+ * `key` is the grouping's own name for it — an authored `##` heading, a derived
+ * cluster's core, whatever the caller grouped by. This module does not care
+ * which; see {@link groupGraph} for why that is deliberate.
+ */
+export interface GroupNode {
+  readonly key: string;
+  readonly members: readonly string[];
+  /**
+   * Links whose two ends are both inside this group.
+   *
+   * Kept because a group's INTERNAL density is what says whether it is a real
+   * region or a bag: 40 members holding each other together and 40 that merely
+   * share a heading look identical from the member count alone.
+   */
+  readonly internal: number;
+}
+
+/** An aggregated link between two groups, and how many memory links it stands for. */
+export interface GroupEdge {
+  readonly source: string;
+  readonly target: string;
+  readonly weight: number;
+}
+
+export interface GroupGraph {
+  readonly nodes: readonly GroupNode[];
+  readonly edges: readonly GroupEdge[];
+  /**
+   * Memories the grouping placed nowhere.
+   *
+   * ⚠ **Counted and named, never quietly bucketed.** Measured 2026-09-13: 389 of
+   * 734 memories carry no authored `##` section, because the index holds 349
+   * entries for a 734-memory corpus and memview#1210 has now CLOSED the index at
+   * its ceiling — so this is a majority, and a permanent one.
+   *
+   * Inventing a home for them is a decision about what the overview is FOR
+   * (memview#1306) and is not this function's to make: a caller that wants them
+   * as one "unindexed" dot can add it, and a caller using a grouping that covers
+   * everything gets an empty list.
+   */
+  readonly ungrouped: readonly string[];
+}
+
+/**
+ * Collapse the memory graph into one node per group, for the overview.
+ *
+ * ⚠ **The grouping is a PARAMETER, not a choice made here.** memview#1306 has an
+ * open question about whether the overview's dots come from MEMORY.md's authored
+ * `##` headings — a top level a human writes and can override — or from the
+ * derived link clusters, which cover the whole corpus but impose an algorithm's
+ * opinion. Measured: authored covers 47%, derived covers all of it, and the two
+ * agree 55% of the time. This is written to be correct under either answer, so
+ * the question can be settled without rewriting it.
+ *
+ * ⚠ **A self-link is internal; a link to an ungrouped memory is neither.** Both
+ * fold into the cross-group count by accident if unhandled, which would draw a
+ * group as connected to something the reader cannot follow.
+ *
+ * Edges are undirected and deduplicated by ordered pair: the overview says "these
+ * two regions are related, and this strongly". Direction is a property of an
+ * individual citation and averages to noise at this scale.
+ */
+export function groupGraph(
+  names: readonly string[],
+  edges: readonly Edge[],
+  groupOf: (name: string) => string | null,
+): GroupGraph {
+  const members = new Map<string, string[]>();
+  const ungrouped: string[] = [];
+  const keyOf = new Map<string, string>();
+  for (const name of names) {
+    const key = groupOf(name);
+    if (key === null) {
+      ungrouped.push(name);
+      continue;
+    }
+    keyOf.set(name, key);
+    const bucket = members.get(key);
+    if (bucket) bucket.push(name);
+    else members.set(key, [name]);
+  }
+
+  const internal = new Map<string, number>();
+  // ⚠ **The pair is carried in the VALUE, not encoded into the key.** Packing it
+  // into the key means unpacking it again, and every way of doing that either
+  // asserts a shape back out of `any` — which `no-unsafe-type-assertion` refuses,
+  // correctly — or picks a separator that a group name is free to contain. A
+  // group name here is an authored `##` heading, so it holds spaces already.
+  const between = new Map<string, GroupEdge>();
+  for (const edge of edges) {
+    const a = keyOf.get(edge.source);
+    const b = keyOf.get(edge.target);
+    // One end outside every group: it belongs to no pair, and counting it
+    // anywhere overstates a connection nobody can follow.
+    if (a === undefined || b === undefined) continue;
+    if (a === b) {
+      internal.set(a, (internal.get(a) ?? 0) + 1);
+      continue;
+    }
+    const [source, target] = a < b ? [a, b] : [b, a];
+    // ⚠ A NUL separator, spelled as an ESCAPE. A space would collide — a group
+    // key here is an authored `##` heading and `Rules — code & verify` holds
+    // several — but a raw NUL byte in the source is invisible to every reader and
+    // to grep. This file had one until 2026-09-13.
+    const id = `${source}\u0000${target}`;
+    const seen = between.get(id);
+    if (seen) between.set(id, { source, target, weight: seen.weight + 1 });
+    else between.set(id, { source, target, weight: 1 });
+  }
+
+  const nodes: GroupNode[] = [...members.entries()]
+    .map(([key, ms]) => ({ key, members: ms, internal: internal.get(key) ?? 0 }))
+    .sort((x, y) => y.members.length - x.members.length || x.key.localeCompare(y.key));
+
+  const groupEdges: GroupEdge[] = [...between.values()].sort(
+    (x, y) => y.weight - x.weight || x.source.localeCompare(y.source),
+  );
+
+  return { nodes, edges: groupEdges, ungrouped };
+}
