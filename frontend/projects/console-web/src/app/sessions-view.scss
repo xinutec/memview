@@ -221,26 +221,41 @@
 // The age and its clock travel together, so `flex-wrap` above cannot leave the
 // icon at the end of one line and the time at the start of the next.
 //
-// `--heat` (0..1 from [[CacheHeat]]) is set on the SPAN, so the time colours with
-// the clock: a 15px glyph on its own is too quiet for the last ten minutes, which
-// is the stretch that has to be seen. The mix happens HERE rather than in
-// TypeScript so both ends stay theme tokens and follow light and dark — the same
-// reason `coloured.ts` uses classes instead of inline style.
+// `--warm` and `--hot` (0..1 from [[cacheStops]]) drive two nested mixes: the
+// first 20 minutes arrive at yellow, the remaining 40 sweep yellow to red. The
+// sweep carries no orange stop of its own — `in oklch` interpolates hue, and
+// orange is what lies between the two. Both are set on the SPAN so the time
+// colours with the clock: a 15px glyph on its own is too quiet for the last ten
+// minutes, which is the stretch that has to be seen.
+//
+// ⚠ Deliberately NOT `--mat-sys-error`. That token is picked to contrast with its
+// own surface, so on a dark ground it is a tone-80 pastel — chroma 0.089, against
+// 0.19 in light mode — and reads as white rather than as red.
+//
+// ⚠ The two themes take different stops rather than one ramp. A yellow bright
+// enough to read on `#111411` is 2.3:1 on the light surface, so light mode holds
+// the same hues at a lower lightness.
 .since {
-  --heat: 0;
+  --warm: 0;
+  --hot: 0;
+  // dev-lint: allow-hardcoded-color no M3 role is yellow; 3.8:1 light, 13.0:1 dark
+  --cache-warn: light-dark(#997e00, #efd956);
+  // dev-lint: allow-hardcoded-color no M3 role is red on both grounds; 6.3:1 light, 4.8:1 dark
+  --cache-peak: light-dark(#b71a18, #e84838);
   display: inline-flex;
   align-items: center;
   gap: 0.2rem;
   color: color-mix(
-    in oklab,
-    var(--mat-sys-error) calc(var(--heat) * 100%),
+    in oklch,
+    color-mix(in oklch, var(--cache-peak) calc(var(--hot) * 100%), var(--cache-warn))
+      calc(var(--warm) * 100%),
     var(--mat-sys-on-surface-variant)
   );
 }
 
-// Past about 50 minutes the colour alone has run out of room, so the weight
-// carries the rest. A class rather than a computed `font-weight`: CSS `round()`
-// is recent, and 550 is not a weight this font reliably has.
+// Past 50 minutes the hue has nearly finished travelling, so the weight carries
+// the rest. A class rather than a computed `font-weight`: CSS `round()` is recent,
+// and 550 is not a weight this font reliably has.
 .since.urgent {
   font-weight: 600;
 }

@@ -1,17 +1,11 @@
-import { Pipe, PipeTransform } from '@angular/core';
-
 /** The prompt cache's life, in ms. Past this a turn re-reads the whole context. */
 export const CACHE_TTL_MS = 60 * 60 * 1000;
 
-/**
- * ⚠ **Cubed, not linear.** Distance to the deadline describes the cache; it does
- * not describe the decision. Nothing is owed at 20-30 minutes,
- * 40-50 is when a session has to be steered towards an ending, and 50-59 is
- * urgent.
- *
- *     10m 0.005    30m 0.13    45m 0.42    52m 0.65    57m 0.86    59m 0.95
- */
-const URGENCY = 3;
+/** Where the ramp reaches yellow. Before it, the colour is only arriving. */
+const YELLOW_MIN = 20;
+
+/** Where the last band starts, and the weight takes over from the hue. */
+const URGENT_MIN = 50;
 
 /** Whether the hour is still running, and so whether there is anything to show. */
 export function withinCacheHour(at: number | undefined, now: number = Date.now()): boolean {
@@ -19,14 +13,32 @@ export function withinCacheHour(at: number | undefined, now: number = Date.now()
   return now - at < CACHE_TTL_MS;
 }
 
-/** How urgent the remaining cache is, 0 to 1 — read as a colour, not a number. */
-@Pipe({ name: 'cacheHeat' })
-export class CacheHeat implements PipeTransform {
-  transform(at: number | undefined, now: number = Date.now()): number {
-    if (at === undefined) return 0;
-    // A future timestamp is the host's clock disagreeing with the browser's, not
-    // a negative age.
-    const through = Math.min(1, Math.max(0, (now - at) / CACHE_TTL_MS));
-    return through ** URGENCY;
-  }
+/** How far along each leg of the ramp, 0 to 1 — read as a colour, not a number. */
+export interface CacheStops {
+  /** Neutral to yellow, over the first 20 minutes. */
+  warm: number;
+  /** Yellow to red, over the remaining 40. */
+  hot: number;
+}
+
+/**
+ * Two straight legs, not a curve. The hue sequence carries the escalation, so
+ * the pacing does not have to: yellow at 20 minutes says something is there
+ * without saying anything is wrong, and orange needs no stop of its own because
+ * it lies between yellow and red in hue and falls out of the sweep at 40.
+ */
+export function cacheStops(at: number | undefined, now: number = Date.now()): CacheStops {
+  if (at === undefined) return { warm: 0, hot: 0 };
+  // A future timestamp is the host's clock disagreeing with the browser's, not
+  // a negative age.
+  const minutes = Math.max(0, (now - at) / 60_000);
+  const leg = (from: number, span: number): number =>
+    Math.min(1, Math.max(0, (minutes - from) / span));
+  return { warm: leg(0, YELLOW_MIN), hot: leg(YELLOW_MIN, 60 - YELLOW_MIN) };
+}
+
+/** Whether this is the band that has to be seen rather than noticed. */
+export function cacheUrgent(at: number | undefined, now: number = Date.now()): boolean {
+  if (at === undefined) return false;
+  return (now - at) / 60_000 >= URGENT_MIN;
 }

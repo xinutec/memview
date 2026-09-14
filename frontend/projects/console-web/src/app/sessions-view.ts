@@ -7,7 +7,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { MatBottomSheet } from '@angular/material/bottom-sheet';
 import { Router, RouterLink } from '@angular/router';
 
-import { CacheHeat, withinCacheHour } from './cache-heat';
+import { cacheStops, cacheUrgent, withinCacheHour } from './cache-heat';
 import { ConsoleApi } from './console-api';
 import { Dismiss } from './dismiss';
 import { reason } from './errors';
@@ -124,7 +124,6 @@ const RANK = { working: 0, waiting: 1, background: 2, idle: 3, off: 4 } as const
     MatIconModule,
     MatProgressBarModule,
     UsageStrip,
-    CacheHeat,
   ],
 })
 export class SessionsView {
@@ -395,6 +394,19 @@ export class SessionsView {
   /** Whether the prompt cache's hour is still running, and so whether to show it. */
   withinHour(at: number): boolean {
     return withinCacheHour(at);
+  }
+
+  /** Where along the ramp this row sits. The two legs are mixed in the
+   *  stylesheet, not here, so both ends stay theme colours and follow light and
+   *  dark — the same reason `coloured.ts` uses classes instead of inline style. */
+  cacheStyle(at: number): Record<string, number> {
+    const { warm, hot } = cacheStops(at);
+    return { '--warm': warm, '--hot': hot };
+  }
+
+  /** Whether the last ten minutes have started. */
+  cacheIsUrgent(at: number): boolean {
+    return cacheUrgent(at);
   }
 
   /** What the reddening clock means, for a title and a screen reader. */

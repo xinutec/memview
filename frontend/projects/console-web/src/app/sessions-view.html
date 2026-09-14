@@ -245,16 +245,13 @@
                below reports and read from the same place — the transcript. It
                used to be the age of the process, so a session worked all night
                said `13h ago` while it was answering. -->
-          <!-- Reddens across the hour the prompt cache lasts, then GOES: past the
-               hour there is no decision left to make. Shown only where there IS a
-               cache — a finished conversation has none, and nor has a session
-               fresh out of `/compact` that has yet to send a prompt. -->
+          <!-- Runs neutral to yellow to red across the hour the prompt cache
+               lasts, then GOES: past the hour there is no decision left to make.
+               Shown only where there IS a cache — a finished conversation has
+               none, and nor has a session fresh out of `/compact` that has yet to
+               send a prompt. -->
           @if (row.cached && withinHour(row.at)) {
-            <span
-              class="since"
-              [class.urgent]="(row.at | cacheHeat) > 0.5"
-              [style.--heat]="row.at | cacheHeat"
-            >
+            <span class="since" [class.urgent]="cacheIsUrgent(row.at)" [style]="cacheStyle(row.at)">
               <mat-icon
                 class="cache"
                 [attr.aria-label]="cacheSays(row.at)"

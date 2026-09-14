@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { CacheHeat, withinCacheHour } from './cache-heat';
-
-const heat = (at: number | undefined, now?: number): number => new CacheHeat().transform(at, now);
+import { cacheStops, cacheUrgent, withinCacheHour } from './cache-heat';
 
 const NOW = 1_700_000_000_000;
 const at = (minutes: number): number => NOW - minutes * 60_000;
@@ -22,33 +20,36 @@ describe('withinCacheHour', () => {
   });
 });
 
-describe('CacheHeat', () => {
-  it('stays quiet through the first half', () => {
-    // 20-30 minutes is not yet a worry, so the colour must barely have moved.
-    expect(heat(at(0), NOW)).toBe(0);
-    expect(heat(at(20), NOW)).toBeLessThan(0.05);
-    expect(heat(at(30), NOW)).toBeLessThan(0.15);
+describe('cacheStops', () => {
+  it('lands the three colours on the minutes they are named for', () => {
+    // ⚠ The whole point of the two legs. Yellow is complete at 20 and the
+    // yellow-to-red sweep is half done at 40, which is where orange is.
+    expect(cacheStops(at(20), NOW)).toEqual({ warm: 1, hot: 0 });
+    expect(cacheStops(at(40), NOW).hot).toBeCloseTo(0.5);
+    expect(cacheStops(at(60), NOW)).toEqual({ warm: 1, hot: 1 });
   });
 
-  it('is clearly moving by 40-50, where the session has to be steered', () => {
-    expect(heat(at(40), NOW)).toBeGreaterThan(0.25);
-    expect(heat(at(50), NOW)).toBeGreaterThan(0.55);
+  it('is already arriving in the first twenty minutes', () => {
+    // Seeing something at 20-30 is not a worry; seeing nothing until 40 is.
+    expect(cacheStops(at(10), NOW).warm).toBeCloseTo(0.5);
   });
 
-  it('is loud through the last ten minutes', () => {
-    expect(heat(at(55), NOW)).toBeGreaterThan(0.75);
-    expect(heat(at(59), NOW)).toBeGreaterThan(0.9);
+  it('spends each leg evenly, because the hue does the escalating', () => {
+    const hot = (m: number): number => cacheStops(at(m), NOW).hot;
+    expect(hot(50) - hot(40)).toBeCloseTo(hot(60) - hot(50));
   });
 
-  it('accelerates rather than ramping evenly', () => {
-    // ⚠ The property that makes it useful, stated as a property: the second half
-    // must gain far more than the first, or 50-59 reads like 10-19.
-    const firstHalf = heat(at(30), NOW) - heat(at(0), NOW);
-    const secondHalf = heat(at(59), NOW) - heat(at(30), NOW);
-    expect(secondHalf).toBeGreaterThan(firstHalf * 5);
+  it('starts cold and reads a future timestamp the same way', () => {
+    expect(cacheStops(at(0), NOW)).toEqual({ warm: 0, hot: 0 });
+    expect(cacheStops(NOW + 60_000, NOW)).toEqual({ warm: 0, hot: 0 });
+    expect(cacheStops(undefined, NOW)).toEqual({ warm: 0, hot: 0 });
   });
+});
 
-  it('reads a future timestamp as cold, not as negative', () => {
-    expect(heat(NOW + 60_000, NOW)).toBe(0);
+describe('cacheUrgent', () => {
+  it('turns on for the last ten minutes only', () => {
+    expect(cacheUrgent(at(49), NOW)).toBe(false);
+    expect(cacheUrgent(at(50), NOW)).toBe(true);
+    expect(cacheUrgent(undefined, NOW)).toBe(false);
   });
 });
