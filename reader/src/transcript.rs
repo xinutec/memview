@@ -160,7 +160,16 @@ pub const CONVERSATION_TYPES: [&str; 4] = ["assistant", "user", "attachment", "s
 /// ⚠ Sixteen types exist, not fifteen. A survey that found fifteen missed
 /// `pr-link` entirely, and an unknown type is indistinguishable from a corrupt
 /// one, so the omission would have been reported as damage.
-pub const METADATA_TYPES: [&str; 12] = [
+///
+/// ⚠ **`atis-latch` arrived 2026-09-15 and is that same lesson a second time.**
+/// The harness began writing `{type, atis, sessionId}` — no identity, like
+/// everything else here — and because this list did not name it, every one read
+/// as damage: 175 records across all 78 transcripts, still climbing while live
+/// sessions wrote more. It is the ONLY unknown type in the corpus, and the cost
+/// was that `transcript-lint` failed for any session whose OWN transcript held
+/// one, which by then was every session. The nightly alone was exempt, having
+/// no session to call its own — the asymmetry #1546 built deliberately.
+pub const METADATA_TYPES: [&str; 13] = [
     "last-prompt",
     "permission-mode",
     "bridge-session",
@@ -173,6 +182,7 @@ pub const METADATA_TYPES: [&str; 12] = [
     "file-history-delta",
     "pr-link",
     "frame-link",
+    "atis-latch",
 ];
 
 /// Present on EVERY conversation line, whatever its type — 942,556 of 942,556.
