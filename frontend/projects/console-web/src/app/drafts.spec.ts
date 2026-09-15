@@ -345,4 +345,50 @@ describe('Drafts', () => {
       });
     });
   });
+
+  /**
+   * ⚠ **The other screen has to change while somebody is looking at it.**
+   *
+   * Reconciling only on navigation and on returning to the front means two pages
+   * open side by side never hear about each other: typing on the phone left the
+   * browser stale, and SENDING from the browser left the phone's box holding a
+   * message that had already gone. The roster poll carries the draft so that the
+   * screen nobody touched is the screen that updates.
+   */
+  describe('while both screens are open', () => {
+    it('shows what the other device typed', () => {
+      drafts.reconcile('a', { text: 'typed on the phone', rev: 1, at: 1 });
+      expect(drafts.incoming()).toEqual({
+        id: 'a',
+        draft: { text: 'typed on the phone', rev: 1, at: 1 },
+      });
+      expect(drafts.clash()).toBeUndefined();
+    });
+
+    it('empties when the other device SENDS, because a send clears the draft', () => {
+      // This screen is holding what was typed and synced.
+      drafts.reconcile('a', { text: 'about to be sent', rev: 1, at: 1 });
+      drafts.adopt('a', { text: 'about to be sent', rev: 1, at: 1 });
+      expect(drafts.text('a')).toBe('about to be sent');
+
+      // The other screen sends it: the composer empties there, which is an empty
+      // write, and arrives here as a tombstone at the next revision.
+      drafts.reconcile('a', { text: '', rev: 2, at: 2 });
+      expect(drafts.incoming()).toEqual({ id: 'a', draft: { text: '', rev: 2, at: 2 } });
+      expect(drafts.clash()).toBeUndefined();
+    });
+
+    it('does not send twice when a keystroke is already pending', () => {
+      const put = vi
+        .spyOn(TestBed.inject(ConsoleApi), 'putDraft')
+        .mockReturnValue(of({ text: 'half typed', rev: 1, at: 1 }));
+      vi.useFakeTimers();
+      drafts.put('a', 'half typed', undefined);
+      // The poll lands inside the debounce window.
+      drafts.reconcile('a', null);
+      vi.runAllTimers();
+      expect(put).toHaveBeenCalledOnce();
+      vi.useRealTimers();
+    });
+  });
 });

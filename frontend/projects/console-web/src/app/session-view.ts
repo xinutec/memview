@@ -572,6 +572,10 @@ export class SessionView implements OnDestroy {
           // And what it is about, which the sheet shows in full where the card
           // has room for two lines. Keyed by conversation — see [[Here.gist]].
           this.here.gist.set(state.gists?.[this.id()]);
+          // And what the other device is holding unsent. This is what makes a
+          // draft typed there appear here while somebody is watching, and a
+          // message SENT there empty the box here — see [[Drafts.reconcile]].
+          this.drafts.reconcile(this.id(), state.drafts?.[this.id()] ?? null);
           // And how much of its own list is left, for the ⋮ menu's label. Same
           // keying, same reason — see [[Here.tasks]].
           this.here.tasks.set(state.tasks?.sessions?.[this.id()]);

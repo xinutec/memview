@@ -138,29 +138,39 @@ export class Drafts {
    */
   sync(id: string): void {
     this.api.draft(id).subscribe({
-      next: (draft) => {
-        const mine = this.load(id).text;
-        const unsent = mine !== (this.synced.get(id) ?? '');
-        // Nobody else has written: anything unsent here is simply owed.
-        if (!draft || draft.rev === this.revs.get(id)) {
-          if (unsent) this.push(id, mine);
-          return;
-        }
-        if (mine === draft.text) {
-          this.revs.set(id, draft.rev);
-          this.synced.set(id, draft.text);
-          return;
-        }
-        if (!unsent) {
-          this.incoming.set({ id, draft });
-          return;
-        }
-        this.clash.set({ id, mine, theirs: draft });
-      },
+      next: (draft) => this.reconcile(id, draft),
       // Silent: the runner being unreachable is the case this store exists for,
       // and the local draft is already on screen.
       error: () => undefined,
     });
+  }
+
+  /**
+   * Decide what a draft the runner holds means for this device.
+   *
+   * Separate from the fetch because the roster carries one too, and the roster
+   * is polled while a session is open — which is what makes the other screen
+   * update while somebody is looking at it rather than only when it is reopened.
+   */
+  reconcile(id: string, draft: StoredDraft | null | undefined): void {
+    const mine = this.load(id).text;
+    const unsent = mine !== (this.synced.get(id) ?? '');
+    // Nobody else has written: anything unsent here is simply owed. Not while a
+    // push is already pending, or the poll and the keystroke both send it.
+    if (!draft || draft.rev === this.revs.get(id)) {
+      if (unsent && !this.timers.has(id)) this.push(id, mine);
+      return;
+    }
+    if (mine === draft.text) {
+      this.revs.set(id, draft.rev);
+      this.synced.set(id, draft.text);
+      return;
+    }
+    if (!unsent) {
+      this.incoming.set({ id, draft });
+      return;
+    }
+    this.clash.set({ id, mine, theirs: draft });
   }
 
   /** Take a draft the runner offered, once nothing local is at stake. */

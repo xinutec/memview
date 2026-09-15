@@ -164,6 +164,15 @@ pub struct Overview {
     /// sessions, and a conversation that is not running still has the list it
     /// kept. A copy folded onto each summary would cover only half the page.
     pub tasks: crate::tasks::Sweep,
+    /// The unsent words each conversation is holding, by session id.
+    ///
+    /// ⚠ **Carried by the roster because the roster is already being asked.** An
+    /// open session polls this every five seconds, so a draft written on the
+    /// other device arrives without a request of its own — and a draft is a
+    /// sentence, which is nothing beside what this payload already carries. A
+    /// per-session poll would have been a second timer answering the same
+    /// question later.
+    pub drafts: std::collections::BTreeMap<String, crate::drafts::Draft>,
 }
 
 /// The bundle's identity, from the bytes of the page that loads it.
@@ -203,6 +212,7 @@ async fn state(State(roster): State<Arc<Roster>>) -> Json<Overview> {
         // the front page's five-second poll. The writing happens on its own
         // timer.
         gists: roster.gists(),
+        drafts: roster.drafts().all(),
         // Swept per request rather than held, because two numbers that go stale
         // are worse than no numbers — but off the executor, and off the cached
         // marks. See [`Roster::tasks`].

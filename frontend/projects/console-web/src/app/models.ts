@@ -165,6 +165,9 @@ export interface Overview {
    * summary to hang a field on.
    */
   tasks?: Sweep;
+  /** The unsent words each conversation holds, by session id — carried here
+   *  because the roster is already being polled. See [[Drafts.reconcile]]. */
+  readonly drafts?: Readonly<Record<string, StoredDraft>>;
 }
 
 /** Who is holding what, in one answer. Mirrors `tasks::Sweep`. */
