@@ -134,7 +134,7 @@ describe('Drafts', () => {
 
     it('adopts a draft when this device has written nothing', () => {
       runnerHolds(theirs);
-      drafts.open('a');
+      drafts.sync('a');
       expect(drafts.incoming()).toEqual({ id: 'a', draft: theirs });
       expect(drafts.clash()).toBeUndefined();
     });
@@ -142,7 +142,7 @@ describe('Drafts', () => {
     it('says nothing when the two already agree', () => {
       drafts.put('a', 'from the other device', undefined, { push: false });
       runnerHolds(theirs);
-      drafts.open('a');
+      drafts.sync('a');
       expect(drafts.incoming()).toBeUndefined();
       expect(drafts.clash()).toBeUndefined();
     });
@@ -150,7 +150,7 @@ describe('Drafts', () => {
     it('raises a clash rather than overwriting what is here', () => {
       drafts.put('a', 'typed at the desk', undefined, { push: false });
       runnerHolds(theirs);
-      drafts.open('a');
+      drafts.sync('a');
       expect(drafts.clash()).toEqual({ id: 'a', mine: 'typed at the desk', theirs });
       // The local text must survive: replacing it is the silent data loss.
       expect(drafts.text('a')).toBe('typed at the desk');
@@ -160,7 +160,7 @@ describe('Drafts', () => {
       const api = TestBed.inject(ConsoleApi);
       vi.spyOn(api, 'draft').mockReturnValue(throwError(() => new Error('down')));
       drafts.put('a', 'typed at the desk', undefined, { push: false });
-      drafts.open('a');
+      drafts.sync('a');
       expect(drafts.clash()).toBeUndefined();
       expect(drafts.text('a')).toBe('typed at the desk');
     });
@@ -185,6 +185,164 @@ describe('Drafts', () => {
       drafts.resolve('a', theirs, how as Resolution);
       expect(drafts.text('a')).toBe(expected);
       expect(drafts.clash()).toBeUndefined();
+    });
+  });
+
+  /**
+   * ⚠ **Opening a session is not a statement about its draft.**
+   *
+   * The composer's recording effect runs once when a session opens, with
+   * whatever is on screen — `''` when nothing has been typed here. Pushing that
+   * makes a device that has only LOOKED at a conversation a writer of it: it
+   * takes revision 1 with an empty text, and the device that actually typed
+   * something is then refused and shown a clash against nothing.
+   */
+  describe('a device that has only looked', () => {
+    it('does not push when nothing has changed since the runner was last in step', () => {
+      const api = TestBed.inject(ConsoleApi);
+      const put = vi.spyOn(api, 'putDraft').mockReturnValue(of({ text: '', rev: 1, at: 1 }));
+      vi.useFakeTimers();
+
+      // What the session view does on open with no draft anywhere.
+      drafts.put('a', '', undefined);
+      vi.runAllTimers();
+
+      expect(put).not.toHaveBeenCalled();
+      vi.useRealTimers();
+    });
+
+    it('still pushes a draft typed here that the runner has never seen', () => {
+      const api = TestBed.inject(ConsoleApi);
+      const put = vi.spyOn(api, 'putDraft').mockReturnValue(of({ text: 'x', rev: 1, at: 1 }));
+      vi.useFakeTimers();
+
+      drafts.put('a', 'typed while the tunnel was down', undefined);
+      vi.runAllTimers();
+
+      expect(put).toHaveBeenCalledOnce();
+      vi.useRealTimers();
+    });
+
+    it('pushes a deliberate clear, which is how a sent message stops being a draft', () => {
+      const api = TestBed.inject(ConsoleApi);
+      const put = vi.spyOn(api, 'putDraft').mockReturnValue(of({ text: 'words', rev: 1, at: 1 }));
+      vi.useFakeTimers();
+      drafts.put('a', 'words', undefined);
+      vi.runAllTimers();
+      put.mockClear();
+
+      drafts.put('a', '', undefined);
+      vi.runAllTimers();
+
+      expect(put).toHaveBeenCalledOnce();
+      vi.useRealTimers();
+    });
+  });
+
+  /**
+   * ⚠ **A stale copy is not a competing one.**
+   *
+   * Pippijn types mostly on one device and switches to the other to paste. The
+   * device he switches TO holds the last text it synced, not an empty box — so
+   * testing "has this device got text?" calls every handover a conflict. The
+   * test that means anything is whether this device has UNSENT changes.
+   */
+  describe('picking up the other device', () => {
+    function runnerHolds(draft: StoredDraft): void {
+      vi.spyOn(TestBed.inject(ConsoleApi), 'draft').mockReturnValue(of(draft));
+    }
+
+    it('adopts silently when this device has only fallen behind', () => {
+      vi.spyOn(TestBed.inject(ConsoleApi), 'putDraft').mockReturnValue(
+        of({ text: 'A', rev: 1, at: 1 }),
+      );
+      vi.useFakeTimers();
+      drafts.put('a', 'A', undefined);
+      vi.runAllTimers();
+      vi.useRealTimers();
+
+      // The other device carried it on.
+      runnerHolds({ text: 'A and more', rev: 2, at: 2 });
+      drafts.sync('a');
+
+      expect(drafts.clash()).toBeUndefined();
+      expect(drafts.incoming()).toEqual({ id: 'a', draft: { text: 'A and more', rev: 2, at: 2 } });
+    });
+
+    it('still raises a clash when this device has something unsent', () => {
+      vi.spyOn(TestBed.inject(ConsoleApi), 'putDraft').mockReturnValue(
+        of({ text: 'A', rev: 1, at: 1 }),
+      );
+      vi.useFakeTimers();
+      drafts.put('a', 'A', undefined);
+      vi.runAllTimers();
+      vi.useRealTimers();
+
+      // Typed here since, and not yet sent.
+      drafts.put('a', 'A plus something of mine', undefined, { push: false });
+      runnerHolds({ text: 'A and more', rev: 2, at: 2 });
+      drafts.sync('a');
+
+      expect(drafts.clash()?.mine).toBe('A plus something of mine');
+      expect(drafts.incoming()).toBeUndefined();
+    });
+  });
+
+  /**
+   * ⚠ **Typing on a train must not cost the words.**
+   *
+   * The whole reason the local store is what the composer reads. Nothing here
+   * may depend on a request succeeding, and a request that failed has to be paid
+   * later rather than forgotten — nothing else retries it.
+   */
+  describe('with no connection at all', () => {
+    function offline(): void {
+      vi.spyOn(TestBed.inject(ConsoleApi), 'draft').mockReturnValue(
+        throwError(() => new Error('no route to host')),
+      );
+      vi.spyOn(TestBed.inject(ConsoleApi), 'putDraft').mockReturnValue(
+        throwError(() => new Error('no route to host')),
+      );
+    }
+
+    it('keeps every word, and says nothing about the network', () => {
+      offline();
+      vi.useFakeTimers();
+      drafts.put('a', 'written between two stations', undefined);
+      vi.runAllTimers();
+      vi.useRealTimers();
+
+      expect(drafts.text('a')).toBe('written between two stations');
+      expect(drafts.clash()).toBeUndefined();
+    });
+
+    it('survives the page being destroyed and rebuilt underground', () => {
+      offline();
+      drafts.put('a', 'written between two stations', undefined, { push: false });
+      TestBed.resetTestingModule();
+      expect(TestBed.inject(Drafts).text('a')).toBe('written between two stations');
+    });
+
+    it('owes the words, and pays on coming back up', () => {
+      offline();
+      vi.useFakeTimers();
+      drafts.put('a', 'written between two stations', undefined);
+      vi.runAllTimers();
+      vi.useRealTimers();
+
+      // Above ground: the runner answers, and holds nothing for this session.
+      const api = TestBed.inject(ConsoleApi);
+      vi.spyOn(api, 'draft').mockReturnValue(of(null));
+      const put = vi
+        .spyOn(api, 'putDraft')
+        .mockReturnValue(of({ text: 'written between two stations', rev: 1, at: 1 }));
+
+      drafts.sync('a');
+
+      expect(put).toHaveBeenCalledWith('a', {
+        text: 'written between two stations',
+        from: undefined,
+      });
     });
   });
 });

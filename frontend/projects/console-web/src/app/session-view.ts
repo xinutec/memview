@@ -369,7 +369,7 @@ export class SessionView implements OnDestroy {
         // And ask the runner what the OTHER device left here. Answered after
         // the local draft is already on screen, so a slow or dead tunnel costs
         // nothing — see [[Drafts.open]].
-        this.drafts.open(id);
+        this.drafts.sync(id);
       });
     });
     // A draft the runner holds and this device has nothing to lose to. `open`
@@ -398,6 +398,10 @@ export class SessionView implements OnDestroy {
     // transcript below them heals itself — EventSource reconnects and replays
     // from the top — and these totals have nothing that would.
     this.foreground.onReturn(() => this.refresh(), this.until);
+    // And the draft, for the same reason the poll pairs with this: the other
+    // device may have carried it on, and anything typed here while the tunnel
+    // was down is still owed — see [[Drafts.sync]].
+    this.foreground.onReturn(() => this.drafts.sync(this.id()), this.until);
     // The soft keyboard is the biggest layout change this page ever sees: it
     // takes something like half the screen, and the transcript is what gives way
     // — `interactive-widget=resizes-content` shrinks the viewport rather than

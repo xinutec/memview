@@ -81,6 +81,22 @@ export class Drafts {
   /** The runner revision each session's local text was last in step with. */
   private readonly revs = new Map<string, number>();
 
+  /**
+   * The text the runner is known to hold, per session.
+   *
+   * ⚠ **This, not the last local value, is what a push is judged against.**
+   * Opening a session runs the composer's recording effect once with whatever is
+   * on screen — `''` when nothing has been typed here — and pushing that made a
+   * device that had only LOOKED at a conversation a writer of it, taking
+   * revision 1 with an empty text. The device that had actually typed something
+   * was then refused and shown a clash against nothing.
+   *
+   * Comparing against the last LOCAL value instead would fix that and break the
+   * opposite case: a draft typed while the tunnel was down would match itself on
+   * reload and never be sent at all.
+   */
+  private readonly synced = new Map<string, string>();
+
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
 
   /**
@@ -102,23 +118,40 @@ export class Drafts {
   }
 
   /**
-   * Ask the runner what it holds for this session.
+   * Bring this device and the runner back into step.
    *
-   * ⚠ **Adopted only when this device has nothing unsent of its own.** Otherwise
-   * opening a session on the phone would discard what was typed there in favour
-   * of whatever the Mac last pushed. Where both hold text, it is a [[Clash]] and
-   * a person decides.
+   * Called when a session is opened AND whenever the app returns to the front,
+   * because those are the two moments somebody is certainly looking — see
+   * [[Foreground]], whose own note is about exactly this: the page that comes
+   * back is whatever arrived before the phone went in a pocket.
+   *
+   * ⚠ **The question is whether the OTHER device has written, not whether this
+   * one has text.** The device being picked up holds the text it last synced, so
+   * testing for an empty composer calls every handover a conflict. Revisions
+   * answer it exactly: the runner moving past the revision this device knows is
+   * the only thing that means somebody else wrote.
+   *
+   * ⚠ **And it flushes.** A push that failed — the tunnel down, a train in a
+   * tunnel — is not retried by anything else, so words typed offline would sit
+   * local until the next keystroke happened to schedule another. Coming back to
+   * the front is when that gets paid.
    */
-  open(id: string): void {
+  sync(id: string): void {
     this.api.draft(id).subscribe({
       next: (draft) => {
-        if (!draft) return;
         const mine = this.load(id).text;
-        if (mine === draft.text) {
-          this.revs.set(id, draft.rev);
+        const unsent = mine !== (this.synced.get(id) ?? '');
+        // Nobody else has written: anything unsent here is simply owed.
+        if (!draft || draft.rev === this.revs.get(id)) {
+          if (unsent) this.push(id, mine);
           return;
         }
-        if (mine === '') {
+        if (mine === draft.text) {
+          this.revs.set(id, draft.rev);
+          this.synced.set(id, draft.text);
+          return;
+        }
+        if (!unsent) {
           this.incoming.set({ id, draft });
           return;
         }
@@ -133,6 +166,7 @@ export class Drafts {
   /** Take a draft the runner offered, once nothing local is at stake. */
   adopt(id: string, draft: StoredDraft): void {
     this.revs.set(id, draft.rev);
+    this.synced.set(id, draft.text);
     this.put(id, draft.text, this.picture(id), { push: false });
     this.incoming.set(undefined);
   }
@@ -155,7 +189,11 @@ export class Drafts {
             : `${theirs.text}\n\n${mine}`;
     this.revs.set(id, theirs.rev);
     this.clash.set(undefined);
-    this.put(id, text, this.picture(id));
+    this.put(id, text, this.picture(id), { push: false });
+    // At once, and regardless of what this device last synced: settling is a
+    // deliberate act, and `keep mine` chooses a text that may equal what was
+    // already sent while the runner holds something else entirely.
+    this.push(id, text);
   }
 
   /**
@@ -186,7 +224,8 @@ export class Drafts {
           bytes: picture.bytes,
         }),
     );
-    if (opts.push) this.schedule(id, text);
+    // Only a CHANGE to what the runner holds is worth sending — see [[synced]].
+    if (opts.push && text !== (this.synced.get(id) ?? '')) this.schedule(id, text);
   }
 
   private schedule(id: string, text: string): void {
@@ -204,7 +243,10 @@ export class Drafts {
   private push(id: string, text: string): void {
     const from = this.revs.get(id);
     this.api.putDraft(id, { text, from }).subscribe({
-      next: (stored) => this.revs.set(id, stored.rev),
+      next: (stored) => {
+        this.revs.set(id, stored.rev);
+        this.synced.set(id, text);
+      },
       error: (err: { status?: number; error?: unknown }) => {
         const theirs = err.status === 409 ? asDraft(err.error) : undefined;
         // Anything else is the tunnel being down, which is what local storage is
