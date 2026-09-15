@@ -78,7 +78,15 @@ export class Drafts {
    */
   private readonly held = new Map<string, { text: string; picture?: Picture }>();
 
-  /** The runner revision each session's local text was last in step with. */
+  /**
+   * The runner revision each session's local text was last in step with.
+   *
+   * ⚠ **Stored, not just held.** The words survive a reload and this used not
+   * to, so a restored page saw local text with no record of having sent it,
+   * called it unsent work, and read every difference from the runner as a
+   * two-sided conflict. An app resumed from the background reloads, so that was
+   * the ordinary case rather than the edge.
+   */
   private readonly revs = new Map<string, number>();
 
   /**
@@ -169,21 +177,36 @@ export class Drafts {
       return;
     }
     if (mine === draft.text) {
-      this.revs.set(id, draft.rev);
-      this.synced.set(id, draft.text);
+      this.agreed(id, draft.rev, draft.text);
       return;
     }
     if (!unsent) {
       this.incoming.set({ id, draft });
       return;
     }
+    this.said(id, mine, draft);
     this.clash.set({ id, mine, theirs: draft });
+  }
+
+  /**
+   * Say why a clash was raised, with the three numbers that decided it.
+   *
+   * ⚠ **A clash is the one outcome here nobody can diagnose from the screen.**
+   * It says two devices wrote; it cannot say which revisions were compared, and
+   * two rounds of this were guessed at from the symptom. WebView console output
+   * reaches `adb logcat`, which is the only view into the phone.
+   */
+  private said(id: string, mine: string, theirs: StoredDraft): void {
+    console.warn(
+      `draft clash on ${id.slice(0, 8)}: theirs rev ${theirs.rev}, ` +
+        `this device knew rev ${this.revs.get(id) ?? 'none'}, ` +
+        `${mine.length} char(s) here against ${(this.synced.get(id) ?? '').length} last synced`,
+    );
   }
 
   /** Take a draft the runner offered, once nothing local is at stake. */
   adopt(id: string, draft: StoredDraft): void {
-    this.revs.set(id, draft.rev);
-    this.synced.set(id, draft.text);
+    this.agreed(id, draft.rev, draft.text);
     this.put(id, draft.text, this.picture(id), { push: false });
     this.incoming.set(undefined);
   }
@@ -260,15 +283,15 @@ export class Drafts {
   private push(id: string, text: string): void {
     const from = this.revs.get(id);
     this.api.putDraft(id, { text, from }).subscribe({
-      next: (stored) => {
-        this.revs.set(id, stored.rev);
-        this.synced.set(id, text);
-      },
+      next: (stored) => this.agreed(id, stored.rev, text),
       error: (err: { status?: number; error?: unknown }) => {
         const theirs = err.status === 409 ? asDraft(err.error) : undefined;
         // Anything else is the tunnel being down, which is what local storage is
         // for: the words are safe and the next pause tries again.
-        if (theirs) this.clash.set({ id, mine: text, theirs });
+        if (theirs) {
+          this.said(id, text, theirs);
+          this.clash.set({ id, mine: text, theirs });
+        }
       },
     });
   }
@@ -281,7 +304,21 @@ export class Drafts {
       picture: this.storedPicture(id),
     };
     this.held.set(id, draft);
+    // What this device last agreed with the runner, so a reload can still tell
+    // a stale copy from unsent work.
+    const rev = Number(localStorage.getItem(`${Drafts.PREFIX}${id}.rev`));
+    if (Number.isFinite(rev) && rev > 0) this.revs.set(id, rev);
+    const synced = localStorage.getItem(`${Drafts.PREFIX}${id}.synced`);
+    if (synced !== null) this.synced.set(id, synced);
     return draft;
+  }
+
+  /** Record agreement with the runner, in memory and on disk together. */
+  private agreed(id: string, rev: number, text: string): void {
+    this.revs.set(id, rev);
+    this.synced.set(id, text);
+    this.write(`${id}.rev`, String(rev));
+    this.write(`${id}.synced`, text);
   }
 
   private storedPicture(id: string): Picture | undefined {

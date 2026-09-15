@@ -440,4 +440,54 @@ describe('Drafts', () => {
       });
     });
   });
+
+  /**
+   * ⚠ **What this device last AGREED must outlive the page, not just the words.**
+   *
+   * The text is in storage and the revision was not, so after a reload the
+   * client saw local text with no record of having sent it and called it unsent
+   * work. Every difference from the runner then read as a two-sided conflict —
+   * and reloading is the ordinary thing, an app resumed from the background does
+   * it. Reported live: still getting conflicts while typing on one device.
+   */
+  describe('across a reload', () => {
+    it('knows the difference between synced text and unsent text', () => {
+      vi.spyOn(TestBed.inject(ConsoleApi), 'putDraft').mockReturnValue(
+        of({ text: 'words', rev: 5, at: 1 }),
+      );
+      vi.useFakeTimers();
+      drafts.put('a', 'words', undefined);
+      vi.runAllTimers();
+      vi.useRealTimers();
+
+      TestBed.resetTestingModule();
+      const after = TestBed.inject(Drafts);
+      expect(after.text('a')).toBe('words');
+
+      // The other device carried it on. This one has nothing of its own.
+      after.reconcile('a', { text: 'words and more', rev: 6, at: 2 });
+      expect(after.clash()).toBeUndefined();
+      expect(after.incoming()).toEqual({
+        id: 'a',
+        draft: { text: 'words and more', rev: 6, at: 2 },
+      });
+    });
+
+    it('still knows text typed offline is unsent', () => {
+      vi.spyOn(TestBed.inject(ConsoleApi), 'putDraft').mockReturnValue(
+        of({ text: 'words', rev: 5, at: 1 }),
+      );
+      vi.useFakeTimers();
+      drafts.put('a', 'words', undefined);
+      vi.runAllTimers();
+      vi.useRealTimers();
+      // Typed with no connection, so never sent.
+      drafts.put('a', 'words, and more of mine', undefined, { push: false });
+
+      TestBed.resetTestingModule();
+      const after = TestBed.inject(Drafts);
+      after.reconcile('a', { text: 'words and theirs', rev: 6, at: 2 });
+      expect(after.clash()?.mine).toBe('words, and more of mine');
+    });
+  });
 });

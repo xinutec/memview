@@ -323,7 +323,21 @@ async fn put_draft(
         .unwrap_or(0);
     match roster.drafts().put(&id, &edit.text, edit.from, at) {
         crate::drafts::Wrote::Stored(draft) => Ok(Json(draft)),
-        crate::drafts::Wrote::Conflict(theirs) => Err((StatusCode::CONFLICT, Json(theirs))),
+        crate::drafts::Wrote::Conflict(theirs) => {
+            // ⚠ **The one answer here nobody can diagnose from a screen.** A
+            // refusal says two devices wrote; which revisions were compared is
+            // what says whether that is true, and this was guessed at twice from
+            // the symptom. Lengths rather than words — enough to tell two drafts
+            // apart, and a conversation does not belong in a log.
+            tracing::info!(
+                "{id}: refused a draft edit from {:?}, holding rev {} ({} char(s) against {} offered)",
+                edit.from,
+                theirs.rev,
+                theirs.text.chars().count(),
+                edit.text.chars().count(),
+            );
+            Err((StatusCode::CONFLICT, Json(theirs)))
+        }
     }
 }
 
