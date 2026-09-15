@@ -50,6 +50,7 @@ fn roster(dir: &std::path::Path) -> Arc<Roster> {
         // sentences this machine has paid for.
         gists: dir.join("gists.json"),
         modes: dir.join("modes.json"),
+        drafts: dir.join("drafts.json"),
     }))
 }
 

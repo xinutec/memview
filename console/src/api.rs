@@ -38,6 +38,7 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/sessions", post(start))
         .route("/api/past", get(past))
         .route("/api/sessions/{id}/input", post(input))
+        .route("/api/sessions/{id}/draft", get(draft).put(put_draft))
         // ⚠ **The one route that needs its own body limit.** Axum's default is
         // 2 MB, and an image is the only thing this API takes that is bigger than
         // a sentence — without this the limit is enforced by the framework, as a
@@ -273,6 +274,53 @@ async fn input(
         .await
         .map_err(|err| (StatusCode::CONFLICT, format!("{err:#}")))?;
     Ok(Json(session.summary()))
+}
+
+/// What one conversation is holding unsent, or `null`.
+///
+/// Answered for a session this console has never run: a draft outlives the
+/// process it was written for, and the other device asking about it has no way
+/// to know whether the Mac happens to be holding that conversation open.
+async fn draft(
+    State(roster): State<Arc<Roster>>,
+    Path(id): Path<String>,
+) -> Json<Option<crate::drafts::Draft>> {
+    Json(roster.drafts().get(&id))
+}
+
+/// An edit to a draft, from the revision it was made against.
+#[derive(Debug, Deserialize)]
+pub struct Edit {
+    pub text: String,
+    /// The revision this edit was made from. Absent on a first write.
+    #[serde(default)]
+    pub from: Option<u64>,
+    /// What the writing device calls itself, for the conflict screen.
+    #[serde(default)]
+    pub by: String,
+}
+
+/// Store an edit, or refuse it and hand back what is there.
+///
+/// ⚠ **409 carries THEIRS in the body, and the client needs it.** A bare refusal
+/// would leave the phone knowing only that it lost, with no way to show the two
+/// texts side by side — and showing them is the whole of what was asked for.
+async fn put_draft(
+    State(roster): State<Arc<Roster>>,
+    Path(id): Path<String>,
+    Json(edit): Json<Edit>,
+) -> Result<Json<crate::drafts::Draft>, (StatusCode, Json<crate::drafts::Draft>)> {
+    let at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    match roster
+        .drafts()
+        .put(&id, &edit.text, edit.from, &edit.by, at)
+    {
+        crate::drafts::Wrote::Stored(draft) => Ok(Json(draft)),
+        crate::drafts::Wrote::Conflict(theirs) => Err((StatusCode::CONFLICT, Json(theirs))),
+    }
 }
 
 /// A picture from the phone, with whatever is being said about it.

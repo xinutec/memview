@@ -51,6 +51,9 @@ pub struct Config {
     /// Where each conversation's permission mode is kept between runs. See
     /// [`crate::modes`] — nothing else on disk records it.
     pub modes: PathBuf,
+    /// Where unsent words are kept, so both devices hold the same draft. See
+    /// [`crate::drafts`].
+    pub drafts: PathBuf,
 }
 
 /// The home dashboard, which is where the rate-limit figure is published. See
@@ -157,6 +160,16 @@ impl Config {
                 )
             }))
             .join("modes.json"),
+            // Beside the other two: this is words a person wrote and has not
+            // sent, so losing it to a restart costs typing that cannot be
+            // recovered from anywhere else. See [`crate::drafts`].
+            drafts: PathBuf::from(std::env::var("CONSOLE_HOME").unwrap_or_else(|_| {
+                format!(
+                    "{}/.config/agent-console",
+                    std::env::var("HOME").unwrap_or_default()
+                )
+            }))
+            .join("drafts.json"),
         }
     }
 

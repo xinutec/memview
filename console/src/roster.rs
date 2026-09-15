@@ -30,6 +30,7 @@ pub struct Roster {
     usage: Arc<crate::usage::Usage>,
     /// What each conversation is about, in a sentence. See [`crate::gist`].
     gists: Arc<crate::gist::Gists>,
+    drafts: Arc<crate::drafts::Drafts>,
     /// How much is left of each session's task list, kept between sweeps. See
     /// [`crate::tasks::Tasks`].
     tasks: Arc<crate::tasks::Tasks>,
@@ -105,12 +106,14 @@ impl Roster {
     pub fn new(config: Config) -> Self {
         let usage = Arc::new(crate::usage::Usage::new(config.usage_url.clone()));
         let gists = Arc::new(crate::gist::Gists::load(config.gists.clone()));
+        let drafts = Arc::new(crate::drafts::Drafts::load(config.drafts.clone()));
         let modes = Arc::new(crate::modes::Modes::load(config.modes.clone()));
         Self {
             config,
             sessions: RwLock::new(BTreeMap::new()),
             usage,
             gists,
+            drafts,
             tasks: Arc::default(),
             modes,
             marks: Arc::default(),
@@ -156,6 +159,12 @@ impl Roster {
     /// The sentences, for the front page.
     pub fn gists(&self) -> BTreeMap<String, crate::gist::Gist> {
         self.gists.all()
+    }
+
+    /// The unsent words each conversation is holding, so a client that has just
+    /// connected learns which of them have one without asking per session.
+    pub fn drafts(&self) -> Arc<crate::drafts::Drafts> {
+        Arc::clone(&self.drafts)
     }
 
     /// Write a sentence for every conversation that has moved since its last

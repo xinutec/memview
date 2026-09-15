@@ -42,6 +42,7 @@ fn roster(dir: &std::path::Path) -> Arc<Roster> {
         // sentences this machine has paid for.
         gists: dir.join("gists.json"),
         modes: dir.join("modes.json"),
+        drafts: dir.join("drafts.json"),
     }))
 }
 
@@ -393,6 +394,7 @@ fn a_symlink_out_of_an_allowed_directory_does_not_escape_it() {
         // sentences this machine has paid for.
         gists: root.join("gists.json"),
         modes: root.join("modes.json"),
+        drafts: root.join("drafts.json"),
     };
     assert!(
         config.resolve(&link.display().to_string()).is_err(),
