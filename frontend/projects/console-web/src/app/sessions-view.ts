@@ -87,6 +87,15 @@ interface Row {
    * somebody scanning this page is looking for.
    */
   readonly tasks?: TaskCount;
+  /**
+   * Whether something is written here and not sent.
+   *
+   * ⚠ **Whether there is TEXT, not whether there is an entry.** A cleared draft
+   * stays as a tombstone so that a message already sent cannot be pushed back by
+   * the other device — so the map holds empty drafts, and keying this on
+   * presence would mark every conversation ever typed in, permanently.
+   */
+  readonly draft: boolean;
   /** Working, waiting, idle, off — see [RANK]. */
   readonly rank: number;
   /** When it last did anything, in milliseconds, for ordering within a rank. */
@@ -200,6 +209,9 @@ export class SessionsView {
     // Keyed by conversation like the sentences, and read the same way for both
     // halves of the list — see [[Overview.tasks]].
     const tasks = this.state()?.tasks?.sessions ?? {};
+    // Unsent words, by session id — on the transcripts on disk as well as the
+    // running sessions, since a draft outlives the process it was written for.
+    const drafts = this.state()?.drafts ?? {};
     for (const session of this.state()?.sessions ?? []) {
       seen.add(session.id);
       rows.push({
@@ -213,6 +225,7 @@ export class SessionsView {
         cached: !!session.context,
         gist: gists[session.id],
         tasks: tasks[session.id],
+        draft: !!drafts[session.id]?.text,
         rank: !session.alive
           ? RANK.off
           : session.busy
@@ -248,6 +261,7 @@ export class SessionsView {
         // word, and this says what the week's work was.
         gist: gists[conversation.id],
         tasks: tasks[conversation.id],
+        draft: !!drafts[conversation.id]?.text,
         rank: RANK.off,
         at: conversation.modified,
       });

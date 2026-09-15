@@ -355,3 +355,11 @@
   // the one thing that should cover it.
   z-index: 2;
 }
+
+// Something written and not sent. Deliberately the same treatment as `.unread`
+// above: both say the row has something of yours in it, and two different
+// quiet markers would be read as two different kinds of news.
+.draft {
+  font: var(--mat-sys-label-small);
+  color: var(--mat-sys-tertiary);
+}
