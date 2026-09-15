@@ -391,4 +391,53 @@ describe('Drafts', () => {
       vi.useRealTimers();
     });
   });
+
+  /**
+   * ⚠ **A poll answers the question it was asked, not the one you have now.**
+   *
+   * The roster snapshot is taken when the request goes out. Type a keystroke
+   * while one is in flight and the reply arrives carrying a revision OLDER than
+   * this device already has — which is not somebody else writing, it is this
+   * device's own past. Reported live: a conflict while typing on the phone with
+   * nothing else touched.
+   */
+  describe('a reply that is behind what this device already knows', () => {
+    beforeEach(() => {
+      vi.spyOn(TestBed.inject(ConsoleApi), 'putDraft').mockReturnValue(
+        of({ text: 'abc', rev: 7, at: 1 }),
+      );
+      vi.useFakeTimers();
+      drafts.put('a', 'abc', undefined);
+      vi.runAllTimers();
+      vi.useRealTimers();
+    });
+
+    it('is not a conflict', () => {
+      drafts.reconcile('a', { text: 'ab', rev: 6, at: 0 });
+      expect(drafts.clash()).toBeUndefined();
+    });
+
+    it('is not a conflict while STILL TYPING, which is how it was reported', () => {
+      // A keystroke after the last successful push: the words here are unsent,
+      // and the reply in flight is older than the revision they were sent from.
+      drafts.put('a', 'abcd', undefined, { push: false });
+      drafts.reconcile('a', { text: 'ab', rev: 6, at: 0 });
+      expect(drafts.clash()).toBeUndefined();
+      expect(drafts.text('a')).toBe('abcd');
+    });
+
+    it('does not put the older text back on screen', () => {
+      drafts.reconcile('a', { text: 'ab', rev: 6, at: 0 });
+      expect(drafts.incoming()).toBeUndefined();
+      expect(drafts.text('a')).toBe('abc');
+    });
+
+    it('still takes a revision that is genuinely ahead', () => {
+      drafts.reconcile('a', { text: 'from the other one', rev: 8, at: 2 });
+      expect(drafts.incoming()).toEqual({
+        id: 'a',
+        draft: { text: 'from the other one', rev: 8, at: 2 },
+      });
+    });
+  });
 });

@@ -155,9 +155,16 @@ export class Drafts {
   reconcile(id: string, draft: StoredDraft | null | undefined): void {
     const mine = this.load(id).text;
     const unsent = mine !== (this.synced.get(id) ?? '');
-    // Nobody else has written: anything unsent here is simply owed. Not while a
-    // push is already pending, or the poll and the keystroke both send it.
-    if (!draft || draft.rev === this.revs.get(id)) {
+    // ⚠ **Only a HIGHER revision means somebody else wrote.** A poll answers the
+    // question it was asked: send a keystroke while one is in flight and the
+    // reply arrives carrying a revision older than this device already has,
+    // which is its own past and not another device. Tested for equality, that
+    // read as a conflict against yourself — reported live, while typing on the
+    // phone with nothing else touched.
+    //
+    // Nothing owed is sent while a push is pending, or the poll and the
+    // keystroke both send the same words.
+    if (!draft || draft.rev <= (this.revs.get(id) ?? 0)) {
       if (unsent && !this.timers.has(id)) this.push(id, mine);
       return;
     }
