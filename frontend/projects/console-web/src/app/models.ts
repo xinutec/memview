@@ -739,3 +739,29 @@ export interface CorpusRead {
   readonly calls: number;
   readonly unparsed: number;
 }
+
+/**
+ * One conversation's unsent words, as the runner holds them.
+ *
+ * ⚠ **`rev` is the whole of the safety here.** An edit is sent with the revision
+ * it was made FROM, and the runner refuses anything else — so two devices cannot
+ * silently overwrite each other, and the loser is told with the winner's text in
+ * hand. See `console/src/drafts.rs`.
+ */
+export interface StoredDraft {
+  readonly text: string;
+  readonly rev: number;
+  /** Which device wrote it, as that device calls itself — "yours or theirs"
+   *  needs a name for theirs. */
+  readonly by: string;
+  /** Unix milliseconds. Two texts with no times are two texts, and the older one
+   *  is usually the abandoned one. */
+  readonly at: number;
+}
+
+/** An edit on its way to the runner. `from` is absent only on a first write. */
+export interface DraftEdit {
+  readonly text: string;
+  readonly from?: number;
+  readonly by: string;
+}

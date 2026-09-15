@@ -594,6 +594,48 @@
   </div>
 }
 
+<!-- Both devices wrote a draft here since they last agreed. Above the composer
+     with the picture and the held command, because it is the same kind of thing:
+     something written and waiting to go.
+
+     ⚠ **Nothing is chosen for you and nothing is thrown away.** The other
+     device's words are shown in full, not summarised, because the choice being
+     offered is between two texts and a person cannot make it from a diff or a
+     count. Combining keeps both whole — two half-written thoughts join into one
+     message, which a quantity never could. -->
+@if (clash(); as clash) {
+  <div class="clash">
+    <div class="what">
+      <mat-icon>call_split</mat-icon>
+      <span>{{ clash.theirs.by }} also wrote here {{ ago(clash.theirs.at) }}</span>
+    </div>
+    <div class="side">
+      <div class="whose">yours</div>
+      <p>{{ clash.mine }}</p>
+    </div>
+    <div class="side">
+      <div class="whose">{{ clash.theirs.by }}</div>
+      <p>{{ clash.theirs.text }}</p>
+    </div>
+    <!-- Two rows because they are two questions: which one, or both in which
+         order. Four buttons in one wrapping row put the fourth on a line of its
+         own, where it read as left over rather than as one of a set. -->
+    <div class="choices">
+      <button matButton type="button" (click)="settle('mine')">keep mine</button>
+      <button matButton type="button" (click)="settle('theirs')">
+        use {{ clash.theirs.by }}'s
+      </button>
+    </div>
+    <div class="choices">
+      <span class="both">both:</span>
+      <button matButton type="button" (click)="settle('mine-first')">mine first</button>
+      <button matButton type="button" (click)="settle('theirs-first')">
+        {{ clash.theirs.by }}'s first
+      </button>
+    </div>
+  </div>
+}
+
 <form class="composer" (submit)="$event.preventDefault(); send()">
   <!-- ⚠ `subscriptSizing="dynamic"` is load-bearing, not tidying. By default a
        form field reserves a line of hint/error space below the input — Material

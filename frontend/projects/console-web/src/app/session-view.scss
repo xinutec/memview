@@ -955,3 +955,71 @@ input.note:disabled {
     color: var(--mat-sys-outline);
   }
 }
+
+// Two devices wrote here. Sits with `.waiting` and the picture above the
+// composer, and shares their surface so the three read as one shelf of things
+// written and not yet gone.
+//
+// ⚠ **Both texts in full, and each scrolls on its own.** Truncating the other
+// device's words would hide the thing being chosen between — and on a phone a
+// long pair must not push the four buttons off the screen, which is what the
+// per-side cap buys.
+.clash {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--mat-sys-surface-container);
+
+  .what {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font: var(--mat-sys-body-small);
+    color: var(--mat-sys-on-surface-variant);
+
+    mat-icon {
+      flex: 0 0 auto;
+      font-size: 1.1rem;
+      width: 1.1rem;
+      height: 1.1rem;
+    }
+  }
+
+  .side {
+    border-inline-start: 2px solid var(--mat-sys-outline-variant);
+    padding-inline-start: 0.6rem;
+
+    p {
+      margin: 0.15rem 0 0;
+      max-height: 6.5rem;
+      overflow-y: auto;
+      // A draft is what somebody typed, newlines and all.
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  .whose {
+    font: var(--mat-sys-label-small);
+    color: var(--mat-sys-on-surface-variant);
+    text-transform: lowercase;
+  }
+
+  // Wraps, because four choices do not fit across a phone and a row that
+  // overflows puts the last one where it cannot be pressed.
+  .choices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+}
+
+// The label on the second row of choices, aligned to the buttons beside it
+// rather than to the box.
+.clash .choices .both {
+  align-self: center;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+}

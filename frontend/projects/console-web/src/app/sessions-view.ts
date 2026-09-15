@@ -8,6 +8,7 @@ import { MatBottomSheet } from '@angular/material/bottom-sheet';
 import { Router, RouterLink } from '@angular/router';
 
 import { cacheStops, cacheUrgent, withinCacheHour } from './cache-heat';
+import { since } from './since';
 import { ConsoleApi } from './console-api';
 import { Dismiss } from './dismiss';
 import { reason } from './errors';
@@ -382,13 +383,9 @@ export class SessionsView {
     });
   }
 
-  /** How long ago, from a millisecond timestamp. */
+  /** How long ago, from a millisecond timestamp. See [[since]]. */
   ago(at: number): string {
-    const minutes = Math.max(0, (Date.now() - at) / 60000);
-    if (minutes < 1) return 'just now';
-    if (minutes < 60) return `${Math.round(minutes)}m ago`;
-    if (minutes < 60 * 24) return `${Math.round(minutes / 60)}h ago`;
-    return `${Math.round(minutes / 1440)}d ago`;
+    return since(at);
   }
 
   /** Whether the prompt cache's hour is still running, and so whether to show it. */

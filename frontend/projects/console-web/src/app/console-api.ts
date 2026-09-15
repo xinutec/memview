@@ -4,12 +4,14 @@ import { Observable } from 'rxjs';
 
 import {
   Conversation,
+  CorpusRead,
+  DraftEdit,
   KINDS,
   Landmark,
   Overview,
   Parsed,
-  CorpusRead,
   SessionEvent,
+  StoredDraft,
   Summary,
   Task,
 } from './models';
@@ -114,6 +116,22 @@ export class ConsoleApi {
 
   send(id: string, text: string): Observable<Summary> {
     return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/input`, { text });
+  }
+
+  /** What this conversation is holding unsent, as the runner has it. */
+  draft(id: string): Observable<StoredDraft | null> {
+    return this.http.get<StoredDraft | null>(`/api/sessions/${encodeURIComponent(id)}/draft`);
+  }
+
+  /**
+   * Store an edit, from the revision it was made against.
+   *
+   * ⚠ **A 409 is an answer, not a failure, and carries the other device's
+   * text.** It is the only way the conflict screen can show both, so the caller
+   * must read the body rather than treating this like any other error.
+   */
+  putDraft(id: string, edit: DraftEdit): Observable<StoredDraft> {
+    return this.http.put<StoredDraft>(`/api/sessions/${encodeURIComponent(id)}/draft`, edit);
   }
 
   /**

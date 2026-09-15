@@ -34,7 +34,8 @@ import { Entry, Summary } from './models';
 import { modelName } from './model';
 import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { Dismiss } from './dismiss';
-import { Drafts } from './drafts';
+import { Drafts, type Resolution } from './drafts';
+import { since } from './since';
 import { Following, measure } from './following';
 import { Here } from './here';
 import { Updates } from './updates';
@@ -365,6 +366,22 @@ export class SessionView implements OnDestroy {
       untracked(() => {
         this.text.set(this.drafts.text(id));
         this.picture.set(this.drafts.picture(id));
+        // And ask the runner what the OTHER device left here. Answered after
+        // the local draft is already on screen, so a slow or dead tunnel costs
+        // nothing — see [[Drafts.open]].
+        this.drafts.open(id);
+      });
+    });
+    // A draft the runner holds and this device has nothing to lose to. `open`
+    // offers one only when the composer is empty, so taking it cannot discard
+    // anything; where both hold text it arrives as a clash instead.
+    effect(() => {
+      const offered = this.drafts.incoming();
+      const id = this.id();
+      if (offered?.id !== id) return;
+      untracked(() => {
+        this.text.set(offered.draft.text);
+        this.drafts.adopt(id, offered.draft);
       });
     });
     // And this one records every change back, keystroke by keystroke. It is also
@@ -718,6 +735,25 @@ export class SessionView implements OnDestroy {
         this.trouble.set(reason(err));
       },
     });
+  }
+
+  /** How long ago, from a millisecond timestamp. See [[since]]. */
+  ago(at: number): string {
+    return since(at);
+  }
+
+  /** Both texts, when this device and the other have each written one. */
+  readonly clash = computed(() => {
+    const clash = this.drafts.clash();
+    return clash?.id === this.id() ? clash : undefined;
+  });
+
+  /** Settle it, and put the settled text straight into the composer. */
+  settle(how: Resolution): void {
+    const clash = this.clash();
+    if (!clash) return;
+    this.drafts.resolve(clash.id, clash.theirs, how);
+    this.text.set(this.drafts.text(clash.id));
   }
 
   send(): void {

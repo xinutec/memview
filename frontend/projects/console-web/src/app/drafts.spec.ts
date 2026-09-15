@@ -1,7 +1,11 @@
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { Drafts } from './drafts';
+import { of, throwError } from 'rxjs';
+
+import { ConsoleApi } from './console-api';
+import { Drafts, type Resolution } from './drafts';
+import type { StoredDraft } from './models';
 import type { Picture } from './picture';
 
 /** A scaled picture as `shrink` hands one over, small enough to read in a test. */
@@ -110,5 +114,77 @@ describe('Drafts', () => {
     const after = TestBed.inject(Drafts);
     expect(after.picture('a')).toBeUndefined();
     expect(after.text('a')).toBe('still here');
+  });
+
+  /**
+   * The runner's draft is taken only when nothing local is at stake.
+   *
+   * ⚠ Opening a session must not discard what was typed on THIS device in
+   * favour of whatever the other one last pushed — that is the failure the
+   * clash exists to prevent, and it is silent if it happens.
+   */
+  describe('meeting the other device', () => {
+    const theirs = { text: 'from the phone', rev: 4, by: 'phone', at: 1000 };
+
+    /** Answer `GET …/draft` with `theirs`, without a real HTTP layer. */
+    function runnerHolds(draft: StoredDraft): void {
+      const api = TestBed.inject(ConsoleApi);
+      vi.spyOn(api, 'draft').mockReturnValue(of(draft));
+    }
+
+    it('adopts a draft when this device has written nothing', () => {
+      runnerHolds(theirs);
+      drafts.open('a');
+      expect(drafts.incoming()).toEqual({ id: 'a', draft: theirs });
+      expect(drafts.clash()).toBeUndefined();
+    });
+
+    it('says nothing when the two already agree', () => {
+      drafts.put('a', 'from the phone', undefined, { push: false });
+      runnerHolds(theirs);
+      drafts.open('a');
+      expect(drafts.incoming()).toBeUndefined();
+      expect(drafts.clash()).toBeUndefined();
+    });
+
+    it('raises a clash rather than overwriting what is here', () => {
+      drafts.put('a', 'typed at the desk', undefined, { push: false });
+      runnerHolds(theirs);
+      drafts.open('a');
+      expect(drafts.clash()).toEqual({ id: 'a', mine: 'typed at the desk', theirs });
+      // The local text must survive: replacing it is the silent data loss.
+      expect(drafts.text('a')).toBe('typed at the desk');
+    });
+
+    it('is quiet when the runner cannot be reached', () => {
+      const api = TestBed.inject(ConsoleApi);
+      vi.spyOn(api, 'draft').mockReturnValue(throwError(() => new Error('down')));
+      drafts.put('a', 'typed at the desk', undefined, { push: false });
+      drafts.open('a');
+      expect(drafts.clash()).toBeUndefined();
+      expect(drafts.text('a')).toBe('typed at the desk');
+    });
+  });
+
+  /** Four outcomes, and combining must keep both texts whole. */
+  describe('settling a clash', () => {
+    const theirs = { text: 'theirs', rev: 4, by: 'phone', at: 1000 };
+
+    beforeEach(() => {
+      const api = TestBed.inject(ConsoleApi);
+      vi.spyOn(api, 'putDraft').mockReturnValue(of({ ...theirs, rev: 5 }));
+      drafts.put('a', 'mine', undefined, { push: false });
+    });
+
+    it.each([
+      ['mine', 'mine'],
+      ['theirs', 'theirs'],
+      ['mine-first', 'mine\n\ntheirs'],
+      ['theirs-first', 'theirs\n\nmine'],
+    ])('%s leaves the composer holding %j', (how, expected) => {
+      drafts.resolve('a', theirs, how as Resolution);
+      expect(drafts.text('a')).toBe(expected);
+      expect(drafts.clash()).toBeUndefined();
+    });
   });
 });
