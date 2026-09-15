@@ -10,6 +10,7 @@ import { AuthStore } from './auth';
 import { BUILD_INFO } from './build-info';
 import { MemviewApi } from './memview-api';
 import { Telemetry } from './telemetry';
+import { SwUpdates } from './sw-updates';
 import { Me } from './models';
 
 @Component({
@@ -37,6 +38,7 @@ export class App {
   private router = inject(Router);
   readonly auth = inject(AuthStore);
   private telemetry = inject(Telemetry);
+  private swUpdates = inject(SwUpdates);
 
   readonly me = signal<Me | null>(null);
   readonly loading = signal(true);
@@ -46,6 +48,8 @@ export class App {
     // capture-phase click listener), so no view knows this exists and no new
     // control can be missed by forgetting to annotate it.
     this.telemetry.init();
+    // The same seam, same argument: no view has to know a worker exists.
+    this.swUpdates.start();
     this.api.me().subscribe({
       next: (me) => {
         this.me.set(me);

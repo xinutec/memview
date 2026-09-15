@@ -1,11 +1,13 @@
 import {
   ApplicationConfig,
   LOCALE_ID,
+  isDevMode,
   provideBrowserGlobalErrorListeners,
   provideZonelessChangeDetection,
 } from '@angular/core';
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import { provideRouter, withComponentInputBinding } from '@angular/router';
+import { provideServiceWorker } from '@angular/service-worker';
 
 import { registerLocaleData } from '@angular/common';
 import localeEnGb from '@angular/common/locales/en-GB';
@@ -30,5 +32,9 @@ export const appConfig: ApplicationConfig = {
     // Route params bind to component inputs (:name → MemoryView.name), so the
     // URL is the source of truth for the open memory.
     provideRouter(routes, withComponentInputBinding()),
+    provideServiceWorker('ngsw-worker.js', {
+      enabled: !isDevMode(),
+      registrationStrategy: 'registerWhenStable:30000',
+    }),
   ],
 };

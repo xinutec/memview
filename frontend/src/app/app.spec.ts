@@ -4,6 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
+import { provideServiceWorker } from '@angular/service-worker';
 
 import { App } from './app';
 import { authInterceptor } from './auth';
@@ -19,6 +20,10 @@ describe('App', () => {
         provideHttpClient(withInterceptors([authInterceptor])),
         provideHttpClientTesting(),
         provideRouter(routes),
+        // The shell starts the update check, so SwUpdate has to resolve here.
+        // `enabled: false` gives the real class in its disabled state, which is
+        // what a test runner is: no worker registered, no update to activate.
+        provideServiceWorker('ngsw-worker.js', { enabled: false }),
       ],
     }).compileComponents();
   });
