@@ -356,10 +356,16 @@
   z-index: 2;
 }
 
-// Something written and not sent. Deliberately the same treatment as `.unread`
-// above: both say the row has something of yours in it, and two different
-// quiet markers would be read as two different kinds of news.
+// Something written and not sent. Neutral, which puts it with the task tally
+// rather than with the state words — and it belongs there: both are facts about
+// the row rather than about what the session is doing.
+//
+// ⚠ **Not `.unread`'s accent, and the render is why.** A full head reads
+// `idle · 2 background tasks · draft · 2/3`, and `.tasks` is primary while
+// `.unread` is tertiary — both green in this palette. A third green beside them
+// was swallowed by the run; the neutral reads at a glance because nothing else
+// near it is neutral except the tally it pairs with.
 .draft {
   font: var(--mat-sys-label-small);
-  color: var(--mat-sys-tertiary);
+  color: var(--mat-sys-on-surface-variant);
 }
