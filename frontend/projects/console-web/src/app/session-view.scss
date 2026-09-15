@@ -978,13 +978,13 @@ input.note:disabled {
     gap: 0.5rem;
     font: var(--mat-sys-body-small);
     color: var(--mat-sys-on-surface-variant);
+  }
 
-    mat-icon {
-      flex: 0 0 auto;
-      font-size: 1.1rem;
-      width: 1.1rem;
-      height: 1.1rem;
-    }
+  mat-icon {
+    flex: 0 0 auto;
+    font-size: 1.1rem;
+    width: 1.1rem;
+    height: 1.1rem;
   }
 
   .side {
@@ -1001,10 +1001,15 @@ input.note:disabled {
     }
   }
 
-  .whose {
+  .whose,
+  .both {
     font: var(--mat-sys-label-small);
     color: var(--mat-sys-on-surface-variant);
-    text-transform: lowercase;
+  }
+
+  // Aligned to the buttons beside it rather than to the box.
+  .both {
+    align-self: center;
   }
 
   // Wraps, because four choices do not fit across a phone and a row that
@@ -1014,12 +1019,4 @@ input.note:disabled {
     flex-wrap: wrap;
     gap: 0.25rem;
   }
-}
-
-// The label on the second row of choices, aligned to the buttons beside it
-// rather than to the box.
-.clash .choices .both {
-  align-self: center;
-  font: var(--mat-sys-body-small);
-  color: var(--mat-sys-on-surface-variant);
 }
