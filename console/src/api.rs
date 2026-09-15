@@ -39,6 +39,7 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/past", get(past))
         .route("/api/sessions/{id}/input", post(input))
         .route("/api/sessions/{id}/draft", get(draft).put(put_draft))
+        .route("/api/sync/drafts", get(pull_drafts).post(push_drafts))
         // ⚠ **The one route that needs its own body limit.** Axum's default is
         // 2 MB, and an image is the only thing this API takes that is bigger than
         // a sentence — without this the limit is enforced by the framework, as a
@@ -339,6 +340,40 @@ async fn put_draft(
             Err((StatusCode::CONFLICT, Json(theirs)))
         }
     }
+}
+
+/// How far a client has already pulled.
+#[derive(Debug, Deserialize)]
+pub struct Since {
+    /// Absent on a first pull, which then asks for everything.
+    #[serde(default)]
+    pub since: Option<u64>,
+}
+
+/// Every draft past the caller's checkpoint.
+///
+/// ⚠ **The protocol is life's, not a second one invented here** — see
+/// `life/src/sync/types.rs` and its `docs/design/sync.md`. A client library
+/// drives pull and push; the only app-specific parts are the document shape and
+/// where the rows come from.
+async fn pull_drafts(
+    State(roster): State<Arc<Roster>>,
+    Query(from): Query<Since>,
+) -> Json<crate::drafts::PullResponse> {
+    Json(roster.drafts().pull(from.since.unwrap_or(0)))
+}
+
+/// Apply a batch of edits, and answer with the ones that lost.
+///
+/// ⚠ **A conflict is a 200 carrying the current master**, which is the opposite
+/// of the single-draft route beside it: there a refusal is a 409, because one
+/// edit either landed or did not. A batch can do both, so the status describes
+/// the request and the body describes each entry.
+async fn push_drafts(
+    State(roster): State<Arc<Roster>>,
+    Json(entries): Json<Vec<crate::drafts::PushEntry>>,
+) -> Json<Vec<crate::drafts::DraftDoc>> {
+    Json(roster.drafts().push(entries))
 }
 
 /// A picture from the phone, with whatever is being said about it.

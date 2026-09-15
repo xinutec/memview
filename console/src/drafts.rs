@@ -53,6 +53,52 @@ pub enum Wrote {
     Conflict(Draft),
 }
 
+/// One draft as it travels over sync — RxDB's document shape, mirroring life's
+/// `src/sync/types.rs` rather than inventing a second protocol.
+///
+/// ⚠ **`ulid` is the SESSION id.** Every other collection in the fleet mints one
+/// per row; a draft is one per conversation and the conversation already has a
+/// stable identity, so minting a second would be an identity nothing else could
+/// join on.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DraftDoc {
+    pub ulid: String,
+    pub text: String,
+    pub at: u64,
+    /// RxDB's tombstone flag. A cleared draft is a live document with empty text
+    /// rather than a deletion — see [`Drafts::put`] for why the entry has to
+    /// survive — so this is written `false` and read for protocol conformance.
+    #[serde(rename = "_deleted", default)]
+    pub deleted: bool,
+    /// Server revision. Ignored as push input; set here.
+    #[serde(default)]
+    pub rev: u64,
+}
+
+/// What a pull answers: the rows past the caller's checkpoint, and the new one.
+#[derive(Debug, Serialize)]
+pub struct PullResponse {
+    pub documents: Vec<DraftDoc>,
+    pub checkpoint: Checkpoint,
+}
+
+/// The pull cursor: the highest `rev` delivered so far.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct Checkpoint {
+    pub rev: u64,
+}
+
+/// One change from a client: the state it wants, and the state it assumed —
+/// `None` for a fresh insert. The assumed state is what makes the conflict
+/// detectable rather than the last writer silently winning.
+#[derive(Debug, Deserialize)]
+pub struct PushEntry {
+    #[serde(rename = "newDocumentState")]
+    pub new_document_state: DraftDoc,
+    #[serde(rename = "assumedMasterState", default)]
+    pub assumed_master_state: Option<DraftDoc>,
+}
+
 /// Every conversation's unsent words, by session id.
 #[derive(Debug)]
 pub struct Drafts {
@@ -171,5 +217,66 @@ impl Drafts {
                 tracing::warn!("drafts: could not write {}: {why}", self.store.display());
             }
         }
+    }
+}
+
+impl Drafts {
+    /// Every draft past `since`, oldest revision first, with the new checkpoint.
+    ///
+    /// ⚠ **Ordered by revision and NOT paged.** A page is what a checkpoint
+    /// protocol needs when a collection can outgrow one response; this one holds
+    /// a sentence per conversation, so a limit would be machinery guarding
+    /// against a size this cannot reach. Revisit if a draft ever carries the
+    /// picture.
+    pub fn pull(&self, since: u64) -> PullResponse {
+        let held = self.held.read().expect("drafts poisoned");
+        let mut documents: Vec<DraftDoc> = held
+            .iter()
+            .filter(|(_, d)| d.rev > since)
+            .map(|(id, d)| DraftDoc {
+                ulid: id.clone(),
+                text: d.text.clone(),
+                at: d.at,
+                deleted: false,
+                rev: d.rev,
+            })
+            .collect();
+        documents.sort_by_key(|d| d.rev);
+        let rev = documents.last().map_or(since, |d| d.rev);
+        PullResponse {
+            documents,
+            checkpoint: Checkpoint { rev },
+        }
+    }
+
+    /// Apply a batch, and answer with the documents that lost.
+    ///
+    /// ⚠ **An empty answer means every entry landed**, which is RxDB's contract
+    /// and the opposite of an HTTP status: a push that conflicts is a successful
+    /// request carrying the current master, not a failed one. The client resolves
+    /// and pushes again.
+    pub fn push(&self, entries: Vec<PushEntry>) -> Vec<DraftDoc> {
+        entries
+            .into_iter()
+            .filter_map(|entry| {
+                let id = entry.new_document_state.ulid.clone();
+                let from = entry.assumed_master_state.as_ref().map(|d| d.rev);
+                match self.put(
+                    &id,
+                    &entry.new_document_state.text,
+                    from,
+                    entry.new_document_state.at,
+                ) {
+                    Wrote::Stored(_) => None,
+                    Wrote::Conflict(theirs) => Some(DraftDoc {
+                        ulid: id,
+                        text: theirs.text,
+                        at: theirs.at,
+                        deleted: false,
+                        rev: theirs.rev,
+                    }),
+                }
+            })
+            .collect()
     }
 }

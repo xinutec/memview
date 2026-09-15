@@ -7,7 +7,7 @@
 
 use std::collections::BTreeSet;
 
-use console::drafts::{Drafts, Wrote};
+use console::drafts::{DraftDoc, Drafts, PushEntry, Wrote};
 
 /// A scratch directory of this test's own, named for the case, as `gist.rs`
 /// does it — the pid keeps two runs of the binary apart.
@@ -142,4 +142,93 @@ fn conversations_gone_from_disk_are_forgotten_but_an_empty_sweep_forgets_nothing
         "a dead conversation kept its draft"
     );
     assert!(drafts.get("alive").is_some());
+}
+
+/// A document as a client would push one.
+fn doc(id: &str, text: &str, rev: u64) -> DraftDoc {
+    DraftDoc {
+        ulid: id.to_string(),
+        text: text.to_string(),
+        at: 1000,
+        deleted: false,
+        rev,
+    }
+}
+
+/// ⚠ **The checkpoint is what makes a pull resumable**, and it must not move
+/// past what was actually delivered — a client that checkpointed ahead of its
+/// rows would never see the ones it skipped.
+#[test]
+fn a_pull_answers_only_past_the_checkpoint_and_says_how_far_it_got() {
+    let dir = scratch("pull");
+    let drafts = store(&dir);
+    drafts.put("s1", "one", None, 1000);
+    drafts.put("s2", "two", None, 1000);
+
+    let all = drafts.pull(0);
+    assert_eq!(all.documents.len(), 2, "a first pull takes everything");
+    assert_eq!(all.checkpoint.rev, 1);
+
+    // Nothing has moved since.
+    assert!(drafts.pull(all.checkpoint.rev).documents.is_empty());
+    assert_eq!(
+        drafts.pull(all.checkpoint.rev).checkpoint.rev,
+        1,
+        "an empty pull holds the checkpoint where it was",
+    );
+
+    drafts.put("s1", "one, more", Some(1), 2000);
+    let next = drafts.pull(1);
+    assert_eq!(next.documents.len(), 1);
+    assert_eq!(next.documents[0].ulid, "s1");
+    assert_eq!(next.checkpoint.rev, 2);
+}
+
+/// ⚠ **An empty answer means every entry landed.** That is RxDB's contract and
+/// the opposite of a status code: a push that conflicts is a SUCCESSFUL request
+/// carrying the current master.
+#[test]
+fn a_push_answers_with_the_entries_that_lost_and_nothing_else() {
+    let dir = scratch("push");
+    let drafts = store(&dir);
+    drafts.put("s1", "mine", None, 1000);
+
+    let clean = drafts.push(vec![PushEntry {
+        new_document_state: doc("s2", "fresh", 0),
+        assumed_master_state: None,
+    }]);
+    assert!(clean.is_empty(), "a fresh insert cannot conflict");
+
+    let lost = drafts.push(vec![PushEntry {
+        new_document_state: doc("s1", "theirs", 0),
+        assumed_master_state: None,
+    }]);
+    assert_eq!(lost.len(), 1, "a first write over an existing draft loses");
+    assert_eq!(lost[0].text, "mine", "the loser is handed the master");
+    assert_eq!(lost[0].rev, 1);
+}
+
+/// One batch, both outcomes — which is why the status cannot carry the answer.
+#[test]
+fn a_batch_can_both_land_and_lose() {
+    let dir = scratch("batch");
+    let drafts = store(&dir);
+    drafts.put("taken", "already here", None, 1000);
+
+    let lost = drafts.push(vec![
+        PushEntry {
+            new_document_state: doc("fresh", "lands", 0),
+            assumed_master_state: None,
+        },
+        PushEntry {
+            new_document_state: doc("taken", "loses", 0),
+            assumed_master_state: None,
+        },
+    ]);
+    assert_eq!(lost.len(), 1);
+    assert_eq!(lost[0].ulid, "taken");
+    assert_eq!(
+        drafts.get("fresh").expect("the other one landed").text,
+        "lands",
+    );
 }
