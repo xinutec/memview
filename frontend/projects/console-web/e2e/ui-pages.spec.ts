@@ -1901,11 +1901,25 @@ test('scrolling to the top fetches what came before it @ phone width', async ({ 
   // point: "starting small" would mean nothing if reaching the top once
   // unspooled a 1.4 GB transcript. So each fetch here is a fresh journey to the
   // top, which is what a reader travelling backwards through a morning does.
-  const toTheTop = async () =>
-    page.evaluate(() => {
+  // ⚠ **`if (box)` made a missing container look like a successful scroll**, and
+  // the failure then surfaced 5s later as `asked` never reaching 1 — the poll
+  // below, not the line that did nothing. Diagnosed 2026-09-15 from the
+  // nightly's preserved screenshot (#1545's artifact keeping): the viewport was
+  // still at messages 33-40, the BOTTOM of the seeded page, so no top was ever
+  // reached and no older page was ever asked for. `messages` had the same
+  // silent helper, written separately, and failed the same way.
+  const toTheTop = async () => {
+    await page.locator('.transcript').waitFor();
+    const scrolled = await page.evaluate(() => {
       const box = document.querySelector('.transcript');
-      if (box) box.scrollTop = 0;
+      if (!box) return null;
+      box.scrollTop = 0;
+      return box.scrollTop;
     });
+    if (scrolled === null) {
+      throw new Error('toTheTop: .transcript is not in the DOM — nothing was scrolled');
+    }
+  };
 
   await toTheTop();
   await expect.poll(() => asked, { timeout: 5000 }).toBe(1);
