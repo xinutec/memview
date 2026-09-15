@@ -295,9 +295,6 @@ pub struct Edit {
     /// The revision this edit was made from. Absent on a first write.
     #[serde(default)]
     pub from: Option<u64>,
-    /// What the writing device calls itself, for the conflict screen.
-    #[serde(default)]
-    pub by: String,
 }
 
 /// Store an edit, or refuse it and hand back what is there.
@@ -314,10 +311,7 @@ async fn put_draft(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
-    match roster
-        .drafts()
-        .put(&id, &edit.text, edit.from, &edit.by, at)
-    {
+    match roster.drafts().put(&id, &edit.text, edit.from, at) {
         crate::drafts::Wrote::Stored(draft) => Ok(Json(draft)),
         crate::drafts::Wrote::Conflict(theirs) => Err((StatusCode::CONFLICT, Json(theirs))),
     }

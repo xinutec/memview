@@ -751,11 +751,14 @@ export interface CorpusRead {
 export interface StoredDraft {
   readonly text: string;
   readonly rev: number;
-  /** Which device wrote it, as that device calls itself — "yours or theirs"
-   *  needs a name for theirs. */
-  readonly by: string;
-  /** Unix milliseconds. Two texts with no times are two texts, and the older one
-   *  is usually the abandoned one. */
+  /**
+   * Unix milliseconds.
+   *
+   * ⚠ **The only thing that tells the two drafts apart, deliberately.** A field
+   * naming the writing device was tried and removed: whoever is choosing is
+   * standing at one of the two, so "the other one" needs no name, and the useful
+   * question is which thought is newer.
+   */
   readonly at: number;
 }
 
@@ -763,5 +766,4 @@ export interface StoredDraft {
 export interface DraftEdit {
   readonly text: string;
   readonly from?: number;
-  readonly by: string;
 }

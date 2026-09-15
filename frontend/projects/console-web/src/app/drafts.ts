@@ -203,7 +203,7 @@ export class Drafts {
   /** Send this device's words, and hand a refusal to the view as a clash. */
   private push(id: string, text: string): void {
     const from = this.revs.get(id);
-    this.api.putDraft(id, { text, from, by: this.device() }).subscribe({
+    this.api.putDraft(id, { text, from }).subscribe({
       next: (stored) => this.revs.set(id, stored.rev),
       error: (err: { status?: number; error?: unknown }) => {
         const theirs = err.status === 409 ? asDraft(err.error) : undefined;
@@ -212,21 +212,6 @@ export class Drafts {
         if (theirs) this.clash.set({ id, mine: text, theirs });
       },
     });
-  }
-
-  /**
-   * What this device calls itself, so a clash can say whose text is whose.
-   *
-   * Minted once and kept: the name has to survive a reload or the same device
-   * appears as a stranger to itself after every upgrade.
-   */
-  private device(): string {
-    const key = `${Drafts.PREFIX}device`;
-    const known = localStorage.getItem(key);
-    if (known) return known;
-    const name = /Android|iPhone|iPad/.test(navigator.userAgent) ? 'phone' : 'desktop';
-    this.write('device', name);
-    return name;
   }
 
   private load(id: string): { text: string; picture?: Picture } {
@@ -284,8 +269,7 @@ function asDraft(value: unknown): StoredDraft | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
   if (!('text' in value) || typeof value.text !== 'string') return undefined;
   if (!('rev' in value) || typeof value.rev !== 'number') return undefined;
-  if (!('by' in value) || typeof value.by !== 'string') return undefined;
   if (!('at' in value) || typeof value.at !== 'number') return undefined;
-  const { text, rev, by, at } = value;
-  return { text, rev, by, at };
+  const { text, rev, at } = value;
+  return { text, rev, at };
 }

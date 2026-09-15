@@ -124,7 +124,7 @@ describe('Drafts', () => {
    * clash exists to prevent, and it is silent if it happens.
    */
   describe('meeting the other device', () => {
-    const theirs = { text: 'from the phone', rev: 4, by: 'phone', at: 1000 };
+    const theirs = { text: 'from the other device', rev: 4, at: 1000 };
 
     /** Answer `GET …/draft` with `theirs`, without a real HTTP layer. */
     function runnerHolds(draft: StoredDraft): void {
@@ -140,7 +140,7 @@ describe('Drafts', () => {
     });
 
     it('says nothing when the two already agree', () => {
-      drafts.put('a', 'from the phone', undefined, { push: false });
+      drafts.put('a', 'from the other device', undefined, { push: false });
       runnerHolds(theirs);
       drafts.open('a');
       expect(drafts.incoming()).toBeUndefined();
@@ -168,7 +168,7 @@ describe('Drafts', () => {
 
   /** Four outcomes, and combining must keep both texts whole. */
   describe('settling a clash', () => {
-    const theirs = { text: 'theirs', rev: 4, by: 'phone', at: 1000 };
+    const theirs = { text: 'theirs', rev: 4, at: 1000 };
 
     beforeEach(() => {
       const api = TestBed.inject(ConsoleApi);

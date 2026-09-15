@@ -34,11 +34,12 @@ pub struct Draft {
     /// Bumped on every accepted write. A client sends the `rev` it was editing
     /// from, and a mismatch is the conflict — see [`Drafts::put`].
     pub rev: u64,
-    /// Which device wrote it, as that device calls itself. Shown in the conflict
-    /// screen, because "yours or theirs" needs a name for *theirs*.
-    pub by: String,
-    /// Unix milliseconds, for the same screen: two texts with no times are two
-    /// texts, and the older one is usually the abandoned one.
+    /// Unix milliseconds.
+    ///
+    /// ⚠ **The only thing that distinguishes the two drafts, and deliberately
+    /// so.** A field naming the writing device was tried and removed: whoever is
+    /// choosing is standing at one of the two, so "the other one" needs no name,
+    /// and the useful question is which thought is newer.
     pub at: u64,
 }
 
@@ -113,7 +114,7 @@ impl Drafts {
     /// — still holding the words at the old revision — would push them back and
     /// resurrect a message already sent. Keeping the revision means that push
     /// arrives as the conflict it is, with THEIRS empty, and the person decides.
-    pub fn put(&self, id: &str, text: &str, from: Option<u64>, by: &str, at: u64) -> Wrote {
+    pub fn put(&self, id: &str, text: &str, from: Option<u64>, at: u64) -> Wrote {
         let (result, all) = {
             let mut held = self.held.write().expect("drafts poisoned");
             let current = held.get(id).cloned();
@@ -125,7 +126,6 @@ impl Drafts {
             let next = Draft {
                 text: text.to_string(),
                 rev: current.map_or(1, |d| d.rev + 1),
-                by: by.to_string(),
                 at,
             };
             held.insert(id.to_string(), next.clone());
