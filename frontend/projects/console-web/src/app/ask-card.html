@@ -1,0 +1,95 @@
+<div class="question">
+  <div class="wants">
+    <span class="tool-name">{{ entry().tool }}</span>
+    <span class="tool-arg">{{ entry().text }}</span>
+  </div>
+  @if (entry().allowed === undefined) {
+    @if (entry().questions; as questions) {
+      @for (question of questions; track question.question) {
+        <div class="query">
+          @if (question.header) {
+            <span class="topic">{{ question.header }}</span>
+          }
+          <span class="what">{{ question.question }}</span>
+          <div class="options">
+            @for (option of question.options; track option.label) {
+              <!-- Not a Material button: its label is a flex item that
+                     spills rather than wraps, and these carry two lines. -->
+              <button
+                type="button"
+                class="option"
+                [class.taken]="picked(question, option.label)"
+                [attr.aria-pressed]="picked(question, option.label)"
+                [disabled]="replying()"
+                (click)="pick(question, option.label)"
+              >
+                <span class="label">{{ option.label }}</span>
+                @if (option.description) {
+                  <span class="means">{{ option.description }}</span>
+                }
+              </button>
+            }
+          </div>
+          <!-- A note beside the choice, which the session reads as
+                 qualifying it rather than replacing it. Behind a tap:
+                 a field under every question is a screenful of card
+                 before it has said anything. -->
+          @if (notable(question)) {
+            <input
+              class="note"
+              type="text"
+              [attr.aria-label]="'a note about ' + question.question"
+              placeholder="note"
+              [disabled]="replying()"
+              [value]="note(question)"
+              (input)="jot(question, $any($event.target).value)"
+            />
+          } @else {
+            <button
+              type="button"
+              class="addnote"
+              [disabled]="replying()"
+              (click)="addNote(question)"
+            >
+              add a note
+            </button>
+          }
+        </div>
+      }
+      <!-- Words instead of a choice. Typing takes the card over — the
+             options above go quiet — because the CLI reads `response`
+             INSTEAD of `answers`, never both. Clearing it hands the
+             options back. -->
+      <textarea
+        class="say"
+        rows="1"
+        [attr.aria-label]="'answer in words instead of choosing'"
+        placeholder="or say something instead"
+        [value]="words()"
+        (input)="say($any($event.target).value)"
+      ></textarea>
+      <div class="choose">
+        @if (needsSending()) {
+          <button matButton="filled" [disabled]="!replying() && !ready()" (click)="answer()">
+            {{ replying() ? 'reply' : 'answer' }}
+          </button>
+        }
+        <!-- The way out of a question there is no good answer to. The
+               session is told, and carries on. -->
+        <button matButton (click)="decide(false)">skip</button>
+      </div>
+    } @else {
+      <div class="choose">
+        <button matButton="filled" (click)="decide(true)">allow</button>
+        <button matButton (click)="decide(false)">refuse</button>
+      </div>
+    }
+  } @else {
+    <span class="verdict">{{ verdict() }}</span>
+    @if (choice(); as choice) {
+      <!-- What was picked. The questions are still directly above, so
+             this is the labels alone rather than a paragraph. -->
+      <span class="chose">{{ choice }}</span>
+    }
+  }
+</div>

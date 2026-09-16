@@ -13,7 +13,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { takeUntilDestroyed, toObservable, toSignal } from '@angular/core/rxjs-interop';
+import { toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { switchMap } from 'rxjs';
 import { MatBottomSheet } from '@angular/material/bottom-sheet';
 import { MatButtonModule } from '@angular/material/button';
@@ -21,12 +21,13 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { NgTemplateOutlet } from '@angular/common';
 
+import { AskCard } from './ask-card';
 import { Clock } from './clock';
 import { Composer } from './composer';
 import { Lasted } from './lasted';
 import { ConsoleApi } from './console-api';
 import { reason } from './errors';
-import { Reach } from './reach';
+import { Roster } from './roster';
 import { Foreground } from './foreground';
 import { Entry, Summary } from './models';
 import { modelName } from './model';
@@ -34,13 +35,13 @@ import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { Dismiss } from './dismiss';
 import { Drafts, type Resolution } from './drafts';
 import { since } from './since';
+import { Folding } from './folding';
 import { Following, measure } from './following';
 import { Here } from './here';
 import { Updates } from './updates';
 import { Coloured } from './coloured';
 import { PICTURE, Rendered } from './rendered';
 import { pointedAt, shrink } from './picture';
-import { Answers, Notes, Question, choiceOf, complete } from './questions';
 import { Held, SessionStore } from './session-store';
 import { ParseSheet } from './parse-sheet';
 import { PictureSheet } from './picture-sheet';
@@ -65,6 +66,7 @@ import { fullness } from './tokens';
   // keyboard and opens it.
   host: { '(click)': 'tapped($event)' },
   imports: [
+    AskCard,
     Clock,
     Composer,
     Lasted,
@@ -90,6 +92,7 @@ export class SessionView implements OnDestroy {
   private store = inject(SessionStore);
   /** What is written and not sent, which outlives this view — see [[Drafts]]. */
   private drafts = inject(Drafts);
+  private roster = inject(Roster);
 
   /**
    * What the COLLECTION holds for the conversation on screen, text and picture.
@@ -111,9 +114,11 @@ export class SessionView implements OnDestroy {
   private until = inject(DestroyRef);
   /** For `afterNextRender` outside an injection context — see [loadEarlier]. */
   private injector = inject(Injector);
-  private poll?: ReturnType<typeof setInterval>;
 
   /** The transcript being read, which outlives this view — see [[SessionStore]]. */
+  /** What this reading of the conversation has opened — per view, see
+   *  [[Folding]]. */
+  protected readonly folding = new Folding();
   private readonly held = signal<Held | undefined>(undefined);
   /** The conversation on screen. Two signals deep on purpose: which transcript
    *  is being read changes when the route does, and its contents change with
@@ -260,9 +265,7 @@ export class SessionView implements OnDestroy {
    * flight — left "cannot reach the runner" on screen for as long as the page
    * was open, over a console that had been answering the whole time.
    */
-  readonly unreachable = signal('');
-  /** How patient the banner above is. See [[Reach]]. */
-  private readonly reach = new Reach();
+  readonly unreachable = this.roster.unreachable;
   /** A restart of a session that stopped reading is in flight. See [[revive]]. */
   readonly reviving = signal(false);
   readonly sending = signal(false);
@@ -288,25 +291,6 @@ export class SessionView implements OnDestroy {
    *  refused. On the composer rather than in the transcript: it is about the
    *  thing being written, not about the conversation. */
   readonly pictureTrouble = signal('');
-  /**
-   * Options tapped but not yet sent, by control-request id and then by question.
-   *
-   * Keyed by the *ask* rather than held against the entry, because two questions
-   * can stand at once — a session asks again the moment the first is answered —
-   * and because the transcript rebuilds its entries as events arrive. Nothing is
-   * cleaned up when one is answered: the id never comes back, and a handful of
-   * dead keys costs less than the code to notice.
-   */
-  private readonly chosen = signal<Record<string, Answers>>({});
-  /** What has been typed against a question instead of choosing, by the same key. */
-  private readonly said = signal<Record<string, string>>({});
-  /** Notes written beside a choice, by ask id and then question. Unlike [said]
-   *  these travel *with* the choices — see `questions.ts`. */
-  private readonly noted = signal<Record<string, Notes>>({});
-  /** Which questions have their note field open, as `<ask>::<question>`. A card
-   *  with a field under every question is a screenful before it says anything,
-   *  so the field is one tap away rather than always there. */
-  private readonly noting = signal<ReadonlySet<string>>(new Set());
   /** Whether anything older than what is on screen remains on disk.
    *
    *  The cursor is a byte offset into the transcript, so zero is the start of the
@@ -373,8 +357,29 @@ export class SessionView implements OnDestroy {
       // the effect is cleaned up before it re-runs and again when the view goes.
       // What is left behind is the transcript, which is the point.
       onCleanup(() => this.store.leave(id));
-      this.refresh();
-      this.poll ??= setInterval(() => this.refresh(), 5000);
+    });
+    // What the runner is holding, polled once for the app — see [[Roster]].
+    // Followed rather than fetched: a request does not stop when the page that
+    // made it does, and a reply landing after this view is gone used to put the
+    // session just left back into the toolbar.
+    this.until.onDestroy(this.roster.follow());
+    // Derived, so leaving cannot be undone by a reply in flight.
+    effect(() => {
+      const state = this.roster.state();
+      const id = this.id();
+      untracked(() => {
+        const mine = state?.sessions.find((s) => s.id === id);
+        this.session.set(mine);
+        // The toolbar sits above the router and cannot see the route, so the
+        // page that knows which conversation this is has to say so — and both
+        // the menu and the details sheet act on what is set here.
+        this.here.open.set(mine);
+        // And what it is about, which the sheet shows in full where the card has
+        // room for two lines. Keyed by conversation — see [[Here.gist]].
+        this.here.gist.set(state?.gists?.[id]);
+        // And how much of its own list is left, for the ⋮ menu's label.
+        this.here.tasks.set(state?.tasks?.sessions?.[id]);
+      });
     });
     // A message being written belongs to the conversation, not to this view of
     // it — see [[Drafts]], which holds ONE copy of it, in the collection.
@@ -416,7 +421,7 @@ export class SessionView implements OnDestroy {
     // screen when it comes back are as old as the pocket it was in. The
     // transcript below them heals itself — EventSource reconnects and replays
     // from the top — and these totals have nothing that would.
-    this.foreground.onReturn(() => this.refresh(), this.until);
+    this.foreground.onReturn(() => this.roster.ask(), this.until);
     // And the draft, for the same reason the poll pairs with this: the other
     // device may have carried it on, and anything typed here while the tunnel
     // was down is still owed — see [[ConsoleDb.resync]].
@@ -556,7 +561,6 @@ export class SessionView implements OnDestroy {
   }
 
   ngOnDestroy(): void {
-    if (this.poll) clearInterval(this.poll);
     // Leaving the page leaves the conversation, so the toolbar stops claiming
     // to be inside one — otherwise the list of sessions is titled with whichever
     // one was open last.
@@ -569,47 +573,6 @@ export class SessionView implements OnDestroy {
   /** The header facts — cost, turns, whether it is working — come from the
    *  summary rather than the stream, because they are totals and a client that
    *  reconnected mid-session has not seen every event that built them. */
-  private refresh(): void {
-    // ⚠ **Tied to this view's life, and it has to be.** A request does not stop
-    // when the page that made it does: leaving a session clears the open
-    // conversation in `ngOnDestroy`, and a poll already in flight then lands and
-    // puts it straight back — so the LIST was titled with the session just left,
-    // with a ⋮ beside it whose menu acted on that session. The clear was already
-    // here and was already right; what it could not do was outlast a reply.
-    this.api
-      .state()
-      .pipe(takeUntilDestroyed(this.until))
-      .subscribe({
-        next: (state) => {
-          const mine = state.sessions.find((s) => s.id === this.id());
-          this.session.set(mine);
-          // The toolbar sits above the router and cannot see the route, so the
-          // page that knows which conversation this is has to say so — and both
-          // the menu and the details sheet act on what is set here. The whole
-          // summary, because the sheet shows nearly all of it.
-          this.here.open.set(mine);
-          // And what it is about, which the sheet shows in full where the card
-          // has room for two lines. Keyed by conversation — see [[Here.gist]].
-          this.here.gist.set(state.gists?.[this.id()]);
-          // ⚠ The draft used to be read off this poll too, so that an open
-          // session saw the other device without a request of its own. That is
-          // replication's job now and doing it twice is how the two disagreed:
-          // a poll answers the question it was ASKED, so a reply overtaken by a
-          // keystroke arrived carrying this device's own past and read as
-          // somebody else writing. The roster still carries `drafts` — the
-          // sessions list marks which conversations hold unsent words — but this
-          // page takes them from the collection.
-          // And how much of its own list is left, for the ⋮ menu's label. Same
-          // keying, same reason — see [[Here.tasks]].
-          this.here.tasks.set(state.tasks?.sessions?.[this.id()]);
-          this.updates.saw(state.bundle);
-          this.unreachable.set(this.reach.answered());
-        },
-        // Only once it has outlived a poll — see [[Reach]] for the measurement.
-        error: (err: unknown) =>
-          this.unreachable.set(this.reach.failed(`cannot reach the runner: ${reason(err)}`)),
-      });
-  }
 
   /**
    * Keep the newest in view.
@@ -956,24 +919,6 @@ export class SessionView implements OnDestroy {
   }
 
   /**
-   * The tool results whose whole output is on screen.
-   *
-   * Held here rather than on the entry because it is about this reading of the
-   * conversation rather than about the conversation — leaving a session and
-   * coming back opens every result closed again, which is the predictable
-   * answer. Everything starts closed, failures included: a blob that expands
-   * itself moves the page under somebody who is reading it, and the red mark on
-   * the row already says which one to open.
-   */
-  private readonly opened = signal(new Set<Entry>());
-
-  /** Takes the entry, so it cannot be a `computed` — and is a set lookup, which
-   *  is what makes it cheap enough to run for every row on every pass. */
-  shows(entry: Entry): boolean {
-    return this.opened().has(entry);
-  }
-
-  /**
    * Whether this row is a shell command there is a parse to show.
    *
    * ⚠ **Only `Bash`.** The reader reads shell, and the Python and the nested and
@@ -1037,214 +982,5 @@ export class SessionView implements OnDestroy {
   /** What a folded run says about itself. */
   protected counted(block: Block & { kind: 'tools' }): ReturnType<typeof ran> {
     return ran(block.entries);
-  }
-
-  /**
-   * Whether a run is open. Closed until somebody opens it, and that is the whole
-   * rule.
-   *
-   * ⚠ **Two versions of "open it for them" were tried and both were worse.**
-   * The first read `running > 0` live, which flickers: a session making one call
-   * at a time turns a pair into a run and opens it, its result empties the run
-   * and folds it, the next call opens it again — a dozen sequential calls, a
-   * dozen flips, reported from the phone as "it keeps flipping open and closed".
-   * The second latched that condition, so a run this page had watched work
-   * stayed open. That stopped the flicker and cost more than it saved: the page
-   * was no longer a function of the conversation. The same session rendered at
-   * different heights on two screens, a reload collapsed whatever you had
-   * accumulated, and a long working session stacked up open runs until it was
-   * nearly as tall as it had been before any of this.
-   *
-   * What the automatic open was for — not looking idle while it works — the
-   * summary row already does, because it says `3 running` on its face. So the
-   * cost of this rule is one tap on the one run you care about, and what it buys
-   * is a page that looks the same to everyone, at every reload.
-   */
-  protected opensTools(block: Block & { kind: 'tools' }): boolean {
-    return this.toolChoice()[block.key] ?? false;
-  }
-
-  protected toggleTools(block: Block & { kind: 'tools' }): void {
-    const open = this.opensTools(block);
-    this.toolChoice.update((choice) => ({ ...choice, [block.key]: !open }));
-  }
-
-  /** What the reader has said about each run, which beats the default above. */
-  private readonly toolChoice = signal<Record<string, boolean>>({});
-
-  unfold(entry: Entry): void {
-    this.opened.update((open) => {
-      const next = new Set(open);
-      if (!next.delete(entry)) next.add(entry);
-      return next;
-    });
-  }
-
-  /** Approve or refuse one question.
-   *
-   *  The verdict is not written into the entry here — the runner echoes an
-   *  `answered` event to every listener, and letting that do it means a second
-   *  window showing the same session stops offering a decision that was already
-   *  taken.
-   */
-  decide(entry: Entry, allow: boolean): void {
-    if (!entry.ask || entry.allowed !== undefined) return;
-    this.api.decide(this.id(), entry.ask, allow).subscribe({
-      error: (err: unknown) => this.trouble.set(reason(err)),
-    });
-  }
-
-  /**
-   * What was decided, in the words of the thing that was decided.
-   *
-   * A question is not a permission, and saying a question was *allowed* would
-   * describe the mechanism rather than what happened — the person picked an
-   * option, or declined to. What they picked is in the tool's own result a line
-   * below, which is where it reads best.
-   */
-  verdict(entry: Entry): string {
-    // ⚠ **Until the session acts on it, this is a claim about the pipe.**
-    // `Answered` is pushed once the decision has been written and flushed, which
-    // is not the same as the CLI having read it — and against a session that has
-    // stopped reading, the old wording reported the answer as delivered and
-    // accepted while the session stayed blocked on the same question. `health`
-    // showed a green *answered* for thirty-one minutes (memview #122). See
-    // [[Entry.settling]].
-    if (entry.settling) return 'sent — not taken up yet';
-    if (!entry.questions) return entry.allowed ? 'allowed' : 'refused';
-    if (!entry.allowed) return 'skipped';
-    return entry.reply?.response?.trim() ? 'replied' : 'answered';
-  }
-
-  /** What was picked, for the row that records it. Empty when there is nothing
-   *  to say — a refusal, or any tool that is not a question. */
-  choice(entry: Entry): string {
-    return entry.allowed ? choiceOf(entry.reply) : '';
-  }
-
-  /** Whether this option is currently chosen — what the button shows as pressed. */
-  picked(entry: Entry, question: Question, label: string): boolean {
-    const chosen = this.chosen()[entry.ask ?? '']?.[question.question];
-    return Array.isArray(chosen) ? chosen.includes(label) : chosen === label;
-  }
-
-  /**
-   * Choose an option.
-   *
-   * **One question with one answer sends on the tap.** That is the shape almost
-   * every question has, and on a phone the difference between one tap and two is
-   * the difference between answering from the lock screen and putting it off.
-   * Anything else — several questions, or one that takes several answers — has
-   * no moment where the choice is obviously finished, so it waits for [answer].
-   */
-  pick(entry: Entry, question: Question, label: string): void {
-    if (!entry.ask || entry.allowed !== undefined || this.replying(entry)) return;
-    const questions = entry.questions ?? [];
-    const single = questions.length === 1 && !question.multiSelect;
-    if (single) {
-      this.approveWith(entry, { [question.question]: label }, undefined, this.noted()[entry.ask]);
-      return;
-    }
-    const ask = entry.ask;
-    this.chosen.update((all) => {
-      const here = { ...(all[ask] ?? {}) };
-      if (question.multiSelect) {
-        const had = here[question.question];
-        const list = Array.isArray(had) ? had : [];
-        here[question.question] = list.includes(label)
-          ? list.filter((l) => l !== label)
-          : [...list, label];
-      } else {
-        here[question.question] = label;
-      }
-      return { ...all, [ask]: here };
-    });
-  }
-
-  /** Whether everything asked has been answered. The send button waits for it. */
-  ready(entry: Entry): boolean {
-    const ask = entry.ask ?? '';
-    return complete(entry.questions ?? [], this.chosen()[ask] ?? {}, this.noted()[ask] ?? {});
-  }
-
-  /** The note written against one question, if any. */
-  note(entry: Entry, question: Question): string {
-    return this.noted()[entry.ask ?? '']?.[question.question] ?? '';
-  }
-
-  /** Whether this question's note field is open — see [noting]. */
-  notable(entry: Entry, question: Question): boolean {
-    return (
-      this.noting().has(`${entry.ask ?? ''}::${question.question}`) ||
-      this.note(entry, question) !== ''
-    );
-  }
-
-  /** Open the note field for one question. It never closes on its own: a field
-   *  that vanished while it held words would be taking them away. */
-  addNote(entry: Entry, question: Question): void {
-    const key = `${entry.ask ?? ''}::${question.question}`;
-    this.noting.update((open) => new Set([...open, key]));
-  }
-
-  jot(entry: Entry, question: Question, text: string): void {
-    const ask = entry.ask;
-    if (!ask) return;
-    this.noted.update((all) => ({
-      ...all,
-      [ask]: { ...(all[ask] ?? {}), [question.question]: text },
-    }));
-  }
-
-  /** What has been typed against this question, if anything. */
-  words(entry: Entry): string {
-    return this.said()[entry.ask ?? ''] ?? '';
-  }
-
-  /**
-   * Whether this card is answering in words rather than by choice.
-   *
-   * ⚠ **The two are alternatives, not companions.** The CLI's result builder
-   * tests `response` before `answers` and reports only the one it finds, so
-   * words sent alongside a set of taps would throw the taps away without saying
-   * so. Typing therefore takes the card over: the options go quiet, and clearing
-   * the field hands it back. Better to make the exclusivity visible than to let
-   * somebody tap four options and have none of them arrive.
-   */
-  replying(entry: Entry): boolean {
-    return this.words(entry).trim() !== '';
-  }
-
-  say(entry: Entry, text: string): void {
-    const ask = entry.ask;
-    if (!ask) return;
-    this.said.update((all) => ({ ...all, [ask]: text }));
-  }
-
-  /** Whether the button that sends is worth showing at all. */
-  needsSending(entry: Entry): boolean {
-    const questions = entry.questions ?? [];
-    return this.replying(entry) || questions.length > 1 || (questions[0]?.multiSelect ?? false);
-  }
-
-  /** Send what has been chosen, or what has been typed instead of choosing. */
-  answer(entry: Entry): void {
-    if (!entry.ask || entry.allowed !== undefined) return;
-    if (this.replying(entry)) {
-      // Words override the choices in the CLI, so nothing else goes with them —
-      // notes included, which would be qualifying an answer that is not sent.
-      this.approveWith(entry, undefined, this.words(entry).trim(), undefined);
-      return;
-    }
-    if (!this.ready(entry)) return;
-    this.approveWith(entry, this.chosen()[entry.ask] ?? {}, undefined, this.noted()[entry.ask]);
-  }
-
-  /** Approve the call with the answer written into it. See `questions.ts`. */
-  private approveWith(entry: Entry, answers?: Answers, response?: string, notes?: Notes): void {
-    if (!entry.ask || entry.allowed !== undefined) return;
-    this.api.decide(this.id(), entry.ask, true, undefined, answers, response, notes).subscribe({
-      error: (err: unknown) => this.trouble.set(reason(err)),
-    });
   }
 }
