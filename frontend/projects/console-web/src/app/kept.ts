@@ -82,6 +82,11 @@ export class Kept {
    * and neither runs any code here. A copy up to five seconds old is the point.
    */
   keep(id: string, entries: Entry[]): void {
+    // ⚠ **Nothing is not worth keeping, and keeping it costs the real copy.**
+    // The first event of a stream arrives before anything has been folded, so
+    // the emptiest call is the one that wins the throttle — and the next five
+    // seconds of a conversation are then blocked behind a copy of nothing.
+    if (!entries.length) return;
     const now = Date.now();
     if (now - (this.lastWrote.get(id) ?? 0) < Kept.EVERY) return;
     this.lastWrote.set(id, now);

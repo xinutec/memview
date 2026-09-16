@@ -4338,23 +4338,21 @@ test('a session opened with no answer from the Mac reads from the kept copy @ ph
   // looking at. Sending is untouched; a send that cannot reach the Mac keeps its
   // draft in the composer as it always did.
   const id = STATE.sessions[0].id;
-  await page.addInitScript(([key, copy]) => localStorage.setItem(key, copy), [
-    `console.kept.${id}`,
-    JSON.stringify([
-      { kind: 'said', text: 'a line from before the tunnel dropped', at: 1785600000000 },
-      { kind: 'turn', text: '' },
-    ]),
-  ] as const);
+  // ⚠ **The copy is MADE by reading, not seeded into storage.** A fixture
+  // written straight into the store pins where the store happens to be today —
+  // this walks the path a phone walks: read the conversation once with the
+  // tunnel up, then come back to it with the tunnel down.
   await mockRunner(page);
-  // The Mac does not answer: the transcript stream never opens, which is exactly
-  // what a dropped tunnel looks like from here.
+  await page.goto(`/s/${id}`);
+  const line = page.getByText('home-manager switch').first();
+  await expect(line, 'the conversation was never read in the first place').toBeVisible();
+
+  // Now the Mac does not answer: the transcript stream never opens, which is
+  // exactly what a dropped tunnel looks like from here.
   await page.route('**/api/sessions/*/events*', (r) => r.abort());
   await page.goto(`/s/${id}`);
 
-  await expect(
-    page.getByText('a line from before the tunnel dropped'),
-    'the kept copy was not read',
-  ).toBeVisible();
+  await expect(line, 'the kept copy was not read').toBeVisible();
   // ⚠ **And it says what it is.** A transcript that has stopped growing looks
   // exactly like a quiet one, so a copy drawn as though it were the conversation
   // would be the same defect #96 was about, one screen along.
