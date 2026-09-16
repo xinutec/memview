@@ -27,6 +27,17 @@ describe('draftConflicts', () => {
     expect(isEqual(doc(), doc({ text: 'words, and more' }), 'test')).toBe(false);
   });
 
+  /**
+   * ⚠ **The opposite trap, and the one this file shipped with.** A push that
+   * lands leaves the runner holding the same text at a HIGHER revision. The next
+   * pull delivers it; an `isEqual` that also compares `rev` calls that a
+   * conflict, and the screen offers a choice between a text and itself.
+   */
+  it('calls the same text equal even when the runner has moved the revision on', () => {
+    const { isEqual } = draftConflicts(() => undefined);
+    expect(isEqual(doc({ rev: 3 }), doc({ rev: 4 }), 'test')).toBe(true);
+  });
+
   it('separates a tombstone from a live document', () => {
     const { isEqual } = draftConflicts(() => undefined);
     expect(isEqual(doc({ _deleted: true }), doc({ _deleted: false }), 'test')).toBe(false);
@@ -57,8 +68,18 @@ describe('draftConflicts', () => {
   });
 });
 
-/** A runner that speaks the protocol, so the handlers are tested against the
- *  shape rather than against a mock of themselves. */
+/**
+ * A runner that speaks the protocol, so the handlers are tested against the
+ * shape rather than against a mock of themselves.
+ *
+ * ⚠ **It judges a push on the assumed TEXT, because the real one does** — see
+ * `Drafts::apply` in `console/src/drafts.rs`. This stood in for the runner while
+ * comparing `assumedMasterState.rev`, which is what the runner did until
+ * 2026-09-16 and is wrong: a revision is minted server-side, so a client that
+ * has pushed but not yet pulled still assumes the revision it edited FROM. A
+ * mock that keeps the old rule would pass every test here against a server that
+ * does not exist.
+ */
 function fakeRunner() {
   const held = new Map<string, DraftDoc>();
   let next = 0;
@@ -72,7 +93,7 @@ function fakeRunner() {
       const lost: DraftDoc[] = [];
       for (const row of rows) {
         const current = held.get(row.newDocumentState.ulid);
-        if (current && current.rev !== row.assumedMasterState?.rev) {
+        if (current && current.text !== row.assumedMasterState?.text) {
           lost.push(current);
           continue;
         }

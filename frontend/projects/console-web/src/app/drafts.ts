@@ -1,7 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
 
-import { ConsoleApi } from './console-api';
-import type { StoredDraft } from './models';
+import { DraftsDb, type DraftDoc } from './drafts-db';
 import type { Picture } from './picture';
 
 /**
@@ -34,30 +33,43 @@ function revived(value: unknown): Picture | undefined {
   };
 }
 
-/** Both texts, when two devices have written since they last agreed. */
-export interface Clash {
-  readonly id: string;
-  readonly mine: string;
-  readonly theirs: StoredDraft;
-}
+export type { Clash } from './drafts-db';
 
 /** What to do with a [[Clash]]. `both` keeps each text whole, in the order named. */
 export type Resolution = 'mine' | 'theirs' | 'mine-first' | 'theirs-first';
 
-/** How long typing must pause before the words go to the runner. */
-const PUSH_AFTER_MS = 800;
+/**
+ * How long typing must pause before the words go to the collection.
+ *
+ * ⚠ **Not tidying — RxDB pushes per local WRITE.** `put` is called per
+ * keystroke, so writing straight through would be a request per character.
+ * Debouncing here rather than inside the replication keeps the collection's
+ * contents true at every moment a person could look at them.
+ */
+const WRITE_AFTER_MS = 800;
 
 /**
  * What has been written and not sent, kept per session and shared between
  * devices.
  *
- * ⚠ **Local storage is what the composer reads, always.** Typing must not wait
- * for a round trip and must not stop when the tunnel does, so an edit lands here
- * first and goes to the runner afterwards. The runner is what makes the same
- * draft appear on the other device — see `console/src/drafts.rs`.
+ * ⚠ **This is a MIRROR and a debounce in front of [[DraftsDb]], nothing more.**
+ * Everything that used to be hand-written here — the revision each session was
+ * in step with, the last text agreed with the runner, the retry, the
+ * three-way reconcile — is gone. That bookkeeping produced four bugs in three
+ * hours on 2026-09-15, none of them found by its tests, and every one of them
+ * was a thing RxDB already does. What is left is the two jobs a library cannot
+ * do for us.
  *
- * ⚠ **Keyed by session, not global.** Two conversations each hold their own
- * unsent message, which is the whole reason to leave one for the other.
+ * ⚠ **The first is that the composer must paint SYNCHRONOUSLY.** IndexedDB is
+ * async, so seeding the box from the collection would flash an empty composer
+ * on every open — the defect this file was written to fix. `localStorage` holds
+ * a copy purely so `text()` can answer before first paint. It is never the
+ * truth; the collection is.
+ *
+ * ⚠ **The second is the picture**, which does not replicate at all: it is
+ * hundreds of kilobytes of base64 against a sentence's few hundred bytes, two
+ * images have no meaningful combination, and the device that took one is
+ * usually the device that wants it.
  *
  * ⚠ **A draft is a RECORD, not an instruction.** Nothing leaves until a person
  * presses send, which is what separates this from the queued send memview #90
@@ -66,54 +78,58 @@ const PUSH_AFTER_MS = 800;
 @Injectable({ providedIn: 'root' })
 export class Drafts {
   private static readonly PREFIX = 'console.draft.';
-  private api = inject(ConsoleApi);
+  private db = inject(DraftsDb);
+
+  /** Both texts, when this device and the runner have each moved since they
+   *  agreed. Raised by RxDB's conflict handler — see [[draftConflicts]]. */
+  readonly clash = this.db.clash;
 
   /**
-   * The truth for this page, hydrated from storage the first time a session is
-   * asked about.
+   * Text that arrived from the other device, for a session.
    *
-   * A cache and not an optimisation: a revived picture's preview is built here,
-   * and rebuilding it per read would hand the template a different string every
-   * change detection and reload the image each time.
+   * ⚠ **Not an offer to be accepted — it has already happened.** Where both
+   * sides had written, the conflict handler raises a [[Clash]] instead and
+   * nothing is overwritten. So anything reaching here is a change this device
+   * had nothing at stake in, and the composer's job is to show it rather than
+   * ask about it. That is also what empties the phone's box when the Mac sends.
    */
+  readonly landed = signal<{ id: string; text: string } | undefined>(undefined);
+
+  /** The truth for this page before the collection can answer. See the note on
+   *  synchronous painting above. */
   private readonly held = new Map<string, { text: string; picture?: Picture }>();
-
-  /**
-   * The runner revision each session's local text was last in step with.
-   *
-   * ⚠ **Stored, not just held.** The words survive a reload and this used not
-   * to, so a restored page saw local text with no record of having sent it,
-   * called it unsent work, and read every difference from the runner as a
-   * two-sided conflict. An app resumed from the background reloads, so that was
-   * the ordinary case rather than the edge.
-   */
-  private readonly revs = new Map<string, number>();
-
-  /**
-   * The text the runner is known to hold, per session.
-   *
-   * ⚠ **This, not the last local value, is what a push is judged against.**
-   * Opening a session runs the composer's recording effect once with whatever is
-   * on screen — `''` when nothing has been typed here — and pushing that made a
-   * device that had only LOOKED at a conversation a writer of it, taking
-   * revision 1 with an empty text. The device that had actually typed something
-   * was then refused and shown a clash against nothing.
-   *
-   * Comparing against the last LOCAL value instead would fix that and break the
-   * opposite case: a draft typed while the tunnel was down would match itself on
-   * reload and never be sent at all.
-   */
-  private readonly synced = new Map<string, string>();
-
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
 
   /**
-   * A draft the runner holds that this device has not adopted, and the clash
-   * when it cannot be adopted silently. Signals rather than callbacks so the
-   * view can draw them without this service knowing a view exists.
+   * What the composer and the collection last AGREED on, per session. Set three
+   * ways: the seed when a session is first read, words that arrive from the
+   * other device, and this device's own writes.
+   *
+   * ⚠ **This is the difference between somebody typing and the box echoing, and
+   * there is no other way to tell.** The composer records itself back on every
+   * change, including the change of being filled in — so `put(id, '')` arrives
+   * both when a conversation is merely OPENED and when a message has just been
+   * SENT, and those two must do opposite things. A `put` carrying exactly what
+   * was last agreed is the echo, and writes nothing.
+   *
+   * ⚠ **A session never read has been handed nothing, which counts as an empty
+   * box** — otherwise the open echo slips through whenever the recording effect
+   * runs before anything asked for the text.
+   *
+   * ⚠ **And it must move on every write, or clearing a draft BY HAND stops
+   * working.** Type, then select-all and delete: without the write updating
+   * this, the empty box matches the seed and reads as an echo, and the words
+   * stay on the other device after somebody deliberately threw them away.
+   *
+   * This is the `synced` map the hand-rolled store kept, and deleting it as
+   * "bookkeeping a library does" was wrong — a library cannot know which of two
+   * identical calls came from a person.
    */
-  readonly incoming = signal<{ id: string; draft: StoredDraft } | undefined>(undefined);
-  readonly clash = signal<Clash | undefined>(undefined);
+  private readonly given = new Map<string, string>();
+
+  constructor() {
+    void this.watch();
+  }
 
   /** What was being typed, or an empty string. */
   text(id: string): string {
@@ -125,134 +141,22 @@ export class Drafts {
     return this.load(id).picture;
   }
 
-  /**
-   * Bring this device and the runner back into step.
-   *
-   * Called when a session is opened AND whenever the app returns to the front,
-   * because those are the two moments somebody is certainly looking — see
-   * [[Foreground]], whose own note is about exactly this: the page that comes
-   * back is whatever arrived before the phone went in a pocket.
-   *
-   * ⚠ **The question is whether the OTHER device has written, not whether this
-   * one has text.** The device being picked up holds the text it last synced, so
-   * testing for an empty composer calls every handover a conflict. Revisions
-   * answer it exactly: the runner moving past the revision this device knows is
-   * the only thing that means somebody else wrote.
-   *
-   * ⚠ **And it flushes.** A push that failed — the tunnel down, a train in a
-   * tunnel — is not retried by anything else, so words typed offline would sit
-   * local until the next keystroke happened to schedule another. Coming back to
-   * the front is when that gets paid.
-   */
-  sync(id: string): void {
-    this.api.draft(id).subscribe({
-      next: (draft) => this.reconcile(id, draft),
-      // Silent: the runner being unreachable is the case this store exists for,
-      // and the local draft is already on screen.
-      error: () => undefined,
-    });
-  }
-
-  /**
-   * Decide what a draft the runner holds means for this device.
-   *
-   * Separate from the fetch because the roster carries one too, and the roster
-   * is polled while a session is open — which is what makes the other screen
-   * update while somebody is looking at it rather than only when it is reopened.
-   */
-  reconcile(id: string, draft: StoredDraft | null | undefined): void {
-    const mine = this.load(id).text;
-    const unsent = mine !== (this.synced.get(id) ?? '');
-    // ⚠ **Only a HIGHER revision means somebody else wrote.** A poll answers the
-    // question it was asked: send a keystroke while one is in flight and the
-    // reply arrives carrying a revision older than this device already has,
-    // which is its own past and not another device. Tested for equality, that
-    // read as a conflict against yourself — reported live, while typing on the
-    // phone with nothing else touched.
-    //
-    // Nothing owed is sent while a push is pending, or the poll and the
-    // keystroke both send the same words.
-    if (!draft || draft.rev <= (this.revs.get(id) ?? 0)) {
-      if (unsent && !this.timers.has(id)) this.push(id, mine);
-      return;
-    }
-    if (mine === draft.text) {
-      this.agreed(id, draft.rev, draft.text);
-      return;
-    }
-    if (!unsent) {
-      this.incoming.set({ id, draft });
-      return;
-    }
-    this.said(id, mine, draft);
-    this.clash.set({ id, mine, theirs: draft });
-  }
-
-  /**
-   * Say why a clash was raised, with the three numbers that decided it.
-   *
-   * ⚠ **A clash is the one outcome here nobody can diagnose from the screen.**
-   * It says two devices wrote; it cannot say which revisions were compared, and
-   * two rounds of this were guessed at from the symptom. WebView console output
-   * reaches `adb logcat`, which is the only view into the phone.
-   */
-  private said(id: string, mine: string, theirs: StoredDraft): void {
-    console.warn(
-      `draft clash on ${id.slice(0, 8)}: theirs rev ${theirs.rev}, ` +
-        `this device knew rev ${this.revs.get(id) ?? 'none'}, ` +
-        `${mine.length} char(s) here against ${(this.synced.get(id) ?? '').length} last synced`,
-    );
-  }
-
-  /** Take a draft the runner offered, once nothing local is at stake. */
-  adopt(id: string, draft: StoredDraft): void {
-    this.agreed(id, draft.rev, draft.text);
-    this.put(id, draft.text, this.picture(id), { push: false });
-    this.incoming.set(undefined);
-  }
-
-  /**
-   * Settle a clash.
-   *
-   * Pushed from THEIRS' revision, which is what makes the chosen text win rather
-   * than bounce off the same refusal that produced the clash.
-   */
-  resolve(id: string, theirs: StoredDraft, how: Resolution): void {
-    const mine = this.load(id).text;
-    const text =
-      how === 'mine'
-        ? mine
-        : how === 'theirs'
-          ? theirs.text
-          : how === 'mine-first'
-            ? `${mine}\n\n${theirs.text}`
-            : `${theirs.text}\n\n${mine}`;
-    this.revs.set(id, theirs.rev);
-    this.clash.set(undefined);
-    this.put(id, text, this.picture(id), { push: false });
-    // At once, and regardless of what this device last synced: settling is a
-    // deliberate act, and `keep mine` chooses a text that may equal what was
-    // already sent while the runner holds something else entirely.
-    this.push(id, text);
+  /** Ask the runner now — see [[DraftsDb.resync]] for the two moments. */
+  sync(): void {
+    this.db.resync();
   }
 
   /**
    * Record what the composer holds now — including nothing, which is what a
    * successful send leaves behind and is how a draft is forgotten.
-   *
-   * The push is debounced because this is called per keystroke; a request per
-   * character would be a request per character.
    */
-  put(id: string, text: string, picture: Picture | undefined, opts = { push: true }): void {
+  put(id: string, text: string, picture: Picture | undefined): void {
+    const echo = (this.given.get(id) ?? '') === text;
     this.held.set(id, { text, picture });
     this.write(`${id}.text`, text || undefined);
     // Stored without the preview: an object URL belongs to the document that
     // made it, so keeping one would store a string that is dead by the time
     // anything reads it. The bytes are here, and `load` builds a data URL.
-    //
-    // ⚠ The picture is NOT pushed to the runner. It is hundreds of kilobytes of
-    // base64 against a sentence's few hundred bytes, two images have no
-    // meaningful combination, and the device that took one usually wants it.
     this.write(
       `${id}.picture`,
       picture &&
@@ -264,8 +168,77 @@ export class Drafts {
           bytes: picture.bytes,
         }),
     );
-    // Only a CHANGE to what the runner holds is worth sending — see [[synced]].
-    if (opts.push && text !== (this.synced.get(id) ?? '')) this.schedule(id, text);
+    // ⚠ **An echo is mirrored but never written** — see [[given]]. Without this
+    // a device that only OPENED a conversation holding a draft wrote its own
+    // empty composer over it and cleared the words on the other screen; found on
+    // 2026-09-16 by two browsers against one runner, not by any test.
+    if (!echo) this.schedule(id, text);
+  }
+
+  /**
+   * Settle a clash: put the chosen words in, and let them replicate.
+   *
+   * ⚠ **Written from THEIRS, which is what makes the choice stick.** The
+   * conflict handler gave the master to the runner, so the collection already
+   * holds the other device's text; writing on top of that is an ordinary edit
+   * from what is there. Pushing from the losing state instead would bounce off
+   * the same refusal that raised the clash.
+   */
+  resolve(id: string, theirs: DraftDoc, how: Resolution): void {
+    const mine = this.clash()?.mine ?? this.load(id).text;
+    const text =
+      how === 'mine'
+        ? mine
+        : how === 'theirs'
+          ? theirs.text
+          : how === 'mine-first'
+            ? `${mine}\n\n${theirs.text}`
+            : `${theirs.text}\n\n${mine}`;
+    this.db.settled();
+    this.given.delete(id);
+    this.held.set(id, { text, picture: this.picture(id) });
+    this.write(`${id}.text`, text || undefined);
+    // At once rather than debounced: settling is a deliberate act, and the
+    // person is watching the screen they did it on.
+    void this.store(id, text);
+  }
+
+  /**
+   * Follow the collection, so a change from the other device reaches the
+   * composer while somebody is looking at it.
+   *
+   * ⚠ **Where a change CAME FROM is deliberately not asked.** RxDB writes a
+   * replicated document into the same fork a local edit goes to, so telling the
+   * two apart means reading its internals. Comparing against the mirror answers
+   * the question that actually matters and cannot drift: a local edit updated
+   * the mirror before it ever reached the collection, so its own echo finds the
+   * mirror already equal and says nothing. Anything that differs came from
+   * somewhere else.
+   */
+  private async watch(): Promise<void> {
+    let collection;
+    try {
+      collection = await this.db.collection();
+    } catch (err: unknown) {
+      // ⚠ **A database that will not open must not take the composer with it.**
+      // IndexedDB is refused outright in some private-browsing modes and can
+      // fail on a quota or an old WebView, and none of that is a reason to stop
+      // somebody typing: the mirror still answers, the words are still kept, and
+      // what is lost is only the other device. Said out loud because from the
+      // composer this looks exactly like a quiet tunnel.
+      console.warn('drafts: no collection, so this device is on its own —', err);
+      return;
+    }
+    collection.$.subscribe((event) => {
+      const doc = event.documentData;
+      const id = doc.ulid;
+      const mine = this.held.get(id);
+      if (mine?.text === doc.text) return;
+      this.held.set(id, { text: doc.text, picture: mine?.picture ?? this.storedPicture(id) });
+      this.given.set(id, doc.text);
+      this.write(`${id}.text`, doc.text || undefined);
+      this.landed.set({ id, text: doc.text });
+    });
   }
 
   private schedule(id: string, text: string): void {
@@ -274,26 +247,54 @@ export class Drafts {
       id,
       setTimeout(() => {
         this.timers.delete(id);
-        this.push(id, text);
-      }, PUSH_AFTER_MS),
+        void this.store(id, text);
+      }, WRITE_AFTER_MS),
     );
   }
 
-  /** Send this device's words, and hand a refusal to the view as a clash. */
-  private push(id: string, text: string): void {
-    const from = this.revs.get(id);
-    this.api.putDraft(id, { text, from }).subscribe({
-      next: (stored) => this.agreed(id, stored.rev, text),
-      error: (err: { status?: number; error?: unknown }) => {
-        const theirs = err.status === 409 ? asDraft(err.error) : undefined;
-        // Anything else is the tunnel being down, which is what local storage is
-        // for: the words are safe and the next pause tries again.
-        if (theirs) {
-          this.said(id, text, theirs);
-          this.clash.set({ id, mine: text, theirs });
-        }
-      },
-    });
+  /**
+   * Put the words in the collection, which is what makes them replicate.
+   *
+   * ⚠ **`rev` is carried through untouched, never chosen here.** It is the
+   * runner's pull cursor; a client that minted one would be inventing an
+   * ordering the runner is the only authority on. An unchanged text writes
+   * nothing at all — otherwise the echo of a pull would be pushed straight back.
+   *
+   * ⚠ **AND OPENING A SESSION IS NOT A STATEMENT ABOUT ITS DRAFT.** The
+   * composer's recording effect runs once when a conversation opens, carrying
+   * whatever is on screen — `''` where nothing has been typed here. Creating a
+   * document for that makes a device that has only LOOKED the first writer of
+   * the conversation, and the device that actually typed something is then
+   * refused and shown a clash against nothing. That is memview#89's first live
+   * bug; it came back on 2026-09-16 when the hand-rolled guard was deleted with
+   * the rest of the bookkeeping, and was caught by driving two browsers at one
+   * runner rather than by any test here.
+   *
+   * Clearing an EXISTING draft is a different thing and must still be written:
+   * it is what a send leaves behind, and the tombstone is what stops the other
+   * device pushing the message back.
+   */
+  private async store(id: string, text: string): Promise<void> {
+    try {
+      const collection = await this.db.collection();
+      const existing = await collection.findOne(id).exec();
+      if (!existing && !text) return;
+      this.given.set(id, text);
+      if (existing?.text === text) return;
+      await collection.upsert({
+        ulid: id,
+        text,
+        at: Date.now(),
+        rev: existing?.rev ?? 0,
+        _deleted: false,
+      });
+    } catch (err: unknown) {
+      // The words are in the mirror and on screen; a write that cannot land is
+      // what the next keystroke, the next foreground, and the replication's own
+      // retry are all for. Said rather than swallowed — the phone's only window
+      // is `adb logcat`.
+      console.warn(`draft ${id.slice(0, 8)} did not reach the collection:`, err);
+    }
   }
 
   private load(id: string): { text: string; picture?: Picture } {
@@ -304,21 +305,8 @@ export class Drafts {
       picture: this.storedPicture(id),
     };
     this.held.set(id, draft);
-    // What this device last agreed with the runner, so a reload can still tell
-    // a stale copy from unsent work.
-    const rev = Number(localStorage.getItem(`${Drafts.PREFIX}${id}.rev`));
-    if (Number.isFinite(rev) && rev > 0) this.revs.set(id, rev);
-    const synced = localStorage.getItem(`${Drafts.PREFIX}${id}.synced`);
-    if (synced !== null) this.synced.set(id, synced);
+    this.given.set(id, draft.text);
     return draft;
-  }
-
-  /** Record agreement with the runner, in memory and on disk together. */
-  private agreed(id: string, rev: number, text: string): void {
-    this.revs.set(id, rev);
-    this.synced.set(id, text);
-    this.write(`${id}.rev`, String(rev));
-    this.write(`${id}.synced`, text);
   }
 
   private storedPicture(id: string): Picture | undefined {
@@ -352,20 +340,4 @@ export class Drafts {
       // Nothing to do and nothing to say: see above.
     }
   }
-}
-
-/**
- * The other device's draft out of a 409 body.
- *
- * ⚠ **Checked, not cast, for the reason [[revived]] gives one layer down.** This
- * one arrives from another machine, which may be running a different build, so
- * the wire deserves what storage already gets.
- */
-function asDraft(value: unknown): StoredDraft | undefined {
-  if (typeof value !== 'object' || value === null) return undefined;
-  if (!('text' in value) || typeof value.text !== 'string') return undefined;
-  if (!('rev' in value) || typeof value.rev !== 'number') return undefined;
-  if (!('at' in value) || typeof value.at !== 'number') return undefined;
-  const { text, rev, at } = value;
-  return { text, rev, at };
 }

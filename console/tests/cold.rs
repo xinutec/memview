@@ -142,14 +142,33 @@ fn transcript(root: &std::path::Path, id: &str, turns: usize) -> PathBuf {
     path
 }
 
+/// How long to wait for something that should already be true.
+///
+/// ⚠ **Wide on purpose, and it costs a passing run NOTHING.** This returns the
+/// moment the condition holds — 0.88s for the whole file, measured — so the
+/// budget is only ever spent by a genuine hang. It used to be 100 polls, which
+/// is five seconds, and that failed two commit gates on 2026-09-16 while three
+/// gates ran at once. Nothing here is testing a timeout, so the count is free to
+/// grow; shrinking it to keep the file fast is what made it load-sensitive in
+/// the first place.
+///
+/// ⚠ The cause of those failures is NOT settled. CPU load alone does not
+/// reproduce it — 16 busy loops on 10 cores, three runs, all green — and these
+/// run inside `nix build .#sessions` rather than a dev shell, which is a
+/// different machine again. See the 2026-09-16 section of tasks#1586. Widening
+/// buys room; it does not explain anything, and it must not be read as a fix.
+const PATIENCE: Duration = Duration::from_secs(30);
+const POLL: Duration = Duration::from_millis(50);
+
 async fn until(session: &Arc<console::session::Session>, what: impl Fn(&[Event]) -> bool) {
-    for _ in 0..100 {
+    let deadline = std::time::Instant::now() + PATIENCE;
+    while std::time::Instant::now() < deadline {
         if what(&session.history()) {
             return;
         }
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(POLL).await;
     }
-    panic!("waited 5s and it never happened");
+    panic!("waited {PATIENCE:?} and it never happened");
 }
 
 /// How many events the stream carried — `data:` lines, which is one per event.

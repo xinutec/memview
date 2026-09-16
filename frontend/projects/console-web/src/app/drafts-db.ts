@@ -89,11 +89,21 @@ export interface Clash {
 /**
  * How a collision is settled, and what it deliberately does NOT do.
  *
- * ⚠ **`isEqual` must compare CONTENT, not just `rev`.** Revisions are minted by
- * the runner, so a local edit changes the text and leaves the revision alone —
- * comparing revisions alone judges every edit already-replicated and silently
- * drops it. That is life's 2026-07-03 push-loss bug, and a draft has exactly the
- * shape that reproduces it.
+ * ⚠ **`isEqual` compares CONTENT, and NOTHING ELSE — not `rev`, in either
+ * direction.** Two mistakes are available here and they are opposites.
+ *
+ * Comparing only the revision judges every local edit already-replicated and
+ * drops the push with nothing said: revisions are minted by the runner, so an
+ * edit changes the text and leaves the revision alone. That is life's
+ * 2026-07-03 push-loss bug, and a draft has exactly the shape that reproduces
+ * it.
+ *
+ * ⚠ Comparing the revision AS WELL is the bug this file shipped with until
+ * 2026-09-16. After a push lands, the runner holds the same text at a HIGHER
+ * revision; the next pull delivers it, and a comparison that includes `rev`
+ * calls that a conflict and raises a clash between a text and itself. `rev` is
+ * the pull cursor, which is a fact about ordering and not about content — the
+ * same reason `Drafts::apply` on the runner refuses to judge a push on it.
  *
  * ⚠ **`resolve` gives the master to THEIRS, not to this device.** Prose cannot
  * be field-merged the way a quantity can, and whichever side the resolver picks
@@ -103,7 +113,7 @@ export interface Clash {
  */
 export function draftConflicts(onClash: (clash: Clash) => void): RxConflictHandler<DraftDoc> {
   return {
-    isEqual: (a, b) => !!a._deleted === !!b._deleted && a.text === b.text && a.rev === b.rev,
+    isEqual: (a, b) => !!a._deleted === !!b._deleted && a.text === b.text,
     resolve: ({ realMasterState, newDocumentState }) => {
       onClash({
         id: realMasterState.ulid,
@@ -127,23 +137,77 @@ export function draftConflicts(onClash: (clash: Clash) => void): RxConflictHandl
 @Injectable({ providedIn: 'root' })
 export class DraftsDb {
   private opened?: Promise<RxCollection<DraftDoc>>;
+  private running?: ReturnType<typeof replicate>;
+  /** Set only by a test, which needs a database name of its own. */
+  named?: string;
   readonly clash = signal<Clash | undefined>(undefined);
 
   /** The collection, created once. Concurrent callers share one promise:
    *  `createRxDatabase` with the same name throws on a second call. */
   collection(
     storage: RxStorage<unknown, unknown> = getRxStorageDexie(),
+    get: typeof fetch = fetch,
   ): Promise<RxCollection<DraftDoc>> {
-    this.opened ??= this.open(storage);
+    this.opened ??= this.open(storage, get);
     return this.opened;
   }
 
-  private async open(storage: RxStorage<unknown, unknown>): Promise<RxCollection<DraftDoc>> {
-    const db = await createRxDatabase({ name: 'consoledrafts', storage, multiInstance: true });
+  /**
+   * Ask the runner now, rather than waiting out the rest of the interval.
+   *
+   * For the two moments somebody is certainly looking: opening a conversation,
+   * and the app coming back to the front — see [[Foreground]]. The heartbeat
+   * already covers `online`, but a phone taken out of a pocket fires no such
+   * event, and five seconds of a stale composer is five seconds of the wrong
+   * words on screen.
+   */
+  resync(): void {
+    void this.collection().then(() => this.running?.reSync());
+  }
+
+  /** Put a clash down once it has been settled. */
+  settled(): void {
+    this.clash.set(undefined);
+  }
+
+  /**
+   * Stop replicating and close the database.
+   *
+   * ⚠ **The replication has to be cancelled FIRST.** It holds a live
+   * subscription and a retry timer, and closing a database out from under those
+   * leaves a handler writing into something that has gone. Nothing in the app
+   * calls this — a page closes by going away — but a test opens a database per
+   * case, and RxDB refuses the next one once enough are still open.
+   */
+  async close(): Promise<void> {
+    const opened = this.opened;
+    const running = this.running;
+    this.opened = undefined;
+    this.running = undefined;
+    if (!opened) return;
+    await running?.cancel();
+    await (await opened).database.close();
+  }
+
+  private async open(
+    storage: RxStorage<unknown, unknown>,
+    get: typeof fetch,
+  ): Promise<RxCollection<DraftDoc>> {
+    // ⚠ A name of its own per database, because RxDB refuses a second one with
+    // the same name in a process — which is every test after the first.
+    const name = this.named ?? 'consoledrafts';
+    const db = await createRxDatabase({ name, storage, multiInstance: true });
     const added = await db.addCollections({
       drafts: { schema: DRAFT_SCHEMA, conflictHandler: draftConflicts((c) => this.clash.set(c)) },
     });
-    replicate(added.drafts, fetch);
+    this.running = replicate(added.drafts, get);
+    // ⚠ **Said out loud, because replication failing is SILENT.** A dead tunnel
+    // is the ordinary case this whole thing exists for and must not be noise —
+    // but a handler that throws on every cycle looks exactly like a quiet one
+    // from the composer, and the phone's only window is `adb logcat`.
+    this.running.error$.subscribe((err: unknown) => {
+      console.warn('draft replication:', err instanceof Error ? err.message : err);
+    });
     return added.drafts;
   }
 }

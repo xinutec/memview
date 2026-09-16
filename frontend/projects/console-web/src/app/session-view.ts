@@ -360,23 +360,21 @@ export class SessionView implements OnDestroy {
       untracked(() => {
         this.text.set(this.drafts.text(id));
         this.picture.set(this.drafts.picture(id));
-        // And ask the runner what the OTHER device left here. Answered after
-        // the local draft is already on screen, so a slow or dead tunnel costs
-        // nothing — see [[Drafts.open]].
-        this.drafts.sync(id);
+        // And ask the runner now rather than waiting out the heartbeat. Asked
+        // after the local draft is already on screen, so a slow or dead tunnel
+        // costs nothing — see [[DraftsDb.resync]].
+        this.drafts.sync();
       });
     });
-    // A draft the runner holds and this device has nothing to lose to. `open`
-    // offers one only when the composer is empty, so taking it cannot discard
-    // anything; where both hold text it arrives as a clash instead.
+    // Words that arrived from the other device. Already applied by the time
+    // this runs — where both sides had written it is a clash instead, and
+    // nothing is overwritten — so this puts them on screen rather than asking.
+    // It is also what empties this box when the other device presses send.
     effect(() => {
-      const offered = this.drafts.incoming();
+      const arrived = this.drafts.landed();
       const id = this.id();
-      if (offered?.id !== id) return;
-      untracked(() => {
-        this.text.set(offered.draft.text);
-        this.drafts.adopt(id, offered.draft);
-      });
+      if (arrived?.id !== id) return;
+      untracked(() => this.text.set(arrived.text));
     });
     // And this one records every change back, keystroke by keystroke. It is also
     // how a draft is FORGOTTEN: a successful send empties the composer, which
@@ -394,8 +392,8 @@ export class SessionView implements OnDestroy {
     this.foreground.onReturn(() => this.refresh(), this.until);
     // And the draft, for the same reason the poll pairs with this: the other
     // device may have carried it on, and anything typed here while the tunnel
-    // was down is still owed — see [[Drafts.sync]].
-    this.foreground.onReturn(() => this.drafts.sync(this.id()), this.until);
+    // was down is still owed — see [[DraftsDb.resync]].
+    this.foreground.onReturn(() => this.drafts.sync(), this.until);
     // The soft keyboard is the biggest layout change this page ever sees: it
     // takes something like half the screen, and the transcript is what gives way
     // — `interactive-widget=resizes-content` shrinks the viewport rather than
@@ -566,10 +564,14 @@ export class SessionView implements OnDestroy {
           // And what it is about, which the sheet shows in full where the card
           // has room for two lines. Keyed by conversation — see [[Here.gist]].
           this.here.gist.set(state.gists?.[this.id()]);
-          // And what the other device is holding unsent. This is what makes a
-          // draft typed there appear here while somebody is watching, and a
-          // message SENT there empty the box here — see [[Drafts.reconcile]].
-          this.drafts.reconcile(this.id(), state.drafts?.[this.id()] ?? null);
+          // ⚠ The draft used to be read off this poll too, so that an open
+          // session saw the other device without a request of its own. That is
+          // replication's job now and doing it twice is how the two disagreed:
+          // a poll answers the question it was ASKED, so a reply overtaken by a
+          // keystroke arrived carrying this device's own past and read as
+          // somebody else writing. The roster still carries `drafts` — the
+          // sessions list marks which conversations hold unsent words — but this
+          // page takes them from the collection.
           // And how much of its own list is left, for the ⋮ menu's label. Same
           // keying, same reason — see [[Here.tasks]].
           this.here.tasks.set(state.tasks?.sessions?.[this.id()]);

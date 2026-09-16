@@ -38,7 +38,6 @@ pub fn router(roster: Arc<Roster>) -> Router {
         .route("/api/sessions", post(start))
         .route("/api/past", get(past))
         .route("/api/sessions/{id}/input", post(input))
-        .route("/api/sessions/{id}/draft", get(draft).put(put_draft))
         .route("/api/sync/drafts", get(pull_drafts).post(push_drafts))
         // ⚠ **The one route that needs its own body limit.** Axum's default is
         // 2 MB, and an image is the only thing this API takes that is bigger than
@@ -287,61 +286,6 @@ async fn input(
     Ok(Json(session.summary()))
 }
 
-/// What one conversation is holding unsent, or `null`.
-///
-/// Answered for a session this console has never run: a draft outlives the
-/// process it was written for, and the other device asking about it has no way
-/// to know whether the Mac happens to be holding that conversation open.
-async fn draft(
-    State(roster): State<Arc<Roster>>,
-    Path(id): Path<String>,
-) -> Json<Option<crate::drafts::Draft>> {
-    Json(roster.drafts().get(&id))
-}
-
-/// An edit to a draft, from the revision it was made against.
-#[derive(Debug, Deserialize)]
-pub struct Edit {
-    pub text: String,
-    /// The revision this edit was made from. Absent on a first write.
-    #[serde(default)]
-    pub from: Option<u64>,
-}
-
-/// Store an edit, or refuse it and hand back what is there.
-///
-/// ⚠ **409 carries THEIRS in the body, and the client needs it.** A bare refusal
-/// would leave the phone knowing only that it lost, with no way to show the two
-/// texts side by side — and showing them is the whole of what was asked for.
-async fn put_draft(
-    State(roster): State<Arc<Roster>>,
-    Path(id): Path<String>,
-    Json(edit): Json<Edit>,
-) -> Result<Json<crate::drafts::Draft>, (StatusCode, Json<crate::drafts::Draft>)> {
-    let at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
-    match roster.drafts().put(&id, &edit.text, edit.from, at) {
-        crate::drafts::Wrote::Stored(draft) => Ok(Json(draft)),
-        crate::drafts::Wrote::Conflict(theirs) => {
-            // ⚠ **The one answer here nobody can diagnose from a screen.** A
-            // refusal says two devices wrote; which revisions were compared is
-            // what says whether that is true, and this was guessed at twice from
-            // the symptom. Lengths rather than words — enough to tell two drafts
-            // apart, and a conversation does not belong in a log.
-            tracing::info!(
-                "{id}: refused a draft edit from {:?}, holding rev {} ({} char(s) against {} offered)",
-                edit.from,
-                theirs.rev,
-                theirs.text.chars().count(),
-                edit.text.chars().count(),
-            );
-            Err((StatusCode::CONFLICT, Json(theirs)))
-        }
-    }
-}
-
 /// How far a client has already pulled.
 #[derive(Debug, Deserialize)]
 pub struct Since {
@@ -365,10 +309,11 @@ async fn pull_drafts(
 
 /// Apply a batch of edits, and answer with the ones that lost.
 ///
-/// ⚠ **A conflict is a 200 carrying the current master**, which is the opposite
-/// of the single-draft route beside it: there a refusal is a 409, because one
-/// edit either landed or did not. A batch can do both, so the status describes
-/// the request and the body describes each entry.
+/// ⚠ **A conflict is a 200 carrying the current master, not a 409.** A batch can
+/// both land and lose in one request, so the status describes the request and
+/// the body describes each entry — which is also why the per-session PUT that
+/// used to sit beside this was removed rather than kept: it could only answer
+/// for one edit, and two ways to write one map is how the 2026-09-15 bugs got in.
 async fn push_drafts(
     State(roster): State<Arc<Roster>>,
     Json(entries): Json<Vec<crate::drafts::PushEntry>>,

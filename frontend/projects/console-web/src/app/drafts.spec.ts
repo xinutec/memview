@@ -1,11 +1,9 @@
 import { TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { getRxStorageMemory } from 'rxdb/plugins/storage-memory';
 
-import { of, throwError } from 'rxjs';
-
-import { ConsoleApi } from './console-api';
 import { Drafts, type Resolution } from './drafts';
-import type { StoredDraft } from './models';
+import { DraftsDb, type DraftDoc } from './drafts-db';
 import type { Picture } from './picture';
 
 /** A scaled picture as `shrink` hands one over, small enough to read in a test. */
@@ -19,58 +17,98 @@ const PICTURE: Picture = {
   preview: 'blob:http://localhost/8f0e',
 };
 
+/**
+ * A runner that answers the sync protocol and holds nothing.
+ *
+ * ⚠ **What the RUNNER decides is tested in Rust** — `console/tests/drafts.rs`
+ * owns which pushes land and which are refused, because that is where the rule
+ * lives. What is tested here is the half this file is responsible for: the
+ * synchronous mirror, the picture, the debounce, and what reaches the composer.
+ */
+function quiet(): typeof fetch {
+  return vi.fn((_url: string | URL | Request, init?: RequestInit) =>
+    Promise.resolve(
+      init?.method === 'POST'
+        ? new Response('[]', { status: 200 })
+        : new Response(JSON.stringify({ documents: [], checkpoint: { rev: 0 } }), { status: 200 }),
+    ),
+  );
+}
+
+/**
+ * A store on a memory collection of its own.
+ *
+ * ⚠ **Synchronous, and that is the point.** `DraftsDb` is asked for its
+ * collection before `Drafts` is injected, so the promise is already memoised by
+ * the time the constructor asks — which lets a test read `text()` the same
+ * instant the store exists, the way the composer does on first paint. Awaiting
+ * here would test a page nobody sees.
+ */
+function fresh(get: typeof fetch = quiet()): Drafts {
+  const db = TestBed.inject(DraftsDb);
+  db.named = `t${Math.random().toString(36).slice(2)}`;
+  // ⚠ Kept so it can be CLOSED. RxDB holds every open database in a process
+  // registry and refuses the next one with COL23 once they pile up, so a spec
+  // that only ever opens them fails partway down the file — with an error about
+  // the collection being created, which points nowhere near here.
+  opened.push(db);
+  void db.collection(getRxStorageMemory(), get);
+  return TestBed.inject(Drafts);
+}
+
+/** Every store this spec has opened, so `afterEach` can close them. */
+const opened: DraftsDb[] = [];
+
+afterEach(async () => {
+  await Promise.all(opened.splice(0, opened.length).map((db) => db.close()));
+});
+
 describe('Drafts', () => {
   let drafts: Drafts;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     localStorage.clear();
-    drafts = TestBed.inject(Drafts);
+    drafts = fresh();
+    await TestBed.inject(DraftsDb).collection();
   });
 
   it('has nothing to say about a session nobody has written to', () => {
-    expect(drafts.text('a')).toBe('');
-    expect(drafts.picture('a')).toBeUndefined();
+    expect(drafts.text('nobody')).toBe('');
+    expect(drafts.picture('nobody')).toBeUndefined();
   });
 
   it('keeps one session unsent message apart from another', () => {
-    drafts.put('a', 'the first thing', undefined);
-    drafts.put('b', 'the second thing', undefined);
-    expect(drafts.text('a')).toBe('the first thing');
-    expect(drafts.text('b')).toBe('the second thing');
+    drafts.put('a', 'for a', undefined);
+    drafts.put('b', 'for b', undefined);
+    expect(drafts.text('a')).toBe('for a');
+    expect(drafts.text('b')).toBe('for b');
   });
 
-  it('survives the page being reloaded', () => {
-    drafts.put('a', 'half a thought', PICTURE);
-    // A reload builds the whole injector again, so a service that only kept a
-    // map would come back empty — which is the case this exists for.
+  /**
+   * ⚠ **The reason `localStorage` is still here at all.** IndexedDB is async and
+   * the composer paints synchronously, so a draft read from the collection would
+   * arrive after an empty box was already on screen.
+   */
+  it('answers before the collection could, so the composer never paints empty', () => {
+    drafts.put('a', 'half a thought', undefined);
     TestBed.resetTestingModule();
-    const after = TestBed.inject(Drafts);
-    expect(after.text('a')).toBe('half a thought');
-    expect(after.picture('a')?.data).toBe(PICTURE.data);
-    expect(after.picture('a')?.bytes).toBe(PICTURE.bytes);
+    // No `await`: a fresh store, asked the instant it exists.
+    expect(fresh().text('a')).toBe('half a thought');
   });
 
   it('gives a revived picture a preview that a reloaded page can show', () => {
-    drafts.put('a', '', PICTURE);
+    drafts.put('a', 'about this', PICTURE);
     TestBed.resetTestingModule();
-    // ⚠ An object URL belongs to the document that made it and is dead in the
-    // next one, so a stored `blob:` preview would show as a broken image. The
-    // bytes are already here, so the revived preview is a data URL.
-    expect(TestBed.inject(Drafts).picture('a')?.preview).toBe(
-      `data:${PICTURE.mediaType};base64,${PICTURE.data}`,
-    );
+    const revived = fresh().picture('a');
+    expect(revived?.preview).toBe('data:image/png;base64,aGVsbG8=');
+    expect(revived?.width).toBe(100);
   });
 
   it('forgets a draft that has been sent', () => {
-    drafts.put('a', 'said it', PICTURE);
+    drafts.put('a', 'the message', undefined);
     drafts.put('a', '', undefined);
-    TestBed.resetTestingModule();
-    const after = TestBed.inject(Drafts);
-    expect(after.text('a')).toBe('');
-    expect(after.picture('a')).toBeUndefined();
-    // Not merely empty in memory — gone, or every session ever written to would
-    // keep a picture in a quota this app shares with nothing.
-    expect(Object.keys(localStorage)).toEqual([]);
+    expect(drafts.text('a')).toBe('');
+    expect(localStorage.getItem('console.draft.a.text')).toBeNull();
   });
 
   it('keeps the words when there is no room for the picture', () => {
@@ -89,91 +127,270 @@ describe('Drafts', () => {
     // picture sitting in the composer right now.
     expect(drafts.picture('a')?.data).toBe(PICTURE.data);
     TestBed.resetTestingModule();
-    expect(TestBed.inject(Drafts).text('a')).toBe('the words are the cheap half');
+    expect(fresh().text('a')).toBe('the words are the cheap half');
   });
 
   it('refuses a picture written by a version of this app that is gone', () => {
-    // Storage outlives every deploy that touched the phone. A draft two builds
-    // old that no longer carries a media type must not become an upload of
-    // `undefined` — it is simply not a draft any more.
-    localStorage.setItem(
-      'console.draft.a.picture',
-      JSON.stringify({ data: 'aGVsbG8=', width: 100, height: 200, bytes: 5 }),
-    );
-    TestBed.resetTestingModule();
-    expect(TestBed.inject(Drafts).picture('a')).toBeUndefined();
+    localStorage.setItem('console.draft.a.picture', JSON.stringify({ data: 'aGk=' }));
+    expect(drafts.picture('a')).toBeUndefined();
   });
 
   it('reads past a stored picture that is not a picture', () => {
-    // Storage is shared with whatever else runs on this origin, and a half
-    // written value survives a kill. Losing the draft is the cost; a session
-    // that will not open is not.
-    localStorage.setItem('console.draft.a.picture', '{"data":');
-    localStorage.setItem('console.draft.a.text', 'still here');
-    TestBed.resetTestingModule();
-    const after = TestBed.inject(Drafts);
-    expect(after.picture('a')).toBeUndefined();
-    expect(after.text('a')).toBe('still here');
+    localStorage.setItem('console.draft.a.picture', '{half a wri');
+    expect(drafts.picture('a')).toBeUndefined();
   });
 
-  /**
-   * The runner's draft is taken only when nothing local is at stake.
-   *
-   * ⚠ Opening a session must not discard what was typed on THIS device in
-   * favour of whatever the other one last pushed — that is the failure the
-   * clash exists to prevent, and it is silent if it happens.
-   */
-  describe('meeting the other device', () => {
-    const theirs = { text: 'from the other device', rev: 4, at: 1000 };
+  describe('reaching the collection', () => {
+    it('writes the words, once the typing has paused', async () => {
+      vi.useFakeTimers();
+      drafts.put('a', 'typed here', undefined);
+      await vi.advanceTimersByTimeAsync(900);
+      vi.useRealTimers();
 
-    /** Answer `GET …/draft` with `theirs`, without a real HTTP layer. */
-    function runnerHolds(draft: StoredDraft): void {
-      const api = TestBed.inject(ConsoleApi);
-      vi.spyOn(api, 'draft').mockReturnValue(of(draft));
+      const collection = await TestBed.inject(DraftsDb).collection();
+      expect((await collection.findOne('a').exec())?.text).toBe('typed here');
+    });
+
+    /**
+     * ⚠ **RxDB pushes per local WRITE, so the debounce is not tidying.** `put`
+     * is called per keystroke; without this, a sentence is a request per
+     * character.
+     */
+    it('writes once for a burst of keystrokes, not once per keystroke', async () => {
+      vi.useFakeTimers();
+      for (const text of ['t', 'ty', 'typ', 'type', 'typed']) drafts.put('a', text, undefined);
+      await vi.advanceTimersByTimeAsync(900);
+      vi.useRealTimers();
+
+      const collection = await TestBed.inject(DraftsDb).collection();
+      const doc = await collection.findOne('a').exec();
+      expect(doc?.text).toBe('typed');
+      expect(doc?.revision.startsWith('1-')).toBe(true);
+    });
+
+    /**
+     * ⚠ **The echo of a pull must not be pushed back.** A document that arrives
+     * from the other device lands in the mirror, the composer records it, and
+     * that record arrives here as an ordinary `put` — so an unchanged text has
+     * to write nothing at all or the two devices trade the same words for ever.
+     */
+    it('writes nothing when the text has not actually changed', async () => {
+      const collection = await TestBed.inject(DraftsDb).collection();
+      await collection.upsert({
+        ulid: 'a',
+        text: 'from elsewhere',
+        at: 1,
+        rev: 3,
+        _deleted: false,
+      });
+      const before = (await collection.findOne('a').exec())?.revision;
+
+      vi.useFakeTimers();
+      drafts.put('a', 'from elsewhere', undefined);
+      await vi.advanceTimersByTimeAsync(900);
+      vi.useRealTimers();
+
+      expect((await collection.findOne('a').exec())?.revision).toBe(before);
+    });
+
+    /**
+     * ⚠ **Opening a session is not a statement about its draft — memview#89's
+     * FIRST live bug, and it came back.**
+     *
+     * The composer's recording effect runs once on open with whatever is on
+     * screen, which is `''` where nothing has been typed here. A document
+     * created for that makes a device that has only LOOKED the first writer of
+     * the conversation, and the device that actually typed is then refused and
+     * shown a clash against nothing. Caught on 2026-09-16 by two browsers
+     * against one runner, after the hand-rolled guard was deleted with the rest
+     * of the bookkeeping and nothing here noticed.
+     */
+    it('writes nothing at all for a session that was only opened', async () => {
+      vi.useFakeTimers();
+      drafts.put('a', '', undefined);
+      await vi.advanceTimersByTimeAsync(900);
+      vi.useRealTimers();
+
+      const collection = await TestBed.inject(DraftsDb).collection();
+      expect(await collection.findOne('a').exec()).toBeNull();
+    });
+
+    /** But clearing one that EXISTS is a send, and the tombstone is what stops
+     *  the other device pushing the message back. */
+    it('still writes the clearing of a draft that is really there', async () => {
+      vi.useFakeTimers();
+      drafts.put('a', 'the message', undefined);
+      await vi.advanceTimersByTimeAsync(900);
+      drafts.put('a', '', undefined);
+      await vi.advanceTimersByTimeAsync(900);
+      vi.useRealTimers();
+
+      const collection = await TestBed.inject(DraftsDb).collection();
+      const doc = await collection.findOne('a').exec();
+      expect(doc).not.toBeNull();
+      expect(doc?.text).toBe('');
+    });
+
+    /**
+     * ⚠ **OPENING A CONVERSATION THAT ALREADY HOLDS A DRAFT MUST NOT CLEAR IT.**
+     *
+     * The worst shape of the same bug, found on 2026-09-16 by two browsers
+     * against one runner. A device opens the session with an empty box and
+     * records that; the draft then arrives from the other device; and the empty
+     * record — now no longer a first write, because a document exists — was
+     * written straight over it. Merely LOOKING at a conversation on the phone
+     * deleted what had been typed on the Mac.
+     */
+    it('does not clear a draft that arrives just after the box was seeded empty', async () => {
+      const collection = await TestBed.inject(DraftsDb).collection();
+
+      // The composer opens and records itself, the way its effect does.
+      vi.useFakeTimers();
+      drafts.put('a', '', undefined);
+      // The other device's words arrive before the debounce has fired.
+      await collection.upsert({
+        ulid: 'a',
+        text: 'typed on the mac',
+        at: 1,
+        rev: 2,
+        _deleted: false,
+      });
+      await vi.advanceTimersByTimeAsync(900);
+      vi.useRealTimers();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect((await collection.findOne('a').exec())?.text).toBe('typed on the mac');
+      expect(drafts.text('a')).toBe('typed on the mac');
+    });
+
+    /** And the composer recording what it was just HANDED is not a write
+     *  either — otherwise every arrival bounces straight back. */
+    it('does not write back words that arrived from the other device', async () => {
+      const collection = await TestBed.inject(DraftsDb).collection();
+      await collection.upsert({
+        ulid: 'a',
+        text: 'from elsewhere',
+        at: 1,
+        rev: 2,
+        _deleted: false,
+      });
+      await new Promise((r) => setTimeout(r, 0));
+      const settled = (await collection.findOne('a').exec())?.revision;
+
+      vi.useFakeTimers();
+      drafts.put('a', 'from elsewhere', undefined);
+      await vi.advanceTimersByTimeAsync(900);
+      vi.useRealTimers();
+
+      expect((await collection.findOne('a').exec())?.revision).toBe(settled);
+    });
+
+    /** ⚠ But a SEND is a clear and must still be written — it is what stops the
+     *  other device pushing the message back. The box was handed a draft; an
+     *  empty one is not what it was handed. */
+    it('still clears when the person has actually sent the message', async () => {
+      const collection = await TestBed.inject(DraftsDb).collection();
+      await collection.upsert({ ulid: 'a', text: 'the message', at: 1, rev: 2, _deleted: false });
+      await new Promise((r) => setTimeout(r, 0));
+
+      vi.useFakeTimers();
+      drafts.put('a', '', undefined);
+      await vi.advanceTimersByTimeAsync(900);
+      vi.useRealTimers();
+
+      expect((await collection.findOne('a').exec())?.text).toBe('');
+    });
+
+    /**
+     * ⚠ **Throwing a draft away by hand must reach the other device**, and it is
+     * the case the echo guard can silently break: the box ends up holding
+     * exactly what it was seeded with, so a guard keyed on the SEED rather than
+     * on what was last agreed reads a deliberate deletion as an echo and the
+     * words stay on the other screen.
+     */
+    it('clears when the person selects it all and deletes it', async () => {
+      const collection = await TestBed.inject(DraftsDb).collection();
+
+      vi.useFakeTimers();
+      drafts.put('a', 'something I thought better of', undefined);
+      await vi.advanceTimersByTimeAsync(900);
+      drafts.put('a', '', undefined);
+      await vi.advanceTimersByTimeAsync(900);
+      vi.useRealTimers();
+
+      const doc = await collection.findOne('a').exec();
+      expect(doc, 'a tombstone, not a removal').not.toBeNull();
+      expect(doc?.text).toBe('');
+    });
+
+    /**
+     * ⚠ **The runner's counter is the runner's.** A client that minted a `rev`
+     * would be inventing an ordering only the runner is authority on; the pull
+     * cursor is built from it.
+     */
+    it('carries the runner revision through untouched', async () => {
+      const collection = await TestBed.inject(DraftsDb).collection();
+      await collection.upsert({
+        ulid: 'a',
+        text: 'from elsewhere',
+        at: 1,
+        rev: 7,
+        _deleted: false,
+      });
+
+      vi.useFakeTimers();
+      drafts.put('a', 'and something of mine', undefined);
+      await vi.advanceTimersByTimeAsync(900);
+      vi.useRealTimers();
+
+      expect((await collection.findOne('a').exec())?.rev).toBe(7);
+    });
+  });
+
+  describe('while both screens are open', () => {
+    async function arrives(text: string): Promise<void> {
+      const collection = await TestBed.inject(DraftsDb).collection();
+      await collection.upsert({ ulid: 'a', text, at: 2, rev: 4, _deleted: false });
+      await new Promise((r) => setTimeout(r, 0));
     }
 
-    it('adopts a draft when this device has written nothing', () => {
-      runnerHolds(theirs);
-      drafts.sync('a');
-      expect(drafts.incoming()).toEqual({ id: 'a', draft: theirs });
-      expect(drafts.clash()).toBeUndefined();
+    it('shows what the other device typed', async () => {
+      await arrives('written on the phone');
+      expect(drafts.landed()).toEqual({ id: 'a', text: 'written on the phone' });
+      expect(drafts.text('a')).toBe('written on the phone');
     });
 
-    it('says nothing when the two already agree', () => {
-      drafts.put('a', 'from the other device', undefined, { push: false });
-      runnerHolds(theirs);
-      drafts.sync('a');
-      expect(drafts.incoming()).toBeUndefined();
-      expect(drafts.clash()).toBeUndefined();
+    /** The thing Pippijn asked for by name: sending on one screen must empty
+     *  the other, and a send is a draft cleared. */
+    it('empties when the other device SENDS, because a send clears the draft', async () => {
+      drafts.put('a', 'about to go', undefined);
+      await arrives('');
+      expect(drafts.text('a')).toBe('');
+      expect(drafts.landed()).toEqual({ id: 'a', text: '' });
     });
 
-    it('raises a clash rather than overwriting what is here', () => {
-      drafts.put('a', 'typed at the desk', undefined, { push: false });
-      runnerHolds(theirs);
-      drafts.sync('a');
-      expect(drafts.clash()).toEqual({ id: 'a', mine: 'typed at the desk', theirs });
-      // The local text must survive: replacing it is the silent data loss.
-      expect(drafts.text('a')).toBe('typed at the desk');
-    });
+    /**
+     * ⚠ **A local edit must not announce itself as the other device.** The
+     * mirror is written before the collection is, so this device's own echo
+     * finds the mirror already equal — which is what `watch` compares and why it
+     * never has to ask RxDB where a change came from.
+     */
+    it('says nothing about this device typing', async () => {
+      vi.useFakeTimers();
+      drafts.put('a', 'typed right here', undefined);
+      await vi.advanceTimersByTimeAsync(900);
+      vi.useRealTimers();
+      await new Promise((r) => setTimeout(r, 0));
 
-    it('is quiet when the runner cannot be reached', () => {
-      const api = TestBed.inject(ConsoleApi);
-      vi.spyOn(api, 'draft').mockReturnValue(throwError(() => new Error('down')));
-      drafts.put('a', 'typed at the desk', undefined, { push: false });
-      drafts.sync('a');
-      expect(drafts.clash()).toBeUndefined();
-      expect(drafts.text('a')).toBe('typed at the desk');
+      expect(drafts.landed()).toBeUndefined();
     });
   });
 
-  /** Four outcomes, and combining must keep both texts whole. */
   describe('settling a clash', () => {
-    const theirs = { text: 'theirs', rev: 4, at: 1000 };
+    const theirs: DraftDoc = { ulid: 'a', text: 'theirs', at: 1000, rev: 4, _deleted: false };
 
     beforeEach(() => {
-      const api = TestBed.inject(ConsoleApi);
-      vi.spyOn(api, 'putDraft').mockReturnValue(of({ ...theirs, rev: 5 }));
-      drafts.put('a', 'mine', undefined, { push: false });
+      drafts.put('a', 'mine', undefined);
     });
 
     it.each([
@@ -186,308 +403,64 @@ describe('Drafts', () => {
       expect(drafts.text('a')).toBe(expected);
       expect(drafts.clash()).toBeUndefined();
     });
-  });
 
-  /**
-   * ⚠ **Opening a session is not a statement about its draft.**
-   *
-   * The composer's recording effect runs once when a session opens, with
-   * whatever is on screen — `''` when nothing has been typed here. Pushing that
-   * makes a device that has only LOOKED at a conversation a writer of it: it
-   * takes revision 1 with an empty text, and the device that actually typed
-   * something is then refused and shown a clash against nothing.
-   */
-  describe('a device that has only looked', () => {
-    it('does not push when nothing has changed since the runner was last in step', () => {
-      const api = TestBed.inject(ConsoleApi);
-      const put = vi.spyOn(api, 'putDraft').mockReturnValue(of({ text: '', rev: 1, at: 1 }));
-      vi.useFakeTimers();
+    /**
+     * ⚠ **`mine` comes off the CLASH, not off the mirror.** The conflict handler
+     * gives the master to theirs, so by the time anybody presses a button the
+     * collection — and the mirror behind it — may already hold the other
+     * device's words. Reading this device's text from there would settle the
+     * clash by discarding the very thing it was raised about.
+     */
+    it('keeps this device words even after theirs have overwritten the mirror', async () => {
+      const db = TestBed.inject(DraftsDb);
+      db.clash.set({ id: 'a', mine: 'what I was writing', theirs });
+      const collection = await db.collection();
+      await collection.upsert(theirs);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(drafts.text('a')).toBe('theirs');
 
-      // What the session view does on open with no draft anywhere.
-      drafts.put('a', '', undefined);
-      vi.runAllTimers();
-
-      expect(put).not.toHaveBeenCalled();
-      vi.useRealTimers();
-    });
-
-    it('still pushes a draft typed here that the runner has never seen', () => {
-      const api = TestBed.inject(ConsoleApi);
-      const put = vi.spyOn(api, 'putDraft').mockReturnValue(of({ text: 'x', rev: 1, at: 1 }));
-      vi.useFakeTimers();
-
-      drafts.put('a', 'typed while the tunnel was down', undefined);
-      vi.runAllTimers();
-
-      expect(put).toHaveBeenCalledOnce();
-      vi.useRealTimers();
-    });
-
-    it('pushes a deliberate clear, which is how a sent message stops being a draft', () => {
-      const api = TestBed.inject(ConsoleApi);
-      const put = vi.spyOn(api, 'putDraft').mockReturnValue(of({ text: 'words', rev: 1, at: 1 }));
-      vi.useFakeTimers();
-      drafts.put('a', 'words', undefined);
-      vi.runAllTimers();
-      put.mockClear();
-
-      drafts.put('a', '', undefined);
-      vi.runAllTimers();
-
-      expect(put).toHaveBeenCalledOnce();
-      vi.useRealTimers();
+      drafts.resolve('a', theirs, 'mine-first');
+      expect(drafts.text('a')).toBe('what I was writing\n\ntheirs');
     });
   });
 
-  /**
-   * ⚠ **A stale copy is not a competing one.**
-   *
-   * Pippijn types mostly on one device and switches to the other to paste. The
-   * device he switches TO holds the last text it synced, not an empty box — so
-   * testing "has this device got text?" calls every handover a conflict. The
-   * test that means anything is whether this device has UNSENT changes.
-   */
-  describe('picking up the other device', () => {
-    function runnerHolds(draft: StoredDraft): void {
-      vi.spyOn(TestBed.inject(ConsoleApi), 'draft').mockReturnValue(of(draft));
-    }
-
-    it('adopts silently when this device has only fallen behind', () => {
-      vi.spyOn(TestBed.inject(ConsoleApi), 'putDraft').mockReturnValue(
-        of({ text: 'A', rev: 1, at: 1 }),
-      );
-      vi.useFakeTimers();
-      drafts.put('a', 'A', undefined);
-      vi.runAllTimers();
-      vi.useRealTimers();
-
-      // The other device carried it on.
-      runnerHolds({ text: 'A and more', rev: 2, at: 2 });
-      drafts.sync('a');
-
-      expect(drafts.clash()).toBeUndefined();
-      expect(drafts.incoming()).toEqual({ id: 'a', draft: { text: 'A and more', rev: 2, at: 2 } });
-    });
-
-    it('still raises a clash when this device has something unsent', () => {
-      vi.spyOn(TestBed.inject(ConsoleApi), 'putDraft').mockReturnValue(
-        of({ text: 'A', rev: 1, at: 1 }),
-      );
-      vi.useFakeTimers();
-      drafts.put('a', 'A', undefined);
-      vi.runAllTimers();
-      vi.useRealTimers();
-
-      // Typed here since, and not yet sent.
-      drafts.put('a', 'A plus something of mine', undefined, { push: false });
-      runnerHolds({ text: 'A and more', rev: 2, at: 2 });
-      drafts.sync('a');
-
-      expect(drafts.clash()?.mine).toBe('A plus something of mine');
-      expect(drafts.incoming()).toBeUndefined();
-    });
-  });
-
-  /**
-   * ⚠ **Typing on a train must not cost the words.**
-   *
-   * The whole reason the local store is what the composer reads. Nothing here
-   * may depend on a request succeeding, and a request that failed has to be paid
-   * later rather than forgotten — nothing else retries it.
-   */
   describe('with no connection at all', () => {
-    function offline(): void {
-      vi.spyOn(TestBed.inject(ConsoleApi), 'draft').mockReturnValue(
-        throwError(() => new Error('no route to host')),
-      );
-      vi.spyOn(TestBed.inject(ConsoleApi), 'putDraft').mockReturnValue(
-        throwError(() => new Error('no route to host')),
-      );
+    /** A runner that cannot be reached, which is the case this whole store
+     *  exists for — a phone in a tunnel. */
+    async function underground(): Promise<Drafts> {
+      TestBed.resetTestingModule();
+      const store = fresh(vi.fn(() => Promise.reject(new Error('no route to host'))));
+      await TestBed.inject(DraftsDb).collection();
+      return store;
     }
 
-    it('keeps every word, and says nothing about the network', () => {
-      offline();
+    it('keeps every word, and says nothing about the network', async () => {
+      const store = await underground();
       vi.useFakeTimers();
-      drafts.put('a', 'written between two stations', undefined);
-      vi.runAllTimers();
+      store.put('a', 'written between two stations', undefined);
+      await vi.advanceTimersByTimeAsync(900);
       vi.useRealTimers();
 
-      expect(drafts.text('a')).toBe('written between two stations');
-      expect(drafts.clash()).toBeUndefined();
+      expect(store.text('a')).toBe('written between two stations');
+      expect(store.clash()).toBeUndefined();
     });
 
-    it('survives the page being destroyed and rebuilt underground', () => {
-      offline();
-      drafts.put('a', 'written between two stations', undefined, { push: false });
+    it('still gets the words into the collection, so they go when the tunnel does', async () => {
+      const store = await underground();
+      vi.useFakeTimers();
+      store.put('a', 'written between two stations', undefined);
+      await vi.advanceTimersByTimeAsync(900);
+      vi.useRealTimers();
+
+      const collection = await TestBed.inject(DraftsDb).collection();
+      expect((await collection.findOne('a').exec())?.text).toBe('written between two stations');
+    });
+
+    it('survives the page being destroyed and rebuilt underground', async () => {
+      const store = await underground();
+      store.put('a', 'written between two stations', undefined);
       TestBed.resetTestingModule();
-      expect(TestBed.inject(Drafts).text('a')).toBe('written between two stations');
-    });
-
-    it('owes the words, and pays on coming back up', () => {
-      offline();
-      vi.useFakeTimers();
-      drafts.put('a', 'written between two stations', undefined);
-      vi.runAllTimers();
-      vi.useRealTimers();
-
-      // Above ground: the runner answers, and holds nothing for this session.
-      const api = TestBed.inject(ConsoleApi);
-      vi.spyOn(api, 'draft').mockReturnValue(of(null));
-      const put = vi
-        .spyOn(api, 'putDraft')
-        .mockReturnValue(of({ text: 'written between two stations', rev: 1, at: 1 }));
-
-      drafts.sync('a');
-
-      expect(put).toHaveBeenCalledWith('a', {
-        text: 'written between two stations',
-        from: undefined,
-      });
-    });
-  });
-
-  /**
-   * ⚠ **The other screen has to change while somebody is looking at it.**
-   *
-   * Reconciling only on navigation and on returning to the front means two pages
-   * open side by side never hear about each other: typing on the phone left the
-   * browser stale, and SENDING from the browser left the phone's box holding a
-   * message that had already gone. The roster poll carries the draft so that the
-   * screen nobody touched is the screen that updates.
-   */
-  describe('while both screens are open', () => {
-    it('shows what the other device typed', () => {
-      drafts.reconcile('a', { text: 'typed on the phone', rev: 1, at: 1 });
-      expect(drafts.incoming()).toEqual({
-        id: 'a',
-        draft: { text: 'typed on the phone', rev: 1, at: 1 },
-      });
-      expect(drafts.clash()).toBeUndefined();
-    });
-
-    it('empties when the other device SENDS, because a send clears the draft', () => {
-      // This screen is holding what was typed and synced.
-      drafts.reconcile('a', { text: 'about to be sent', rev: 1, at: 1 });
-      drafts.adopt('a', { text: 'about to be sent', rev: 1, at: 1 });
-      expect(drafts.text('a')).toBe('about to be sent');
-
-      // The other screen sends it: the composer empties there, which is an empty
-      // write, and arrives here as a tombstone at the next revision.
-      drafts.reconcile('a', { text: '', rev: 2, at: 2 });
-      expect(drafts.incoming()).toEqual({ id: 'a', draft: { text: '', rev: 2, at: 2 } });
-      expect(drafts.clash()).toBeUndefined();
-    });
-
-    it('does not send twice when a keystroke is already pending', () => {
-      const put = vi
-        .spyOn(TestBed.inject(ConsoleApi), 'putDraft')
-        .mockReturnValue(of({ text: 'half typed', rev: 1, at: 1 }));
-      vi.useFakeTimers();
-      drafts.put('a', 'half typed', undefined);
-      // The poll lands inside the debounce window.
-      drafts.reconcile('a', null);
-      vi.runAllTimers();
-      expect(put).toHaveBeenCalledOnce();
-      vi.useRealTimers();
-    });
-  });
-
-  /**
-   * ⚠ **A poll answers the question it was asked, not the one you have now.**
-   *
-   * The roster snapshot is taken when the request goes out. Type a keystroke
-   * while one is in flight and the reply arrives carrying a revision OLDER than
-   * this device already has — which is not somebody else writing, it is this
-   * device's own past. Reported live: a conflict while typing on the phone with
-   * nothing else touched.
-   */
-  describe('a reply that is behind what this device already knows', () => {
-    beforeEach(() => {
-      vi.spyOn(TestBed.inject(ConsoleApi), 'putDraft').mockReturnValue(
-        of({ text: 'abc', rev: 7, at: 1 }),
-      );
-      vi.useFakeTimers();
-      drafts.put('a', 'abc', undefined);
-      vi.runAllTimers();
-      vi.useRealTimers();
-    });
-
-    it('is not a conflict', () => {
-      drafts.reconcile('a', { text: 'ab', rev: 6, at: 0 });
-      expect(drafts.clash()).toBeUndefined();
-    });
-
-    it('is not a conflict while STILL TYPING, which is how it was reported', () => {
-      // A keystroke after the last successful push: the words here are unsent,
-      // and the reply in flight is older than the revision they were sent from.
-      drafts.put('a', 'abcd', undefined, { push: false });
-      drafts.reconcile('a', { text: 'ab', rev: 6, at: 0 });
-      expect(drafts.clash()).toBeUndefined();
-      expect(drafts.text('a')).toBe('abcd');
-    });
-
-    it('does not put the older text back on screen', () => {
-      drafts.reconcile('a', { text: 'ab', rev: 6, at: 0 });
-      expect(drafts.incoming()).toBeUndefined();
-      expect(drafts.text('a')).toBe('abc');
-    });
-
-    it('still takes a revision that is genuinely ahead', () => {
-      drafts.reconcile('a', { text: 'from the other one', rev: 8, at: 2 });
-      expect(drafts.incoming()).toEqual({
-        id: 'a',
-        draft: { text: 'from the other one', rev: 8, at: 2 },
-      });
-    });
-  });
-
-  /**
-   * ⚠ **What this device last AGREED must outlive the page, not just the words.**
-   *
-   * The text is in storage and the revision was not, so after a reload the
-   * client saw local text with no record of having sent it and called it unsent
-   * work. Every difference from the runner then read as a two-sided conflict —
-   * and reloading is the ordinary thing, an app resumed from the background does
-   * it. Reported live: still getting conflicts while typing on one device.
-   */
-  describe('across a reload', () => {
-    it('knows the difference between synced text and unsent text', () => {
-      vi.spyOn(TestBed.inject(ConsoleApi), 'putDraft').mockReturnValue(
-        of({ text: 'words', rev: 5, at: 1 }),
-      );
-      vi.useFakeTimers();
-      drafts.put('a', 'words', undefined);
-      vi.runAllTimers();
-      vi.useRealTimers();
-
-      TestBed.resetTestingModule();
-      const after = TestBed.inject(Drafts);
-      expect(after.text('a')).toBe('words');
-
-      // The other device carried it on. This one has nothing of its own.
-      after.reconcile('a', { text: 'words and more', rev: 6, at: 2 });
-      expect(after.clash()).toBeUndefined();
-      expect(after.incoming()).toEqual({
-        id: 'a',
-        draft: { text: 'words and more', rev: 6, at: 2 },
-      });
-    });
-
-    it('still knows text typed offline is unsent', () => {
-      vi.spyOn(TestBed.inject(ConsoleApi), 'putDraft').mockReturnValue(
-        of({ text: 'words', rev: 5, at: 1 }),
-      );
-      vi.useFakeTimers();
-      drafts.put('a', 'words', undefined);
-      vi.runAllTimers();
-      vi.useRealTimers();
-      // Typed with no connection, so never sent.
-      drafts.put('a', 'words, and more of mine', undefined, { push: false });
-
-      TestBed.resetTestingModule();
-      const after = TestBed.inject(Drafts);
-      after.reconcile('a', { text: 'words and theirs', rev: 6, at: 2 });
-      expect(after.clash()?.mine).toBe('words, and more of mine');
+      expect(fresh().text('a')).toBe('written between two stations');
     });
   });
 });

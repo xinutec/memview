@@ -764,9 +764,3 @@ export interface StoredDraft {
    */
   readonly at: number;
 }
-
-/** An edit on its way to the runner. `from` is absent only on a first write. */
-export interface DraftEdit {
-  readonly text: string;
-  readonly from?: number;
-}

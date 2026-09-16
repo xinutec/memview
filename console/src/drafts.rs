@@ -13,6 +13,11 @@
 //! as it is pushed, and the only conflict is a genuine one — both edited while
 //! a device was away.
 //!
+//! **One way in: `/api/sync/drafts`**, pull and push, in the shape life uses.
+//! There was a second — a per-session GET and a PUT carrying the revision it
+//! edited from — and it is gone: two mechanisms over one map is how the four
+//! bugs of 2026-09-15 got in, and the surviving one is the one a library drives.
+//!
 //! **Text only.** A draft can also carry a scaled screenshot, which is hundreds
 //! of kilobytes of base64 against a sentence's few hundred bytes; there is no
 //! meaningful way to combine two images, and the device that took one is
@@ -31,8 +36,14 @@ use serde::{Deserialize, Serialize};
 pub struct Draft {
     /// What was being typed.
     pub text: String,
-    /// Bumped on every accepted write. A client sends the `rev` it was editing
-    /// from, and a mismatch is the conflict — see [`Drafts::put`].
+    /// Bumped on every accepted write, and used for ONE thing: ordering a pull.
+    /// A client's checkpoint is the highest `rev` it has been handed, so this
+    /// counts across the WHOLE store rather than per conversation — see
+    /// [`Drafts::apply`], where a per-document counter silently stranded every
+    /// draft written after another conversation had got ahead.
+    ///
+    /// ⚠ **It is NOT what a conflict is judged on** — see [`Drafts::apply`],
+    /// which compares the text, and says why a revision cannot.
     pub rev: u64,
     /// Unix milliseconds.
     ///
@@ -66,11 +77,11 @@ pub struct DraftDoc {
     pub text: String,
     pub at: u64,
     /// RxDB's tombstone flag. A cleared draft is a live document with empty text
-    /// rather than a deletion — see [`Drafts::put`] for why the entry has to
+    /// rather than a deletion — see [`Drafts::apply`] for why the entry has to
     /// survive — so this is written `false` and read for protocol conformance.
     #[serde(rename = "_deleted", default)]
     pub deleted: bool,
-    /// Server revision. Ignored as push input; set here.
+    /// Server revision, for the pull cursor. Ignored as push input; set here.
     #[serde(default)]
     pub rev: u64,
 }
@@ -90,7 +101,8 @@ pub struct Checkpoint {
 
 /// One change from a client: the state it wants, and the state it assumed —
 /// `None` for a fresh insert. The assumed state is what makes the conflict
-/// detectable rather than the last writer silently winning.
+/// detectable rather than the last writer silently winning. Only its `text` is
+/// read; [`Drafts::apply`] says why its `rev` cannot be.
 #[derive(Debug, Deserialize)]
 pub struct PushEntry {
     #[serde(rename = "newDocumentState")]
@@ -145,33 +157,56 @@ impl Drafts {
         self.held.read().expect("drafts poisoned").clone()
     }
 
-    /// Record what a device is holding, if it is editing from the current
-    /// revision.
+    /// Record what a device is holding, if what it assumed is what is here.
     ///
-    /// ⚠ **`from` is the revision the edit was MADE against, not the one it
-    /// wants.** Equal means nothing changed underneath and the write is taken;
-    /// anything else means another device has written since, and the caller is
-    /// handed that draft rather than having its own silently dropped or silently
-    /// winning.
+    /// ⚠ **`assumed` is the TEXT the edit was made against, never the
+    /// revision — and this is the one thing in the file that must not be
+    /// "simplified" back.** A revision is minted here, so a client only learns
+    /// its own new one on the next PULL. Between a push and that pull, the
+    /// client still believes the revision it edited from: RxDB sets its assumed
+    /// master to the document it SENT. Comparing revisions therefore refuses the
+    /// second keystroke inside one pull interval and calls it a conflict — a
+    /// clash raised against the same device's previous keystroke, which is the
+    /// ordinary case for anybody typing rather than an edge.
+    ///
+    /// Comparing the text answers the question actually being asked: has
+    /// somebody else changed this since you last saw it. A repeat push from one
+    /// device assumes what it already wrote and lands; two devices that have
+    /// diverged still differ and still conflict. Two devices that typed the
+    /// SAME words agree, which is correct — there is nothing to choose between.
+    ///
+    /// `None` assumes there is nothing here. It lands only when that is true;
+    /// against an existing draft it is a device writing over words it has never
+    /// seen, which is a conflict.
     ///
     /// ⚠ **A cleared draft is a TOMBSTONE, not a removal, and that is what stops
     /// a sent message coming back.** Sending on the Mac empties its composer,
     /// which arrives here as an empty write. If that erased the entry, the phone
-    /// — still holding the words at the old revision — would push them back and
-    /// resurrect a message already sent. Keeping the revision means that push
-    /// arrives as the conflict it is, with THEIRS empty, and the person decides.
-    pub fn put(&self, id: &str, text: &str, from: Option<u64>, at: u64) -> Wrote {
+    /// — still holding the words — would push them back and resurrect a message
+    /// already sent. Keeping the entry means that push arrives as the conflict
+    /// it is, with THEIRS empty, and the person decides.
+    pub fn apply(&self, id: &str, text: &str, assumed: Option<&str>, at: u64) -> Wrote {
         let (result, all) = {
             let mut held = self.held.write().expect("drafts poisoned");
             let current = held.get(id).cloned();
             if let Some(theirs) = current.as_ref()
-                && Some(theirs.rev) != from
+                && assumed != Some(theirs.text.as_str())
             {
                 return Wrote::Conflict(theirs.clone());
             }
+            // ⚠ **One counter for the whole STORE, not one per conversation.**
+            // The pull cursor is a single number across the collection, so a
+            // per-document counter cannot serve it: a draft written in a fresh
+            // conversation would take rev 1 while a client that has already
+            // pulled another sits at 3, and `rev > since` then never matches it.
+            // That conversation never syncs — not late, never — and it looks
+            // random from the outside, because whether it happens depends on
+            // what OTHER conversations have been typed in. Reproduced against
+            // the running binary on 2026-09-16: two browsers, second session,
+            // nothing crossed in fourteen seconds.
             let next = Draft {
                 text: text.to_string(),
-                rev: current.map_or(1, |d| d.rev + 1),
+                rev: held.values().map(|d| d.rev).max().unwrap_or(0) + 1,
                 at,
             };
             held.insert(id.to_string(), next.clone());
@@ -260,21 +295,36 @@ impl Drafts {
             .into_iter()
             .filter_map(|entry| {
                 let id = entry.new_document_state.ulid.clone();
-                let from = entry.assumed_master_state.as_ref().map(|d| d.rev);
-                match self.put(
+                let assumed = entry.assumed_master_state.as_ref().map(|d| d.text.as_str());
+                match self.apply(
                     &id,
                     &entry.new_document_state.text,
-                    from,
+                    assumed,
                     entry.new_document_state.at,
                 ) {
                     Wrote::Stored(_) => None,
-                    Wrote::Conflict(theirs) => Some(DraftDoc {
-                        ulid: id,
-                        text: theirs.text,
-                        at: theirs.at,
-                        deleted: false,
-                        rev: theirs.rev,
-                    }),
+                    Wrote::Conflict(theirs) => {
+                        // ⚠ **The one outcome nobody can diagnose from a
+                        // screen.** A clash says two devices wrote; what says
+                        // whether that is TRUE is which texts were compared, and
+                        // that was guessed at from the symptom twice before this
+                        // line existed. Lengths rather than words — enough to
+                        // tell two drafts apart, and a conversation does not
+                        // belong in a log.
+                        tracing::info!(
+                            "{id}: refused a draft push assuming {} char(s), holding {} at rev {}",
+                            assumed.map_or(0, |t| t.chars().count()),
+                            theirs.text.chars().count(),
+                            theirs.rev,
+                        );
+                        Some(DraftDoc {
+                            ulid: id,
+                            text: theirs.text,
+                            at: theirs.at,
+                            deleted: false,
+                            rev: theirs.rev,
+                        })
+                    }
                 }
             })
             .collect()
