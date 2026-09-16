@@ -12,19 +12,16 @@
     in {
       # The console binary, built the way the machine it runs on is built.
       #
-      # ⚠ **This is not "run the console from a store path".** Signing INTO the
-      # store does not work — a build runs as `nixbld`, whose session cannot
-      # reach the signing key's ACL in ~/Library/Keychains, and signing a
-      # realised path as root afterwards is a lie nix silently undoes at the next
-      # GC. So the installed copy stays at ~/.local/libexec/agent-console and the
-      # launchd plist goes on naming that path; this output is only what the
-      # copy is made FROM. scripts/console-upgrade.sh does the install, by atomic
-      # rename, because macOS refuses to write to a running executable.
+      # ⚠ NOT run from the store. Signing into the store cannot work — a build runs
+      # as `nixbld`, which cannot reach the signing key's ACL, and signing a realised
+      # path afterwards is undone at the next GC. The installed copy lives at
+      # ~/.local/libexec/agent-console, put there by scripts/console-upgrade.sh with
+      # an atomic rename, because macOS refuses to write to a running executable.
       #
-      # Only the Rust half. Packaging the Angular build invites esbuild's macOS
+      # ⚠ Only the Rust half: packaging the Angular build invites esbuild's macOS
       # teardown abort, which lands before index.html is flushed and leaves a
-      # directory that exists and is empty — thoth shipped exactly that and
-      # crash-looped 33 times. The frontend is published by `publish:console`.
+      # directory that exists and is empty. The frontend is published by
+      # `publish:console`.
       packages = forAll (pkgs:
       let
         # Shared by both packages below, because the reasoning under it is about
@@ -91,18 +88,9 @@
 
         # The desk-side CLI, and ONLY it.
         #
-        # ⚠ **`--bin sessions` leaves the server out, and that is correctness
-        # rather than size.** The console runner is installed to
-        # `~/.local/libexec/agent-console` by `scripts/console-upgrade.sh`,
-        # deliberately outside the store so signing into the keychain survives a
-        # GC. Shipping it a second time through home-manager would put a second
-        # copy on PATH with different upgrade rules — the same argument
-        # `tasks` makes for splitting its CLI from its server.
-        #
-        # ⚠ **This exists so the word a reader types is the program that runs.**
-        # Until it is installed the only invocation is a `cargo run` from a
-        # checkout, so every doc writes one thing and every shell does another
-        # (memview#1298).
+        # ⚠ `--bin sessions` leaves the server OUT: it is installed outside the
+        # store by `scripts/console-upgrade.sh`, and shipping it again here would
+        # put a second copy on PATH with different upgrade rules.
         sessions = pkgs.rustPlatform.buildRustPackage {
           pname = "sessions";
           version = "0.1.0";
