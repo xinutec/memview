@@ -110,14 +110,24 @@
           cargoLock.lockFile = ./Cargo.lock;
           cargoBuildFlags = [ "--package" "console" "--bin" "sessions" ];
 
-          # As the console above, and for the same four reasons: the check hook
-          # does not inherit `cargoBuildFlags`, `orphan.rs` shells out to `ps`,
-          # `parse.rs` reads a golden under `frontend/`, and `past.rs` holds every
-          # conversation busy when `USER` is unset. Same binary, same suite.
-          cargoTestFlags = [ "--package" "console" ];
-          nativeCheckInputs = [ pkgs.procps ];
-          preCheck = "export USER=nixbld";
-          doCheck = true;
+          # ⚠ **The tests are NOT run here, and that is not a gap.** This is the
+          # same crate as `console` above, built from the same source, and that
+          # derivation runs the identical suite — it had the identical
+          # `cargoTestFlags = [ "--package" "console" ]`. Running it twice was a
+          # second opinion about byte-identical code.
+          #
+          # Measured 2026-09-16, one line changed in `console/src/lib.rs`:
+          # `nix build .#console` 128s, `nix build .#sessions` 120s. The second
+          # was 120 seconds per Rust change, every gate, for nothing.
+          #
+          # What this derivation is FOR is that the packaged binary builds and
+          # installs — `cargoBuildFlags` below is the check. If the two ever stop
+          # being the same crate, the tests belong back here.
+          # The identical suite runs in `.#console` above — same crate, same
+          # source — so a second run is 120s of every gate spent on byte-identical
+          # code. What this derivation checks is that the packaged binary builds.
+          # dev-lint: allow-docheck-false the same suite runs in `.#console`
+          doCheck = false;
           meta.mainProgram = "sessions";
         };
         default = self.packages.${pkgs.stdenv.hostPlatform.system}.console;
