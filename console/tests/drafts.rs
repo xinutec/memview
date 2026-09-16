@@ -198,9 +198,8 @@ fn a_pull_answers_only_past_the_checkpoint_and_says_how_far_it_got() {
 /// device that wrote them for ever.
 ///
 /// It looks random from outside, because whether it bites depends on what OTHER
-/// conversations have been written in. Reproduced against the running binary on
-/// 2026-09-16 with two browsers: the second conversation crossed nothing in
-/// fourteen seconds, where the first had taken six.
+/// conversations have been written in — and a stranded draft never arrives at
+/// all, so there is nothing late to notice.
 #[test]
 fn a_draft_in_a_new_conversation_is_delivered_to_a_client_that_is_already_ahead() {
     let dir = scratch("cursor-strands");
@@ -278,8 +277,7 @@ fn a_batch_can_both_land_and_lose() {
     );
 }
 
-/// ⚠ **THE REGRESSION THIS FILE EXISTS FOR AS OF 2026-09-16: one device typing
-/// must never collide with itself.**
+/// ⚠ **One device typing must never collide with itself.**
 ///
 /// Driven through `push`, with the entries shaped the way RxDB sends them,
 /// because the defect lives in what the wire carries rather than in the rule.

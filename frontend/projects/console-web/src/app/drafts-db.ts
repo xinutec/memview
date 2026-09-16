@@ -1,6 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { EMPTY, fromEvent, interval, map, merge, type Observable } from 'rxjs';
 import {
+  addRxPlugin,
   createRxDatabase,
   type RxCollection,
   type RxConflictHandler,
@@ -8,6 +9,7 @@ import {
   type RxStorage,
 } from 'rxdb';
 import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
+import { RxDBLocalDocumentsPlugin } from 'rxdb/plugins/local-documents';
 import { replicateRxCollection } from 'rxdb/plugins/replication';
 
 import { Telemetry } from './telemetry';
@@ -50,19 +52,20 @@ export const DRAFT_SCHEMA: RxJsonSchema<DraftDoc> = {
   required: ['ulid', 'text', 'at', 'rev'],
 };
 
+// ⚠ **Registered once, at module load, and statically imported.** No dynamic
+// loading anywhere in this app: the whole bundle ships together and the budget is
+// raised when it needs to be, rather than split into pieces.
+addRxPlugin(RxDBLocalDocumentsPlugin);
+
 /** How often to ask the runner whether anything is new. */
 const PULL_EVERY_MS = 5000;
 
 /**
- * The batch, with the two things checked that replication cannot survive being
- * wrong about.
+ * The batch, shape-checked.
  *
- * ⚠ **The ROW type is our own wire contract and is taken on trust; the SHAPE is
- * not.** A non-array `documents` would be handed to RxDB as a batch, and a
- * missing `checkpoint.rev` rewinds the pull to zero and refetches everything on
- * every cycle for ever, saying nothing. Same division life draws, for the same
- * reason — a per-field check on a row whose type this repo defines buys nothing
- * a compiler does not already give.
+ * ⚠ **The row TYPE is our own contract and is trusted; the SHAPE is not.** A
+ * non-array `documents` reaches RxDB as a batch, and a missing `checkpoint.rev`
+ * rewinds the pull to zero and refetches everything for ever, silently.
  */
 function asDocs(body: unknown): DraftDoc[] | null {
   if (typeof body !== 'object' || body === null || !('documents' in body)) return null;
@@ -100,29 +103,18 @@ export interface Clash {
 }
 
 /**
- * How a collision is settled, and what it deliberately does NOT do.
+ * How a collision is settled.
  *
- * ⚠ **`isEqual` compares CONTENT, and NOTHING ELSE — not `rev`, in either
- * direction.** Two mistakes are available here and they are opposites.
- *
- * Comparing only the revision judges every local edit already-replicated and
- * drops the push with nothing said: revisions are minted by the runner, so an
- * edit changes the text and leaves the revision alone. That is life's
- * 2026-07-03 push-loss bug, and a draft has exactly the shape that reproduces
- * it.
- *
- * ⚠ Comparing the revision AS WELL is the bug this file shipped with until
- * 2026-09-16. After a push lands, the runner holds the same text at a HIGHER
- * revision; the next pull delivers it, and a comparison that includes `rev`
- * calls that a conflict and raises a clash between a text and itself. `rev` is
- * the pull cursor, which is a fact about ordering and not about content — the
- * same reason `Drafts::apply` on the runner refuses to judge a push on it.
+ * ⚠ **`isEqual` compares content and NOTHING else.** Bringing `rev` into it
+ * fails in both directions, and both are pinned by tests: on its own it judges
+ * every local edit already-replicated and drops the push silently; alongside the
+ * text it calls the runner's own echo a conflict and offers a choice between a
+ * text and itself.
  *
  * ⚠ **`resolve` gives the master to THEIRS, not to this device.** Prose cannot
- * be field-merged the way a quantity can, and whichever side the resolver picks
- * silently is a piece of writing nobody chose to lose. Letting the server keep
- * what it has means nothing is destroyed: this device still holds its own text
- * locally, both are offered on screen, and a person decides.
+ * be field-merged, and a resolver that silently picks a side destroys writing
+ * nobody chose to lose. The server keeps what it has, this device keeps its own,
+ * both go on screen, and a person decides.
  */
 export function draftConflicts(onClash: (clash: Clash) => void): RxConflictHandler<DraftDoc> {
   return {
@@ -188,17 +180,9 @@ export class DraftsDb {
   /**
    * Raise a clash, and SAY SO.
    *
-   * ⚠ **The one outcome here nobody can diagnose from the screen.** It says two
-   * devices wrote; what decides whether that is true is which texts were
-   * compared and which half of replication noticed, and two rounds of it were
-   * guessed at from the symptom on 2026-09-15 before anything recorded it. The
-   * hand-rolled store logged this; the rewrite dropped it, and the gap was found
-   * by being asked rather than by anything failing.
-   *
-   * ⚠ **Lengths and times, never the words.** A draft is a private message on
-   * its way to somebody; the console's log reaches `adb logcat` and the fleet's
-   * activity trace, and neither is a place to put one. The lengths are enough to
-   * tell two drafts apart, which is all a diagnosis needs.
+   * ⚠ **Lengths and times, never the words.** A draft is a private message, and
+   * this reaches `adb logcat` and the fleet trace. Lengths are enough to tell two
+   * drafts apart, which is all a diagnosis needs.
    */
   private raise(clash: Clash): void {
     this.clash.set(clash);
@@ -216,11 +200,8 @@ export class DraftsDb {
   /**
    * Stop replicating and close the database.
    *
-   * ⚠ **The replication has to be cancelled FIRST.** It holds a live
-   * subscription and a retry timer, and closing a database out from under those
-   * leaves a handler writing into something that has gone. Nothing in the app
-   * calls this — a page closes by going away — but a test opens a database per
-   * case, and RxDB refuses the next one once enough are still open.
+   * ⚠ **Cancel the replication FIRST** — it holds a subscription and a retry
+   * timer, and closing underneath those leaves a handler writing into nothing.
    */
   async close(): Promise<void> {
     const opened = this.opened;
@@ -241,7 +222,16 @@ export class DraftsDb {
     const name = this.named ?? 'consoledrafts';
     const db = await createRxDatabase({ name, storage, multiInstance: true });
     const added = await db.addCollections({
-      drafts: { schema: DRAFT_SCHEMA, conflictHandler: draftConflicts((c) => this.raise(c)) },
+      drafts: {
+        schema: DRAFT_SCHEMA,
+        conflictHandler: draftConflicts((c) => this.raise(c)),
+        // ⚠ **Where the held picture lives, and why it cannot leak onto the
+        // wire.** RxDB excludes local documents from replication itself, so the
+        // picture staying on one device is a property of the storage rather than
+        // a promise in a comment — which is what it was while it sat in
+        // `localStorage`, next to the words, competing for the same 5 MB quota.
+        localDocuments: true,
+      },
     });
     this.running = replicate(added.drafts, get);
     // ⚠ **Said out loud, because replication failing is SILENT.** A dead tunnel

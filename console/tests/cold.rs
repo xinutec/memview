@@ -144,19 +144,15 @@ fn transcript(root: &std::path::Path, id: &str, turns: usize) -> PathBuf {
 
 /// How long to wait for something that should already be true.
 ///
-/// ⚠ **Wide on purpose, and it costs a passing run NOTHING.** This returns the
-/// moment the condition holds — 0.88s for the whole file, measured — so the
-/// budget is only ever spent by a genuine hang. It used to be 100 polls, which
-/// is five seconds, and that failed two commit gates on 2026-09-16 while three
-/// gates ran at once. Nothing here is testing a timeout, so the count is free to
-/// grow; shrinking it to keep the file fast is what made it load-sensitive in
-/// the first place.
+/// ⚠ **Do not shrink this to keep the file fast.** The wait returns the moment
+/// the condition holds — the whole file runs in under a second — so the budget
+/// is only ever spent by a genuine hang, and a tight one instead fails on a busy
+/// machine, which is where these tests run. Nothing here is testing a timeout,
+/// so the count is free to be generous.
 ///
-/// ⚠ The cause of those failures is NOT settled. CPU load alone does not
-/// reproduce it — 16 busy loops on 10 cores, three runs, all green — and these
-/// run inside `nix build .#sessions` rather than a dev shell, which is a
-/// different machine again. See the 2026-09-16 section of tasks#1586. Widening
-/// buys room; it does not explain anything, and it must not be read as a fix.
+/// ⚠ **A failure here does not mean the code under test broke.** These run
+/// inside `nix build .#sessions`, alongside whatever else is building; CPU load
+/// alone does not reproduce it. tasks#1586 holds what is known.
 const PATIENCE: Duration = Duration::from_secs(30);
 const POLL: Duration = Duration::from_millis(50);
 

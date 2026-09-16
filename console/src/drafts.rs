@@ -14,9 +14,8 @@
 //! a device was away.
 //!
 //! **One way in: `/api/sync/drafts`**, pull and push, in the shape life uses.
-//! There was a second — a per-session GET and a PUT carrying the revision it
-//! edited from — and it is gone: two mechanisms over one map is how the four
-//! bugs of 2026-09-15 got in, and the surviving one is the one a library drives.
+//! ⚠ **One way in, and it stays that way.** Two mechanisms writing one map is
+//! how drafts diverge silently; this is the one a replication library drives.
 //!
 //! **Text only.** A draft can also carry a scaled screenshot, which is hundreds
 //! of kilobytes of base64 against a sentence's few hundred bytes; there is no
@@ -160,31 +159,19 @@ impl Drafts {
     /// Record what a device is holding, if what it assumed is what is here.
     ///
     /// ⚠ **`assumed` is the TEXT the edit was made against, never the
-    /// revision — and this is the one thing in the file that must not be
-    /// "simplified" back.** A revision is minted here, so a client only learns
-    /// its own new one on the next PULL. Between a push and that pull, the
-    /// client still believes the revision it edited from: RxDB sets its assumed
-    /// master to the document it SENT. Comparing revisions therefore refuses the
-    /// second keystroke inside one pull interval and calls it a conflict — a
-    /// clash raised against the same device's previous keystroke, which is the
-    /// ordinary case for anybody typing rather than an edge.
+    /// revision.** A revision is minted here, so a client learns its own new one
+    /// only on the next PULL — until then it still believes the one it edited
+    /// from. Judging on revisions therefore refuses the second keystroke inside
+    /// a pull interval and calls it a conflict, which is ordinary typing. The
+    /// text answers the question actually being asked: has somebody else changed
+    /// this since you last saw it.
     ///
-    /// Comparing the text answers the question actually being asked: has
-    /// somebody else changed this since you last saw it. A repeat push from one
-    /// device assumes what it already wrote and lands; two devices that have
-    /// diverged still differ and still conflict. Two devices that typed the
-    /// SAME words agree, which is correct — there is nothing to choose between.
+    /// `None` assumes there is nothing here; against an existing draft that is a
+    /// device overwriting words it has never seen, so it conflicts.
     ///
-    /// `None` assumes there is nothing here. It lands only when that is true;
-    /// against an existing draft it is a device writing over words it has never
-    /// seen, which is a conflict.
-    ///
-    /// ⚠ **A cleared draft is a TOMBSTONE, not a removal, and that is what stops
-    /// a sent message coming back.** Sending on the Mac empties its composer,
-    /// which arrives here as an empty write. If that erased the entry, the phone
-    /// — still holding the words — would push them back and resurrect a message
-    /// already sent. Keeping the entry means that push arrives as the conflict
-    /// it is, with THEIRS empty, and the person decides.
+    /// ⚠ **A cleared draft is a TOMBSTONE, not a removal.** Erasing the entry
+    /// lets the other device, still holding the words, push them back and
+    /// resurrect a message already sent.
     pub fn apply(&self, id: &str, text: &str, assumed: Option<&str>, at: u64) -> Wrote {
         let (result, all) = {
             let mut held = self.held.write().expect("drafts poisoned");
@@ -200,10 +187,8 @@ impl Drafts {
             // conversation would take rev 1 while a client that has already
             // pulled another sits at 3, and `rev > since` then never matches it.
             // That conversation never syncs — not late, never — and it looks
-            // random from the outside, because whether it happens depends on
-            // what OTHER conversations have been typed in. Reproduced against
-            // the running binary on 2026-09-16: two browsers, second session,
-            // nothing crossed in fourteen seconds.
+            // random from the outside, because whether it bites depends on
+            // what OTHER conversations have been typed in.
             let next = Draft {
                 text: text.to_string(),
                 rev: held.values().map(|d| d.rev).max().unwrap_or(0) + 1,
