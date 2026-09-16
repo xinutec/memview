@@ -12,9 +12,9 @@ import { since } from './since';
 import { ConsoleApi } from './console-api';
 import { Dismiss } from './dismiss';
 import { reason } from './errors';
-import { Reach } from './reach';
+import { Roster } from './roster';
 import { Foreground } from './foreground';
-import { Conversation, Held, Overview, Summary, TaskCount } from './models';
+import { Conversation, Held, Summary, TaskCount } from './models';
 import { modelName } from './model';
 import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { placeOf, titleOf } from './naming';
@@ -142,15 +142,16 @@ export class SessionsView {
   private router = inject(Router);
   private sheet = inject(MatBottomSheet);
   private dismiss = inject(Dismiss);
+  private roster = inject(Roster);
   private pastStore = inject(PastStore);
   private foreground = inject(Foreground);
   private until = inject(DestroyRef);
 
-  readonly state = signal<Overview | undefined>(undefined);
+  /** What the runner is holding. Polled once for the app — see [[Roster]]. */
+  readonly state = this.roster.state;
   readonly trouble = signal('');
   /**
-   * The last poll's verdict on whether the Mac is reachable — its own signal,
-   * cleared by the next poll that succeeds.
+   * The last poll's verdict on whether the Mac is reachable.
    *
    * ⚠ Separate from [trouble] because the two have opposite lifetimes. A failed
    * action is news that stays true until it is retried; a failed poll is a
@@ -159,9 +160,7 @@ export class SessionsView {
    * flight — left "cannot reach the runner" on screen for as long as the page
    * was open, over a console that had been answering the whole time.
    */
-  readonly unreachable = signal('');
-  /** How patient the banner above is. See [[Reach]]. */
-  private readonly reach = new Reach();
+  readonly unreachable = this.roster.unreachable;
   readonly starting = signal(false);
   /** Conversations on disk, newest first. Held in a root store so opening a
    *  session and coming back does not blank the list — see [[PastStore]]. */
@@ -276,48 +275,30 @@ export class SessionsView {
   readonly anyInUse = computed(() => this.rows().some((row) => row.past?.busy));
 
   constructor() {
-    this.load();
     // The list is a snapshot of processes, and a session started from another
     // window — or one that just ended — should not need a manual refresh to
-    // appear. Cheap: one small request.
+    // appear. The roster does the asking; this says it is being read, and stops
+    // saying so when the page goes.
+    this.until.onDestroy(this.roster.follow());
+    // The conversations on disk are this page's alone, so it keeps its own
+    // timer for them. Unconditional now that they are in the list rather than
+    // behind a disclosure: they are on screen whenever this page is, so `busy`
+    // has to be as fresh as the sessions beside it.
     //
     // ⚠ **Stopped when the page goes, and it was not.** This component is
-    // rebuilt on every navigation back to the list, so a poll left running
-    // accumulated one timer per visit — twenty trips through a session and the
-    // phone was asking for `/api/state` and `/api/past` twenty times every five
-    // seconds. The second of those walks every project directory and reads the
-    // tail of every transcript on the Mac, so the leak was not only the phone's.
-    // `SessionView` has always cleared its own; this is the one that did not.
-    const poll = setInterval(() => {
-      this.load();
-      // Unconditional now that the conversations are in the list rather than
-      // behind a disclosure: they are on screen whenever this page is, so `busy`
-      // has to be as fresh as the sessions beside it. A conversation just closed
-      // is the one about to be picked up.
-      this.pastStore.load();
-    }, 5000);
+    // rebuilt on every navigation back, so a poll left running accumulated one
+    // timer per visit — and this request walks every project directory and reads
+    // the tail of every transcript on the Mac, so the leak was not the phone's
+    // alone.
+    const poll = setInterval(() => this.pastStore.load(), 5000);
     this.until.onDestroy(() => clearInterval(poll));
-    // Once at the start, to know whether there is anything to offer at all.
     this.pastStore.load();
-    // And whenever the phone comes back, because the poll above did not run
-    // while it was away — see [[Foreground]].
+    // And whenever the phone comes back, because neither ran while it was away
+    // — see [[Foreground]].
     this.foreground.onReturn(() => {
-      this.load();
+      this.roster.ask();
       this.pastStore.load();
     }, this.until);
-  }
-
-  private load(): void {
-    this.api.state().subscribe({
-      next: (state) => {
-        this.state.set(state);
-        this.updates.saw(state.bundle);
-        this.unreachable.set(this.reach.answered());
-      },
-      // Only once it has outlived a poll — see [[Reach]] for the measurement.
-      error: (err: unknown) =>
-        this.unreachable.set(this.reach.failed(`cannot reach the runner: ${reason(err)}`)),
-    });
   }
 
   /** Offer the form that starts one. See [[StartSheet]] for why it is a sheet. */
