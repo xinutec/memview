@@ -6,6 +6,7 @@ import {
   type RxCollection,
   type RxConflictHandler,
   type RxJsonSchema,
+  type RxDatabase,
   type RxStorage,
 } from 'rxdb';
 import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
@@ -165,8 +166,24 @@ export class ConsoleDb {
     // ⚠ The arguments are read ONLY on the call that opens it. Storing them
     // would let any later caller using the defaults rename a database that is
     // already open, or reach for the real one from a test.
-    this.opened ??= this.open(storage, get, name);
+    if (!this.opened) {
+      this.opened = this.open(storage, get, name);
+      // ⚠ **A memoised promise is unhandled from the moment it is made.** If
+      // opening fails — no IndexedDB, which some private-browsing modes refuse —
+      // the rejection is loose before any caller has attached, and that is an
+      // unhandled rejection whatever the callers then do. They still see it.
+      this.opened.catch(() => undefined);
+    }
     return this.opened;
+  }
+
+  /**
+   * The database, for state that is NOT replicated — a kept transcript, a held
+   * picture. RxDB excludes local documents from replication itself, so staying
+   * on one device is a property of the storage rather than a promise.
+   */
+  async database(): Promise<RxDatabase> {
+    return (await this.collection()).database;
   }
 
   /**
@@ -179,7 +196,9 @@ export class ConsoleDb {
    * words on screen.
    */
   resync(): void {
-    void this.collection().then(() => this.running?.reSync());
+    void this.collection()
+      .then(() => this.running?.reSync())
+      .catch(() => undefined);
   }
 
   /** Put a clash down once it has been settled. */
@@ -232,6 +251,9 @@ export class ConsoleDb {
       name,
       storage,
       multiInstance: true,
+      // Enabled on the DATABASE as well as on the collection below: a kept
+      // transcript belongs to this console rather than to the drafts.
+      localDocuments: true,
     });
     const added = await db.addCollections({
       drafts: {

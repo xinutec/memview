@@ -18,6 +18,19 @@ import { Answers, Notes } from './questions';
 
 /** Thin client over the console runner. Same origin in production (the runner
  *  serves this bundle); via the dev proxy under `ng serve`. */
+/**
+ * What a followed conversation reports.
+ *
+ * `offline` is the browser retrying rather than the stream ending — EventSource
+ * reconnects on its own — so it means "not connected right now", which is the
+ * question a page has to answer before offering what it last saw.
+ */
+export type Streamed =
+  | { kind: 'event'; event: SessionEvent; seq: number }
+  | { kind: 'reset' }
+  | { kind: 'caught-up' }
+  | { kind: 'offline' };
+
 @Injectable({ providedIn: 'root' })
 export class ConsoleApi {
   private http = inject(HttpClient);
@@ -239,61 +252,56 @@ export class ConsoleApi {
     return this.http.delete(`/api/sessions/${encodeURIComponent(id)}`);
   }
 
-  /** Follow a session, from where the caller left off to now and onward.
+  /**
+   * Follow a conversation.
    *
-   *  EventSource rather than a polling GET: the answer arrives while it is being
-   *  written, and it reconnects on its own when the phone changes network —
-   *  which is the normal case, not the exception.
-   *
-   *  `after` is the last sequence number the caller holds, and it is what makes
-   *  closing the stream survivable. The browser quotes the last id back by itself
-   *  on a reconnect, but only for the same `EventSource` — a new one opened by a
-   *  page returning to a session it had left knows nothing, so it has to say. The
-   *  answer is the same either way: the events since, or a `reset` when the
-   *  runner cannot bridge the gap.
-   *
-   *  `onEvent` is handed the number alongside the event, because the caller is
-   *  the only one that knows when it has finished with it. Zero for the events
-   *  the runner deliberately leaves unnumbered — see the drop notice in `api.rs`.
-   *
-   *  Returns the function that closes it. */
-  follow(
-    id: string,
-    after: number,
-    onEvent: (event: SessionEvent, seq: number) => void,
-    onReset: () => void,
-    onCaughtUp: () => void,
-  ): () => void {
-    const url = `/api/sessions/${encodeURIComponent(id)}/events`;
-    const source = new EventSource(after > 0 ? `${url}?after=${after}` : url);
-    // ⚠ Not `onopen`. A reconnect used to mean "throw everything away", because
-    // the server had no way to send only what was missed — so a phone going
-    // through a tunnel discarded the history somebody had just scrolled back to
-    // load. The events are numbered now and the browser quotes the last one back
-    // on its own, so a reconnect is ordinarily seamless and this fires only when
-    // the runner says it genuinely cannot resume: a console restarted, or a
-    // session busy enough to have dropped that far out of its scrollback.
-    source.addEventListener('reset', () => onReset());
-    // ⚠ **Where the replay ends and the present begins.** Everything before it
-    // is the transcript being caught up on, and a replayed `turn` is
-    // indistinguishable from one that just ended — which is how the page came to
-    // report `idle` over twelve minutes of work. Named rather than a domain
-    // event because it is a fact about this connection, and per connection
-    // rather than in the log because the log can be trimmed out from under a
-    // client that joins late.
-    source.addEventListener('caught-up', () => onCaughtUp());
-    source.onmessage = (message: MessageEvent<unknown>) => {
-      const event = parse(message.data);
-      // A line that is not an event this version knows is dropped rather than
-      // rendered: the runner reports its own failures as `trouble` events, and
-      // one unreadable line must not end the stream.
-      // `lastEventId` is '' on the unnumbered ones, and `Number('')` is 0 — which
-      // is why the number is taken through `parseInt`, whose answer for a
-      // non-number is NaN and is rejected here rather than becoming a sequence
-      // the caller would then claim to hold.
-      if (event) onEvent(event, Number.parseInt(message.lastEventId, 10) || 0);
-    };
-    return () => source.close();
+   * ⚠ **One stream of what happened, not a handful of callbacks.** This used to
+   * take five — an event, a reset, a caught-up, and it still had nowhere to put
+   * the one fact anybody needed most: whether the connection is up. A union the
+   * caller switches on has room for that without growing an argument list, and
+   * unsubscribing closes the socket, so the lifetime is the subscription's.
+   */
+  follow(id: string, after: number): Observable<Streamed> {
+    return new Observable<Streamed>((to) => {
+      const url = `/api/sessions/${encodeURIComponent(id)}/events`;
+      const source = new EventSource(after > 0 ? `${url}?after=${after}` : url);
+      // ⚠ Not `onopen`. A reconnect used to mean "throw everything away",
+      // because the server had no way to send only what was missed — so a phone
+      // going through a tunnel discarded the history somebody had just scrolled
+      // back to load. The events are numbered now and the browser quotes the
+      // last one back on its own, so a reconnect is ordinarily seamless and this
+      // fires only when the runner says it genuinely cannot resume: a console
+      // restarted, or a session busy enough to have dropped that far out of its
+      // scrollback.
+      source.addEventListener('reset', () => to.next({ kind: 'reset' }));
+      // ⚠ **Where the replay ends and the present begins.** Everything before it
+      // is the transcript being caught up on, and a replayed `turn` is
+      // indistinguishable from one that just ended — which is how the page came
+      // to report `idle` over twelve minutes of work. Named rather than a domain
+      // event because it is a fact about this connection, and per connection
+      // rather than in the log because the log can be trimmed out from under a
+      // client that joins late.
+      source.addEventListener('caught-up', () => to.next({ kind: 'caught-up' }));
+      // ⚠ **The tunnel dropping, which nothing used to be told about.** The
+      // browser retries on its own, so this says "not connected right now"
+      // rather than "gone" — which is exactly the question a page needs to
+      // answer before it can offer what it last saw instead of a blank screen.
+      source.onerror = () => to.next({ kind: 'offline' });
+      source.onmessage = (message: MessageEvent<unknown>) => {
+        const event = parse(message.data);
+        // A line that is not an event this version knows is dropped rather than
+        // rendered: the runner reports its own failures as `trouble` events, and
+        // one unreadable line must not end the stream.
+        // `lastEventId` is '' on the unnumbered ones, and `Number('')` is 0 —
+        // which is why the number is taken through `parseInt`, whose answer for
+        // a non-number is NaN and is rejected here rather than becoming a
+        // sequence the caller would then claim to hold.
+        if (event) {
+          to.next({ kind: 'event', event, seq: Number.parseInt(message.lastEventId, 10) || 0 });
+        }
+      };
+      return () => source.close();
+    });
   }
 }
 

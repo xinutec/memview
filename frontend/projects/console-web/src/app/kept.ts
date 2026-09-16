@@ -1,5 +1,6 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 
+import { ConsoleDb } from './console-db';
 import type { Entry } from './models';
 
 /**
@@ -14,6 +15,9 @@ import type { Entry } from './models';
  * send already keeps its draft in the composer, which is the same work and
  * leaves the decision with the person.
  *
+ * ⚠ **A LOCAL document, so replication cannot carry it.** A transcript is this
+ * phone's copy of a conversation and has no business on another device.
+ *
  * ⚠ **No service worker, deliberately.** The console has none, because it sits
  * behind a client-certificate gate and ngsw's `navigationUrls` and auth are a
  * known source of trouble here — see `reference_ngsw_auth_navigationurls`. So
@@ -23,28 +27,16 @@ import type { Entry } from './models';
  */
 @Injectable({ providedIn: 'root' })
 export class Kept {
-  private static readonly PREFIX = 'console.kept.';
+  private db = inject(ConsoleDb);
 
   /**
    * How much of a conversation is kept, in entries.
    *
-   * The end of it, because that is what somebody re-opening a session is
-   * looking for. Reading further back needs the runner anyway — the pages come
-   * from the file on disk, which this phone has never had.
+   * The end of it, because that is what somebody re-opening a session is looking
+   * for. Reading further back needs the runner anyway — the pages come from the
+   * file on disk, which this phone has never had.
    */
   private static readonly ENTRIES = 200;
-
-  /**
-   * The ceiling on one session's kept copy, in characters of JSON.
-   *
-   * ⚠ **Because this shares an origin's storage with the drafts**, and a draft
-   * holds a scaled picture as a data URL — the one thing here that can be a
-   * megabyte on its own. A transcript that filled the quota would take the
-   * unsent message down with it, which is a worse loss than not being able to
-   * read a conversation offline: the draft is the only copy of something a
-   * person wrote.
-   */
-  private static readonly ROOM = 256_000;
 
   /** How often one session's copy is rewritten, in milliseconds. */
   private static readonly EVERY = 5_000;
@@ -56,20 +48,22 @@ export class Kept {
    *
    * ⚠ **Checked field by field, not cast.** Storage outlives every deploy that
    * touched this phone, so what comes back may have been written by a build two
-   * versions gone — the same reason `drafts.ts` revives its picture this way.
-   * A `JSON.parse(…) as Entry[]` would be a claim about code that no longer
-   * runs, and the damage would land in the renderer rather than here.
+   * versions gone; a cast would be a claim about code that no longer runs, and
+   * the damage would land in the renderer.
    */
-  entries(id: string): Entry[] {
-    const stored = localStorage.getItem(`${Kept.PREFIX}${id}`);
-    if (!stored) return [];
+  async entries(id: string): Promise<Entry[]> {
     try {
-      const value: unknown = JSON.parse(stored);
-      if (!Array.isArray(value)) return [];
-      return value.filter(isEntry);
+      const db = await this.db.database();
+      const held = await db.getLocal(`kept-${id}`);
+      const stored: unknown = held?.toJSON().data;
+      if (typeof stored !== 'object' || stored === null || !('entries' in stored)) return [];
+      const { entries } = stored;
+      return Array.isArray(entries) ? entries.filter(isEntry) : [];
     } catch {
-      // Unreadable is simply nothing kept. There is no version of this worth
-      // reporting: the conversation is on the Mac, and the copy was a courtesy.
+      // ⚠ **A database that will not open must not take the reader with it.**
+      // IndexedDB is refused outright in some private-browsing modes. What is
+      // lost is the offline copy; the live conversation is unaffected, which is
+      // why this is silent where a draft's failure is not.
       return [];
     }
   }
@@ -90,39 +84,35 @@ export class Kept {
     const now = Date.now();
     if (now - (this.lastWrote.get(id) ?? 0) < Kept.EVERY) return;
     this.lastWrote.set(id, now);
-    this.write(id, entries);
+    void this.write(id, entries);
   }
 
   /** Keep it now, whatever the throttle says. For leaving a session. */
   keepNow(id: string, entries: Entry[]): void {
+    if (!entries.length) return;
     this.lastWrote.set(id, Date.now());
-    this.write(id, entries);
+    void this.write(id, entries);
   }
 
-  private write(id: string, entries: Entry[]): void {
-    let end = entries.slice(-Kept.ENTRIES);
-    let text = JSON.stringify(end);
-    // Drop from the FRONT until it fits: the newest is what is wanted, and a
-    // copy cut at the end would keep the beginning of a conversation and lose
-    // what was just said.
-    while (text.length > Kept.ROOM && end.length > 1) {
-      end = end.slice(Math.ceil(end.length / 10));
-      text = JSON.stringify(end);
-    }
+  private async write(id: string, entries: Entry[]): Promise<void> {
     try {
-      localStorage.setItem(`${Kept.PREFIX}${id}`, text);
+      const db = await this.db.database();
+      await db.upsertLocal(`kept-${id}`, { entries: entries.slice(-Kept.ENTRIES) });
     } catch {
-      // A full quota is not a failure worth propagating — the session is being
-      // read live at this moment, which is why there is anything to keep. Drop
-      // this session's copy so the space goes back rather than leaving a stale
-      // one that will never be rewritten.
-      this.forget(id);
+      // A copy that cannot be written is not a failure worth propagating: the
+      // session is being read live at this moment, which is why there is
+      // anything to keep.
     }
   }
 
   /** Throw away what was kept — for a conversation that is gone. */
-  forget(id: string): void {
-    localStorage.removeItem(`${Kept.PREFIX}${id}`);
+  async forget(id: string): Promise<void> {
+    try {
+      const db = await this.db.database();
+      await (await db.getLocal(`kept-${id}`))?.remove();
+    } catch {
+      // Nothing kept is nothing to throw away — see [[entries]].
+    }
   }
 }
 

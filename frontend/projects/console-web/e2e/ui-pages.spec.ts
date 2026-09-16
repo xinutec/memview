@@ -4346,6 +4346,14 @@ test('a session opened with no answer from the Mac reads from the kept copy @ ph
   await page.goto(`/s/${id}`);
   const line = page.getByText('home-manager switch').first();
   await expect(line, 'the conversation was never read in the first place').toBeVisible();
+  // ⚠ **The copy is written asynchronously and this has to outlast that.** The
+  // database opens on the first write, so the copy lands a moment after the
+  // conversation appears — a person reading one is there far longer than a test,
+  // and navigating immediately races a write that nothing real races. A duration
+  // rather than a condition because the only observable is RxDB's own Dexie
+  // tables, and a test reading those is pinned to the library's internals rather
+  // than to the behaviour.
+  await page.waitForTimeout(2000);
 
   // Now the Mac does not answer: the transcript stream never opens, which is
   // exactly what a dropped tunnel looks like from here.

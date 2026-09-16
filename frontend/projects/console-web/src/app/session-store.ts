@@ -89,6 +89,14 @@ export interface Held {
    */
   readonly stale: WritableSignal<boolean>;
   /**
+   * Whether the stream is connected right now.
+   *
+   * The browser retries on its own, so this is "not connected at this moment"
+   * rather than "gone" — and it is what decides whether the last kept copy is
+   * worth offering instead of a blank screen.
+   */
+  readonly offline: WritableSignal<boolean>;
+  /**
    * Whether the reader has jumped away from the live end of the transcript.
    *
    * ⚠ **Not "the stream is closed", though a jump does close it.** Leaving a
@@ -148,41 +156,59 @@ export class SessionStore {
    * stream, because the second open closes whatever the first left running.
    */
   open(id: string): Held {
-    // ⚠ **Whether this page has EVER held this session, not whether it is empty
-    // now.** Emptiness is also what a rejoin leaves behind — [[rejoin]] forgets
-    // the jumped-to page precisely so the stream can replay the end of the file
-    // — and hydrating there would paste a copy over a session that is live and
-    // about to redraw itself. Caught by `throws the jumped-to page away on the
-    // way back to now`.
-    const known = this.held.has(id);
     const held = this.held.get(id) ?? this.fresh(id);
-    // A Held this page has never seen resumes from sequence 0, so the stream
-    // always sends a seed, and the seed is what clears the copy again — which is
-    // the whole of why this cannot draw the conversation twice. See [[Kept]] and
-    // memview #90.
-    if (!known) {
-      const copy = this.kept.entries(id);
-      if (copy.length) {
-        held.entries.set(copy);
-        held.stale.set(true);
-      }
-    }
     held.close?.();
     held.used = ++this.clock;
     this.held.set(id, held);
-    held.close = this.api.follow(
-      id,
-      held.seen,
-      (event, seq) => this.take(id, held, event, seq),
-      // Only when the runner says the stream starts again — see [[ConsoleApi]].
-      // Everything held has to go: it would otherwise be appended to by a replay
-      // of itself, and there is no way to tell the two copies apart.
-      () => this.forget(held),
-      // The replay is over; what follows is happening — see [Held.live].
-      () => held.live.set(true),
-    );
+    const watching = this.api.follow(id, held.seen).subscribe((from) => {
+      switch (from.kind) {
+        case 'event':
+          held.offline.set(false);
+          this.take(id, held, from.event, from.seq);
+          break;
+        // Only when the runner says the stream starts again — see
+        // [[ConsoleApi]]. Everything held has to go: it would otherwise be
+        // appended to by a replay of itself, and there is no way to tell the two
+        // copies apart.
+        case 'reset':
+          this.forget(held);
+          break;
+        // The replay is over; what follows is happening — see [Held.live].
+        case 'caught-up':
+          held.offline.set(false);
+          held.live.set(true);
+          break;
+        // ⚠ **The one moment a kept copy is wanted, and being told about it is
+        // the whole point of the stream saying so.** It used to be shown on
+        // open, speculatively, and cleared again by whatever arrived — a guess
+        // that had to be read synchronously to beat the seed, which is what tied
+        // it to storage that answers synchronously. Asked for here it races
+        // nothing: the conversation is known not to be arriving.
+        case 'offline':
+          held.offline.set(true);
+          void this.hydrate(id, held);
+          break;
+      }
+    });
+    held.close = () => watching.unsubscribe();
     this.evict();
     return held;
+  }
+
+  /**
+   * Show what was last kept, for a conversation whose stream is not connected.
+   *
+   * ⚠ **Every condition is a separate fact and all of them matter.** Entries on
+   * screen mean the conversation is arriving; a sequence number means it arrived
+   * and was then cleared, which is what a reset leaves behind; and a stream that
+   * came back while this was being read wants none of it. Any one of them makes
+   * showing the copy a conversation drawn twice — see [[Kept]] and memview #90.
+   */
+  private async hydrate(id: string, held: Held): Promise<void> {
+    const copy = await this.kept.entries(id);
+    if (!copy.length || held.entries().length || held.seen > 0 || !held.offline()) return;
+    held.entries.set(copy);
+    held.stale.set(true);
   }
 
   /**
@@ -197,6 +223,12 @@ export class SessionStore {
     if (!held) return;
     held.close?.();
     held.close = undefined;
+    // ⚠ **Flushed on the way out, past the throttle.** The throttle is there so
+    // that reading a busy conversation is not a write per event; it also means
+    // everything since the last one is unwritten at the moment somebody leaves,
+    // which is the moment a copy is most likely to be wanted next. A stale copy
+    // is not what the throttle is for.
+    if (!held.stale()) this.kept.keepNow(id, held.entries());
   }
 
   /**
@@ -282,6 +314,7 @@ export class SessionStore {
       spoken: signal(false),
       live: signal(false),
       stale: signal(false),
+      offline: signal(false),
       adrift: signal(false),
       seen: 0,
       used: ++this.clock,

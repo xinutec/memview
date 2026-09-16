@@ -1,8 +1,10 @@
 import { TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Observable, of } from 'rxjs';
+import { getRxStorageMemory } from 'rxdb/plugins/storage-memory';
 
-import { ConsoleApi } from './console-api';
+import { ConsoleApi, type Streamed } from './console-api';
+import { ConsoleDb } from './console-db';
 import { SessionEvent } from './models';
 import { SessionStore } from './session-store';
 
@@ -15,6 +17,8 @@ interface Opened {
   readonly reset: () => void;
   /** The runner's per-connection marker: the replay is over. */
   readonly caughtUp: () => void;
+  /** The tunnel dropping. The browser retries, so this is "not right now". */
+  readonly offline: () => void;
   closed: boolean;
 }
 
@@ -27,23 +31,20 @@ interface Opened {
 class Runner {
   readonly opened: Opened[] = [];
 
-  follow(
-    id: string,
-    after: number,
-    onEvent: (event: SessionEvent, seq: number) => void,
-    onReset: () => void,
-    onCaughtUp: () => void,
-  ): () => void {
-    const stream: Opened = {
-      id,
-      after,
-      send: onEvent,
-      reset: onReset,
-      caughtUp: onCaughtUp,
-      closed: false,
-    };
-    this.opened.push(stream);
-    return () => (stream.closed = true);
+  follow(id: string, after: number): Observable<Streamed> {
+    return new Observable<Streamed>((to) => {
+      const stream: Opened = {
+        id,
+        after,
+        send: (event, seq) => to.next({ kind: 'event', event, seq }),
+        reset: () => to.next({ kind: 'reset' }),
+        caughtUp: () => to.next({ kind: 'caught-up' }),
+        offline: () => to.next({ kind: 'offline' }),
+        closed: false,
+      };
+      this.opened.push(stream);
+      return () => (stream.closed = true);
+    });
   }
 
   /** What a page fetched by cursor comes back with. Set by the test. */
@@ -62,6 +63,8 @@ class Runner {
   }
 }
 
+const opened: ConsoleDb[] = [];
+
 describe('SessionStore', () => {
   let runner: Runner;
   let store: SessionStore;
@@ -71,7 +74,26 @@ describe('SessionStore', () => {
     TestBed.configureTestingModule({
       providers: [{ provide: ConsoleApi, useValue: runner }],
     });
+    // ⚠ **Open the database on MEMORY before anything reaches for it.** [[Kept]]
+    // keeps the offline copy in it, and left to its default it opens IndexedDB —
+    // which jsdom does not have, and whose failure surfaces inside RxDB as a
+    // rejection nothing here can catch.
+    const db = TestBed.inject(ConsoleDb);
+    opened.push(db);
+    void db.collection(
+      getRxStorageMemory(),
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ documents: [], checkpoint: { rev: 0 } }), { status: 200 }),
+        ),
+      ),
+      `t${Math.random().toString(36).slice(2)}`,
+    );
     store = TestBed.inject(SessionStore);
+  });
+
+  afterEach(async () => {
+    await Promise.all(opened.splice(0, opened.length).map((d) => d.close()));
   });
 
   /** Say something, as the runner would, and number it. */
