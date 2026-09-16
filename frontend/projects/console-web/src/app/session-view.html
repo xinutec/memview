@@ -549,27 +549,6 @@
   }
 }
 
-<!-- What is about to be sent with the next message, above the box rather than
-     inside it: the box grows with what is typed, and a thumbnail in a row that
-     changes height moves the send button around under a thumb.
-
-     ⚠ **Held rather than sent on choosing.** The words about a screenshot are
-     usually the point of sending it, and a picture that left the moment it was
-     picked would have to be explained by a second message the model reads after
-     it. So it waits here until there is something to say about it — or until
-     send is pressed with nothing, which is a complete message too. -->
-@if (picture(); as held) {
-  <div class="chosen">
-    <img class="thumb" [src]="held.preview" alt="the image about to be sent" />
-    <span class="about">{{ held.width }}×{{ held.height }} · {{ weight(held.bytes) }}</span>
-    <button matIconButton type="button" aria-label="do not send this image" (click)="drop()">
-      <mat-icon>close</mat-icon>
-    </button>
-  </div>
-}
-@if (pictureTrouble(); as why) {
-  <p class="trouble">{{ why }}</p>
-}
 <!-- ⚠ **A command sent to a working session does not run.** The CLI parks it and
      hands it to the model as words — `/rename` got "nothing for me to do" and no
      name was ever written, with nothing on screen saying so. The runner holds it
@@ -631,91 +610,16 @@
   </div>
 }
 
-<form class="composer" (submit)="$event.preventDefault(); send()">
-  <!-- ⚠ `subscriptSizing="dynamic"` is load-bearing, not tidying. By default a
-       form field reserves a line of hint/error space below the input — Material
-       does it with `.mat-mdc-form-field-bottom-align::before`, which carries the
-       subscript line-height whether or not there is a hint. This field has
-       neither, so that row is invisible; but the composer aligns its row to
-       `flex-end`, and the send button was therefore aligning to the bottom of
-       the *reserved* box and sitting a line below the visible one. -->
-  <!-- ⚠ **The input is the control; the button only presses it.** A bare
-       `<input type="file">` renders as a browser-styled button that ignores the
-       app's type and cannot be made 48px, so the real one is hidden and a proper
-       icon button forwards the tap. `accept="image/*"` is what makes Android
-       offer the camera and the screenshots folder rather than a file tree.
-
-       ⚠ **This does nothing in the wrapper app without `onShowFileChooser`.** A
-       WebView refuses every file input unless the host implements that callback,
-       silently — no error, no picker, nothing to see. It is implemented in the
-       shared shell (`ui-harness/android`), which is why this needs a build of the
-       APK and not only of the bundle. -->
-  <input
-    #picker
-    class="picker"
-    type="file"
-    accept="image/*"
-    aria-hidden="true"
-    tabindex="-1"
-    (change)="chose(picker)"
-  />
-  <mat-form-field appearance="outline" class="box" subscriptSizing="dynamic">
-    <mat-label>say something</mat-label>
-    <!-- Grows with what is being typed. `rows="1"` meant an instruction of any
-         length was composed through a one-line slit, on the device this is
-         driven from — you could not see the sentence you were writing. Capped,
-         because past a third of the screen the composer is hiding the thing
-         being replied to.
-
-         `Ctrl+Enter` stays for the desk and is deliberately not the way in:
-         a soft keyboard has no Ctrl, so the button is the only send that has to
-         work. Enter is a newline, which is what a multi-line instruction needs. -->
-    <textarea
-      matInput
-      cdkTextareaAutosize
-      cdkAutosizeMinRows="1"
-      cdkAutosizeMaxRows="6"
-      [(ngModel)]="text"
-      name="text"
-      (keydown.control.enter)="send()"
-    ></textarea>
-  </mat-form-field>
-  <!-- ⚠ **Beside the send, NOT inside the field as `matIconSuffix` — which was
-       built and looked at before this was.** Inside is what Google Messages does
-       (looked at on the phone, 2026-08-15: a leading `+`, then emoji and picture
-       trailing, all within the field) and it is better at one row. But Material
-       centres a suffix vertically and this field autosizes to six rows, so at
-       full height the glyph floats in the middle of the box and its column costs
-       width on EVERY line of a 412px screen. Bottom-aligning it means reaching
-       into `.mat-mdc-*`, which DL-SCSS-INTERNAL-OVERRIDE and DL-SCSS-NG-DEEP both
-       forbid — and rightly: there is no `::ng-deep` anywhere in this app. -->
-  <button matIconButton type="button" aria-label="show an image" (click)="picker.click()">
-    <mat-icon>image</mat-icon>
-  </button>
-  <!-- ⚠ **A `matMiniFab` was tried here and reverted, over a shape token.** M3's
-       answer for a high-emphasis single glyph is the FILLED ICON BUTTON, which is
-       circular — `icon-button-container-shape: corner-full`. Angular Material
-       does not implement it: the icon-button token set has no `container-color`
-       at all, only icon and state-layer colours, which is why `matIconButton`
-       takes no inputs and why angular/components#33091 is open. The nearest stock
-       filled control is the small FAB, and in M3 that is a ROUNDED SQUARE
-       (`fab-small-container-shape: corner-medium`, 12px) — M2's circular FAB is
-       gone. So it sat at 12px beside an icon button at `corner-full`: two shape
-       languages in one row, which is a standard nowhere.
-       Both plain, therefore, until Material ships the variant. A filled send
-       would carry useful emphasis, but it costs either a hand-rolled background
-       or a mismatched shape, and neither is worth it here.
-       ⚠ Not a filled TEXT button holding an icon either: that variant carries
-       `min-width: 64px` and label padding it will never use, so a single glyph
-       sits adrift in a wide pill. DL-ANGULAR-ICON-ONLY-TEXT-BUTTON catches that;
-       the rule was written from this button. -->
-  <button
-    class="send"
-    matIconButton
-    type="submit"
-    aria-label="send"
-    [disabled]="sending() || (!text() && !picture())"
-  >
-    <mat-icon>send</mat-icon>
-  </button>
-</form>
+<!-- The box itself is its own component. The split was made to pay for this
+     stylesheet reaching the size that FAILS the build, and the composer is the
+     part of the view that owns nothing: the picture, the draft and the send all
+     stay here, and it is passed what it needs to draw. -->
+<app-composer
+  [(text)]="text"
+  [sending]="sending()"
+  [held]="picture()"
+  [trouble]="pictureTrouble()"
+  (send)="send()"
+  (chose)="chose($event)"
+  (discard)="drop()"
+/>

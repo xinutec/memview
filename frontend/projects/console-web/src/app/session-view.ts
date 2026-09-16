@@ -15,16 +15,13 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { MatBottomSheet } from '@angular/material/bottom-sheet';
-import { TextFieldModule } from '@angular/cdk/text-field';
-import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
-import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
-import { MatInputModule } from '@angular/material/input';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { NgTemplateOutlet } from '@angular/common';
 
 import { Clock } from './clock';
+import { Composer } from './composer';
 import { Lasted } from './lasted';
 import { ConsoleApi } from './console-api';
 import { reason } from './errors';
@@ -41,7 +38,7 @@ import { Here } from './here';
 import { Updates } from './updates';
 import { Coloured } from './coloured';
 import { PICTURE, Rendered } from './rendered';
-import { Picture, pointedAt, shrink, weight } from './picture';
+import { Picture, pointedAt, shrink } from './picture';
 import { Answers, Notes, Question, choiceOf, complete } from './questions';
 import { Held, SessionStore } from './session-store';
 import { ParseSheet } from './parse-sheet';
@@ -68,17 +65,14 @@ import { fullness } from './tokens';
   host: { '(click)': 'tapped($event)' },
   imports: [
     Clock,
+    Composer,
     Lasted,
-    FormsModule,
     NgTemplateOutlet,
     MatButtonModule,
     MatIconModule,
-    MatFormFieldModule,
-    MatInputModule,
     MatProgressBarModule,
     Coloured,
     Rendered,
-    TextFieldModule,
   ],
 })
 export class SessionView implements OnDestroy {
@@ -841,17 +835,8 @@ export class SessionView implements OnDestroy {
     });
   }
 
-  /**
-   * Take what was chosen from the picker, scaled to something worth sending.
-   *
-   * ⚠ **The input is cleared afterwards, and it matters.** A file input holds
-   * its selection, so choosing the same screenshot twice in a row fires no
-   * `change` event the second time and the picker simply appears to do nothing.
-   */
-  chose(input: HTMLInputElement): void {
-    const file = input.files?.[0];
-    input.value = '';
-    if (!file) return;
+  /** Take what was chosen from the picker, scaled to something worth sending. */
+  chose(file: File): void {
     this.pictureTrouble.set('');
     shrink(file)
       .then((picture) => {
@@ -911,8 +896,6 @@ export class SessionView implements OnDestroy {
     this.picture.set(undefined);
     this.pictureTrouble.set('');
   }
-
-  protected readonly weight = weight;
 
   /**
    * Where a picture in the transcript is fetched from.

@@ -2,58 +2,35 @@
 //
 // ⚠ **`anyComponentStyle` is a complexity heuristic here, not a load-time
 // guard.** These styles are inlined into the one bundle we ship — nothing in this
-// console is lazily loaded — so 6 kB against 8 kB is the same bytes over the
+// console is lazily loaded — so 9 kB against 10 kB is the same bytes over the
 // wire. What the budget stands in for is "this component is doing a lot", which
-// of this one is true: it draws the transcript, folded tool runs, question cards,
-// the composer and the activity strip.
+// of this one is true: it draws the transcript, folded tool runs, question
+// cards, the clash between two devices' drafts and the activity strip.
 //
-// Raised to 8 kB warn / 10 kB error on 2026-08-05 rather than left warning
-// permanently, because a build that always warns is a build nobody reads — which
-// is how a code block sat 618px past the right edge unnoticed. The hygiene the
-// budget cannot judge is checked properly instead, by five dev-lint rules that
-// are green on this file: DL-ANGULAR-DEAD-STYLE, -ENCAPSULATION-DEAD-SELECTOR,
-// -UNSTYLED-CLASS, -INNERHTML-SCOPED-STYLES and DL-SCSS-DUPLICATE-SELECTOR.
+// ⚠ **The warning was raised three times; the fourth overshoot was paid by
+// splitting, and the composer is now [[Composer]].** The 10 kB error has never
+// moved, and the corridor beneath it had been halved to 0.5 kB, which cannot be
+// halved again. Each of those three raises recorded the promise to split in its
+// own commit message, which nothing reads — so the fourth session to reach the
+// ceiling met it with no warning and the same choice to defer. What carries it
+// now is this file's own size against a warning that is not moving either.
 //
+// The composer was the seam because it owns no state: the text is two-way, the
+// picture it is about to send stays here, and nothing keyed by session id moved.
 // Splitting the question card out was investigated as the alternative and
-// declined: its state is keyed by ask id so that options tapped before a dropped
-// connection survive the re-seed, and per-card state would lose them. See the
-// note on `chosen` in session-view.ts.
+// declined — its state IS keyed by ask id, so options tapped before a dropped
+// connection survive the re-seed, and per-card state would lose them.
 //
-// ⚠ **Raised a second time on 2026-08-11, to 9 kB warn, and the 10 kB ERROR is
-// staying where it is.** Six days and 138 bytes later the warning was back, and
-// a number that moves whenever it is reached is not a heuristic, it is a
-// formality. There was nothing honest to cut: dev-lint's five style rules are
-// still green here, so every remaining declaration is live, and deleting live
-// CSS to buy bytes would be changing how the page looks to satisfy a number.
-// What is left is the corridor between warn and error, which is now 1 kB rather
-// than 2 — so the warning arrives close enough to the hard stop to be worth
-// reading, and the next overshoot has to be paid for by splitting this
-// component, because the ceiling that fails the build is not moving again.
+// ⚠ **Trimming was never the way out, and was checked before each raise.**
+// dev-lint's five style rules are green on this file — DL-ANGULAR-DEAD-STYLE,
+// -ENCAPSULATION-DEAD-SELECTOR, -UNSTYLED-CLASS, -INNERHTML-SCOPED-STYLES and
+// DL-SCSS-DUPLICATE-SELECTOR — so every declaration here is live, and deleting
+// live CSS to buy bytes would be changing how the page looks to satisfy a number.
 //
-// ⚠ **A third raise on 2026-08-15, to 9.5 kB warn — and it is a deviation from
-// the line above, taken deliberately rather than by forgetting it.** 73 bytes
-// over, and the split that paragraph names as the price was investigated first:
-//
-// - Trimming is still out. dev-lint's five style rules are green, so every
-//   declaration is live, and the file is already factored — selector groups like
-//   `.entry.asked, .entry.turn, .entry.note, .entry.ask` are collapsed and the
-//   near-neighbours that look mergeable (`.tool > .at`, `.ask > .at`) differ.
-//   There is no honest 73 bytes here.
-// - The split IS available, and cheaper than the note above assumed. The reason
-//   the question card was declined is that its STATE is keyed by ask id; that
-//   objection does not reach a presentational child owning no state. The
-//   composer is the seam — one contiguous `<form class="composer">` and ~700
-//   bytes of contiguous rules, with `picture()` and the drafts left in the
-//   parent and passed as bindings, so nothing keyed by session id moves.
-//
-// It was not done because an hour of refactoring is not what 73 bytes is worth
-// today; Pippijn's call, asked and answered. The corridor is now 0.5 kB, which
-// is the cost of the deferral: the warning fires ~430 bytes before the build
-// does. **The 10 kB error still has not moved, and this is the third and last
-// cheap raise — at 9.5 the corridor cannot be halved again, so the composer
-// split is what happens next.** Re-proved on this tree that the ceiling is a
-// real stop, the same way 08cd89c did: set to 9 kB the build FAILS rather than
-// warns.
+// The split left 9.23 kB, so the next seam is worth naming here rather than in a
+// commit message nobody reads: it is `.clash`, the block that offers a choice
+// between two devices' drafts. It owns no state either — two texts, a time and
+// four buttons — and it is the largest remaining rule group.
 
 :host {
   // The host is a real element between `.page` and everything below, and a custom
@@ -457,38 +434,6 @@ input.note:disabled {
   white-space: nowrap;
 }
 
-// In flow at the end of a column that fills the screen, which puts it under your
-// thumb wherever you are in the transcript — the same result `position: fixed`
-// was reaching for, without covering the last message to get it.
-.composer {
-  flex: 0 0 auto;
-  display: flex;
-  // Bottom, not centre: the box grows upward as an instruction is typed, and a
-  // send button that drifts up the screen with it is one you have to look for.
-  align-items: flex-end;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  background: var(--mat-sys-surface-container);
-  // No width cap and no centring: `.page` above already stops at 60rem, and a
-  // second cap here only ever made the box narrower than the screen.
-}
-
-.box {
-  flex: 1;
-}
-
-// The file input itself, which is never seen: the button beside it is what a
-// thumb presses. `display: none` would do it and is the one thing that must not
-// be used — a hidden-that-way input cannot be clicked programmatically in every
-// engine, and the whole control depends on that call.
-.picker {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
-
 // A picture already sent, in the transcript.
 //
 // A button rather than an image with a click handler: it is the one thing in a
@@ -528,33 +473,6 @@ input.note:disabled {
   img.full {
     max-height: none;
     width: 100%;
-  }
-}
-
-// What is about to be sent, in the strip above the composer.
-.chosen {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem 0;
-  background: var(--mat-sys-surface-container);
-
-  .thumb {
-    // Small enough to leave the transcript readable behind it, large enough to
-    // tell two screenshots apart — which is the only question it answers.
-    height: 3rem;
-    width: auto;
-    max-width: 40%;
-    object-fit: contain;
-    border-radius: 0.25rem;
-  }
-
-  .about {
-    flex: 1;
-    font: var(--mat-sys-label-small);
-    color: var(--mat-sys-on-surface-variant);
-    font-variant-numeric: tabular-nums;
   }
 }
 
