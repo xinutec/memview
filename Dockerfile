@@ -44,14 +44,11 @@ COPY Cargo.toml Cargo.lock ./
 # an error naming the workspace rather than the file — the trap recorded in
 # reference_cargo_workspace_docker_priming when coach grew a second crate. This
 # list is not decoration: it has to gain a line every time `members` in
-# Cargo.toml does. It did not when `reader` arrived on 2026-08-07, and the image
-# job was red for 21 runs while `verify` stayed green, because the gate does not
-# build the image and nothing else looks.
+# Cargo.toml does, and when it does not, the image job goes red on push while the
+# gate stays green — the gate does not build the image and nothing else looks.
 #
-# ⚠ **It happened again on 2026-08-16, with `bash-oracle`.** Same failure, same
-# invisibility: the gate passed, the image job went red on push. The list is now
-# checked rather than remembered — `scripts/workspace-members.sh`, a gate row —
-# because a comment saying "add a line here" has now failed twice.
+# ⚠ It is CHECKED rather than remembered — `scripts/workspace-members.sh`, a gate
+# row — because a comment saying "add a line here" failed twice.
 COPY console/Cargo.toml console/
 COPY reader/Cargo.toml reader/
 COPY bash-oracle/Cargo.toml bash-oracle/
