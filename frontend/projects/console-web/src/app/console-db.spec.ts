@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createRxDatabase, type RxCollection } from 'rxdb';
 import { getRxStorageMemory } from 'rxdb/plugins/storage-memory';
 
-import { DRAFT_SCHEMA, type Clash, type DraftDoc, draftConflicts, replicate } from './drafts-db';
+import { DRAFT_SCHEMA, type Clash, type DraftDoc, draftConflicts, replicate } from './console-db';
 
 const doc = (over: Partial<DraftDoc> = {}): DraftDoc => ({
   ulid: 's1',

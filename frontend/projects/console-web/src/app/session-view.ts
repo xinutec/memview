@@ -407,7 +407,7 @@ export class SessionView implements OnDestroy {
       });
     });
     // Ask the runner on opening rather than waiting out the heartbeat — see
-    // [[DraftsDb.resync]].
+    // [[ConsoleDb.resync]].
     effect(() => {
       this.id();
       untracked(() => this.drafts.sync());
@@ -419,7 +419,7 @@ export class SessionView implements OnDestroy {
     this.foreground.onReturn(() => this.refresh(), this.until);
     // And the draft, for the same reason the poll pairs with this: the other
     // device may have carried it on, and anything typed here while the tunnel
-    // was down is still owed — see [[DraftsDb.resync]].
+    // was down is still owed — see [[ConsoleDb.resync]].
     this.foreground.onReturn(() => this.drafts.sync(), this.until);
     // The soft keyboard is the biggest layout change this page ever sees: it
     // takes something like half the screen, and the transcript is what gives way

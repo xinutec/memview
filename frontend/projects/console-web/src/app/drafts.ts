@@ -1,14 +1,14 @@
 import { Injectable, inject } from '@angular/core';
 import { from, map, switchMap, type Observable } from 'rxjs';
 
-import { DraftsDb, type DraftDoc } from './drafts-db';
+import { ConsoleDb, type DraftDoc } from './console-db';
 import { Telemetry } from './telemetry';
 import type { Picture } from './picture';
 
 /** What to do with a [[Clash]]. `both` keeps each text whole, in the order named. */
 export type Resolution = 'mine' | 'theirs' | 'mine-first' | 'theirs-first';
 
-export type { Clash } from './drafts-db';
+export type { Clash } from './console-db';
 
 /** A stored picture. Checked, not cast: storage outlives the build that wrote
  *  it, and a bad cast surfaces far from here as `data:undefined;base64,…`. */
@@ -55,7 +55,7 @@ interface HeldPicture {
  */
 @Injectable({ providedIn: 'root' })
 export class Drafts {
-  private db = inject(DraftsDb);
+  private db = inject(ConsoleDb);
   private telemetry = inject(Telemetry);
 
   /** Both texts, when this device and the runner have each moved since they
@@ -129,7 +129,7 @@ export class Drafts {
     await collection.upsertLocal(key, kept);
   }
 
-  /** Ask the runner now — see [[DraftsDb.resync]] for the two moments. */
+  /** Ask the runner now — see [[ConsoleDb.resync]] for the two moments. */
   sync(): void {
     this.db.resync();
   }

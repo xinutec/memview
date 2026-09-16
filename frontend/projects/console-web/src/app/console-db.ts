@@ -57,6 +57,14 @@ export const DRAFT_SCHEMA: RxJsonSchema<DraftDoc> = {
 // raised when it needs to be, rather than split into pieces.
 addRxPlugin(RxDBLocalDocumentsPlugin);
 
+/**
+ * The database this console keeps its local state in.
+ *
+ * ⚠ **RxDB refuses a second database of the same name in one process**, so
+ * anything opening more than one — a test, chiefly — passes its own.
+ */
+export const CONSOLE_DATABASE = 'consoledrafts';
+
 /** How often to ask the runner whether anything is new. */
 const PULL_EVERY_MS = 5000;
 
@@ -141,12 +149,10 @@ export function draftConflicts(onClash: (clash: Clash) => void): RxConflictHandl
  * that was hand-written and wrong four times over.
  */
 @Injectable({ providedIn: 'root' })
-export class DraftsDb {
+export class ConsoleDb {
   private readonly telemetry = inject(Telemetry);
   private opened?: Promise<RxCollection<DraftDoc>>;
   private running?: ReturnType<typeof replicate>;
-  /** Set only by a test, which needs a database name of its own. */
-  named?: string;
   readonly clash = signal<Clash | undefined>(undefined);
 
   /** The collection, created once. Concurrent callers share one promise:
@@ -154,8 +160,12 @@ export class DraftsDb {
   collection(
     storage: RxStorage<unknown, unknown> = getRxStorageDexie(),
     get: typeof fetch = fetch,
+    name = CONSOLE_DATABASE,
   ): Promise<RxCollection<DraftDoc>> {
-    this.opened ??= this.open(storage, get);
+    // ⚠ The arguments are read ONLY on the call that opens it. Storing them
+    // would let any later caller using the defaults rename a database that is
+    // already open, or reach for the real one from a test.
+    this.opened ??= this.open(storage, get, name);
     return this.opened;
   }
 
@@ -216,20 +226,20 @@ export class DraftsDb {
   private async open(
     storage: RxStorage<unknown, unknown>,
     get: typeof fetch,
+    name: string,
   ): Promise<RxCollection<DraftDoc>> {
-    // ⚠ A name of its own per database, because RxDB refuses a second one with
-    // the same name in a process — which is every test after the first.
-    const name = this.named ?? 'consoledrafts';
-    const db = await createRxDatabase({ name, storage, multiInstance: true });
+    const db = await createRxDatabase({
+      name,
+      storage,
+      multiInstance: true,
+    });
     const added = await db.addCollections({
       drafts: {
         schema: DRAFT_SCHEMA,
         conflictHandler: draftConflicts((c) => this.raise(c)),
-        // ⚠ **Where the held picture lives, and why it cannot leak onto the
-        // wire.** RxDB excludes local documents from replication itself, so the
-        // picture staying on one device is a property of the storage rather than
-        // a promise in a comment — which is what it was while it sat in
-        // `localStorage`, next to the words, competing for the same 5 MB quota.
+        // ⚠ **Where the held picture lives.** RxDB excludes local documents
+        // from replication itself, so the picture staying on one device is a
+        // property of the storage rather than a promise in a comment.
         localDocuments: true,
       },
     });

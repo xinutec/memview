@@ -4,7 +4,7 @@ import { getRxStorageMemory } from 'rxdb/plugins/storage-memory';
 import { firstValueFrom, filter } from 'rxjs';
 
 import { Drafts, type Resolution } from './drafts';
-import { DraftsDb, type DraftDoc } from './drafts-db';
+import { ConsoleDb, type DraftDoc } from './console-db';
 import type { Picture } from './picture';
 
 /** A scaled picture as `shrink` hands one over, small enough to read in a test. */
@@ -30,14 +30,13 @@ function quiet(): typeof fetch {
   );
 }
 
-const opened: DraftsDb[] = [];
+const opened: ConsoleDb[] = [];
 
 function fresh(get: typeof fetch = quiet()): Drafts {
-  const db = TestBed.inject(DraftsDb);
-  // A database name of its own: RxDB refuses a second one under the same name.
-  db.named = `t${Math.random().toString(36).slice(2)}`;
+  const db = TestBed.inject(ConsoleDb);
   opened.push(db);
-  void db.collection(getRxStorageMemory(), get);
+  // A database name of its own: RxDB refuses a second one under the same name.
+  void db.collection(getRxStorageMemory(), get, `t${Math.random().toString(36).slice(2)}`);
   return TestBed.inject(Drafts);
 }
 
@@ -52,11 +51,11 @@ function settled(drafts: Drafts, id: string): Promise<string | undefined> {
 
 describe('Drafts', () => {
   let drafts: Drafts;
-  let db: DraftsDb;
+  let db: ConsoleDb;
 
   beforeEach(async () => {
     drafts = fresh();
-    db = TestBed.inject(DraftsDb);
+    db = TestBed.inject(ConsoleDb);
     await db.collection();
   });
 
@@ -111,10 +110,9 @@ describe('Drafts', () => {
   describe('the picture', () => {
     /**
      * ⚠ **A LOCAL document, so it cannot replicate — by construction, not by a
-     * comment.** #89 settled that a picture does not cross devices: two images
-     * have no meaningful combination and the device that took one wants it. It
-     * used to live in `localStorage` under a promise; RxDB excludes local
-     * documents from replication itself.
+     * promise in a comment.** #89 settled that a picture does not cross devices:
+     * two images have no meaningful combination, and the device that took one is
+     * the one that wants it.
      */
     it('is held outside the replicated collection', async () => {
       await drafts.write('a', 'about this');
@@ -195,7 +193,7 @@ describe('Drafts', () => {
     async function underground(): Promise<Drafts> {
       TestBed.resetTestingModule();
       const store = fresh(vi.fn(() => Promise.reject(new Error('no route to host'))));
-      await TestBed.inject(DraftsDb).collection();
+      await TestBed.inject(ConsoleDb).collection();
       return store;
     }
 
@@ -209,7 +207,7 @@ describe('Drafts', () => {
     it('holds them locally, so they go when the tunnel comes back', async () => {
       const store = await underground();
       await store.write('a', 'written between two stations');
-      const collection = await TestBed.inject(DraftsDb).collection();
+      const collection = await TestBed.inject(ConsoleDb).collection();
       expect((await collection.findOne('a').exec())?.text).toBe('written between two stations');
     });
   });
