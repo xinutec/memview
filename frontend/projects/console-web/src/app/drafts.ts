@@ -1,6 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 
 import { DraftsDb, type DraftDoc } from './drafts-db';
+import { Telemetry } from './telemetry';
 import type { Picture } from './picture';
 
 /**
@@ -79,6 +80,7 @@ const WRITE_AFTER_MS = 800;
 export class Drafts {
   private static readonly PREFIX = 'console.draft.';
   private db = inject(DraftsDb);
+  private telemetry = inject(Telemetry);
 
   /** Both texts, when this device and the runner have each moved since they
    *  agreed. Raised by RxDB's conflict handler — see [[draftConflicts]]. */
@@ -168,6 +170,19 @@ export class Drafts {
           bytes: picture.bytes,
         }),
     );
+    // ⚠ **Anything still waiting to be written is now WRONG, and cancelling it
+    // is not part of scheduling the next one.** What the composer holds
+    // supersedes what it held 200ms ago; a pending write carries the older text.
+    //
+    // This was inside `schedule`, so the echo path below skipped it — and that
+    // is the bug Pippijn hit on the phone on 2026-09-16: type, press send inside
+    // the debounce, and the empty composer reads as an echo against a session
+    // nothing has been written for yet. `schedule` was never reached, the timer
+    // holding the SENT words fired anyway, and the message came back as a draft
+    // the next time the conversation was opened. "Not always", because it needs
+    // the send to land inside the 800ms.
+    clearTimeout(this.timers.get(id));
+    this.timers.delete(id);
     // ⚠ **An echo is mirrored but never written** — see [[given]]. Without this
     // a device that only OPENED a conversation holding a draft wrote its own
     // empty composer over it and cleared the words on the other screen; found on
@@ -194,6 +209,16 @@ export class Drafts {
           : how === 'mine-first'
             ? `${mine}\n\n${theirs.text}`
             : `${theirs.text}\n\n${mine}`;
+    // ⚠ **Said, because half a record is worse than none.** A trace that shows
+    // clashes and never shows how they ended cannot answer the question anybody
+    // actually asks — whether the screen was useful — and would read as though
+    // every one of them was abandoned. Which button, and the three lengths that
+    // went into it; never the words, for the reason [[DraftsDb.raise]] gives.
+    const said =
+      `draft clash on ${id.slice(0, 8)} settled as ${how}: ` +
+      `${mine.length} here, ${theirs.text.length} there, ${text.length} kept`;
+    console.warn(said);
+    this.telemetry.note('draft-settled', said);
     this.db.settled();
     this.given.delete(id);
     this.held.set(id, { text, picture: this.picture(id) });
@@ -241,8 +266,9 @@ export class Drafts {
     });
   }
 
+  /** ⚠ The caller cancels whatever was pending — see [[put]]. Cancelling here
+   *  too would hide that from the one path that does not schedule. */
   private schedule(id: string, text: string): void {
-    clearTimeout(this.timers.get(id));
     this.timers.set(
       id,
       setTimeout(() => {

@@ -38,6 +38,23 @@ describe('draftConflicts', () => {
     expect(isEqual(doc({ rev: 3 }), doc({ rev: 4 }), 'test')).toBe(true);
   });
 
+  /**
+   * ⚠ **Where a conflict was NOTICED is half the diagnosis.** A push the runner
+   * refused and a pull that found the master had moved present identically on
+   * screen — two devices wrote — and the two have different causes. RxDB names
+   * it; carrying that through is the difference between a log that explains a
+   * clash and one that only confirms it happened.
+   */
+  it('carries through where the conflict was noticed', async () => {
+    let seen: Clash | undefined;
+    const { resolve } = draftConflicts((c) => (seen = c));
+    await resolve(
+      { realMasterState: doc({ text: 'theirs' }), newDocumentState: doc({ text: 'mine' }) },
+      'down-check-if-equal-0',
+    );
+    expect(seen?.where).toBe('down-check-if-equal-0');
+  });
+
   it('separates a tombstone from a live document', () => {
     const { isEqual } = draftConflicts(() => undefined);
     expect(isEqual(doc({ _deleted: true }), doc({ _deleted: false }), 'test')).toBe(false);
@@ -64,7 +81,7 @@ describe('draftConflicts', () => {
     );
 
     expect(resolved).toEqual(theirs);
-    expect(seen).toEqual([{ id: 's1', mine: 'mine, unsent', theirs }]);
+    expect(seen).toEqual([{ id: 's1', mine: 'mine, unsent', theirs, where: 'test' }]);
   });
 });
 

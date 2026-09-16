@@ -1,4 +1,4 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { EMPTY, fromEvent, interval, map, merge, type Observable } from 'rxjs';
 import {
   createRxDatabase,
@@ -9,6 +9,8 @@ import {
 } from 'rxdb';
 import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
 import { replicateRxCollection } from 'rxdb/plugins/replication';
+
+import { Telemetry } from './telemetry';
 
 /** One conversation's unsent words, as they travel. Mirrors `DraftDoc` in
  *  `console/src/drafts.rs`; the two are one contract and move together. */
@@ -84,6 +86,17 @@ export interface Clash {
   readonly id: string;
   readonly mine: string;
   readonly theirs: DraftDoc;
+  /**
+   * RxDB's own name for where the conflict was detected — a push the runner
+   * refused, or a pull that found the master had moved.
+   *
+   * ⚠ **Carried for the LOG, not for the screen.** A clash is the one outcome
+   * here nobody can diagnose from the phone: it says two devices wrote, and
+   * cannot say which side went first or which half of replication noticed. Two
+   * rounds of these were guessed at from the symptom before anything recorded
+   * it.
+   */
+  readonly where: string;
 }
 
 /**
@@ -114,11 +127,12 @@ export interface Clash {
 export function draftConflicts(onClash: (clash: Clash) => void): RxConflictHandler<DraftDoc> {
   return {
     isEqual: (a, b) => !!a._deleted === !!b._deleted && a.text === b.text,
-    resolve: ({ realMasterState, newDocumentState }) => {
+    resolve: ({ realMasterState, newDocumentState }, where) => {
       onClash({
         id: realMasterState.ulid,
         mine: newDocumentState.text,
         theirs: realMasterState,
+        where,
       });
       return Promise.resolve(realMasterState);
     },
@@ -136,6 +150,7 @@ export function draftConflicts(onClash: (clash: Clash) => void): RxConflictHandl
  */
 @Injectable({ providedIn: 'root' })
 export class DraftsDb {
+  private readonly telemetry = inject(Telemetry);
   private opened?: Promise<RxCollection<DraftDoc>>;
   private running?: ReturnType<typeof replicate>;
   /** Set only by a test, which needs a database name of its own. */
@@ -171,6 +186,34 @@ export class DraftsDb {
   }
 
   /**
+   * Raise a clash, and SAY SO.
+   *
+   * ⚠ **The one outcome here nobody can diagnose from the screen.** It says two
+   * devices wrote; what decides whether that is true is which texts were
+   * compared and which half of replication noticed, and two rounds of it were
+   * guessed at from the symptom on 2026-09-15 before anything recorded it. The
+   * hand-rolled store logged this; the rewrite dropped it, and the gap was found
+   * by being asked rather than by anything failing.
+   *
+   * ⚠ **Lengths and times, never the words.** A draft is a private message on
+   * its way to somebody; the console's log reaches `adb logcat` and the fleet's
+   * activity trace, and neither is a place to put one. The lengths are enough to
+   * tell two drafts apart, which is all a diagnosis needs.
+   */
+  private raise(clash: Clash): void {
+    this.clash.set(clash);
+    const age = Math.round((Date.now() - clash.theirs.at) / 1000);
+    const said =
+      `draft clash on ${clash.id.slice(0, 8)}: ${clash.mine.length} char(s) here ` +
+      `against ${clash.theirs.text.length} at rev ${clash.theirs.rev}, written ${age}s ago ` +
+      `(noticed by ${clash.where})`;
+    // Both, deliberately: the console is the phone's only live window, and the
+    // trace is the only one that can be read without the phone on a cable.
+    console.warn(said);
+    this.telemetry.note('draft-clash', said);
+  }
+
+  /**
    * Stop replicating and close the database.
    *
    * ⚠ **The replication has to be cancelled FIRST.** It holds a live
@@ -198,7 +241,7 @@ export class DraftsDb {
     const name = this.named ?? 'consoledrafts';
     const db = await createRxDatabase({ name, storage, multiInstance: true });
     const added = await db.addCollections({
-      drafts: { schema: DRAFT_SCHEMA, conflictHandler: draftConflicts((c) => this.clash.set(c)) },
+      drafts: { schema: DRAFT_SCHEMA, conflictHandler: draftConflicts((c) => this.raise(c)) },
     });
     this.running = replicate(added.drafts, get);
     // ⚠ **Said out loud, because replication failing is SILENT.** A dead tunnel

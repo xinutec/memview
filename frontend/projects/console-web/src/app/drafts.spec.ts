@@ -324,6 +324,56 @@ describe('Drafts', () => {
     });
 
     /**
+     * ⚠ **A SENT MESSAGE MUST NOT COME BACK — reported from the phone,
+     * 2026-09-16, in the `health` conversation: "press send, it empties, go out
+     * and back in, and the old message is in the input again."**
+     *
+     * It needs the send to land INSIDE the debounce, which is why it is "not
+     * always". Typing schedules a write of the words; pressing send empties the
+     * composer, and an empty composer against a session nothing has been written
+     * for yet reads as an ECHO — so `schedule` is never reached, and `schedule`
+     * is the only thing that cancels the pending timer. It then fires and writes
+     * the sent words into the collection, after the box was emptied.
+     *
+     * The rule this pins: whatever the composer holds NOW supersedes anything
+     * still waiting to be written, echo or not.
+     */
+    it('does not write words that were sent before the debounce fired', async () => {
+      const collection = await TestBed.inject(DraftsDb).collection();
+
+      vi.useFakeTimers();
+      drafts.put('a', 'the message', undefined);
+      // Sent well inside WRITE_AFTER_MS, which is the whole condition.
+      await vi.advanceTimersByTimeAsync(200);
+      drafts.put('a', '', undefined);
+      await vi.advanceTimersByTimeAsync(2000);
+      vi.useRealTimers();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(await collection.findOne('a').exec(), 'a sent message was left as a draft').toBeNull();
+      expect(drafts.text('a')).toBe('');
+    });
+
+    /** The same race with a draft already in the collection: the pending write
+     *  carries the LONGER text, and the send must still win. */
+    it('does not restore a longer draft that was pending when the message went', async () => {
+      const collection = await TestBed.inject(DraftsDb).collection();
+
+      vi.useFakeTimers();
+      drafts.put('a', 'the message', undefined);
+      await vi.advanceTimersByTimeAsync(900); // this one lands
+      drafts.put('a', 'the message, extended', undefined);
+      await vi.advanceTimersByTimeAsync(200); // this one is still pending
+      drafts.put('a', '', undefined); // sent
+      await vi.advanceTimersByTimeAsync(2000);
+      vi.useRealTimers();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect((await collection.findOne('a').exec())?.text).toBe('');
+      expect(drafts.text('a')).toBe('');
+    });
+
+    /**
      * ⚠ **The runner's counter is the runner's.** A client that minted a `rev`
      * would be inventing an ordering only the runner is authority on; the pull
      * cursor is built from it.
@@ -393,6 +443,35 @@ describe('Drafts', () => {
       drafts.put('a', 'mine', undefined);
     });
 
+    /**
+     * ⚠ **A clash that is never recorded cannot be diagnosed.** The hand-rolled
+     * store said this and the rewrite dropped it; nothing failed, and the gap
+     * was found only because Pippijn asked. Pinned so it cannot go quietly
+     * again — and pinned on the SHAPE, not the wording: lengths and the choice,
+     * never the words, because a draft is a private message and this reaches
+     * `adb logcat` and the fleet trace.
+     */
+    it('says which way a clash was settled, without putting the words in the log', () => {
+      // ⚠ Distinctive on both sides. "mine" and "theirs" are the names of the
+      // CHOICES as well as the fixture's text, so a log line naming the choice
+      // would satisfy a check for the absence of the words by accident.
+      const db = TestBed.inject(DraftsDb);
+      const secret: DraftDoc = { ...theirs, text: 'brandenburg concerto' };
+      db.clash.set({ id: 'a', mine: 'schleswig holstein', theirs: secret, where: 'test' });
+
+      const said = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      drafts.resolve('a', secret, 'mine-first');
+      const line = said.mock.calls.map((c) => String(c[0])).join(' ');
+      said.mockRestore();
+
+      expect(line).toContain('settled as mine-first');
+      expect(line, 'a draft is a private message; it must not reach a log').not.toContain(
+        'schleswig',
+      );
+      expect(line).not.toContain('brandenburg');
+      expect(line).toMatch(/\d+ here, \d+ there, \d+ kept/);
+    });
+
     it.each([
       ['mine', 'mine'],
       ['theirs', 'theirs'],
@@ -413,7 +492,7 @@ describe('Drafts', () => {
      */
     it('keeps this device words even after theirs have overwritten the mirror', async () => {
       const db = TestBed.inject(DraftsDb);
-      db.clash.set({ id: 'a', mine: 'what I was writing', theirs });
+      db.clash.set({ id: 'a', mine: 'what I was writing', theirs, where: 'test' });
       const collection = await db.collection();
       await collection.upsert(theirs);
       await new Promise((r) => setTimeout(r, 0));
