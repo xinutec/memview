@@ -422,6 +422,40 @@ const RULES: &[(&str, Severity, &str)] = &[
         Severity::Warning,
         "cites a commit hash that exists in no repository here — a mistyped sha, a rebased-away commit, or a repo that is not cloned on this machine",
     ),
+    (
+        // Introduced 2026-09-16 at ERROR, which the two-tier design allows only
+        // because the corpus was taken to zero first: six memories declared a
+        // birthday after their own first write and were repaired the same day,
+        // each `created` set to the earliest write the transcripts show.
+        //
+        // ⚠ **This is `created-after-modified`'s blind half.** That rule states
+        // what is decidable inside the corpus — a memory cannot have been
+        // changed before it existed — and it caught exactly one of the six,
+        // only because that one's `modified` happened to land before its
+        // invented `created`. The other five had both stamps in order and were
+        // simply wrong about when they began.
+        //
+        // ⚠ **One-sided ON PURPOSE.** A `created` EARLIER than the mined first
+        // write is expected and correct: the transcript archive begins
+        // 2026-07-31, so a memory older than that shows its first RE-write
+        // instead of its creation, and `reference_sqlx_mysql_type_traps` reads
+        // 23 days early for that reason. Only the other direction is impossible.
+        "created-after-first-write",
+        Severity::Error,
+        "`created` is later than the earliest write the transcripts record — a birthday typed \
+         rather than looked up; `cargo run --bin memory-created` names the real one",
+    ),
+    (
+        // The `unresolvable-code-root` argument, one artefact over: this rule's
+        // whole input is mined by a separate run, so "no findings" and "never
+        // ran" are the same output unless one of them says so. WARNING and not
+        // ERROR because the record is absent on every machine but the Mac, and
+        // a lint that refuses a fresh checkout is a lint nobody runs.
+        "unreadable-created-record",
+        Severity::Warning,
+        "the mined creation record could not be read, so birthdays went unchecked this run — \
+         `cargo run --bin memory-created` rebuilds it",
+    ),
 ];
 
 fn severity_of(rule: &str) -> Severity {
@@ -1599,4 +1633,71 @@ pub fn relation_usage(corpus: &Corpus) -> BTreeMap<String, usize> {
         }
     }
     counts
+}
+
+/// Tolerance between a frontmatter `created` and the transcript entry for the
+/// same write.
+///
+/// ⚠ **Measured, not chosen.** Over the whole corpus on 2026-09-16 a stamp
+/// written by the Write tool lands a hair AFTER the transcript entry it belongs
+/// to — six memories inside 62 ms and one at 12.8 s. The smallest real defect
+/// was 2m58s. The two populations are ~14x apart and this sits in the gap,
+/// rather than on either edge where a jitter outlier or a lazy round-minute
+/// would decide the rule.
+const BIRTHDAY_SLACK_SECS: i64 = 60;
+
+/// Referee each memory's stated birthday against the mined creation record.
+///
+/// Separate from [`check`] because the record is not part of the corpus: it is
+/// `memory-created.json`, rebuilt from the transcripts by a run that reads
+/// gigabytes. Passing the path rather than the parsed value keeps the
+/// "could not look" case inside the rule, where it becomes a finding instead of
+/// a silence.
+pub fn check_created(corpus: &Corpus, record: &std::path::Path) -> Vec<Finding> {
+    let mut findings = Vec::new();
+
+    let Some(mined) = std::fs::read_to_string(record)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+    else {
+        findings.push(Finding {
+            severity: severity_of("unreadable-created-record"),
+            rule: "unreadable-created-record",
+            memory: "(corpus)".to_string(),
+            detail: format!("{} is missing or unparseable", record.display()),
+        });
+        return findings;
+    };
+
+    for (name, doc) in &corpus.docs {
+        let Some(created) = doc.meta.created else {
+            continue;
+        };
+        // ⚠ A memory the record does not name is a DETECTION GAP, not a memory
+        // with no beginning — `memory-dated` draws the same line. The miner
+        // misses a write it cannot parse, and a finding from that would accuse
+        // the corpus of the miner's blind spot.
+        let Some(first) = mined
+            .get(name)
+            .and_then(|v| v["first"].as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        else {
+            continue;
+        };
+        let first = first.with_timezone(&chrono::Utc);
+        if (created - first).num_seconds() > BIRTHDAY_SLACK_SECS {
+            findings.push(Finding {
+                severity: severity_of("created-after-first-write"),
+                rule: "created-after-first-write",
+                memory: name.clone(),
+                detail: format!(
+                    "created {} is after the first write the transcripts show, {}",
+                    created.to_rfc3339(),
+                    first.to_rfc3339()
+                ),
+            });
+        }
+    }
+
+    findings
 }

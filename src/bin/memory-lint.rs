@@ -119,6 +119,14 @@ fn main() -> Result<()> {
         format!("{home}/Code")
     });
     findings.extend(lint::check_world(&corpus, std::path::Path::new(&code_root)));
+
+    // The second outside-the-corpus pass, and the only referee for a stated
+    // birthday: `created` is frontmatter nothing else can contradict, so a
+    // typed value stands until this asks the transcripts.
+    findings.extend(lint::check_created(
+        &corpus,
+        &reader::home::cache("memory-created.json"),
+    ));
     findings.sort_by(|a, b| {
         b.severity
             .cmp(&a.severity)
