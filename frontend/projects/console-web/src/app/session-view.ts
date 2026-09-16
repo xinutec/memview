@@ -13,7 +13,8 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toObservable, toSignal } from '@angular/core/rxjs-interop';
+import { switchMap } from 'rxjs';
 import { MatBottomSheet } from '@angular/material/bottom-sheet';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
@@ -38,7 +39,7 @@ import { Here } from './here';
 import { Updates } from './updates';
 import { Coloured } from './coloured';
 import { PICTURE, Rendered } from './rendered';
-import { Picture, pointedAt, shrink } from './picture';
+import { pointedAt, shrink } from './picture';
 import { Answers, Notes, Question, choiceOf, complete } from './questions';
 import { Held, SessionStore } from './session-store';
 import { ParseSheet } from './parse-sheet';
@@ -89,6 +90,22 @@ export class SessionView implements OnDestroy {
   private store = inject(SessionStore);
   /** What is written and not sent, which outlives this view — see [[Drafts]]. */
   private drafts = inject(Drafts);
+
+  /**
+   * What the COLLECTION holds for the conversation on screen, text and picture.
+   *
+   * ⚠ **Keyed on the route, so switching conversations switches the stream.**
+   * `undefined` means the collection has not answered yet — not that the draft
+   * is empty — and the effects below wait for that rather than blanking the box.
+   */
+  private readonly stored = toSignal(
+    toObservable(this.id).pipe(switchMap((id) => this.drafts.text$(id))),
+    { initialValue: undefined },
+  );
+  private readonly storedPicture = toSignal(
+    toObservable(this.id).pipe(switchMap((id) => this.drafts.picture$(id))),
+    { initialValue: undefined },
+  );
   private telemetry = inject(Telemetry);
   private foreground = inject(Foreground);
   private until = inject(DestroyRef);
@@ -258,7 +275,15 @@ export class SessionView implements OnDestroy {
    * that left the moment it was picked would have to be explained in a second
    * message the model reads after it.
    */
-  readonly picture = signal<Picture | undefined>(undefined);
+  /**
+   * A picture chosen and scaled, waiting to go with the next message.
+   *
+   * ⚠ **The STORED one, not a second copy.** Holding it here as well meant two
+   * signals describing one picture, and they are never identical objects — the
+   * chosen one carries a `blob:` preview and the stored one a data URL — so each
+   * update of one retriggered the other. Same rule as the words: one source.
+   */
+  readonly picture = this.storedPicture;
   /** What went wrong choosing one — too large, not an image, a phone that
    *  refused. On the composer rather than in the transcript: it is about the
    *  thing being written, not about the conversation. */
@@ -352,38 +377,40 @@ export class SessionView implements OnDestroy {
       this.poll ??= setInterval(() => this.refresh(), 5000);
     });
     // A message being written belongs to the conversation, not to this view of
-    // it — see [[Drafts]]. Two effects rather than one because they run in
-    // opposite directions: this one puts a held draft into the composer when the
-    // session opens, and it must not be reading the signals it writes.
+    // it — see [[Drafts]], which holds ONE copy of it, in the collection.
+    //
+    // ⚠ **Two effects, and they cannot fight.** The first renders the document,
+    // the second records what is typed. They would loop if a write could come
+    // back as a different value — but a write goes straight to the document, so
+    // what arrives back is what was sent, and the guard clause below stops
+    // there. Every "is this me or the other device" check that used to live here
+    // and in `Drafts` existed because a debounce put a gap between the two.
     effect(() => {
-      const id = this.id();
+      const held = this.stored();
       untracked(() => {
-        this.text.set(this.drafts.text(id));
-        this.picture.set(this.drafts.picture(id));
-        // And ask the runner now rather than waiting out the heartbeat. Asked
-        // after the local draft is already on screen, so a slow or dead tunnel
-        // costs nothing — see [[DraftsDb.resync]].
-        this.drafts.sync();
+        // ⚠ Undefined means the collection has not answered yet, which is NOT
+        // the same as an empty draft — setting the box to `''` on that would
+        // blank what somebody is typing while the database opens.
+        if (held === undefined || held === this.text()) return;
+        this.text.set(held);
       });
     });
-    // Words that arrived from the other device. Already applied by the time
-    // this runs — where both sides had written it is a clash instead, and
-    // nothing is overwritten — so this puts them on screen rather than asking.
-    // It is also what empties this box when the other device presses send.
-    effect(() => {
-      const arrived = this.drafts.landed();
-      const id = this.id();
-      if (arrived?.id !== id) return;
-      untracked(() => this.text.set(arrived.text));
-    });
-    // And this one records every change back, keystroke by keystroke. It is also
-    // how a draft is FORGOTTEN: a successful send empties the composer, which
-    // arrives here as a draft with nothing in it.
     effect(() => {
       const id = this.id();
       const text = this.text();
-      const picture = this.picture();
-      untracked(() => this.drafts.put(id, text, picture));
+      untracked(() => {
+        // Nothing is written before the collection has answered: until then this
+        // box is empty because nothing has been read, not because nothing is
+        // there, and recording that would erase the draft.
+        if (this.stored() === undefined) return;
+        void this.drafts.write(id, text);
+      });
+    });
+    // Ask the runner on opening rather than waiting out the heartbeat — see
+    // [[DraftsDb.resync]].
+    effect(() => {
+      this.id();
+      untracked(() => this.drafts.sync());
     });
     // The poll does not run while the phone is away, so the header facts on
     // screen when it comes back are as old as the pocket it was in. The
@@ -756,8 +783,9 @@ export class SessionView implements OnDestroy {
   settle(how: Resolution): void {
     const clash = this.clash();
     if (!clash) return;
-    this.drafts.resolve(clash.id, clash.theirs, how);
-    this.text.set(this.drafts.text(clash.id));
+    // The box follows the document, so nothing is set here: `resolve` writes the
+    // settled text and the effect above renders it.
+    void this.drafts.resolve(clash.id, clash.theirs, how);
   }
 
   send(): void {
@@ -842,8 +870,10 @@ export class SessionView implements OnDestroy {
     this.pictureTrouble.set('');
     shrink(file)
       .then((picture) => {
-        this.drop();
-        this.picture.set(picture);
+        // The blob URL dies with this document; what is stored carries the
+        // bytes and a data URL is built on the way out.
+        URL.revokeObjectURL(picture.preview);
+        void this.drafts.hold(this.id(), picture);
         this.telemetry.measured('picture', `${picture.width}x${picture.height} ${picture.bytes}B`);
       })
       .catch((err: unknown) => {
@@ -891,11 +921,9 @@ export class SessionView implements OnDestroy {
     });
   }
 
-  /** Put the held picture down, releasing what the preview holds open. */
+  /** Put the held picture down. */
   drop(): void {
-    const held = this.picture();
-    if (held) URL.revokeObjectURL(held.preview);
-    this.picture.set(undefined);
+    void this.drafts.hold(this.id(), undefined);
     this.pictureTrouble.set('');
   }
 
