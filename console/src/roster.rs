@@ -45,10 +45,10 @@ pub struct Roster {
     ///
     /// ⚠ **Because a session taking its reading away with it made the figure go
     /// backwards.** [`Self::spent`] built this fresh from the live sessions on
-    /// every poll, so when the one holding 93% ended, the highest remaining was
-    /// 92% and the front page — which polls every five seconds — showed 92 → 93
-    /// → 92 (memview #87). Nothing about the account changed; the console just
-    /// forgot who had told it.
+    /// every poll, so when the session holding the highest figure ended, the
+    /// next highest took its place and the front page flapped between the two
+    /// (memview #87). Nothing about the account changed; the console just forgot
+    /// who had told it.
     ///
     /// Held rather than derived, so a reading survives its source. Utilisation
     /// only rises inside a window, so remembering the highest is not a cache
@@ -139,7 +139,7 @@ impl Roster {
     /// ⚠ **Over the network now, where this was a sweep of a directory.** It
     /// used to be `spawn_blocking`, because reading every session's task files
     /// cold was seconds of I/O and would have stalled every stream on the
-    /// executor. The service answers in 56-139 ms and the answer is cached for
+    /// executor. The service answers in well under a second and is cached for
     /// thirty seconds — see [`crate::tasks::Tasks`] — so this is now an ordinary
     /// await that is usually not a request at all.
     pub async fn tasks(&self) -> crate::tasks::Sweep {
@@ -348,7 +348,7 @@ impl Roster {
     /// Pick a conversation back up on the mode it was last on.
     ///
     /// ⚠ **Resuming used to drop a session to Manual without saying so.**
-    /// Measured 2026-08-08: `hardware` was running in `auto`, was stopped and
+    /// A session running in `auto` was stopped and
     /// resumed, and came back `default` — and the console reported that as
     /// though it had always been the mode. A session left in `auto` was left
     /// that way because nobody is watching it, so Manual means it stops at the
@@ -528,35 +528,26 @@ impl Roster {
     /// Replace this console with a newer build, keeping every session alive.
     ///
     /// `execve` replaces the image without touching the process: same pid, so
-    /// the `claude` children are still children and never notice, and open
-    /// descriptors survive unless they are close-on-exec. So the pipes to those
-    /// children can be carried across — which is the whole feature, because
-    /// stopping and starting instead kills every conversation and costs whoever
-    /// is using it a re-entry.
+    /// the `claude` children never notice, and open descriptors survive unless
+    /// close-on-exec. Carrying the pipes across is the whole feature — stopping
+    /// and starting kills every conversation.
     ///
-    /// What travels is the minimum: for each session its id, directory, pid and
-    /// three descriptor numbers, as JSON in [`HANDOVER`]. The new image rebuilds
-    /// sessions from those rather than spawning any.
+    /// What travels is per session: id, directory, pid and three descriptor
+    /// numbers, as JSON in [`HANDOVER`]. The new image rebuilds from those.
     ///
-    /// ⚠ **The listening sockets are deliberately NOT carried.** They are
-    /// close-on-exec and stay that way, so the port is free the instant the
-    /// image is replaced and the new one binds it immediately. Clients see a
-    /// dropped connection and reconnect quoting `Last-Event-ID`, which they
-    /// already do for a train going through a cutting.
+    /// ⚠ **The listening sockets are deliberately NOT carried.** They stay
+    /// close-on-exec, so the port is free the instant the image is replaced.
+    /// Clients reconnect quoting `Last-Event-ID`, as they do for a tunnel.
     ///
-    /// ⚠ **If this returns, the upgrade failed and the console is still the old
-    /// build**, holding everything it held before. It is written that way on
-    /// purpose: the alternative — exiting on a failed exec — would leave live
-    /// `claude` processes with nobody holding their stdin, reachable only by
-    /// being killed.
+    /// ⚠ **If this RETURNS, the upgrade failed and this is still the old build**,
+    /// holding everything it held. Exiting instead would leave live `claude`
+    /// processes with nobody on their stdin, reachable only by being killed.
     ///
-    /// ⚠ **A session being stopped travels too, in [`STOPPING`], and it is not
-    /// one of the carried.** It fails the descriptor test by construction —
-    /// [`crate::session::Session::stop`] closes stdin, and that is what makes it
-    /// unkeepable — so before this it was simply dropped, while its kill sat in
-    /// a `tokio::spawn` that `execve` was about to discard. The process then
-    /// outlived both, with no row in the new image and nothing left that would
-    /// ever end it: memview #750, found two and a quarter hours later.
+    /// ⚠ **A session being stopped travels too, in [`STOPPING`].** It fails the
+    /// descriptor test by construction — [`crate::session::Session::stop`] closes
+    /// stdin — so dropping it left the process with no row in the new image and
+    /// its kill in a `tokio::spawn` that `execve` discarded: nothing would ever
+    /// end it (memview #750).
     pub fn handover(&self) -> anyhow::Result<std::convert::Infallible> {
         use std::os::unix::process::CommandExt;
 
@@ -623,37 +614,23 @@ impl Roster {
     /// Most recently active first, which is the order a console is read in.
     /// Ask a live session what the account has spent.
     ///
-    /// ⚠ **One session, not all of them.** The figure is account-wide, so asking
-    /// a second would be asking the same question twice and putting a line down
-    /// a second conversation's stdin for an answer already known.
+    /// ⚠ **One session, not all of them.** The figure is account-wide.
     ///
-    /// ⚠ **The one that spoke most recently, not the one started most recently.**
-    /// A session answers `get_usage` out of its own process's cached rate-limit
-    /// headers, which are as old as that process's last request to the API — so
-    /// asking a session that has been sitting idle since it was picked up gets a
-    /// truthful answer about an hour ago. This used to choose by `started`, and
-    /// four conversations resumed in one evening made the newest of them
-    /// permanently the quietest: the figure on the phone flipped between now and
-    /// an hour ago on this loop's own beat. See [`crate::usage::fresher`] for the
-    /// half of the fix that survives being asked the wrong session anyway.
+    /// ⚠ **The freshest IDLE one.** A session answers `get_usage` from its
+    /// process's cached headers, as old as its last request to the API, so an
+    /// idle-since-pickup session answers truthfully about an hour ago. But a busy
+    /// CLI does not answer a control request until its turn ends — one written
+    /// 2.0 s into a turn was answered at 8.5 s — and "spoke most recently" very
+    /// nearly defines "is working now", so ranking by recency alone asked the
+    /// session least able to reply.
     ///
-    /// ⚠ **But not one that is mid-turn, which the rule above walked straight
-    /// into.** A busy CLI does not answer a control request until its turn ends
-    /// — measured 2026-08-12, a request written 2.0 s into a turn was answered at
-    /// 8.5 s, three seconds *after* the turn's own result and with nothing in
-    /// between — and "spoke most recently" is very nearly a definition of "is
-    /// working now". So the console reliably asked the one session least able to
-    /// reply, and the ages drifted to 109 s against a sixty-second beat
-    /// (memview #817).
+    /// `(not working, last heard)` picks the freshest idle session and falls back
+    /// to the freshest working one when the whole fleet is busy. See
+    /// [`crate::usage::fresher`] for the half of the fix that survives being
+    /// asked the wrong session anyway.
     ///
-    /// A session that has just finished a turn has a cache almost as fresh and
-    /// answers at once, so idleness is ranked above recency rather than instead
-    /// of it: `(not working, last heard)` picks the freshest idle session, and
-    /// falls back to the freshest working one when the whole fleet is busy —
-    /// which is the old behaviour, and still better than asking nobody.
-    ///
-    /// Nothing is returned: the answer comes back on that session's stdout and
-    /// lands in its tally, where [`Self::spent`] finds it.
+    /// Nothing is returned: the answer lands on that session's stdout and in its
+    /// tally, where [`Self::spent`] finds it.
     pub async fn ask_usage(&self) {
         let asked = {
             let sessions = self.sessions.read().expect("roster poisoned");
@@ -783,8 +760,7 @@ impl Roster {
         tracing::info!("forgetting {id} — killing it first if it is still running");
         session.force();
         // And the landmarks walked for it, which are the largest thing this
-        // console keeps per conversation — 6,107 of them on the biggest here,
-        // the same 700 kB the wire used to carry on every open.
+        // console keeps per conversation.
         self.marks.forget(id);
         true
     }

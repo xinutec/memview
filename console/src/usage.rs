@@ -190,85 +190,44 @@ impl Usage {
 
 /// What the console itself has heard, with the dashboard behind it.
 ///
-/// ⚠ **The live half is the one that matters, and it was there all along.** Each
-/// `rate_limit_event` on a session's stdout carries a `utilization` straight off
-/// the API's own response headers, so the console measures this at first hand
-/// for every request its sessions make — but *first hand* is not the same as
-/// *current*, which is the mistake this used to make. A session answers from its
-/// own process's cached headers, so a console with nothing but idle sessions
-/// measures the account as it stood whenever one of them last spoke to the API.
-/// The dashboard is therefore compared with, not fallen back on.
+/// ⚠ **First hand is not the same as current.** Each `rate_limit_event` on a
+/// session's stdout carries `utilization` off the API's own response headers —
+/// but a session answers from its process's cached headers, so an idle one
+/// reports the account as it stood when it last spoke to the API. The dashboard
+/// is compared with, not fallen back on.
 ///
-/// Per window rather than whole: an event names one window (the *representative*
-/// one), so the five-hour figure can be seconds old while the weekly one is
-/// still the dashboard's.
-/// Which of two readings of the same window is the current one.
+/// Per window rather than whole: an event names one window, so the five-hour
+/// figure can be seconds old while the weekly one is still the dashboard's.
 ///
-/// ⚠ **Not the one that arrived last, and that is the whole point.** Every
-/// session answers `get_usage` from its own process's cached rate-limit headers,
-/// which are as old as that process's last request to the API — so an idle
-/// session truthfully reports the account as it stood an hour ago, and it
-/// reports it *now*. Taking the newest arrival made a stale answer authoritative
-/// for a minute at a time: measured on the phone as the week's figure flipping
-/// 81 → 77 → 81 → 77 on the console's sixty-second beat, with one sample showing
-/// the two windows disagreeing about which hour it was.
+/// Which of two readings of the same window is the current one:
 ///
-/// What breaks the tie is the figure itself. Utilisation only rises inside one
-/// window, so of two readings of the *same* window instance the higher one is
-/// the later one, whoever heard it. A window that has turned over is a different
-/// instance with a later `resets_at`, and there the newer instance wins outright
-/// — otherwise the old window's high-water mark would outrank the fresh window's
-/// honest 3%.
+/// ⚠ **Not the one that arrived last.** An idle session truthfully reports a
+/// stale account, and reports it *now*; taking the newest arrival made the
+/// figure flap between two values on the poll's own beat.
 ///
-/// Arrival time is the fallback for a reading with no reset time at all, which
-/// is what a `rate_limit_event` carries when the CLI declines to say.
+/// The rules, in order:
+///
+/// - A LATER window instance wins outright — otherwise the old window's
+///   high-water mark outranks the fresh window's honest 3%.
+/// - Within one instance the figure only RISES, so the higher reading is the
+///   later one, whoever heard it.
+/// - ⚠ A FALL is believed only from a `measured` reading — a real request, or
+///   the dashboard. A `get_usage` reply is a process cache of unknowable age: it
+///   may raise the figure, never lower it, or a stale one forges a reset.
+/// - ⚠ A higher reading wins whatever its source. Refusing an echo outright
+///   stopped the figure tracking your own messages. The cost is narrow: a stale
+///   session can climb back over a reset until its next real request.
+/// - An EQUAL reading still wins, on arrival time. `at` means "when this was
+///   last confirmed", not "when it last went up" — everything downstream reads
+///   it as the age of the reading.
+///
+/// ⚠ **`resets_at` is not equal between two readings of one instance.** It
+/// drifts, and not in one direction, so held to equality one cohort latches the
+/// window shut and every reading from the other is dropped whole. Compared
+/// within a tolerance — see [`SAME_WINDOW`].
 ///
 /// The two instants wear different types ([`crate::session::ResetsAt`] and
-/// [`crate::session::Heard`]) so that the arms below cannot be written the wrong
-/// way round: the mistake this function exists to correct no longer compiles.
-/// ⚠ **A reading that merely CONFIRMS the one held still wins, on its arrival
-/// time.** `candidate.utilization > held.utilization` alone discarded an equal
-/// figure — and with it the fact that somebody had just heard it — so `at`
-/// stopped being "when this was last true" and became "when it last went up".
-/// Everything downstream reads that as the age of the reading, so a figure
-/// reconfirmed a minute ago was drawn as an hour old, teaching you to distrust a
-/// number that was fine. The two questions are separate and are answered
-/// separately: *which reading is truest* is the higher utilisation, *how long ago
-/// was it confirmed* is the most recent arrival that said so.
-///
-/// ⚠ **Two readings of one window do not agree to the second about when it
-/// ends**, and equality was the test for "same instance" until #814. Measured
-/// 2026-08-12: the console's sessions were being told `23:20:01` while two fresh
-/// `get_usage` probes taken the same minute were told `23:19:59.838278` — and a
-/// third, ten minutes earlier, `23:19:59.955616`. The instant drifts, and not in
-/// one direction. Held to equality, whichever cohort reported the latest instant
-/// latched the window shut: every reading from the other looked like an *older*
-/// instance and was dropped whole, figure and arrival time together, until the
-/// window really turned over hours later. See [`SAME_WINDOW`].
-/// Within one window instance the figure only RISES, so the higher reading is
-/// the later one whoever heard it — that is the rule that kills the 81 → 77 →
-/// 81 flap an idle session causes by re-answering `get_usage` from an hour-old
-/// cache. The one exception is a mid-window RESET: 2026-09-02 Anthropic reset
-/// the week's meter without moving `resets_at`, utilisation 62% → low, and the
-/// monotone rule refused every honest reading of it because "same instance,
-/// lower figure" is exactly what a stale echo looks like too.
-///
-/// ⚠ **So a fall is believed only from a MEASUREMENT.** `measured` marks a
-/// reading whose figure is true at its stamp: a `rate_limit_event` (fired by a
-/// real request) or the home dashboard (a terminal's own reading). A
-/// `get_usage` reply is a session's process cache of unknowable age — it may
-/// RAISE the figure (you cannot fake usage that rose) but may not LOWER it, or
-/// a stale one would forge a reset.
-///
-/// ⚠ **A higher reading wins whatever its source** — and that is deliberate,
-/// reversing a 2026-09-02 regression (`03eb36e`). That commit made an echo
-/// unable to displace a measurement AT ALL, so a fresh `get_usage` from the
-/// session you are actively talking to could no longer beat the 5-minute-old
-/// dashboard, and the figure stopped tracking your messages. The cost of
-/// admitting a higher echo is narrow: a stale session holding a pre-reset high
-/// can climb back over a reset until its next real request re-lowers it —
-/// accepted, because the everyday case (your usage rising as you work) matters
-/// more than instantly latching a rare reset.
+/// [`crate::session::Heard`]) so the arms cannot be written the wrong way round.
 pub fn fresher(held: &Seen, candidate: &Seen) -> bool {
     match (held.resets_at, candidate.resets_at) {
         // A different reset instant is a different window instance — a turnover

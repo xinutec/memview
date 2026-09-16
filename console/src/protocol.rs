@@ -27,14 +27,12 @@ use time::format_description::well_known::Rfc3339;
 
 /// How much of what a tool returned is carried to the client.
 ///
-/// Chosen against the transcripts on this machine rather than guessed: over
-/// 151,000 recorded results, the median is 212 characters and 89% are shorter
-/// than this. The tail is long — the largest is 76,000 — which is the whole
-/// reason for a cap, but the common case is a handful of lines and arrives whole.
+/// Chosen against the transcripts on this machine rather than guessed: the vast
+/// majority of results are a handful of lines and arrive whole. The tail is very
+/// long, which is the reason for a cap at all.
 ///
-/// Failures are shorter still (median 127, 96% whole at this length), which is
-/// what makes taking the **head** rather than the tail the right cut: the case
-/// where a message hides at the end is the case that is almost never cut at all.
+/// Failures are shorter still, which is what makes the **head** the right cut:
+/// the case where a message hides at the end is the case almost never cut.
 const RESULT_SNIPPET: usize = 2000;
 
 /// An event and when it happened.
@@ -102,10 +100,8 @@ pub enum Event {
     /// ⚠ **The gap between this and [`Event::Prompt`] is minutes, not
     /// milliseconds, and nothing used to show it.** The CLI parks input that
     /// arrives mid-turn — it appears in the transcript as a `queued_command` —
-    /// and releases it in batches: measured on 2026-08-07, four messages taken
-    /// at 19:46:07, 19:46:22, 19:53:57 and 19:55:07 were all read at 19:57:59,
-    /// the oldest after **twelve minutes**. Between turns the same trip is
-    /// seconds.
+    /// and releases it in batches, so a message can sit for many minutes before
+    /// the session reads it. Between turns the same trip is seconds.
     ///
     /// With only the echo to go on, a message sent to a working session left no
     /// trace at all until it was read, which is indistinguishable from a message
@@ -129,10 +125,9 @@ pub enum Event {
     /// the model.
     ///
     /// ⚠ **A command has no read receipt, and there is no way to give it one.**
-    /// Measured 2026-08-08 against CLI 2.1.221, spawned with the same flags the
-    /// runner uses: `/context` written to stdin produced `system`, a
-    /// synthetic `assistant` and `result` on stdout, and **no user message at
-    /// all**. `--replay-user-messages` does not replay a command. The transcript
+    /// `/context` written to stdin produces a `system`, a synthetic `assistant`
+    /// and a `result` on stdout, and **no user message at all** —
+    /// `--replay-user-messages` does not replay a command. The transcript
     /// on disk does record it, as a `<command-name>` wrapper the CLI expanded it
     /// into, so the two readers see different things — the only place in this
     /// protocol where that is true.
@@ -272,8 +267,8 @@ pub enum Event {
         /// call and then asks about it, so a client that cannot tell they are
         /// the same thing shows a tool row AND a permission card for one Write —
         /// and, worse, the card between two calls breaks the run they would
-        /// otherwise fold into. Measured 2026-08-11: `tool toolu_01E9WgUY…`
-        /// followed by `ask c8471a53-…` carrying identical input.
+        /// otherwise fold into — a `tool` is followed by an `ask` carrying
+        /// identical input.
         ///
         /// Optional because not every call site sends it — the CLI has three
         /// that build this request and one omits it — so a client must still
@@ -502,8 +497,8 @@ struct Message {
 /// one case that has no deltas: **every** slash command's output was silently
 /// dropped, not only `/tasks` (memview #106).
 ///
-/// Measured 2026-08-08 against CLI 2.1.221: `/context` on a session's stdin came
-/// back as `"model": "<synthetic>"` carrying the whole context table.
+/// `/context` on a session's stdin comes back as `"model": "<synthetic>"`
+/// carrying the whole context table.
 const SYNTHETIC: &str = "<synthetic>";
 
 /// ⚠ `content` is a list of blocks — except on the user lines where it is a bare
@@ -547,9 +542,8 @@ enum Block {
         tool_use_id: String,
         #[serde(default)]
         is_error: bool,
-        /// ⚠ Usually a bare string, sometimes a list of blocks — 98.4% against
-        /// 1.6% across the transcripts on this machine. [`Content`] already reads
-        /// both shapes, because the same split exists on user messages.
+        /// ⚠ Usually a bare string, occasionally a list of blocks. [`Content`]
+        /// reads both, because the same split exists on user messages.
         #[serde(default)]
         content: Content,
     },
@@ -698,41 +692,29 @@ pub fn running(event: &Event) -> Running {
 
 /// What a tool says when it has left work running.
 ///
-/// ⚠ **The call's answer, not its arguments.** It used to be `run_in_background: true`
-/// on the input, which is a *request* to detach and which only `Bash` accepts: measured
-/// across 27,731 calls in one 241 MB transcript, that flag appears on `Bash` and nothing
-/// else, so a `Monitor` running twenty-five minutes counted as nothing and the card said
-/// the session had nothing going on.
+/// ⚠ **The call's ANSWER, not its arguments.** `run_in_background: true` is a
+/// request to detach and only `Bash` accepts it, so a long-running `Monitor`
+/// counted as nothing. Every tool that detaches says so in the first words it
+/// returns.
 ///
-/// Every tool that detaches says so in the first words it returns. Measured over the
-/// same corpus — 13,858 calls whose result is known, 510 later followed by a
-/// task-notification: **495** carried a phrase and were notified; **8** carried one with
-/// no notification yet, which is what a running task looks like at end of file; **15**
-/// were notified with no phrase (13 `SendMessage` replies, whose result is JSON with
-/// nothing to match, plus 2 timeouts); **13,340** had neither. **No call matched a phrase
-/// without the work being real** — the precision that matters, the failure to avoid
-/// being a count that never comes down.
+/// ⚠ **The timeout phrase is the one no rule about arguments could find.** A
+/// foreground command outliving its timeout is moved to the background by the
+/// harness, and its input still says `run_in_background: false`.
 ///
-/// ⚠ **The timeout phrase is the one no rule about arguments could have found.** A
-/// foreground command outliving its timeout is moved to the background by the harness,
-/// and its input says `run_in_background: false`, because that is what was asked for.
+/// ⚠ **Matching prose is not free, and the shape of the risk decides it.** A
+/// reworded CLI stops matching, which UNDERCOUNTS — wrong in one direction only.
+/// Guessing from the tool's name would count work that never started and stick
+/// at one for the life of the session. Over the corpus, no call matched a phrase
+/// without the work being real.
 ///
-/// ⚠ **Matching prose is not free; the shape of the risk decides it.** A reworded CLI
-/// stops matching — but an unmatched phrase undercounts, which is visibly wrong in one
-/// direction only, where a rule guessing from the tool's *name* would count work that
-/// never started and stick at one for the life of the session. Failing closed is worth a
-/// fragile match.
+/// ⚠ **The phrase must OPEN the result, or reading this file starts a task.** A
+/// `contains` counted every result that quoted one of these sentences — a grep,
+/// a `Read` of this module, a `Read` of the test listing them. Every match that
+/// was not at the front turned out to be a quotation.
 ///
-/// ⚠ **The phrase must *open* the result, not merely appear in it — otherwise reading
-/// this file starts a task.** A `contains` counted every result that *quoted* one of
-/// these sentences: a grep, a `Read` of this module, a `Read` of the test listing them
-/// verbatim. The console inflated its own count whenever anyone opened the rule defining
-/// it. Measured: 7,416 results matched anywhere, 7,405 at the front, and all 11 of the
-/// difference were quotations.
-///
-/// Returns the task id the harness gave the work, since a kill names that and not the
-/// call. `Some(None)` is a detach whose id could not be read — still running, merely not
-/// matchable to a kill. It was readable on all 7,405.
+/// Returns the task id the harness gave the work, since a kill names that rather
+/// than the call. `Some(None)` is a detach whose id could not be read: still
+/// running, merely not matchable to a kill.
 fn detached(said: &str) -> Option<Option<String>> {
     /// One way a result opens when it has left work running: the words it starts
     /// with, and the marker its task id follows.
@@ -1140,15 +1122,14 @@ fn answered(input: &serde_json::Value, reply: Option<&Reply>) -> serde_json::Val
 /// ⚠ **This is the only way to rename a session that is working**, and the
 /// reason is the channel rather than the wording. `/rename` is *input*: written
 /// to stdin, and the CLI parks input that arrives mid-turn and releases it as a
-/// **prompt** — `commandMode: "prompt"`, which is what all 1,756 queued messages
-/// in this machine's transcripts are. So the model reads the words `/rename
-/// tasks` and the command never runs. Measured 2026-08-08 on a session that was
-/// mid-turn: the agent replied "Noted the rename (CLI-side, nothing for me to
-/// do)" and no `custom-title` line was ever written.
+/// **prompt** — `commandMode: "prompt"`, which every queued message in this
+/// machine's transcripts is. So the model reads the words `/rename tasks` and
+/// the command never runs: the agent replies that there is nothing for it to do,
+/// and no `custom-title` line is written.
 ///
 /// A control request is out-of-band and is handled whatever the turn is doing.
-/// Measured against 2.1.226, sent two seconds into a running turn: `success`
-/// came back at once and the transcript gained
+/// Sent into a running turn, `success` comes back at once and the transcript
+/// gains
 /// `{"type":"custom-title","customTitle":…}` — which is the first field in the
 /// console's own naming chain, so the new name is on the list at the next poll.
 ///
@@ -1196,8 +1177,8 @@ pub enum ModeReply {
 
 /// A session's answer to a mode change, if that is what this line is.
 ///
-/// ⚠ **Nothing read this until 2026-08-16, and a mode was claimed on screen that
-/// the CLI never entered.** The console recorded what it asked for the moment
+/// ⚠ **Read it, or a mode is claimed on screen that the CLI never entered.**
+/// The console recorded what it asked for the moment
 /// stdin took the line; a switch to `bypassPermissions` therefore read *Bypass
 /// Permissions* in the header while the CLI stayed in `auto` and went on asking
 /// for approval. That is the wrong direction to be wrong in, and it is the whole
@@ -1255,9 +1236,8 @@ pub fn mode_reply(line: &str) -> Option<ModeReply> {
 /// headers, and the CLI keeps them — but it publishes them in just two places:
 /// to a `statusLine` command, which is a terminal's affair and never runs for a
 /// headless session, and onto the stream as `rate_limit_event`, which carries
-/// the percentage **only when a threshold is crossed** (≥90% of a window with
-/// ≤72% of its time gone). Normal operation reports status and reset time and no
-/// figure at all — measured on a live stream.
+/// the percentage **only when a threshold is crossed**. Normal operation reports
+/// status and reset time and no figure at all.
 ///
 /// `get_usage` is the CLI's own answer to the question: one control request, and
 /// both windows come back with `utilization` and `resets_at`. The CLI describes
@@ -1285,9 +1265,9 @@ pub fn get_usage(request_id: &str) -> String {
 /// as one is why it went unseen. `rate_limits` is an object of windows, but
 /// `model_scoped` is an *array* of `{display_name, utilization, resets_at}` —
 /// its value has no `utilization` of its own, so the loop below stepped over it
-/// in silence. Measured against CLI 2.1.226 on 2026-08-12: the fixed keys a
-/// model scope used to live under (`seven_day_opus`, `seven_day_sonnet`) are all
-/// `null`, and the only live scope — Fable at 6% — is in that array. Keying on
+/// in silence. The fixed keys a model scope used to live under
+/// (`seven_day_opus`, `seven_day_sonnet`) are `null`, and live scopes are in
+/// that array instead. Keying on
 /// the model's *name* is therefore the shape the CLI now has, and it is also the
 /// one that survives: a new model needs no key here, and a retired one leaves no
 /// dead branch behind.
@@ -1657,32 +1637,18 @@ fn finished(text: &str) -> Option<Event> {
 
 /// Whether a notification that names no call is nonetheless an ending.
 ///
-/// ⚠ **Most notifications that name no call are a monitor's ordinary output,
-/// and ending on those would be far worse than the bug this exists to fix.** A
-/// monitor reports every matching line as a notification of exactly this shape,
-/// so a rule of "no call named, therefore finished" would have closed the
-/// fleet-bump monitor on its first line of output rather than 50 minutes later
-/// at its timeout. Measured across this machine's transcripts:
+/// ⚠ **Most notifications naming no call are a monitor's ordinary output**, and
+/// a rule of "no call named, therefore finished" would close a monitor on its
+/// first line. The endings among them are a monitor that timed out — the reason
+/// this function exists — and the harness giving up on an agent. A session's
+/// inherited tasks are announced the same way and are a greeting, not an ending.
 ///
-/// - **3,114** name no call and are a monitor event — still running, every one.
-/// - **68** are a monitor that timed out, which is an ending and the whole
-///   reason for this function.
-/// - **2** are the harness giving up on finding an agent's completion. Its
-///   sibling for shell commands — *No completion record was found for this
-///   background shell command*, 28 of them — carries a call id and already
-///   counts as an ending, so this is consistency rather than a second guess.
-/// - **4** announce shell tasks inherited from a previous session, which is a
-///   greeting and not an ending.
+/// ⚠ **Anchored to its own tag, never `contains`.** A monitor's payload is
+/// arbitrary text, so one watching a log that quoted the timeout line would end
+/// itself — the same defect [`detached`] guards against.
 ///
-/// ⚠ **Anchored to its own tag, never `contains`.** The phrases are the
-/// harness's, but a monitor's *payload* is arbitrary text: one watching a log
-/// that quoted the timeout line would end itself, which is the same defect as
-/// [`detached`]'s — reading about the thing counted as doing it. The timeout is
-/// the whole of its event, and the agent line opens its summary.
-///
-/// Every ending that names a call is left to the branch above. `stream ended`,
-/// `script failed` and `stopped` — a monitor's three ordinary endings, 687 of
-/// them — all carry one and never reach here.
+/// Every ending that names a call is left to the branch above: `stream ended`,
+/// `script failed` and `stopped` all carry one and never reach here.
 fn ends_without_naming_the_call(text: &str) -> bool {
     const TIMED_OUT: &str = "[Monitor timed out — re-arm if needed.]";
     const NO_RECORD: &str = "No completion record was found for background agent";
@@ -1703,8 +1669,8 @@ fn ends_without_naming_the_call(text: &str) -> bool {
 ///
 /// Both ends rather than the opening tag alone, because the tag is not always
 /// first: the harness prefixes a banner saying this is not the person talking.
-/// Measured over a 267 MB transcript — 1,385 notifications, every one of them
-/// closing the block as its last characters.
+/// Over a large transcript, every notification closes the block as its last
+/// characters.
 fn is_notification(text: &str) -> bool {
     text.contains("<task-notification>") && text.trim_end().ends_with("</task-notification>")
 }

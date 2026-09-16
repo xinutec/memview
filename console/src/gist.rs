@@ -1,35 +1,22 @@
 //! One sentence about what each conversation is currently about.
 //!
 //! The list can say a conversation's name, how warm it is and how full it is,
-//! and none of that says what it is *for*. The name is a word; the instruction it
-//! was started with drifts out of date within a day — measured on this console's
-//! own sessions, where the first prompt in view was `push`, `Proceed`, and the
-//! boilerplate a compaction writes. So the sentence is written now, from the
-//! conversation as it currently stands.
+//! and none of that says what it is FOR. The starting instruction drifts out of
+//! date within a day — first prompts in view were `push`, `Proceed`, and the
+//! boilerplate a compaction writes.
 //!
-//! ## Written by a model, and said to be
+//! ⚠ **This is inference and the client marks it as such.** Everything else on
+//! that page is read off a file or off the process; this is Haiku guessing from
+//! a few thousand characters. It carries the moment it was written for the same
+//! reason.
 //!
-//! ⚠ **This is inference, and the client marks it as such.** Everything else on
-//! that page is read off a file or off the process; this is a guess made by
-//! Haiku from a few thousand characters of transcript, and a confidently wrong
-//! sentence about a conversation somebody has not opened is exactly the failure
-//! worth avoiding. It carries the moment it was written for the same reason.
+//! **Only when there is something new to read.** Each sentence is kept against
+//! the byte length of the transcript it came from, so idle conversations cost
+//! nothing. The cache is a file because this console restarts whenever it is
+//! upgraded, which is often.
 //!
-//! ## Only when there is something new to read
-//!
-//! Each sentence is kept against the byte length of the transcript it was
-//! written from. A conversation whose file has not grown since needs no new
-//! call, so thirteen idle conversations cost nothing and a sweep spends model
-//! time only on the ones that worked. The cache is a file rather than memory
-//! because the alternative is paying for all thirteen again on every restart —
-//! and this console restarts whenever it is upgraded, which is often.
-//!
-//! ## And dropped when the conversation is
-//!
-//! A cache keyed by id that is only ever written to is a cache that grows
-//! forever. Each sweep therefore also forgets the sentences whose transcripts
-//! have gone from disk — see [`Gists::forget`], which is where the one case that
-//! could go wrong is written down.
+//! **And dropped when the conversation is** — see [`Gists::forget`], which holds
+//! the one case that can go wrong.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

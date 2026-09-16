@@ -146,10 +146,9 @@ pub struct Tally {
     /// The exchange count and how far into the transcript it accounts for.
     ///
     /// ⚠ **Carried for the cost, not because the file cannot say it.** The file
-    /// can — by being read from the beginning, which for the largest transcript
-    /// here is 2.1 GB and twenty-four seconds. An upgrade re-seeds every session
-    /// at once, so dropping this would mean reading every transcript on the
-    /// machine, four gigabytes of it, each time this console replaces itself.
+    /// can, by being read from the beginning — but these reach gigabytes, and an
+    /// upgrade re-seeds every session at once, so dropping this means reading
+    /// every transcript on the machine each time the console replaces itself.
     /// See [`crate::past::counted`].
     #[serde(default)]
     pub counted: crate::past::Counted,
@@ -393,9 +392,9 @@ pub struct Summary {
     /// ⚠ **[`Self::busy`] cannot answer this and reading it as though it could
     /// called a working session idle.** A status is announced when it *changes*,
     /// so a long stretch of one activity, or one the CLI does not narrate, leaves
-    /// nothing standing — and no status was drawn as *idle*. Reported from the
-    /// phone 2026-08-07 about a session that was running tools throughout
-    /// (memview #112), and it made #111's invisible queue actively misleading:
+    /// nothing standing — and no status was drawn as *idle*, over a session that
+    /// was running tools throughout (memview #112). It made #111's invisible
+    /// queue actively misleading:
     /// a message sent to a session the page calls idle should land at once, so
     /// its not landing reads as a failure.
     ///
@@ -496,10 +495,9 @@ pub struct Summary {
     /// has already been put back to what the session is actually in, so this is
     /// the explanation for a switch that appeared to happen and then did not.
     ///
-    /// The CLI's wording rather than this console's: measured on 2026-08-16, it
-    /// says *"Cannot set permission mode to bypassPermissions because the
-    /// session was not launched with --dangerously-skip-permissions"*, which
-    /// names the cause and the remedy better than anything written from here.
+    /// The CLI's wording rather than this console's — it names the cause and the
+    /// remedy ("…because the session was not launched with
+    /// --dangerously-skip-permissions") better than anything written from here.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode_refused: Option<String>,
     /// How many questions it is blocked on. The one number that means "this
@@ -734,8 +732,7 @@ struct State {
     /// A `/compact` has been sent and the conversation has not moved since.
     ///
     /// The one long silence that is not a fault: a compaction summarises the
-    /// whole history before anything else happens, and measured on `hardware`
-    /// 2026-08-08 it left the transcript frozen for minutes. See
+    /// whole history first, leaving the transcript frozen for minutes. See
     /// [`Session::deaf`].
     compacting: bool,
 }
@@ -744,22 +741,20 @@ struct State {
 /// otherwise silent, before the console stops calling it *waiting* and calls the
 /// session deaf.
 ///
-/// ⚠ **Bounded by evidence at both ends.** The legitimate wait this has to clear
-/// is a message that arrives just as a turn ends, which is seconds — the long
-/// waits measured on 2026-08-07, up to twelve minutes for the oldest of four,
-/// were input parked *mid-turn*, and a working session never reaches this test
-/// at all because [`State::idle_since`] is unset while it works. The failures
-/// this has to catch were both silent for over twenty minutes. Ninety seconds
+/// ⚠ **Bounded at both ends.** The legitimate wait this has to clear is a
+/// message arriving just as a turn ends, which is seconds — the long waits are
+/// input parked *mid-turn*, and a working session never reaches this test
+/// because [`State::idle_since`] is unset while it works. The failures it has to
+/// catch stayed silent for tens of minutes. Ninety seconds
 /// sits an order of magnitude clear of each.
 const DEAF_AFTER_MS: i64 = 90_000;
 
 /// The same wait, while a compaction is outstanding.
 ///
-/// ⚠ **A compaction is a legitimate silence with no pulse at all.** Measured on
-/// `hardware` 2026-08-08: `/compact` sent at 09:50:46, and twenty seconds later
-/// the transcript was still frozen where it had been at 09:49:53 — it stays that
-/// way for minutes while a 437k-token context is summarised, so neither the file
-/// nor the process says anything a shorter wait could tell apart from deafness.
+/// ⚠ **A compaction is a legitimate silence with no pulse at all.** The
+/// transcript stays frozen for minutes while the context is summarised, so
+/// neither the file nor the process says anything a shorter wait could tell
+/// apart from deafness.
 ///
 /// Longer rather than suppressed outright, because a session can go deaf *around*
 /// a compaction — one of the two episodes this task is named for did — and an
@@ -870,9 +865,8 @@ fn in_flight(state: &mut State, event: &Event) {
 /// conversation whose file ends mid-turn — killed, crashed, compacted — from reading as
 /// a turn still running in a process that has only just started. That half was written
 /// for `idle_since` and not for this, so a resumed session could be idle and working at
-/// once: `hardware` resumed 2026-08-08 22:53 and read `working` for 84 minutes over a
-/// process with no API socket, a flat 0.5% of a core and nothing appended to its
-/// transcript since that morning (memview #640).
+/// once — reading `working` for over an hour against a process with no API socket,
+/// negligible CPU and nothing appended to its transcript (memview #640).
 ///
 /// Public for [`deaf_after`]'s reason: this is the part worth testing, and reaching the
 /// case that was wrong otherwise needs a transcript ending mid-turn and a resume.
@@ -1119,10 +1113,9 @@ impl Session {
             return;
         };
         let mut so_far = self.state.lock().expect("session state poisoned").counted;
-        // A seed arrives here at zero, and zero is the whole file — 1.08 GB and
-        // 3.3 seconds for the largest conversation on this machine, on the
-        // executor, inside the handler that answers "resume this one". The count
-        // it arrives at was decided by the last megabyte, so start where that
+        // A seed arrives here at zero, and zero is the whole file — gigabytes,
+        // on the executor, inside the handler that answers "resume this one".
+        // The count it arrives at was decided by the last megabyte, so start where that
         // begins. See [`crate::past::seed_from`] for why the two agree exactly.
         if so_far.through == 0 {
             so_far.through = crate::past::seed_from(&path);
@@ -1967,30 +1960,25 @@ impl Session {
     /// How long this session has been failing to read what was written to it,
     /// in milliseconds — `None` for one that is merely busy, or quiet.
     ///
-    /// ⚠ **The console has always held the evidence and never drawn the conclusion.** A
-    /// message written to a session that has stopped reading stdin gets an *Accepted*,
-    /// which the client draws as *waiting to be read* — the same words it uses for a
-    /// message a working session will reach in a minute. On 2026-08-08 `hardware` went
-    /// deaf twice in seventy-five minutes and the screen said the ordinary thing both
-    /// times. See [`crate::past`] and
-    /// `reference_console_session_stops_reading_stdin`.
+    /// ⚠ **A message to a deaf session gets an *Accepted*, drawn as *waiting to
+    /// be read*** — the same words used for a message a working session will
+    /// reach in a minute. See [`crate::deaf`].
     ///
     /// **Three things at once, and the conjunction is the point:**
     ///
     /// * a message is in flight — nothing to read is not deafness;
-    /// * the session is between turns ([`State::idle_since`]) — a session
-    ///   working through a ten-minute tool call is silent and perfectly well,
-    ///   and it parks input on purpose;
+    /// * the session is between turns ([`State::idle_since`]) — one working
+    ///   through a ten-minute tool call is silent and well, and parks input on
+    ///   purpose;
     /// * long enough — [`DEAF_AFTER_MS`], or [`DEAF_AFTER_COMPACT_MS`] while a
     ///   compaction is outstanding.
     ///
     /// The clock starts at whichever came second, the turn ending or the message
-    /// arriving: before both of those the session has not yet been given the
-    /// chance this measures.
+    /// arriving.
     ///
-    /// ⚠ **It cannot see a session that goes deaf mid-turn**, because there is
-    /// nothing to distinguish that from work. Both measured episodes were between
-    /// turns, which is also what the failure mode predicts — the reader stops
+    /// ⚠ **It cannot see a session that goes deaf MID-TURN**, there being
+    /// nothing to distinguish that from work. Both measured episodes were
+    /// between turns, which is what the failure mode predicts: the reader stops
     /// when it goes back to waiting on the pipe.
     pub fn deaf(&self) -> Option<i64> {
         deaf_for(&self.state.lock().expect("session state poisoned"))

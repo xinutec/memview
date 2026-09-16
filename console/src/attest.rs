@@ -1,37 +1,33 @@
 //! Checking a phone's claim about the key it just made.
 //!
 //! Enrolment is the one moment where a mistake is permanent and quiet: whatever
-//! key is pinned is thereafter *the* credential for arbitrary code execution on
+//! key is pinned is thereafter THE credential for arbitrary code execution on
 //! this machine, and a key that is a file on a phone's filesystem looks exactly
-//! like a key that lives in a secure element. Android Key Attestation is what
-//! tells them apart — the keystore signs a record describing the key it just
-//! generated, using a chain that goes back to a root Google published, so the
-//! answer does not come from the software being asked about.
+//! like one in a secure element. Android Key Attestation tells them apart — the
+//! keystore signs a record describing the key, under a chain rooted in a
+//! certificate Google published, so the answer does not come from the software
+//! being asked about.
 //!
-//! **This exists because it is a paragraph otherwise.** The check runs once per
-//! device, by hand, at the end of a fiddly session — which is exactly the shape of
-//! a step that gets skipped, or done by eye, or done against a chain read out of
-//! the device that is being checked. A binary that exits non-zero cannot be done
-//! by eye.
+//! **A binary rather than a paragraph**, because the check runs once per device,
+//! by hand, at the end of a fiddly session — the shape of a step that gets
+//! skipped or done by eye.
 //!
-//! ## What is actually verified
+//! ## Verified
 //!
-//! - Every signature in the chain, link by link.
-//! - That the top of it is a Google attestation root **held here** rather than one
-//!   the phone supplied.
-//! - That no certificate in the chain appears in Google's revocation list — the
-//!   entries that matter are the keys extracted from real devices.
-//! - That the record's challenge is the one this enrolment generated, which is
-//!   what makes it an answer rather than a recording.
-//! - That the security level is StrongBox, that the key was *generated* rather
-//!   than imported, and that it requires user authentication with a time limit.
+//! - Every signature in the chain.
+//! - That its root is a Google attestation root HELD HERE, not one the phone
+//!   supplied.
+//! - That no certificate appears in Google's revocation list.
+//! - That the challenge is the one this enrolment generated, which makes it an
+//!   answer rather than a recording.
+//! - StrongBox, key GENERATED rather than imported, user authentication required
+//!   with a time limit.
 //!
-//! ## What it cannot verify
+//! ## Not verified
 //!
-//! That the phone in your hand is the phone that produced the chain. Nothing in a
-//! certificate can say that. It is answered by the chain arriving over a USB cable
-//! from a device you are holding, which is why enrolment is deliberately not a
-//! network operation.
+//! That the phone in your hand produced the chain — nothing in a certificate can
+//! say that. It is answered by the chain arriving over a USB cable from a device
+//! you are holding, which is why enrolment is not a network operation.
 
 use std::collections::BTreeMap;
 

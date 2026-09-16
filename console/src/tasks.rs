@@ -1,31 +1,23 @@
 //! The work a conversation is holding, read from the tasks service.
 //!
-//! ⚠ **This used to read `~/.claude/tasks/<session-id>/`, and that store was
-//! deliberately emptied.** The CLI re-sent its whole contents as a
-//! `task_reminder` attachment 1.75 times per message — 527 kB a turn on one
-//! session, 93% of it a `description` the prompt never rendered — so the lists
-//! were moved to a service at `tasks.xinutec.org` and the local files deleted.
-//! Everything here kept reading the empty directory and reported nothing, which
-//! looked exactly like conversations that keep no list.
+//! ⚠ **Not `~/.claude/tasks/`, which is deliberately empty.** The CLI re-sent
+//! that store's whole contents with every message, most of it prose the prompt
+//! never rendered, so the lists moved to a service and the local files were
+//! deleted. Reading the empty directory looked exactly like conversations
+//! keeping no list.
 //!
 //! **Sessions, not repos.** The service files a task under a repo as well as an
-//! assignee, but a repo is not a thing this console knows about: its unit is the
-//! conversation, its cards are sessions, and the nearest it comes to a repo is
-//! the directory a process happens to run in. So every read here is keyed on a
-//! session id, which the console already has in hand for every row it draws.
+//! assignee, but this console's unit is the conversation; the nearest it comes
+//! to a repo is the directory a process happens to run in.
 //!
-//! **What "this session's tasks" means here: the ones assigned to it.** Not the
-//! ones its prompt sees — the prompt hook injects by *claimed repo*, which is
-//! the repo vocabulary this console does not have. A card therefore says what
-//! the conversation is holding, and a task nobody has been given shows on no
-//! card at all, which is the truth about it.
+//! **"This session's tasks" means the ones ASSIGNED to it**, not the ones its
+//! prompt sees — the prompt hook injects by claimed repo. A task nobody has been
+//! given shows on no card, which is the truth about it.
 //!
-//! ⚠ **Reading is not being.** The service requires a caller to name the
-//! conversation it speaks for, because a change filed against nobody is the one
-//! thing its history must not contain. That is a rule about writes; this only
-//! ever reads, and it is not a conversation. So it names itself — see
-//! [`IDENTITY`] — rather than impersonating whichever session it is asking
-//! about, which would put the console's reads in that session's name.
+//! ⚠ **Reading is not being.** The service makes a caller name the conversation
+//! it speaks for, because a change filed against nobody must not exist. That is
+//! a rule about writes; this only reads, so it names itself — see [`IDENTITY`] —
+//! rather than putting the console's reads in a session's name.
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};

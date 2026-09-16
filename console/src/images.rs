@@ -1,40 +1,26 @@
-//! Pictures sent to a session from the phone.
+//! Pictures sent to a session from the phone, and pictures a session points at.
 //!
-//! The console's one inbound path for something that is not text. It exists
-//! because the phone is where the screen being talked about *is*: a layout that
-//! settles wrongly, a chart that reads oddly, a photograph of a thing on a desk —
-//! all of it was previously describable and not showable.
+//! The phone is where the screen being talked about is — a layout that settles
+//! wrongly, a thing on a desk — all of it describable and not showable before.
 //!
-//! ⚠ **Measured against CLI 2.1.221 rather than assumed.** A user message on
-//! stream-json stdin may carry an `image` content block beside its text, the CLI
-//! forwards it, and the model reads it — tested with a real screenshot before any
-//! of this was written. The alternative design, writing the file to disk and
-//! sending its path for the session to open, was dropped once that came back with
-//! a description of the picture.
+//! ⚠ **A user message may carry an `image` block beside its text and the CLI
+//! forwards it**, tested against a real screenshot. Writing the file to disk and
+//! sending its path instead was dropped once that came back with a description.
 //!
-//! A copy is kept on disk anyway. The conversation holds the image only until it
-//! is compacted away, and the file is what makes it possible to look again — at
-//! full size, which is not what was sent. It is kept for exactly as long as that
-//! conversation is: see [`tidy`], which is what stops a directory of megabytes
-//! outliving every transcript that explains it.
+//! A copy is kept on disk anyway: the conversation holds the image only until it
+//! is compacted away, and the file is what allows a second look at full size.
+//! Kept exactly as long as the conversation — see [`tidy`].
 //!
-//! ## And the other direction: a picture a session pointed at
+//! ## The other direction
 //!
-//! A session that renders something names it in the conversation two ways, and
-//! the phone could follow neither. **An address**, when the session is also
-//! running a server — observe puts its reconstruction previews on an ad-hoc HTTP
-//! server — names this machine's LAN, which the phone is not on: it reaches the
-//! console through a tunnel isis carries, and the one-way VPN means nothing
-//! routes back. **A path** is the commoner one, because a session has the file
-//! and only has a URL if it is also serving it; a path names something that is on
-//! this Mac and nowhere else.
+//! A session names a rendered thing two ways and the phone could follow neither.
+//! **An address** names this machine's LAN, which the phone is not on — it
+//! reaches the console through a tunnel, and the one-way VPN routes nothing back.
+//! **A path** names a file on this Mac and nowhere else. [`fetch`] closes both
+//! from the one place that can reach either.
 //!
-//! [`fetch`] closes both, from the one place that can reach either: the Mac reads
-//! it, and the phone asks the console it is already talking to.
-//!
-//! Every half of this module answers the same question with the same code: are
-//! these bytes a picture? [`sniff`] decides for what arrives from the phone, for
-//! what a server answers and for what is read off the disk — and none of the
+//! [`sniff`] decides whether bytes are a picture — for what arrives from the
+//! phone, what a server answers, and what is read off the disk. None of the
 //! three believes what it is told.
 
 use std::path::{Path, PathBuf};

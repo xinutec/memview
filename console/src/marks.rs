@@ -1,34 +1,18 @@
 //! The landmarks of each transcript, walked once and then only extended.
 //!
-//! ⚠ **The walk is the whole of the wait, and the task this came from assumed it
-//! was the payload.** Measured against the live console 2026-08-15, on the
-//! biggest conversation here:
+//! ⚠ **The walk is the wait, not the payload.** On a large conversation the
+//! transfer is a rounding error against the walk, and remains the smaller half
+//! even over a slow phone link — so sending less would leave the wait where it
+//! is. Making the walk incremental is the only thing that moves it.
 //!
-//! ```text
-//! 6.019 s   the walk, server-side          (console's own log line)
-//! 6.023 s   the whole request, loopback
-//!   701 kB  the answer
-//! ```
+//! **Append-only is what makes the cache correct**, and it is not an assumption
+//! invented here: [`crate::past::counted`] already trusts everything before a
+//! stored byte offset on every turn. Landmarks carry absolute offsets, so one
+//! found in the first megabyte stays true however much is appended.
 //!
-//! So the transfer is four milliseconds of it. memview #808 reads *"the walk is
-//! slow once, the payload is slow every time and on the worst connection"* and
-//! puts the payload first — but both happen on every open, and even over a phone
-//! link slow enough to spend three seconds on 701 kB the walk is still the larger
-//! half. Sending less would have left a six-second progress bar exactly where it
-//! was.
-//!
-//! **What makes a cache correct here is append-only, which is not an assumption
-//! this file invented.** [`crate::past::counted`] already reads each transcript
-//! from a stored byte offset and trusts everything before it, every turn, for
-//! every live session. Landmarks carry absolute offsets from the start of the
-//! file, so a landmark found in the first megabyte stays true however much is
-//! appended after it.
-//!
-//! ⚠ **A file that SHRANK is not extended, it is re-walked.** The transcript is
-//! rewritten in places — compaction rewrites history, and roughly a fifth of a
-//! big file is second copies of lines — so "smaller than last time" means the
-//! ground moved and the offsets held here describe a file that no longer exists.
-//! Cheap to detect, and silently wrong if it is not.
+//! ⚠ **A file that SHRANK is re-walked, not extended.** Compaction rewrites
+//! history, so "smaller than last time" means the offsets here describe a file
+//! that no longer exists. Cheap to detect, silently wrong if it is not.
 
 use std::collections::BTreeMap;
 use std::path::Path;

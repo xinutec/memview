@@ -1,34 +1,24 @@
 /**
  * Whether the newest message should be kept in view, and when to stop.
  *
- * A transcript that does not follow opens a hundred turns behind the present and
- * reads as a broken page; one that always follows yanks the view out from under
- * somebody reading back through the morning.
+ * A transcript that does not follow opens a hundred turns behind the present; one
+ * that always follows yanks the view out from under somebody reading back.
  *
- * ⚠ **The rule is the narrow one every other app of this kind uses**, and it is
- * worth stating precisely because a wider one was tried first: *when new content
- * arrives, if the view was already at the end, keep it at the end.* Messages, a
- * terminal, Slack — scroll up by a line in any of them and following stops, and
- * none of them ever scrolls you back.
+ * ⚠ **The narrow rule, which is the one every app of this kind uses:** when new
+ * content arrives, if the view was already at the end, keep it at the end.
+ * Scroll up by a line and following stops; nothing ever scrolls you back.
  *
- * ⚠ **What the wider rule cost.** This used to re-decide, after every change,
- * whether the reader still counted as being at the end — and since the change
- * itself moves the end, the measurement was contaminated by the thing that
- * triggered it. Compensating for that took a gesture flag, two thresholds and
- * 300px of slack, and the result was a page that pulled you back down unless you
- * scrolled most of a screen: reported as "I need to scroll up quite a lot, then
- * it won't do that". None of that machinery survives here. The one piece kept
- * from it is [`wrote`], because the race it answers is real.
+ * ⚠ **Do not re-decide after a change whether the reader is still at the end.**
+ * The change itself moves the end, so the measurement is contaminated by what
+ * triggered it. Compensating took a gesture flag, two thresholds and 300px of
+ * slack, and still pulled you back down unless you scrolled most of a screen.
+ * The one piece kept from that is [`wrote`], whose race is real.
  *
- * ⚠ **Pure, and separated from the view for a reason.** Every rule was arrived
- * at from a measurement on a phone, and none of them could be tested where they
- * used to live: jsdom has no layout, so a component test cannot make a scroll
- * happen, and the layout harness hands a transcript over in one chunk where the
- * runner streams it. As a state machine fed positions, the same rules are
- * ordinary arithmetic — the numbers in the comments are what the tests replay.
- *
- * The view owns the box and does the reading and writing; this owns the
- * decision.
+ * ⚠ **Pure, and separate from the view, because these rules cannot be tested
+ * where they used to live.** jsdom has no layout so a component test cannot make
+ * a scroll happen, and the layout harness delivers a transcript in one chunk
+ * where the runner streams it. As a state machine fed positions they are
+ * arithmetic, and the numbers in these comments are what the tests replay.
  */
 
 /** What a scrolling box says about itself, in the three numbers that matter. */
@@ -51,31 +41,26 @@ export function measure(box: HTMLElement): Box {
 /**
  * How near the end still counts as being at it.
  *
- * ⚠ **Under a line, where this used to be 120px for arriving and 300px for
- * leaving.** Those were sized around the browser's own scroll anchoring, which
- * moved the position 18 or 19px unasked — and anchoring is now off for this list
- * (see `session-view.scss`, which says why that is safe here). What is left to
- * cover is rounding and a stray pixel, so scrolling up by one line stops the
- * page following, because that is what scrolling up by one line means
- * everywhere else on the phone.
+ * ⚠ **Under a line.** A larger slack was once needed because the browser's own
+ * scroll anchoring moved the position unasked; anchoring is off for this list
+ * (see `session-view.scss`). What is left to cover is rounding and a stray
+ * pixel, so scrolling up by one line stops the page following — which is what
+ * scrolling up by one line means everywhere else on the phone.
  */
 const SLACK = 16;
 
 /**
  * How far a finger must travel before it is scrolling rather than resting.
  *
- * ⚠ **Two lines of body text (20px each), and unlike [`SLACK`] the exact value
- * is not load-bearing** — which is the only reason a second number is allowed
- * into this file. Nothing writes a scroll position while a finger is down, so
- * everything the view does during a hold is the hand doing it, and the two hands
- * are an order of magnitude apart: a thumb resting on glass drifted **18px**
- * over a twenty-second hold (measured on the phone, 2026-08-10), while reading
- * back a paragraph travels several hundred. Any threshold from about 30 to about
- * 200 sorts both correctly.
+ * ⚠ **Unlike [`SLACK`] the exact value is not load-bearing.** Nothing writes a
+ * scroll position while a finger is down, so everything the view does during a
+ * hold is the hand doing it — and the two hands are an order of magnitude apart:
+ * a thumb resting on glass drifts a few pixels over a long hold, while reading
+ * back a paragraph travels hundreds. A wide range of thresholds sorts both.
  *
- * It is deliberately nearer the bottom of that range. Set too high, a small
- * deliberate drag is ignored and the reader drags again; set too low, the page
- * silently stops following and reads as dead. Those costs are not comparable.
+ * Deliberately near the bottom of that range. Too high and a small deliberate
+ * drag is ignored, so the reader drags again; too low and the page silently
+ * stops following, which reads as dead. Those costs are not comparable.
  */
 const SLOP = 40;
 
@@ -148,10 +133,9 @@ export class Following {
    * ⚠ **The one piece of the old machinery still needed.** The view is set to
    * the bottom and the browser queues a scroll event; more of the answer renders
    * before that event is delivered; the handler then runs against the NEW height
-   * and the OLD position and reads one or two deltas' worth of gap — 120px to
-   * 168px, measured — as a reader walking away. It bit two runs in five. The
-   * position carried by that event is exactly where this engine put it, which is
-   * what tells the two apart.
+   * and the OLD position, and reads a delta's worth of gap as a reader walking
+   * away. The position carried by that event is exactly where this engine put
+   * it, which is what tells the two apart.
    *
    * Kept rather than cleared once used: the race can follow any write, not only
    * the first.
@@ -165,13 +149,11 @@ export class Following {
    * How tall the window was at the last event, or -1 before there has been one.
    *
    * ⚠ **A box that changes shape is not a reader who moves, and [`wrote`] cannot
-   * see the difference.** Measured on the phone 2026-08-11 (#731): typing a
-   * message grows the composer, which takes height from the transcript — `view`
-   * goes 606 to 586 to 562 as it reaches three lines — and the gap that opens is
-   * 20px and 44px, EXACTLY what the window lost. The reader had not moved;
-   * `was == wrote` on every trace. But the reshape shifts `top` too, so the
-   * `wrote` guard cannot recognise it and `atEnd` gets asked about a window that
-   * is no longer the one the answer was true of.
+   * see the difference.** Typing grows the composer, which takes height from the
+   * transcript, and the gap that opens is exactly what the window lost — the
+   * reader has not moved (#731). But the reshape shifts `top` too, so the
+   * `wrote` guard cannot recognise it and `atEnd` is asked about a window that is
+   * no longer the one the answer was true of.
    *
    * The soft keyboard is the same thing several hundred pixels larger, which is
    * why this must not be answered by widening [`SLACK`]: the quantity is known
@@ -301,13 +283,12 @@ export class Following {
     // this engine used is them coming back, and ignoring it would leave a reader
     // standing at the newest message with the page refusing to follow.
     // ⚠ **A finger on the glass suspends the question, it does not answer it.**
-    // Measured on a phone, 2026-08-10: a reader asked to hold still and not
-    // scroll moved the view SIX pixels, which put it 18px from the last write
-    // against a 16px SLACK, and following stopped for good — the gap ran to
-    // 1,879px through releases as well as holds. The movement was a thumb on
-    // glass, not a decision, and no threshold tells those apart from one event.
-    // What does tell them apart is what the gesture adds up to, which is not
-    // known until the finger lifts. See [`heldAt`] and [`released`].
+    // A reader holding still and not scrolling still moves the view a few
+    // pixels, which is enough to clear [`SLACK`] and stop following for good.
+    // That movement is a thumb on glass, not a decision, and no threshold tells
+    // the two apart from a single event — what does is what the gesture adds up
+    // to, which is not known until the finger lifts. See [`heldAt`],
+    // [`released`].
     // ⚠ **Before every guard, because it is bookkeeping and not a decision.**
     // Written after the guards first, where the `wrote` short-circuit meant the
     // window was never learned on the events that took it — so the reshape that

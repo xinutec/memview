@@ -1,33 +1,25 @@
 //! What a session that has stopped reading looked like, written down before it
 //! is restarted.
 //!
-//! ⚠ **The cure destroys the evidence, and it has now destroyed it twice.** On
-//! 2026-08-08 the `hardware` session went deaf at 08:47 and again at 09:37; the
-//! only thing that gets it reading again is a stop and a resume, and by the time
-//! anyone had decided that was what had happened, the process it happened to was
-//! gone. The second episode was captured by hand, which is how the one fact
-//! anybody has about the failure — fd 0 was still an open pipe with 16 KB in
-//! it, so nothing had closed or broken, the process simply was not draining
-//! it — came to be known at all.
+//! ⚠ **The cure destroys the evidence.** The only thing that gets a deaf session
+//! reading again is a stop and a resume, so by the time anyone concludes that is
+//! what happened, the process it happened to is gone. The one fact anybody has —
+//! fd 0 still an open pipe with unread bytes in it, so nothing had closed or
+//! broken and the process simply was not draining it — came from a hand capture.
 //!
-//! So the console captures it itself, at the moment it first concludes the
-//! session is deaf, and does it before offering the cure. A third episode is
-//! then comparable with the first two instead of re-derived by hand.
+//! So the console captures it at the moment it first concludes the session is
+//! deaf, before offering the cure.
 //!
-//! **What is taken, and why each:**
+//! * `sample` — where the main thread is. The signature is nearly every sample
+//!   parked in `kevent64` with no work under it.
+//! * `lsof` — whether fd 0 is still there and still a pipe.
+//! * `ps` — CPU total, which tells an idle loop from work.
+//! * the tail of the transcript — what it had just done, and the `end_turn` that
+//!   says it was not mid-turn.
 //!
-//! * `sample` — where the main thread is. The measured signature is 8,173 of
-//!   ~9,800 samples parked in `kevent64` with no work under it.
-//! * `lsof` — whether fd 0 is still there and still a pipe. It was.
-//! * `ps` — the CPU total, which distinguishes an idle loop from work. The deaf
-//!   process burned a flat ~5%.
-//! * the tail of the transcript — what the session had just done, and the
-//!   `end_turn` that says it was not mid-turn.
-//!
-//! Nothing here needs root, which is deliberate: the one thing that would settle
-//! the root cause — whether stdin is still registered in the process's kqueue —
-//! needs `fs_usage` or `dtruss` and therefore does need it, and that is not a
-//! thing this console is going to ask for.
+//! Nothing here needs root. The one thing that would settle the root cause —
+//! whether stdin is still registered in the process's kqueue — needs `fs_usage`
+//! or `dtruss` and therefore does.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;

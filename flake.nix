@@ -110,22 +110,12 @@
           cargoLock.lockFile = ./Cargo.lock;
           cargoBuildFlags = [ "--package" "console" "--bin" "sessions" ];
 
-          # ⚠ **The tests are NOT run here, and that is not a gap.** This is the
-          # same crate as `console` above, built from the same source, and that
-          # derivation runs the identical suite — it had the identical
-          # `cargoTestFlags = [ "--package" "console" ]`. Running it twice was a
-          # second opinion about byte-identical code.
-          #
-          # Measured 2026-09-16, one line changed in `console/src/lib.rs`:
-          # `nix build .#console` 128s, `nix build .#sessions` 120s. The second
-          # was 120 seconds per Rust change, every gate, for nothing.
-          #
-          # What this derivation is FOR is that the packaged binary builds and
-          # installs — `cargoBuildFlags` below is the check. If the two ever stop
-          # being the same crate, the tests belong back here.
-          # The identical suite runs in `.#console` above — same crate, same
-          # source — so a second run is 120s of every gate spent on byte-identical
-          # code. What this derivation checks is that the packaged binary builds.
+          # ⚠ **The tests are NOT run here, and that is not a gap.** `.#console`
+          # above is the same crate from the same source and runs the identical
+          # suite, so a second run is two minutes of every gate spent on
+          # byte-identical code. What this derivation checks is that the packaged
+          # binary builds and installs — `cargoBuildFlags` above. If the two ever
+          # stop being the same crate, the tests belong back here.
           # dev-lint: allow-docheck-false the same suite runs in `.#console`
           doCheck = false;
           meta.mainProgram = "sessions";

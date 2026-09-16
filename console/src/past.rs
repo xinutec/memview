@@ -78,20 +78,19 @@ pub struct Conversation {
 /// that conversation was missing from the list entirely, and 64 would have hidden
 /// the next session that happened to hold thirty files instead of twelve.
 ///
-/// Bytes are what the bound is actually for: these files reach 1.4 GB, and the
-/// promise worth making is "never read much of one", which is a statement about
-/// cost. A line count dressed that up as a statement about the format, and the
-/// format does not support it. Set roughly ten times the largest opening measured
-/// — headroom is cheap here, and being short is invisible.
+/// Bytes are what the bound is for: these files reach gigabytes, and the promise
+/// worth making is "never read much of one", which is a statement about cost. A
+/// line count dressed that up as a statement about the format, and the format
+/// does not support it. Set well past the largest opening seen — headroom is
+/// cheap here, and being short is invisible.
 const BYTES_TO_FIND_CWD: u64 = 4 * 1024 * 1024;
 
 /// How much of the end of a transcript to read when looking for its name.
 ///
 /// From the **end**, because a session is renamed as its job changes and the
 /// current name is the one worth showing. The name lines are re-emitted every
-/// turn — two hundred times in a long conversation — so the last few kilobytes
-/// always carry several, and reading a whole 1.3 GB transcript to learn one word
-/// is not a trade worth making.
+/// turn, so the last few kilobytes always carry several — and reading a whole
+/// multi-gigabyte transcript to learn one word is not a trade worth making.
 const TAIL_BYTES: u64 = 128 * 1024;
 
 /// Where Claude Code keeps its transcripts.
@@ -186,32 +185,23 @@ pub fn conversations(root: &Path) -> Vec<Conversation> {
 
 /// Whether a conversation looks like somebody else's already.
 ///
-/// **There is no first-party answer to this**, which is why it is inferred.
-/// Claude Code does not hold the transcript open while it runs — `lsof` on a live
-/// session's file returns nothing — writes no lock or pid file, and leaves
-/// `~/.claude/daemon/roster.json` empty for sessions started with
-/// `--remote-control`. All checked, none of them work.
+/// **There is no first-party answer**, which is why it is inferred. Claude Code
+/// holds no handle on the transcript, writes no lock or pid file, and leaves
+/// `~/.claude/daemon/roster.json` empty for `--remote-control` sessions.
 ///
-/// **One signal: a running `claude` names it** — by session id (`--session-id`,
-/// `--resume <uuid>`) or by the name it currently goes by (`--resume utterance`).
-/// Matched against whole arguments of processes that really are `claude`; see
-/// [`words_of_claude_processes`] for why both halves of that are load-bearing.
+/// **One signal: a running `claude` names it** — by session id or by the name it
+/// currently goes by. Matched against whole arguments of processes that really
+/// are `claude`; see [`words_of_claude_processes`] for why both halves matter.
 ///
-/// ⚠ **There used to be a second signal, and it was the wrong kind.** A
-/// transcript written in the last two minutes was also treated as in use, to
-/// catch a session whose command line says nothing useful. It caught the wrong
-/// thing far more often: every conversation this console had *just* stopped
-/// running looked busy for two minutes afterwards, so restarting the runner meant
-/// waiting before the session it had killed could be picked up again — the exact
-/// moment somebody wants it back. Removed on Pippijn's instruction, 2026-08-03,
-/// with the reason that matters: nothing on this machine runs `claude` except
-/// this console, and what this console runs it kills on the way out
-/// (`kill_on_drop`), so the process table is accurate the instant it matters.
+/// ⚠ **Freshness is NOT a second signal.** Treating a recently written
+/// transcript as in use made every conversation this console had just stopped
+/// look busy for two minutes — the exact moment somebody wants it back. Nothing
+/// on this machine runs `claude` except this console, and what it runs it kills
+/// on the way out, so the process table is accurate when it matters.
 ///
-/// The risk that remains is a session started outside the console whose command
-/// line names neither its id nor its name. That would read as free and could be
-/// resumed underneath, giving two processes one transcript. The freshness rule
-/// did guard that case — it just charged everybody two minutes for it.
+/// The remaining risk is a session started outside the console whose command
+/// line names neither its id nor its name: it reads as free and could be resumed
+/// underneath. Freshness guarded that, and charged everybody two minutes for it.
 pub fn in_use(conversation: &Conversation, running: &Running) -> bool {
     // ⚠ **Could not ask, so cannot say it is free.** The alternative is what
     // this was: an unanswerable question read as "nothing is running", which
@@ -253,11 +243,9 @@ pub enum Running {
 /// -inspection dependency in a binary whose whole job is to be small, to answer a
 /// question `ps` already answers.
 ///
-/// ⚠ **Failing to ask is [`Running::Unasked`], never an empty list.** This said
-/// an empty list "means the freshness check stands alone, which is a weaker
-/// guard rather than none" — and that freshness check was deleted on 2026-08-03
-/// (see [`in_use`]). Nothing was left to stand alone, so the fallback the
-/// comment promised had not existed for over a month.
+/// ⚠ **Failing to ask is [`Running::Unasked`], never an empty list.** An empty
+/// list once meant "the freshness check stands alone" — and that check is gone
+/// (see [`in_use`]), so there is nothing to fall back to.
 fn arguments() -> Running {
     let Ok(user) = std::env::var("USER") else {
         // ⚠ Loud, because being silent was the whole defect. launchd DOES inject
@@ -380,11 +368,9 @@ pub fn about(root: &Path, id: &str) -> Option<About> {
 ///
 /// ⚠ **Not the file's own date, and the difference is not academic.** Picking a
 /// conversation up appends to it: `mode`, `permission-mode` and `bridge-session`
-/// lines go in at the moment of resume, none of them anything anybody said.
-/// Measured on `scanner`, opened after two days: the file was stamped that
-/// second, while the last line carrying a timestamp was `2026-08-03T16:40:53Z`.
-/// A list dated by the file said `just now` about a conversation nobody had
-/// spoken to.
+/// lines go in at the moment of resume, none of them anything anybody said. So
+/// a conversation opened after days is stamped as of that second, and a list
+/// dated by the file says `just now` about one nobody has spoken to.
 ///
 /// So the date comes from the last line of the transcript that *is* a
 /// conversation — which [`crate::protocol::read_recorded`] already knows how to
@@ -490,33 +476,22 @@ fn cut(text: &str) -> String {
 
 /// How many times someone has spoken to this session since it was last compacted.
 ///
-/// **Exchanges, not messages.** The result line's `num_turns` counts the
-/// assistant messages one exchange took — measured: two exchanges reported 5 and
-/// 8, and the transcript holds exactly 5 and 8 assistant replies for them. That
-/// is a fine number for a bill and a poor one for a person, who wants to know how
-/// many times they have asked for something.
+/// **Exchanges, not messages.** `num_turns` counts the assistant messages one
+/// exchange took — a fine number for a bill, a poor one for a person.
 ///
-/// **Counted from the file rather than kept as a running total**, because a
-/// running total only ever counts from whenever this console picked the session
-/// up: a resumed conversation started at zero, and every in-place upgrade
-/// restarted it. The file is the one place that knows the whole of it.
+/// **Counted from the file, not kept as a running total.** A total only ever
+/// counts from when this console picked the session up, so a resumed
+/// conversation started at zero and every in-place upgrade restarted it.
 ///
-/// The count resets at each compaction, since that is the point at which the
-/// session stops remembering what came before — a number spanning a boundary
-/// would describe a conversation the session itself cannot recall.
+/// The count resets at each compaction: a number spanning that boundary would
+/// describe a conversation the session itself cannot recall.
 ///
-/// ⚠ **Read forward from where the last count stopped, not from the start.**
-/// This was a whole-file pass at the end of every turn, and the files are not
-/// small: 2.1 GB and 267,002 lines for the largest here, twenty-four seconds
-/// just to read the bytes and a serde parse per line on top. It ran in the task
-/// that reads that session's stdout, so every turn ended with the console going
-/// deaf to its own session for as long as it took to count something that had
-/// changed by one.
-///
-/// The offset is what makes a running total honest: the count is still derived
-/// from the file, so a compaction the CLI performs and announces nowhere is
-/// still seen — it is simply seen by reading the few kilobytes that arrived
-/// rather than the two gigabytes that did not.
+/// ⚠ **Read forward from where the last count stopped.** A whole-file pass ran
+/// at the end of every turn, and these files reach gigabytes — the read plus a
+/// serde parse per line, in the task that reads that session's stdout, so every
+/// turn ended with the console deaf to its own session. The offset keeps the
+/// count derived from the file, so a compaction the CLI announces nowhere is
+/// still seen.
 #[derive(Debug, Clone, Copy, Default, Serialize, serde::Deserialize)]
 pub struct Counted {
     /// Exchanges since the last compaction.
@@ -542,9 +517,9 @@ pub struct Appended {
     /// call returns at once with a task id, so its notification is the sole
     /// end-of-work signal — and the notification is injected as a user message
     /// nobody typed, which the CLI writes to the transcript and does **not**
-    /// replay on stdout. Measured 2026-08-06: every `Background` event this
-    /// console had ever shown came from a seed replaying the file, and a task
-    /// that finished in 75 seconds sat on the front page for 26 minutes.
+    /// replay on stdout. So every `Background` event the console showed came from
+    /// a seed replaying the file, and a task that had finished in a minute sat on
+    /// the front page for half an hour.
     pub finished: Vec<crate::protocol::Named>,
     /// Whether a compaction was filed among these bytes.
     ///
@@ -583,9 +558,9 @@ pub struct Landmark {
     /// ⚠ **A cursor, not a measure.** It is exactly what
     /// `/api/sessions/{id}/earlier` already takes, so a jump is the existing
     /// paging with a different starting point rather than a second mechanism.
-    /// What it is *not* is a position anybody can be shown: one picture is 50 kB
-    /// of base64 on one line and a sentence is 90 bytes, so a scrollbar drawn
-    /// over these offsets would be a lie.
+    /// What it is *not* is a position anybody can be shown: one picture is
+    /// kilobytes of base64 on a single line where a sentence is a few dozen
+    /// bytes, so a scrollbar drawn over these offsets would be a lie.
     pub at: u64,
     /// When the file says it happened, for grouping by day.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -618,27 +593,25 @@ const SIGN: usize = 120;
 /// Every landmark in a transcript, oldest first.
 ///
 /// ⚠ **This reads and parses the WHOLE file, and there is no cheaper way.**
-/// Measured 2026-08-12 over 3.7 GB (#83): **270–500 MB/s**, so 0.7 s for an
-/// ordinary large transcript and 3.4 s for the 1 GB outlier here. Call it off
-/// the executor.
+/// Seconds on a large transcript. Call it off the executor.
 ///
 /// ⚠ **Two byte-level gates were tried and both were wrong**, which is why this
 /// does the obvious slow thing:
 ///
 /// 1. Skipping lines by their `type`. The first `"type":"` in a line is a
 ///    NESTED one — a conversation line opens `{"parentUuid":…` and the `message`
-///    object precedes the top-level tag — so reading it classifies 37% of the
-///    corpus as `message` and finds no `assistant` lines at all. The gate then
-///    rejected nothing and saved nothing, while looking like it worked.
+///    object precedes the top-level tag — so reading it misclassifies much of
+///    the corpus and finds no `assistant` lines at all. The gate then rejected
+///    nothing and saved nothing, while looking like it worked.
 /// 2. Requiring the content blocks a landmark needs — `"type":"text"`,
 ///    `"type":"image"`, `compact_boundary`. Derived from this parser's own
 ///    dispatch and still wrong: a user message's `content` is often a bare
 ///    string with no typed block anywhere, so plain prompts carry none of them.
 ///    It found **129 of 1,665** landmarks in one file.
 ///
-/// Both were caught only by running a parse-everything arm beside them over
-/// 1,345,496 lines and comparing the results. A prescan here is not cheap to get
-/// right, and it is very cheap to get silently wrong.
+/// Both were caught only by running a parse-everything arm beside them over the
+/// whole corpus and comparing. A prescan here is not cheap to get right, and it
+/// is very cheap to get silently wrong.
 pub fn landmarks(path: &Path) -> Vec<Landmark> {
     landmarks_from(path, 0).found
 }
@@ -730,11 +703,10 @@ fn sign(text: &str) -> String {
 /// How far back to look for the compaction boundary before giving up, and how
 /// much to read on the first try.
 ///
-/// Two numbers for one search because the shape of the answer is known: measured
-/// across the eight largest transcripts on this machine, the last compaction sat
-/// between 99.2% and 100.0% of the way in, with **at most 2.0 MB after it**. So
-/// the first window is generously past that, and the cap is the point where
-/// widening has stopped being cheaper than the whole read it is avoiding.
+/// Two numbers for one search because the shape of the answer is known: the last
+/// compaction sits within the final megabytes of the file. The first window is
+/// generously past that, and the cap is where widening stops being cheaper than
+/// the whole read it is avoiding.
 const COMPACTION_WINDOW: u64 = 8 * 1024 * 1024;
 const COMPACTION_LIMIT: u64 = 64 * 1024 * 1024;
 
@@ -749,10 +721,9 @@ const COMPACTION_LIMIT: u64 = 64 * 1024 * 1024;
 /// there: a seed's session has no background work to close yet, so the tools
 /// dropped are ones nothing was waiting for.
 ///
-/// Measured 2026-08-12 (#80): seeding the largest transcript here read 1.08 GB
-/// in **3.3 s** — on the executor, from the handler that answers "resume this" —
-/// to arrive at a count of 3, which the last 1.5 MB of the file determined on its
-/// own.
+/// Seeding a large transcript read the whole of it — on the executor, from the
+/// handler that answers "resume this" — to arrive at a count the last megabyte
+/// determined on its own.
 ///
 /// Searched backwards in widening windows, and searched **with the parser**: the
 /// boundary is whatever [`crate::protocol::read_recorded`] calls a compaction,
@@ -972,11 +943,9 @@ fn timed(line: &[u8]) -> Vec<crate::protocol::Timed> {
 /// file grows, so counting from its end names a different place after every turn;
 /// and a count travels through a client that holds *folded entries* — several
 /// text deltas are one paragraph, a tool result belongs to its call — so the
-/// number that arrived was never the number that left. Measured against a live
-/// session: a reader holding 266 events asked for the page before them as 170,
-/// and every one of the 96 events it got back was already on its screen. The
-/// feature could not advance, and both quantities were `usize`, so nothing said
-/// so.
+/// number that arrived was never the number that left, so a reader asking for
+/// the page before theirs got back events already on the screen. The feature
+/// could not advance, and both quantities were `usize`, so nothing said so.
 ///
 /// A byte offset into an append-only file has neither problem: it survives the
 /// file growing, and it cannot be confused with a length by anything that
@@ -1168,9 +1137,9 @@ struct Tail {
 ///
 /// ⚠ **A COMPACTED session has no origin in this file, and says so.** When a
 /// conversation runs out of context the CLI opens a fresh transcript with a
-/// summary and a `This session is being continued…` message — measured on
-/// `heatcam` 2026-08-24, where the first user text sits 447 kB in and is exactly
-/// that preamble. It is the harness talking, not Pippijn, so it is refused here
+/// summary and a `This session is being continued…` message, so the first user
+/// text can sit hundreds of kilobytes in and be exactly that preamble. It is the
+/// harness talking, not Pippijn, so it is refused here
 /// and the answer is `None`. **`None` is the right answer**: the origin is in a
 /// previous transcript that may no longer exist, and the card still carries the
 /// session's name. A recent prompt in its place would be a false claim about
@@ -1182,9 +1151,9 @@ pub fn opening(path: &Path) -> Option<String> {
 
     let file = std::fs::File::open(path).ok()?;
     // Enough for the opening exchange without reading a conversation. Generous
-    // because a compacted transcript opens with its whole summary: on `heatcam`
-    // the first user line begins 447 kB in. Past this, no answer is better than
-    // a wrong one.
+    // because a compacted transcript opens with its whole summary, which can put
+    // the first user line hundreds of kilobytes in. Past this, no answer is
+    // better than a wrong one.
     let head = BufReader::new(file.take(OPENING_BYTES));
     for line in head.lines().map_while(Result::ok) {
         for event in crate::protocol::read_recorded(&line) {

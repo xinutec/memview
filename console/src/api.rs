@@ -688,18 +688,17 @@ struct Page {
 /// Everywhere in this conversation worth jumping to.
 ///
 /// ⚠ **`spawn_blocking`, and this is the one route that has earned it.** The
-/// walk parses the whole transcript — 0.7 s for an ordinary large one and 6.0 s
+/// walk parses the whole transcript — seconds for a large one
 /// for the biggest here, measured — and no gate ahead of the parser survives
 /// contact with the format; see [`crate::past::landmarks`]. Left on the executor
 /// it would be seconds of a worker that every other session's stream shares, for
 /// one person tapping "go to".
 ///
-/// ⚠ **The first ask still pays that; the ones after it do not.** Measured
-/// 2026-08-15 on the biggest conversation here, the walk was 6.019 s of a
-/// 6.023 s request — so the answer's 701 kB was four milliseconds of it, and
-/// sending less would have moved almost nothing. [`crate::marks`] keeps what the
-/// walk found and extends it with whatever has been appended since (memview
-/// #808).
+/// ⚠ **The first ask still pays that; the ones after it do not.** The walk is
+/// nearly the whole of the request — the answer's transfer is a rounding error
+/// against it, so sending less moves almost nothing. [`crate::marks`] keeps what
+/// the walk found and extends it with whatever has been appended since
+/// (memview #808).
 async fn landmarks(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
@@ -814,55 +813,37 @@ pub fn resume_from(headers: &HeaderMap, asked: Option<&str>) -> Option<u64> {
 
 /// What a client that holds nothing is sent: the end of the transcript.
 ///
-/// ⚠ **Not the log, and that is the whole of this.** The log is the resume
-/// window — `SCROLLBACK` events, which on a session this console has watched all
-/// day is the last several hours of it. Replaying that to somebody who has just
-/// opened the session put 1.4 MB on the wire before the newest message could be
-/// drawn (measured 2026-08-24 over the nine sessions here: 7.5 MB between them,
-/// the largest 5,001 events). On a phone with a bad connection that is a minute
-/// of watching a conversation arrive oldest-first, with the part it was opened
-/// for arriving last.
-///
-/// The transcript's last page is the same thing [`crate::session::Session::seed`]
-/// already shows when the console picks a session up: one page, a `joined` to
-/// mark where the file stops and the watching starts, and a byte cursor for
-/// asking what came before. So this is not a second way of starting a
-/// conversation, it is the existing one applied at the moment a *reader* joins
-/// rather than the moment the console does.
+/// ⚠ **Not the log.** The log is the resume window, which on a session watched
+/// all day is hours of it — replaying that to a reader who has just opened the
+/// session put megabytes on the wire before the newest message could be drawn, and
+/// on a bad connection that is a minute of the conversation arriving oldest
+/// first. This is [`crate::session::Session::seed`] applied at the moment a
+/// READER joins rather than the moment the console does.
 ///
 /// ⚠ **The page is read before the number is taken, and the order is the
-/// safety.** Taking the number first would let an event pushed in between arrive
-/// twice — once in the page, once off the channel — and a duplicated paragraph
-/// is a thing no client can undo. This way it is missed instead, which the next
-/// event repairs and which nobody can see.
+/// safety.** Number first lets an event pushed in between arrive twice, and a
+/// duplicated paragraph is a thing no client can undo. This way it is missed
+/// instead, which the next event repairs.
 ///
-/// ⚠ **Most console-only events are not replayed here — but a question is.**
-/// `busy`, `accepted`, `started` are this console's own words and are in no
-/// transcript, so a cold reader no longer sees the recent ones. `Ask` is the
-/// exception and is put back below: a session blocked on a question that nothing
-/// draws is stopped, where the others are merely a display.
+/// ⚠ **Console-only events are not replayed — except a question.** `busy`,
+/// `accepted`, `started` are this console's own words and are in no transcript.
+/// `Ask` is put back below: a session blocked on a question nothing draws is
+/// stopped, where the others are merely a display. Until `caught-up` nothing on
+/// this stream is evidence about the present, and the page reads `busy` off the
+/// summary — see `Held.spoken` in `session-store.ts`.
 ///
-/// ⚠ **Adding an event kind means deciding which of those it is.** This list is
-/// prose, and prose under-fills: it named three kinds while a fourth, `Ask`,
-/// went missing, and a genuinely blocked session showed nothing to answer for
-/// ninety minutes. `console/tests/provenance.rs` makes that decision for every
-/// variant, and an unclassified one does not compile. What is doing the work of `busy` for
-/// such a reader is already there and is what it was built for: nothing on this
-/// stream is evidence about the present until `caught-up`, and until then the
-/// page reads the session's own `busy` off the summary — see `Held.spoken` in
-/// `session-store.ts`.
+/// ⚠ **Adding an event kind means deciding which of those it is**, and this list
+/// is prose, which under-fills — it named three kinds while `Ask` went missing
+/// and a blocked session showed nothing to answer for ninety minutes.
+/// `console/tests/provenance.rs` makes the decision for every variant, and an
+/// unclassified one does not compile.
 ///
-/// ⚠ **`Accepted` is the one with a visible cost, and it was weighed rather than
-/// missed.** It is what draws *waiting to be read* against a message the CLI has
-/// parked mid-turn, so opening such a session cold shows the message with no
-/// mark on it. Left out deliberately on 2026-08-24: the marker lives only
-/// between the write and the CLI's replay echo, which is a blink for an idle
-/// session, and Pippijn — who drives this from the phone daily — had never seen
-/// it. Restoring it means replaying the console's own events from behind the
-/// page, which is worth doing only if the chip is ever actually missed.
+/// ⚠ **`Accepted` is left out deliberately.** It draws *waiting to be read*
+/// against a message parked mid-turn, so a cold open shows that message unmarked.
+/// The marker lives only between the write and the CLI's replay echo — a blink —
+/// and restoring it means replaying console events from behind the page.
 ///
-/// `None` when there is no transcript to read, which is a session started
-/// moments ago and whose log is a handful of events anyway.
+/// `None` when there is no transcript to read: a session started moments ago.
 fn cold(id: &str, session: &crate::session::Session) -> Option<(Vec<Sse>, u64)> {
     let root = crate::past::projects_root();
     let path = crate::past::transcript_of(&root, id)?;

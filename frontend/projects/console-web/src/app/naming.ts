@@ -17,29 +17,18 @@ export function placeOf(dir: string): string {
 /**
  * A session's name, or something that identifies it when it has not taken one.
  *
- * ⚠ **The name arrives late.** It is read out of the transcript by the runner —
- * a `custom-title` or `agent-name` line, written by `/rename` or by enrolment —
- * so a session started a second ago has none. The fallback is not an edge case
- * but the first thing every new session shows.
+ * ⚠ **The name arrives late.** The runner reads it out of the transcript, so a
+ * session started a second ago has none — the fallback is the first thing every
+ * new session shows, not an edge case.
  *
- * ⚠ **And the folder alone stopped identifying anything.** Every session on this
- * machine is started in `~/Code`, the parent of every repository, because that
- * is how they are worked with — so the folder is `Code` for all of them and two
- * new sessions were indistinguishable on the list. The short id disambiguates,
- * and it is also how a session is addressed in the tasks service — `task move
- * <id> <session>` hands work to a named conversation — so it is worth having on
- * screen. It used to be what you passed to `claude_tasks.py --session <id>` to
- * claim a task list; that hook now takes no arguments at all and reads the id
- * out of its stdin payload, because the repositories a session claimed were
- * retired with the service's `0004`.
+ * ⚠ **The folder alone identifies nothing.** Every session here is started in
+ * `~/Code`, so the folder is `Code` for all of them. The short id disambiguates,
+ * and is also how a session is addressed in the tasks service. It is the CLI's
+ * own last resort for the same question.
  *
- * The id is the CLI's own last resort for the same question — its session
- * labeller ends `… || sessionId.slice(0, 8)`, read off the 2.1.221 binary; see
- * `reader/src/transcript.rs`.
- *
- * One rule taking one session and nothing else, deliberately: the list, the
- * toolbar and the details sheet all call this, they disagreed once already, and
- * a rule needing data only one of them has is a rule that will disagree again.
+ * One rule taking one session and nothing else: the list, the toolbar and the
+ * details sheet all call this, they disagreed once already, and a rule needing
+ * data only one of them has will disagree again.
  */
 export function titleOf(session: { name?: string; dir: string; id?: string }): string {
   if (session.name) return session.name;
