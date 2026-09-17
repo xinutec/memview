@@ -181,9 +181,9 @@ pub struct MemoryUse {
     /// ⚠ **A third kind of evidence, and folding it into either neighbour
     /// would be wrong.** A `grep` that matched put a line of the memory in
     /// front of the session, which `reads` (the file was opened) overstates
-    /// and silence understates — measured 2026-09-11: 82 distinct memories
-    /// reached this way across 13 sessions, ~11% of the corpus, by a route
-    /// that counted as never opened. It is NOT `maybe_reads` either: that
+    /// and silence understates — a sizeable slice of the corpus is reached this
+    /// way and would otherwise count as never opened. It is NOT `maybe_reads`
+    /// either: that
     /// holds a DIFFERENT weakness, a command whose success cannot be
     /// established, and `Held::Unproven` would then fire for two reasons
     /// wanting different answers (memview#1238).
@@ -383,12 +383,12 @@ impl Freshness {
 
 /// Which memories were written after `generated`, from the history itself.
 ///
-/// ⚠ **The transcripts are the record, not the filesystem.** The first version
-/// of this compared file mtimes and was wrong in the way that matters: measured
-/// 2026-08-27, 55 memories had an mtime past the mine and **2 had actually
-/// changed** — mtime records a touch, and something had rewritten fifty-two
-/// files without altering a word. A guard raising 55 alarms for 2 events is the
-/// `--stale-ok` habit this exists to prevent. memview parses every session's
+/// ⚠ **The transcripts are the record, not the filesystem.** Comparing file
+/// mtimes is wrong in the way that matters: mtime records a touch, so a sweep
+/// that rewrites files without altering a word raises an alarm for every one of
+/// them and almost none have changed. A guard that cries far more often than
+/// anything happened is the `--stale-ok` habit this exists to prevent. memview
+/// parses every session's
 /// history; asking the filesystem what happened is asking the wrong witness.
 ///
 /// ⚠ **The derived artefacts cannot answer this and it is circular to ask.**
@@ -548,10 +548,9 @@ fn memories_written_after(path: &Path, generated: &str) -> Vec<String> {
 /// ⚠ **A heredoc write is invisible to a tool-name check**, and it is not rare:
 /// `memory-stamp` exists because `cat > x.md <<'MD'` skips the stamping path
 /// entirely, and `memory-lint` errors on the missing `modified:` it leaves
-/// behind. Measured 2026-08-27, this is exactly how
-/// `feedback_a_degenerate_example_cannot_show_a_convention` was written — a real
-/// change the Write/Edit scan could not see, which is the unsafe direction for
-/// a staleness guard.
+/// behind. Memories have been written exactly this way — a real change the
+/// Write/Edit scan cannot see, which is the unsafe direction for a staleness
+/// guard.
 ///
 /// ⚠ **Read by `reader::shell_files`, not by looking for a `>`.** The first
 /// version matched a `> name.md` redirect and was wrong in three ways a
@@ -662,12 +661,11 @@ impl Agents {
     /// `None` is an ordinary answer, not a failure: a memory can outlive the
     /// transcript that wrote it.
     ///
-    /// ⚠ **NOT because Claude Code prunes them — measured 2026-08-29, it does
-    /// not** (memview#1240, #1247). What is genuinely missing predates the odin
-    /// archive, which begins 2026-07-31: of the 18 distinct sessions the live
-    /// corpus names, exactly ONE has no transcript left, and it wrote 24
-    /// memories. Re-run the count before quoting it; the SESSION count is the
-    /// one that matters, not the memory count.
+    /// ⚠ **NOT because Claude Code prunes them — it does not** (memview#1240,
+    /// #1247). What is genuinely missing predates the odin archive, and it is a
+    /// handful of sessions rather than a steady loss. Count it before quoting
+    /// it, and count SESSIONS: the memory count moves with whichever session is
+    /// missing and says nothing about the rate.
     /// Those keep their raw id rather than being dropped or attributed to
     /// somebody else.
     /// Who has been working on the files a query names, busiest first.
@@ -828,10 +826,9 @@ impl Agents {
 /// attribute a file to anybody.
 ///
 /// ⚠ **Taken from the corpus, not from the tool list anybody remembers.**
-/// Counted across `~/.claude/projects` on 2026-08-17: Edit 72,103, Read 42,891,
-/// Write 12,508, WebFetch 1,218, WebSearch 870, Agent 422, Grep 421 — and
-/// `Task`, `MultiEdit` and `NotebookEdit` **zero**, so listing them would have
-/// been three needles that never fire. Delegation is `Agent` here; the
+/// Counted across `~/.claude/projects`, where `Task`, `MultiEdit` and
+/// `NotebookEdit` appear **not once** — listing them would be three needles that
+/// never fire. Delegation is `Agent` here; the
 /// `Task*` names in these transcripts are a task-store tool and not work.
 const TOOLS: [(&str, Option<bool>); 7] = [
     ("Read", Some(false)),
@@ -1264,8 +1261,8 @@ fn named_in_transcript(text: &[u8]) -> Option<String> {
 /// CLI made up for itself — `code-c4`, `code-fa`, the working directory's last
 /// segment and two hex digits — so a conversation called `health` was shown as
 /// `code-c4` while the console's own front page, which reads these lines, called
-/// it `health`. Measured 2026-08-06: all fourteen registry entries were of that
-/// form and not one carried a name anybody had chosen.
+/// it `health`. Every entry there is of that form and none carries a name
+/// anybody chose.
 ///
 /// **Last occurrence wins**, which is what makes this current where the
 /// once-written `named this session` reminder goes stale — a rename appends
@@ -1418,10 +1415,10 @@ const REFUSED: &[u8] = b"\"content\":\"The user doesn't want to proceed with thi
 /// ⚠ **The colon is the whole discriminator, and it is measured rather than
 /// assumed.** `grep` prints `path:line:text`, so a memory that MATCHED appears
 /// as `/memory/<name>.md:`. Scanning for the bare `/memory/<name>.md` instead
-/// finds 13,276 result lines against this form's 121 — and almost all of them
-/// are the `Read` tool's own result envelope, `"file":{"filePath":…}`, which is
-/// ALREADY counted as a read. Counting those again would double the strongest
-/// evidence in the corpus (measured over all 79 transcripts, 2026-09-11).
+/// matches orders of magnitude more result lines, and almost all of them are the
+/// `Read` tool's own result envelope, `"file":{"filePath":…}`, which is ALREADY
+/// counted as a read. Counting those again would double the strongest evidence
+/// in the corpus.
 ///
 /// It also excludes exactly what this ticket's argument excludes: `grep -l`
 /// prints a bare filename and put no LINE in front of anybody, and a directory
@@ -1812,12 +1809,11 @@ fn scan_transcript(
     // first rows of the next file read.**
     //
     // ⚠ **But a RESUMED read must not reset, and getting this wrong is silent.**
-    // The driver used to call `Log::reopen` just before this function, and this
-    // line then cleared it on the next statement — so the carried episode was
-    // applied and immediately thrown away. Measured 2026-08-30: exactly 78 tail
-    // rows landed in no episode where a whole scan put them in episode 35921,
-    // and that one episode was the ONLY thing still differing between a resumed
-    // artefact and a full one (memview#1240).
+    // Calling `Log::reopen` just before this function and clearing it on the next
+    // statement applies the carried episode and throws it away at once: the tail
+    // rows then land in no episode, where a whole scan puts them in one. That was
+    // the last thing differing between a resumed artefact and a full one
+    // (memview#1240).
     match resume {
         None => log.open_transcript(),
         Some(open) => log.reopen(open.episode, open.prompt.clone()),
@@ -2468,9 +2464,9 @@ pub fn scan_resumed(
         agent.sessions.insert(transcript.owner.clone());
         // ⚠ **Counted once per transcript, not once per READ.** A resumed run
         // reads the tail of a file a previous run already counted, and
-        // incrementing again reports one session as two. Found by the
-        // full-corpus parity run on 2026-08-30 with a transcript that GREW —
-        // the zero-change comparison cannot see it, because it reads nothing.
+        // incrementing again reports one session as two. Only a parity run over
+        // a transcript that GREW can find it — a zero-change comparison reads
+        // nothing and so sees nothing.
         //
         // `resume.is_none()` is exactly "this run is reading the file from the
         // start", which is the only time it has not been counted before.
@@ -2556,18 +2552,16 @@ pub fn scan_resumed(
     // predating the corpus has no session left to credit.
     //
     // ⚠ **This used to say the transcripts are pruned by Claude Code. They are
-    // not** — measured 2026-08-29 out of odin's snapshots, not one transcript
-    // holding a conversation has been deleted since the archive began on
-    // 2026-07-31 (memview#1240, #1247). What is genuinely missing is older than
-    // that: measured 2026-08-30, the 659 memories that name a session name 18
-    // distinct ones, and exactly ONE of those has no transcript left.
+    // not** — odin's snapshots show no transcript deleted since the archive
+    // began (memview#1240, #1247). What is genuinely missing predates it, and
+    // is a single session of the ones the corpus names.
     // ⚠ **Cleared first, because attribution is RECOMPUTED rather than
     // accumulated.** `history` is the whole git log every run, not just what
     // this run read, so the loop below is a fresh derivation — and a carried
     // roster arrives with last run's counts already in it. Without this reset a
-    // resumed mine reports exactly DOUBLE the commits, which is what the first
-    // full-corpus parity run found on 2026-08-30: every agent doubled, while
-    // `doing.json`, `effects.json` and `memory-days.json` were byte-identical.
+    // resumed mine reports exactly DOUBLE the commits — every agent doubled,
+    // while `doing.json`, `effects.json` and `memory-days.json` stayed
+    // byte-identical, so nothing else pointed at it.
     //
     // ⚠ **The fixtures could not catch it** — they carry no git history, so the
     // loop had nothing to double. Only a real corpus with real repositories

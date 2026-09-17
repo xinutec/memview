@@ -31,23 +31,21 @@ struct FrontmatterMeta {
     /// When the memory itself says it last changed.
     ///
     /// ⚠ **Not the file's mtime, which is what this used and which is wrong by
-    /// a median of 9.9 days.** mtime records a touch; measured over the whole
-    /// corpus on 2026-08-27, only 129 of 647 files agreed with their own stamp
-    /// within an hour, the worst was 34 days out, and 11 had an mtime EARLIER
-    /// than the stamp. `memory-lint` makes an absent stamp an error and
+    /// days.** mtime records a touch, so most files disagree with their own
+    /// stamp and some carry an mtime EARLIER than it. `memory-lint` makes an
+    /// absent stamp an error and
     /// `memory-stamp` exists to maintain it, so it is the corpus's own record
     /// and the viewer had no business preferring the filesystem's (#1219).
     modified: Option<String>,
     /// When the memory was first written.
     ///
-    /// ⚠ **Recovered, not observed.** It exists nowhere but the transcripts —
-    /// this repo's history begins 2026-08-14 — so `memory-dated` mines it and
-    /// writes it here, where it is versioned. This once said the recovery "gets
-    /// less complete every day"; measured 2026-08-29 against odin's snapshots,
-    /// it does not (memview#1240). Absent on a memory no surviving transcript
-    /// records, which is a DETECTION gap and not a memory without a beginning;
-    /// nothing falls back to an mtime, which records a touch and is wrong by a
-    /// median of 9.9 days across this corpus.
+    /// ⚠ **Recovered, not observed.** It exists nowhere but the transcripts,
+    /// which reach further back than this repo's own history, so `memory-dated`
+    /// mines it and writes it here where it is versioned. This once said the
+    /// recovery "gets less complete every day"; odin's snapshots say it does not
+    /// (memview#1240). Absent on a memory no surviving transcript records, which
+    /// is a DETECTION gap and not a memory without a beginning; nothing falls
+    /// back to an mtime, which records a touch and is wrong by days.
     created: Option<String>,
 }
 
@@ -83,15 +81,15 @@ pub struct MemoryMeta {
     /// three hundred, not a summary read on its own.
     ///
     /// ⚠ **Deliberately NOT `description`, which answers a different question.**
-    /// A description decides relevance when it is read alone and runs to a
-    /// median of 193 characters; an index teaser is read among hundreds and runs
-    /// to a median of 8. Generating the index from descriptions would be ~64 KB
-    /// against a 24,400-byte ceiling. Measured over the corpus 2026-09-01.
+    /// A description decides relevance when it is read alone and runs long; an
+    /// index teaser is read among hundreds and runs to a few words. Generating
+    /// the index from descriptions overruns
+    /// [`crate::ceiling::INDEX_CEILING`] several times over.
     ///
     /// **It lives with the memory so it cannot rot apart from it.** Held in
     /// MEMORY.md, a teaser described a memory that had since changed and nothing
-    /// connected the two. Pippijn, 2026-09-01: "Let's make the teaser text part
-    /// of the doc itself. The automation will be structural, not linguistic."
+    /// connected the two. Pippijn: "Let's make the teaser text part of the doc
+    /// itself. The automation will be structural, not linguistic."
     ///
     /// Absent is meaningful, not an error: a memory with no teaser cannot be
     /// assembled into the index, which is the first signal the corpus has had
@@ -105,11 +103,10 @@ pub struct MemoryMeta {
     /// arrives here and is resolved to `None` there, so a typo reads as
     /// unjudged rather than as a silent third kind.
     ///
-    /// ⚠ **Absent is UNEXAMINED, never "safe to demote".** Until 2026-09-11
-    /// this judgement lived only in `memory-roles.json`, a model's one-pass
-    /// classification that memview#884 was pre-registered on — so it could not
-    /// grow with the corpus, and every memory written after a pass was exempt
-    /// from demotion forever (memview#1537). Declaring it here is the half that
+    /// ⚠ **Absent is UNEXAMINED, never "safe to demote".** A judgement held only
+    /// in `memory-roles.json` is a model's one-pass classification: it cannot
+    /// grow with the corpus, so every memory written after a pass is exempt from
+    /// demotion forever (memview#1537). Declaring it here is the half that
     /// keeps up: the author knows what they meant, and says so while writing.
     /// The file is consulted first and the record second, so nothing had to be
     /// backfilled across 597 memories to start.
@@ -549,10 +546,9 @@ pub(crate) fn index_sections(index_md: &str) -> (BTreeMap<String, String>, Vec<S
 /// per candidate answers "is this one housed *today*", and today includes every
 /// other candidate's index line. Two memories that link only each other are then
 /// each other's home and both look safe — until both lines go and neither is
-/// reachable from anything. That is not hypothetical: `memory-rank` offered
-/// exactly that pair on 2026-08-14, summed as `→ 1818 bytes if all 25 were
-/// demoted` (#869), and it is the 2026-08-07 stranding of 24 memories
-/// (`feedback_memory_index_is_the_working_set`) with a number attached.
+/// reachable from anything. That is not hypothetical: `memory-rank` has offered
+/// exactly that pair inside one batch of demotions (#869), and it is the
+/// stranding recorded in `feedback_memory_index_is_the_working_set`.
 ///
 /// Reachability is the corpus's one invariant, so it is checked in one place and
 /// both callers ask it the same way: `lint` with nothing struck out, `memory-rank`
@@ -1052,7 +1048,7 @@ pub fn render_markdown(md: &str) -> Result<String> {
 
 /// The reachable memories that already link `target`.
 ///
-/// ⚠ **This is the step the 2026-08-07 pass skipped**, and skipping it is what
+/// ⚠ **This is the step a demotion pass skipped once**, and skipping it is what
 /// stranded memories that still existed. A demotion is only safe once something
 /// live already points at the memory; a candidate with no home is not a
 /// candidate, it is a deletion wearing a demotion's clothes.
@@ -1060,9 +1056,9 @@ pub fn render_markdown(md: &str) -> Result<String> {
 ///
 /// ⚠ **This exists because [`homes_for`] used to re-derive it per target, and a
 /// small corpus was taking a minute.** Each `wikilinks_of` is a full markdown
-/// parse with a fresh arena; asking it inside a per-memory loop made the cost
-/// 668 x 668 = ~446,000 parses of a few megabytes. Building the reverse map once
-/// is 668 parses — the same answer, three orders of magnitude less work.
+/// parse with a fresh arena, so asking it inside a per-memory loop costs a parse
+/// of the whole corpus per memory. Building the reverse map once is one parse
+/// each — the same answer, orders of magnitude less work.
 ///
 /// The corpus is SMALL. Anything here that is slow is slow because of its shape,
 /// not its size, and the fix is the shape rather than a cache.

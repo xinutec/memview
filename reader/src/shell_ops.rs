@@ -98,12 +98,11 @@ pub enum Op {
     /// Runs JavaScript: `node -e '…'`, `node --input-type=module -e '…'`, or a
     /// program fed in on stdin by a heredoc.
     ///
-    /// **The third language this reads**, added 2026-08-22 on numbers that had
-    /// not been taken before: 11,748 Bash calls mention a JavaScript runtime and
-    /// 3,824 carry a program in a flag, holding 1,790 `readFileSync`, 1,909
-    /// `require`, 670 `import` and 214 `writeFileSync`. The older ranking —
-    /// "`node -e` is a query tool, not an editor", on 724 calls and 23 writes —
-    /// counted `node -e` alone, by distinct payload, and counted no reads.
+    /// **The third language this reads.** An earlier ranking dismissed it —
+    /// "`node -e` is a query tool, not an editor" — by counting `node -e` alone,
+    /// by distinct payload, and counting no reads. Counted across every
+    /// JavaScript runtime and every program passed in a flag, the reads and
+    /// writes are there.
     /// Read by [`crate::javascript`].
     JavaScript { source: String },
     /// Statements sent to a database: `mariadb -e '…'`, `sqlite3 x.db '…'`, or
@@ -139,8 +138,8 @@ pub enum Op {
     /// `kubectl exec pod -- mariadb -e 'SELECT …'`, `docker exec c ls /etc`.
     ///
     /// ⚠ **The distinction [`Op::Remote`] cannot express, and getting it wrong
-    /// was 700 of the 769 nested refusals** (memview#1028, measured 2026-08-22
-    /// by `reader/examples/nested-why.rs --by carrier`). `kubectl exec` and
+    /// accounts for nearly every nested refusal** (memview#1028; count it with
+    /// `reader/examples/nested-why.rs --by carrier`). `kubectl exec` and
     /// `docker exec` hand their words to `exec()`; nothing re-splits them and
     /// nothing removes a quote, because no shell is involved. Joining them back
     /// into one string and parsing that as shell put SQL and JavaScript in front
@@ -446,13 +445,12 @@ fn paths(unnamed: &mut Vec<String>, words: &[&str], cwd: Option<&str>, home: &st
 /// was built to count.** The first version tested `$` alone, on the reasoning
 /// that an unmade expansion is what a surviving `$` means — but `` `which
 /// claude` `` carries no `$`, and `cat `which claude`` therefore recorded no read
-/// *and* no admission that a subject had been refused. Measured 2026-08-13, the
-/// day the counter shipped.
+/// *and* no admission that a subject had been refused.
 /// ⚠ **A word that spans lines is a program body, not a path.** Nothing in this
-/// corpus names a file with a newline in it, and 58 uses across 27 distinct
-/// words were sitting in the count of subjects the reader could not name — 56
-/// of them `perl /tmp/wire.pl <file> '<TypeScript body>'`, measured 2026-08-23
-/// by `--example body-subjects`. A template literal carries `${…}`, which is
+/// corpus names a file with a newline in it, yet such words sat in the count of
+/// subjects the reader could not name — nearly all of them one shape,
+/// `perl /tmp/wire.pl <file> '<TypeScript body>'`; see `--example
+/// body-subjects`. A template literal carries `${…}`, which is
 /// the very marker this function reads as "an expansion the text did not make",
 /// so source text arrives here wearing the costume of an unnameable subject.
 ///
@@ -564,7 +562,7 @@ fn paired_files<'a>(argv: &'a [String], pair_file: &[&str]) -> Vec<&'a str> {
 /// ⚠ **`perl -Itest/lib -e '…'` was in-place to a `contains('i')` test** — the
 /// `i` in `lib` — and `in_place` decides the operands' direction, so a file
 /// the command read was recorded as one it rewrote. Surfaced by the concept
-/// census's second run (2026-09-04), lifted as a `Rewrite` of a test file.
+/// census surfaced it, lifted as a `Rewrite` of a test file.
 ///
 /// A cluster's letters end where a value-taking flag starts — `valued` is the
 /// verb's own list, so `-I` ends perl's cluster and does not end sed's `-Ei`,
@@ -886,11 +884,11 @@ enum Verb {
     /// Fetches from the network, and names a local file only where a flag says
     /// to save into one: `curl -o x.json`, `wget -O x.json`.
     ///
-    /// ⚠ **These were `NoFiles` until 2026-08-07, and the asymmetry is what gave
-    /// it away.** `curl URL > file` was always counted, because a redirect is
-    /// collected whatever the command is; `curl -o file URL` was not. Two
-    /// spellings of one act, counted differently — **335 of the corpus's 1,223
-    /// curl/wget calls, 27%**, writing files credited to nobody. The same shape
+    /// ⚠ **These were `NoFiles` once, and the asymmetry is what gave it away.**
+    /// `curl URL > file` was always counted, because a redirect is collected
+    /// whatever the command is; `curl -o file URL` was not. Two spellings of one
+    /// act, counted differently, and a good fraction of every curl and wget call
+    /// wrote a file credited to nobody. The same shape
     /// as the `sed -e` defect: an operand given by a FLAG leaves nothing in the
     /// operand position to notice.
     ///
@@ -1140,11 +1138,10 @@ fn verb(name: &str) -> Option<Verb> {
         // would go wrong quietly.
         "wg"
         // ⚠ **`ss` is the same shape and was left out only because nothing had
-        // measured it.** 294 calls, 20 distinct spellings, and every one is
-        // flags over a socket table: `-tlnp`, `-lnt`, `-ltn`, `-tlnH`, and one
-        // `ss -tn state established "( sport = :8097 )"` whose quoted filter is
-        // a socket expression, not a path. Measured 2026-08-23 by
-        // `--example unread-shapes`. Nearly all of them arrive through `ssh`,
+        // measured it.** Every spelling in this corpus is flags over a socket
+        // table — `-tlnp`, `-lnt`, `-ltn`, `-tlnH` — and the one quoted filter,
+        // `ss -tn state established "( sport = :8097 )"`, is a socket expression
+        // and not a path. Nearly all of them arrive through `ssh`,
         // which is why they are the fleet's sockets and never this Mac's.
         | "ss" => Verb::NoFiles,
 
@@ -1230,12 +1227,10 @@ fn verb(name: &str) -> Option<Verb> {
             flags: Flags::valued(&["--config-file", "-p", "--project", "-k", "--python-version"]),
             writes: &[],
         },
-        // The JavaScript test runners, and the top of the unread list after the
-        // one name nothing can ever resolve: `vitest` 1,412 and `playwright`
-        // 1,330 calls, measured 2026-08-06. Their operands are spec files and
-        // nothing more — no grammar was needed for either, which is why they went
-        // unread for so long behind the assumption that JavaScript meant a
-        // parser. `node -e` really does need one and is worth 23 writes.
+        // The JavaScript test runners, high on the unread list. Their operands
+        // are spec files and nothing more — neither needs a grammar, which is why
+        // they went unread for so long behind the assumption that JavaScript
+        // meant a parser. `node -e` really does need one.
         //
         // Both rewrite on demand: a snapshot update is a real change to a real
         // file, and it is the only way either of them writes anything.
@@ -1313,32 +1308,32 @@ fn verb(name: &str) -> Option<Verb> {
         | "flutter" | "dart" | "swift" | "javac" | "kotlinc"
         // Build tools that take targets rather than paths, like cargo.
         | "lake"
-        // The top of the unread list, and every one of them checked against how
-        // this corpus actually calls it (2026-08-22, `shell-files --show`):
+        // The top of the unread list, each checked against how this corpus
+        // actually calls it — `shell-files --show`:
         //
-        //   task 12,761 — the work queue's own CLI. `list`, `show <id>`,
-        //     `edit <id> --append`: a store behind a server, and no flag it
-        //     has names a file. Three times the next entry on the list.
-        //   ping 4,312 (`-c 2 -W 2 host`), dig 1,891 (`+short A name`),
-        //     nc 2,462 (`-z 127.0.0.1 3307`), mariadb-admin 374 (`ping`,
-        //     `shutdown`) — network and process, no operand is a path.
-        //   journalctl 1,266 — reads the JOURNAL. `--file` exists and this
-        //     corpus never uses it: every call is `-u`, `-b` or `--since`.
-        //   dmesg 460, nixos-version 589 — no operands at all.
+        //   task — the work queue's own CLI. `list`, `show <id>`,
+        //     `edit <id> --append`: a store behind a server, and no flag it has
+        //     names a file.
+        //   ping (`-c 2 -W 2 host`), dig (`+short A name`), nc
+        //     (`-z 127.0.0.1 3307`), mariadb-admin (`ping`, `shutdown`) —
+        //     network and process, no operand is a path.
+        //   journalctl — reads the JOURNAL. `--file` exists and this corpus
+        //     never uses it: every call is `-u`, `-b` or `--since`.
+        //   dmesg, nixos-version — no operands at all.
         //
         // ⚠ **`screen` is NOT here, and it is the reason to check rather than
-        // sweep**: 74 of its 604 calls are `-X hardcopy /tmp/…`, which writes a
+        // sweep**: a slice of its calls are `-X hardcopy /tmp/…`, which writes a
         // real file. Filing it under this list would have deleted those.
         | "task" | "ping" | "dig" | "nc" | "journalctl" | "dmesg" | "nixos-version"
         | "mariadb-admin"
-        // Added 2026-08-23, both measured by `--example unread-shapes`:
+        // Both measured by `--example unread-shapes`:
         //
-        //   mysqladmin 284 — `mariadb-admin` under its old name, 5 distinct
-        //     spellings and every one a `ping` with connection flags. ⚠ One is
+        //   mysqladmin — `mariadb-admin` under its old name, every spelling a
+        //     `ping` with connection flags. ⚠ One is
         //     `--socket=/…/mysqld.sock`, a real path this reading discards; it
         //     is safe only because the flag is GLUED, so no operand is left
         //     behind. Written `--socket /path` it would go wrong quietly.
-        //   verified_cli 336 — settled from `health/lean/ServeEntry.lean`
+        //   verified_cli — settled from `health/lean/ServeEntry.lean`
         //     rather than from its calls: `cliMain` matches every argument with
         //     `args.contains` against a subcommand name or `--timing`, takes its
         //     data from `IO.getStdin` and returns it on stdout. It opens no file
@@ -1420,9 +1415,9 @@ pub fn classify_naming(
 ///
 /// ⚠ **The path, and NOT "is the basename a known verb"** — which is what #799
 /// proposed and what the corpus refused. `gradlew` is in the verb table, beside
-/// `mvn`, `pip` and `ng`, so that rule deleted every `./gradlew` in the fleet:
-/// **2,110 reads of a script that lives in the repo, against ~800 of the noise
-/// it was aimed at.** Measured by ablation over 73,907 Bash calls, 2026-08-14.
+/// `mvn`, `pip` and `ng`, so that rule deleted every `./gradlew` in the fleet —
+/// **more reads of a script that lives in the repo than of the noise it was
+/// aimed at.** Measured by ablation over the whole corpus of Bash calls.
 ///
 /// This test keeps the two apart because it asks the question that actually
 /// distinguishes them: `/nix/store/…/bin/adb` and `.venv/bin/python` are things
