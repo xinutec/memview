@@ -1213,7 +1213,7 @@ const ENDED: &str =
 
 #[tokio::test]
 async fn a_command_sent_mid_turn_waits_for_the_turn_rather_than_becoming_prose() {
-    // ⚠ **The defect, measured 2026-08-08 against CLI 2.1.221/226.** A slash
+    // ⚠ **The defect, measured against CLI 2.1.221/226.** A slash
     // command written to a working session is not run: the CLI parks it as a
     // `queued_command` with `commandMode: "prompt"` and hands it to the MODEL as
     // words. `/rename` sent from the phone got "Noted the rename (CLI-side,
@@ -1317,8 +1317,8 @@ async fn a_command_is_not_held_by_a_session_that_is_not_working() {
 /// ⚠ **This is the alarm that was missing, and its absence cost two manual
 /// diagnoses in one morning.** A message written to a session that has gone deaf
 /// gets the same *waiting to be read* marker as one a busy session will pick up
-/// in a minute, so on 2026-08-08 `hardware` sat silent for twenty minutes twice
-/// while the screen said the ordinary thing. See
+/// in a minute, so a session sat silent for twenty minutes twice while the
+/// screen said the ordinary thing. See
 /// `reference_console_session_stops_reading_stdin`.
 mod deafness {
     use console::session::deaf_after;
@@ -1342,8 +1342,8 @@ mod deafness {
     fn a_working_session_is_never_deaf_however_long_it_is_quiet() {
         // ⚠ **The false positive that would have made this useless.** A session
         // ten minutes into a tool call says nothing at all, and parks incoming
-        // messages on purpose — measured 2026-08-07, four messages held and
-        // released together, the oldest after twelve minutes. `idle_since` is
+        // messages on purpose — several held and released together, the oldest
+        // after twelve minutes. `idle_since` is
         // unset while it works, and that is what keeps this quiet.
         assert_eq!(
             deaf_after(None, Some(NOW - 12 * 60_000), None, false, NOW),
@@ -1389,9 +1389,9 @@ mod deafness {
         // minutes.** A session blocked on a question is MID-TURN, so
         // `idle_since` is unset and the test above is silent for ever. But a
         // session that asked a question and stopped is not working — it said so —
-        // and the console had written the answer into its pipe. `health`,
-        // 2026-08-08: answered at 09:30:44, still blocked at 10:01, and the card
-        // on the phone was green (memview #122).
+        // and the console had written the answer into its pipe. One session was
+        // answered and still blocked half an hour later, with the card on the
+        // phone green throughout (memview #122).
         assert_eq!(
             deaf_after(None, None, Some(NOW - AFTER - 1), false, NOW),
             Some(AFTER + 1),
@@ -1496,8 +1496,8 @@ async fn a_slash_command_is_never_counted_as_in_flight() {
 /// What a conversation is allowed to do, across everything that forgets.
 ///
 /// ⚠ **Resuming used to drop a session to Manual and report that as the truth.**
-/// Measured 2026-08-08: `hardware` was in `auto`, was stopped and resumed, and
-/// came back `default` — a session that then stops at the first tool call
+/// A session in `auto`, stopped and resumed, came back `default` — and then
+/// stops at the first tool call
 /// needing approval and waits, which from a phone is the stall it was restarted
 /// for (memview #119).
 mod remembering_the_mode {
@@ -1559,8 +1559,8 @@ mod remembering_the_mode {
 
 /// Whether a turn is running, as the runner observes it.
 ///
-/// ⚠ **The console called a working session idle.** Reported from the phone
-/// 2026-08-07: "It says you're idle. My messages aren't seen by you yet." The
+/// ⚠ **The console called a working session idle.** Reported from the phone:
+/// "It says you're idle. My messages aren't seen by you yet." The
 /// session was mid-turn throughout, running tools — but `busy` is announced only
 /// when it CHANGES, and no status was drawn as *idle* (memview #112).
 mod whether_it_is_working {
@@ -1618,12 +1618,12 @@ mod whether_it_is_working {
         assert!(!session.summary().working, "the turn ended");
     }
 
-    /// ⚠ **84 minutes of `working` over a process doing nothing.** `hardware`
-    /// was resumed 2026-08-08 22:53; its transcript ended mid-turn that morning,
-    /// so the seeded events said "speaking" and no `Turn` ever followed to take
-    /// it back. The card claimed a turn was running while the process held no
-    /// API socket, a flat 0.5% of a core and a static 709 MB — and a message
-    /// sent at 00:17 was picked up at once, because nothing was ever wrong with
+    /// ⚠ **Hours of `working` over a process doing nothing.** A session was
+    /// resumed whose transcript ended mid-turn, so the seeded events said
+    /// "speaking" and no `Turn` ever followed to take it back. The card claimed a
+    /// turn was running while the process held no API socket and a flat sliver of
+    /// a core — and a message sent to it was picked up at once, because nothing
+    /// was ever wrong with
     /// it. `Joined` set `idle_since` and left `working` alone, so the session
     /// was marked idle and mid-turn at the same time (memview #640).
     ///

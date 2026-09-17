@@ -4,8 +4,8 @@
 //!
 //! `MEMORY.md` is loaded into every session, so its cost is paid constantly
 //! while its value is only in what is live *now*. Which entries those are has
-//! been a guess made under size pressure — and on 2026-08-07 a guess dropped 24
-//! entries without linking them first, stranding 24 memories that still existed
+//! been a guess made under size pressure — and one such guess dropped a batch of
+//! entries without linking them first, stranding memories that still existed
 //! and could no longer be recalled. This is the evidence that guess was missing.
 //!
 //! ⚠ **A REPORT, and deliberately not an editor.** What is live is a judgement:
@@ -24,11 +24,11 @@
 //! and the index itself is injected every session, so every name in it appears
 //! constantly whether or not anybody looked.
 //!
-//! ⚠ **A shell read IS counted — and this said the opposite for two weeks.**
-//! `d39d227` (2026-08-14) gave the shell site its own `memory_of` arm and reads
-//! went 2,646 → 6,259, +137%. The claim that used to stand here outlived it and
-//! was believed: #1214 was filed on a wrong premise taken from this very
-//! paragraph, which is what a stale docstring costs.
+//! ⚠ **A shell read IS counted — and this said the opposite for a fortnight.**
+//! `d39d227` gave the shell site its own `memory_of` arm and more than doubled
+//! the reads. The claim that used to stand here outlived it and was believed:
+//! #1214 was filed on a wrong premise taken from this very paragraph, which is
+//! what a stale docstring costs.
 //!
 //! ⚠ **A corpus grep that MATCHED is counted apart and never scored.** A grep
 //! that printed a line of a memory put it in front of somebody — 125 memories,
@@ -53,11 +53,11 @@
 //! ranked against the rest.
 //!
 //! ⚠ **Which entries those are is a JUDGEMENT read from `memory-roles.json`,
-//! not a guess from the name.** This split on a `feedback_`/`user_` prefix
-//! until 2026-09-11, which is right for those two prefixes and wrong for the
-//! rest: 136 `reference_` and 56 `project_` entries are tripwires too, so 192
-//! memories were ranked by a number their success mode suppresses and the
-//! demotion list was in large part a list of what was working (memview#884).
+//! not a guess from the name.** Splitting on a `feedback_`/`user_` prefix is
+//! right for those two prefixes and wrong for the rest: many `reference_` and
+//! `project_` entries are tripwires too, so they get ranked by a number their
+//! success mode suppresses and the demotion list becomes in large part a list of
+//! what was working (memview#884).
 //! `memory-tiers` already decided by role; this now agrees with it, and both
 //! resolve through [`memview::study::role_for`] so they cannot drift — the
 //! memory's own `role:` frontmatter first, the record behind it.
@@ -95,8 +95,8 @@ struct Standing {
     /// which is why `MemoryUse` keeps them apart; scoring them at a discount
     /// would invent a factor, which `docs/memory.md` warns against. This list is
     /// advisory, so the honest move is to put the evidence in front of whoever
-    /// decides. Measured 2026-08-27: 6 memories corpus-wide have no proven open
-    /// and some unproven one, 2 of them indexed (#1214).
+    /// decides. Only a handful of memories corpus-wide have no proven open and
+    /// some unproven one (#1214).
     maybe_reads: usize,
     /// Times a corpus-wide search printed a LINE of this memory back.
     ///
@@ -179,9 +179,9 @@ fn main() -> Result<()> {
     // ⚠ **There is no staleness check here any more, and that is the point.**
     // Every figure below is anchored to the mine's stamp, so a stale artefact
     // does not merely omit recent memories — it moves the day every age is
-    // measured from, silently. On 2026-08-27 that produced breadth figures for
-    // memories written after the mine and very nearly a demotion argument built
-    // on them (#1210).
+    // measured from, silently. That has produced breadth figures for memories
+    // written after the mine, and very nearly a demotion argument built on them
+    // (#1210).
     //
     // The old answer was to refuse and offer `--stale-ok`, which trains a reader
     // to pass the override. The artefact is now refreshed above instead, so the

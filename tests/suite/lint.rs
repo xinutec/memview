@@ -28,7 +28,7 @@ fn findings(corpus: &Corpus, rule: &str) -> Vec<String> {
 
 #[test]
 fn a_memory_several_hops_from_the_index_is_reachable() {
-    // Pippijn, 2026-08-02: "MEMORY.md doesn't need to index everything. things
+    // Pippijn: "MEMORY.md doesn't need to index everything. things
     // have to be reachable, but don't need to all be in MEMORY.md". The rule
     // used to demand an index line per memory and failed the gate on a corpus
     // that was perfectly navigable — three memories had just been consolidated
@@ -148,9 +148,9 @@ fn another_sessions_memory_does_not_fail_this_one() {
 /// ⚠ **A missing author is REPORTED, and reported as a WARNING** — two halves of
 /// one claim, pinned together (memview#1499).
 ///
-/// Reported at all, because until 2026-09-09 nothing asked. `modified:` was an
-/// ERROR and sat at 719 of 719; `originSessionId` was checked by no rule and had
-/// drifted to 707. What is measured gets fixed; what is not, drifts.
+/// Reported at all, because nothing used to ask. `modified:` was an ERROR and
+/// sat at the whole corpus; `originSessionId` was checked by no rule and had
+/// drifted. What is measured gets fixed; what is not, drifts.
 ///
 /// A warning, because the finding is unroutable by construction: the field that
 /// would say whose it is, is the field that is absent. Promoting it would fail
@@ -262,10 +262,9 @@ fn inheriting_another_sessions_error_still_fails_nobody() {
 
 /// ⚠ **The residual, pinned so it is a decision and not a surprise.** With no
 /// recorded writer the verdict falls back to `originSessionId` and this passes.
-/// Measured 2026-09-12: 3 of the 155 memories edited in the previous week had
-/// no record — so this path is rare where it matters and common across the
-/// corpus as a whole (343 of 733), which is why the narrow number is the one
-/// worth quoting.
+/// Almost every memory edited in the last week has a record, while not quite
+/// half the corpus does — so this path is rare where it matters and common
+/// overall, which is why the narrow population is the one worth quoting.
 #[test]
 fn an_unrecorded_writer_keeps_the_old_answer() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -493,7 +492,7 @@ fn the_ceiling_rule_is_a_warning_while_the_corpus_is_over_it() {
 
 // ── The teaser: a memory's own line in the index (#1310) ─────────────────────
 //
-// Pippijn, 2026-09-01: "Let's make the teaser text part of the doc itself. The
+// Pippijn: "Let's make the teaser text part of the doc itself. The
 // automation will be structural, not linguistic." So the field is where the
 // index line lives, and the only thing lint can say about it is whether it still
 // fits the shape the index needs — one line, and short enough that the ceiling
@@ -588,11 +587,10 @@ fn dated(dir: &std::path::Path, created: &str, modified: &str) -> Corpus {
 
 #[test]
 fn a_memory_created_after_it_was_modified_is_an_error() {
-    // ⚠ **The shape five memories were in on 2026-09-02**, worst of them
-    // `reference_sqlx_mysql_type_traps`: git showed the file on 08-19 and a
-    // later backfill wrote a `created` of 08-21. Nothing downstream reads the
-    // pair together, so all five sat unremarked — a memory whose age is stated
-    // backwards still recalls and still renders.
+    // ⚠ **A shape memories have really been in**: git shows a file existing
+    // before the `created` a later backfill wrote for it. Nothing downstream
+    // reads the pair together, so they sat unremarked — a memory whose age is
+    // stated backwards still recalls and still renders.
     let dir = tempfile::tempdir().expect("tempdir");
     let found = all_findings(
         &dated(dir.path(), "2026-08-21T00:00:00Z", "2026-08-19T00:00:00Z"),
@@ -645,7 +643,7 @@ fn the_stamps_are_compared_as_instants_and_not_as_text() {
 
 /// ⚠ **Every racy rule must be a rule, and this test exists because one was
 /// not** (memview#1456). `RACY` named `"not-in-index"`, renamed to
-/// `"unreachable"` on 2026-08-02 when the rule became reachability rather than
+/// `"unreachable"` when the rule became reachability rather than
 /// membership. The dead string compiled, read as deliberate, and matched no
 /// finding — so `memory-lint`'s settle-and-retry protected one of its two rules
 /// and not the likelier one, in a repository where several sessions write

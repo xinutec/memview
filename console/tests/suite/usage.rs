@@ -277,11 +277,10 @@ fn a_window_that_has_turned_over_beats_the_old_one_outright() {
 
 #[test]
 fn a_window_end_that_wobbles_by_a_second_is_still_the_same_window() {
-    // ⚠ **The defect this exists for (#814), measured 2026-08-12.** The console
-    // drew 5h 27% at an age of 31 minutes while the CLI answered 28% for the same
-    // window, and no reading had been accepted for half an hour: five samples 45 s
-    // apart across three sixty-second `ask_usage` ticks showed the age climbing
-    // 1:1 with the clock — 1570 s, 1615 s, 1660 s, 1705 s, 1750 s.
+    // ⚠ **The defect this exists for (#814).** The console drew a figure half an
+    // hour stale while the CLI answered a fresher one for the same window:
+    // successive samples showed the reading's age climbing 1:1 with the clock,
+    // so nothing was being accepted at all.
     //
     // The reset instant is not a constant. Two `get_usage` probes 30 s apart both
     // answered `23:19:59.838278`; one ten minutes earlier answered
@@ -357,9 +356,9 @@ fn a_confirmation_of_the_same_figure_still_refreshes_its_age() {
 
 #[test]
 fn a_fresher_dashboard_beats_a_stale_live_reading_of_the_same_window() {
-    // ⚠ **Measured live 2026-08-07 19:57Z.** The console drew 5h 13% at an age
-    // of 55 minutes while the dashboard — six minutes old, same window instance
-    // — said 22%. `live(…).or_else(|| published…)` reached for the dashboard
+    // ⚠ **Measured live.** The console drew an hour-old figure while the
+    // dashboard — minutes old, same window instance — said something higher.
+    // `live(…).or_else(|| published…)` reached for the dashboard
     // only when the live figure was ABSENT, and absent is not the same as older,
     // so the console preferred the worse number because it was its own.
     let now = at_ms("2026-08-04T17:10:00.000Z");
@@ -412,8 +411,8 @@ fn a_live_reading_still_wins_when_it_is_the_higher_one() {
 
 #[test]
 fn an_unmeasured_dashboard_row_may_fill_in_but_never_lower() {
-    // The row's own claim decides now (home v9): until 2026-09-02 every
-    // dashboard row was branded a measurement on arrival, so any writer's
+    // The row's own claim decides now (home v9). Branding every dashboard row a
+    // measurement on arrival means any writer's
     // cache — the statusLine stamps cached headers with the SEND time — could
     // arrive as dated truth entitled to lower a figure. An echo row keeps the
     // echo's rights: it supplies a window nothing live has reported, and it
@@ -558,7 +557,7 @@ mod who_is_asked {
 
 #[test]
 fn a_measured_reset_within_one_window_is_believed() {
-    // ⚠ **The defect this exists for, 2026-09-02.** Anthropic reset the week's
+    // ⚠ **The defect this exists for.** Anthropic reset the week's
     // meter mid-window: the SAME window instance (same `resets_at`) went from a
     // high figure to a low one. The monotone rule refused it — "same window,
     // lower figure" is what a stale echo looks like too — and the console showed
@@ -601,8 +600,8 @@ fn an_echoed_drop_within_one_window_is_still_refused() {
 
 #[test]
 fn a_fresh_higher_echo_beats_a_stale_measurement() {
-    // ⚠ **The 2026-09-02 regression this reverses (`03eb36e`), and the reason A
-    // exists.** A `get_usage` reply from the session you are talking to is an
+    // ⚠ **The regression this reverses (`03eb36e`), and the reason A exists.**
+    // A `get_usage` reply from the session you are talking to is an
     // echo; the home dashboard is a measurement. That commit let a measurement
     // win over an echo UNCONDITIONALLY, so a fresh, higher live reading could
     // not displace the five-minute-old dashboard and the figure stopped
@@ -619,7 +618,7 @@ fn a_fresh_higher_echo_beats_a_stale_measurement() {
 
 #[test]
 fn only_a_measurement_may_lower_within_a_window() {
-    // The line A draws (2026-09-02): within one window instance an echo — a
+    // The line A draws: within one window instance an echo — a
     // `get_usage` reply from a process cache of unknowable age — may RAISE the
     // figure, because usage that rose cannot be faked, but it may NOT lower it,
     // or a stale one would forge a reset. A measurement (a `rate_limit_event`,
