@@ -3,10 +3,10 @@
 //!
 //! `created-after-modified` states the one thing decidable inside the corpus: a
 //! memory cannot have been changed before it existed. It cannot see the other
-//! half — a `created` that is later than the memory's own FIRST WRITE. Six such
-//! stamps sat in the corpus unremarked on 2026-09-16, five of them round-minute
-//! values a session typed instead of looking up, and the one the ordering rule
-//! did catch was only visible because its `modified` happened to land first.
+//! half — a `created` that is later than the memory's own FIRST WRITE. Such
+//! stamps have sat in the corpus unremarked, most of them round-minute values a
+//! session typed instead of looking up, and the one the ordering rule did catch
+//! was only visible because its `modified` happened to land first.
 
 use memview::lint::{Severity, check_created};
 use memview::store::Corpus;
@@ -44,8 +44,7 @@ fn record(dir: &std::path::Path, first: &str) -> std::path::PathBuf {
 fn a_birthday_before_the_first_transcript_write_is_not_a_finding() {
     // The expected direction, and why this rule is one-sided. The archive
     // begins 2026-07-31, so a memory older than that shows its first RE-write
-    // and not its creation — `reference_sqlx_mysql_type_traps` reads 23 days
-    // "early" for exactly this reason and is correct.
+    // and not its creation, and reads "early" for exactly this reason.
     let dir = tempfile::tempdir().expect("tempdir");
     let corpus = corpus_created(dir.path(), Some("2026-08-19T08:34:16.558Z"));
     let at = record(dir.path(), "2026-09-11T04:12:53.633Z");
@@ -69,10 +68,10 @@ fn a_birthday_after_the_first_transcript_write_is_an_error() {
 
 #[test]
 fn the_stamping_tools_own_jitter_is_under_the_tolerance() {
-    // Measured over the whole corpus 2026-09-16: a stamp written by the Write
-    // tool lands a hair AFTER the transcript entry for the same write — six
-    // memories inside 62 ms and one at 12.8 s. The smallest real defect was
-    // 2m58s, so the two populations are separated by roughly 14x and the
+    // Measured over the whole corpus: a stamp written by the Write tool lands a
+    // hair AFTER the transcript entry for the same write, while the smallest
+    // real defect is minutes out — so the two populations are an order of
+    // magnitude apart and the
     // tolerance sits in the gap rather than on either edge.
     let dir = tempfile::tempdir().expect("tempdir");
     let corpus = corpus_created(dir.path(), Some("2026-09-12T15:41:03.247Z"));

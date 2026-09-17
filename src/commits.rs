@@ -62,7 +62,7 @@ pub struct Commit {
 /// between them turn every IO error — a directory unlistable under fd
 /// pressure, a transient `EMFILE` from three gates running beside each other —
 /// into "there are no repositories": attribution silently zero, blamed on the
-/// miner (memview#1243, in-gate at load 19.5, 2026-09-10). An error is an
+/// miner (memview#1243, seen in-gate under load). An error is an
 /// error; empty is a CLAIM.
 ///
 /// Two answers are DEFINITE rather than failed questions, and both are let
@@ -103,7 +103,7 @@ pub fn repositories(code_root: &Path) -> anyhow::Result<Vec<PathBuf>> {
 
 /// Every commit in one repository, with per-file line counts.
 ///
-/// **Renames are detected, and that was a correction** (2026-08-02). This ran
+/// **Renames are detected, and that was a correction.** This ran
 /// with `--no-renames` on the reasoning that a rename reported as one is 0
 /// added and 0 deleted, so the file would vanish from the record. It does not:
 /// `--numstat` still emits a row for it, carrying the touch without the lines.
@@ -133,7 +133,7 @@ pub fn history(repo: &Path, code_root: &Path) -> anyhow::Result<Vec<Commit>> {
     // with nothing to give it away.
     //
     // ⚠ **Strip EVERY GIT_* variable, not a list.** The fixture that tests
-    // this learned it on 2026-09-02 — an enumerated subset that missed one
+    // this learned it — an enumerated subset that missed one
     // variable bound a fresh repo to the committing repo's dirs — and this
     // was still the pre-lesson list of five. A prefix cannot drift.
     for (key, _) in std::env::vars() {

@@ -167,7 +167,7 @@ fn an_admission_with_nothing_to_pay_for_it_is_shown_but_not_bought() {
     assert_eq!(trade.net(), 0);
 }
 
-/// A demotion needs somewhere to land. This is the step the 2026-08-07 pass
+/// A demotion needs somewhere to land. This is the step a demotion pass once
 /// skipped, and skipping it stranded memories that still existed.
 #[test]
 fn an_unhoused_entry_is_never_offered_for_demotion() {
@@ -199,7 +199,7 @@ fn a_pair_that_houses_only_each_other_is_dropped_from_the_set() {
     assert_eq!(trade.recovered, 0);
 }
 
-/// ⚠ #884's freeze is on the SPLIT, and it runs until 2026-09-11. A frozen
+/// ⚠ #884's freeze is on the SPLIT, and it runs until the harvest. A frozen
 /// entry still qualifies on the evidence; acting on it perturbs the series.
 #[test]
 fn a_frozen_entry_is_held_apart_rather_than_dropped_or_demoted() {
@@ -290,8 +290,8 @@ fn a_thin_housed_pointer_is_demotable() {
     assert_eq!(trade.recovered, 40);
 }
 
-/// ⚠ **Role before freeze, and the order is the point.** The freeze lifts on
-/// 2026-09-11; being a tripwire does not. Reporting the freeze as the reason
+/// ⚠ **Role before freeze, and the order is the point.** The freeze lifts at
+/// the harvest; being a tripwire does not. Reporting the freeze as the reason
 /// would make this read as demotable the day after the harvest — which is the
 /// failure #1234 describes, moved by a fortnight rather than fixed.
 #[test]

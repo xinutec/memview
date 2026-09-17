@@ -210,7 +210,7 @@ fn resuming_over_an_appended_corpus_equals_reading_it_whole() {
         assert_eq!(a.writes, b.writes, "{}: writes diverged", a.name);
         // ⚠ Counted per TRANSCRIPT, not per read. Without the guard in
         // `scan_resumed`, resuming into a grown file reports one session as two
-        // — the defect the full-corpus parity run found on 2026-08-30.
+        // — the defect the full-corpus parity run found.
         assert_eq!(
             a.transcripts, b.transcripts,
             "{}: transcript count diverged",
@@ -301,7 +301,7 @@ fn repo_with_a_commit(root: &std::path::Path, name: &str) -> String {
     // enumerated subset that missed one let `git init` bind the new repo to
     // memview's own dirs, and the miner's later `git log` then found no
     // repository (exit 128), read as "the resumed mine lost the commits" —
-    // in-gate only, under the full parallel suite, 2026-09-02. Removing the
+    // in-gate only, and only under the full parallel suite. Removing the
     // whole GIT_* set by prefix cannot drift the way a list does.
     let git = |args: &[&str]| -> std::process::Output {
         let mut c = std::process::Command::new("git");
@@ -344,8 +344,8 @@ fn repo_with_a_commit(root: &std::path::Path, name: &str) -> String {
 /// accumulated** — so a carried roster must have its counts cleared first.
 ///
 /// Without the reset a resumed mine reports exactly DOUBLE. Found by the first
-/// full-corpus parity run, 2026-08-30, not by any fixture: the other fixtures
-/// carry no git history, so there was nothing to double.
+/// full-corpus parity run and by no fixture: the other fixtures carry no git
+/// history, so there was nothing to double.
 #[test]
 fn a_resumed_mine_does_not_double_the_commit_counts() {
     let root = tempfile::tempdir().expect("tempdir");
@@ -418,10 +418,9 @@ fn a_resumed_mine_does_not_double_the_commit_counts() {
 /// which opens the log itself on its first statement and cleared it — so the
 /// carry was applied and thrown away one line later, silently.
 ///
-/// Measured on the real corpus 2026-08-30: 78 tail rows landed in no episode
-/// where a whole scan put them in the episode open at the cut, and that single
-/// episode was the ONLY remaining difference between a resumed artefact and a
-/// full one.
+/// Measured on the real corpus: tail rows landed in no episode where a whole
+/// scan put them in the episode open at the cut, and that single episode was the
+/// ONLY remaining difference between a resumed artefact and a full one.
 #[test]
 fn a_tail_continues_the_episode_that_was_open_at_the_cut() {
     let root = tempfile::tempdir().expect("tempdir");

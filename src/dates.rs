@@ -3,7 +3,7 @@
 //! ⚠ **This was written as a closing window and it is not one.** A creation date
 //! exists nowhere but the transcripts — `~/.claude` git history begins
 //! 2026-08-14 — and the transcripts were believed to be evaporating. Measured
-//! 2026-08-29 against odin's snapshots: **nothing holding a conversation has
+//! against odin's snapshots: **nothing holding a conversation has
 //! been deleted since the archive began**, everything ever lost lived in a
 //! temp-directory project, and a restore reads back byte-identical
 //! (memview#1247, #1240).

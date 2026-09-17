@@ -75,9 +75,8 @@ fn named(dir: &Path, id: &str, title: Option<&str>, agent: Option<&str>) {
 /// ⚠ **`name` must be unique across the file, and nothing checks it.** Two tests
 /// sharing one silently share a directory — each `remove_dir_all`s the other's
 /// fixture and whichever writes last wins, so the pair passes alone and fails
-/// perhaps one run in six. Cost an hour on 2026-08-07, where the reused name read
-/// its neighbour's transcript and reported a conversation called `health` that
-/// the test had never written.
+/// perhaps one run in six. It has cost an hour, where the reused name read its
+/// neighbour's transcript and reported a conversation the test never wrote.
 fn scratch(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("console-past-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -303,7 +302,7 @@ fn a_conversation_is_shown_by_the_name_it_gave_itself() {
     // ⚠ **The title wins here and the agent name wins in the viewer, and that is
     // the decision rather than an accident.** The reason used to be given as "one
     // is a decision, the other a default" — a rationale the viewer answered with
-    // an equally confident opposite one. Settled 2026-08-07 by reading the CLI,
+    // an equally confident opposite one. Settled by reading the CLI,
     // which carries both orders split by what the name is for: its resume picker
     // reads `customTitle` and never consults `agentName`, its session labeller
     // reads `agentName` first. This is a list of conversations to pick from, so
@@ -1143,8 +1142,8 @@ fn only_what_arrived_since_the_last_count_is_read_again() {
 
 #[test]
 fn the_tail_is_where_a_finished_background_task_is_found() {
-    // ⚠ **Measured 2026-08-06, and it is the whole reason this read returns two
-    // things.** A backgrounded call answers at once with a task id, so the
+    // ⚠ **Measured, and it is the whole reason this read returns two things.**
+    // A backgrounded call answers at once with a task id, so the
     // harness's notification is its only end-of-work signal — and that
     // notification is injected as a user message nobody typed, which the CLI
     // writes to the transcript and does NOT replay on stdout. So the reader of
@@ -1189,9 +1188,9 @@ fn a_monitor_that_timed_out_is_found_there_too_under_its_other_name() {
     // ⚠ **This is the path that matters for a monitor, not the live stream.**
     // The notification is written to the transcript and never put on stdout, so
     // a running session finds every ending here — including the one kind that
-    // cannot name the call it came from. Verbatim from 2026-08-15, where
-    // memview #925 was noticed: a monitor timed out at 14:06:32 and was still
-    // drawn as running an hour later.
+    // cannot name the call it came from. Verbatim from the transcript where
+    // memview #925 was noticed: a monitor timed out and was still drawn as
+    // running an hour later.
     let root = scratch("timed-out");
     spoken(&root, "watching", &[1], None);
     let path = transcript_of(&root, "watching").expect("transcript");

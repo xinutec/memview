@@ -76,10 +76,11 @@ find "$MEMORY_DIR" -type f | sed "s|^$MEMORY_DIR/||" | remote sh -c "'
 #
 # ⚠ **Compressed, and the corpus beside it has been since the day this was
 # written.** These are JSON with the same field names on every row, which is
-# exactly what a compressor eats: measured 2026-08-14, effects.json goes 35.2 MB
-# → 4.15 MB, 8.5×, in 0.65s. The alternative on the table was re-encoding its
-# rows as positional arrays — that saves 6.7 MB raw and, once both are gzipped,
-# **0.10 MB, 2.4%**, in exchange for a format where adding a field silently
+# exactly what a compressor eats: the largest of them shrinks by most of an
+# order of magnitude in under a second. The alternative on the table was
+# re-encoding the rows as positional arrays — which saves a little raw and, once
+# both are gzipped, almost nothing, in exchange for a format where a new field
+# silently
 # reinterprets every row (#858). The expensive thing was never the encoding; it
 # was that all four of these skipped the compression `tar -czf` already gives
 # /corpus — 61 MB of JSON going up uncompressed beside a tarred corpus.
@@ -122,7 +123,7 @@ fi
 # The timeline: what each session did, in order, and how it turned out. Derived
 # and typed — an agent, a moment, a repository, a kind of work, a verdict — and
 # carrying no command line, no prompt and no output text. Pippijn lifted the
-# no-timeline rule on 2026-08-02 and left that half of it standing.
+# no-timeline rule and left that half of it standing.
 DOING="${DOING_FILE:-$HOME/.claude/memview/cache/doing.json}"
 if [[ -f $DOING ]]; then
   push_json timeline "$DOING" /state/doing.json

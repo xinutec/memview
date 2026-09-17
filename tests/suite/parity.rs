@@ -1,8 +1,8 @@
 //! **A resumed mine must give the answer a whole mine gives.** For any corpus,
 //! cut at any point.
 //!
-//! ⚠ **This exists because six bugs of one family were found BY HAND on
-//! 2026-08-30, and each needed a stronger fixture than the one before it**
+//! ⚠ **This exists because six bugs of one family were found BY HAND, each
+//! needing a stronger fixture than the one before it**
 //! (memview#1240). All six were the same shape — a fold written to run over
 //! everything, made to run over what changed — and none was visible to the test
 //! that preceded it:
@@ -23,7 +23,7 @@
 //! which reads as a pass and proves nothing. Cutting real generated content on a
 //! line boundary is the only form of this that works.
 //!
-//! ## What this actually catches, measured by ablation 2026-08-30
+//! ## What this actually catches, measured by ablation
 //!
 //!     commits reset removed                 CAUGHT
 //!     per-read transcript counter           CAUGHT
@@ -43,7 +43,7 @@
 //!
 //! ⚠ **Every assertion is guarded against being VACUOUS.** Two empty artefacts
 //! compare equal. A fixture that silently produces no rows — the one that cost a
-//! wrong test on 2026-08-30, because `log.push` needs a tool-use `id` nobody had
+//! wrong test, because `log.push` needs a tool-use `id` nobody had
 //! noticed — would otherwise pass this file completely.
 
 use memview::agents::{Agents, Needs, Resumed, Roots, scan_resumed};
@@ -136,7 +136,7 @@ fn repo_with_a_commit(root: &std::path::Path) -> String {
     // repo to memview's common dir instead of making a standalone one — then
     // the miner's own `git log` (which does env-clean) found no repository and
     // returned exit 128, read as "the resumed mine lost the commits". In-gate
-    // only, 2026-09-02, and only under the full parallel suite. Removing the
+    // only, and only under the full parallel suite. Removing the
     // whole GIT_* set by prefix cannot drift out of date the way a list does.
     let git = |args: &[&str]| -> std::process::Output {
         let mut c = std::process::Command::new("git");
