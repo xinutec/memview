@@ -26,7 +26,7 @@
 //! numbers it never looks at.
 //!
 //! ⚠ **So each reader catches up from the last MINE, not from the last reader.**
-//! Measured 2026-08-30: the corpus grows about 1 MB per eight minutes, so a full
+//! Measured: the corpus grows about 1 MB per eight minutes, so a full
 //! day of drift is a few hundred MB of tails — seconds, not minutes. Cheaper
 //! than the coordination a shared writable cache would need.
 

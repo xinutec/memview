@@ -6,7 +6,7 @@
 //! ⚠ **A check nobody is addressed by is a check nobody acts on.** `mem_check.py`
 //! runs as a fleetwatch collector: `--json` reports and exits 0. So an ERROR
 //! paints a panel, stops the nightly committing the corpus, and tells no session
-//! anything. Measured 2026-08-28: four memories written as a byproduct of other
+//! anything. Measured: four memories written as a byproduct of other
 //! work left the corpus uncommittable for about four hours, and the session that
 //! wrote them had no way to know. Every fix was mechanical — three stamps and a
 //! paragraph that needed marking bold (memview#1235).

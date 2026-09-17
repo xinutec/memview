@@ -371,7 +371,7 @@ fn a_chain_of_ands_is_still_one_condition() {
 fn the_knowledge_in_a_failed_or_chain_is_declined_on_size_not_on_principle() {
     // ⚠ **These three are all `Sometimes`, and one of them need not be.**
     // memview #101 asked for a fourth domain point, `OnFailure`, to recover the
-    // right-hand side of a `||` when the call failed. Measured 2026-08-15 over
+    // right-hand side of a `||` when the call failed. Measured over
     // 132,554 calls: 4,945 failed at all, 390 of those contain `||`, and 113
     // file uses inside them land in this bucket — a ceiling, and 0.59% of it.
     // Too small to pay for, so the reader keeps saying "cannot tell".

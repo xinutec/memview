@@ -12,7 +12,7 @@
 //!
 //! ⚠ **Copy is the dimension nothing had.** The CLI re-appends earlier stretches
 //! of a conversation into the same file, so a transcript holds many messages
-//! twice. Measured 2026-08-29 on the largest one, that is **48.5% of 1.7 GB** —
+//! twice. Measured on the largest one, that is **48.5% of 1.7 GB** —
 //! bigger than any content category. A report that shows only what the bytes ARE
 //! answers "reads and edits are large" and misses that half of them are second
 //! copies of themselves.

@@ -122,7 +122,7 @@ pub fn still_asks(subject: &str) -> bool {
 /// ⚠ **Backticks and an extension are both required, and that is deliberate.**
 /// Prose names directories, module paths and English words containing slashes;
 /// requiring a fenced token that ends in a short extension is what keeps this
-/// from accusing sentences. Measured 2026-08-30 over 140 open tasks: 98
+/// from accusing sentences. Measured over 140 open tasks: 98
 /// citations, of which 55 were absent — a rate high enough that a looser matcher
 /// would drown the real ones.
 pub fn cited_paths(body: &str) -> std::collections::BTreeSet<String> {

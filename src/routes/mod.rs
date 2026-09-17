@@ -56,7 +56,7 @@ fn cache_control_for(res: &Response<ServeFileSystemResponseBody>) -> Option<Head
 /// ⚠ **A missing FILE must not be handed the page, and the mistake is
 /// invisible**: the wrong answer is a `200`, so a browser that asked for a
 /// woff2 and got HTML renders broken icons and reports nothing anywhere.
-/// Measured 2026-09-08 — `/media/nope.woff2` answered `200 text/html` (#1478).
+/// Measured — `/media/nope.woff2` answered `200 text/html` (#1478).
 ///
 /// The test is a dot in the last path segment. It is a heuristic, and the
 /// alternative — enumerating the bundle's own asset names — would have to be

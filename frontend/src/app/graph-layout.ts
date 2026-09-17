@@ -1185,7 +1185,7 @@ export interface GroupGraph {
   /**
    * Memories the grouping placed nowhere.
    *
-   * ⚠ **Counted and named, never quietly bucketed.** Measured 2026-09-13: 389 of
+   * ⚠ **Counted and named, never quietly bucketed.** Measured: 389 of
    * 734 memories carry no authored `##` section, because the index holds 349
    * entries for a 734-memory corpus and memview#1210 has now CLOSED the index at
    * its ceiling — so this is a majority, and a permanent one.
@@ -1307,7 +1307,7 @@ export const DERIVED_PREFIX = 'derived: ';
  * Where each memory belongs in the overview: the authored section if it has one,
  * otherwise the derived cluster it fell into.
  *
- * ⚠ **Why a hybrid at all, measured 2026-09-13 on the live 734-node corpus.** The
+ * ⚠ **Why a hybrid at all, measured on the live 734-node corpus.** The
  * authored `##` headings cover 47% of memories — `section` is assigned by walking
  * MEMORY.md, which indexes 349 of 734 — and memview#1210 has now CLOSED the index
  * at its ceiling, so the uncovered majority is permanent and grows. The four

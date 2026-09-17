@@ -552,7 +552,7 @@ fn a_session_resolves_to_its_agent_and_a_forgotten_one_to_nobody() {
 
     assert_eq!(roster.name_of_session("s1"), Some("builder"));
     // A memory can outlive the transcript that wrote it — one session of the 18
-    // the live corpus names has none left, measured 2026-08-30. That is an
+    // the live corpus names has none left. That is an
     // ordinary answer, not a failure; the alternative is attributing it to
     // whoever happens to sort first.
     //

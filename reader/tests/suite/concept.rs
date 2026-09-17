@@ -788,7 +788,7 @@ fn a_listing_describes_the_locus_and_its_reach() {
 }
 
 /// ⚠ **Acceptance test 1 for the fifth lens: `--oneline` is DECORATION.**
-/// 94% of `git log` rows carry it (measured 2026-09-10 over 23,160 steps), and
+/// 94% of `git log` rows carry it (measured over 23,160 steps), and
 /// it changes how a commit prints, never which commits appear — so it
 /// normalises away exactly as `grep -n` does.
 #[test]

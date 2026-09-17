@@ -50,7 +50,7 @@ fi
 # toolchain, the dependency tree and the flags are then the flake's rather than
 # whatever the shell happens to hold, which is what makes the installed copy
 # reproducible from the commit. It costs about 80 seconds against cargo's 15 —
-# measured 2026-08-11 — because a source change recompiles the whole vendored
+# measured — because a source change recompiles the whole vendored
 # tree. That is the wrong trade for iterating and the right one for installing,
 # and this script is the installing one; `cargo run -p console` is still there
 # for the other.

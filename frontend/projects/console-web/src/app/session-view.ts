@@ -477,7 +477,7 @@ export class SessionView implements OnDestroy {
         //
         // ⚠ **The hole did not exist before 9ae8a82** and is that commit's
         // doing: until then a fault in `follow` cost one reposition, because
-        // nothing else waited on it having finished. Measured 2026-09-12 by
+        // nothing else waited on it having finished. Measured by
         // injecting a throw after `follow`'s real work — 5/5 runs of the
         // earlier-fetch test failed on the shipped code, 5/5 passed both with
         // this `finally` and on the pre-9ae8a82 code, which is the asymmetry

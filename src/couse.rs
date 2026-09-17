@@ -167,7 +167,7 @@ impl CoUse {
     /// caller can report the split rather than quietly shrink the list.
     ///
     /// ⚠ **A shared neighbour is a connection, and treating it as one removes
-    /// 59% of what this used to report.** Measured 2026-08-24: of 1222 pairs
+    /// 59% of what this used to report.** Measured: of 1222 pairs
     /// seen in >= 3 sessions with no direct link, 723 already had some memory
     /// linking both — overwhelmingly a hub and its own children, which co-occur
     /// *because* the hub sent the reader to each in turn. The four memories

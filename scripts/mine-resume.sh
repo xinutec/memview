@@ -3,7 +3,7 @@
 #
 #   ./scripts/mine-resume.sh
 #
-# ⚠ **Why this runs often rather than nightly.** Measured 2026-08-30: a resumed
+# ⚠ **Why this runs often rather than nightly.** Measured: a resumed
 # mine is ~6s where a full one is ~4m30, and reader cost is almost entirely
 # CATCH-UP — `memory-rank` is 0.25s right after a mine and 2.07s after 18 MB of
 # drift, the same code. Readers never write, so every one of them re-reads the

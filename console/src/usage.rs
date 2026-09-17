@@ -332,10 +332,10 @@ pub fn merged(
     // ⚠ **The dashboard is judged, not merely fallen back on.** This read
     // `live(…).or_else(|| published…)`, which reaches for the published figure
     // only when the live one is ABSENT — and absent is not the same as older.
-    // Measured 2026-08-07 19:57Z: the console drew 5h 13% / 7d 12% at an age of
-    // 55 minutes while the dashboard, six minutes old and describing the same
-    // window instance, said 22% and 14%. Nine points low, and preferring the
-    // worse number because it happened to be its own.
+    // Measured live: the console drew an hour-old reading while the
+    // dashboard, minutes old and describing the same window instance, said
+    // several points more. Low, and preferring the worse number because it
+    // happened to be its own.
     //
     // `fresher` already knows how to answer this — the higher figure inside one
     // window instance, the later instance across two — so it is asked here
@@ -589,7 +589,7 @@ fn now_ms() -> i64 {
 /// the console asks the most recent speaker. But a busy CLI does not answer a
 /// control request until its turn ends, and "spoke most recently" is very nearly
 /// "is working right now" — so the console was reliably asking the one session
-/// least able to reply. Measured 2026-08-12: asked 2.0 s into a turn, answered at
+/// least able to reply. Measured: asked 2.0 s into a turn, answered at
 /// 8.5 s (memview #817).
 ///
 /// A session that has just finished a turn has a cache almost as fresh and

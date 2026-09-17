@@ -5,7 +5,7 @@
 //!
 //! ⚠ **This was filed as a race against evaporating evidence and it is not
 //! one.** A creation date exists nowhere but the transcripts — `~/.claude` git
-//! history begins 2026-08-14 — but measured 2026-08-29 against odin's snapshots,
+//! history begins 2026-08-14 — but measured against odin's snapshots,
 //! nothing holding a conversation has been deleted since the archive began, and
 //! a restore reads back byte-identical (memview#1247, #1240). Writing the date
 //! into frontmatter is still the right shape: it puts the fact in the one place

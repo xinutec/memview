@@ -70,7 +70,7 @@ describe('Updates', () => {
   it('treats a page restored by going back as a boot', () => {
     // A left-swipe back lands on a history entry belonging to the PREVIOUS
     // document, which the browser kept alive — not stale HTML, a live old
-    // bundle. Reported from the phone 2026-08-07 straight after a deploy.
+    // bundle. Reported from the phone straight after a deploy.
     updates.saw('aaaa');
     vi.setSystemTime(Date.now() + 60_000);
     restored(true);

@@ -935,7 +935,7 @@ describe('groupGraph', () => {
   });
 
   it('names what the grouping placed nowhere instead of bucketing it', () => {
-    // ⚠ Measured 2026-09-13: this is 389 of 734 on the real corpus, so it is the
+    // ⚠ Measured: this is 389 of 734 on the real corpus, so it is the
     // majority case and not an edge case.
     const g = groupGraph(NAMES, [], of);
     expect(g.ungrouped).toEqual(['loose']);

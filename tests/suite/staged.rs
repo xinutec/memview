@@ -336,7 +336,7 @@ fn a_sibling_repo_is_not_mistaken_for_this_one() {
 ///
 /// The corpus is reached as `/Volumes/Backup/claude` and as `~/.claude`, so a
 /// needle built from the caller's last path segment — `/claude/` — never matches
-/// `/.claude/`. Measured 2026-09-12: feeding all 733 memory paths under the
+/// `/.claude/`. Measured: feeding all 733 memory paths under the
 /// resolved spelling reported ONE known writer and no complaint, where the
 /// logical spelling reported 390. **The guard was silent across a 390-to-1
 /// discrepancy**, which is precisely what it exists to catch.

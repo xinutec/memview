@@ -8,7 +8,7 @@
 //! [`crate::session::Summary::mode`]). The console is the only thing that knows,
 //! and until now it only knew for as long as it held the process.
 //!
-//! **What that cost.** Measured 2026-08-08 on `hardware`: a session left in
+//! **What that cost.** Measured on `hardware`: a session left in
 //! `auto` — deliberately, because nobody was watching it — was stopped and
 //! resumed, and came back as `default`. Manual. It then stops at the first tool
 //! call that needs approval and waits, which from a phone is indistinguishable

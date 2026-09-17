@@ -120,7 +120,7 @@ pub fn read(source: &str) -> Program {
 /// here fired on any backslash and threw away two programs that worked, which
 /// is why the test is the escaped quote and not the backslash.
 ///
-/// **Measured 2026-08-17 against CPython 3.12.14** — `--example python-raised`
+/// **Measured against CPython 3.12.14** — `--example python-raised`
 /// hands every program to `ast.parse`. Of 12,240 distinct programs it refuses
 /// 72; this flags 39 and flags nothing CPython accepts. Of the 33 left, 19 hold
 /// an unexpanded shell variable and so ran perfectly well once the shell had
@@ -837,7 +837,7 @@ fn text(raw: &str) -> Option<String> {
 /// name is genuinely not in the text. What is wrong is throwing away everything
 /// AROUND the hole: `f"data/{name}.stream"` is not unknowable, it is
 /// `data/*.stream`, a language with a locus, the same object a `glob.glob`
-/// argument produces. Measured 2026-08-26 (`--example fstring-shapes`): of 289
+/// argument produces. Measured (`--example fstring-shapes`): of 289
 /// interpolated f-strings in a file operation's path argument, 44.3% carry a
 /// literal directory and 33.9% a certain filename.
 ///
