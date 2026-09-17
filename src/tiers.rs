@@ -74,9 +74,9 @@ pub struct Thresholds {
 }
 
 impl Default for Thresholds {
-    /// The values the corpus was measured at on 2026-08-27 (#1210). A fortnight
-    /// matches the ranking half-life; six agents is where the outside-the-index
-    /// population thins out.
+    /// Measured against the corpus rather than chosen (#1210): a fortnight
+    /// matches the ranking half-life, and the agent threshold is where the
+    /// outside-the-index population thins out.
     fn default() -> Self {
         Thresholds {
             lease_days: 14,
@@ -203,7 +203,7 @@ pub fn median_entry_cost(entries: &[Entry]) -> usize {
 /// Why a demotion the evidence would offer is not being offered.
 ///
 /// ⚠ **Checked in this order, and the order is load-bearing.** The freeze lifts
-/// on 2026-09-11; a tripwire's reason never does. Reporting the freeze for an
+/// at the harvest; a tripwire's reason never does. Reporting the freeze for an
 /// entry that is also a tripwire would make it read as demotable the day after
 /// the harvest, which moves the failure by a fortnight rather than fixing it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -227,7 +227,7 @@ pub enum Held {
     Unproven,
     /// #884's freeze covers it. The freeze is on the SPLIT — do not re-promote a
     /// treated memory, do not demote a control one — so acting on it perturbs a
-    /// series that has run since 2026-08-14.
+    /// series that has run since the split was drawn.
     Frozen,
 }
 

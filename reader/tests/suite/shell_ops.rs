@@ -139,8 +139,8 @@ fn staging_is_named_rather_than_dropped() {
 
 #[test]
 fn an_unknown_command_names_itself_so_the_gap_can_be_counted() {
-    // ⚠ This was `ffmpeg` until 2026-08-22 and `verified_cli` until 2026-08-23,
-    // each time because the example got taught. Whatever stands here is a
+    // ⚠ This has been `ffmpeg`, then `verified_cli`, each replaced because the
+    // example got taught. Whatever stands here is a
     // placeholder for the next thing to teach, and that is the point of the
     // variant: a gap that names itself can be counted and worked down. This
     // test failing is the worklist shrinking, not a regression.
@@ -409,8 +409,8 @@ fn perl_with_an_in_place_flag_rewrites_its_operands() {
 
 #[test]
 fn a_value_carrying_an_i_is_not_an_in_place_flag() {
-    // ⚠ **The concept census's second run surfaced `perl -Itest/lib -e '…'`
-    // lifted as a Rewrite** (2026-09-04): the `i` in `lib` — a character of
+    // ⚠ **The concept census surfaced `perl -Itest/lib -e '…'` lifted as a
+    // Rewrite**: the `i` in `lib` — a character of
     // `-I`'s attached VALUE — read as the in-place flag. `in_place` decides
     // the operands' direction, so the file this command read was recorded as
     // one it rewrote. A cluster's letters end where a value-taking flag
@@ -700,10 +700,10 @@ fn nested_arithmetic_is_skipped_whole() {
 
 /// A word that spans lines is a program body, not a file subject.
 ///
-/// ⚠ **The population is real and it is one command shape.** Measured
-/// 2026-08-23 by `--example body-subjects` over the union corpus: 58 uses, 27
-/// distinct, and 56 of them are `perl /tmp/wire.pl <file> '<TypeScript body>'`
-/// — a local script whose second argument is source text. It reaches `unnamed`
+/// ⚠ **The population is real and it is one command shape.** Count it with
+/// `--example body-subjects`: nearly every use is `perl /tmp/wire.pl <file>
+/// '<TypeScript body>'` — a local script whose second argument is source text.
+/// It reaches `unnamed`
 /// because it carries a `${…}`, which is how a subject the text does not
 /// determine is recognised, and a template literal has one for a reason that
 /// has nothing to do with the shell.
@@ -764,9 +764,9 @@ fn op_of(words: &[&str]) -> reader::shell_ops::Op {
     reader::shell_ops::classify(&argv, &[], Some("/home/example"), "/home/example")
 }
 
-/// `ss` is an interface like `wg`: 294 calls, 20 distinct spellings, and every
-/// one is flags — `-tlnp`, `-lnt`, `-ltn`, and one `-tn state established`.
-/// Measured 2026-08-23 by `--example unread-shapes`.
+/// `ss` is an interface like `wg`: every spelling in the corpus is flags —
+/// `-tlnp`, `-lnt`, `-ltn`, and one `-tn state established`. Count them with
+/// `--example unread-shapes`.
 #[test]
 fn ss_names_no_file() {
     assert!(matches!(

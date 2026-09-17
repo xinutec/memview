@@ -21,11 +21,11 @@
 //! — breadth is a set cardinality — so an old artefact means one thing only:
 //! memories it has not seen show breadth 0, a floor that is printed and not
 //! scored. The refusal this replaced fired on one changed file and forced two
-//! ~6-minute re-mines in an afternoon (#1240).
+//! full re-mines in an afternoon (#1240).
 //!
-//! ⚠ **#884's freeze runs until 2026-09-11.** A prospective study has been
-//! running on these index lines since 2026-08-14, and the freeze is on the
-//! SPLIT: do not re-promote a treated memory, do not demote a control one.
+//! ⚠ **#884's freeze runs until [`HARVEST`].** A prospective study has been
+//! running on these index lines, and the freeze is on the SPLIT: do not
+//! re-promote a treated memory, do not demote a control one.
 //! Anything the evidence would offer that the freeze covers is printed under
 //! HELD rather than dropped, so the proposal can be read now and acted on after.
 //!
@@ -47,8 +47,8 @@
 //! teaser, file never opened — so breadth under-measures exactly the rules doing
 //! their job. `Tier::Thin` is breadth-derived, so a demotion filter that reads
 //! only the tier selects those entries first. `memory-rank` held them back by a
-//! `feedback_`/`user_` prefix test until 2026-09-11; #884's finding is that the
-//! prefix is the wrong classifier, since `reference_` is mostly tripwires, and
+//! `feedback_`/`user_` prefix test; #884's finding is that the prefix is the
+//! wrong classifier, since `reference_` is mostly tripwires, and
 //! that tool now decides by role as this one always has.
 //!
 //! So a demotion is proposed only for a memory judged a POINTER. A tripwire is
@@ -147,10 +147,9 @@ fn main() -> Result<()> {
 
     // ⚠ **Disclose a stale mine; do NOT refuse on one.** This used to exit 2,
     // and its own comment predicted the cost: "a refusal that fires on a
-    // harmless change trains people to pass the override." On 2026-08-28 it
-    // trained the session that wrote it, twice in one afternoon, and forced two
-    // full ~6-minute re-mines to answer questions about a corpus that had
-    // changed by one file (#1240).
+    // harmless change trains people to pass the override." It trained the
+    // session that wrote it, twice in one afternoon, and forced two full re-mines
+    // to answer questions about a corpus that had changed by one file (#1240).
     //
     // ⚠ **The distortion it stood in for is fixed at the source instead.** Ages
     // come from `memory-created.json` and `today` below, never from the mine —

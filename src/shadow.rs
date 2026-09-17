@@ -6,7 +6,7 @@
 //! line that has drifted from the memory it describes, a section that should
 //! not exist, an entry missing entirely.
 //!
-//! Pippijn, 2026-09-01, deciding how the corpus and its tooling relate:
+//! Pippijn, deciding how the corpus and its tooling relate:
 //! *"You write and maintain MEMORY.md, and we'll have an algorithm that
 //! generates the MEMORY.md we WOULD generate given the algorithmic and historic
 //! data, but it's guiding you, not replacing you."*
@@ -29,11 +29,11 @@
 //!
 //! ⚠ **It does NOT decide ADMISSION, and that is a measured refusal rather than
 //! an unfinished edge.** Which memories deserve a line is memview#822's open
-//! question, and the study built to answer it (memview#884) harvested on
-//! 2026-09-11 to a bounded null: every arm inside its own null band, the design
-//! failing its own placebo by 2-4x the bands. Measured the same day, the
-//! retirement route is closed too — 15 of 16 indexed tripwires sampled are
-//! general claims about durable behaviour whose subjects never disappear, so
+//! question, and the study built to answer it (memview#884) harvested to a
+//! bounded null: every arm inside its own null band, with the design failing its
+//! own placebo by several times the bands. The retirement route is closed too —
+//! nearly every indexed tripwire sampled is a general claim about durable
+//! behaviour whose subject never disappears, so
 //! nothing expires and capacity is about one slot. Admission therefore rests on
 //! a comparative value judgement that no measurement here can make, which is
 //! why the cut stays Pippijn's. A generator that proposed one would be
@@ -91,7 +91,7 @@ pub struct Shadow {
     /// line the memory does not carry, so these are absent from the assembled
     /// file for a reason that says nothing about whether they belong. Reporting
     /// them as removals would be the generator asserting a judgement it did not
-    /// make — measured 2026-09-11: 53 of 346 indexed memories.
+    /// make. It covers a sizeable minority of indexed memories.
     pub no_teaser: Vec<String>,
     /// Declares a teaser, and the written index does not carry it.
     ///
@@ -101,8 +101,8 @@ pub struct Shadow {
     pub declared_not_carried: Vec<String>,
     /// The memory's teaser and the written line say different things.
     ///
-    /// ⚠ **The finding this whole artefact exists to surface.** Pippijn's
-    /// 2026-09-01 reason for moving the teaser into the doc was that a line in
+    /// ⚠ **The finding this whole artefact exists to surface.** Pippijn's reason
+    /// for moving the teaser into the doc was that a line in
     /// `MEMORY.md` could rot separately from the memory it describes, and
     /// nothing connected the two. This is the connection.
     pub drifted: Vec<Line>,

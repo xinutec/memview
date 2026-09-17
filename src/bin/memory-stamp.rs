@@ -12,10 +12,10 @@
 //! `modified:` can always be taken from the file's mtime. Authorship exists only
 //! in the transcripts, so a memory written without this has an author for
 //! exactly as long as its transcript is reachable — which is why it is worth a
-//! tool rather than a habit. It once said "perishable": measured 2026-08-29,
-//! transcripts holding a conversation are not being deleted and are archived on
-//! odin from 2026-07-31 (memview#1247, #1240). Sessions older than that are gone,
-//! and 24 memories name one.
+//! tool rather than a habit. It once said "perishable": transcripts holding a
+//! conversation are not being deleted, and odin archives them (memview#1247,
+//! #1240). Sessions predating that archive are gone, and a few memories name
+//! one.
 //!
 //! ⚠ **This is NOT wired into the gate, deliberately.** `memory-lint` must go on
 //! failing on a missing stamp, because the stamp is the only visible symptom of
@@ -108,8 +108,8 @@ fn absent(path: &Path) -> Missing {
 /// The memories missing EITHER half of the stamp.
 ///
 /// ⚠ **Keyed on `modified:` alone, this tool was blind to the field it exists
-/// to recover.** Measured 2026-09-09: 719 of 719 memories carried a `modified:`
-/// — because `missing-modified` is an ERROR and gets fixed — while 12 carried no
+/// to recover.** Every memory carries a `modified:` — because `missing-modified`
+/// is an ERROR and gets fixed — while a handful carried no
 /// `originSessionId`, which no rule asked about at all. So the twelve were
 /// invisible to the check AND to the repair, and this printed "every memory
 /// carries a stamp" over them. What is measured gets fixed; what is not, drifts.
@@ -152,8 +152,8 @@ fn stamp(path: &Path, session: &str, at: &str) -> Result<()> {
         .map(|n| start + 1 + n)
         .unwrap_or(text.len());
     // ⚠ **Each field only if ABSENT, and `modified:` was NOT guarded.** A
-    // memory can be missing one and not the other — twelve were on 2026-09-09 —
-    // and appending a second `modified:` would do worse than duplicate it: the
+    // memory can be missing one and not the other, and appending a second
+    // `modified:` would do worse than duplicate it: the
     // value written here is the write this scan FOUND, so it would overwrite a
     // deliberate stamp with the file's state BEFORE a later edit. That is the
     // ordering trap `~/.claude`'s pre-commit hook already warns about, arriving
