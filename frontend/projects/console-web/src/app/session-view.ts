@@ -335,8 +335,8 @@ export class SessionView implements OnDestroy {
    * CURRENT state, and `follow` repositions a FRAME later — so on a busy main
    * thread the callback arrived while `scrollTop` was still 0, the brink mark
    * sat inside the 400px margin, and a page was fetched for a reader sitting
-   * at the newest message. Reproduced 2026-09-11 by replacing that frame with
-   * a 150ms timeout (memview#1243).
+   * at the newest message. Reproduced by replacing that frame with a 150ms
+   * timeout (memview#1243).
    *
    * ⚠ **Cleared on EVERY entries change, not once at startup.** The transcript
    * arrives progressively, so `follow` re-scrolls after each change and the

@@ -7,8 +7,8 @@
 //! console knows is one the seed must put back deliberately, or lose.
 //!
 //! ⚠ **That distinction lived in prose, and prose is why this file exists.**
-//! 2026-08-24 the cold seed shipped with a doc comment listing the console-only
-//! events as "`busy`, `accepted`, `started`". It missed `Ask`. A question is a
+//! The cold seed once shipped with a doc comment listing the console-only events
+//! as "`busy`, `accepted`, `started`". It missed `Ask`. A question is a
 //! control request the CLI makes and no transcript holds one, so for ninety
 //! minutes the session list said *waiting for you* while the conversation showed
 //! nothing to answer, on a session that was genuinely blocked.
@@ -33,8 +33,8 @@ use tokio::net::TcpStream;
 /// Where an event can come from.
 enum Provenance {
     /// A transcript line produces it, so a seed read from the file carries it
-    /// without anybody doing anything. Measured over 40 transcripts on
-    /// 2026-08-24: `background command compacted context prompt text tool
+    /// without anybody doing anything. Measured over the transcript corpus:
+    /// `background command compacted context prompt text tool
     /// tool_result`, plus `shown`, which the sample held none of and
     /// `protocol::from_user` plainly produces for an image.
     Recorded,

@@ -8,7 +8,7 @@
 # that share `(`, `)`, `{` and `}`: a subshell, a brace group, a function
 # definition, and a brace EXPANSION, which is none of the above.
 #
-# Measured 2026-08-17, bash 5.3.15. Five findings, in the order they change the
+# Measured against bash 5.3.15. Five findings, in the order they change the
 # design:
 #
 #   1. `{ a }` IS A SYNTAX ERROR and `( a )` is not. A brace group's `}` is a

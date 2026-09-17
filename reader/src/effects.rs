@@ -8,8 +8,8 @@
 //!
 //! ⚠ **A derived artefact keyed to the timeline, not a mirror of the history.**
 //! `scripts/sync.sh` removed a mined `history.json` for two reasons, and only one
-//! of them was privacy — Pippijn settled that on 2026-08-13 (*"Isis should be
-//! trusted. Everything can go there."*), so the command text travels in full. The
+//! of them was privacy — Pippijn settled that (*"Isis should be trusted.
+//! Everything can go there."*), so the command text travels in full. The
 //! other reason stands on its own: memview is for reading the memory documents
 //! well, and a viewer that also served the literal history made the corpus depend
 //! on the transcripts instead of distilling them. So a command travels **because
@@ -218,9 +218,8 @@ impl Log {
         // `sort_by_key(|row| row.t)` is stable, so rows sharing a minute kept
         // their INSERTION order — the order transcripts happened to be read in,
         // which differs between a whole scan and a resumed one. This artefact
-        // was the last of the four still failing the corpus parity check on
-        // 2026-08-30, at identical byte length and a different hash
-        // (memview#1240).
+        // was the last of the four still failing the corpus parity check, at
+        // identical byte length and a different hash (memview#1240).
         self.rows.sort_by(|x, y| {
             (x.t, x.a, x.p, x.q, x.h, x.c, x.k, x.r, x.v)
                 .cmp(&(y.t, y.a, y.p, y.q, y.h, y.c, y.k, y.r, y.v))

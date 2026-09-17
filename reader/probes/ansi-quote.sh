@@ -8,7 +8,7 @@
 # to say so — a node preserving the spelling would make one command two trees
 # and the second gate would object.
 #
-# Measured 2026-08-17, bash 5.3.15. Five findings, in the order they change the
+# Measured against bash 5.3.15. Five findings, in the order they change the
 # design:
 #
 #   1. IT IS A SPELLING OF A LITERAL, not an expansion. Every shape below comes

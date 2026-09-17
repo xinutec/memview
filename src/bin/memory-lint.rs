@@ -12,10 +12,9 @@ use memview::store::Corpus;
 
 /// How long to let a half-finished write finish before believing it.
 ///
-/// ⚠ **Measured 2026-08-15, having been a guess since it was written on
-/// 2026-07-30 — and the guess was short by a factor of ten.** It was 3 s, which
-/// felt like long enough for two consecutive tool calls. Across **612 memory
-/// creations** in this
+/// ⚠ **Measured, having been a guess when it was written — and the guess was
+/// short by a factor of ten.** It was 3 s, which felt like long enough for two
+/// consecutive tool calls. Across every memory creation in this
 /// machine's transcripts, paired with the next `MEMORY.md` edit in the same
 /// session, that covers one window in sixty-six:
 ///

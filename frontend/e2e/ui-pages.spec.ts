@@ -258,8 +258,8 @@ const DOING = {
       effects: 0,
     },
     {
-      // ⚠ A turn that was a TOOL call, not a shell command — the timeline took
-      // those on 2026-08-17 and `delegate` is the longest of the new kinds.
+      // ⚠ A turn that was a TOOL call, not a shell command — the timeline
+      // takes those, and `delegate` is the longest of the new kinds.
       at: 29_412_560,
       agent: 'memview',
       project: 'memview',
@@ -287,8 +287,8 @@ const DOING = {
   // a five-digit total, and the page draws eight — one of them `version
   // control`, fifteen characters and the only two-word kind there is — beside a
   // six-digit count. A fixture narrower than reality cannot fail the width
-  // checks below, which is the one thing it is here to do. Measured
-  // 2026-08-17, after tool calls joined the shell in the timeline.
+  // checks below, which is the one thing it is here to do. Measured after tool
+  // calls joined the shell in the timeline.
   summary: [
     ['inspect', 269_190],
     ['edit', 174_491],

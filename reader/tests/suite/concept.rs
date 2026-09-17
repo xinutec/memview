@@ -49,7 +49,7 @@ fn only(script: &str) -> Concept {
 /// name.
 ///
 /// ⚠ **The L3 effect reading, deliberately NOT the `Op` variant — recast when
-/// `Page` arrived (2026-09-04).** `head -5 f` is `Op::Read` and
+/// `Page` arrived.** `head -5 f` is `Op::Read` and
 /// `sed -n '1,5p' f` is `Op::Transform` that prints: the level below
 /// classifies two spellings of one act differently, so holding the lowered
 /// form to variant equality would forbid exactly the unification this layer
@@ -633,8 +633,8 @@ fn every_listing_shape_survives_the_round_trip() {
 /// layer refuses everywhere.
 ///
 /// ⚠ **`find` is refused WHOLE, and the census is the argument.** Its operands
-/// are a predicate expression — measured 2026-09-10, 1,277 rows use `-o`, 1,242
-/// `-not`, 281 `-prune` — so keeping only the `-name` value would claim a
+/// are a predicate expression — `-o`, `-not` and `-prune` are all well used —
+/// so keeping only the `-name` value would claim a
 /// NARROWER walk than the command made. That is a false lower bound.
 #[test]
 fn what_looks_like_a_listing_and_is_not_refuses_by_name() {

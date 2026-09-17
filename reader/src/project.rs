@@ -135,7 +135,7 @@ pub struct Ran {
     ///
     /// ⚠ **And it is not a name list.** `check` is a real program in `~/Code`
     /// AND a local helper: 112 of its 114 unread calls are declared in their own
-    /// text and 2 are not (2026-08-23, `--example defined-here`). Asked of the
+    /// text and 2 are not (see `--example defined-here`). Asked of the
     /// name it would be wrong twice; asked of the text it is right both times.
     pub defines: BTreeSet<String>,
 }

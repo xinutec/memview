@@ -11,7 +11,7 @@
 # distinct commands, which is how the question got asked at all
 # (`cargo run -p reader --bin projection`).
 #
-# Measured 2026-08-17, bash 5.3.15. Four findings:
+# Measured against bash 5.3.15. Four findings:
 #
 #   1. INSIDE DOUBLE QUOTES A BACKSLASH ESCAPES FIVE THINGS AND NOTHING ELSE:
 #      `$`, a backquote, `"`, `\`, and a newline. Before any other character it

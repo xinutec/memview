@@ -107,8 +107,8 @@ describe('fetchable', () => {
   });
 
   it('reads a file: link as the picture it is', () => {
-    // Verbatim shape from `coach`, 2026-09-03: three of these, every one dead
-    // while the identical path without the scheme served 200 image/png.
+    // Verbatim shape from a real conversation, where every one of these was
+    // dead while the identical path without the scheme served 200 image/png.
     expect(pictorial('file:///Volumes/example/render/out/soft_squat_left.png')).toBe(true);
     // The path decides, and it is percent-decoded by `new URL` before the
     // ending is read — a render whose name has a space in it is still a render.

@@ -13,9 +13,9 @@
 #   flake.nix    the `fileset` the console package is built from
 #
 # ⚠ **This has now failed twice, and the second time a comment was already there
-# asking for it.** `reader` arrived 2026-08-07 and the image job was red for 21
-# runs while the gate stayed green. `bash-oracle` arrived 2026-08-16 and broke
-# the flake's console build locally and the image job on push — the Dockerfile's
+# asking for it.** `reader` arrived and the image job stayed red for dozens of
+# runs while the gate stayed green. `bash-oracle` arrived and broke the flake's
+# console build locally and the image job on push — the Dockerfile's
 # own comment said "this list has to gain a line every time `members` does", and
 # it did not help, because nothing read it at the moment it mattered.
 #

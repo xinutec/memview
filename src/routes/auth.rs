@@ -95,7 +95,7 @@ pub async fn login(
 /// when the provider dropped it — the one this browser is carrying.
 ///
 /// ⚠⚠ **Nextcloud loses the `state` it was given, so the URL cannot be the only
-/// source.** Observed in `tasks` 2026-08-30, same code and same provider:
+/// source.** Observed in another app on the same code and same provider:
 /// `authorize` is handed 48 hex characters and the callback arrives as
 /// `state=&code=…`. Nextcloud stashes the value in its PHP session
 /// (`LoginRedirectorController.php:95`) and reads it back at the redirect

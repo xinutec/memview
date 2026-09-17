@@ -31,8 +31,8 @@ fn a_bare_id_and_one_qualified_by_our_own_name_are_both_citations() {
     );
 }
 
-/// ⚠ **Another project's tracker is not ours to check.** Measured 2026-08-28,
-/// the first version of this reported exactly two dangling ids corpus-wide and
+/// ⚠ **Another project's tracker is not ours to check.** Measured: the first
+/// version of this reported exactly two dangling ids corpus-wide and
 /// BOTH were this: `rxdb#7804` and `angular/components#33091`, real issues in
 /// other people's repositories, cited correctly, reported as corpus rot. On a
 /// check whose whole yield is about five, two false positives is the difference

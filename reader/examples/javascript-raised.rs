@@ -32,7 +32,7 @@
 //! PY
 //! ```
 //!
-//! **Answered 2026-08-22 over `union.jsonl`, against node 24.18.0** — this
+//! **Answered over `union.jsonl`, against node 24.18.0** — this
 //! repository's own pinned node, not an ambient one.
 //!
 //! - **The reader discards 2 distinct programs, and node refuses both.** No

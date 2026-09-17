@@ -142,8 +142,8 @@ fn classify(word: &str) -> Shape {
     // this rule split at the last `/` and required the whole directory to be
     // literal, so `Code/$p/node_modules` — 56 uses, and the largest single shape
     // in the unclassified bucket — was filed as having no locus at all, though
-    // `Code` is exactly the directory the answer must live under. Measured
-    // 2026-08-23: the leaf-only rule undercounted the locus rate.
+    // `Code` is exactly the directory the answer must live under. Measured:
+    // the leaf-only rule undercounted the locus rate.
     //
     // A word with whitespace in it is not a path here: a one-line jq filter or a
     // template literal can carry both a `/` and a `$`, and widening the rule

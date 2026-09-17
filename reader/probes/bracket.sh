@@ -9,7 +9,7 @@
 # this probe answers it by matching, against real files in a scratch directory
 # it removes.
 #
-# Measured 2026-08-17, bash 5.3.15. Six findings, in the order they change the
+# Measured against bash 5.3.15. Six findings, in the order they change the
 # design:
 #
 #   1. `[^a]` AND `[!a]` ARE THE SAME SET. Both matched everything but `a`,

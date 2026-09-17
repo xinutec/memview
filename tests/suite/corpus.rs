@@ -512,8 +512,9 @@ fn two_memories_that_house_each_other_are_stranded_when_both_lines_go() {
     // ⚠ THE defect this exists for (#869). Asked one at a time, each of these is
     // housed by the other and looks safe to demote; asked together, nothing
     // reaches either. `memory-rank` summed 25 candidates as if independent and
-    // offered exactly such a pair — the 2026-08-07 stranding, with a number on
-    // it. A per-candidate check cannot see this, however carefully it is read.
+    // offered exactly such a pair — the stranding recorded in
+    // `feedback_memory_index_is_the_working_set`, with a number on it. A
+    // per-candidate check cannot see this, however carefully it is read.
     let alone = reaches_without(&["project_alpha"]);
     assert!(alone.contains("project_alpha"), "beta houses alpha alone");
 
@@ -534,9 +535,9 @@ fn a_memory_with_its_own_index_line_survives_its_only_inbound_link_being_demoted
 }
 
 /// ⚠ **The viewer's "updated" is the memory's own stamp, not the file's mtime.**
-/// mtime records a touch: measured over the whole corpus 2026-08-27, only 129 of
-/// 647 files agreed with their stamp within an hour, the median gap was 9.9 days
-/// and the worst 34 (#1219). `memory-lint` enforces the stamp; the viewer had no
+/// mtime records a touch: measured over the whole corpus, most files disagree
+/// with their own stamp, by a median of days and a worst case of weeks (#1219).
+/// `memory-lint` enforces the stamp; the viewer had no
 /// business preferring the filesystem.
 #[test]
 fn the_viewer_dates_a_memory_by_its_own_stamp() {

@@ -20,7 +20,7 @@
 //! anything inside a nested `bash -c` or `nix ... -c` — so this measures the
 //! Python the fleet actually runs, not a file on disk somewhere.
 //!
-//! **Answered, 2026-08-06: the grammar stays, and the probe found a phantom.**
+//! **Answered: the grammar stays, and the probe found a phantom.**
 //! 9,006 programs; `tree-sitter-python` 0.25.0 reads 8,903 (98.9%) and rejects
 //! 103 (1.1%). Our exposure to those is **39 of 10,134 file operations, 0.4%**.
 //!

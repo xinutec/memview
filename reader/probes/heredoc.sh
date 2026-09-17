@@ -8,7 +8,7 @@
 # to answer, because a heredoc is the first construct whose operand is not on
 # the line that opens it.
 #
-# Measured 2026-08-16, bash 5.3.15. Six findings, in the order they change the
+# Measured against bash 5.3.15. Six findings, in the order they change the
 # design:
 #
 #   1. THE DELIMITER'S SPELLING IS NOT KEPT. `<<'EOF'`, `<<"EOF"`, `<<\EOF` and

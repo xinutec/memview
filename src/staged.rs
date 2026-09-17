@@ -2,9 +2,9 @@
 //!
 //! ⚠ **`git add <explicit paths>` is not sufficient, and that is the whole
 //! point.** `git commit` takes the entire INDEX, so another session staging
-//! between your add and your commit puts their work in your commit. Measured
-//! 2026-08-29: three files added by name, **nine** staged — six of another
-//! session's in-progress work, 486 lines, about to ship under a message about
+//! between your add and your commit puts their work in your commit. Measured:
+//! three files added by name, **nine** staged — six of another session's
+//! in-progress work, hundreds of lines, about to ship under a message about
 //! something else. The only thing that stopped it was that session's gate
 //! holding the worktree lock.
 //!

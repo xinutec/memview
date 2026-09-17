@@ -91,9 +91,9 @@ fn a_retirement_note_does_not_reach_a_live_path_further_down_the_document() {
     // as a live instruction. Both are the SAME repo, so the per-repo check does
     // not separate them — the banner cleared the whole file.
     //
-    // Measured on the real corpus 2026-08-12: `project_lares_recon` carried the
-    // retirement banner in its first paragraph and four live paths below it, and
-    // `dead-repo-path` was silent on all four.
+    // Measured on the real corpus: a memory carried the retirement banner in
+    // its first paragraph and live paths below it, and `dead-repo-path` was
+    // silent on every one.
     let corpus_dir = tempfile::tempdir().expect("tempdir");
     let code = tempfile::tempdir().expect("tempdir");
 
@@ -561,8 +561,8 @@ fn the_word_session_does_not_excuse_a_dead_sha() {
 
 /// ⚠ **A repo can be alive, pushed, and simply not cloned on this Mac.** The rule
 /// had two states — present, or retired to `~/Archive` — and this is the third.
-/// `project_phonos` hit it: a repo pushed on 2026-08-26 with no working copy
-/// here, where the honest sentence names both the missing path and the remote.
+/// `project_phonos` hit it: a repo pushed with no working copy here, where the
+/// honest sentence names both the missing path and the remote.
 #[test]
 fn a_block_naming_the_remote_accounts_for_a_missing_clone() {
     let corpus_dir = tempfile::tempdir().expect("tempdir");

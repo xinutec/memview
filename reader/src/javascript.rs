@@ -2,7 +2,7 @@
 //!
 //! A third language after the shell and Python, and it is here for the same
 //! reason both of those are: the work is invisible without it. Measured over the
-//! union corpus on 2026-08-22, **11,748 Bash calls mention a JavaScript runtime
+//! union corpus, **11,748 Bash calls mention a JavaScript runtime
 //! and 3,824 carry a program in a flag** — and inside them are 1,790
 //! `readFileSync` calls, 214 `writeFileSync`, 1,909 `require` and 670 `import`,
 //! every one a file an agent touched that no `Read`, no `Write` and no `sed`

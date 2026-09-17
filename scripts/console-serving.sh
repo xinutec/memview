@@ -8,7 +8,7 @@
 # in it on its next reload. Nothing announced a change and nothing recorded one,
 # so "is the fix I am testing actually the code being served?" had no answer
 # short of reading a hash by hand — which is how an ablated build (memview#116's
-# fix DELETED) came to be live for eight minutes on 2026-08-11 with neither of us
+# fix DELETED) came to be live for eight minutes with neither of us
 # told. `build:console` no longer publishes; `publish:console` does. This is the
 # other half: a way to ask.
 #

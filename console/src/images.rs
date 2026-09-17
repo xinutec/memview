@@ -237,7 +237,7 @@ pub async fn fetch(url: &str) -> Result<Fetched, Reason> {
     // defect.** That refusal was checked when this route was built and written
     // up as proof the bound held — but it was only ever put to a scheme nobody
     // writes. `coach` writes `[caption](file:///Volumes/…/squat3_left.png)` in
-    // ordinary prose, three times on 2026-09-03, and every one was a dead link
+    // ordinary prose, and every one of those was a dead link
     // while the identical path without the scheme served 200 image/png.
     // **A refusal tested only against a hostile shape looks right until
     // something friendly is put to it** (memview#1373).
@@ -318,7 +318,7 @@ pub async fn fetch(url: &str) -> Result<Fetched, Reason> {
 /// A picture the session named by where it is on this disk.
 ///
 /// ⚠ **What this will hand out is any file on the Mac that IS a picture**, which
-/// is Pippijn's decision (2026-09-02) and belongs in the open rather than in a
+/// is Pippijn's decision and belongs in the open rather than in a
 /// changelog. Three things bound it. The sniff below: only PNG, JPEG, GIF and
 /// WebP come back, so this is not a way to read a key or a transcript. Who can
 /// ask: the phone reaches the console over a tunnel whose TLS terminates here

@@ -26,7 +26,7 @@
 //! census makes: an instrument that asks the implementation's own question can
 //! never show a shape the implementation gets wrong.
 //!
-//! **Answered 2026-09-01 over `bash-corpus.jsonl`.** 23,967 Python programs hold
+//! **Answered over `bash-corpus.jsonl`.** 23,967 Python programs hold
 //! 4,842 concatenations touching a literal, and over the whole population the
 //! ticket's caution is right — 92.2% render `*` and buy nothing. Filtered to a
 //! file operation's path argument the count is 245 and the distribution

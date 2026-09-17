@@ -20,7 +20,7 @@
 //! interpolated strings carry — and the exact subset is what the change itself
 //! will report as a delta. Read the buckets, not the total.
 //!
-//! **Answered 2026-08-26 over `union.jsonl`.** 19,848 Python programs hold
+//! **Answered over `union.jsonl`.** 19,848 Python programs hold
 //! 7,826 interpolated f-strings, and **94.3% of them are not paths at all** —
 //! `*=*`, `* *`, `Bearer *`, `print` formatting. Filtered to those in a file
 //! operation's path argument, the population is 289 and the distribution

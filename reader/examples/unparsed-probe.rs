@@ -35,7 +35,7 @@
 //! #820 is closed on that; the gaps it exposed are ordinary gaps.
 //!
 //! **And then the top two buckets were closed, which is what the probe was for**
-//! (memview#901, 2026-08-15). Over 127,342 distinct commands, unparsed went
+//! (memview#901). Over 127,342 distinct commands, unparsed went
 //! **366 → 113** and the corpus went from 99.7% readable to 99.9%:
 //!
 //!     case … esac        126 → 7

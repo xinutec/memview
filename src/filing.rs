@@ -4,8 +4,8 @@
 ///
 /// ⚠ **Keyed on the flag the service names, never on its prose.** The sentinel was
 /// the literal `already filed`, which the service does not say — so the retry it
-/// guarded never fired once, and `health`'s three corpus errors went unrouted
-/// (2026-09-13). A flag name is an interface; the sentence around it is not.
+/// guarded never fired once, and a whole agent's corpus errors went unrouted.
+/// A flag name is an interface; the sentence around it is not.
 ///
 /// Only overrule on a `true` after establishing the duplicate is spurious —
 /// `memory-blame` uses `open_task_in` for that.

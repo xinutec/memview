@@ -128,7 +128,7 @@ fn a_write_that_cannot_finish_leaves_the_previous_version_and_no_temp() {
 
 /// **The discriminating test, and the reason the three above are not enough.**
 ///
-/// Ablation, run 2026-08-11: with `atomic::write` reverted to a plain
+/// Ablation: with `atomic::write` reverted to a plain
 /// `std::fs::write`, every test above still passed. They had to — truncating and
 /// rewriting also replaces the content, also handles a shorter document, also
 /// leaves no litter, and also fails on a directory. What those tests pin is the

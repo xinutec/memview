@@ -105,7 +105,7 @@ fn an_ordinary_path_is_left_alone() {
 /// ⚠ A plain FILE in the scan root must answer "not a repository", not abort
 /// the scan. `~/Code` holds `.gitignore` and `check` beside the checkouts;
 /// `try_exists` on `<file>/.git` is `NotADirectory`, and when the IO-error
-/// hardening landed (2026-09-10) that error propagated and killed the nightly
+/// hardening landed, that error propagated and killed the nightly
 /// `claude-sync` outright — `probing …/.gitignore: Not a directory (os error
 /// 20)`. The point of the hardening is that `EMFILE` must not read as "no
 /// fleet"; ENOTDIR is a definite answer, not a failed question.

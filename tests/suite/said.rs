@@ -42,8 +42,8 @@ fn the_stated_intent_is_carried_beside_the_command() {
 }
 
 /// ⚠ **Absence is a fact, not a blank.** The report's first figure is the share
-/// of calls that said anything at all — 187,701 of 197,126, 95.2%, mined
-/// 2026-09-03 — and it needs the missing ones to stay distinguishable from empty
+/// of calls that said anything at all — most of them, but not all — and it
+/// needs the missing ones to stay distinguishable from empty
 /// ones rather than defaulted to a string. Read that share off a run: a
 /// six-transcript sample of the same corpus said 97.6%.
 #[test]

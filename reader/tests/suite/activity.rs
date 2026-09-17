@@ -57,7 +57,7 @@ fn a_redirect_is_an_edit_however_the_command_is_named() {
 ///
 /// Found by the description corpus (`docs/concept-model.md`): the `edit` kind's
 /// commonest stated intents were *read*, *find* and *list*. Measured over the
-/// corpus of 2026-09-03, `edit` 229,492 → 41,113, every one of the 188,379
+/// corpus, `edit` went 229,492 → 41,113, every one of the 188,379
 /// reappearing under another kind or on the worklist.
 #[test]
 fn discarding_output_down_a_device_is_not_an_edit() {

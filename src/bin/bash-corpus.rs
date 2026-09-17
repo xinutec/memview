@@ -42,14 +42,14 @@ use reader::doing::Verdict;
 ///
 /// ⚠ **The reason is NOT the retired union.** `docs/concept-model.md` first gave
 /// one — that the row shape is load-bearing for memview#1130's collapse of a
-/// duplicated era — and that argument died with `~/.claude/corpus/` on
-/// 2026-08-29: there is no cumulative store any more, the corpus is re-mined
+/// duplicated era — and that argument died with `~/.claude/corpus/`: there is
+/// no cumulative store any more, the corpus is re-mined
 /// whole every night, and a shape change would simply change the whole file at
 /// once. The boundary argument above is the one that survives.
 ///
 /// **Joined on `(at, cmd)`**, which was measured before it was relied on: over
 /// 450,866 described calls the pair resolves to 184,590 distinct keys and
-/// **not one of them carries two different descriptions** (2026-09-03). The
+/// **not one of them carries two different descriptions**. The
 /// same pass writes both files from the same deduplicated walk, so the join is
 /// exact by construction rather than by luck.
 ///

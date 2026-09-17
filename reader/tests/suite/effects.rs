@@ -29,7 +29,7 @@ fn effect<'a>(call: &'a str, did: Did, minute: i64) -> Effect<'a> {
 /// order they were pushed in** — which is the order transcripts happened to be
 /// read, and differs between a whole scan and a resumed one.
 ///
-/// Measured on the real corpus 2026-08-30: this artefact was the last of the
+/// Measured on the real corpus: this artefact was the last of the
 /// four still failing the parity check, at identical byte length and a different
 /// hash (memview#1240).
 #[test]

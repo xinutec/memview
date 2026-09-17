@@ -9,7 +9,7 @@
 # only one so far that can appear both as an argument and as a redirection
 # target.
 #
-# Measured 2026-08-17, bash 5.3.15. Six findings, in the order they change the
+# Measured against bash 5.3.15. Six findings, in the order they change the
 # design:
 #
 #   1. THE INTERIOR IS NORMALISED, not verbatim. `<(a|b)` comes back as

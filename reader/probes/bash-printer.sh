@@ -9,7 +9,7 @@
 # claims in that section are made of; re-run it against a new bash before
 # trusting any of them.
 #
-# Measured 2026-08-16, bash 5.3.15. Four findings, in the order they change the
+# Measured against bash 5.3.15. Four findings, in the order they change the
 # design:
 #
 #   1. It is a FIXPOINT. Every shape below prints its own print unchanged.

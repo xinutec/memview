@@ -106,8 +106,8 @@ fn a_computed_argument_names_nothing() {
     assert!(uses("open('src/%s.ts' % name)").is_empty());
     // A `%` format still says nothing about the shape.
     assert_eq!(read("open('src/%s.ts' % name)").unresolved["open"], 1);
-    // ⚠ **A concatenation used to say nothing either, and that changed on
-    // 2026-09-01.** `root + '/x.ts'` is not a file, but the literal carries its
+    // ⚠ **A concatenation used to say nothing either, and that has changed.**
+    // `root + '/x.ts'` is not a file, but the literal carries its
     // own separator, so the NAME is certain and the shape is `*/x.ts` — a
     // language, never a use. The danger this test exists for is unaffected: the
     // assertion above still refuses to record `/x.ts` as the file (#1142).
@@ -378,7 +378,7 @@ with open('/tmp/report.json', 'w') as f:
 /// not swallow the program that follows it.
 #[test]
 fn an_unterminated_string_ends_at_its_line() {
-    // ⚠ **This assertion was REVERSED 2026-08-18, and deliberately.** It used to
+    // ⚠ **This assertion was REVERSED, and deliberately.** It used to
     // expect `src/x.ts` back: the grammar stops a one-line literal at its line's
     // end, so reading continues and the write is found. Recovery is still right
     // for READING — but CPython refuses this source outright, so the write never
@@ -887,8 +887,8 @@ fn a_reassigned_loop_variable_is_a_computed_value_not_a_loop() {
 /// ⚠ **`Why::Outside` said "the value came from outside the text, so no rule can
 /// ever read it" — and the value was four lines below.**
 ///
-/// This is the shape the corpus writes for every scripted edit and for the
-/// memory writes of 2026-07-02: a helper that takes a path, called with a
+/// This is the shape the corpus writes for every scripted edit and for a batch
+/// of memory writes: a helper that takes a path, called with a
 /// literal. The reader resolved `open('x.md','w')` perfectly and refused this,
 /// because it never bound a call's argument to the callee's parameter.
 ///

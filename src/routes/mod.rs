@@ -21,8 +21,8 @@ use crate::state::AppState;
 /// ⚠ **`index.html` MUST REVALIDATE, and shipping it without saying so cost a
 /// deploy nobody could see.** With no `Cache-Control` at all a client falls back
 /// to *heuristic* caching from `Last-Modified`, and is free to keep the document
-/// for as long as it likes without ever asking again. MEASURED on `messages`
-/// 2026-08-14: an Android WebView fetched the whole API — `/api/me`,
+/// for as long as it likes without ever asking again. MEASURED on a sibling
+/// app: an Android WebView fetched the whole API — `/api/me`,
 /// `/api/conversations`, a whole thread — and never once requested `main-*.js`.
 /// The phone ran a build several deploys old for hours while the server had been
 /// serving the new one all along.

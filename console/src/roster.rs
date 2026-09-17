@@ -392,8 +392,8 @@ impl Roster {
             // ⚠ **This claimed the check has TWO arms, and that which one fired
             // is the difference between "wait a minute" and "close the other
             // window".** The second — a transcript written moments ago — was
-            // deleted on 2026-08-03, so there has been one arm and no such
-            // difference to preserve (memview#1457). A refusal now means either a
+            // since been deleted, so there is one arm and no such difference
+            // to preserve (memview#1457). A refusal now means either a
             // running `claude` names this conversation, or `ps` could not be
             // asked at all; `past::arguments` logs its own warning for the
             // second, and that is the line to look for when everything reads

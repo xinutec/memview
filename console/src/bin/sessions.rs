@@ -181,8 +181,8 @@ async fn main() -> Result<()> {
 /// What to type, with the binary's own name in it.
 ///
 /// ⚠ **`CARGO_BIN_NAME`, never the name written out again.** Renaming this tool
-/// on 2026-08-31 left the old word in two `bail!` strings and every line of this
-/// text, because a rename satisfies the filename — which is where Cargo gets the
+/// once left the old word in two `bail!` strings and every line of this text,
+/// because a rename satisfies the filename — which is where Cargo gets the
 /// bin name — and says nothing about the copies. Nothing failed; the tool simply
 /// printed a command that did not exist. The compiler supplies the name, so the
 /// two cannot disagree and the next rename is `git mv` and nothing else.

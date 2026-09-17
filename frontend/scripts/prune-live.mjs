@@ -4,8 +4,8 @@
 // --delete on purpose: `ng build` empties its own output path, so a page loading
 // mid-build would ask for a font and be handed HTML. Never deleting is what makes
 // an upgrade invisible to whoever is looking at the console while it happens —
-// and it is also why the directory only ever grew, to 273 files and 140 MB by
-// 2026-08-11, of which one main-*.js was current.
+// and it is also why the directory only ever grew — to hundreds of files and
+// over a hundred megabytes, of which one main-*.js was current.
 //
 // ⚠ **It cannot simply keep the newest set.** A phone with the app open is
 // running a bundle the next publish supersedes, and it goes on asking that

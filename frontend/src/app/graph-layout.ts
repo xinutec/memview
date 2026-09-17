@@ -1317,8 +1317,8 @@ export const DERIVED_PREFIX = 'derived: ';
  *     authored + one catch-all   16 groups, catch-all holds 389 — 6x the next,
  *                                and owns the three strongest links in the picture
  *     derived throughout         14 groups, covers all, but is the
- *                                algorithm-imposed top level the 2026-09-01
- *                                decision rejected
+ *                                algorithm-imposed top level that was
+ *                                deliberately rejected
  *     hybrid (this)              29 groups, covers all, largest 63, no blob
  *
  * ⚠ **Its cost, stated rather than discovered later: 29 groups and 202 edges**,

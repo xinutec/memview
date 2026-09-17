@@ -104,7 +104,7 @@ function syntheticGraph(nodeCount = 350, sectionCount = 12) {
  * synthetic corpus.** `affinityPull()` returns null on an empty affinity list,
  * so `pull &&` short-circuits and the check that graph-layout.ts promises —
  * "fails the build if this goes inert again" — was never once evaluated by the
- * build. Measured on the live corpus 2026-09-01 the force sat at 0.946x, which
+ * build. Measured on the live corpus, the force sat at 0.946x, which
  * is the value its own comment records as having been REJECTED for doing
  * nothing visible, and nothing said so (memview#1307).
  *

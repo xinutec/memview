@@ -331,8 +331,8 @@ async fn call(binary: &str, prompt: &str, named: &str) -> Option<String> {
     // outlives the timeout, and both reap. The real one died in 66 seconds
     // against a 90-second `PATIENCE` — before the timeout could fire — and the
     // gist that was eventually stored came from a later call seventeen minutes
-    // on, so this one returned nothing and was never waited for. Traced 2026-08-27
-    // from pid 93988, three days defunct under the console.
+    // on, so this one returned nothing and was never waited for. Traced from a
+    // pid three days defunct under the console.
     let sent = async {
         let mut stdin = child.stdin.take()?;
         stdin.write_all(prompt.as_bytes()).await.ok()?;

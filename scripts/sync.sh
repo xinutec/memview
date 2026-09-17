@@ -140,7 +140,7 @@ else
   echo "no effects at $EFFECTS — skipping (mine it with: cargo run --release --bin agents)"
 fi
 
-# ⚠ **COMMAND TEXT IS PUSHED NOW, and until 2026-08-13 none was.** The note that
+# ⚠ **COMMAND TEXT IS PUSHED NOW, and once none was.** The note that
 # stood here said "no transcript TEXT is pushed, and there is no artefact
 # carrying any". Half of that is no longer true and the half that is still holds,
 # so it is worth being exact about which.

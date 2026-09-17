@@ -572,8 +572,8 @@ async fn a_file_that_is_not_a_picture_is_not_served_as_one_from_disk_either() {
 
 /// ⚠ **`file:` was refused, and the refusal was recorded as proof the bound
 /// held.** It was only ever put to a scheme nobody writes. `coach` writes
-/// `[caption](file:///Volumes/…/soft_squat_left.png)` in ordinary prose — three
-/// on 2026-09-03, every one dead, while the identical path without the scheme
+/// `[caption](file:///Volumes/…/soft_squat_left.png)` in ordinary prose, and
+/// every one of those was dead while the identical path without the scheme
 /// served 200 image/png. A refusal tested only against a hostile shape looks
 /// right until something friendly is put to it (memview#1373).
 #[tokio::test]

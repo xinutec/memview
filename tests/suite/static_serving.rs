@@ -1,6 +1,6 @@
 //! **A missing FILE must 404, not be handed the page.**
 //!
-//! #1478, measured across the fleet 2026-09-08: `GET /media/nope.woff2` came
+//! #1478, measured across the fleet: `GET /media/nope.woff2` came
 //! back `200 text/html` — the SPA shell, to a browser that asked for a font. It
 //! renders broken icons and reports nothing at all, so the failure is silent on
 //! both sides, and the wrong answer being a `200` is what makes it invisible.

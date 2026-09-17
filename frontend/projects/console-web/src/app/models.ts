@@ -99,8 +99,8 @@ export interface Summary {
    * ⚠ **`mode` above is already back to the truth when this is set.** The
    * console asks over the control channel and records the new mode at once so a
    * client is not frozen behind a busy session; when the CLI refuses, the mode
-   * goes back and this says why. Until 2026-08-16 nothing read that answer and
-   * the header could claim Bypass Permissions on a session still in `auto` —
+   * goes back and this says why. Nothing used to read that answer, and the
+   * header could then claim Bypass Permissions on a session still in `auto` —
    * memview #96.
    *
    * Absent in the ordinary case, and cleared the moment another change is
@@ -416,9 +416,9 @@ export interface Entry {
    * ⚠ **The same lie as [[queued]], told in green.** `Answered` is pushed once
    * the bytes reach the pipe, and the card drew its verdict straight from that —
    * so a session that had stopped reading showed *answered*, in the colour that
-   * means done, while it sat blocked on the identical question. `health` wore
-   * one for thirty-one minutes on 2026-08-08 having already reported it could go
-   * no further without the answer.
+   * means done, while it sat blocked on the identical question. One session wore
+   * it for half an hour, having already reported it could go no further without
+   * the answer.
    *
    * Cleared by the session speaking — a tool call, its result, a word of text.
    * There is no dedicated receipt for a decision the way a prompt has its

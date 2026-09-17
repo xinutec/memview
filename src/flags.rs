@@ -43,9 +43,9 @@ where
 
 /// Refuse any `--flag` this tool does not know, naming the ones it does.
 ///
-/// `value_of` above fixes the HONOURED set; this fixes the ACCEPTED one. Measured
-/// 2026-09-13: `memory-rank --nonsense` exited 0 with output byte-identical to no
-/// arguments, and so did all nineteen binaries here.
+/// `value_of` above fixes the HONOURED set; this fixes the ACCEPTED one.
+/// Measured: `memory-rank --nonsense` exited 0 with output byte-identical to no
+/// arguments, and so did every other binary here.
 ///
 /// Naming the known flags is most of what `--help` would give, for a caller who
 /// mistyped one. Deliberately not a `--help` — that is open on `dev-lint#761`.

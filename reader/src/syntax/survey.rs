@@ -426,8 +426,8 @@ impl Survey<'_> {
                     if loop_header && !opens_process {
                         self.found.insert(Reason::Loop);
                     }
-                    // ⚠ **Glued into a word it IS a redirection, since 2026-08-17
-                    // — the word simply ends there, as bash ends it.** This used
+                    // ⚠ **Glued into a word it IS a redirection — the word
+                    // simply ends there, as bash ends it.** This used
                     // to record `Reason::Redirection` to match a parser that
                     // refused, and leaving it behind made the second gate report
                     // drift on the first `pgrep -f "x">/dev/null` it met: parser

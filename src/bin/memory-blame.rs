@@ -195,8 +195,8 @@ fn file_for(agent: &str, findings: &[&Finding]) -> Result<String> {
     // ⚠ **Ask, then overrule — never overrule first.** This tool's idempotence is
     // PER AGENT and the service's duplicate check is global, so every agent's
     // lint task reads like every other agent's and the third one gets refused:
-    // measured 2026-08-28, a real error belonging to `tasks` went unfiled
-    // because `dev-lint` and `home` already had one, which is #1235's failure
+    // measured, a real error belonging to one agent went unfiled because two
+    // others already had one, which is #1235's failure
     // reproduced by #1235's fix.
     //
     // ⚠ But `--no-duplicate-check` is only accepted AFTER a refusal — passing it

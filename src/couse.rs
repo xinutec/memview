@@ -171,7 +171,7 @@ impl CoUse {
     /// seen in >= 3 sessions with no direct link, 723 already had some memory
     /// linking both — overwhelmingly a hub and its own children, which co-occur
     /// *because* the hub sent the reader to each in turn. The four memories
-    /// split out of `project_health_lean_port_roadmap` on 2026-08-22 are the
+    /// split out of `project_health_lean_port_roadmap` are the
     /// clean case: pairwise npmi 1.00, no link between any two of them, and the
     /// roadmap lists all four with a line each. Reporting that as a missing link
     /// asks a well-formed hub to become a clique, and the corpus was right.

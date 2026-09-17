@@ -288,11 +288,11 @@ fn a_batch_can_both_land_and_lose() {
 /// the second keystroke and calls it a conflict. Continuous typing is the
 /// ordinary case, not an edge.
 ///
-/// ⚠ Ablated 2026-09-16 to prove it can fail: with the rule put back to
+/// ⚠ Ablated to prove it can fail: with the rule put back to
 /// comparing `assumed.rev` against the current revision, this test fails on the
 /// second push, which is returned as a conflict against this device's own
-/// previous keystroke. It is the bug the hand-rolled client hit on 2026-09-15 as
-/// "a poll reply older than local state read as another device writing".
+/// previous keystroke. It is the bug the hand-rolled client hit as "a poll
+/// reply older than local state read as another device writing".
 #[test]
 fn one_device_pushing_twice_before_it_pulls_does_not_clash_with_itself() {
     let dir = scratch("self-clash");

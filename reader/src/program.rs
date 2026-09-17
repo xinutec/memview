@@ -52,8 +52,8 @@ pub struct Program {
     /// x && cat y")'` reads to the end, and so does the Python inside THAT.
     ///
     /// **`subprocess.run` is the largest single thing either reader could not
-    /// read** — 443 calls, top of the Python worklist on 2026-08-22, ahead of
-    /// the next entry by a factor of two.
+    /// read** — 443 calls, top of the Python worklist and ahead of the next
+    /// entry by a factor of two.
     pub ran: Vec<Ran>,
     /// File operations recognised, by name — `open`, `write_text`, `os.remove`.
     pub calls: BTreeMap<String, usize>,
@@ -74,8 +74,8 @@ pub struct Program {
     ///
     /// ⚠ **One of them ran, not all of them.** Recording a use per candidate
     /// would claim a file was changed that never was, which is the one thing
-    /// this reader promises never to do. Measured 2026-08-24, this is the
-    /// commonest unnamed shape in the corpus at 37.9% of unresolved file
+    /// this reader promises never to do. Measured: this is the commonest
+    /// unnamed shape in the corpus at 37.9% of unresolved file
     /// operations, so the wrong version would have been wrong thousands of
     /// times.
     ///

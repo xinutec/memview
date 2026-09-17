@@ -414,8 +414,8 @@ async fn a_question_still_standing_is_put_to_a_reader_who_arrives_cold() {
     // ⚠ **The list and the conversation have to agree.** `Summary::asked` is
     // computed from the session's own state and says *waiting for you* whatever
     // the stream carried, so a seed that dropped the question left the front
-    // page asking and the session showing nothing to answer — seen on
-    // `hardware`, 2026-08-24.
+    // page asking and the session showing nothing to answer — seen on a real
+    // session.
     assert!(
         cold.contains("\"kind\":\"ask\""),
         "the pending question was not put to a cold reader: {}",
@@ -433,8 +433,8 @@ async fn a_sessions_name_comes_from_the_head_of_its_transcript_not_the_last_page
     // seen while nothing is bound, and `adopt` seeds from the transcript right
     // after building its state — so a label restored AFTER the seed, or not at
     // all, is taken by whatever prompt happens to start the last page. Measured
-    // on the phone 2026-08-24: `hardware`'s subtitle changed across two upgrades
-    // an hour apart with nobody touching it (memview #1146).
+    // on the phone: a session's subtitle changed across two upgrades an hour
+    // apart with nobody touching it (memview #1146).
     let scratch = projects();
     let id = "a-session-with-a-page-full-of-prompts";
     let folder = scratch.join("project");
@@ -522,8 +522,9 @@ async fn a_conversation_continued_from_a_compacted_one_claims_no_origin() {
     // ⚠ **`None` is the answer, not a fallback.** When a conversation runs out
     // of context the CLI opens a fresh transcript with a summary and a
     // `This session is being continued…` message — the harness talking, not
-    // Pippijn. Measured on `heatcam` 2026-08-24: its first user text is 447 kB
-    // in and is exactly that. Leaving a recent prompt in its place is the false
+    // Pippijn. Measured on a real conversation: its first user text is hundreds
+    // of kilobytes in and is exactly that. Leaving a recent prompt in its place
+    // is the false
     // claim this whole change repairs, so the honest answer is to say nothing
     // and let the session's own name identify it.
     let scratch = projects();

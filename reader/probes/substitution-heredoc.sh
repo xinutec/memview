@@ -9,7 +9,7 @@
 # bash itself does with the shape, because matching bash is what makes the
 # second gate able to compare trees at all.
 #
-# Measured 2026-08-17, bash 5.3.15. Five findings, in the order they change the
+# Measured against bash 5.3.15. Five findings, in the order they change the
 # design:
 #
 #   1. BASH PRINTS IT ACROSS LINES, and that print is a fixpoint. `declare -f`

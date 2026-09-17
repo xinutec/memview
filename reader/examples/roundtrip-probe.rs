@@ -21,8 +21,8 @@
 //!     read again:      === does \life\ appear at all? ===
 //!
 //! `'\''` is how POSIX puts a quote inside a quoted string. The parser kept the
-//! backslash and dropped the quote — memview#833, fixed 2026-08-13, and 274
-//! corpus commands hit it without any help from this probe.
+//! backslash and dropped the quote — memview#833, since fixed, and 274 corpus
+//! commands hit it without any help from this probe.
 //!
 //! **Where it stands now: 99.97%** — 111,097 identical, 35 different, 0 that will
 //! not re-parse. That figure is the ratchet.

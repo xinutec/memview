@@ -1,8 +1,8 @@
 //! How much of a transcript has already been read, and whether it is still the
 //! same file underneath.
 //!
-//! ⚠ **A whole-corpus fold cannot be made cheap by parsing faster.** Measured
-//! 2026-08-28: the mine takes 347 s over 5.9 GB, and removing its entire
+//! ⚠ **A whole-corpus fold cannot be made cheap by parsing faster.** Measured:
+//! the mine takes 347 s over 5.9 GB, and removing its entire
 //! shell-parsing arm leaves 241 s. Nothing per-operation reaches seconds — only
 //! reading less does, and the corpus is shaped for it: the ten largest
 //! transcripts hold 90% of the bytes and they only grow at the tail
@@ -50,7 +50,7 @@ pub const WINDOW: u64 = 64 * 1024;
 /// ⚠ **The offset alone is not enough, and the shortfall is measurable.** An
 /// episode is bracketed by a user's turn, so a cut taken while an instruction is
 /// still being carried out orphans every row until the next prompt. Measured
-/// 2026-08-29 against a real 21:38 watermark: **66 of 2,815 tail calls** would
+/// against a real watermark: **66 of 2,815 tail calls** would
 /// land in no episode. The comparable loss from *not* carrying a call's pending
 /// result was **3 calls** — twenty times smaller, and twenty times more
 /// expensive to fix, which is why one is carried here and the other is not

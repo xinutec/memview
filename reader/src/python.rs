@@ -45,7 +45,7 @@
 //! loops over a literal word list. What this cannot follow is a value that
 //! depends on the world: a loop over `Path('.').glob(…)`, a name assigned in
 //! both arms of an `if`, an argument built from `sys.argv`. The gap stands at
-//! **2,777 of 26,536 operations that name no file**, 2026-08-25, and the census
+//! **2,777 of 26,536 operations that name no file**, and the census
 //! of what it cannot name is in `docs/reader.md`. A loop over a glob or a
 //! literal list is read; a loop over a name the program was handed is not, and
 //! neither is a value built from `sys.argv`.
@@ -2016,8 +2016,8 @@ fn joined_shape(parts: &[Value]) -> Value {
 /// literal carrying its own separator or extension leaves anything behind —
 /// `'logs/' + name` is `logs/*`, `base + '.json'` is `*.json`.
 ///
-/// Censused before it was written (`reader/examples/concat-shapes.rs`,
-/// 2026-09-01). Over every concatenation in the corpus the caution is right:
+/// Censused before it was written (`reader/examples/concat-shapes.rs`). Over
+/// every concatenation in the corpus the caution is right:
 /// 92.2% of 4,842 render nothing but `*` and are refused here by
 /// [`path_shaped`]. In a file operation's path argument the population is 245
 /// and inverts — 63.7% name a file, 6.5% locate one.

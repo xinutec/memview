@@ -23,7 +23,7 @@
 //! print("raised:", bad, " parsed fine:", ok)'
 //! ```
 //!
-//! **Answered 2026-08-17 over `union.jsonl`, against CPython 3.12.14** — the
+//! **Answered over `union.jsonl`, against CPython 3.12.14** — the
 //! version the fleet actually ran, which matters because PEP 701 changed this
 //! corner. Of 12,240 distinct programs the reader finds, `ast.parse` refuses
 //! **72**; the reader flags **39**, and refuses **none that CPython accepts**.

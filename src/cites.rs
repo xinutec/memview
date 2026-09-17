@@ -64,8 +64,8 @@ pub fn citations(body: &str) -> BTreeSet<Cited> {
 
 /// Is this citation about OUR task service, or another project's tracker?
 ///
-/// ⚠ **A qualified id is foreign unless the qualifier is one of ours.** Measured
-/// 2026-08-28, both ids the first version reported as dangling were exactly this:
+/// ⚠ **A qualified id is foreign unless the qualifier is one of ours.** Measured:
+/// both ids the first version reported as dangling were exactly this:
 /// `rxdb#7804` and `angular/components#33091` — real issues in other people's
 /// repositories, cited correctly, and reported as corpus rot. A check whose whole
 /// yield is about five cannot afford two false positives, and "the memory is

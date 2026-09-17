@@ -2,8 +2,8 @@
 //!
 //! One session accumulated 2.95 GB of re-injected task lists — 73.8% of a 4.00
 //! GB file, and 45% of the whole corpus — because every turn carried the full
-//! list again. `claude_tasks.py` fixed the cause on 2026-08-08 (the same nodes
-//! now arrive carrying nothing), so this is a one-off clearing of what was
+//! list again. `claude_tasks.py` has since fixed the cause (the same nodes now
+//! arrive carrying nothing), so this is a one-off clearing of what was
 //! already written, not a recurring sweep.
 //!
 //! ⚠ **Deleting the lines is not an option and was measured, not assumed.** A
@@ -261,8 +261,8 @@ fn swap(path: &Path, temp: &Path, cut: u64) -> Result<PathBuf> {
 
 /// Copy `from[start..end]` onto the end of `to`, verbatim.
 ///
-/// Verbatim on purpose: these are lines written after the cut, and since the
-/// 2026-08-08 cutover a reminder carries nothing anyway, so there is no payload
+/// Verbatim on purpose: these are lines written after the cut, and since that
+/// cutover a reminder carries nothing anyway, so there is no payload
 /// left to clear and no reason to re-encode a live session's newest records.
 fn append_range(from: &Path, to: &Path, start: u64, end: u64) -> Result<()> {
     let mut source = std::fs::File::open(from)?;

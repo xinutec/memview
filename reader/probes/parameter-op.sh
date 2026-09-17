@@ -8,7 +8,7 @@
 # operator node has to answer — and the FIRST answer is that this gate cannot
 # help, which is what makes the rest of them load-bearing.
 #
-# Measured 2026-08-16, bash 5.3.15. Five findings, in the order they change the
+# Measured against bash 5.3.15. Five findings, in the order they change the
 # design:
 #
 #   1. EVERY OPERATOR FORM COMES BACK VERBATIM. `${x:-y}`, `${x%%.*}`,

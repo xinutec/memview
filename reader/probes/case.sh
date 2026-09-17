@@ -8,7 +8,7 @@
 # arm is a list of PATTERNS, which is a third grammar beside words and
 # arithmetic, and the terminator between arms carries meaning of its own.
 #
-# Measured 2026-08-17, bash 5.3.15. Seven findings, in the order they change the
+# Measured against bash 5.3.15. Seven findings, in the order they change the
 # design:
 #
 #   1. A PATTERN IS PRINTED VERBATIM, exactly as a word is. `"a b")`, `'lit')`,

@@ -34,7 +34,7 @@ use reader::shell_files;
 ///
 /// ⚠ **`(at, cmd)` was measured before it was relied on**: over 450,866
 /// described calls it resolves to 184,590 distinct keys, and not one of them
-/// carries two different descriptions (2026-09-03). A row with no `at` is keyed
+/// carries two different descriptions. A row with no `at` is keyed
 /// on the command alone, which is weaker and rare — the corpus carries a stamp
 /// wherever the transcript did.
 type Said = BTreeMap<(String, String), String>;

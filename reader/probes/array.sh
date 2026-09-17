@@ -7,7 +7,7 @@
 # array assignments, which is not a grouping at all. A reason is a unit of work,
 # and this one had two constructs in it.
 #
-# Measured 2026-08-17, bash 5.3.15. Five findings, in the order they change the
+# Measured against bash 5.3.15. Five findings, in the order they change the
 # design:
 #
 #   1. THE SECOND GATE CAN SEE INSIDE ONE. Bash NORMALISES the whitespace

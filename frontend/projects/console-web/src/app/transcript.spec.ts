@@ -141,7 +141,7 @@ describe('questions', () => {
   });
 
   it('asks on the call it is about rather than beside it', () => {
-    // ⚠ **Measured on a live session 2026-08-11 (memview#86).** The CLI announces
+    // ⚠ **Measured on a live session (memview#86).** The CLI announces
     // the call and then asks about it — two events, one action — and drawing both
     // put a tool row and a permission card on screen for one Write. The request
     // carries the `tool_use` id, so the two can be joined exactly.
@@ -456,7 +456,7 @@ describe('transcript · a message the session has not read yet', () => {
     // ⚠ **The wait is minutes, and it used to be invisible.** The runner writes
     // to stdin immediately; the CLI parks input that arrives mid-turn and reads
     // it in batches — twelve minutes for the oldest of four, measured from the
-    // phone on 2026-08-07. With only the echo to go on there was nothing on
+    // phone. With only the echo to go on there was nothing on
     // screen in the meantime, which reads exactly like a message that failed.
     const seen = transcript({ kind: 'accepted', text: 'is the gate green?' });
     expect(seen).toEqual([{ kind: 'asked', text: 'is the gate green?', queued: true }]);

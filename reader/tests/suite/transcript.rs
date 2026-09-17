@@ -116,9 +116,9 @@ use reader::transcript::fatal_damage;
 
 /// ⚠ **Outside a session — the nightly — damage fails NOTHING** (memview#1546).
 ///
-/// This test asserted the reverse until 2026-09-12, and it was the reverse that
-/// was wrong: two unrepairable transcripts held `verify/memview` red from
-/// 2026-08-20, hiding the 19 checks that do test the code. Damage is permanent,
+/// This test asserted the reverse once, and it was the reverse that was wrong:
+/// two unrepairable transcripts held `verify/memview` red for weeks, hiding
+/// every check that does test the code. Damage is permanent,
 /// so "every damaged file counts" is a gate that can never go green — which is
 /// the standard #1062 set, applied to the one caller it had missed.
 ///
@@ -152,8 +152,8 @@ fn turns(lines: &[&str]) -> Vec<reader::transcript::Turn> {
 
 /// Fact 5, and the one that caused the incident: a message typed while the
 /// session is working arrives as a `queued_command` attachment, never as a
-/// `user` row. Reading only `user` rows reported three of Pippijn's messages
-/// LOST on 2026-08-27 when they had been delivered normally.
+/// `user` row. Reading only `user` rows reported messages of Pippijn's as LOST
+/// when they had been delivered normally.
 #[test]
 fn a_queued_message_is_a_human_turn() {
     let got = turns(&[

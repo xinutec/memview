@@ -144,7 +144,7 @@ fn another_machines_file_is_marked_and_never_certain() {
 
 #[test]
 fn a_command_that_will_not_parse_says_so() {
-    // 113 of 127,342 distinct commands fail to parse (0.09%, 2026-08-15).
+    // A tiny fraction of the corpus's distinct commands fail to parse.
     // Returning an empty step list for them would show an unreadable command as
     // a command that did nothing.
     //
@@ -162,9 +162,9 @@ fn a_command_that_will_not_parse_says_so() {
 fn an_unread_command_is_named_rather_than_left_blank() {
     // On one command, "what is not in the table" is usually the whole answer to
     // "why did this attribute nothing".
-    // ⚠ The example moves as the table grows — `dhall-to-json` stood here until
-    // 2026-08-22 and `verified_cli` until 2026-08-23, each taught within a day.
-    // What is under test is the naming, not the command.
+    // ⚠ The example moves as the table grows — `dhall-to-json` stood here, then
+    // `verified_cli`, each taught within a day. What is under test is the
+    // naming, not the command.
     //
     // ⚠ **THREE tests hold this placeholder and they are in three crates**:
     // here, `reader/tests/suite/shell_ops.rs` and `reader/tests/suite/shell_files.rs`.

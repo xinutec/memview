@@ -183,7 +183,7 @@ describe('while the reader holds the screen', () => {
 
 describe('following · a gap the reader did not make', () => {
   // ⚠ **Replays the measurement that caused it**, from the console's own client
-  // telemetry on 2026-08-07: `top=15730 height=16360 view=609`, a gap of 21 —
+  // telemetry: `top=15730 height=16360 view=609`, a gap of 21 —
   // five pixels past SLACK — while `entries` climbed 163 → 164 → 165 and the
   // view never moved again. The transcript was live and read as a dead session.
   const AT_END = { top: 15730, height: 16360, view: 630 };
@@ -385,7 +385,7 @@ describe('following · the composer takes the window, measured 2026-08-11', () =
 });
 
 describe('following · saying something', () => {
-  // ⚠ **Measured on the phone, 2026-08-11 (#731).** Sending re-lays the page out
+  // ⚠ **Measured on the phone (#731).** Sending re-lays the page out
   // as the composer collapses, and the browser moves the position while it does:
   //
   //     unpinned gap=92 top=145066 was=145157 wrote=145157 held=false view=534

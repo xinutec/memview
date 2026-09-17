@@ -15,7 +15,7 @@ const doc = (over: Partial<DraftDoc> = {}): DraftDoc => ({
 
 describe('draftConflicts', () => {
   /**
-   * ⚠ **The trap that cost life a silent push-loss on 2026-07-03.**
+   * ⚠ **The trap that cost the life app a silent push-loss.**
    *
    * Revisions are minted by the runner, so a local edit changes the TEXT and
    * leaves the revision alone. An `isEqual` that compares revisions judges every
@@ -91,8 +91,8 @@ describe('draftConflicts', () => {
  *
  * ⚠ **It judges a push on the assumed TEXT, because the real one does** — see
  * `Drafts::apply` in `console/src/drafts.rs`. This stood in for the runner while
- * comparing `assumedMasterState.rev`, which is what the runner did until
- * 2026-09-16 and is wrong: a revision is minted server-side, so a client that
+ * comparing `assumedMasterState.rev`, which is what the runner used to do and
+ * is wrong: a revision is minted server-side, so a client that
  * has pushed but not yet pulled still assumes the revision it edited FROM. A
  * mock that keeps the old rule would pass every test here against a server that
  * does not exist.

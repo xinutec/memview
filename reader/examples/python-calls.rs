@@ -23,7 +23,7 @@
 //! and names no file; it is Python invoked to do something we can see from the
 //! argv alone, and counting it as unread would invent a gap.
 //!
-//! **Answered, 2026-08-17, over `union.jsonl`: 17,453 commands name a Python
+//! **Answered over `union.jsonl`: 17,453 commands name a Python
 //! interpreter and none is missed.** 14,423 are read; 1,908 name a script file
 //! whose contents are on disk and not in the transcript; 831 name the
 //! interpreter without running it here; 226 are module runs; 49 name a script

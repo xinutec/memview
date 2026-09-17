@@ -49,8 +49,9 @@ export function offered(suggestion: string | undefined, current: string): string
  * **Why the console needs this at all, when the CLI has `/rename`.** A slash
  * command is *input*: written to stdin, parked by the CLI when it arrives
  * mid-turn, and released as a **prompt**. So a rename sent to a working session
- * reaches the model as words — measured 2026-08-08, the agent replied "Noted the
- * rename (CLI-side, nothing for me to do)" and no name was ever written. A
+ * reaches the model as words — measured on a working session, where the agent
+ * replied "Noted the rename (CLI-side, nothing for me to do)" and no name was
+ * ever written. A
  * console whose sessions are usually working needs the other channel.
  *
  * A sheet, like starting a session: one field and one button, and it dismisses

@@ -87,8 +87,8 @@ fn silence_is_the_ordinary_case() {
 #[test]
 fn zsh_names_the_target_after_the_message_and_is_read_too() {
     // ⚠ **43% of the corpus's refusals were invisible** while only bash's
-    // wording was read: measured 2026-08-12, **74 calls say it zsh's way and 99
-    // bash's**. Every missed one is a `cd` the parser applied and the shell did
+    // wording was read: zsh-worded refusals are nearly as common as bash-worded
+    // ones. Every missed one is a `cd` the parser applied and the shell did
     // not — the exact defect this function exists to prevent.
     assert_eq!(
         refused_dirs("cd:1: no such file or directory: src"),
@@ -257,8 +257,8 @@ fn a_call_answered_after_the_cut_keeps_no_verdict() {
 /// ⚠ **Episode identity used to be a POSITION in the vector**, assigned as
 /// `episodes.len()` at creation — so it depended on the order the scan reached
 /// things, which is exactly what reading only the changed transcripts alters.
-/// Measured on the real corpus 2026-08-30: 682,865 rows of 1,061,700 differed by
-/// nothing but this index (memview#1240).
+/// Measured on the real corpus: most rows differed by nothing but this index
+/// (memview#1240).
 ///
 /// Two logs holding the same work, built in different orders, must finish
 /// identical.

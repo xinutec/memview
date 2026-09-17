@@ -532,8 +532,8 @@ fn a_closing_keyword_is_not_a_command_and_ends_no_segment() {
 /// ⚠ **The reason to care is not the `case`.** It is almost always the CI or
 /// deploy wait — poll, match the status, break — so while the statement would
 /// not parse, every `ssh`, `kubectl` and file write in the loop AROUND it was
-/// invisible. 126 of 366 unreadable commands, three times the next bucket
-/// (`reader/examples/unparsed-probe.rs`, 2026-08-15).
+/// invisible. It was the largest bucket of unreadable commands by a factor of
+/// three — see `reader/examples/unparsed-probe.rs`.
 #[test]
 fn a_case_arm_is_not_a_stray_paren() {
     assert_eq!(

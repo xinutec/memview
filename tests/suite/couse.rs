@@ -240,8 +240,8 @@ fn unlinked_leaves_out_pairs_the_corpus_already_links() {
 
 /// A hub linking both is a connection, so its children are not a missing link.
 ///
-/// The case this was written for: four memories split out of one roadmap on
-/// 2026-08-22 co-occur at npmi 1.00 and link only their parent. Demanding a link
+/// The case this was written for: four memories split out of one roadmap
+/// co-occur at npmi 1.00 and link only their parent. Demanding a link
 /// between them would ask a well-formed hub to become a clique.
 #[test]
 fn unlinked_leaves_out_two_children_of_one_hub() {

@@ -82,8 +82,8 @@ install_as() {
 install_as "$built" "$CONSOLE_BIN"
 
 # The service's two scripts are installed as well, and the launchd job names
-# THESE copies rather than the ones in the checkout. Measured 2026-08-09, once
-# ~/Code became symlinks to an external volume: under launchd an Apple binary is
+# THESE copies rather than the ones in the checkout. Measured once ~/Code became
+# symlinks to an external volume: under launchd an Apple binary is
 # refused that volume, so `/bin/bash <checkout>/scripts/console-service.sh` exits
 # 126 — and with an empty log, because the log path was on the volume too. A
 # program under ~/.local/libexec spawns normally. console-service.sh carries the

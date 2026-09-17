@@ -1,6 +1,6 @@
 //! The `task` service's refusals, pinned by their live wording.
 //!
-//! ⚠ **These strings are copied verbatim from the service on 2026-09-13**, not
+//! ⚠ **These strings are copied verbatim from the service**, not
 //! paraphrased. The bug they exist to catch was a sentinel that read plausibly
 //! and matched nothing the service ever said, so a paraphrase here would
 //! reproduce it exactly.

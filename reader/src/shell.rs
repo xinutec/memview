@@ -55,7 +55,7 @@ pub enum Reached {
     /// certain, whatever the call's exit status turned out to be.
     ///
     /// ⚠ **The `||` half of this is knowable and is thrown away on purpose.
-    /// Measured 2026-08-15, memview #101, and the answer was no.** A non-zero
+    /// Measured, memview #101, and the answer was no.** A non-zero
     /// exit on `a || b` proves `b` ran: had `a` succeeded the chain would have
     /// exited 0. The mirror of the `&&` rule in [`crate::doing::Verdict::admits`],
     /// and it is not implemented because the prize is too small to pay for:

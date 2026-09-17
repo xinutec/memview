@@ -43,10 +43,10 @@ impl Missing {
 /// `modified:` in the body is prose and not a stamp.
 ///
 /// ⚠ **BOTH fields, because asking only about the stamp made `memory-stamp`
-/// blind to the field it exists to recover** (memview#1499). Measured
-/// 2026-09-09: 719 of 719 memories carried a `modified:` and 707 an
-/// `originSessionId`, so every one of the twelve gaps had a stamp, none was
-/// returned, and the tool reported "every memory carries a stamp" over them.
+/// blind to the field it exists to recover** (memview#1499). Measured: every
+/// memory carried a `modified:` while a handful carried no `originSessionId`,
+/// so every one of those gaps had a stamp, none was returned, and the tool
+/// reported "every memory carries a stamp" over them.
 ///
 /// ⚠ **In the library rather than the bin, so a test can reach it.** That
 /// defect survived as long as it did because it lived in a `bin` — the same
@@ -88,8 +88,8 @@ pub struct Stale {
 /// frontmatter by design, so it has no stamp to advance and never will. The
 /// index rule is "to add a line, take one out in the same edit", so nearly
 /// every memory written touches it — and this check fired on it at every single
-/// commit, a check that cannot go green on a file it is applied to. On
-/// 2026-09-01 it fired twice in one session: once falsely on `MEMORY.md`, once
+/// commit, a check that cannot go green on a file it is applied to. It has
+/// fired twice in one session: once falsely on `MEMORY.md`, once
 /// TRULY on a memory a python rewrite had skipped. Identical output, so the
 /// false one is what made the true one easy to wave through.
 ///

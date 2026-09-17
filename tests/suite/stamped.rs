@@ -122,8 +122,8 @@ fn body_edit(path: &str) -> String {
 /// ⚠ **The index is not a memory and never can be.** `MEMORY.md` opens
 /// `# Memory index` with no frontmatter by design, so it has no `modified:` to
 /// advance — and the index rule is "to add a line, take one out in the same
-/// edit", so nearly every memory written touches it. This fired at every commit
-/// until 2026-09-12.
+/// edit", so nearly every memory written touches it. This used to fire at every
+/// commit.
 #[test]
 fn the_index_has_no_stamp_to_move_and_is_skipped() {
     let found = unstamped(&body_edit("memory/MEMORY.md"), |_| {

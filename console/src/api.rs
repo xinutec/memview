@@ -313,7 +313,7 @@ async fn pull_drafts(
 /// both land and lose in one request, so the status describes the request and
 /// the body describes each entry — which is also why the per-session PUT that
 /// used to sit beside this was removed rather than kept: it could only answer
-/// for one edit, and two ways to write one map is how the 2026-09-15 bugs got in.
+/// for one edit, and two ways to write one map is how the draft bugs got in.
 async fn push_drafts(
     State(roster): State<Arc<Roster>>,
     Json(entries): Json<Vec<crate::drafts::PushEntry>>,

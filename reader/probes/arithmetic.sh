@@ -3,7 +3,7 @@
 #
 #   nix develop -c bash reader/probes/arithmetic.sh
 #
-# Measured 2026-08-17, bash 5.3.15. Four findings:
+# Measured against bash 5.3.15. Four findings:
 #
 #   1. ⚠ **VERBATIM, whitespace included.** `$(( 1 + 2 ))` comes back with its
 #      spaces. So the second gate has NO opinion about an expression — it

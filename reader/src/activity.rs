@@ -297,7 +297,7 @@ impl Activity {
 
     /// What a TOOL call is, as opposed to a shell command.
     ///
-    /// ⚠ **The timeline was Bash-only until 2026-08-17**, so half the fleet's
+    /// ⚠ **The timeline was Bash-only once**, so half the fleet's
     /// work was invisible in it: the history holds 87,918 `Bash` calls against
     /// 36,371 `Write` and `Edit` ones, and an agent that reaches for `Edit`
     /// showed an emptier day than one reaching for `sed`. The vocabulary already

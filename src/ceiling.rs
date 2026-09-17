@@ -17,7 +17,7 @@
 /// The size `MEMORY.md` is truncated at when injected, from Claude Code's own
 /// warning text.
 ///
-/// ⚠ **MEASURED 2026-08-31, and it was a guess until then.** Claude Code prints
+/// ⚠ **MEASURED, and it was a guess before that.** Claude Code prints
 /// the size and the limit in the same units — `MEMORY.md is 25.7KB (limit:
 /// 24.4KB)` — so the only question was which kilobyte, and the file's own git
 /// history answers it. Every size the root has ever had (40 commits, 18,369 to

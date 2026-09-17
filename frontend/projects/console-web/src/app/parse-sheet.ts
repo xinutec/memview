@@ -114,9 +114,9 @@ export class ParseSheet {
    * future consumer inherit this card's 412px column. What the sentence is FOR
    * is the act; the path is already carried twice below it — by the use row,
    * which marks direction and certainty, and by the sheet's footer, which names
-   * the directory relative paths resolve against. Looked at on 2026-09-05 it
-   * stated one path FOUR times on a single step, three of them wrapped lines of
-   * this very sentence, pushing the command being approved down the card.
+   * the directory relative paths resolve against. Looked at on a real step it
+   * stated one path FOUR times, three of them wrapped lines of this very
+   * sentence, pushing the command being approved down the card.
    *
    * ⚠ **A token at a time, so it cannot reach across words.** A sentence names
    * several subjects joined by `, `, and a match greedy over the whole string

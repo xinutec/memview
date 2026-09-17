@@ -2,8 +2,8 @@
 // ESLint flat config for the Angular frontend: memview's app under src/, and
 // the console's under projects/ — both are held to the same rules, and so are
 // the layout harnesses and the Playwright configs that drive them. Those were
-// outside every glob until 2026-08-03: eslint's own `files` did not name them,
-// the lint script's paths did not reach them, `ng build` compiles only what
+// outside every glob once: eslint's own `files` did not name them, the lint
+// script's paths did not reach them, `ng build` compiles only what
 // `src/main.ts` imports, and Playwright strips types with esbuild rather than
 // checking them. A planted `const planted: number = "not a number"` passed all
 // four. The harness is the gate for how the console behaves on a phone; being

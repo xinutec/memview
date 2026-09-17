@@ -34,10 +34,10 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
     // A slash command, sent or read back off the transcript — and deliberately
     // NOT marked, unlike every other message this console writes.
     //
-    // ⚠ **A command has no read receipt and cannot be given one.** Measured
-    // 2026-08-08: `--replay-user-messages` replays a prompt and does not replay a
-    // command, so the event that clears the marker never arrives. Marking one
-    // made `life` show *waiting to be read* right through the compaction it had
+    // ⚠ **A command has no read receipt and cannot be given one.** Measured:
+    // `--replay-user-messages` replays a prompt and does not replay a command,
+    // so the event that clears the marker never arrives. Marking one made a
+    // session show *waiting to be read* right through the compaction it had
     // already begun — a claim the console had no way left to withdraw.
     case 'command':
       add(entries, { kind: 'asked', text: event.text ?? '', at: event.at });
@@ -142,7 +142,7 @@ export function fold(entries: Entry[], event: SessionEvent): Entry[] {
     }
     case 'ask': {
       // ⚠ **One action, one widget** (memview#86). The CLI announces the call
-      // and then asks about it — measured on a live session 2026-08-11 as
+      // and then asks about it — measured on a live session as
       // `tool toolu_01E9…` followed by `ask c8471a53…` with identical input — so
       // drawing both put a tool row and a permission card on screen for one
       // Write. Joined by the id the request carries, the row IS the question

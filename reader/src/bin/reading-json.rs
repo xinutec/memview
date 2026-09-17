@@ -7,8 +7,8 @@
 //!
 //! ⚠ **That default used to be `~/.claude/corpus/union.jsonl` and that whole
 //! directory is gone (memview#1240).** It kept fourteen dated gzips plus a
-//! cumulative union against a window believed to be shrinking; measured
-//! 2026-08-29, the union held **6 rows out of 177,467** that a fresh mine does
+//! cumulative union against a window believed to be shrinking; measured, the
+//! union held **6 rows out of 177,467** that a fresh mine does
 //! not produce, and all six are the SAME commands captured worse — `ran:
 //! "unknown"` where a fresh mine resolves `ok`, three of them missing the `at`
 //! the miner now recovers. A `sort -u` union froze them as distinct lines

@@ -309,8 +309,8 @@ fn published_as_seen(pct: f64, resets_at: &str, ts: &str, measured: bool) -> Opt
         utilization: pct / 100.0,
         resets_at: Some(crate::session::ResetsAt(at(resets_at)? / 1000)),
         at: crate::session::Heard(at(ts)?),
-        // The row's own claim, not this console's assertion. Until 2026-09-02
-        // every dashboard row was branded a measurement here, which let any
+        // The row's own claim, not this console's assertion. Branding every
+        // dashboard row a measurement here lets any
         // writer's cache — the statusLine stamps its cached headers with the
         // SEND time — arrive as dated truth entitled to lower a figure. Now the
         // writer says (home v9), and a row that does not is an echo: it may
@@ -436,8 +436,8 @@ pub fn model_key(display_name: &str) -> String {
 
 /// The machine this console runs on, for a reading it took itself.
 ///
-/// ⚠ **This was the literal string "this console" until 2026-08-05**, on the
-/// argument that the figure is account-wide so the only useful provenance is
+/// ⚠ **This was once the literal string "this console"**, on the argument that
+/// the figure is account-wide so the only useful provenance is
 /// *how* it was come by rather than *where*. The "how" is real and still wanted
 /// — but `age_ms` already carries it, and better: a reading forty seconds old is
 /// first-hand on its face, while a name never says how stale it is.

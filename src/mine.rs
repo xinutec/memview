@@ -83,7 +83,7 @@ pub struct Carried {
     /// raw state, recomputed each run, never accumulated. What is carried is the
     /// raw accumulation; `agents.json` keeps the renamed view.
     ///
-    /// Found by the first full-corpus parity run, 2026-08-30. No fixture has a
+    /// Found by the first full-corpus parity run. No fixture has a
     /// rename in it, let alone a cyclic one.
     #[serde(default)]
     pub agents: Vec<crate::agents::Agent>,

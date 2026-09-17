@@ -476,7 +476,7 @@ impl<'t> Parser<'t> {
     /// (memview#1564). For an unquoted delimiter bash removes `\`-newline as it
     /// reads, so the delimiter is compared against what the continuations make.
     /// Matching raw lines instead produced a WRONG TREE, unrefused, in both
-    /// directions — measured against `bash` itself, 2026-09-12:
+    /// directions — measured against `bash` itself:
     ///
     /// ```text
     ///   cat <<EOF / X\ / EOF / echo after
@@ -3635,7 +3635,7 @@ fn braced_parameter(bytes: &[u8], from: usize) -> Reason {
 ///
 /// ⚠ **Parity, not "ends with a backslash".** Each `\` escapes the next, so a
 /// line ending `\\` is a literal backslash and the newline survives. Measured
-/// against bash, 2026-09-12: over a heredoc body, `EO\` joins, `EO\\` does not,
+/// against bash: over a heredoc body, `EO\` joins, `EO\\` does not,
 /// and `EO\\\` joins again. This is the same rule [`join_continuations`] applies
 /// byte by byte, asked one line at a time so the terminator can be tested before
 /// the body is built.

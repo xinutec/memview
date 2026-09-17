@@ -1009,7 +1009,7 @@ fn a_backslash_newline_joins_an_unquoted_body_and_not_a_quoted_one() {
 
 /// ⚠ **A join that FORMS the delimiter is the terminator** (memview#1564).
 ///
-/// This asserted a refusal until 2026-09-12, reasoning that `EO\` + `F` makes a
+/// This asserted a refusal once, reasoning that `EO\` + `F` makes a
 /// body line reading `EOF` the printer could not write back. Both halves were
 /// wrong: bash joins `\`-newline BEFORE looking for the terminator, so the
 /// joined line never becomes body at all — it ENDS the heredoc.
@@ -3047,9 +3047,9 @@ fn a_redirection_glued_to_a_word_still_redirects() {
 /// ⚠ **`bash -n` accepting something is not evidence that it runs.** `-n` parses
 /// without evaluating, and a substring's length is an arithmetic expression
 /// evaluated at *runtime* — so `${x:0:12:-0}` passes `bash -n` and then dies with
-/// `arithmetic syntax error in expression (error token is ":-0")`. Measured
-/// 2026-08-17, when two corpus scripts carrying that typo were briefly counted as
-/// a gap in this parser on the strength of `bash -n` alone. Backticks defer the
+/// `arithmetic syntax error in expression (error token is ":-0")`. Measured when
+/// two corpus scripts carrying that typo were briefly counted as a gap in this
+/// parser on the strength of `bash -n` alone. Backticks defer the
 /// same way; see execution-model.md.
 #[test]
 fn a_substring_length_that_is_not_arithmetic_is_refused() {

@@ -20,7 +20,7 @@
 //! said `tsx`/`vitest`/`playwright` are 4,201 calls of plain file operands while
 //! `node -e` is 724 calls with 23 writes. Rank first, then build.
 //!
-//! ⚠ **Asked again from the other side, 2026-08-17, and it came out the same.**
+//! ⚠ **Asked again from the other side, and it came out the same.**
 //! Once the sniff stopped calling TypeScript "Python", TypeScript became the
 //! biggest carried language by bytes — 698 bodies, 953 kB — which reads like a
 //! reason to build one. `--dump` hands the bodies out and the tally settles it:
@@ -33,9 +33,9 @@
 //! is reported as "looks like" for that reason. The point is the ranking — is
 //! there a kilobyte of SQL here or a megabyte — not the label on any one body.
 //!
-//! ⚠ **And the ranking was wrong for as long as the guess had no tests.** On
-//! 2026-08-17 the Python bucket stood at 1,154 bodies and 2.0 MB; **731 of them
-//! were not Python.** One line opening `import ` decided the language, and
+//! ⚠ **And the ranking was wrong for as long as the guess had no tests.** The
+//! Python bucket once stood at 1,154 bodies and 2.0 MB; **731 of them were not
+//! Python.** One line opening `import ` decided the language, and
 //! TypeScript, Kotlin, Swift and Lean all open a line that way — as does an
 //! English sentence that wraps onto a line beginning "from". Corrected, the
 //! biggest carried language is **TypeScript or JavaScript at 698 bodies and

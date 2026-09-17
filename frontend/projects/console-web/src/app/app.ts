@@ -160,7 +160,7 @@ export class App {
    * * The **CLI**, on its own stream some time later, which no amount of
    *   watching this request will show. That correction arrives on the poll as
    *   `mode_refused`, and the effect in the constructor is what says so.
-   *   Until 2026-08-16 nothing read it and the claim stood for ever (#96).
+   *   Nothing used to read it, and the claim then stood for ever (#96).
    */
   protected setMode(mode: string): void {
     const open = this.here.open();

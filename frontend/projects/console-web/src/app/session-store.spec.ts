@@ -178,7 +178,7 @@ describe('SessionStore', () => {
   });
 
   it('does not let the replayed transcript answer for the present', () => {
-    // ⚠ **The defect this exists for, reported from the phone on 2026-08-07:**
+    // ⚠ **The defect this exists for, reported from the phone:**
     // the page said `idle` for twelve minutes over a session that was working
     // the whole time, so messages sent to it looked like messages going nowhere.
     //

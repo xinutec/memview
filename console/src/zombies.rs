@@ -2,12 +2,12 @@
 //!
 //! #797 is a zombie whose parent is the console and whose origin nothing
 //! recorded. Every look so far has been after the fact at a process table that
-//! has already been swept, and waiting has now failed twice — 0 sightings in the
-//! nine days to 2026-08-21, across a window in which neither suspect's failing
-//! path ran. So the occurrence has to carry its own evidence.
+//! has already been swept, and waiting has now failed twice — no sightings over
+//! nine days, across a window in which neither suspect's failing path ran. So
+//! the occurrence has to carry its own evidence.
 //!
 //! ⚠ **A zombie's command is gone, so the occurrence cannot say what it was.**
-//! Measured on this Mac 2026-08-21 by forcing one: a process in state `Z` still
+//! Measured on this Mac by forcing one: a process in state `Z` still
 //! reports `ppid`, `lstart` and `etime`, but **both `comm` and `command` read
 //! `<defunct>`**. The task asked for "ppid and the command"; only the first half
 //! exists.

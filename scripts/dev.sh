@@ -12,8 +12,8 @@
 # search must still work there"), which is right for CI and wrong here, because
 # it means a session judging the view locally judges a version of it with the
 # interesting half missing. The canonical location is `reader::home::cache`,
-# i.e. `$HOME/.claude/memview/cache/`. Found 2026-09-01 while opening the graph
-# view to look at it (memview#1306).
+# i.e. `$HOME/.claude/memview/cache/`. Found while opening the graph view to
+# look at it (memview#1306).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

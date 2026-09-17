@@ -872,8 +872,8 @@ describe('affinities', () => {
     // meet the regime it is about. In this four-node fixture the repulsion
     // holds even a linked same-group pair at ~44, OUTSIDE the rest of 40 —
     // where the old two-sided spring also pulled, and the first two versions
-    // of this spec passed vacuously (measured, not assumed: /tmp probe,
-    // 2026-09-02). Three parallel links pull the pair to ~37, inside the
+    // of this spec passed vacuously (measured with a probe, not assumed).
+    // Three parallel links pull the pair to ~37, inside the
     // rest, which stands in for the density of the real corpus, where links
     // hold co-used pairs near 26 and the old spring pushed them out.
     const tight = Array.from({ length: 3 }, () => ({ source: 'a1', target: 'a2' }));

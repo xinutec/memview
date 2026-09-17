@@ -114,9 +114,9 @@ fn main() -> Result<()> {
     }
     // ⚠ **Say that it is proceeding, or two imperatives read as a refusal**
     // (memview#1578). The lines above are advice, not a verdict, and this tool
-    // exits 0 whatever it finds — but nothing said so, and on 2026-09-03 a
-    // session read the pair as a block, launched a SECOND commit, and collided
-    // with the first one's worktree lock.
+    // exits 0 whatever it finds — but nothing said so, and a session read the
+    // pair as a block, launched a SECOND commit, and collided with the first
+    // one's worktree lock.
     eprintln!(
         "Reported, not blocking — this check never fails a commit. `git commit` takes \
          the whole INDEX, so unstage what is not yours, or commit deliberately."

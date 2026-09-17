@@ -8,7 +8,7 @@
 # answer — above all whether `elif` is a shape of its own or sugar for a nested
 # `if`, which decides whether the tree holds a list of arms or a chain.
 #
-# Measured 2026-08-16, bash 5.3.15. Six findings, in the order they change the
+# Measured against bash 5.3.15. Six findings, in the order they change the
 # design:
 #
 #   1. `elif` IS DESUGARED, and this is the one that shapes the node.

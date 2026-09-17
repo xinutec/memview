@@ -7,7 +7,7 @@
 # `declare -f` keep of a brace expansion (nothing — it is printed verbatim, so
 # the second gate has no opinion), and WHICH braces expand at all.
 #
-# Measured 2026-08-17, bash 5.3.15. Four findings:
+# Measured against bash 5.3.15. Four findings:
 #
 #   1. VERBATIM, every form. `{a,b}`, `{1..9..2}`, `{a..e}`, `{a,{b,c}}` all come
 #      back as written, so gate 2 cannot see inside one — the same blindness it

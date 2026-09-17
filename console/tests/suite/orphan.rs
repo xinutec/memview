@@ -229,9 +229,9 @@ fn the_recorder_finds_a_real_zombie_under_this_process() {
 /// written**, so the write fails and the function returns before any wait.
 ///
 /// ⚠ **Neither existing case covers this.** Both model a child that OUTLIVES the
-/// timeout and is dropped mid-wait, and both reap. The real one — pid 93988,
-/// traced 2026-08-27 after three days defunct — died 66 seconds into a
-/// 90-second `PATIENCE`, so no timeout fired; the gist eventually stored came
+/// timeout and is dropped mid-wait, and both reap. The real one — traced after
+/// three days defunct — died 66 seconds into a 90-second `PATIENCE`, so no
+/// timeout fired; the gist eventually stored came
 /// from a later call seventeen minutes on. `gist::ask` returned early on the
 /// failed write with `?` and dropped the child unwaited.
 ///
@@ -263,8 +263,8 @@ async fn a_child_that_dies_before_the_write_is_still_reaped() {
     // 200ms, its pipe was still open, the write below SUCCEEDED, the reap
     // branch was skipped, and the assertion reported "left unreaped" — the
     // test failing its own precondition and wearing it as a reaping bug
-    // (memview#1243, failed in-gate 2026-08-28 and passed alone moments
-    // later). Exited-but-unreaped IS the zombie state, so the precondition is
+    // (memview#1243, failing in-gate and passing alone moments later).
+    // Exited-but-unreaped IS the zombie state, so the precondition is
     // waited on directly and a machine too loaded to run `true` in five
     // seconds names the precondition instead of the behaviour.
     let mut waited = Duration::ZERO;

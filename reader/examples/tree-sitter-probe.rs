@@ -3,7 +3,7 @@
 //!     cargo run --release --example tree-sitter-probe -- /tmp/bash-corpus.jsonl [--show <n>]
 //!     cargo run --release --example tree-sitter-probe -- --parse-file <script>
 //!
-//! **Answered, 2026-08-06: no — it is a trade, not a gain, and the grammar stays.**
+//! **Answered: no — it is a trade, not a gain, and the grammar stays.**
 //! Over 98,321 distinct commands: ours reads 97,985 (99.7%), `tree-sitter-bash`
 //! 0.25.1 reads 98,119 (99.8%). But the sets differ — **299 gained, 165 lost**,
 //! a net 134 commands, 0.14%. And the losses are the shape that carries the most

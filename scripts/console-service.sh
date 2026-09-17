@@ -39,8 +39,8 @@
 # **4. It is run from its INSTALLED copy, not from the checkout.**
 # `console-upgrade.sh` puts this file and `console-tunnel.sh` in
 # `~/.local/libexec` beside the binary, and the launchd job names that copy. The
-# reason is a macOS rule measured 2026-08-09, when ~/Code became symlinks to an
-# external volume: under launchd, **Apple's own binaries are refused the
+# reason is a macOS rule, measured when ~/Code became symlinks to an external
+# volume: under launchd, **Apple's own binaries are refused the
 # volume** — `/bin/sh` exec'ing a script there, and `/bin/bash` merely reading
 # one, both die with `Operation not permitted` and exit 126 — while nix-store
 # builds and anything in `~/.local/libexec` read and run the same paths fine.
