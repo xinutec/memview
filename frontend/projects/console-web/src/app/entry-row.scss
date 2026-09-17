@@ -1,0 +1,213 @@
+:host {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+  position: relative;
+}
+
+:host(.asked),
+:host(.turn),
+:host(.note),
+:host(.ask) {
+  padding-right: 3.2rem;
+}
+
+:host(.asked) {
+  border-left: 3px solid var(--mat-sys-primary);
+  padding-left: 0.6rem;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.who {
+  display: block;
+  font: var(--mat-sys-label-small);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-bottom: 0.15rem;
+}
+
+.queued {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font: var(--mat-sys-label-small);
+  color: var(--mat-sys-tertiary);
+  margin-bottom: 0.15rem;
+
+  mat-icon {
+    font-size: 0.875rem;
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+
+  &.unheard {
+    color: var(--mat-sys-error);
+  }
+}
+
+:host(.turn),
+:host(.note) {
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+  font-variant-numeric: tabular-nums;
+}
+
+:host(.tool) {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font: var(--mat-sys-body-medium);
+  background: var(--mat-sys-surface-container);
+  border-radius: 0.5rem;
+  padding: 0.35rem 0.6rem;
+}
+
+.tool-name {
+  font-weight: 500;
+}
+
+.tool-arg {
+  font-family: ui-monospace, monospace;
+  color: var(--mat-sys-on-surface-variant);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+button.parse {
+  appearance: none;
+  background: none;
+  border: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0.25rem 0;
+  margin: -0.25rem 0;
+  text-decoration: underline dotted var(--mat-sys-outline);
+  text-underline-offset: 0.25em;
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: 2px;
+    border-radius: 0.125rem;
+  }
+}
+
+.running {
+  font: var(--mat-sys-label-small);
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ok {
+  color: var(--mat-sys-primary);
+}
+
+.bad {
+  color: var(--mat-sys-error);
+}
+
+.refused {
+  font: var(--mat-sys-label-small);
+  color: var(--mat-sys-error);
+  white-space: nowrap;
+}
+
+.unrecorded {
+  font: var(--mat-sys-label-small);
+  color: var(--mat-sys-outline);
+  white-space: nowrap;
+}
+
+.picture {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  min-height: 3rem;
+
+  img {
+    max-width: 100%;
+    max-height: 25vh;
+    width: auto;
+    border-radius: 0.5rem;
+    object-fit: contain;
+    background: var(--mat-sys-surface-container-highest);
+  }
+
+  img.full {
+    max-height: none;
+    width: 100%;
+  }
+}
+
+// Top right, out of the text's way; a bubble and a tool row have no room for it.
+.at {
+  position: absolute;
+  top: 0;
+  right: 0;
+  font: var(--mat-sys-body-small);
+  line-height: inherit;
+  color: var(--mat-sys-on-surface-variant);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+:host(.said) > .at,
+:host(.tool) > .at {
+  display: none;
+}
+
+:host(.ask) > .at {
+  top: calc(var(--card-inset) + var(--card-edge));
+}
+
+:host(.day) {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.7rem 0 0.2rem;
+  font: var(--mat-sys-body-small);
+  color: var(--mat-sys-on-surface-variant);
+
+  &::before,
+  &::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--mat-sys-outline-variant);
+  }
+}
+
+.returned {
+  flex-basis: 100%;
+  font: var(--mat-sys-body-small);
+  font-family: ui-monospace, monospace;
+  color: var(--mat-sys-on-surface-variant);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unfold {
+  align-self: flex-start;
+  margin-left: -0.5rem;
+}
+
+.result {
+  flex-basis: 100%;
+  margin: 0.2rem 0 0;
+  max-height: 40vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: var(--mat-sys-body-small);
+  font-family: ui-monospace, monospace;
+  color: var(--mat-sys-on-surface-variant);
+}

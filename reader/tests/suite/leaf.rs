@@ -24,7 +24,7 @@
 /// no key, no secret, no verification of anything anybody sent. If a future use
 /// of it authenticates, signs, or compares against something a user supplied,
 /// that use belongs in whichever crate holds the trust, not in this one.
-const ALLOWED: [&str; 7] = [
+const ALLOWED: [&str; 8] = [
     "anyhow",
     "base64",
     "pest",
@@ -32,6 +32,9 @@ const ALLOWED: [&str; 7] = [
     "serde",
     "serde_json",
     "sha2",
+    // Optional, and a derive: it writes TypeScript from the wire types when the
+    // `ts` feature is on and links nothing into a normal build.
+    "ts-rs",
 ];
 
 /// The names under `[dependencies]`, in order.

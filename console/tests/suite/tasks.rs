@@ -294,18 +294,13 @@ async fn a_deadline_and_a_blocker_are_carried_through_as_the_service_decided_the
     assert!(!listed[2].blocked, "the link is a record, not a wait");
     assert_eq!(listed[2].blocked_on, vec!["92".to_string()]);
 
-    // ⚠ Absent on the way out as well as in, for the same reason the rank is:
-    // almost every task has neither, and a `false` or a `[]` on all of them is a
-    // field a client draws a placeholder for.
-    let out = serde_json::to_string(&listed[1]).expect("serialisable");
-    assert!(
-        !out.contains("due") && !out.contains("overdue"),
-        "no empty deadline on the wire: {out}"
-    );
-    assert!(
-        !out.contains("blocked"),
-        "no empty blocker on the wire: {out}"
-    );
+    // A missing deadline is absent on the wire; the verdicts are always said,
+    // so the client's type for them is a boolean and not a guess.
+    let out: serde_json::Value = serde_json::to_value(&listed[1]).expect("serialisable");
+    assert_eq!(out.get("due"), None, "no empty deadline on the wire: {out}");
+    assert_eq!(out["overdue"], false);
+    assert_eq!(out["blocked"], false);
+    assert_eq!(out["blocked_on"], serde_json::json!([]));
 }
 
 #[tokio::test]

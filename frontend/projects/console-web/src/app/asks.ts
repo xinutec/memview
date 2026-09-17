@@ -3,7 +3,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { ConsoleApi } from './console-api';
 import { reason } from './errors';
 import { Here } from './here';
-import type { Entry } from './models';
+import type { Questioned } from './models';
 import { type Answers, type Notes, type Question, complete } from './questions';
 
 /**
@@ -65,8 +65,8 @@ export class Asks {
   }
 
   /** Whether everything asked has been answered. The send button waits for it. */
-  ready(entry: Entry): boolean {
-    const ask = entry.ask ?? '';
+  ready(entry: Questioned): boolean {
+    const ask = entry.ask;
     return complete(entry.questions ?? [], this.answers(ask), this.notes(ask));
   }
 
@@ -103,9 +103,9 @@ export class Asks {
    * Anything else — several questions, or one that takes several answers — has
    * no moment where the choice is obviously finished, so it waits for [answer].
    */
-  pick(entry: Entry, question: Question, label: string): void {
+  pick(entry: Questioned, question: Question, label: string): void {
     const ask = entry.ask;
-    if (!ask || entry.allowed !== undefined || this.replying(ask)) return;
+    if (entry.allowed !== undefined || this.replying(ask)) return;
     const questions = entry.questions ?? [];
     if (questions.length === 1 && !question.multiSelect) {
       this.send(entry, { [question.question]: label }, undefined, this.notes(ask));
@@ -127,9 +127,9 @@ export class Asks {
   }
 
   /** Send what has been chosen, or what has been typed instead of choosing. */
-  answer(entry: Entry): void {
+  answer(entry: Questioned): void {
     const ask = entry.ask;
-    if (!ask || entry.allowed !== undefined) return;
+    if (entry.allowed !== undefined) return;
     if (this.replying(ask)) {
       // Words override the choices in the CLI, so nothing else goes with them —
       // notes included, which would be qualifying an answer that is not sent.
@@ -141,18 +141,18 @@ export class Asks {
   }
 
   /** Allow or refuse outright, for an ask that offers no questions. */
-  decide(entry: Entry, allow: boolean): void {
+  decide(entry: Questioned, allow: boolean): void {
     const at = this.here.at();
-    if (!entry.ask || entry.allowed !== undefined || !at) return;
+    if (entry.allowed !== undefined || !at) return;
     this.trouble.set('');
     this.api.decide(at, entry.ask, allow).subscribe({
       error: (err: unknown) => this.trouble.set(reason(err)),
     });
   }
 
-  private send(entry: Entry, answers?: Answers, response?: string, notes?: Notes): void {
+  private send(entry: Questioned, answers?: Answers, response?: string, notes?: Notes): void {
     const at = this.here.at();
-    if (!entry.ask || entry.allowed !== undefined || !at) return;
+    if (entry.allowed !== undefined || !at) return;
     this.trouble.set('');
     this.api.decide(at, entry.ask, true, undefined, answers, response, notes).subscribe({
       error: (err: unknown) => this.trouble.set(reason(err)),

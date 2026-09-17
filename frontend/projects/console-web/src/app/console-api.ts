@@ -3,185 +3,95 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import {
-  Conversation,
-  CorpusRead,
+  type Conversation,
+  type CorpusRead,
+  type Decision,
+  type Described,
   KINDS,
-  Landmark,
-  Overview,
-  Parsed,
-  SessionEvent,
-  Summary,
-  Task,
+  type Landmark,
+  type Message,
+  type Mode,
+  type Overview,
+  type Page,
+  type Parsed,
+  type Renaming,
+  type Shown,
+  type Start,
+  type Summary,
+  type Task,
+  type Timed,
 } from './models';
 import { fetchedAt } from './picture';
-import { Answers, Notes } from './questions';
+import { type Answers, type Notes } from './questions';
 
-/** Thin client over the console runner. Same origin in production (the runner
- *  serves this bundle); via the dev proxy under `ng serve`. */
-/**
- * What a followed conversation reports.
- *
- * `offline` is the browser retrying rather than the stream ending — EventSource
- * reconnects on its own — so it means "not connected right now", which is the
- * question a page has to answer before offering what it last saw.
- */
+/** What the event stream yields: a message, or a change in the connection. */
 export type Streamed =
-  | { kind: 'event'; event: SessionEvent; seq: number }
+  | { kind: 'event'; event: Timed; seq: number }
   | { kind: 'reset' }
   | { kind: 'caught-up' }
   | { kind: 'offline' };
 
 @Injectable({ providedIn: 'root' })
 export class ConsoleApi {
-  private http = inject(HttpClient);
+  private readonly http = inject(HttpClient);
 
   state(): Observable<Overview> {
     return this.http.get<Overview>('/api/state');
   }
 
-  /**
-   * What the reader makes of the fleet's shell — the nightly survey.
-   *
-   * One request, ~7 kB, no parameters. A 404 means nothing has been mined, which
-   * the strip answers by drawing nothing at all: this is not what anybody opened
-   * the console for.
-   */
   reading(): Observable<CorpusRead> {
     return this.http.get<CorpusRead>('/api/reading');
   }
 
-  /** The page of conversation before the one the caller holds. */
-  /**
-   * The page of transcript before the one the reader holds.
-   *
-   * `before` is the cursor that page arrived with — never a count of anything
-   * this client has. It was a count, and the two ends counted different things:
-   * the runner counts events, the page holds folded entries, and several text
-   * deltas are one paragraph. Both were numbers, so the mismatch was invisible
-   * and the feature returned the reader's own screen back to them, forever. The
-   * cursor is opaque here on purpose — there is nothing to compute it from, so
-   * it cannot be computed wrongly.
-   */
-  earlier(id: string, before: number): Observable<{ events: SessionEvent[]; from: number }> {
-    return this.http.get<{ events: SessionEvent[]; from: number }>(
-      `/api/sessions/${encodeURIComponent(id)}/earlier`,
-      { params: { before } },
-    );
+  /** The page of events ending at `before`, a cursor from a previous page. */
+  earlier(id: string, before: number): Observable<Page> {
+    return this.http.get<Page>(`${session(id)}/earlier`, { params: { before } });
   }
 
-  /**
-   * Everywhere in this conversation worth jumping to.
-   *
-   * ⚠ **Not cheap, and asked for only when the sheet opens.** The runner parses
-   * the whole transcript to answer — 0.7 s for an ordinary large one, measured —
-   * because no scan short of the parser identifies a landmark in this format.
-   * Fetching it alongside anything else would put that on a path nobody asked
-   * for.
-   */
   landmarks(id: string): Observable<Landmark[]> {
-    return this.http.get<Landmark[]>(`/api/sessions/${encodeURIComponent(id)}/landmarks`);
+    return this.http.get<Landmark[]>(`${session(id)}/landmarks`);
   }
 
   past(): Observable<Conversation[]> {
     return this.http.get<Conversation[]>('/api/past');
   }
 
-  /** A session's task list, subjects only — see [[ConsoleApi.task]]. */
   tasks(id: string): Observable<Task[]> {
-    return this.http.get<Task[]>(`/api/sessions/${encodeURIComponent(id)}/tasks`);
+    return this.http.get<Task[]>(`${session(id)}/tasks`);
   }
 
-  /**
-   * What one task says, fetched when it is opened.
-   *
-   * ⚠ **Not sent with the list, and that is not a micro-optimisation.** These
-   * descriptions are written-up results running to kilobytes each — one live
-   * session's 355 tasks are 1.5 MB of them, which is not a payload for drawing
-   * forty subjects on a phone.
-   */
-  task(id: string, task: string): Observable<{ description: string }> {
-    return this.http.get<{ description: string }>(
-      `/api/sessions/${encodeURIComponent(id)}/tasks/${encodeURIComponent(task)}`,
-    );
+  task(id: string, task: string): Observable<Described> {
+    return this.http.get<Described>(`${session(id)}/tasks/${encodeURIComponent(task)}`);
   }
 
-  /**
-   * One `Bash` command, read by the same library the index is built from.
-   *
-   * ⚠ **The working directory is deliberately not sent.** The runner takes it
-   * from the session, because a relative operand resolves against it and a
-   * client free to choose it could make the answer name any file it liked —
-   * where the whole worth of this view is that it says what the miner would say.
-   *
-   * `ok` is the call's own verdict, `undefined` while it is still running. That
-   * is a third state and not a synonym for failure: half of what this view shows
-   * is which uses the outcome makes certain.
-   */
   parse(id: string, command: string, ok?: boolean): Observable<Parsed> {
-    return this.http.post<Parsed>(`/api/sessions/${encodeURIComponent(id)}/parse`, { command, ok });
+    return this.http.post<Parsed>(`${session(id)}/parse`, { command, ok });
   }
 
   start(dir: string, prompt: string, resume?: string): Observable<Summary> {
-    return this.http.post<Summary>('/api/sessions', { dir, prompt, resume });
+    return this.http.post<Summary>('/api/sessions', { dir, prompt, resume } satisfies Start);
   }
 
   send(id: string, text: string): Observable<Summary> {
-    return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/input`, { text });
+    return this.http.post<Summary>(`${session(id)}/input`, { text } satisfies Message);
   }
 
-  /**
-   * Show a session a picture, with whatever is being said about it.
-   *
-   * ⚠ **Its own route, not a field on `send`.** This one is a megabyte where that
-   * one is a sentence, the runner writes a file for it, and it fails for reasons
-   * — too large, not an image — that have no meaning for text. `data` is bare
-   * base64 rather than a data URL: the runner hands it straight to the CLI, which
-   * wants it the way the API defines it.
-   */
   show(id: string, data: string, mediaType: string, text: string): Observable<Summary> {
-    return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/image`, {
-      data,
-      media_type: mediaType,
-      text,
-    });
+    const body: Shown = { data, media_type: mediaType, text };
+    return this.http.post<Summary>(`${session(id)}/image`, body);
   }
 
-  /** Where a picture that was sent to a session can be fetched from.
-   *
-   *  A URL rather than a request: it is handed to an `<img>`, which does the
-   *  fetching, caching and decoding that this service would otherwise be
-   *  reimplementing. The runner serves these `immutable` — a kept picture is
-   *  written once under the second it arrived in and never rewritten — so
-   *  scrolling back through a conversation costs nothing after the first look.
-   */
   pictureAt(id: string, name: string): string {
-    return `/api/sessions/${encodeURIComponent(id)}/images/${encodeURIComponent(name)}`;
+    return `${session(id)}/images/${encodeURIComponent(name)}`;
   }
 
-  /**
-   * The bytes of a picture a session pointed at, fetched by the console.
-   *
-   * ⚠ **A request and not a URL, which is the opposite of [[pictureAt]] above.**
-   * A kept picture is a file the console holds and can hand to an `<img>`; this
-   * one lives on somebody else's server and fails in ways worth reading — the
-   * render server was stopped, the file was re-rendered under another name, the
-   * far end answered an HTML error page with a 200. `console::images::fetch`
-   * writes a sentence for each of those, and an `<img>` cannot read one: its
-   * `error` event carries nothing at all. So the bytes come back through here,
-   * where the failure arrives with its reason attached.
-   */
+  /** An image from anywhere on the web, fetched by the runner rather than the phone. */
   elsewhere(url: string): Observable<Blob> {
     return this.http.get(fetchedAt(url), { responseType: 'blob' });
   }
 
-  /** Answer a question the session is blocked on.
-   *
-   *  `answers` are the choices made about an `AskUserQuestion`, and the runner
-   *  refuses them for anything else — approving a tool call is not a licence to
-   *  rewrite it. See `questions.ts` for why an answer travels this way at all.
-   */
   decide(
-    session: string,
+    at: string,
     id: string,
     allow: boolean,
     why?: string,
@@ -189,113 +99,52 @@ export class ConsoleApi {
     response?: string,
     notes?: Notes,
   ): Observable<Summary> {
-    return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(session)}/decide`, {
+    const body: Decision = {
       id,
       allow,
       why,
       answers,
       response,
-      // The wire shape is the CLI's, which nests each note in an object of its
-      // own — `preview` is the other thing that can live there, and is the
-      // terminal picker's business rather than ours.
       annotations:
         notes && Object.fromEntries(Object.entries(notes).map(([q, n]) => [q, { notes: n }])),
-    });
+    };
+    return this.http.post<Summary>(`${session(at)}/decide`, body);
   }
 
-  /** Change what a session may do without asking. See `modes.ts`. */
   setMode(id: string, mode: string): Observable<Summary> {
-    return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/mode`, { mode });
+    return this.http.post<Summary>(`${session(id)}/mode`, { mode } satisfies Mode);
   }
 
-  /** Rename a conversation, including one that is working.
-   *
-   *  ⚠ **Not `/rename`.** A slash command sent to a busy session is parked and
-   *  handed to the model as words — measured: the agent replied "nothing for me
-   *  to do" and the name never changed. This goes over the control channel,
-   *  which is answered whatever the turn is doing. See `protocol::rename`.
-   *
-   *  ⚠ **The answer still carries the OLD name.** The CLI writes the new one to
-   *  the transcript and the runner reads names from there, so it arrives on the
-   *  next poll — a second or so. Anything that redraws from this response alone
-   *  will look like it did nothing. */
   rename(id: string, title: string): Observable<Summary> {
-    return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/rename`, { title });
+    return this.http.post<Summary>(`${session(id)}/rename`, { title } satisfies Renaming);
   }
 
-  /** Take back a command that is waiting for the turn to end — by its exact
-   *  text, which is what the chip on screen is showing.
-   *
-   *  A command that is no longer held answers with the session as it is rather
-   *  than an error: the turn can end between the chip being drawn and the tap on
-   *  it, and that is not a mistake anybody made. */
   unhold(id: string, text: string): Observable<Summary> {
-    return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/unhold`, { text });
+    return this.http.post<Summary>(`${session(id)}/unhold`, { text } satisfies Message);
   }
 
   stop(id: string): Observable<Summary> {
-    return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/stop`, {});
+    return this.http.post<Summary>(`${session(id)}/stop`, {});
   }
 
-  /** Stop a session that has stopped listening and start it again on the same
-   *  conversation, handing back the messages it never read.
-   *
-   *  ⚠ **Tens of seconds, not a moment.** The server waits for the old process
-   *  to leave the process table before resuming, because two processes on one
-   *  transcript both append and neither sees the other. Whatever calls this has
-   *  to stay disabled and say what it is doing until it answers. */
   revive(id: string): Observable<Summary> {
-    return this.http.post<Summary>(`/api/sessions/${encodeURIComponent(id)}/revive`, {});
+    return this.http.post<Summary>(`${session(id)}/revive`, {});
   }
 
   forget(id: string): Observable<unknown> {
-    return this.http.delete(`/api/sessions/${encodeURIComponent(id)}`);
+    return this.http.delete(session(id));
   }
 
-  /**
-   * Follow a conversation.
-   *
-   * ⚠ **One stream of what happened, not a handful of callbacks.** This used to
-   * take five — an event, a reset, a caught-up, and it still had nowhere to put
-   * the one fact anybody needed most: whether the connection is up. A union the
-   * caller switches on has room for that without growing an argument list, and
-   * unsubscribing closes the socket, so the lifetime is the subscription's.
-   */
+  /** The session's events from `after`, then live, as server-sent events. */
   follow(id: string, after: number): Observable<Streamed> {
     return new Observable<Streamed>((to) => {
-      const url = `/api/sessions/${encodeURIComponent(id)}/events`;
+      const url = `${session(id)}/events`;
       const source = new EventSource(after > 0 ? `${url}?after=${after}` : url);
-      // ⚠ Not `onopen`. A reconnect used to mean "throw everything away",
-      // because the server had no way to send only what was missed — so a phone
-      // going through a tunnel discarded the history somebody had just scrolled
-      // back to load. The events are numbered now and the browser quotes the
-      // last one back on its own, so a reconnect is ordinarily seamless and this
-      // fires only when the runner says it genuinely cannot resume: a console
-      // restarted, or a session busy enough to have dropped that far out of its
-      // scrollback.
       source.addEventListener('reset', () => to.next({ kind: 'reset' }));
-      // ⚠ **Where the replay ends and the present begins.** Everything before it
-      // is the transcript being caught up on, and a replayed `turn` is
-      // indistinguishable from one that just ended — which is how the page came
-      // to report `idle` over twelve minutes of work. Named rather than a domain
-      // event because it is a fact about this connection, and per connection
-      // rather than in the log because the log can be trimmed out from under a
-      // client that joins late.
       source.addEventListener('caught-up', () => to.next({ kind: 'caught-up' }));
-      // ⚠ **The tunnel dropping, which nothing used to be told about.** The
-      // browser retries on its own, so this says "not connected right now"
-      // rather than "gone" — which is exactly the question a page needs to
-      // answer before it can offer what it last saw instead of a blank screen.
       source.onerror = () => to.next({ kind: 'offline' });
       source.onmessage = (message: MessageEvent<unknown>) => {
         const event = parse(message.data);
-        // A line that is not an event this version knows is dropped rather than
-        // rendered: the runner reports its own failures as `trouble` events, and
-        // one unreadable line must not end the stream.
-        // `lastEventId` is '' on the unnumbered ones, and `Number('')` is 0 —
-        // which is why the number is taken through `parseInt`, whose answer for
-        // a non-number is NaN and is rejected here rather than becoming a
-        // sequence the caller would then claim to hold.
         if (event) {
           to.next({ kind: 'event', event, seq: Number.parseInt(message.lastEventId, 10) || 0 });
         }
@@ -305,12 +154,18 @@ export class ConsoleApi {
   }
 }
 
-/** Narrow a message from the wire, or reject it.
+function session(id: string): string {
+  return `/api/sessions/${encodeURIComponent(id)}`;
+}
+
+/**
+ * Narrow a message from the wire, or drop it.
  *
- *  The boundary where an unknown becomes a typed event, and the only place the
- *  shape is checked — `kind` against the list the runner can actually send, so
- *  a value that never reaches a template cannot arrive here unnoticed. */
-function parse(data: unknown): SessionEvent | undefined {
+ * The one place the shape is checked: `kind` against the list of what the
+ * runner sends, so a variant added there without a generated type here is
+ * refused at the boundary rather than drawn wrongly.
+ */
+function parse(data: unknown): Timed | undefined {
   if (typeof data !== 'string') return undefined;
   let value: unknown;
   try {
@@ -318,13 +173,13 @@ function parse(data: unknown): SessionEvent | undefined {
   } catch {
     return undefined;
   }
-  if (typeof value !== 'object' || value === null) return undefined;
-  if (!('kind' in value)) return undefined;
-  // Matched against the list rather than asserted: `find` yields the literal
-  // type, which is what makes the returned object an event without a cast.
+  if (typeof value !== 'object' || value === null || !('kind' in value)) return undefined;
   const kind = KINDS.find((known) => known === value.kind);
   if (!kind) return undefined;
-  if ('input' in value && (typeof value.input !== 'object' || value.input === null))
+  if ('input' in value && (typeof value.input !== 'object' || value.input === null)) {
     return undefined;
-  return { ...value, kind };
+  }
+  // The trust boundary: the kind is checked above, the fields are the runner's word.
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+  return { ...value, kind } as Timed;
 }

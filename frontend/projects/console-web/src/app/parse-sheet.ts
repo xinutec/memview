@@ -4,7 +4,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
 import { ConsoleApi } from './console-api';
-import { Parsed, Step } from './models';
+import { Parsed, Line } from './models';
 import { reason } from './errors';
 
 /** What the sheet is opened with: the command as it was written, and how its
@@ -90,7 +90,7 @@ export class ParseSheet {
 
   /** Whether this step resolved against somewhere other than the sheet's own
    *  heading — a `cd`, a subshell, or a directory that became unknowable. */
-  protected moved(step: Step): boolean {
+  protected moved(step: Line): boolean {
     return step.cwd !== this.against();
   }
 
@@ -100,7 +100,7 @@ export class ParseSheet {
    * `always` is most of the corpus and gets no label at all: a chip on every row
    * is a chip nobody reads, and the two that matter stop standing out.
    */
-  protected condition(step: Step): string | undefined {
+  protected condition(step: Line): string | undefined {
     if (step.reached === 'on-success') return 'only if what precedes it worked';
     if (step.reached === 'sometimes') return 'sometimes — the text cannot say when';
     return undefined;

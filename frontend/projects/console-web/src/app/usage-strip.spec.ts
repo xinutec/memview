@@ -1,17 +1,18 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 
-import { Usage } from './models';
+import { Reading } from './models';
 import { UsageStrip } from './usage-strip';
 
 const HOUR = 3_600_000;
 
-function reading(usage: Partial<Usage> = {}): Usage {
+function reading(usage: Partial<Reading> = {}): Reading {
   return {
     host: 'mac-mini',
     age_ms: 4 * HOUR,
     five_hour: { pct: 28, resets_in_ms: HOUR },
     seven_day: { pct: 66.4, resets_in_ms: 54 * HOUR },
+    models: [],
     ...usage,
   };
 }
@@ -26,7 +27,7 @@ function reading(usage: Partial<Usage> = {}): Usage {
  * being an element. (`document.querySelector` does not work here — the TestBed
  * host is not attached to the page.)
  */
-async function render(usage: Usage | undefined): Promise<Element> {
+async function render(usage: Reading | undefined): Promise<Element> {
   await TestBed.configureTestingModule({ imports: [UsageStrip] }).compileComponents();
   const fixture = TestBed.createComponent(UsageStrip);
   fixture.componentRef.setInput('usage', usage);

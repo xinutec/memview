@@ -357,6 +357,8 @@ pub const DEFAULT_MODE: &str = "default";
 
 /// What a client sees of a session without reading its transcript.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Summary {
     pub id: String,
     pub dir: String,
@@ -372,6 +374,7 @@ pub struct Summary {
     /// for a session whose transcript cannot be found, so a client can leave the
     /// column empty rather than print the epoch.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub touched: Option<u64>,
     /// How much the transcript weighs, in bytes — the whole conversation as it
     /// stands on disk. Filled by the roster from the same metadata read as
@@ -379,12 +382,15 @@ pub struct Summary {
     /// whole transcript's size on disk, that is the LAST request's prompt in
     /// tokens.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub bytes: Option<u64>,
     pub alive: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub model: Option<String>,
     /// What the CLI last said it was doing, when it is doing anything.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub busy: Option<String>,
     /// Whether a turn is running — observed by the runner, not narrated by the
     /// CLI.
@@ -430,8 +436,10 @@ pub struct Summary {
     /// session — so anything reading `input_tokens` alone reports nearly zero for
     /// a conversation that is nearly full.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub context: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub window: Option<u64>,
     /// How many background tool calls this session has started and not had
     /// reported finished.
@@ -454,7 +462,7 @@ pub struct Summary {
     /// number; the session strip wants the name, because *1* is only a reason to
     /// ask (memview #740). Same fact, two readers, and deriving the count from
     /// this vector in the client would put the ranking at the mercy of a label.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub running: Vec<crate::protocol::Called>,
     /// The account's own verdict on its rate limit, when it has given one:
     /// `allowed`, `allowed_warning` or `rejected`.
@@ -463,14 +471,17 @@ pub struct Summary {
     /// `None` until the account says something, which is the common case — and
     /// the reason cost is hidden by default: no news is not news of trouble.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub limit: Option<String>,
     /// The first thing this session was asked to do, kept as its name.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub asked: Option<String>,
     /// What the conversation calls itself — `memview`, `health`. Filled in by
     /// the roster from the transcript, because the session's own process never
     /// says it. See [`crate::past::named`].
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub name: Option<String>,
     /// What the session may do without asking: `default`, `plan`, `dontAsk`,
     /// `acceptEdits`, `auto`, `bypassPermissions`.
@@ -487,6 +498,7 @@ pub struct Summary {
     /// *Manual* — so the client keeps the CLI's own label table rather than
     /// prettifying these itself.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub mode: Option<String>,
     /// Why the last mode change was refused, in the CLI's own words.
     ///
@@ -499,6 +511,7 @@ pub struct Summary {
     /// remedy ("…because the session was not launched with
     /// --dangerously-skip-permissions") better than anything written from here.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub mode_refused: Option<String>,
     /// How many questions it is blocked on. The one number that means "this
     /// session cannot go on without you", so it belongs in the list of sessions
@@ -513,6 +526,7 @@ pub struct Summary {
     /// to decide whether to restart a session, and the millisecond it began is
     /// not a fact anybody wants at that moment.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub deaf: Option<u64>,
     /// Slash commands waiting for the turn to end, oldest first. See
     /// [`State::held`] for why they are not simply written.
@@ -520,7 +534,7 @@ pub struct Summary {
     /// The words themselves, because the client draws them and cancels by them:
     /// what is on screen has to say WHICH command is waiting, or it is one more
     /// thing happening that nobody was told about.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub held: Vec<String>,
 }
 

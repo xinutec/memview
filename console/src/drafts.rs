@@ -32,6 +32,8 @@ use serde::{Deserialize, Serialize};
 
 /// One conversation's unsent words.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Draft {
     /// What was being typed.
     pub text: String,
@@ -71,6 +73,8 @@ pub enum Wrote {
 /// stable identity, so minting a second would be an identity nothing else could
 /// join on.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct DraftDoc {
     pub ulid: String,
     pub text: String,
@@ -87,6 +91,8 @@ pub struct DraftDoc {
 
 /// What a pull answers: the rows past the caller's checkpoint, and the new one.
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct PullResponse {
     pub documents: Vec<DraftDoc>,
     pub checkpoint: Checkpoint,
@@ -94,6 +100,8 @@ pub struct PullResponse {
 
 /// The pull cursor: the highest `rev` delivered so far.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Checkpoint {
     pub rev: u64,
 }
@@ -103,6 +111,8 @@ pub struct Checkpoint {
 /// detectable rather than the last writer silently winning. Only its `text` is
 /// read; [`Drafts::apply`] says why its `rev` cannot be.
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct PushEntry {
     #[serde(rename = "newDocumentState")]
     pub new_document_state: DraftDoc,

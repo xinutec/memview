@@ -5,7 +5,7 @@ import { getRxStorageMemory } from 'rxdb/plugins/storage-memory';
 
 import { ConsoleApi, type Streamed } from './console-api';
 import { ConsoleDb } from './console-db';
-import { SessionEvent } from './models';
+import { Entry, Page, Timed } from './models';
 import { SessionStore } from './session-store';
 
 /** One stream the store opened, and the handles to drive it from the test. */
@@ -13,7 +13,7 @@ interface Opened {
   readonly id: string;
   /** What the store said it already held. Zero means "nothing, send everything". */
   readonly after: number;
-  readonly send: (event: SessionEvent, seq: number) => void;
+  readonly send: (event: Timed, seq: number) => void;
   readonly reset: () => void;
   /** The runner's per-connection marker: the replay is over. */
   readonly caughtUp: () => void;
@@ -48,11 +48,11 @@ class Runner {
   }
 
   /** What a page fetched by cursor comes back with. Set by the test. */
-  page: { events: SessionEvent[]; from: number } = { events: [], from: 0 };
+  page: Page = { events: [], from: 0 };
   /** The cursors asked for, in order. */
   readonly asked: number[] = [];
 
-  earlier(_id: string, before: number): Observable<{ events: SessionEvent[]; from: number }> {
+  earlier(_id: string, before: number): Observable<Page> {
     this.asked.push(before);
     return of(this.page);
   }
@@ -64,6 +64,9 @@ class Runner {
 }
 
 const opened: ConsoleDb[] = [];
+
+const said = (entries: readonly Entry[]): string[] =>
+  entries.flatMap((entry) => (entry.kind === 'said' ? [entry.text] : []));
 
 describe('SessionStore', () => {
   let runner: Runner;
@@ -99,7 +102,7 @@ describe('SessionStore', () => {
   /** Say something, as the runner would, and number it. */
   function say(text: string, seq: number): void {
     runner.latest.send({ kind: 'text', text }, seq);
-    runner.latest.send({ kind: 'turn', cost_usd: 0, turns: 1 }, seq + 1);
+    runner.latest.send({ kind: 'turn', cost_usd: 0, turns: 1, duration_ms: 0 }, seq + 1);
   }
 
   it('resumes a session it is re-entered rather than reading it again', () => {
@@ -109,14 +112,14 @@ describe('SessionStore', () => {
     const held = store.open('one');
     expect(runner.latest.after).toBe(0);
     say('an answer', 10);
-    expect(held.entries().map((e) => e.text)).toContain('an answer');
+    expect(said(held.entries())).toContain('an answer');
 
     store.leave('one');
     expect(runner.opened[0].closed).toBe(true);
 
     const again = store.open('one');
     expect(again).toBe(held);
-    expect(again.entries().map((e) => e.text)).toContain('an answer');
+    expect(said(again.entries())).toContain('an answer');
     expect(runner.latest.after).toBe(11);
   });
 
@@ -194,7 +197,7 @@ describe('SessionStore', () => {
     // flushed. Everything before it is history and may not speak for now.
     const held = store.open('seeded');
     runner.latest.send({ kind: 'busy', status: 'requesting' }, 1);
-    runner.latest.send({ kind: 'turn', turns: 3, duration_ms: 1000 }, 2);
+    runner.latest.send({ kind: 'turn', cost_usd: 0, turns: 3, duration_ms: 1000 }, 2);
     runner.latest.caughtUp();
 
     expect(held.doing(), 'history says nothing about what is happening now').toBeUndefined();
@@ -240,7 +243,7 @@ describe('SessionStore', () => {
 
     store.goTo('jumper', 4096).subscribe();
 
-    const texts = held.entries().map((entry) => entry.text);
+    const texts = said(held.entries());
     expect(texts).toContain('what was said back then');
     expect(texts, 'the live page is gone, not above it').not.toContain('the newest thing');
     // The cursor moves to where that page began, so reading further back from a

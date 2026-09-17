@@ -47,8 +47,11 @@ const RESULT_SNIPPET: usize = 2000;
 /// conversation is still worth reading when it does not say when it happened. It
 /// is milliseconds since the epoch, like everything else numeric here.
 #[derive(Debug, Clone, Serialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Timed {
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub at: Option<i64>,
     #[serde(flatten)]
     pub event: Event,
@@ -60,6 +63,8 @@ pub struct Timed {
 /// render, derived from a protocol that is neither small nor closed.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub enum Event {
     /// Where the console started watching. Everything before it was read from
     /// the transcript on disk; everything after it, this console saw happen.
@@ -173,6 +178,7 @@ pub enum Event {
     Tool {
         id: String,
         name: String,
+        #[cfg_attr(feature = "ts", ts(type = "{ [key in string]: unknown }"))]
         input: serde_json::Value,
     },
     /// A background task the harness has finished with, named by whichever of
@@ -191,8 +197,10 @@ pub enum Event {
     /// an ending that cannot be read is a count that never comes down.
     Background {
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
         tool: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
         task: Option<String>,
         status: String,
     },
@@ -207,12 +215,12 @@ pub enum Event {
         ok: bool,
         /// What it returned, as text. Empty when it returned nothing, or nothing
         /// that is text — an image result says so in words instead.
-        #[serde(skip_serializing_if = "String::is_empty")]
         detail: String,
         /// The full length in characters, present only when `detail` is a cut of
         /// it. A snippet that does not admit to being one is a lie about what the
         /// tool said.
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
         cut: Option<usize>,
     },
     /// One turn finished.
@@ -221,10 +229,12 @@ pub enum Event {
         /// How big the context window is. Declared on the result line and
         /// nowhere else; how *full* it is comes from [`Event::Context`].
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
         window: Option<u64>,
         turns: u32,
         duration_ms: u64,
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
         stop: Option<String>,
     },
     /// A rate-limit window changed state.
@@ -245,10 +255,12 @@ pub enum Event {
         window: String,
         status: String,
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
         resets_at: Option<i64>,
         /// How much of the window is spent, as a fraction. Optional in the CLI's
         /// schema, so optional here.
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
         utilization: Option<f64>,
     },
     /// The CLI's own progress reporting — "requesting", "tool_use", and so on.
@@ -274,14 +286,18 @@ pub enum Event {
         /// that build this request and one omits it — so a client must still
         /// cope with an ask it cannot attach to anything.
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
         call: Option<String>,
         tool: String,
         /// The CLI's own one-line rendering of the question, when it offers one
         /// — better than anything reconstructed from the arguments.
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
         title: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
         detail: Option<String>,
+        #[cfg_attr(feature = "ts", ts(type = "{ [key in string]: unknown }"))]
         input: serde_json::Value,
     },
     /// A question that has been answered, by whom and how. Sent so that a second
@@ -300,6 +316,7 @@ pub enum Event {
         /// the verdict is what lets an answered card say what was chosen instead
         /// of only that something was.
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
         reply: Option<Reply>,
     },
     /// The conversation was compacted: everything above this was replaced by a
@@ -326,6 +343,7 @@ pub enum Event {
     /// The subprocess ended. Terminal: nothing follows it.
     Exited {
         #[serde(skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
         code: Option<i32>,
     },
     /// Something the console itself could not do — a spawn failure, a line that
@@ -971,6 +989,8 @@ pub const QUESTION_TOOL: &str = "AskUserQuestion";
 /// if the list were ever reordered between asking and answering.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(untagged)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub enum Answer {
     One(String),
     Many(Vec<String>),
@@ -987,8 +1007,11 @@ pub type Answers = std::collections::BTreeMap<String, Answer>;
 /// `"<question>"=(no option selected) notes: …`. So a note is not a lesser
 /// version of answering; it is the way to answer *and* qualify it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Annotation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub notes: Option<String>,
 }
 
@@ -1009,10 +1032,13 @@ pub type Annotations = std::collections::BTreeMap<String, Annotation>;
 /// The client is where that is made visible — a card that offered both at once
 /// would be offering one of them dishonestly.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Reply {
     #[serde(default, skip_serializing_if = "Answers::is_empty")]
     pub answers: Answers,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub response: Option<String>,
     /// Notes beside the choices — see [`Annotation`]. These travel *with*
     /// `answers`, not instead of them.
@@ -1746,6 +1772,8 @@ fn is_plumbing(text: &str) -> bool {
 /// Both halves were already in memory: the call that started the work and the
 /// task id the harness gave it.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Called {
     /// The tool, as the CLI names it: `Bash`, `Monitor`, `Agent`.
     pub tool: String,
@@ -1753,9 +1781,11 @@ pub struct Called {
     /// input carries one. `None` when it does not — better an unlabelled tool
     /// name than a guess.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub label: Option<String>,
     /// The harness's task id, which is what a kill names.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub task: Option<String>,
 }
 

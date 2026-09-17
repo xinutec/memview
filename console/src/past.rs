@@ -29,6 +29,8 @@ use serde::Serialize;
 
 /// One conversation on disk.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Conversation {
     /// The session id, which is also the file's name and what `--resume` takes.
     pub id: String,
@@ -60,6 +62,7 @@ pub struct Conversation {
     /// that ended on a large tool result can push the last one out of
     /// [`TAIL_BYTES`], and no number is the honest answer there.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub context: Option<u64>,
     /// Whether something appears to be using it already. See [`in_use`].
     pub busy: bool,
@@ -545,6 +548,8 @@ pub struct Appended {
 /// text and tool calls are the bulk of every file and nobody has ever wanted to
 /// return to one, so they are not here.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Landmark {
     /// Where to ask for it, as a byte offset.
     ///
@@ -564,6 +569,7 @@ pub struct Landmark {
     pub at: u64,
     /// When the file says it happened, for grouping by day.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub when: Option<i64>,
     pub kind: Mark,
     /// Enough of it to recognise, cut to [`SIGN`].
@@ -573,6 +579,8 @@ pub struct Landmark {
 /// Which kind of landmark, in the client's vocabulary.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub enum Mark {
     /// Something the reader said.
     Prompt,

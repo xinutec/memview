@@ -5,6 +5,7 @@
 //! written as claims about *agreement*: the same command, the same directory,
 //! the same answer, and the parts of that answer the totals cannot express.
 
+use console::parse::Reach;
 use console::parse::{Asked, parsed};
 
 const HOME: &str = "/home/example";
@@ -235,7 +236,7 @@ fn the_shape_the_phone_is_drawn_from() {
          | tee /tmp/lean-gate.log",
         Some(false),
     );
-    let shape: Vec<(&str, &str, bool)> = answer
+    let shape: Vec<(&str, Reach, bool)> = answer
         .steps
         .iter()
         .map(|step| {
@@ -271,9 +272,9 @@ fn the_shape_the_phone_is_drawn_from() {
             // ⚠ **"no files", never "nothing".** The bare word was on screen and
             // was false: it means the command touched no files, and beside
             // `ping` or `task list` it read as "this command did nothing".
-            ("no files", "always", true),
-            ("run a script", "on-success", false),
-            ("write", "on-success", false),
+            ("no files", Reach::Always, true),
+            ("run a script", Reach::OnSuccess, false),
+            ("write", Reach::OnSuccess, false),
         ]
     );
 }

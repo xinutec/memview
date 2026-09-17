@@ -1,7 +1,7 @@
 import { Component, computed, input } from '@angular/core';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 
-import { Usage, Window } from './models';
+import { Reading, Window } from './models';
 
 /** One window as the strip draws it. */
 interface Bar {
@@ -70,7 +70,7 @@ const WEEK = 7 * DAY;
 })
 export class UsageStrip {
   /** The reading, or nothing — in which case the strip is not on screen. */
-  readonly usage = input<Usage | undefined>(undefined);
+  readonly usage = input<Reading | undefined>(undefined);
 
   protected readonly bars = computed<Bar[]>(() => {
     const usage = this.usage();
@@ -78,7 +78,7 @@ export class UsageStrip {
     return [
       // ⚠ A window the runner has heard nothing about gets no row at all —
       // absent is not the same as reset, and neither is the same as zero. See
-      // [[Usage]].
+      // [[Reading]].
       ...(usage.five_hour ? [bar('5 hours', usage.five_hour, FIVE_HOURS)] : []),
       // "Week", not "7 days": it is what the reading is called everywhere else.
       ...(usage.seven_day ? [bar('Week', usage.seven_day, WEEK)] : []),

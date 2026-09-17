@@ -41,7 +41,7 @@ describe('Kept', () => {
     const { store } = await kept();
     store.keepNow('s1', [said('hello'), said('there')]);
     await settled(store, 's1', 2);
-    expect((await store.entries('s1')).map((e) => e.text)).toEqual(['hello', 'there']);
+    expect(await store.entries('s1')).toEqual([said('hello'), said('there')]);
   });
 
   it('knows nothing about a session it never kept', async () => {
@@ -60,7 +60,7 @@ describe('Kept', () => {
     store.keep('s1', []);
     store.keep('s1', [said('the real thing')]);
     await settled(store, 's1', 1);
-    expect((await store.entries('s1')).map((e) => e.text)).toEqual(['the real thing']);
+    expect(await store.entries('s1')).toEqual([said('the real thing')]);
   });
 
   /** What somebody re-opening a session wants is what was just said. Reading
@@ -72,7 +72,7 @@ describe('Kept', () => {
       Array.from({ length: 500 }, (_, n) => said(`line ${n}`)),
     );
     await settled(store, 's1', 200);
-    expect((await store.entries('s1')).at(-1)?.text).toBe('line 499');
+    expect((await store.entries('s1')).at(-1)).toEqual(said('line 499'));
   });
 
   /**
@@ -93,7 +93,7 @@ describe('Kept', () => {
     await database.upsertLocal('kept-s3', {
       entries: [{ text: 'no kind' }, { kind: 'said', text: 'ok' }],
     });
-    expect((await store.entries('s3')).map((e) => e.text)).toEqual(['ok']);
+    expect(await store.entries('s3')).toEqual([said('ok')]);
   });
 
   it('forgets a conversation on request', async () => {

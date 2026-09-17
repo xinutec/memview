@@ -17,6 +17,9 @@ const task = (id: string, status: string): Task => ({
   subject: `task ${id}`,
   status,
   detailed: false,
+  overdue: false,
+  blocked_on: [],
+  blocked: false,
 });
 
 const ids = (tasks: readonly Task[]): string[] => tasks.map((t) => t.id);

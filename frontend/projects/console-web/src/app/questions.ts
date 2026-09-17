@@ -9,6 +9,9 @@
  * question it was shown came back to the session as *"The user did not answer
  * the questions."*
  */
+import type { Answer } from './generated/Answer';
+import type { Reply } from './generated/Reply';
+
 export const QUESTION_TOOL = 'AskUserQuestion';
 
 /** One thing that could be picked. */
@@ -30,7 +33,7 @@ export interface Question {
 /** What was chosen: the question's own text against the label, or labels,
  *  picked. The CLI matches these against what it offered, so they go back
  *  verbatim rather than by index. */
-export type Answers = Record<string, string | string[]>;
+export type Answers = Record<string, Answer>;
 
 /**
  * The questions in a tool call's arguments, or nothing if they cannot be read.
@@ -88,11 +91,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export type Notes = Record<string, string>;
 
 /** What came back about a question, mirroring `protocol::Reply`. */
-export interface Reply {
-  readonly answers?: Answers;
-  readonly response?: string;
-  readonly annotations?: Record<string, { readonly notes?: string }>;
-}
+export type { Reply };
 
 /**
  * What was said, in one line for the row that records it.

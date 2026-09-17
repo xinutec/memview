@@ -124,6 +124,8 @@ const BODY_LIMIT: usize = crate::images::LIMIT * 2;
 
 /// Everything a client needs to draw the front page in one request.
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Overview {
     /// Where a session may be started — these and anything inside them.
     pub dirs: Vec<String>,
@@ -138,6 +140,7 @@ pub struct Overview {
     /// auth are a known source of trouble here), so nothing else would ever
     /// tell a long-lived page that the bundle under it had changed.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub bundle: Option<String>,
     /// How much of the subscription is spent, when a reading has ever arrived.
     ///
@@ -146,6 +149,7 @@ pub struct Overview {
     /// means no reading rather than no usage, and the front page then shows
     /// nothing at all: a bar drawn at 0% is a claim.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub usage: Option<crate::usage::Reading>,
     /// What each conversation is about, by session id — written by a model from
     /// the transcript rather than read off it, and marked as such by the client.
@@ -221,16 +225,20 @@ async fn state(State(roster): State<Arc<Roster>>) -> Json<Overview> {
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Start {
     pub dir: String,
     /// The first instruction. Optional: a session can be opened and then talked
     /// to, which is what starting one from the phone before deciding what to ask
     /// looks like.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub prompt: Option<String>,
     /// A conversation to pick up rather than starting a new one. Its id is kept,
     /// so the console's handle and the transcript stay the same thing.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub resume: Option<String>,
 }
 
@@ -257,6 +265,8 @@ async fn start(
 }
 
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Message {
     pub text: String,
 }
@@ -323,6 +333,8 @@ async fn push_drafts(
 
 /// A picture from the phone, with whatever is being said about it.
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Shown {
     /// The bytes, base64 as the API itself wants them — the client has them in
     /// that form already (a canvas hands back a data URL), so decoding them to
@@ -468,12 +480,15 @@ async fn show(
 
 /// What to do about one question.
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Decision {
     /// The control-request id from the `ask` event.
     pub id: String,
     pub allow: bool,
     /// Why not. Ignored on an allow; the session is told it on a refusal.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub why: Option<String>,
     /// What was said about a question — options picked, or words instead. Absent
     /// for every other tool, and refused if sent for one; see
@@ -511,6 +526,8 @@ async fn decide(
 
 /// What a client asks for when changing a session's permission mode.
 #[derive(serde::Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 struct Mode {
     mode: String,
 }
@@ -560,6 +577,8 @@ async fn mode(
 
 /// What to call a conversation. See [`Session::rename`].
 #[derive(serde::Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 struct Renaming {
     title: String,
 }
@@ -678,6 +697,8 @@ struct Earlier {
 }
 
 #[derive(serde::Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 struct Page {
     events: Vec<console_protocol::Timed>,
     /// The cursor for the page before this one. Zero means the start of the
@@ -1074,7 +1095,7 @@ async fn parse(
 async fn tasks(
     State(roster): State<Arc<Roster>>,
     Path(id): Path<String>,
-) -> Json<Vec<crate::tasks::Listed>> {
+) -> Json<Vec<crate::tasks::Task>> {
     Json(roster.task_list(&id).await)
 }
 
@@ -1094,6 +1115,8 @@ async fn task(
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 struct Described {
     description: String,
 }

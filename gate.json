@@ -114,6 +114,21 @@
         "develop",
         "--no-warn-dirty",
         "--command",
+        "scripts/gen-types.sh",
+        "--check"
+      ],
+      "artifacts": [],
+      "cwd": ".",
+      "env": {},
+      "name": "generated types are current",
+      "timeout_s": 900
+    },
+    {
+      "argv": [
+        "nix",
+        "develop",
+        "--no-warn-dirty",
+        "--command",
         "pnpm",
         "install",
         "--frozen-lockfile"

@@ -118,10 +118,25 @@ export class Kept {
 
 /** Whether a revived value is an entry this app can draw. */
 function isEntry(value: unknown): value is Entry {
-  if (typeof value !== 'object' || value === null) return false;
-  if (!('kind' in value) || typeof value.kind !== 'string') return false;
-  if (!('text' in value) || typeof value.text !== 'string') return false;
-  // `at`, `picture`, `detail` and the rest are optional in the shape and
-  // optional here: an entry missing one draws, an entry missing `kind` does not.
-  return true;
+  if (typeof value !== 'object' || value === null || !('kind' in value)) return false;
+  switch (value.kind) {
+    case 'shown':
+      return 'picture' in value && typeof value.picture === 'string';
+    case 'said':
+    case 'asked':
+    case 'turn':
+    case 'note':
+    case 'day':
+      return 'text' in value && typeof value.text === 'string';
+    case 'tool':
+    case 'ask':
+      return (
+        'text' in value &&
+        typeof value.text === 'string' &&
+        'tool' in value &&
+        typeof value.tool === 'string'
+      );
+    default:
+      return false;
+  }
 }

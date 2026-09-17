@@ -104,7 +104,7 @@
           </p>
         }
 
-        @for (used of row.step.uses ?? []; track $index) {
+        @for (used of row.step.uses; track $index) {
           <p class="used" [class.wrote]="used.write" [class.unsure]="!used.certain">
             <mat-icon>{{ used.write ? 'edit' : 'visibility' }}</mat-icon>
             <!-- ⚠ **Path and marker in ONE column**, which is why they are

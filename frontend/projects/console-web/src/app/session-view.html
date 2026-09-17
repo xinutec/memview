@@ -1,15 +1,7 @@
 @if (session(); as session) {
-  <!-- Only what changes. What this conversation IS — its name, and behind it the
-       path, the model and the mode — is in the toolbar, which is the one row on
-       screen that belongs to the whole session rather than to any part of it.
-       This row is the other half of that split: the facts that are different
-       every time somebody looks. -->
   <header class="head">
     <div class="facts">
       @if (session.alive) {
-        <!-- See the note on the card in `sessions-view.html`: what the CLI last
-             narrated names the work, but only `working` knows whether there is
-             any. -->
         <span class="live" [class.working]="inTurn()">{{ doing() ?? state() }}</span>
       } @else {
         <span class="ended">ended</span>
@@ -18,10 +10,6 @@
       @if (context(); as context) {
         <span>{{ context }}</span>
       }
-      <!-- The mode as its icon alone: the header holds five facts on a phone
-           four inches wide, and "Bypass Permissions" spelled out costs more room
-           than everything beside it. The name is one tap away, in the menu that
-           also teaches the icon. -->
       @if (modeIcon(); as icon) {
         <mat-icon class="mode" [class.loud]="loud()" [attr.aria-label]="mode()" [title]="mode()">{{
           icon
@@ -32,19 +20,7 @@
       }
     </div>
   </header>
-}
-
-@if (session(); as session) {
   @if (!session.alive) {
-    <!-- ⚠ **The list has no way back from here, and this is it.** The roster
-         keeps an ended session listed, which means its card stays a *link* to
-         this page — the resume affordance on the front page exists only for a
-         conversation the console is NOT holding, and nothing in the app calls
-         `forget`. So an ended session was a dead end: the only ways back were a
-         terminal or restarting the console.
-
-         The same verb as the deaf case below, because it is the same three
-         steps: the stop is simply already done. -->
     <div class="deaf ended" role="status">
       <mat-icon>power_settings_new</mat-icon>
       <div class="what">
@@ -57,16 +33,6 @@
     </div>
   }
   @if (session.deaf; as seconds) {
-    <!-- ⚠ **Named, with the cure attached.** The console has always been able to
-         work this out and has always drawn it as *waiting to be read* — the same
-         words it uses for a message a busy session picks up in a minute. That
-         has cost two diagnoses by hand in one morning. See
-         `session::Session::deaf`.
-
-         The button rather than a link to instructions: a restart is the only
-         known cure, it is three steps done in a particular order, and the middle
-         one — handing back the messages the old pipe still holds — is the step
-         somebody doing it by hand forgets. -->
     <div class="deaf" role="alert">
       <mat-icon>hearing_disabled</mat-icon>
       <div class="what">
@@ -76,41 +42,16 @@
           for {{ silence() }}, with nothing running.</span
         >
       </div>
-      <!-- Disabled while it works and saying so: this takes tens of seconds,
-           and a button that looks idle for half a minute gets pressed twice. -->
       <button mat-flat-button [disabled]="reviving()" (click)="revive(session.id)">
         {{ reviving() ? 'Restarting…' : 'Restart it' }}
       </button>
     </div>
   }
 }
-
 @if (trouble() || unreachable(); as what) {
-  <!-- An action's failure wins the line: it is the more specific of the two and
-       the one the reader just caused. -->
   <p class="trouble">{{ what }}</p>
 }
-
-<!-- ⚠ **The scroll position is the whole of the reader's side of this** — see
-     [[Following]], where the rule and everything it replaced are written down.
-     There were `wheel` and `touchmove` bindings here to tell a reader's scroll
-     from the browser's own; they are gone with the rule that needed them, since
-     the browser no longer moves this list behind our back (`overflow-anchor` in
-     the stylesheet).
-
-     ⚠ **`touchstart` is not about scrolling and is why it is still here.** A
-     finger on the glass is how a person stops a page that is moving, and while
-     it is down nothing may write a scroll position. See [[Following.took]].
-     `touchcancel` as well as `touchend`, or a hold interrupted by the system — a
-     notification, a gesture claimed by the shell — leaves the transcript frozen
-     for the life of the page. -->
 @if (stale()) {
-  <!-- ⚠ **Said plainly, for the same reason the jump banner is.** A transcript
-       that has stopped growing looks exactly like a quiet one, and this one is
-       not merely stopped — it is a copy this phone wrote down, of a conversation
-       that has very likely moved on since. Nothing here can be acted on; the
-       composer still sends, and a send that cannot reach the Mac keeps its draft
-       as it always did. See `kept.ts` and memview #90. -->
   <div class="deaf adrift" role="status">
     <mat-icon>cloud_off</mat-icon>
     <div class="what">
@@ -119,14 +60,7 @@
     </div>
   </div>
 }
-
 @if (adrift()) {
-  <!-- ⚠ **Said plainly, because everything else on this page now lies.** After a
-       jump the transcript does not grow, the stream is closed and the header's
-       "working" is from before — a reader who did not notice the jump would
-       watch a busy session say nothing for ten minutes. `role="status"` for the
-       same reason the ended banner has one: nothing was pressed here, so a
-       screen reader has no other way to learn the page changed underneath. -->
   <div class="deaf adrift" role="status">
     <mat-icon>my_location</mat-icon>
     <div class="what">
@@ -136,7 +70,6 @@
     <button mat-flat-button (click)="rejoin()">Back to now</button>
   </div>
 }
-
 <ol
   class="transcript"
   #scroller
@@ -146,38 +79,12 @@
   (touchcancel)="released()"
 >
   @if (more()) {
-    <!-- The seed is a page, not the conversation, and this is where the rest of
-         it comes from. Not a button: reading back through a morning is one
-         gesture, and asking for each page by hand turned it into a dozen. The
-         element is what an IntersectionObserver watches — reaching it IS the
-         request — so it lives inside the scroller, above the oldest entry, and
-         goes out of view as soon as a page lands above it.
-         `aria-live`, because for a screen reader the arrival is the only event:
-         nothing was pressed and the new text is off-screen above. -->
     <li class="earlier" #brink aria-live="polite">
       {{ loading() ? 'reading earlier messages…' : '' }}
     </li>
   }
-  <!-- Tracked by what is stable, which is NOT the block.
-       `fold` extends an entry in place and hands back the same objects, so an
-       entry's identity survives — but `blocks()` wraps those entries in fresh
-       `{kind, entry}` objects on every recompute, and `track block` tracked the
-       wrapper. So every event rebuilt every row on screen: measured with a probe
-       that stamped a rendered node and watched the stamp disappear when a later,
-       unrelated event arrived. That is the re-render this comment claimed to
-       prevent, happening on every delta of every answer.
-       A run is tracked by its own key for the same reason it has one — see
-       `blocks()` — and everything else by the entry, whose identity is the thing
-       `fold` is careful to keep. -->
   @for (block of blocks(); track block.kind === 'one' ? block.entry : block.key) {
     @if (block.kind === 'tools') {
-      <!-- ⚠ **A run of tool calls is what a reader scrolls past.** One call is
-           115px at phone width — 48 of that the button that opens its result —
-           and a turn can hold a dozen, so a conversation with any work in it is
-           mostly machinery between the two sentences somebody came for. Folded
-           into one row that says how many and whether any failed.
-           Only runs of two or more; a group of one costs a tap and saves
-           nothing. See `blocks()` in transcript.ts. -->
       <li class="entry tools">
         <button
           type="button"
@@ -188,251 +95,46 @@
           <mat-icon>{{ folding.opensRun(block.key) ? 'expand_less' : 'expand_more' }}</mat-icon>
           <span class="count">{{ counted(block).calls }} tool calls</span>
           @if (counted(block).running) {
-            <!-- Timed by the oldest of them: a run is as slow as whatever is
-                 holding it up, and that is the one a reader would open it for. -->
             <span class="running">
               {{ counted(block).running }} running {{ runningFor(block) | lasted }}
             </span>
           }
           @if (counted(block).failed) {
-            <!-- The one thing worth saying about a folded run without opening
-                 it: everything else in there went as asked. -->
             <span class="bad">{{ counted(block).failed }} failed</span>
           }
           @if (counted(block).unrecorded) {
-            <!-- Said without a duration, unlike `running` above: these have no
-                 end to measure to. Worth surfacing on the folded row all the
-                 same, because a run that reports nothing running and nothing
-                 failed otherwise reads as one that finished cleanly. -->
             <span class="unrecorded">{{ counted(block).unrecorded }} unrecorded</span>
           }
         </button>
       </li>
-      @if (folding.opensRun(block.key)) {
-        @for (entry of block.entries; track entry) {
-          <ng-container *ngTemplateOutlet="row; context: { $implicit: entry }" />
-        }
-      }
-    } @else {
-      <ng-container *ngTemplateOutlet="row; context: { $implicit: block.entry }" />
+    }
+    @for (entry of shown(block); track entry) {
+      <li
+        app-entry
+        [entry]="entry"
+        [folding]="folding"
+        [deaf]="!!session()?.deaf"
+        [now]="now()"
+        [full]="full()"
+        [pictureAt]="pictureAt"
+        (parse)="parse($event)"
+        (enlarge)="enlarge($event)"
+      ></li>
     }
   }
 </ol>
-
-<!-- One entry, wherever it sits: on its own, or inside a run that has been
-     opened. A template rather than two copies of it — this is forty lines of
-     markup with six cases in it, and two copies would drift. -->
-<ng-template #row let-entry>
-  <!-- `drawn`, not `entry.kind`: since #86 a tool row that is still waiting for a
-       person IS the question, and draws as one until it is answered. -->
-  <li class="entry" [class]="drawn(entry)">
-    @if (entry.kind !== 'day' && entry.at) {
-      <!-- The time, not the date. Which day it was is the marker above. -->
-      <time class="at">{{ entry.at | clock }}</time>
-    }
-    @switch (drawn(entry)) {
-      @case ('day') {
-        <!-- The rules either side of it are the `.day` row's own pseudo-
-               elements, so this span is only what sits between them. -->
-        <span>{{ entry.text }}</span>
-      }
-      @case ('ask') {
-        <!-- The card reads its own ask out of [[Asks]]; nothing is drilled
-             through the transcript. -->
-        <app-ask-card [entry]="entry" />
-      }
-      @case ('tool') {
-        <!-- ⚠ **Which tool, before what it was given.** Dropped by accident in
-             65607c7 when the argument grew a parse button and this row was
-             rewritten into two branches — the name went with the old single
-             line, and a standalone call showed a bare path with nothing saying
-             whether it had been read, written or deleted. The folded run kept
-             its copy, so the two rows disagreed. Reported from the phone. -->
-        <span class="tool-name">{{ entry.tool }}</span>
-        @if (parseable(entry)) {
-          <!-- ⚠ **The command is a button; every other tool's argument is not.**
-               This row shows one ellipsised line, so for a shell command there
-               was nowhere at all that held the whole text — and the parse is the
-               other half of the same question. A whole-row control would collide
-               with the result's own expander, which is why the target is the
-               argument itself. -->
-          <button type="button" class="tool-arg parse" (click)="parse(entry)">
-            {{ entry.text }}
-          </button>
-        } @else {
-          <span class="tool-arg">{{ entry.text }}</span>
-        }
-        @if (entry.allowed === false && entry.ok === undefined) {
-          <!-- ⚠ **Refused reads as running for the second before the result
-               arrives**, and running is the one thing it is not. The CLI does
-               send a result for a denied call — measured, `ok:false` carrying the
-               reason — so this is the gap between the tap and that, and nothing
-               longer. -->
-          <span class="refused">refused</span>
-        } @else if (entry.unrecorded) {
-          <!-- Neither a tick nor a cross: the call may well have worked, and the
-               one case we have seen did. What is missing is the record of it,
-               because whatever would have written the result died first. No
-               elapsed time either — it would be counted from a start that can be
-               weeks old, against an end nobody knows. -->
-          <span class="unrecorded">no result recorded</span>
-        } @else if (entry.ok === undefined) {
-          <!-- With how long, because "running" alone is the same word at four
-               seconds and at forty minutes, and only one of those is worth
-               interrupting. -->
-          <span class="running">running {{ ranFor(entry) | lasted }}</span>
-        } @else if (entry.ok) {
-          <mat-icon class="ok" aria-label="succeeded">check</mat-icon>
-        } @else {
-          <mat-icon class="bad" aria-label="failed">error_outline</mat-icon>
-        }
-        @if (entry.head) {
-          <!-- The first line, always. It is usually the whole answer, and it
-                 costs no height: the row was already this tall.
-
-                 ⚠ **Coloured like the body below it, and this is the line that
-                 matters most.** It is what the row shows without being opened,
-                 so a `vitest` or `cargo` summary raw here — `[2m Test Files
-                 [22m [1m[32m22 passed` — is the first and often the only thing
-                 read. Wiring only the expanded `<pre>` left exactly that on
-                 screen, which the render showed and the source did not. -->
-          <span class="returned ansi" [innerHTML]="entry.head | coloured"></span>
-        }
-        @if (entry.detail && (entry.cut || entry.detail !== entry.head)) {
-          <!-- A button rather than a `<details>`, for two reasons that both
-                 matter here. A closed `<details>` keeps its content in the DOM
-                 under `content-visibility: hidden` — still laid out, still
-                 measured, which the layout harness caught as forty-one text
-                 overlaps — and a transcript holds dozens of results. And a
-                 `summary` is a 20px target, where this is a control somebody
-                 aims at with a thumb. -->
-          <button class="unfold" matButton (click)="folding.unfold(entry)">
-            <mat-icon>{{ folding.shows(entry) ? 'expand_less' : 'expand_more' }}</mat-icon>
-            @if (entry.cut) {
-              first {{ entry.detail.length }} of {{ entry.cut }} characters
-            } @else {
-              the rest
-            }
-          </button>
-        }
-        @if (folding.shows(entry)) {
-          <!-- ⚠ **`innerHTML`, and the pipe is what makes that safe.** The text
-               is HTML-escaped before any span is added and then goes through
-               Angular's sanitiser — see `coloured.ts`. Interpolated instead, a
-               `cargo` or `vitest` run arrived as `[2m…[32m22 passed[39m`: every
-               character present and the line unreadable. -->
-          <pre class="result ansi" [innerHTML]="entry.detail | coloured"></pre>
-        }
-      }
-      @case ('asked') {
-        <!-- Named, not merely tinted. The transcript had the person's words and
-               the agent's in the same column with nothing between them, and on a
-               phone the only cue was a background you stop noticing after two
-               screens. -->
-        <span class="who">you</span>
-        @if (entry.queued) {
-          <!-- ⚠ **Says what is true, not "sending".** The message is written and
-               safe; the session simply has not read it, and will not until its
-               turn reaches a point where it can. Wording it as an in-flight send
-               would invite a re-send, which is the very thing this exists to
-               stop. -->
-          <!-- ⚠ **"mid-turn" is a claim, and it stops being true.** Once the
-               runner has concluded the session is not reading at all, the same
-               marker on the same message would be asserting the one thing that
-               has just been ruled out — the wording has to follow the verdict,
-               or the banner above and the line here contradict each other. -->
-          @if (session()?.deaf) {
-            <span class="queued unheard">
-              <mat-icon>hearing_disabled</mat-icon>
-              not read — the session has stopped listening
-            </span>
-          } @else {
-            <span class="queued">
-              <mat-icon>schedule</mat-icon>
-              waiting to be read — the session is mid-turn
-            </span>
-          }
-        }
-        <div class="body" [innerHTML]="entry.text | rendered"></div>
-      }
-      @case ('shown') {
-        <!-- A picture that was sent from here. Marked `you` like the words
-             around it: it is a thing the person put into the conversation, and
-             without the label it reads as something the session produced.
-
-             ⚠ **Fetched by name, never carried in the event.** The transcript
-             line holds the whole image as base64; passing that through the
-             event stream would put a megabyte on the wire for every scroll
-             past it. The runner sends a file name and serves the file. -->
-        <span class="who">you</span>
-        <button
-          class="picture"
-          type="button"
-          [attr.aria-label]="
-            full() === entry.picture ? 'show this image smaller' : 'show this image full size'
-          "
-          (click)="enlarge(entry)"
-        >
-          <img
-            [class.full]="full() === entry.picture"
-            [src]="pictureAt(entry)"
-            alt="an image sent to this session"
-          />
-        </button>
-      }
-      @case ('said') {
-        <div class="body" [innerHTML]="entry.text | rendered"></div>
-      }
-      @default {
-        {{ entry.text }}
-      }
-    }
-  </li>
-</ng-template>
-
-<!-- Above the composer rather than under the header. Both are pinned — the
-     header sits outside the scrolling region and stays put while the transcript
-     moves under it (measured: it does not shift by a pixel over a full scroll) —
-     so this is about which of the two the reader is looking at. The header is a
-     row of standing facts about the session; everything below is about right
-     now, and so is this. -->
 @if (updateWaiting()) {
-  <!-- A held reload is invisible otherwise, and indistinguishable from nothing
-       having happened. Says what it is waiting for, so the wait is a choice. -->
   <p class="update">a newer build is ready — it will load when you leave the app</p>
 }
-
 @if (arriving()) {
   <div class="doing">
     <mat-progress-bar mode="indeterminate" />
-    <!-- ⚠ **The word is not repeated here.** The header at the top of the page
-         already carries the CLI's own status — `requesting`, `idle` — and this
-         strip sat at the bottom saying it a second time, four inches below the
-         first. What the bar adds is that something is happening *now*; what it
-         could not say is for how long, which is the difference between waiting
-         and wondering whether it is stuck. So: the bar, and the clock.
-
-         Running from when it stopped being idle rather than from the current
-         status — see [[SessionStore]]'s `since`. -->
     @if (working(); as working) {
       <span class="lasted">{{ working | lasted }}</span>
     }
   </div>
 }
-
 @if (background(); as count) {
-  <!-- Worded to claim only what it knows: a command backgrounded inside a shell
-       announces nothing, so this is what the harness can see, not what is
-       running. Named where the runner could name it — a bare count sent Pippijn
-       to `ps` on the Mac to find out what "1 background task" was (#740).
-
-       ⚠ **Past tense once the process is gone, and the names stay (#879).** The
-       count comes down on a task-notification, which only the `claude` process
-       can write — so after it exits nothing can ever decrement it, and the
-       present tense here was a snapshot drawn as if it were live. Dropping the
-       strip instead would have been the other defensible answer, but a session
-       that died with a build going may have left it orphaned and chewing CPU,
-       and that is the one thing here somebody can act on. -->
   @if (running().length) {
     @if (ended()) {
       <p class="update">running when the session ended</p>
@@ -452,13 +154,6 @@
     </p>
   }
 }
-
-<!-- ⚠ **A command sent to a working session does not run.** The CLI parks it and
-     hands it to the model as words — `/rename` got "nothing for me to do" and no
-     name was ever written, with nothing on screen saying so. The runner holds it
-     until the turn ends; this is the saying so, and the × is the way out of it.
-     Above the composer with the picture, because it is the same kind of thing:
-     something written and waiting to go. -->
 @for (command of session()?.held ?? []; track command) {
   <div class="waiting">
     <mat-icon>hourglass_top</mat-icon>
@@ -476,16 +171,6 @@
     </button>
   </div>
 }
-
-<!-- Both devices wrote a draft here since they last agreed. Above the composer
-     with the picture and the held command, because it is the same kind of thing:
-     something written and waiting to go.
-
-     ⚠ **Nothing is chosen for you and nothing is thrown away.** The other
-     device's words are shown in full, not summarised, because the choice being
-     offered is between two texts and a person cannot make it from a diff or a
-     count. Combining keeps both whole — two half-written thoughts join into one
-     message, which a quantity never could. -->
 @if (clash(); as clash) {
   <div class="clash">
     <div class="what">
@@ -500,8 +185,6 @@
       <div class="whose">elsewhere</div>
       <p>{{ clash.theirs.text }}</p>
     </div>
-    <!-- Two rows because they are two questions — which one, or both in which
-         order — not because four would not fit. -->
     <div class="choices">
       <button matButton type="button" (click)="settle('mine')">keep mine</button>
       <button matButton type="button" (click)="settle('theirs')">use theirs</button>
@@ -513,11 +196,6 @@
     </div>
   </div>
 }
-
-<!-- The box itself is its own component. The split was made to pay for this
-     stylesheet reaching the size that FAILS the build, and the composer is the
-     part of the view that owns nothing: the picture, the draft and the send all
-     stay here, and it is passed what it needs to draw. -->
 <app-composer
   [(text)]="text"
   [sending]="sending()"

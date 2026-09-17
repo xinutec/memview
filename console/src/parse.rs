@@ -27,12 +27,15 @@ use reader::shell_ops::{GitOp, Op};
 
 /// What the client asks about: the command, and how its call turned out.
 #[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Asked {
     pub command: String,
     /// The tool result's own verdict, when the call has returned. `None` while
     /// it is still running — which is a real state and not a synonym for
     /// success, so it is carried rather than guessed.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub ok: Option<bool>,
 }
 
@@ -42,57 +45,79 @@ pub struct Asked {
 /// one client is a phone: a tree costs a level of indentation per nesting and
 /// there is no width to spend on it, while a flat list scrolls.
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Parsed {
     /// Why the grammar could not read it, when it could not. A parse failure is
     /// shown rather than smoothed over — 0.4% of the corpus's calls fail, and a
     /// view that quietly returned no steps for them would be reporting an empty
     /// command instead of an unread one.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub error: Option<String>,
     pub steps: Vec<Line>,
     /// Commands whose operation is not in the table, by name and count. Named
     /// here for the same reason the report names them: it is the honest size of
     /// what this cannot read, and on one command it is usually the answer to
     /// "why did nothing come out".
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub unread: Vec<Unread>,
     /// Commands that exist because a determinate loop was run out. Shown because
     /// a reader counting lines will otherwise find more steps than they wrote.
-    #[serde(skip_serializing_if = "is_zero")]
     pub unrolled: usize,
     /// Scripts inside a wrapper that the grammar could not read — a hole in the
     /// middle of a parse that otherwise succeeded.
-    #[serde(skip_serializing_if = "is_zero")]
     pub nested_unparsed: usize,
 }
 
-fn is_zero(n: &usize) -> bool {
-    *n == 0
-}
-
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Unread {
     pub name: String,
     pub count: usize,
 }
 
+/// Whether a step runs, as the wire says it: the reader's [`Reached`] under the
+/// words the sheet prints, not the one-letter form its index files use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub enum Reach {
+    Always,
+    OnSuccess,
+    Sometimes,
+}
+
+impl From<Reached> for Reach {
+    fn from(reached: Reached) -> Self {
+        match reached {
+            Reached::Always => Self::Always,
+            Reached::OnSuccess => Self::OnSuccess,
+            Reached::Sometimes => Self::Sometimes,
+        }
+    }
+}
+
 /// One command, with what was decided about it.
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Line {
     pub depth: usize,
     /// The machine it ran on, when it was not this one.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub host: Option<String>,
     /// The words as the shell would have run them — see [`Step::argv`].
     pub argv: Vec<String>,
     /// Whether the words shown differ from the words written, so the view can
     /// say so rather than letting a reader wonder why `$f` became `a.ts`.
-    pub reached: &'static str,
+    pub reached: Reach,
     /// The subshells enclosing it, so two sibling `( … )` groups can be told
     /// apart — which is the difference between one working directory and two.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub scope: Vec<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub cwd: Option<String>,
     /// What the command was FOR, as a sentence — the L4 concept, when a lens
     /// can say ([`reader::concept::describe`], `docs/concept-model.md`).
@@ -110,6 +135,7 @@ pub struct Line {
     /// (72%), and a row is what a person approves. Quoting the step rate at a
     /// card is the same unit error the census itself warns about.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub concept: Option<String>,
     /// The operation, in one or two words, for the chip.
     pub kind: &'static str,
@@ -122,19 +148,19 @@ pub struct Line {
     /// What that operation says that its paths do not — the pattern a search
     /// looked for, the program a transform applied, the name of a command
     /// nobody has taught this yet. Empty when the paths are the whole story.
-    #[serde(skip_serializing_if = "String::is_empty")]
     pub says: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub uses: Vec<Used>,
 }
 
 /// One file a command used, and whether that use is a fact.
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Used {
     pub path: String,
     pub write: bool,
     /// What the *text* said had to hold.
-    pub reached: &'static str,
+    pub reached: Reach,
     /// Whether the text's condition and the call's own outcome together make
     /// this certain — [`Verdict::admits`].
     ///
@@ -146,6 +172,7 @@ pub struct Used {
     pub certain: bool,
     /// The machine it is on, for a use that is not local.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub host: Option<String>,
 }
 
@@ -200,7 +227,7 @@ fn line(step: &Step, verdict: Verdict) -> Line {
         depth: step.depth,
         host: step.host.clone(),
         argv: step.argv.clone(),
-        reached: condition(step.reached),
+        reached: step.reached.into(),
         scope: step.scope.clone(),
         cwd: step.cwd.clone(),
         // ⚠ **`.ok()` and no more.** The refusal (`concept::Why`) is census
@@ -221,7 +248,7 @@ fn local_use(used: &FileUse, verdict: Verdict) -> Used {
     Used {
         path: used.path.clone(),
         write: used.write,
-        reached: condition(used.reached),
+        reached: used.reached.into(),
         certain: verdict.admits(used.reached),
         host: None,
     }
@@ -236,17 +263,9 @@ fn away_use(used: &RemoteUse) -> Used {
     Used {
         path: used.path.clone(),
         write: used.write,
-        reached: "sometimes",
+        reached: Reach::Sometimes,
         certain: false,
         host: Some(used.host.clone()),
-    }
-}
-
-fn condition(reached: Reached) -> &'static str {
-    match reached {
-        Reached::Always => "always",
-        Reached::OnSuccess => "on-success",
-        Reached::Sometimes => "sometimes",
     }
 }
 

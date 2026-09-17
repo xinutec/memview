@@ -14,7 +14,7 @@ import { Dismiss } from './dismiss';
 import { reason } from './errors';
 import { Roster } from './roster';
 import { Foreground } from './foreground';
-import { Conversation, Held, Summary, TaskCount } from './models';
+import { Conversation, Gist, Holder, Summary, TaskCount } from './models';
 import { modelName } from './model';
 import { modeIcon, modeIsLoud, modeTitle } from './modes';
 import { placeOf, titleOf } from './naming';
@@ -71,13 +71,7 @@ interface Row {
    * file or a process; this one is a model's reading of the transcript. See
    * `console/src/gist.rs`.
    */
-  readonly gist?: {
-    readonly text: string;
-    readonly at: number;
-    /** A few words for the same conversation, when the model gave some. Offered
-     *  by the rename sheet and applied by nobody but the person reading it. */
-    readonly name?: string;
-  };
+  readonly gist?: Gist;
   /**
    * How much of its own task list is left, when it keeps one.
    *
@@ -190,7 +184,7 @@ export class SessionsView {
    * in one place, so `task sessions`, the app and this cannot disagree about it.
    * A holder with nothing at all is already left out upstream.
    */
-  readonly elsewhere = computed<readonly Held[]>(() => this.state()?.tasks?.elsewhere ?? []);
+  readonly elsewhere = computed<readonly Holder[]>(() => this.state()?.tasks?.elsewhere ?? []);
 
   /**
    * Everything there is, awake first.

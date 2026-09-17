@@ -120,6 +120,12 @@ input.note {
 
 // Deliberately not a Material button: it is a line of text that opens a field,
 // and a filled control here would read as another option to choose.
+.addnote:disabled,
+input.note:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .addnote {
   align-self: flex-start;
   padding: 0 0.2rem;

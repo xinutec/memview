@@ -15,6 +15,9 @@ const BARE: Summary = {
   waiting: 0,
   unread: 0,
   working: false,
+  background: 0,
+  running: [],
+  held: [],
 };
 
 const labels = (session: Summary): string[] => factsOf(session).map((fact) => fact.label);

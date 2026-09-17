@@ -17,6 +17,8 @@ import angular from 'angular-eslint';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
+  // Written by ts-rs from the Rust types; see scripts/gen-types.sh.
+  { ignores: ['projects/*/src/app/generated/**'] },
   {
     files: ['src/**/*.ts', 'projects/**/*.ts', 'e2e/**/*.ts', '*.config.ts'],
     extends: [

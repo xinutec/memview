@@ -455,6 +455,8 @@ impl Reading {
 
 /// One row of a ranked table, for the wire.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Ranked {
     pub name: String,
     pub n: usize,
@@ -462,6 +464,8 @@ pub struct Ranked {
 
 /// A path or a command with both directions.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Both {
     pub name: String,
     pub reads: usize,
@@ -484,6 +488,8 @@ pub struct Both {
 /// The full detail stays in `--bin shell-files`, which prints from the same
 /// [`Reading`]. This is what fits on a phone.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct CorpusRead {
     /// When the corpus this was read from was last written, in epoch
     /// seconds. Not formatted here — see `--bin reading-json`.

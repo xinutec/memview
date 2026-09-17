@@ -786,7 +786,9 @@ themselves carry the reasoning.
 | `session-store.ts`    | **the state that outlives a page** — transcripts, activity, background tasks          |
 | `past-store.ts`       | the list of resumable conversations                                                   |
 | `transcript.ts`       | `fold(entries, event)` — pure, the whole rendering model                              |
-| `models.ts`           | the wire types; `KINDS` mirrors `protocol::Event` so the wire is checked, not trusted |
+| `generated/`          | the wire types, written from the Rust ones by `scripts/gen-types.sh`; never edited      |
+| `models.ts`           | re-exports those, plus `Entry` — the transcript line as drawn — and the `KINDS` list   |
+| `entry-row.ts`        | one transcript line, typed by its kind                                                |
 | `console-api.ts`      | HTTP, one method per route                                                            |
 | `host.ts`             | the interceptor: every failed request becomes a telemetry `fail`                      |
 | `updates.ts`          | notices a new bundle and decides _when_ to reload                                     |

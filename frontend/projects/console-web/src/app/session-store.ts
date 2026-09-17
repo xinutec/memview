@@ -3,7 +3,7 @@ import { Observable, map } from 'rxjs';
 
 import { ConsoleApi } from './console-api';
 import { Kept } from './kept';
-import { Entry, SessionEvent } from './models';
+import { Entry, Timed } from './models';
 import { fold } from './transcript';
 
 /**
@@ -248,7 +248,7 @@ export class SessionStore {
         // has nothing before it here — appending would glue the top of the
         // conversation onto the bottom.
         let head: Entry[] = [];
-        for (const event of older.events) head = [...fold(head, event)];
+        for (const event of older.events) head = fold(head, event);
         held.entries.update((entries) => [...head, ...entries]);
       }),
     );
@@ -275,7 +275,7 @@ export class SessionStore {
     return this.api.earlier(id, at).pipe(
       map((there) => {
         let page: Entry[] = [];
-        for (const event of there.events) page = [...fold(page, event)];
+        for (const event of there.events) page = fold(page, event);
         held.entries.set(page);
         held.cursor.set(there.from);
         held.adrift.set(true);
@@ -323,12 +323,12 @@ export class SessionStore {
     return held;
   }
 
-  private take(id: string, held: Held, event: SessionEvent, seq: number): void {
+  private take(id: string, held: Held, event: Timed, seq: number): void {
     // The seed arrives with the cursor it started from. This is the only place
     // that learns where the page on screen begins — nothing else in the stream
     // knows the conversation is longer than the page.
     if (event.kind === 'joined') {
-      held.cursor.set(event.from ?? 0);
+      held.cursor.set(event.from);
       // The conversation itself has started arriving, so the copy has done its
       // job. Emptied rather than appended to: the seed is the same entries over
       // again, and nothing tells the two copies apart.
@@ -356,7 +356,7 @@ export class SessionStore {
       if (event.kind === 'busy') {
         // Only the first one starts the clock — see [Held.since].
         if (held.doing() === undefined) held.since.set(event.at ?? Date.now());
-        held.doing.set(event.status ?? 'working');
+        held.doing.set(event.status);
         held.spoken.set(true);
       }
       if (event.kind === 'turn' || event.kind === 'exited') {
@@ -365,7 +365,7 @@ export class SessionStore {
         held.spoken.set(true);
       }
     }
-    held.entries.update((entries) => [...fold(entries, event)]);
+    held.entries.update((entries) => fold(entries, event));
     // Throttled inside, and deliberately not done on leaving instead: leaving is
     // not how a phone stops reading — the tunnel drops, or the app is swapped
     // out and killed, and neither runs any code here.

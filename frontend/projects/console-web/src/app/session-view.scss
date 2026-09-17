@@ -1,57 +1,13 @@
-// The biggest component stylesheet in this app, and deliberately so.
-//
-// ⚠ **`anyComponentStyle` is a complexity heuristic here, not a load-time
-// guard.** These styles are inlined into the one bundle we ship — nothing in this
-// console is lazily loaded — so 9 kB against 10 kB is the same bytes over the
-// wire. What the budget stands in for is "this component is doing a lot", which
-// of this one is true: it draws the transcript, folded tool runs, question
-// cards, the clash between two devices' drafts and the activity strip.
-//
-// ⚠ **The warning was raised three times; the fourth overshoot was paid by
-// splitting, and the composer is now [[Composer]].** The 10 kB error has never
-// moved, and the corridor beneath it had been halved to 0.5 kB, which cannot be
-// halved again. Each of those three raises recorded the promise to split in its
-// own commit message, which nothing reads — so the fourth session to reach the
-// ceiling met it with no warning and the same choice to defer. What carries it
-// now is this file's own size against a warning that is not moving either.
-//
-// The composer was the seam because it owns no state: the text is two-way, the
-// picture it is about to send stays here, and nothing keyed by session id moved.
-// Splitting the question card out was investigated as the alternative and
-// declined — its state IS keyed by ask id, so options tapped before a dropped
-// connection survive the re-seed, and per-card state would lose them.
-//
-// ⚠ **Trimming was never the way out, and was checked before each raise.**
-// dev-lint's five style rules are green on this file — DL-ANGULAR-DEAD-STYLE,
-// -ENCAPSULATION-DEAD-SELECTOR, -UNSTYLED-CLASS, -INNERHTML-SCOPED-STYLES and
-// DL-SCSS-DUPLICATE-SELECTOR — so every declaration here is live, and deleting
-// live CSS to buy bytes would be changing how the page looks to satisfy a number.
-//
-// The split left 9.23 kB, so the next seam is worth naming here rather than in a
-// commit message nobody reads: it is `.clash`, the block that offers a choice
-// between two devices' drafts. It owns no state either — two texts, a time and
-// four buttons — and it is the largest remaining rule group.
-
 :host {
-  // The host is a real element between `.page` and everything below, and a custom
-  // element is `display: inline` until something says otherwise — so without this
-  // the column it looks like exists does not, and `flex: 1` on the transcript is
-  // a declaration that does nothing. dev-lint caught it; the layout harness had
-  // passed anyway, because block flow happened to put things in the same places.
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
-
-  // How far into the row a question card holds its first line: its own padding,
-  // plus its border. Declared once because two rules need the same number and
-  // they are not near each other — the card's padding, and the clock that has to
-  // line up with the card's first line rather than with the box around it.
+  // The ask card's inset and edge, read by the row to place its timestamp.
   --card-inset: 0.6rem;
   --card-edge: 1px;
 }
 
-// The reading column pads itself, now that `.page` does not — see app.scss.
 .head {
   margin-bottom: 0.5rem;
   padding: 0 1rem;
@@ -83,15 +39,18 @@
   font-family: ui-monospace, monospace;
 }
 
-// The two the CLI itself colours as errors: nothing is asked before it happens.
-// Loud on purpose — it is the one fact on this header that changes what every
-// other thing on the screen means.
 .mode.loud {
-  // Colour alone now it is an icon: a filled pill around a 1.1rem glyph reads
-  // as a badge with something in it rather than as the glyph itself.
   color: var(--mat-sys-error);
 }
 
+.mode.mat-icon {
+  font-size: 1.1rem;
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+// The one scrolling element. `overflow-anchor: none` because following the
+// end is done by hand in `Following`, and the browser's anchoring fights it.
 .transcript {
   list-style: none;
   padding: 0 1rem 1rem;
@@ -99,245 +58,56 @@
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
-  // The one thing on the page that scrolls. `min-height: 0` is what lets a flex
-  // child be shorter than its contents; without it the box grows instead and the
-  // composer is pushed off the screen.
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  // ⚠ **The browser's scroll anchoring is turned off, and this page is one of
-  // the few that should.** Anchoring holds the visible content still when
-  // something is inserted above it — which is exactly what `loadEarlier` needs,
-  // and `loadEarlier` already does it itself, by measuring the height before the
-  // page lands and adding the difference after. Two mechanisms compensating for
-  // the same insertion is one too many.
-  //
-  // What it cost while it was on: during the streaming seed the browser moved
-  // the position by 18 or 19px on its own, three captures in a row — enough to
-  // read as the reader having scrolled, which stranded a conversation 13% of the
-  // way down. Every threshold in `following.ts` used to be sized around that
-  // noise. With the noise gone, being at the end can mean being at the end.
   overflow-anchor: none;
   overscroll-behavior: contain;
 }
 
-.entry {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  line-height: 1.5;
-  // The anchor the clock in the margin is positioned against.
-  position: relative;
-}
-
-// What was asked reads as the reader's own voice: indented, quieter, and
-// visibly not the answer.
-.asked {
-  border-left: 3px solid var(--mat-sys-primary);
-  padding-left: 0.75rem;
-  color: var(--mat-sys-on-surface-variant);
-}
-
-// A message the runner holds and the session has not read. Quiet: it is not a
-// warning, and it resolves itself. Tertiary rather than error for exactly that
-// reason — nothing has gone wrong, something has not happened *yet*.
-// The same marker once the runner has stopped calling it a wait. Its own colour
-// because the tertiary one is deliberately quiet — right for "this will happen
-// shortly", wrong for "this will not happen until you act".
-.queued.unheard {
-  color: var(--mat-sys-error);
-}
-
-.queued {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  font: var(--mat-sys-label-small);
-  color: var(--mat-sys-tertiary);
-  margin-bottom: 0.15rem;
-
-  mat-icon {
-    font-size: 0.875rem;
-    width: 0.875rem;
-    height: 0.875rem;
-  }
-}
-
-.turn,
-.note {
+.earlier {
+  display: block;
+  min-height: 1px;
+  margin: 0 auto 0.5rem;
+  text-align: center;
   font: var(--mat-sys-body-small);
   color: var(--mat-sys-on-surface-variant);
-  font-variant-numeric: tabular-nums;
+  list-style: none;
 }
 
-.tool {
+.entry.tools {
+  padding: 0;
+}
+
+.run {
   display: flex;
   align-items: center;
-  // One line until its result is opened, and then two.
-  flex-wrap: wrap;
   gap: 0.5rem;
-  font: var(--mat-sys-body-medium);
-  background: var(--mat-sys-surface-container);
-  border-radius: 0.5rem;
-  padding: 0.35rem 0.6rem;
-}
-
-.tool-name {
-  font-weight: 500;
-}
-
-.tool-arg {
-  font-family: ui-monospace, monospace;
+  width: 100%;
+  min-height: 3rem;
+  padding: 0 0.5rem;
+  border: 0;
+  border-radius: 6px;
+  background: var(--mat-sys-surface-container-low);
   color: var(--mat-sys-on-surface-variant);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-}
-
-// A shell command, which opens its parse. Styled to sit exactly where the span
-// it replaces sat: this is one row in a list of hundreds, and a control that
-// changed the row's height would make every Bash call taller than every Edit.
-//
-// ⚠ **The padding is cancelled by the margin on purpose.** It buys eight pixels
-// of thumb either side of a 20px line without moving anything — the row is dense
-// by design, and the alternative was a target nobody could hit.
-button.parse {
-  appearance: none;
-  background: none;
-  border: none;
-  font: inherit;
+  font: var(--mat-sys-body-small);
   text-align: left;
   cursor: pointer;
-  padding: 0.25rem 0;
-  margin: -0.25rem 0;
-  // Says it is a control without spending a row on saying so. Dotted rather
-  // than solid: solid reads as a link to somewhere else, and this opens a view
-  // of the thing already on screen.
-  text-decoration: underline dotted var(--mat-sys-outline);
-  text-underline-offset: 0.25em;
 
-  &:focus-visible {
-    outline: 2px solid var(--mat-sys-primary);
-    outline-offset: 2px;
-    border-radius: 0.125rem;
-  }
-}
-
-.addnote:disabled,
-input.note:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.running {
-  font: var(--mat-sys-label-small);
-  opacity: 0.7;
-  // It carries a number that changes every second — see [[Lasted]].
-  font-variant-numeric: tabular-nums;
-  // `running 2m 03s` is one thing, and a wrap between the word and its number
-  // would read as two.
-  white-space: nowrap;
-}
-
-.ok {
-  color: var(--mat-sys-primary);
-}
-
-.bad {
-  color: var(--mat-sys-error);
-}
-
-// A call somebody refused, in the second between the tap and the result the CLI
-// sends for it. The error colour, because a refusal IS this call's outcome —
-// unlike `unrecorded` below, which is the absence of one.
-.refused {
-  font: var(--mat-sys-label-small);
-  color: var(--mat-sys-error);
-  white-space: nowrap;
-}
-
-// Deliberately neither the primary of a tick nor the error of a cross: this row
-// is the absence of a verdict, and borrowing either colour would state one. The
-// same muted treatment `running` gets, without its number — there is nothing to
-// count to.
-.unrecorded {
-  font: var(--mat-sys-label-small);
-  color: var(--mat-sys-outline);
-  white-space: nowrap;
-}
-
-// A picture already sent, in the transcript.
-//
-// A button rather than an image with a click handler: it is the one thing in a
-// transcript row that does something when tapped, and a keyboard and a screen
-// reader should both be told so by the element rather than by an attribute.
-// Everything a button brings visually is given back — the card row supplies it.
-.picture {
-  display: block;
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: pointer;
-  // A thumb aims at this, and a picture two lines tall is a 32px target.
-  min-height: 3rem;
-
-  img {
-    // ⚠ **Both dimensions are bounded before it loads.** An image whose size is
-    // only known once the bytes arrive reflows the transcript under whoever is
-    // reading it — the same jolt the stream itself causes — and a phone
-    // screenshot is 2400px tall, so an unbounded one is a screenful of nothing
-    // between two sentences. A quarter of the viewport is enough to recognise a
-    // picture, which is all the closed state is for.
-    max-width: 100%;
-    max-height: 25vh;
-    width: auto;
-    border-radius: 0.5rem;
-    // Says the picture is the whole of what was sent rather than a crop of it.
-    object-fit: contain;
-    // Visible against both grounds without a border in either: a dark
-    // screenshot on a dark page has no edge of its own.
-    background: var(--mat-sys-surface-container-highest);
+  .count {
+    font-weight: 500;
   }
 
-  // Opened: as wide as the reading column, as tall as it needs. Not a lightbox
-  // — an overlay would cover the words that explain the picture, which on a
-  // phone are the reason for looking at it.
-  img.full {
-    max-height: none;
-    width: 100%;
-  }
-}
-
-// A command written mid-turn, waiting for the turn to end. Sits with the chosen
-// picture above the composer because it is the same kind of fact — something
-// written and not yet gone — and is deliberately quieter than a question card:
-// it is a receipt, not a decision anybody has to make.
-.waiting {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem 0;
-  background: var(--mat-sys-surface-container);
-
-  mat-icon {
-    flex: 0 0 auto;
-    color: var(--mat-sys-on-surface-variant);
+  .running {
+    color: var(--mat-sys-primary);
   }
 
-  .what {
-    flex: 1;
-    font: var(--mat-sys-label-small);
-    color: var(--mat-sys-on-surface-variant);
-    // The command is the point of the line, so it keeps its own face — and
-    // `anywhere` rather than a nowrap ellipsis, since a long one wrapping is
-    // better than a `/comp…` nobody can identify.
-    overflow-wrap: anywhere;
+  .bad {
+    color: var(--mat-sys-error);
+  }
 
-    code {
-      font-family: ui-monospace, monospace;
-      color: var(--mat-sys-on-surface);
-    }
+  .unrecorded {
+    color: var(--mat-sys-outline);
   }
 }
 
@@ -345,13 +115,6 @@ input.note:disabled {
   color: var(--mat-sys-error);
 }
 
-// A session that has stopped reading, and the one thing that fixes it.
-//
-// Loud, because it is the opposite of what the transcript below it appears to
-// say: the messages are all there, marked as waiting, and nothing is coming.
-// The error container rather than the error colour on the page — this is a
-// standing condition to be acted on, not a line about something that just
-// failed.
 .deaf {
   display: flex;
   align-items: center;
@@ -363,8 +126,6 @@ input.note:disabled {
   color: var(--mat-sys-on-error-container);
 
   .what {
-    // Takes the slack so the button keeps its own width, and wraps rather than
-    // pushing it off a four-inch screen.
     flex: 1;
     min-width: 0;
   }
@@ -377,206 +138,23 @@ input.note:disabled {
     flex: none;
   }
 
-  // In the container's own palette, not the app's primary. The default green on
-  // the error container is the one colour pair here that was never chosen — it
-  // reads as an unrelated control that happens to have landed inside the
-  // warning, which is the opposite of what it is.
-  //
-  // ⚠ **Through Material's own tokens, not `background`.** A plain declaration
-  // loses to the filled button's own rule and the button stays green — which is
-  // exactly what the first render showed.
-  //
-  // `:not(.ended)` rather than overriding it back below: the ended row is a
-  // neutral surface where nothing has gone wrong, and it should simply never be
-  // given the error colours in the first place.
   &:not(.ended):not(.adrift) button {
     --mat-button-filled-container-color: var(--mat-sys-error);
     --mat-button-filled-label-text-color: var(--mat-sys-on-error);
   }
 }
 
-// The same row for a session that has simply ended. Quiet, because nothing has
-// gone wrong: it is an offer, not an alarm.
-.deaf.ended {
+.deaf.ended,
+.deaf.adrift {
   background: var(--mat-sys-surface-container-high);
   color: var(--mat-sys-on-surface);
 }
 
-// And for a reader looking back at an older part of the conversation. Quiet for
-// the same reason — nothing has gone wrong, they asked to be here — but it may
-// not be silent: detached, the page does not grow and the header's "working" is
-// from before the jump, so a reader who missed it would watch a busy session say
-// nothing.
-//
-// ⚠ **The neutral surface, after looking at the render.** `tertiary-container`
-// was the first attempt and this theme paints it a vivid green: the row read as
-// an alarm over a page where nothing is wrong, and it swallowed its own button,
-// which is the app's primary green on a green field. The outline is what keeps
-// it from disappearing into the transcript instead.
 .deaf.adrift {
-  background: var(--mat-sys-surface-container-high);
-  color: var(--mat-sys-on-surface);
   outline: 1px solid var(--mat-sys-outline-variant);
   outline-offset: -1px;
 }
 
-// A message says whose it is, and reads as it was written.
-.entry.asked {
-  .who {
-    display: block;
-    font: var(--mat-sys-label-small);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    opacity: 0.6;
-    margin-bottom: 0.15rem;
-  }
-
-  // Set apart by shape as well as by label: on a phone a tint alone stops being
-  // visible after two screens of scrolling.
-  border-left: 3px solid var(--mat-sys-primary);
-  padding-left: 0.6rem;
-}
-
-// The markdown an answer renders as is styled in styles.scss, not here.
-//
-// ⚠ **Component styles cannot reach it.** Emulated encapsulation rewrites every
-// selector to `pre[_ngcontent-xxx]`, and HTML put in by `[innerHTML]` carries no
-// such attribute — so a whole block of headings, code, table and list rules sat
-// here doing nothing, and had been since it was written. Nothing said so: the
-// page looked plausible because unstyled markdown still renders, and the layout
-// harness had no fixture with code in an answer until it did, and then the block
-// was 618px past the right edge.
-
-// The top of what has been read. Present at all times while there is more, so
-// there is something for the observer to watch, but only says anything while a
-// page is on its way — a standing label at the top of a conversation is a
-// permanent announcement that it has a beginning.
-.earlier {
-  display: block;
-  min-height: 1px;
-  margin: 0 auto 0.5rem;
-  text-align: center;
-  font: var(--mat-sys-body-small);
-  color: var(--mat-sys-on-surface-variant);
-  list-style: none;
-}
-
-// The clock sits in the margin rather than in the sentence.
-// The time is a label ON the row's first line, not a column beside it — so it
-// shares that line's box rather than being placed against the row's top edge.
-//
-// ⚠ **`font:` is a shorthand and resets `line-height`.** That is what put the
-// clock 6px below the line it dates: its box stopped being the row's, and a
-// hand-tuned `top: 0.35rem` was covering for it — which could only ever be right
-// at one font size, and the rows here are two (`.turn` is body-small, `.asked`
-// body-medium). `line-height: inherit` puts the clock's line box back on the
-// row's terms, so its first line starts where the row's does at either size.
-//
-// It does NOT make the two boxes equal: an unitless `line-height` inherits as a
-// factor, not a length, so beside a body-medium row the clock's box is the
-// shorter of the two. That is why the harness compares where the lines *start*
-// rather than their centres — measured, and the reason a centre check would
-// need a tolerance wide enough to hide what it is for.
-.at {
-  position: absolute;
-  top: 0;
-  right: 0;
-  font: var(--mat-sys-body-small);
-  line-height: inherit;
-  color: var(--mat-sys-on-surface-variant);
-  font-variant-numeric: tabular-nums;
-  pointer-events: none;
-}
-
-// Most rows keep their full width. An answer follows from the prompt above it,
-// so a time there repeats what is already on screen;
-// and a tool row is the most width-starved line on the page — its argument is a
-// path or a command and is already being ellipsised, so a clock in the margin is
-// paid for out of the one string that needed the room. The turn line under the
-// burst carries the time for all of them.
-.said > .at,
-.tool > .at {
-  display: none;
-}
-
-// The one row whose content is a card rather than a line. Its first line starts
-// inside the card, so the clock starts there too — from the same numbers the
-// card is drawn with, not from a second offset that would drift from them.
-.ask > .at {
-  top: calc(var(--card-inset) + var(--card-edge));
-}
-
-// Everything that does carry one leaves room for it.
-.entry.asked,
-.entry.turn,
-.entry.note,
-.entry.ask {
-  padding-right: 3.2rem;
-}
-
-// The date the entries below it fall on — put in when the conversation crosses
-// midnight. Ruled and centred, because it is not a thing that happened and must
-// not read as one.
-.day {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  margin: 0.7rem 0 0.2rem;
-  font: var(--mat-sys-body-small);
-  color: var(--mat-sys-on-surface-variant);
-
-  &::before,
-  &::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: var(--mat-sys-outline-variant);
-  }
-}
-
-// The first line of what the tool said, on the row itself. One line, ellipsised
-// the way the argument above it is: it answers the question most of the time and
-// the row was already this tall.
-.returned {
-  flex-basis: 100%;
-  font: var(--mat-sys-body-small);
-  font-family: ui-monospace, monospace;
-  color: var(--mat-sys-on-surface-variant);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-// The way to the rest. Left-aligned under the row rather than centred, so the
-// thumb finds it in the same place on every result.
-.unfold {
-  align-self: flex-start;
-  margin-left: -0.5rem;
-}
-
-// What the tool actually said, once asked for. Capped in height — a page that
-// grows by two thousand characters on every call is one nobody can scroll — and
-// wrapped rather than scrolled sideways, because a horizontal scroller inside a
-// vertical one is a trap for a thumb.
-.result {
-  flex-basis: 100%;
-  margin: 0.2rem 0 0;
-  max-height: 40vh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font: var(--mat-sys-body-small);
-  font-family: ui-monospace, monospace;
-  color: var(--mat-sys-on-surface-variant);
-}
-
-// The activity strip, pinned above the composer.
-//
-// It lives here rather than under the header because the header is the first
-// thing to scroll away, and "is it still working?" is asked while reading the
-// conversation, not while looking at the title. Kept to one line: it sits in
-// the space the composer already reserves, so it costs no transcript.
 .doing {
   flex: 0 0 auto;
   display: flex;
@@ -590,11 +168,6 @@ input.note:disabled {
     flex: 1;
   }
 
-  // The one thing beside the bar now that the status word has gone back to the
-  // header where it was already being shown. A fixed column, so the bar does not
-  // shorten as the clock passes a minute; tabular figures because it is watched
-  // rather than read, and proportional digits shuffle the text sideways on every
-  // tick.
   .lasted {
     flex: 0 0 3.5rem;
     text-align: right;
@@ -602,7 +175,6 @@ input.note:disabled {
   }
 }
 
-// The held-update notice, beside the activity strip above the composer.
 .update {
   flex: 0 0 auto;
   margin: 0;
@@ -612,13 +184,6 @@ input.note:disabled {
   text-align: center;
 }
 
-// A named background call. The tool carries the weight because it is the part
-// that is always there and always short; the label is what the call is doing.
-//
-// ⚠ **One line, and the label is what gives.** The runner already cuts a label
-// to 60 characters, but 60 characters of shell still overflows 412px — so the
-// label ellipsises here as well. Two cuts is not redundancy: the runner's keeps
-// the payload small, this one keeps the strip one line tall whatever arrives.
 .update.running {
   display: flex;
   gap: 0.4rem;
@@ -641,66 +206,32 @@ input.note:disabled {
   }
 }
 
-// The mode as an icon: small, aligned with the words beside it, and the same
-// size in both places it appears.
-.mode.mat-icon {
-  font-size: 1.1rem;
-  width: 1.1rem;
-  height: 1.1rem;
-}
-
-// A folded run of tool calls: one row standing in for a dozen.
-//
-// The whole row is the control, so it is the target rather than a 48px button
-// inside a 115px entry — which is the height this exists to give back.
-.entry.tools {
-  padding: 0;
-}
-
-.run {
+.waiting {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  width: 100%;
-  // A control somebody aims at with a thumb while reading, so it keeps the
-  // app-wide floor rather than shrinking to its text.
-  min-height: 3rem;
-  padding: 0 0.5rem;
-  border: 0;
-  border-radius: 6px;
-  background: var(--mat-sys-surface-container-low);
-  color: var(--mat-sys-on-surface-variant);
-  font: var(--mat-sys-body-small);
-  text-align: left;
-  cursor: pointer;
+  padding: 0.5rem 1rem 0;
+  background: var(--mat-sys-surface-container);
 
-  .count {
-    font-weight: 500;
+  mat-icon {
+    flex: 0 0 auto;
+    color: var(--mat-sys-on-surface-variant);
   }
 
-  // The two things worth knowing without opening it. `running` is the same word
-  // the individual rows use, so the folded and unfolded views agree.
-  .running {
-    color: var(--mat-sys-primary);
-  }
+  .what {
+    flex: 1;
+    font: var(--mat-sys-label-small);
+    color: var(--mat-sys-on-surface-variant);
+    overflow-wrap: anywhere;
 
-  .bad {
-    color: var(--mat-sys-error);
-  }
-
-  .unrecorded {
-    color: var(--mat-sys-outline);
+    code {
+      font-family: ui-monospace, monospace;
+      color: var(--mat-sys-on-surface);
+    }
   }
 }
 
-// Two devices wrote here. Sits with `.waiting` and the picture above the
-// composer, and shares their surface so the three read as one shelf of things
-// written and not yet gone.
-//
-// ⚠ **Both texts in full, and each scrolls on its own.** Truncating the other
-// device's words would hide the thing being chosen between — and on a phone a
-// long pair must not push the four buttons off the screen, which is what the
-// per-side cap buys.
 .clash {
   flex: 0 0 auto;
   display: flex;
@@ -732,7 +263,6 @@ input.note:disabled {
       margin: 0.15rem 0 0;
       max-height: 6.5rem;
       overflow-y: auto;
-      // A draft is what somebody typed, newlines and all.
       white-space: pre-wrap;
       overflow-wrap: anywhere;
     }
@@ -744,13 +274,10 @@ input.note:disabled {
     color: var(--mat-sys-on-surface-variant);
   }
 
-  // Aligned to the buttons beside it rather than to the box.
   .both {
     align-self: center;
   }
 
-  // Wraps, because four choices do not fit across a phone and a row that
-  // overflows puts the last one where it cannot be pressed.
   .choices {
     display: flex;
     flex-wrap: wrap;

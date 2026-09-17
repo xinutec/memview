@@ -1,6 +1,6 @@
 import { Injectable, signal } from '@angular/core';
 
-import { Summary, TaskCount } from './models';
+import { Gist, Summary, TaskCount } from './models';
 
 /**
  * Which conversation the reader is looking at, for the parts of the shell that
@@ -33,7 +33,7 @@ export class Here {
    * ⚠ **Beside the summary, not on it.** These arrive keyed by conversation
    * because they cover the transcripts on disk, which have no summary.
    */
-  readonly gist = signal<{ text: string; at: number; name?: string } | undefined>(undefined);
+  readonly gist = signal<Gist | undefined>(undefined);
 
   /** How much is left of this conversation's list. Keyed by conversation, as
    *  [gist] is and for the same reason. */

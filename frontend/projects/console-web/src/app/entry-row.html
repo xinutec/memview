@@ -1,0 +1,95 @@
+@let entry = this.entry();
+@if (entry.kind !== 'day' && entry.at) {
+  <time class="at">{{ entry.at | clock }}</time>
+}
+@switch (entry.kind) {
+  @case ('day') {
+    <span>{{ entry.text }}</span>
+  }
+  @case ('ask') {
+    <app-ask-card [entry]="entry" />
+  }
+  @case ('tool') {
+    @if (pending(entry)) {
+      <app-ask-card [entry]="entry" />
+    } @else {
+      <span class="tool-name">{{ entry.tool }}</span>
+      @if (parseable(entry)) {
+        <button type="button" class="tool-arg parse" (click)="parse.emit(entry)">
+          {{ entry.text }}
+        </button>
+      } @else {
+        <span class="tool-arg">{{ entry.text }}</span>
+      }
+      @if (entry.allowed === false && entry.ok === undefined) {
+        <span class="refused">refused</span>
+      } @else if (entry.unrecorded) {
+        <span class="unrecorded">no result recorded</span>
+      } @else if (entry.ok === undefined) {
+        <span class="running">running {{ runningFor(entry) | lasted }}</span>
+      } @else if (entry.ok) {
+        <mat-icon class="ok" aria-label="succeeded">check</mat-icon>
+      } @else {
+        <mat-icon class="bad" aria-label="failed">error_outline</mat-icon>
+      }
+      @if (entry.head) {
+        <span class="returned ansi" [innerHTML]="entry.head | coloured"></span>
+      }
+      @if (entry.detail && (entry.cut || entry.detail !== entry.head)) {
+        <button class="unfold" matButton (click)="folding().unfold(entry)">
+          <mat-icon>{{ folding().shows(entry) ? 'expand_less' : 'expand_more' }}</mat-icon>
+          @if (entry.cut) {
+            first {{ entry.detail.length }} of {{ entry.cut }} characters
+          } @else {
+            the rest
+          }
+        </button>
+      }
+      @if (folding().shows(entry)) {
+        <pre class="result ansi" [innerHTML]="entry.detail | coloured"></pre>
+      }
+    }
+  }
+  @case ('asked') {
+    <span class="who">you</span>
+    @if (entry.queued) {
+      @if (deaf()) {
+        <span class="queued unheard">
+          <mat-icon>hearing_disabled</mat-icon>
+          not read — the session has stopped listening
+        </span>
+      } @else {
+        <span class="queued">
+          <mat-icon>schedule</mat-icon>
+          waiting to be read — the session is mid-turn
+        </span>
+      }
+    }
+    <!-- dev-lint: allow-unstyled-class styled by styles.scss as `app-session-view .entry .body` -->
+    <div class="body" [innerHTML]="entry.text | rendered"></div>
+  }
+  @case ('shown') {
+    <span class="who">you</span>
+    <button
+      class="picture"
+      type="button"
+      [attr.aria-label]="
+        full() === entry.picture ? 'show this image smaller' : 'show this image full size'
+      "
+      (click)="enlarge.emit(entry.picture)"
+    >
+      <img
+        [class.full]="full() === entry.picture"
+        [src]="pictureAt()(entry.picture)"
+        alt="an image sent to this session"
+      />
+    </button>
+  }
+  @case ('said') {
+    <!-- dev-lint: allow-unstyled-class styled by styles.scss as `app-session-view .entry .body` -->
+    <div class="body" [innerHTML]="entry.text | rendered"></div>
+  }
+  @default {
+    {{ entry.text }}
+  }
+}

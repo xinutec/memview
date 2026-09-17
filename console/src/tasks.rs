@@ -69,7 +69,9 @@ fn token() -> Option<String> {
 
 /// One row of the list: what it is, and whether it is done.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Listed {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct Task {
     /// The service's number, as a string — it is what a session calls a task in
     /// its own prose (`#418 done`) and what the sheet prints.
     #[serde(deserialize_with = "as_text")]
@@ -100,6 +102,7 @@ pub struct Listed {
     /// A string, like [`Self::status`]: a sixth level the service invents later
     /// is news to draw, not a parse failure that loses the whole list.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub priority: Option<String>,
     /// The day it has to be done by, `YYYY-MM-DD`. Absent on almost everything.
     ///
@@ -108,6 +111,7 @@ pub struct Listed {
     /// test that fails if anyone makes it sort, and `repo::list` stays the only
     /// ordering. Drawing it is the whole job here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub due: Option<String>,
     /// Whether that day has passed.
     ///
@@ -115,14 +119,10 @@ pub struct Listed {
     /// service answers from the database's clock so the CLI, the app and the
     /// digest cannot disagree about what day it is — a phone in another timezone
     /// working it out would be a fourth answer to a question with one.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default)]
     pub overdue: bool,
     /// Which tasks this one is waiting for, by number. Absent when empty.
-    #[serde(
-        default,
-        deserialize_with = "as_texts",
-        skip_serializing_if = "Vec::is_empty"
-    )]
+    #[serde(default, deserialize_with = "as_texts")]
     pub blocked_on: Vec<String>,
     /// Whether it is actually still waiting.
     ///
@@ -130,7 +130,7 @@ pub struct Listed {
     /// survives its blocker closing, as a record of how the work went, and stops
     /// counting — so the two disagree on every task whose blocker is done.
     /// Deciding it here would need the status of rows this console never sees.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default)]
     pub blocked: bool,
 }
 
@@ -162,7 +162,9 @@ fn as_text<'de, D: serde::Deserializer<'de>>(from: D) -> Result<String, D::Error
 /// while. The service counts current assignment (tasks#636), so a task handed
 /// on leaves both halves and `3/47` says what it looks like it says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Count {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct TaskCount {
     /// Anything not done. The difference between the two kinds of open is what
     /// the sheet is for.
     pub open: usize,
@@ -171,12 +173,8 @@ pub struct Count {
     /// How many are still in the built-in store this replaced — see
     /// [`strays`]. Zero for a conversation that has migrated and cleared up,
     /// which is most of the point of showing it.
-    #[serde(default, skip_serializing_if = "is_zero")]
+    #[serde(default)]
     pub stray: usize,
-}
-
-fn is_zero(count: &usize) -> bool {
-    *count == 0
 }
 
 /// Somebody holding tasks who is not one of this console's conversations:
@@ -187,7 +185,9 @@ fn is_zero(count: &usize) -> bool {
 /// the pile is the one nothing else on this page can show, since it belongs to
 /// no session and therefore appears on no card.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Held {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
+pub struct Holder {
     /// What to call them. The service's own word — `Pippijn`, `nobody`.
     pub name: String,
     pub open: usize,
@@ -196,11 +196,13 @@ pub struct Held {
 
 /// Everything the sweep learnt, in one request.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Sweep {
     /// By session id, for the cards.
-    pub sessions: BTreeMap<String, Count>,
+    pub sessions: BTreeMap<String, TaskCount>,
     /// The holders who are not sessions, in the order the service put them.
-    pub elsewhere: Vec<Held>,
+    pub elsewhere: Vec<Holder>,
 }
 
 /// What each conversation has left in `~/.claude/tasks/<session-id>/`, the
@@ -244,7 +246,7 @@ fn strays(store: &std::path::Path) -> BTreeMap<String, usize> {
 /// no id to give. A non-optional field here fails the whole sweep on that one
 /// row, and the sessions would go with it.
 #[derive(Debug, Deserialize)]
-struct Holder {
+struct HolderRow {
     kind: String,
     #[serde(default)]
     id: Option<String>,
@@ -328,7 +330,7 @@ impl Tasks {
         }
     }
 
-    /// Count leftovers in `store` instead of the one beside `$HOME`.
+    /// TaskCount leftovers in `store` instead of the one beside `$HOME`.
     pub fn counting(mut self, store: impl Into<std::path::PathBuf>) -> Self {
         self.store = store.into();
         self
@@ -388,7 +390,7 @@ impl Tasks {
     }
 
     async fn ask(&self) -> reqwest::Result<Sweep> {
-        let holders: Vec<Holder> = self
+        let holders: Vec<HolderRow> = self
             .asking("/api/holders")
             .send()
             .await?
@@ -419,12 +421,12 @@ impl Tasks {
                     if total == 0 && stray == 0 {
                         continue;
                     }
-                    swept.sessions.insert(id, Count { open, total, stray });
+                    swept.sessions.insert(id, TaskCount { open, total, stray });
                 }
                 // Person and pile keep the service's order: it decides who is
                 // loaded, in one place, so `task sessions`, the app and this
                 // cannot disagree about it.
-                _ if total > 0 => swept.elsewhere.push(Held {
+                _ if total > 0 => swept.elsewhere.push(Holder {
                     name: row.name.unwrap_or_else(|| row.kind.clone()),
                     open,
                     total,
@@ -440,7 +442,7 @@ impl Tasks {
         for (id, stray) in left {
             swept.sessions.insert(
                 id,
-                Count {
+                TaskCount {
                     open: 0,
                     total: 0,
                     stray,
@@ -456,7 +458,7 @@ impl Tasks {
     /// body is not a label: these run to several kilobytes of written-up result,
     /// and sending them with the list is a megabyte onto a phone to draw forty
     /// subjects.
-    pub async fn listed(&self, session: &str) -> Vec<Listed> {
+    pub async fn listed(&self, session: &str) -> Vec<Task> {
         let asked = self
             .asking("/api/tasks")
             .query(&[("session", session), ("done", "true")])

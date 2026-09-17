@@ -10,9 +10,12 @@
         "build"
       ],
       "reached": "always",
+      "scope": [],
       "cwd": "/home/example/Code/health",
       "kind": "no files",
-      "key": "nothing"
+      "key": "nothing",
+      "says": "",
+      "uses": []
     },
     {
       "depth": 0,
@@ -24,9 +27,11 @@
         "30000ms"
       ],
       "reached": "on-success",
+      "scope": [],
       "cwd": "/home/example/Code/health",
       "kind": "run a script",
       "key": "run",
+      "says": "",
       "uses": [
         {
           "path": "/home/example/Code/health/verified_cli",
@@ -43,9 +48,11 @@
         "/tmp/lean-gate.log"
       ],
       "reached": "on-success",
+      "scope": [],
       "cwd": "/home/example/Code/health",
       "kind": "write",
       "key": "write",
+      "says": "",
       "uses": [
         {
           "path": "/tmp/lean-gate.log",
@@ -55,5 +62,8 @@
         }
       ]
     }
-  ]
+  ],
+  "unread": [],
+  "unrolled": 0,
+  "nested_unparsed": 0
 }

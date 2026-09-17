@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 // The golden the Rust test writes — see the note on PARSED below.
 import PARSED_GOLDEN from './parsed.fixture.json';
+import type { Overview } from '../src/app/models';
 // The fleet-shared harness, published as @xinutec/ui-harness (source repo
 // ~/Code/ui-harness). Ships compiled JS, so it loads straight from node_modules.
 import {
@@ -247,7 +248,7 @@ const REPOS = [
 
 /** A roster with the shapes that crowd a narrow screen: a deep path, a long
  *  first instruction, a session that is working and one that has ended. */
-const STATE = {
+const STATE: Overview = {
   dirs: ['/home/example/Code'],
   repos: REPOS,
   sessions: [
@@ -271,9 +272,14 @@ const STATE = {
       // variants are both on screen somewhere.
       mode: 'acceptEdits',
       busy: 'requesting',
-      turns: 12,
+      working: false,
+      interactions: 12,
       cost_usd: 4.2137,
+      background: 0,
+      running: [],
       waiting: 1,
+      unread: 0,
+      held: [],
       asked:
         'Port the remaining matcher gate to Lean and prove it bit-exact against the TypeScript quant twin, then run the golden set and report which journeys moved.',
     },
@@ -283,9 +289,14 @@ const STATE = {
       started: 1785599000,
       alive: false,
       model: 'claude-haiku-4-5-20251001',
-      turns: 3,
+      working: false,
+      interactions: 3,
       cost_usd: 0.0084,
+      background: 0,
+      running: [],
       waiting: 0,
+      unread: 0,
+      held: [],
       asked: 'check the corpus',
     },
   ],
@@ -295,9 +306,11 @@ const STATE = {
   // the ordinary case and the reason a row can say nothing rather than `0/0`.
   // See `console/src/tasks.rs`.
   tasks: {
-    sessions: { '6f7c2f11-0000-4000-8000-000000000001': { open: 2, total: 3 } },
+    sessions: { '6f7c2f11-0000-4000-8000-000000000001': { open: 2, total: 3, stray: 0 } },
     elsewhere: [],
   },
+  gists: {},
+  drafts: {},
   // A reading in the state it usually arrives in: hours old, its short window
   // long since turned over. See `console/src/usage.rs`.
   usage: {
@@ -305,6 +318,7 @@ const STATE = {
     age_ms: 4 * 3_600_000,
     five_hour: { pct: 28 },
     seven_day: { pct: 66, resets_in_ms: 54 * 3_600_000 },
+    models: [],
   },
 };
 

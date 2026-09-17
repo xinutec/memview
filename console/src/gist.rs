@@ -28,6 +28,8 @@ use tokio::io::AsyncWriteExt;
 
 /// What a conversation is about, as last written.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Gist {
     /// One sentence, as the model returned it.
     pub text: String,

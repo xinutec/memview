@@ -147,7 +147,7 @@ impl Roster {
     }
 
     /// One conversation's tasks, for the sheet that lists them.
-    pub async fn task_list(&self, session: &str) -> Vec<crate::tasks::Listed> {
+    pub async fn task_list(&self, session: &str) -> Vec<crate::tasks::Task> {
         self.tasks.listed(session).await
     }
 

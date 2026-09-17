@@ -158,6 +158,16 @@ in  { name = "memview"
         , argv = G.inDevShell [ "cargo", "test", "--workspace", "--test", "*" ]
         , timeout_s = 1800
         }
+      , {-  The console's TypeScript wire types are written from the Rust ones by
+            ts-rs (scripts/gen-types.sh); this regenerates into scratch and diffs
+            it against what is committed, so an edit to a `#[derive(TS)]` type
+            — its doc comment included — fails here until the .ts is regenerated.
+        -}
+        G.Check::{
+        , name = "generated types are current"
+        , argv = G.inDevShell [ "scripts/gen-types.sh", "--check" ]
+        , timeout_s = 900
+        }
       , {-  `--frozen-lockfile` is pnpm ci: install exactly pnpm-lock.yaml, or
             fail. The gate has to run from a clean checkout — a fresh clone, or
             the tree the fleetwatch collector runs in — not just a warm dev

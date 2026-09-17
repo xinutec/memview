@@ -72,6 +72,8 @@ pub struct Published {
 
 /// One rate-limit window, as the console shows it.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Window {
     pub pct: f64,
     /// How long until this window turns over, in milliseconds.
@@ -84,6 +86,7 @@ pub struct Window {
     /// figure is withheld here rather than drawn as though it still meant
     /// something.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub resets_in_ms: Option<i64>,
 }
 
@@ -95,6 +98,8 @@ pub struct Window {
 /// `display_name`. So the name is data — it is shown verbatim, and nothing here
 /// or downstream knows which models exist. See [`crate::protocol::usage_reply`].
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Scoped {
     /// The model's own display name, as the CLI gives it — "Fable".
     pub model: String,
@@ -104,6 +109,8 @@ pub struct Scoped {
 
 /// What the client is told.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct Reading {
     /// Which machine took it. Shown because the number is account-wide and the
     /// machine is the only part of it that is local.
@@ -116,13 +123,14 @@ pub struct Reading {
     /// rather than "reset since", and is drawn as no row rather than as a row
     /// saying something untrue.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub five_hour: Option<Window>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub seven_day: Option<Window>,
     /// The windows belonging to one model, in name order so the strip does not
     /// reshuffle between polls. Empty for a reading that came from the dashboard,
     /// which carries none — see [`merged`].
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub models: Vec<Scoped>,
 }
 
