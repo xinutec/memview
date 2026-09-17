@@ -8,8 +8,8 @@
 # and never reproduced deliberately.
 #
 # ⚠ **What was measured about freezing is NARROWER than "the freeze theory is
-# dead", which is how it first got written down.** On 2026-08-15 `am freeze
-# --sticky` for 45s with the app in FRONT left KEEP_SCREEN_ON standing — so
+# dead", which is how it first got written down.** `am freeze --sticky` with the
+# app in FRONT leaves KEEP_SCREEN_ON standing — so
 # freezing does not strip the window flag, because the flag lives in
 # WindowManager and outlives the process being stopped. It says nothing about the
 # real sequence: Android's cached-app freezer SIGSTOPs a process ~40s after
@@ -52,8 +52,8 @@ say() { printf '%s %s\n' "$(date '+%F %T')" "$1" | tee -a "$LOG"; }
 #
 # ⚠ **`mWakefulness` is NOT the display, and reading it here made the gate lie.**
 # It is the power state machine: it says `Awake` for a device that is up with its
-# screen off, which was seen directly on 2026-08-15 — the phone had gone dark and
-# locked while this reported `Awake`. That is fatal rather than merely noisy,
+# screen off, which has been seen directly — the phone dark and locked while this
+# reported `Awake`. That is fatal rather than merely noisy,
 # because `KEEP_SCREEN_ON` is 0 on EVERY window whenever the screen is off, so a
 # dark phone with the button still lit is scored as a fault every single minute.
 # `dumpsys display`'s `mScreenState` answers the question actually being asked.
@@ -66,8 +66,8 @@ watching() {
 
 # ⚠ **Only THIS app's window counts.** A plain `grep -c KEEP_SCREEN_ON` counts the
 # whole device, and the fleet is a dozen WebView wrappers with the same button:
-# `org.xinutec.heatcam` was holding one at the same moment as the console, seen
-# 2026-08-15. Any other app holding one would read as the console holding one, so
+# `org.xinutec.heatcam` has been seen holding one at the same moment as the
+# console. Any other app holding one would read as the console holding one, so
 # the watcher would go quiet on exactly the fault it exists to catch.
 #
 # `fl=` and `package=` live in the same window block, so the package last seen is
@@ -84,12 +84,11 @@ held() {
 #
 #   SCREEN_BRIGHT_WAKE_LOCK 'WindowManager/displayId:0' … ws=WorkSource{10562 org.xinutec.console}
 #
-# It was the ground truth used on 2026-08-07 to prove `navigator.wakeLock` works
-# in this WebView at all (memory `reference_android_webview_cdp`), and it needs no
-# block-pairing, so it cannot be defeated by another app the way a device-wide
-# `grep -c` is. Measured agreeing with `held` in the healthy state on 2026-08-15 —
-# ⚠ which per this repo's own hard-won rule is NOT evidence that they agree in the
-# fault state. So both are read, and a disagreement is reported as its own event
+# It is the ground truth that proved `navigator.wakeLock` works in this WebView
+# at all (memory `reference_android_webview_cdp`), and it needs no block-pairing,
+# so it cannot be defeated by another app the way a device-wide `grep -c` is. It
+# agrees with `held` in the healthy state — ⚠ which per this repo's own hard-won
+# rule is NOT evidence that they agree in the fault state. So both are read, and a disagreement is reported as its own event
 # rather than silently resolved: two instruments that part company are a finding
 # about the instruments, and believing either one alone is how the last three
 # measurement bugs here survived.

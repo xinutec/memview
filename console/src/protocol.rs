@@ -376,11 +376,11 @@ enum Line {
     /// else. Without this variant an `attachment` fell to [`Line::Other`] and
     /// produced nothing, so a replayed transcript had no trace of the message at
     /// all: it showed while the console held it live, then vanished the moment
-    /// anything re-seeded from disk. Reported 2026-08-27, three messages, and
-    /// the console was reporting the record faithfully — the record was blind.
+    /// anything re-seeded from disk. Reported from the phone, and the console
+    /// was reporting the record faithfully — the record was blind.
     ///
-    /// ⚠ **Only `queued_command`.** The corpus holds 54,566 `task_reminder`
-    /// attachments against 21,349 of these; treating every attachment as
+    /// ⚠ **Only `queued_command`.** The corpus holds more `task_reminder`
+    /// attachments than these by a wide margin; treating every attachment as
     /// something a person said would bury the conversation in machinery.
     Attachment {
         attachment: Attached,
@@ -1184,8 +1184,8 @@ pub enum ModeReply {
 /// for approval. That is the wrong direction to be wrong in, and it is the whole
 /// reason the mode is shown at all.
 ///
-/// **The shapes are measured, not assumed** — CLI 2.1.226, 2026-08-16, a
-/// throwaway session sent three requests:
+/// **The shapes are measured, not assumed** — CLI 2.1.226, a throwaway session
+/// sent three requests:
 ///
 /// ```text
 /// {"subtype":"success","request_id":"…","response":{"mode":"acceptEdits"}}
@@ -1410,11 +1410,11 @@ fn from_user(content: Content) -> Vec<Event> {
 /// - *The same words twice.* A prompt reached the CLI twice inside a millisecond
 ///   and was recorded as one message of two identical blocks. Read per block it
 ///   showed a question asked twice that was asked once, and it made somebody
-///   doubt their own memory. One occurrence, `health` 2026-08-06.
+///   doubt their own memory. One occurrence, in a `health` transcript.
 /// - *Different words.* Messages written to a session that is working are
 ///   queued, and the CLI hands over everything waiting as ONE message with a
-///   block each. Eleven occurrences across four sessions, the plainest in
-///   `recall` 2026-09-03: *Sorry, turned back on at 8:50* and *7:50 UTC* were
+///   block each. Several occurrences across several sessions, the plainest in
+///   `recall`: *Sorry, turned back on at 8:50* and *7:50 UTC* were
 ///   typed separately, minutes after the first was thought sent.
 ///
 /// This used to join every consecutive pair with a blank line, which fixed the

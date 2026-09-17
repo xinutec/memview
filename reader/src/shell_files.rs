@@ -137,7 +137,6 @@ pub struct Extract {
     /// of a knowable name and it stays on the worklist: filing it here would
     /// hide a defect behind an accounting fix. Telling `$A` from `"$A"` needs
     /// the quoting `Simple` discards, so the split belongs in `syntax/`.
-    /// Measured 2026-08-25: 27 names and 287 calls here, 8 and 503 there.
     pub from_a_variable: BTreeMap<String, usize>,
     /// Commands that were classified, whether or not they named a file.
     pub handled: usize,
@@ -770,10 +769,9 @@ fn turned_down(argv: &[String], refused: &[String]) -> bool {
 /// Whether this `cd` would enter a directory the line says it is already in.
 ///
 /// ⚠ **The rule that makes the transcript's `cwd` usable without settling what
-/// it means.** Measured 2026-08-12 over 191,273 `Bash` calls in 40 transcripts:
-/// on single-call lines beginning with a relative `cd X`, **168** have the
-/// directory the command *started* in and **84** have the one it *ended* in —
-/// both readings, in the same transcript, at the same CLI version, on lines that
+/// it means.** On single-call lines beginning with a relative `cd X`, some have
+/// the directory the command *started* in and some the one it *ended* in — both
+/// readings, in the same transcript, at the same CLI version, on lines that
 /// are not rewritten copies. So the field carries both meanings and no property
 /// of the line tells them apart (memview #449).
 ///
@@ -1198,10 +1196,9 @@ fn extract_nested(
                 // nobody taught the table** — it is one nobody ever could, since
                 // `probe` is a different function in every script that declares
                 // one. `unhandled` is the worklist, and the list built from it
-                // says what to read next; 2,493 of 18,083 unread calls (13.8%,
-                // 78 names) were this, the largest single category on it, and
-                // every one of them work that cannot be done. Measured
-                // 2026-08-23 by `--example defined-here`. memview#1124.
+                // says what to read next; this was the largest single category
+                // on it, and every one of them work that cannot be done. Count
+                // them with `--example defined-here`. memview#1124.
                 //
                 // ⚠ **Counted, never dropped.** Its own field, because the file
                 // work in the body IS recorded — at the definition, under
@@ -1464,9 +1461,9 @@ fn ranging(
 /// there is no wildcard to be greedy with, so it is the same truncation and gets
 /// the same claim, not a wider one.
 ///
-/// Worth 27 of the 30 subjects in the corpus that derive from a name a glob
-/// actually bound, measured 2026-08-24 — nearly all of them `for d in */` with
-/// `"${d%/}/…"` after it.
+/// Nearly every subject in the corpus that derives from a name a glob actually
+/// bound comes through here, almost all of them `for d in */` with `"${d%/}/…"`
+/// after it.
 fn truncation(word: &str, name: &str, pattern: &str) -> Option<(String, String)> {
     let open = format!("${{{name}%");
     let at = word.find(&open)?;
@@ -1594,8 +1591,8 @@ fn locus_of(word: &str, cwd: Option<&str>, home: &str) -> Option<String> {
     // ⚠ **Before the whitespace guard, because a generator is nothing but
     // whitespace.** `$(find . -name '*.ts')` is a walk over a directory the text
     // names, and the guard below exists to keep jq filters out — it would throw
-    // this away with them. 251 of the corpus's 273 located sets, measured
-    // 2026-08-24 by `--example located-sets`.
+    // this away with them. Nearly every located set in the corpus is one of
+    // these; count them with `--example located-sets`.
     if let Some(dir) = generated_in(word) {
         return resolve(dir, cwd, home);
     }

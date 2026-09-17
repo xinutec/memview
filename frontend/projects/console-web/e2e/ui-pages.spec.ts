@@ -43,8 +43,8 @@ const THUMB = 48;
  * `scale(0.8)` to `scale(1)` over 120ms, and `getBoundingClientRect` maps
  * through that, so every 48px menu item inside is genuinely 38px early in the
  * window and 47.99px in the last frame of it. Both read as a control too small
- * to hit, and neither is: measured 2026-08-12, `expectThumbTargets` failed 6/6
- * on an open menu with the CPU throttled 8× and passes 6/6 with this wait
+ * to hit, and neither is: with the CPU throttled, `expectThumbTargets` fails on
+ * an open menu every time without this wait and passes every time with it
  * (memview #735).
  *
  * ⚠ **This is not "wait for the overlay to be ready".** Nothing running means it
@@ -1082,9 +1082,8 @@ test('transcript — tool arguments and a fixed composer @ phone width', async (
  * ⚠ **Anchored to the run's own clock, and it has to be.** `byDay` names a day
  * `Today` or `Yesterday` by comparing `toDateString()` against `Date.now()`, so a
  * fixture pinned to absolute dates passes on the day it is written and fails
- * every day after — which is what happened: `Date.UTC(2026, 7, 11)` and
- * `(2026, 7, 12)` read as Yesterday and Today on 2026-08-12 and as neither on the
- * 13th. Local rather than UTC for the same reason `byDay` is local: the two must
+ * every day after — which is what happened. Local rather than UTC for the same
+ * reason `byDay` is local: the two must
  * agree about which calendar day a moment falls on, or the test asserts against a
  * grouping the app would never produce.
  */
@@ -1235,7 +1234,7 @@ test('a picture waits to be sent with what is said about it @ phone width', asyn
 test('a command waiting for the turn says so, and can be taken back @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **Measured 2026-08-08 against CLI 2.1.221/226.** A slash command written
+  // ⚠ **Measured against CLI 2.1.221/226.** A slash command written
   // to a working session is not run: the CLI parks it as a `queued_command` with
   // `commandMode: "prompt"` and hands it to the MODEL as words. `/rename` sent
   // from the phone got "Noted the rename (CLI-side, nothing for me to do)" and
@@ -1273,7 +1272,7 @@ test('a command waiting for the turn says so, and can be taken back @ phone widt
 });
 
 test('what is being written survives leaving the conversation @ phone width', async ({ page }) => {
-  // Reported 2026-08-06: typed words and a chosen picture were lost on going up
+  // Reported from the phone: typed words and a chosen picture were lost going up
   // to the list and coming back. The picture is the expensive half — it cost a
   // scale of a phone photograph — and the words are the half nobody wants to
   // type twice on a phone.
@@ -1483,7 +1482,7 @@ const DECIDING = [
 test('a call waiting to be allowed is one widget, not two @ phone width', async ({
   page,
 }, testInfo) => {
-  // ⚠ **Reported 2026-08-06, diagnosed 2026-08-11 by driving a real session.**
+  // ⚠ **Reported from the phone, diagnosed by driving a real session.**
   // The CLI emits `tool toolu_…` and then `ask …` about the same call, and the
   // console drew both: a tool row AND a permission card for one Write. The card
   // also sat between the calls either side of it, so a sequence of decided calls
@@ -1903,8 +1902,8 @@ test('scrolling to the top fetches what came before it @ phone width', async ({ 
   // top, which is what a reader travelling backwards through a morning does.
   // ⚠ **`if (box)` made a missing container look like a successful scroll**, and
   // the failure then surfaced 5s later as `asked` never reaching 1 — the poll
-  // below, not the line that did nothing. Diagnosed 2026-09-15 from the
-  // nightly's preserved screenshot (#1545's artifact keeping): the viewport was
+  // below, not the line that did nothing. Diagnosed from the nightly's preserved
+  // screenshot (#1545's artifact keeping): the viewport was
   // still at messages 33-40, the BOTTOM of the seeded page, so no top was ever
   // reached and no older page was ever asked for. `messages` had the same
   // silent helper, written separately, and failed the same way.
@@ -2162,10 +2161,10 @@ test('the transcript keeps following through a thumb resting on it @ phone width
 test('the transcript picks a reader up again when they scroll back to the end @ phone width', async ({
   page,
 }) => {
-  // ⚠ **Reported from the phone, 2026-08-11**: reaching the very end by hand and
-  // sitting there, with the session still writing, left the page not following —
-  // `gap=1 top=136287` and still declining to write, then 58 and 82 as the
-  // conversation grew under a reader who had not moved. Once away, every move is
+  // ⚠ **Reported from the phone**: reaching the very end by hand and sitting
+  // there, with the session still writing, left the page not following — a gap of
+  // a pixel and still declining to write, then widening as the conversation grew
+  // under a reader who had not moved. Once away, every move is
   // theirs, INCLUDING the one that comes back; the unit tests say so and nothing
   // said it through a real gesture.
   await handControlOfTheStream(page);
@@ -4118,7 +4117,7 @@ test('a session that has stopped reading names it, with the cure @ phone width',
 }, testInfo) => {
   // ⚠ **The row this replaces said the ordinary thing.** A deaf session's
   // messages carry the same *waiting to be read* marker as a busy session's, so
-  // both of 2026-08-08's episodes cost a diagnosis by hand. This is the banner
+  // both episodes of it cost a diagnosis by hand. This is the banner
   // that says which it is — see `session::Session::deaf`.
   //
   // At phone width because that is where it has to fit: a sentence, a duration
@@ -4185,7 +4184,7 @@ test('the verdict becomes the plain one once the session acts on it @ phone widt
 test('a working session can be renamed from the menu @ phone width', async ({ page }, testInfo) => {
   // ⚠ **`/rename` cannot do this.** A slash command sent to a busy session is
   // parked and released as a prompt, so the model reads the words and the name
-  // never changes — measured 2026-08-08. This route is a control request, which
+  // never changes. This route is a control request, which
   // the CLI answers mid-turn.
   let sent: Record<string, unknown> | undefined;
   await mockRunner(page);
@@ -4391,7 +4390,7 @@ test('the permission modes are one row that opens a sheet @ phone width', async 
   await expect(page.getByRole('menuitem', { name: /Asks permission/ })).toBeVisible();
   // ⚠ **Rename must not wear the `acceptEdits` pencil**, which is the row
   // directly below it — the same glyph a thumb apart, meaning two unrelated
-  // things. Reported from the phone 2026-08-08.
+  // things. Reported from the phone.
   const icon = (name: RegExp) =>
     page.getByRole('menuitem', { name }).locator('mat-icon').first().textContent();
   expect(await icon(/Rename/)).not.toBe(await icon(/Asks permission/));

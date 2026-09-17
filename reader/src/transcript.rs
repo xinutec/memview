@@ -78,8 +78,8 @@ pub const AS_ACTOR: [&NameLine; 2] = [&AGENT_NAME, &CUSTOM_TITLE];
 
 // ⚠ **THE TWO CRATES DISAGREED, AND THE ANSWER IS THAT BOTH WERE RIGHT.** The
 // console preferred `custom-title`, the viewer `agent-name`, each with a
-// confident rationale, and the rationales were opposite. Resolved 2026-08-07 by
-// reading the CLI rather than by choosing: **it carries both orders, split by
+// confident rationale, and the rationales were opposite. Resolved by reading the
+// CLI rather than by choosing: **it carries both orders, split by
 // what the name is for.** From the 2.1.221 binary —
 //
 //     the session labeller: agentName || customTitle || aiTitle || summary
@@ -161,11 +161,11 @@ pub const CONVERSATION_TYPES: [&str; 4] = ["assistant", "user", "attachment", "s
 /// `pr-link` entirely, and an unknown type is indistinguishable from a corrupt
 /// one, so the omission would have been reported as damage.
 ///
-/// ⚠ **`atis-latch` arrived 2026-09-15 and is that same lesson a second time.**
-/// The harness began writing `{type, atis, sessionId}` — no identity, like
-/// everything else here — and because this list did not name it, every one read
-/// as damage: 175 records across all 78 transcripts, still climbing while live
-/// sessions wrote more. It is the ONLY unknown type in the corpus, and the cost
+/// ⚠ **`atis-latch` is that same lesson a second time.** The harness began
+/// writing `{type, atis, sessionId}` — no identity, like everything else here —
+/// and because this list did not name it, every one read as damage, across every
+/// transcript and still climbing while live sessions wrote more. It is the ONLY
+/// unknown type in the corpus, and the cost
 /// was that `transcript-lint` failed for any session whose OWN transcript held
 /// one, which by then was every session. The nightly alone was exempt, having
 /// no session to call its own — the asymmetry #1546 built deliberately.
@@ -630,9 +630,9 @@ fn cycles(parent_of: &HashMap<String, String>) -> Vec<Violation> {
 ///
 /// ⚠ **This paragraph described the nightly for three weeks while the code did
 /// the opposite** (memview#1546). `None => damaged` made `verify/memview` red
-/// from 2026-08-20 over two unrepairable files, hiding the 19 checks that do
-/// test the code. Two damaged transcripts exist and always will, so that branch
-/// could not go green — the failure mode this very docstring names.
+/// over two unrepairable files, hiding every check that does test the code.
+/// Damaged transcripts exist and always will, so that branch could not go
+/// green — the failure mode this very docstring names.
 ///
 /// ⚠ **The cost, said plainly: outside a session damage can no longer turn this
 /// check red.** That is deliberate but it is not free — a check that cannot fail
@@ -659,8 +659,8 @@ pub struct Turn {
     /// ⚠ **For a queued turn this is when it was ENQUEUED, not delivered.** The
     /// attachment repeats the enqueue's stamp inside itself while the row's own
     /// stamp is when the running turn consumed it — and the gap between them is
-    /// real: 2026-08-27 saw five minutes. Taking the row's stamp would date a
-    /// message to when the model got round to it.
+    /// real, running to minutes. Taking the row's stamp would date a message to
+    /// when the model got round to it.
     pub at: String,
     /// What the person typed, with the wrappers the CLI adds taken off.
     pub text: String,
@@ -684,10 +684,10 @@ pub struct Turn {
 ///    into user messages and are not what the person typed.
 /// 5. **A `queued_command` attachment IS a human turn.** A message typed while
 ///    the session is working is queued and handed to the running turn; the text
-///    lives in an `attachment` row, never in a `user` one. 21,349 of them in the
-///    corpus on 2026-08-27 — and reading only `user` rows that day produced a
-///    confident report that three of Pippijn's messages had been LOST when they
-///    had been delivered normally.
+///    lives in an `attachment` row, never in a `user` one. There are tens of
+///    thousands in the corpus, and reading only `user` rows once produced a
+///    confident report that messages of Pippijn's had been LOST when they had
+///    been delivered normally.
 pub fn human_turns(bytes: &[u8]) -> Vec<Turn> {
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut out = Vec::new();
