@@ -14,29 +14,16 @@ export interface Renaming {
   readonly id: string;
   readonly title: string;
   /**
-   * A few words a model wrote for this conversation, when there are any.
-   *
-   * The second line of the gist call — so it costs nothing to have here, and it
-   * is exactly as much of a guess as the sentence on the card. Absent for a
-   * conversation with no gist yet, and for one whose gist predates the second
-   * line.
+   * A few words a model wrote for this conversation, when there are any — the
+   * second line of the gist call, and exactly as much of a guess.
    */
   readonly suggestion?: string;
 }
 
 /**
  * The suggestion to show, given what a model wrote and what the box says now.
- *
- * ⚠ **Withheld once it is what the box already says.** Offering a suggestion
- * that has been taken invites a second tap that does nothing, and a control that
- * does nothing reads as a control that is broken. Compared trimmed, because the
- * box is what the person has been typing in and a trailing space is not a
- * different name.
- *
- * ⚠ **Also withheld when it matches the name the conversation already has** —
- * that falls out of the same comparison, since the box opens holding it. A
- * session whose name a model would have chosen anyway is the one case where a
- * suggestion is certain to be useless.
+ * Withheld once it is what the box already says — a control that does nothing
+ * reads as broken — which also covers the name the conversation already has.
  */
 export function offered(suggestion: string | undefined, current: string): string | undefined {
   const name = suggestion?.trim();
@@ -44,18 +31,10 @@ export function offered(suggestion: string | undefined, current: string): string
 }
 
 /**
- * Name a conversation, from the session it is about.
- *
- * **Why the console needs this at all, when the CLI has `/rename`.** A slash
- * command is *input*: written to stdin, parked by the CLI when it arrives
- * mid-turn, and released as a **prompt**. So a rename sent to a working session
- * reaches the model as words — measured on a working session, where the agent
- * replied "Noted the rename (CLI-side, nothing for me to do)" and no name was
- * ever written. A
- * console whose sessions are usually working needs the other channel.
- *
- * A sheet, like starting a session: one field and one button, and it dismisses
- * itself so the answer arrives on the list behind it.
+ * Name a conversation. The console needs this because `/rename` is input: sent
+ * to a working session it is parked and released as a prompt the model reads
+ * as words ("nothing for me to do"). A sheet: one field, one button, dismisses
+ * itself.
  */
 @Component({
   selector: 'app-rename-sheet',
@@ -68,11 +47,10 @@ export class RenameSheet {
   private api = inject(ConsoleApi);
   private sheet = inject(MatBottomSheetRef<RenameSheet>);
 
-  /** Prefilled with what it is called, because renaming is usually editing.
-   *
-   *  ⚠ Empty for a session that has never been named — the list shows
-   *  `Code · 3f8a1c2b` for one of those, and prefilling an id somebody then has
-   *  to clear is worse than an empty box. */
+  /**
+   * Prefilled with what it is called. Empty for a session never named: the list
+   * shows `Code · 3f8a1c2b`, and prefilling an id to clear is worse than an empty box.
+   */
   protected readonly title = signal(this.given.title);
   protected readonly saving = signal(false);
   protected readonly trouble = signal('');
@@ -91,11 +69,8 @@ export class RenameSheet {
     this.saving.set(true);
     this.trouble.set('');
     this.api.rename(this.given.id, title).subscribe({
-      // ⚠ **Nothing is set from the response.** The CLI writes the new name to
-      // the transcript and the runner reads names from there, so it arrives on
-      // the next poll rather than in this answer — and reporting the requested
-      // name as the session's would be the console describing its own intent,
-      // which is the defect five of this project's tasks were about.
+      // Nothing is set from the response: the CLI writes the name to the transcript
+      // and the runner reads it from there, so it arrives on the next poll.
       next: () => this.sheet.dismiss(),
       error: (err: unknown) => {
         this.saving.set(false);

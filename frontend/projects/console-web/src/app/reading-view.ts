@@ -21,17 +21,9 @@ interface Shape {
 const HAIRLINE = 0.006;
 
 /**
- * What the reader makes of every shell command the fleet has run.
- *
- * ⚠ **Its own screen, because it is not what the console is for.** This began as
- * a strip above the session list, where it was the second thing on a page whose
- * job is the conversations — and it is not urgent, not about any session, and
- * read at most once a day. Everything else on that page answers *what should I
- * do now*; this answers *what has been done, ever*, which is a question you go
- * looking for rather than one that should be in the way.
- *
- * The name is the viewer's — one thing should not have two names across two
- * apps, and `/reader` there shows the same artefact from the same mine.
+ * What the reader makes of every shell command the fleet has run. Its own
+ * screen: not urgent, not about any session, and read at most once a day.
+ * `/reader` in the viewer shows the same artefact.
  */
 @Component({
   selector: 'app-reading-view',
@@ -72,12 +64,8 @@ export class ReadingView implements OnDestroy {
   }
 
   /**
-   * Every shape, not the head of them.
-   *
-   * ⚠ **The strip this replaced showed five**, which was right for something
-   * read on the way past and wrong here: a page somebody navigated to should not
-   * make them wonder what the other sixteen were. The tail is where `not
-   * understood` lives, which is the number the rest of the page is qualified by.
+   * Every shape, not the head of them: the tail is where `not understood` lives,
+   * which is the number the rest of the page is qualified by.
    */
   readonly shapes = computed<Shape[]>(() => {
     const got = this.reading();

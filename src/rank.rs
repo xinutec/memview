@@ -1,28 +1,10 @@
-//! Ranking for the memory search.
+//! Ranking for the memory search: tokenise, require every term, order by BM25.
 //!
-//! The search this replaces was a literal substring match over name, description
-//! and body, scored `name*4 + description*2 + body*1`. Both halves of that failed,
-//! and the second one failed silently.
-//!
-//! **Multi-word queries returned nothing at all.** `"launchd TCC external volume"`
-//! found zero memories — while a memory named
-//! `reference_launchd_tcc_external_volume` sat in the corpus — because those words
-//! never appear contiguously. Measured over seven realistic multi-word queries,
-//! six returned zero hits. A reader who types more than one word to narrow a
-//! search got fewer results the more precisely they described what they wanted,
-//! which is the exact opposite of the intended behaviour.
-//!
-//! **Single-word queries returned everything, in alphabetical order.** Only seven
-//! scores are possible, so a term appearing in the body of forty memories put all
-//! forty in one bucket, broken alphabetically: `"launchd"` returned 30 hits of
-//! which 27 tied, ordered by nothing but the first letter of the filename.
-//!
-//! So: tokenise and require every term, then order by **BM25**. Raw term
-//! frequency ranks the longest memories, and the long ones here are the project
-//! notes, not the rules. BM25 saturates term frequency and normalises for length,
-//! and its IDF term is what makes a multi-word query work: in "restic offsite
-//! pull", "pull" is everywhere and "restic" is not, and the rare word should
-//! decide.
+//! The substring match this replaced failed both ways: multi-word queries
+//! returned nothing (six of seven realistic ones), since the words never appear
+//! contiguously, and single-word queries returned everything in alphabetical
+//! order, since only seven scores were possible. BM25 saturates term frequency,
+//! normalises for length, and its IDF lets the rare word decide.
 use std::collections::HashMap;
 
 use crate::couse::Usage;
@@ -32,55 +14,30 @@ const K1: f64 = 1.2;
 /// Length normalisation, 0 = off, 1 = full. The standard 0.75.
 const B: f64 = 0.75;
 
-/// How much a term in the memory's NAME counts over one in its body.
-///
-/// The name is chosen, not written — `reference_launchd_tcc_external_volume`
-/// is a deliberate statement of what the document is about, where the body may
-/// mention launchd once in passing. Large, but not so large that a filename
-/// keyword beats a memory that genuinely covers the subject.
+/// How much a term in the memory's NAME counts over one in its body: the name is
+/// chosen, not written. Large, but not so large that a filename keyword beats a
+/// memory that genuinely covers the subject.
 const NAME_BOOST: f64 = 3.0;
 
 /// The description is also chosen, and is a summary rather than a title.
 const DESC_BOOST: f64 = 2.0;
 
-/// Bonus for the query's terms appearing adjacently, as typed.
-///
-/// A memory containing "protocol version mismatch" answers better than one
-/// mentioning protocols in one paragraph and versions in another. Multiplied
-/// rather than added so it scales with the underlying relevance.
+/// Bonus for the query's terms appearing adjacently, as typed. Multiplied rather
+/// than added, so it scales with the underlying relevance.
 const PHRASE_BOOST: f64 = 1.8;
 
-/// How much a prefix-only match counts against an exact one.
-///
-/// "backup" should find "backups", but should not find "background" as eagerly
-/// as it finds "backu". Weighting rather than forbidding keeps the forgiving
-/// behaviour while stopping a short term from scoring on every long word that
-/// happens to start the same way.
+/// How much a prefix-only match counts against an exact one: "backup" should
+/// find "backups" but not "background" as eagerly.
 const PREFIX_WEIGHT: f64 = 0.45;
 
-/// Most-used memories get at most this multiplier over never-used ones.
-///
-/// Deliberately mild, and a tiebreaker rather than a ranking. What the reader
-/// asked for comes first; how much the work leans on a memory only separates
-/// answers that are otherwise comparable. Anything stronger would bury a
-/// precise answer under a popular one, which is how a search stops being a
-/// search and becomes a list of favourites.
+/// Most-used memories get at most this multiplier over never-used ones. Mild: a
+/// tiebreaker, or a search becomes a list of favourites.
 const PRIOR_MAX: f64 = 0.35;
 
 /// A term as searched: lowercase, alphanumeric, plus the joined form of any
-/// hyphenated compound.
-///
-/// The join is what makes `"one-way VPN peer"` find `project_mac_oneway_vpn`.
-/// Without it the query yields `["one", "way", "vpn", "peer"]` while the memory's
-/// own name yields `["project", "mac", "oneway", "vpn"]` — so the two spellings of
-/// one concept never meet, the name boost never fires for the very thing being
-/// searched for, and the memory ranked fourth behind three that merely mention
-/// VPNs. Applied to documents and queries alike, so `one-way` and `oneway` are
-/// the same term whichever side writes which.
-///
-/// Hyphens only. Splitting on every separator and joining those too would fuse
-/// `mysql.proc` into `mysqlproc` and glue sentences together across full stops,
-/// inventing terms nobody wrote.
+/// hyphenated compound — what makes `"one-way VPN peer"` find
+/// `project_mac_oneway_vpn`. Hyphens only: splitting on every separator would
+/// fuse `mysql.proc` into `mysqlproc`.
 pub fn tokenize(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     for run in text.split(|c: char| !c.is_alphanumeric() && c != '-') {
@@ -143,21 +100,15 @@ pub struct Scored {
     pub score: f64,
 }
 
-/// How much the usage prior lifts one memory, in `[1, 1 + PRIOR_MAX]`.
-///
-/// Breadth of sessions rather than raw mentions: a memory hammered through one
-/// long week is not more load-bearing than one consulted quietly in twenty
-/// separate pieces of work, and mention counts are dominated by the former.
+/// How much the usage prior lifts one memory, in `[1, 1 + PRIOR_MAX]`. Breadth
+/// of sessions rather than raw mentions.
 fn prior(usage: Option<&Usage>) -> f64 {
     let Some(u) = usage else { return 1.0 };
     1.0 + PRIOR_MAX * (u.sessions as f64).sqrt().min(3.6) / 3.6
 }
 
-/// Score every memory against `query`, best first.
-///
-/// Returns an empty vec when nothing carries every term — the caller decides
-/// whether to relax, and must say so if it does. A search that quietly widens
-/// its own query reports loose matches as though they were what was asked for.
+/// Score every memory against `query`, best first. Empty when nothing carries
+/// every term — the caller decides whether to relax, and must say so.
 pub fn rank(docs: &[Doc<'_>], query: &str, require_all: bool) -> Vec<Scored> {
     let terms = tokenize(query);
     if terms.is_empty() || docs.is_empty() {
@@ -165,23 +116,15 @@ pub fn rank(docs: &[Doc<'_>], query: &str, require_all: bool) -> Vec<Scored> {
     }
     let phrase = query.trim().to_lowercase();
 
-    // Pass one, over EVERY doc: pick the candidates and, in the same sweep, count
-    // how many memories in the whole corpus carry each term.
-    //
-    // Document frequency MUST be corpus-wide. Measured over the candidates it is
-    // degenerate by construction — requiring every term guarantees every candidate
-    // has every term, so df == n, idf collapses to a constant, and the rarity
-    // signal that motivated BM25 silently stops existing. "restic" is rare and
-    // "pull" is common as a fact about the corpus, not about the five memories
-    // that mention both.
+    // Pass one, over EVERY doc: pick the candidates and count corpus-wide document
+    // frequency in the same sweep. It MUST be corpus-wide: over the candidates
+    // df == n and the idf collapses to a constant.
     let mut df: HashMap<&str, usize> = HashMap::new();
     let mut candidates: Vec<usize> = Vec::new();
     for (i, doc) in docs.iter().enumerate() {
         let hay = format!("{} {} {}", doc.name, doc.description, doc.body).to_lowercase();
         // Hyphens stripped as well, so the joined form of a compound survives the
-        // prefilter: a memory that writes "one-way" does not contain the
-        // substring "oneway", and without this the tokeniser's joined term would
-        // be admitted by nothing and the whole query would fail the AND.
+        // prefilter.
         let joined = hay.replace('-', "");
         let mut all = true;
         let mut any = false;
@@ -239,24 +182,22 @@ pub fn rank(docs: &[Doc<'_>], query: &str, require_all: bool) -> Vec<Scored> {
                 continue;
             }
             matched_any = true;
-            // Standard BM25 IDF with +0.5 smoothing, floored at zero: a term in
-            // more than half the corpus would otherwise score negative and push
-            // good matches down.
+            // Standard BM25 IDF with +0.5 smoothing, floored at zero: a term in more than
+            // half the corpus would otherwise score negative.
             let d = *df.get(term.as_str()).unwrap_or(&0) as f64;
             let idf = (((n - d + 0.5) / (d + 0.5)) + 1.0).ln().max(0.0);
             let norm = 1.0 - B + B * (t.len as f64 / avg_len);
             score += idf * (tf * (K1 + 1.0)) / (tf + K1 * norm);
         }
 
-        // The substring prefilter is looser than the prefix-token rule used for
-        // scoring — "vpn" sits inside "advpn" — so a candidate can reach here
-        // with no scoring hit at all.
+        // The substring prefilter is looser than the scoring rule — "vpn" sits inside
+        // "advpn" — so a candidate can reach here with no scoring hit.
         if !matched_any {
             continue;
         }
 
-        // The terms as typed, adjacent. Checked on the raw text rather than the
-        // tokens so punctuation inside a phrase ("mysql.proc") still counts.
+        // The terms as typed, adjacent, checked on the raw text so punctuation inside a
+        // phrase still counts.
         if terms.len() > 1
             && (doc.name.to_lowercase().contains(&phrase)
                 || doc.description.to_lowercase().contains(&phrase)

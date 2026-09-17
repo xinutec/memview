@@ -3,7 +3,6 @@ import type { Timed } from "./Timed";
 
 export type Page = { events: Array<Timed>, 
 /**
- * The cursor for the page before this one. Zero means the start of the
- * transcript: there is nothing older.
+ * The cursor for the page before this one. Zero means the start.
  */
 from: number, };

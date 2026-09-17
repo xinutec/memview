@@ -2,30 +2,16 @@ import { Pipe, PipeTransform, SecurityContext, inject } from '@angular/core';
 import { DomSanitizer } from '@angular/platform-browser';
 
 /**
- * Tool output as the terminal would have drawn it.
+ * Tool output as the terminal would have drawn it. Much of what the fleet runs
+ * prints in colour, and with nothing reading the codes a test summary arrived
+ * as `[2m Test Files [22m [1m[32m22 passed[39m` — unreadable on a phone.
  *
- * The console shows what a command printed, and a great deal of what the fleet
- * runs prints in colour: `cargo`, `vitest`, `playwright`, `git`, `eslint`. With
- * nothing reading those codes the ESC byte is invisible and the rest is not, so
- * a test summary arrived on the phone as
- * `[2m Test Files [22m [1m[32m22 passed[39m[22m[90m (22)[39m` — the numbers
- * are all there and the line is unreadable, which on a four-inch screen is the
- * same as absent.
+ * Classes, not inline styles: Angular's sanitiser strips `style`, and the
+ * classes in `entry-row.scss` follow the theme in light and dark.
  *
- * ## Classes, not inline styles
- *
- * Angular's sanitiser strips a `style` attribute, so a colour written that way
- * would arrive as plain text with extra markup around it and no colour at all.
- * The classes here are defined in `session-view.scss` against the theme, which
- * is also what lets the same output stay legible in light and dark.
- *
- * ## Escaped first, and by us
- *
- * A tool result is a file, a web page, or a model's words — not a threat model,
- * but not ours either. The text is HTML-escaped before any span is added, and
- * the result still goes through `SecurityContext.HTML` on the way out.
- * `bypassSecurityTrustHtml` would also have compiled, and is exactly the thing
- * this must not do.
+ * Escaped first, by us: the text is HTML-escaped before any span is added and
+ * still goes through `SecurityContext.HTML` on the way out.
+ * `bypassSecurityTrustHtml` is exactly the thing this must not do.
  */
 @Pipe({ name: 'coloured' })
 export class Coloured implements PipeTransform {
@@ -38,14 +24,9 @@ export class Coloured implements PipeTransform {
 }
 
 /**
- * The class prefixes, as literal strings on purpose.
- *
- * ⚠ **A dynamically-completed family is dead to a static checker unless it can
- * see the stem.** `DL-ANGULAR-DEAD-STYLE` reads what the templates and TS
- * reference and reports SCSS nothing uses; these classes are built here from a
- * number, so the rule found sixteen dead rules until the names carried a prefix
- * it could match. Working with that rather than waiving it is also the better
- * name: `ansi-fg-1` says what it is where `fg1` did not.
+ * The class prefixes, as literal strings: `DL-ANGULAR-DEAD-STYLE` reads what the
+ * templates and TS reference, and a family completed from a number is dead to
+ * it unless it can see the stem.
  */
 const FG = 'ansi-fg-';
 const BG = 'ansi-bg-';
@@ -58,17 +39,12 @@ const OVERWRITTEN = /^.*\r(?!\n)/gm;
 
 /**
  * Text with its SGR codes turned into spans and its other escapes removed.
- *
- * Separate from the pipe so it can be tested without Angular's injector, and
- * because what it does — read a byte stream, keep only what it can account for —
- * is the same discipline as the rest of this repo.
+ * Separate from the pipe so it can be tested without Angular's injector.
  */
 export function colour(text: string): string {
-  // ⚠ **Before anything else, and on the whole string.** A `\r` that survives
-  // into the output is drawn as nothing and leaves the overwritten text behind
-  // it: a `cargo` build then reads as a hundred progress bars stacked up. The
-  // negative lookahead keeps `\r\n`, which is a line ending and overwrites
-  // nothing.
+  // Before anything else, on the whole string: a `\r` that survives is drawn as
+  // nothing and leaves the overwritten text behind it, so a `cargo` build reads as
+  // a hundred progress bars. The lookahead keeps `\r\n`.
   const lines = text.replace(OVERWRITTEN, '');
 
   let html = '';
@@ -89,9 +65,8 @@ export function colour(text: string): string {
     write(lines.slice(at, index));
     at = index + found[0].length;
 
-    // Only SGR — `ESC [ … m` — says anything about how the text looks. Every
-    // other sequence moves a cursor or talks to the terminal emulator, and this
-    // is not one: dropping them is the whole of what they mean here.
+    // Only SGR — `ESC [ … m` — says anything about how the text looks; the rest
+    // moves a cursor, and this is not one.
     const sgr = /^\x1b\[([0-9;]*)m$/.exec(found[0]);
     if (!sgr) continue;
 
@@ -105,9 +80,8 @@ export function colour(text: string): string {
     }
   }
   write(lines.slice(at));
-  // ⚠ **A run left open would colour the rest of the page.** Output arrives
-  // truncated as a matter of course — the entry carries `cut` to say so — and
-  // the last thing in it is very often a code with no reset after it.
+  // A run left open would colour the rest of the page, and output arrives
+  // truncated as a matter of course.
   close();
   return html;
 }
@@ -119,10 +93,9 @@ function restyled(active: string[], parameters: string): string[] {
   let next = [...active];
   for (let i = 0; i < codes.length; i++) {
     const code = codes[i];
-    // ⚠ **Skipped WHOLE, never read one number at a time.** `38;5;196` is one
-    // instruction; taking `38` and then reading `5` and `196` as codes of their
-    // own sets a different colour and an unrelated attribute, and looks
-    // deliberate. Extended colour is not drawn here, so it is stepped over.
+    // Skipped WHOLE: `38;5;196` is one instruction, and read a number at a time it
+    // sets a different colour and an unrelated attribute. Extended colour is not
+    // drawn here.
     if (code === 38 || code === 48) {
       i += codes[i + 1] === 5 ? 2 : codes[i + 1] === 2 ? 4 : 0;
       continue;
@@ -133,12 +106,9 @@ function restyled(active: string[], parameters: string): string[] {
 }
 
 /**
- * One SGR code against the classes in force.
- *
- * ⚠ **The classes are numbered as the palette is** — 0 black through 7 white,
- * 8-15 the bright set — so the arithmetic is `code - 30`, not `code - 29`. An
- * off-by-one here does not fail: it silently draws every colour as its
- * neighbour, and red reads as green.
+ * One SGR code against the classes in force. The classes are numbered as the
+ * palette is, so the arithmetic is `code - 30`; an off-by-one silently draws
+ * red as green.
  */
 function applied(active: string[], code: number): string[] {
   const without = (...classes: string[]) => active.filter((it) => !classes.includes(it));
@@ -169,9 +139,8 @@ function applied(active: string[], code: number): string[] {
       return [...active.filter((it) => !it.startsWith(FG)), `${FG}${code - 30}`];
     case code >= 40 && code <= 47:
       return [...active.filter((it) => !it.startsWith(BG)), `${BG}${code - 40}`];
-    // The bright set is eight more shades, not the ordinary eight in bold: read
-    // as bold, `90` — the grey every build log dims its noise with — comes out
-    // as heavy black, which is the opposite emphasis.
+    // The bright set is eight more shades, not the ordinary eight in bold: read as
+    // bold, `90` — the grey every build log dims its noise with — comes out heavy black.
     case code >= 90 && code <= 97:
       return [...active.filter((it) => !it.startsWith(FG)), `${FG}${code - 82}`];
     case code >= 100 && code <= 107:

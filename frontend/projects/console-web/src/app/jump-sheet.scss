@@ -1,9 +1,8 @@
 :host {
   display: block;
-  // ⚠ **No height cap and no scroller here** — `mat-bottom-sheet-container`
-  // already caps and scrolls, and a second scrolling region inside the first is
-  // how a swipe stops working (DL-ANGULAR-NESTED-SCROLLER). This list runs to
-  // thousands of rows on a long conversation, so the temptation is real.
+  // No height cap and no scroller: `mat-bottom-sheet-container` already caps and
+  // scrolls, and a nested scroller is how a swipe stops working
+  // (DL-ANGULAR-NESTED-SCROLLER).
 }
 
 .who {
@@ -85,9 +84,8 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-// One line, cut with an ellipsis. ⚠ **Not `overflow-wrap: anywhere`** — that
-// collapses a grid column to its longest word here (DL-CSS-ANYWHERE), and a
-// pasted path or a URL is exactly what a first line often is.
+// One line, cut with an ellipsis. Not `overflow-wrap: anywhere`, which
+// collapses a grid column to its longest word (DL-CSS-ANYWHERE).
 .said {
   flex: 1 1 auto;
   min-width: 0;

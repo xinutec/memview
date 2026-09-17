@@ -1,16 +1,10 @@
 import { Pipe, PipeTransform } from '@angular/core';
 
 /**
- * The time of day something happened, in the reader's own timezone.
- *
- * Hours and minutes only. Which *day* is answered by the date [[fold]] puts
- * between entries when the conversation crosses midnight, so repeating it on
- * every line would be noise on a screen that has none to spare.
- *
- * A pipe rather than a method, deliberately: the template reads this for every
- * entry on every change-detection pass, and a method would re-format the whole
- * conversation each time. A pure pipe is memoised on its input, and this one's
- * answer never changes for a given input — it asks nothing about now.
+ * The time of day something happened, in the reader's own timezone. Hours and
+ * minutes only: the day is the divider [[fold]] puts between entries. A pure
+ * pipe, memoised on its input, so a change-detection pass does not re-format
+ * the whole conversation.
  */
 @Pipe({ name: 'clock' })
 export class Clock implements PipeTransform {

@@ -1,26 +1,13 @@
-//! Which named Claude session works on which part of the codebase.
+//! Which named Claude session works on which part of the codebase: what each
+//! one actually opened and changed, counted per project directory.
 //!
-//! Several sessions run in parallel, each named for what it does. That naming is a
-//! claim, and this is the evidence for or against it: what each one actually opened and
-//! actually changed, counted per project directory.
+//! The signal is the file paths of tool calls, not `cwd` and not any text —
+//! MEMORY.md names every project and is injected everywhere. Reads and writes
+//! are counted apart: consulting a repository and being responsible for it are
+//! different claims. Where an agent works is decided by recent days present
+//! ([`recency`]), since a session is renamed as its job changes.
 //!
-//! ⚠ **The signal is the file paths of tool calls, not `cwd` and not any text.** `cwd`
-//! says where a session was started and barely moves; text is hopeless, because
-//! MEMORY.md names every project and is injected everywhere, so grepping for a project
-//! name matches nearly everything. What a session *opened* and *wrote* cannot be faked
-//! by injected context — a record of work rather than of intent.
-//!
-//! **Reads and writes are counted apart**, because a session that reads a repository is
-//! consulting it and one that writes there is responsible for it. `health` reads the
-//! `pippijn` monorepo more than anything else while writing in `health`; one number
-//! would call it a monorepo session, which it is not.
-//!
-//! **Where an agent works is decided by recent days present, not lifetime file counts**
-//! ([`recency`]): a session is renamed as its job changes, so the name is a claim about
-//! *now* and its history has to be weighted the same way.
-//!
-//! Only names, project names and integers leave this module — the rule the rest of the
-//! mining follows ([`crate::couse`]).
+//! Only names, project names and integers leave this module ([`crate::couse`]).
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -42,93 +29,44 @@ pub struct Agent {
     /// Their work is counted as this agent's — see [`transcripts_under`].
     #[serde(default)]
     pub delegated: usize,
-    /// The session ids filed under this name.
-    ///
-    /// More than one when a name has been reused, and the reason this is kept
-    /// at all: every memory records the `originSessionId` that wrote it, which
-    /// is a raw uuid until something can say which agent that was. Without this
-    /// the corpus and the roster are two datasets about the same sessions with
-    /// no join between them.
+    /// The session ids filed under this name — the join between a memory's
+    /// `originSessionId` and the roster.
     #[serde(default)]
     pub sessions: BTreeSet<String>,
-    /// Files opened, per project directory. Lifetime totals, undecayed — the
-    /// honest record of what happened, and what the totals line reports.
+    /// Files opened, per project directory. Lifetime totals, undecayed.
     pub reads: BTreeMap<String, usize>,
     /// Files written or edited, per project directory. Lifetime, undecayed.
     pub writes: BTreeMap<String, usize>,
     /// Every file this agent touched under the code root, keyed by its path
-    /// relative to that root — `xinutec-infra/plan/backup.dhall`.
-    ///
-    /// [`reads`](Self::reads) and [`writes`](Self::writes) keep only the first
-    /// segment, which answers "which repository" and refuses everything finer.
-    /// That refusal is what made *who built the Dhall reconciler* unanswerable:
-    /// its 34 commits live in `xinutec-infra/plan/`, filed under `xinutec-infra`
-    /// beside firewall tweaks and backup scripts, and the whole `pippijn`
-    /// monorepo lands in one bucket. Keeping the path is what lets a subtree, a
-    /// filename or an extension be asked about.
-    ///
-    /// Cheap, because real work is not many files: about 7,300 distinct paths
-    /// across the entire history. So there is no cap here, and therefore no
-    /// silent truncation to explain. Build output and dependency trees are left
-    /// out — see [`attributable`].
+    /// relative to that root. [`reads`](Self::reads) keep only the first segment,
+    /// which refuses everything finer than "which repository". About 7,300 distinct
+    /// paths across the whole history, so no cap. Build output is left out — see
+    /// [`attributable`].
     #[serde(default)]
     pub paths: BTreeMap<String, MemoryUse>,
-    /// The same, for files used by shell commands rather than by tool calls —
-    /// `sed -i`, `cp`, a `>` redirect. Keyed identically, so the two are unioned
-    /// by [`Agents::who_works_on`] at query time.
-    ///
-    /// **A separate map, and deliberately so.** Folding shell use into
-    /// [`paths`](Self::paths) would move every existing figure on the agents
-    /// page at once, and would retroactively reward the habit of editing through
-    /// `sed` over the habit of editing through `Edit` — a change to what the
-    /// numbers have always meant, made silently. Kept apart, the old numbers go
-    /// on meaning what they meant and the new evidence is visible as its own
-    /// claim.
-    ///
-    /// Not a small addition: two thirds of the fleet's shell commands touch
-    /// files, and the `Write`/`Edit` miner sees none of it.
-    ///
-    /// "Shell" means *the Bash call*, not only the shell language: the Python of
-    /// a `python3 - <<'PY'` heredoc lands here too, and it is the single biggest
-    /// file-changer in the corpus at 3,048 writes.
+    /// The same, for files used by shell commands — `sed -i`, `cp`, a `>` redirect —
+    /// unioned with [`paths`](Self::paths) by [`Agents::who_works_on`] at query time.
+    /// A separate map so the existing figures keep their meaning: two thirds of the
+    /// fleet's shell commands touch files, and the `Write`/`Edit` miner sees none of
+    /// it. "Shell" is the Bash call, so a `python3 -` heredoc lands here too.
     #[serde(default)]
     pub shell_paths: BTreeMap<String, MemoryUse>,
-    /// Lines committed, per repo-relative path — the third dimension, and the
-    /// only one that measures *size* rather than counting operations.
-    ///
-    /// A `Write` of three hundred lines and a one-character `Edit` are both
-    /// worth 1 to the maps above. This is what tells them apart, and it is also
-    /// the only evidence that survived review: an experiment written and thrown
-    /// away leaves tool calls behind and leaves nothing here.
-    ///
-    /// Attributed by [`crate::commits`]'s earliest-mention rule, so a commit
-    /// nobody's transcript mentions is counted nowhere and reported as
-    /// unattributed rather than assigned to a guess.
+    /// Lines committed, per repo-relative path — the only dimension that measures
+    /// SIZE rather than counting operations, and the only evidence that survived
+    /// review. Attributed by [`crate::commits`]'s earliest-mention rule; a commit no
+    /// transcript mentions is reported as unattributed.
     #[serde(default)]
     pub commit_lines: BTreeMap<String, LineDelta>,
-    /// Files used on **other machines**, keyed `host:/absolute/path` — where
-    /// this agent's work lands when it is not on this one.
-    ///
-    /// A fourth dimension, and the only one about somewhere else. It comes
-    /// entirely from `ssh`/`kubectl exec` payloads, so it is shell-derived by
-    /// construction; git cannot attribute it, because those commits are made on
-    /// the remote host and never appear in a repository here.
-    ///
-    /// Kept apart from [`paths`](Self::paths) for the obvious reason: a path
-    /// under `/etc/nixos` exists on odin and not here, and merging the two would
-    /// make every local answer wrong.
+    /// Files used on OTHER machines, keyed `host:/absolute/path`. Entirely from
+    /// `ssh`/`kubectl exec` payloads; git cannot attribute them. Kept apart from
+    /// [`paths`](Self::paths): `/etc/nixos` exists on odin and not here.
     #[serde(default)]
     pub remote_paths: BTreeMap<String, MemoryUse>,
     /// Commits attributed to this agent, across every repository.
     #[serde(default)]
     pub commits: usize,
-    /// Which memories this agent works with, keyed by memory name.
-    ///
-    /// The companion to `reads`/`writes` and a different question: those say
-    /// where an agent is *responsible*, this says what it has *consulted*. For
-    /// handing out a task the second is often the better evidence — territory
-    /// says who owns a repository, and this says who has read the rules that
-    /// govern it.
+    /// Which memories this agent works with, keyed by memory name — what it has
+    /// CONSULTED, where `reads`/`writes` say where it is responsible.
     #[serde(default)]
     pub memories: BTreeMap<String, MemoryUse>,
     /// Recency-weighted days present, per project — the ordering signal. See
@@ -143,61 +81,26 @@ pub struct Agent {
 }
 
 /// How one agent uses one memory: the times it deliberately opened or changed
-/// the file.
-///
-/// **Counted from the tool call's own `file_path`, not from the memory being
-/// named.** Counting names was tried first and is unusable: the co-use miner's
-/// reasoning for preferring mentions — that opens are too sparse — is about
-/// *pairs*, where a turn must name two memories at once, and it does not
-/// transfer to one agent's familiarity with one memory, where opens are
-/// plentiful. What mentions actually measure here is re-injected context: a
-/// single sentence naming `feedback_weighted_over_binary` recurred 3,370 times
-/// in one session's transcript, swamping every real signal. Per-turn dedup
-/// would not have saved it, because the injection is per turn.
-///
-/// Reads and edits stay apart because they answer different questions: who went
-/// and looked it up, and who is maintaining it.
+/// the file. Counted from the tool call's `file_path`, not from the memory being
+/// named: a single injected sentence naming one memory recurred 3,370 times in
+/// one transcript.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct MemoryUse {
     /// Times this agent opened the memory with `Read`.
     pub reads: usize,
     /// Times this agent wrote or edited it — the strongest claim to it.
     pub edits: usize,
-    /// Times a command that **may** have opened it did.
-    ///
-    /// ⚠ **A weaker claim, kept apart rather than merged or discarded.** A shell
+    /// Times a command that MAY have opened it did — a weaker claim, kept apart: a
     /// command after `&&` runs only if what came before it worked, and one exit
-    /// status for a whole script often cannot say whether it did — 19,256 file
-    /// uses in the corpus. Counting those as fact overstates the record and
-    /// dropping them understates it; both were tried, and the truth is that they
-    /// are a different kind of evidence.
-    ///
-    /// Always zero for tool calls, which are atomic: an `Edit` either replaced
-    /// the text or changed nothing, and its result says which.
+    /// status for a whole script often cannot say (19,256 such uses in the corpus).
+    /// Always zero for tool calls, which are atomic.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub maybe_reads: usize,
-    /// Times a corpus-wide search PRINTED A LINE of this memory back.
-    ///
-    /// ⚠ **A third kind of evidence, and folding it into either neighbour
-    /// would be wrong.** A `grep` that matched put a line of the memory in
-    /// front of the session, which `reads` (the file was opened) overstates
-    /// and silence understates — a sizeable slice of the corpus is reached this
-    /// way and would otherwise count as never opened. It is NOT `maybe_reads`
-    /// either: that
-    /// holds a DIFFERENT weakness, a command whose success cannot be
-    /// established, and `Held::Unproven` would then fire for two reasons
-    /// wanting different answers (memview#1238).
-    ///
-    /// ⚠ **`reads` must keep its meaning even now that #884 is closed.** That
-    /// study's inputs are recomputed from the transcripts on every mine, so
-    /// redefining `reads` would stop its recorded harvest reproducing from its
-    /// own inputs, and a later reader could not tell a redefinition from a
-    /// corpus change.
-    ///
-    /// ⚠ **Never added into BREADTH without a decision.** Breadth is distinct
-    /// agents against a threshold of 6, and 8 agents run corpus-wide greps —
-    /// counting a grep as an open of everything it scanned would take 167 of
-    /// 718 memories over the bar to 718 of 718.
+    /// Times a corpus-wide search PRINTED A LINE of this memory back — a third kind
+    /// of evidence. `reads` overstates it, silence understates it, and it is not
+    /// `maybe_reads` either (memview#1238). `reads` must keep its meaning: the #884
+    /// study is recomputed from the transcripts on every mine. Never added into
+    /// BREADTH without a decision: 8 agents run corpus-wide greps.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub grep_matches: usize,
     /// Times a command that **may** have changed it did. See
@@ -206,19 +109,14 @@ pub struct MemoryUse {
     pub maybe_edits: usize,
 }
 
-/// Kept out of the artefact when nothing is uncertain, which is most entries —
-/// the file is read over a VPN and these two fields would otherwise be written
-/// as zeroes on every path anyone ever opened.
+/// Kept out of the artefact when nothing is uncertain, which is most entries;
+/// the file is read over a VPN.
 fn is_zero(n: &usize) -> bool {
     *n == 0
 }
 
-/// What one agent's commits did to one file.
-///
-/// Added and deleted stay apart: a rewrite that removes 181 lines and adds 594
-/// is not the same work as writing 413 from nothing, and one net figure would
-/// call them equal. Deletion is work too — the largest single change to the
-/// Dhall configs in this corpus is the removal of a file that had rotted.
+/// What one agent's commits did to one file. Added and deleted stay apart: a
+/// rewrite that removes 181 lines and adds 594 is not writing 413 from nothing.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct LineDelta {
     pub added: usize,
@@ -244,10 +142,8 @@ pub struct WorkMatch {
     pub added: usize,
     #[serde(default)]
     pub deleted: usize,
-    /// **File changes committed, not commits.** One commit touching four
-    /// matching files counts four, because the per-path record does not keep
-    /// which commit was which and a distinct count cannot be recovered from it.
-    /// Named for what it measures rather than for what a reader might assume.
+    /// File changes committed, not commits: one commit touching four matching files
+    /// counts four, since the per-path record cannot recover a distinct count.
     #[serde(default)]
     pub file_commits: usize,
     /// Machines this row's evidence touches, other than this one. Empty for
@@ -263,29 +159,18 @@ pub struct WorkMatch {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkFile {
     pub path: String,
-    /// The names this file used to have, newest last.
-    ///
-    /// Empty for the ordinary case. Present, it is the reason a file created
-    /// last week can carry a year of history — and without saying so, that
-    /// history reads as a counting bug.
+    /// The names this file used to have, newest last — why a file created last
+    /// week can carry a year of history.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub was: Vec<String>,
     /// Every use, tool call and shell command together.
     pub reads: usize,
     pub edits: usize,
-    /// How much of the above came from a `Bash` call rather than from `Write`
-    /// and `Edit` — including the Python and the other machines' shells inside
-    /// one. Reported so the evidence can be checked: a file with forty changes
-    /// and no tool edits is not a mistake, it is somebody working through `sed`
-    /// or a `python3 -` heredoc, and without this split there is no way to see
-    /// that.
+    /// How much of the above came from a `Bash` call rather than `Write` and `Edit`,
+    /// so a file with forty changes and no tool edits reads as `sed` work, not a bug.
     pub shell_reads: usize,
     pub shell_edits: usize,
     /// The machine this file is on, when it is not this one. `None` is local.
-    ///
-    /// Remote use is shell-derived by construction — it can only come from an
-    /// `ssh` or `kubectl exec` payload — so `shell_reads`/`shell_edits` already
-    /// say where the numbers came from, and this says where the *file* is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
     /// Lines this agent committed to the file, and in how many commits.
@@ -299,73 +184,43 @@ pub struct WorkFile {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Agents {
-    /// When this was mined, ISO-8601 — the artefact's own account of its age,
-    /// because an mtime records the last copy rather than the last derivation.
+    /// When this was mined, ISO-8601: an mtime records the last copy, not the last
+    /// derivation.
     #[serde(default)]
     pub generated: String,
-    /// Commits found under the code root, and how many of them no transcript
-    /// mentions.
-    ///
-    /// Reported rather than quietly dropped. Plenty of this history predates the
-    /// corpus entirely, so an unattributed commit is the ordinary case for
-    /// anything old — and a reader
-    /// comparing these line counts against `git log` needs to know how much of
-    /// the history they cover before concluding somebody did less than they did.
+    /// Commits found under the code root, and how many no transcript mentions.
+    /// Reported: plenty of this history predates the corpus.
     #[serde(default)]
     pub commits: usize,
     #[serde(default)]
     pub unattributed: usize,
-    /// The timeline, mined in the same pass and written to its own file.
-    ///
-    /// **Never serialised with the roster.** It is a hundred times the size and
-    /// answers a different question; `/api/agents` must not carry it, and the
-    /// miner takes it out and saves it separately.
+    /// The timeline, mined in the same pass and written to its own file. Never
+    /// serialised with the roster: a hundred times the size.
     #[serde(skip)]
     pub doing: reader::doing::Doing,
-    /// What each turn did to which file, with the command that did it.
-    ///
-    /// **Never serialised with the roster**, like [`Self::doing`] and for the
-    /// same reasons: it is larger still, and it answers the question a reader
-    /// asks while standing on a timeline row rather than the one the roster
-    /// answers.
+    /// What each turn did to which file, with the command that did it. Never
+    /// serialised with the roster, like [`Self::doing`].
     #[serde(skip)]
     pub effects: reader::effects::Effects,
-    /// Where each renamed file ended up, old name to current.
-    ///
-    /// Kept in the artefact rather than applied and forgotten, for two reasons:
-    /// a query for the name a file *used* to have must still find it, and a
-    /// reader looking at forty changes to a file created last week deserves to
-    /// be told the history came from somewhere else.
+    /// Where each renamed file ended up, old name to current — kept so a query for
+    /// a file's old name still finds it.
     #[serde(default)]
     pub renames: BTreeMap<String, String>,
-    /// When each memory was opened and changed, corpus-wide rather than per
-    /// agent — the evidence for which of them the index should still carry.
-    ///
-    /// **Never serialised with the roster**, like [`Self::doing`] and for the
-    /// same two reasons: `/api/agents` answers "who works where" and this
-    /// answers a different question entirely, and it is tens of kilobytes of
-    /// integers that no view draws, sent to a phone over a VPN. The miner takes
-    /// it out and saves it beside, where `memory-rank` reads it.
-    ///
-    /// See [`MemoryDays`] for why the days are kept and the weight is not.
+    /// When each memory was opened and changed, corpus-wide — the evidence for
+    /// which of them the index should still carry. Never serialised with the roster;
+    /// the miner saves it beside, where `memory-rank` reads it. See [`MemoryDays`].
     #[serde(skip)]
     pub memory_days: BTreeMap<String, MemoryDays>,
     /// Named sessions, busiest first.
     pub agents: Vec<Agent>,
 }
 
-/// The index's stem. It lives in the corpus directory and is not a memory —
-/// `tests/suite/agents.rs::the_index_is_not_a_memory_anyone_knows` holds the same line
-/// for opens.
+/// The index's stem, which lives in the corpus directory and is not a memory.
 pub const INDEX_STEM: &str = "MEMORY";
 
-/// What a mined artefact has NOT seen.
-///
-/// ⚠ **A `generated` field nobody consults is not a safeguard.** `agents.json`
-/// has carried one all along; it still produced three wrong analyses, the third
-/// of them a demotion argument built on breadth figures for memories written
-/// after the mine (#1210). The stamp has to be turned into a refusal at the
-/// point a number is used, or it is decoration.
+/// What a mined artefact has NOT seen. A `generated` field nobody consults is
+/// not a safeguard — three wrong analyses came from one (#1210); the stamp has
+/// to be a refusal at the point a number is used.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Freshness {
     /// The artefact's own stamp.
@@ -383,27 +238,11 @@ impl Freshness {
 
 /// Which memories were written after `generated`, from the history itself.
 ///
-/// ⚠ **The transcripts are the record, not the filesystem.** Comparing file
-/// mtimes is wrong in the way that matters: mtime records a touch, so a sweep
-/// that rewrites files without altering a word raises an alarm for every one of
-/// them and almost none have changed. A guard that cries far more often than
-/// anything happened is the `--stale-ok` habit this exists to prevent. memview
-/// parses every session's
-/// history; asking the filesystem what happened is asking the wrong witness.
-///
-/// ⚠ **The derived artefacts cannot answer this and it is circular to ask.**
-/// `memory-days.json` is mined by the same pass, so its latest edit day equals
-/// `generated` exactly — an artefact cannot report events it did not see. The
-/// check has to read the source.
-///
-/// ⚠ **Tail first, whole file only if the tail says so.** A transcript's last
-/// line carries its newest event, so one small read per session decides whether
-/// it is worth opening — the corpus is gigabytes and a guard nobody can afford
-/// to run is a guard nobody runs.
-///
-/// ⚠ **The running session is excluded, and without that this refuses ALWAYS.**
-/// Claude Code appends to its own transcript as this executes, so it postdates
-/// every artefact by construction.
+/// The transcripts are the record, not the filesystem: an mtime records a touch,
+/// and a sweep that rewrites files without changing a word would alarm on every
+/// one. The derived artefacts cannot answer either — `memory-days.json` is mined
+/// by the same pass. Tail first, whole file only if the tail says so. The running
+/// session is excluded, or this refuses ALWAYS.
 pub fn freshness(
     generated: &str,
     roots: &[&Path],
@@ -440,13 +279,8 @@ pub fn freshness(
                 if newest.as_str() <= generated {
                     continue;
                 }
-                // ⚠ **An edit to the index is not staleness.** Both readers of
-                // this — `memory-rank` and `memory-tiers` — load `MEMORY.md`
-                // live from disk, so a change to it cannot move any figure that
-                // comes from the artefact. Counting it made the refusal fire
-                // every time the memory session touched the root, which is
-                // most days, and a refusal that fires on a harmless change is
-                // one people learn to override.
+                // An edit to the index is not staleness: both readers load `MEMORY.md` live,
+                // and a refusal that fires on a harmless change is one people learn to override.
                 let a_memory = |name: &String| name != INDEX_STEM;
                 for name in memories_written_after(&path, generated)
                     .into_iter()
@@ -471,13 +305,9 @@ pub fn freshness(
     }
 }
 
-/// The newest event timestamp in a transcript, from its tail.
-///
-/// ⚠ **The tail, not the whole file.** The corpus is gigabytes; reading all of
-/// it to answer "is there anything new" costs more than the question is worth.
-/// A transcript is append-mostly, so its last complete line carries its latest
-/// event even when earlier stretches have been rewritten
-/// (`reference_claude_transcript_rewrites_history`).
+/// The newest event timestamp in a transcript, from its tail: append-mostly, so
+/// the last complete line carries the latest event even when earlier stretches
+/// were rewritten.
 fn newest_event(path: &Path) -> Option<String> {
     use std::io::{Read, Seek, SeekFrom};
     const TAIL: i64 = 64 * 1024;
@@ -495,9 +325,8 @@ fn newest_event(path: &Path) -> Option<String> {
         })
 }
 
-/// The memories a transcript records being written after `generated`.
-///
-/// Names, not paths — the caller reports memories, and a memory is its stem.
+/// The memories a transcript records being written after `generated`. Names,
+/// not paths.
 fn memories_written_after(path: &Path, generated: &str) -> Vec<String> {
     let Ok(text) = std::fs::read_to_string(path) else {
         return Vec::new();
@@ -516,14 +345,12 @@ fn memories_written_after(path: &Path, generated: &str) -> Vec<String> {
         if &rest[..end] <= generated {
             continue;
         }
-        // A write names its file; a read of the same path does not count, since
-        // reading a memory cannot change what a mine should have seen.
+        // A write names its file; a read cannot change what a mine should have seen.
         if !line.contains("\"Write\"") && !line.contains("\"Edit\"") {
             continue;
         }
-        // ⚠ **Anchored on the argument, never on a bare `/memory/`.** Prose in
-        // the transcript says things like "memory/preferences cannot fulfil
-        // them", and a substring match invented `preferences` as a memory.
+        // Anchored on the argument, never a bare `/memory/`: prose such as
+        // "memory/preferences cannot fulfil them" invented a memory.
         for (start, marker) in line.match_indices("\"file_path\":\"") {
             let rest = &line[start + marker.len()..];
             let Some(end) = rest.find('"') else { continue };
@@ -543,26 +370,14 @@ fn memories_written_after(path: &Path, generated: &str) -> Vec<String> {
     found
 }
 
-/// Memories a transcript records being written by a SHELL command.
-///
-/// ⚠ **A heredoc write is invisible to a tool-name check**, and it is not rare:
-/// `memory-stamp` exists because `cat > x.md <<'MD'` skips the stamping path
-/// entirely, and `memory-lint` errors on the missing `modified:` it leaves
-/// behind. Memories have been written exactly this way — a real change the
-/// Write/Edit scan cannot see, which is the unsafe direction for a staleness
-/// guard.
-///
-/// ⚠ **Read by `reader::shell_files`, not by looking for a `>`.** The first
-/// version matched a `> name.md` redirect and was wrong in three ways a
-/// substring cannot fix: `echo x > /tmp/note.md` counted whenever the stem
-/// collided with a memory, a write through a variable or `tee` was invisible,
-/// and a read redirect in a compound command was indistinguishable from a
-/// write. The reader answers all three and was already instantiated two hundred
-/// lines below (#1218).
+/// Memories a transcript records being written by a SHELL command — a heredoc
+/// write is invisible to a tool-name check, and memories have been written that
+/// way. Read by `reader::shell_files`, not by looking for a `>`: a substring
+/// counted `echo x > /tmp/note.md`, missed `tee`, and could not tell a read
+/// redirect from a write (#1218).
 fn shell_written_after(path: &Path, generated: &str, home: &str) -> Vec<String> {
-    // ⚠ **Streamed, not slurped.** `read_to_string` on every transcript whose
-    // tail postdates the mine cost 30s after a busy day; the answer needs one
-    // line at a time and never the whole file.
+    // Streamed, not slurped: `read_to_string` on every transcript whose tail
+    // postdates the mine cost 30s.
     let Ok(file) = std::fs::File::open(path) else {
         return Vec::new();
     };
@@ -628,11 +443,8 @@ fn bash_commands(row: &serde_json::Value) -> Vec<String> {
     out
 }
 
-/// The memory a path names, or `None` if it names something else.
-///
-/// ⚠ **Anchored on `/memory/` in a resolved path**, which is what the reader
-/// returns — not on a bare filename, which is how `> note.md` in `/tmp` used to
-/// pass for a memory.
+/// The memory a path names, or `None`. Anchored on `/memory/` in a resolved
+/// path, not on a bare filename.
 fn memory_stem(path: &str) -> Option<String> {
     let (_, leaf) = path.rsplit_once("/memory/")?;
     let name = leaf.strip_suffix(".md")?;
@@ -655,42 +467,17 @@ impl Agents {
         Ok(())
     }
 
-    /// The agent a session id belongs to, for resolving a memory's
-    /// `originSessionId` to a name.
-    ///
-    /// `None` is an ordinary answer, not a failure: a memory can outlive the
-    /// transcript that wrote it.
-    ///
-    /// ⚠ **NOT because Claude Code prunes them — it does not** (memview#1240,
-    /// #1247). What is genuinely missing predates the odin archive, and it is a
-    /// handful of sessions rather than a steady loss. Count it before quoting
-    /// it, and count SESSIONS: the memory count moves with whichever session is
-    /// missing and says nothing about the rate.
-    /// Those keep their raw id rather than being dropped or attributed to
-    /// somebody else.
-    /// Who has been working on the files a query names, busiest first.
-    ///
-    /// Substring, case-insensitive, over the whole repo-relative path — so
-    /// `dhall` finds both the `kubes/dhall/` directory and every `*.dhall` file,
-    /// which are the same question asked two ways and would need two rules to
-    /// tell apart for no gain.
-    ///
-    /// **Ranked by writes, not by total.** The question is who *makes changes of
-    /// that sort*; reading widely is a different thing and is reported beside it
-    /// rather than folded in. Agents matching nothing are dropped entirely — a
-    /// row of zeroes is noise that grows with the roster.
-    ///
-    /// The matching paths come back with the counts, because a bare ranking is
-    /// unfalsifiable: the evidence is what lets a reader see that "dhall" caught
-    /// a `.dhall` file and not a directory called `dhallium`.
+    /// The agent a session id belongs to, for resolving a memory's `originSessionId`.
+    /// `None` is ordinary: a memory can outlive the transcript that wrote it — not
+    /// because Claude Code prunes them (memview#1240, #1247), but because a handful
+    /// predate the archive.
     pub fn who_works_on(&self, query: &str) -> Vec<WorkMatch> {
         let needle = query.trim().to_lowercase();
         if needle.is_empty() {
             return Vec::new();
         }
-        // A file keeps the evidence filed under the names it used to have, so a
-        // query for one of those names must find it — otherwise renaming a file
-        // hides its own history from the only person looking for it.
+        // A file keeps its evidence under the names it used to have, so a query for one
+        // of those must find it.
         let mut aliases: BTreeMap<&String, Vec<&String>> = BTreeMap::new();
         for (was, now) in &self.renames {
             aliases.entry(now).or_default().push(was);
@@ -705,8 +492,7 @@ impl Agents {
             .agents
             .iter()
             .filter_map(|agent| {
-                // The two dimensions are unioned here rather than at mining
-                // time, so a file used both ways is one row and not two.
+                // The two dimensions are unioned here, so a file used both ways is one row.
                 let mut merged: BTreeMap<&String, WorkFile> = BTreeMap::new();
                 let matching = |(path, _): &(&String, &MemoryUse)| -> bool { named(path) };
                 let blank = |path: &String| WorkFile {
@@ -736,10 +522,8 @@ impl Agents {
                     file.shell_reads = use_.reads;
                     file.shell_edits = use_.edits;
                 }
-                // Committed lines are the same work measured a second way, so
-                // they are attached to the row and never added to its counts. A
-                // file can appear here having never been opened by a tool call
-                // at all — created by a script, or edited on another machine.
+                // Committed lines are the same work measured a second way: attached to the
+                // row, never added to its counts.
                 for (path, delta) in agent.commit_lines.iter().filter(|(path, _)| named(path)) {
                     let file = merged.entry(path).or_insert_with(|| blank(path));
                     file.added = delta.added;
@@ -747,10 +531,7 @@ impl Agents {
                     file.commits = delta.commits;
                 }
                 let mut files: Vec<WorkFile> = merged.into_values().collect();
-                // Work on other machines, each row saying which one. A remote
-                // path is a different path — `/etc/nixos/flake.nix` on odin is
-                // not a file here — so it gets its own row rather than being
-                // merged into a local one that happens to share a name.
+                // Work on other machines, each row saying which: a remote path is a different path.
                 let mut hosts: BTreeSet<String> = BTreeSet::new();
                 for (key, use_) in agent
                     .remote_paths
@@ -819,17 +600,10 @@ impl Agents {
     }
 }
 
-/// The tool calls worth finding in a transcript, and what each one is.
-///
-/// `Some(false)` reads a file, `Some(true)` changes one, `None` touches no path
-/// this can name. **All three produce a timeline row**; only the first two
-/// attribute a file to anybody.
-///
-/// ⚠ **Taken from the corpus, not from the tool list anybody remembers.**
-/// Counted across `~/.claude/projects`, where `Task`, `MultiEdit` and
-/// `NotebookEdit` appear **not once** — listing them would be three needles that
-/// never fire. Delegation is `Agent` here; the
-/// `Task*` names in these transcripts are a task-store tool and not work.
+/// The tool calls worth finding in a transcript, and what each one is:
+/// `Some(false)` reads a file, `Some(true)` changes one, `None` touches no path.
+/// All three produce a timeline row. Taken from the corpus: `Task`, `MultiEdit`
+/// and `NotebookEdit` appear not once; delegation is `Agent`.
 const TOOLS: [(&str, Option<bool>); 7] = [
     ("Read", Some(false)),
     ("Write", Some(true)),
@@ -840,21 +614,13 @@ const TOOLS: [(&str, Option<bool>); 7] = [
     ("WebSearch", None),
 ];
 
-/// How long it takes for a day's presence to count half as much.
-///
-/// Fourteen days is deliberately gentle. The measured alternative was decaying
-/// individual file operations, and both shapes were tried against the live
-/// corpus: day-presence put more agents on their own project than event decay
-/// did, and — unlike event decay — the answer did not move when the half-life
-/// was halved. A signal that is insensitive to a tuning constant is one the
-/// constant is not secretly carrying.
+/// How long it takes for a day's presence to count half as much. Fourteen days:
+/// day-presence put more agents on their own project than event decay did, and
+/// the answer did not move when the half-life was halved.
 pub const HALF_LIFE_DAYS: f64 = 14.0;
 
-/// Days since the epoch for an ISO-8601 stamp, from its `YYYY-MM-DD` prefix.
-///
-/// Hinnant's civil-days algorithm, inline rather than pulled from a date crate:
-/// the whole need is "how many days between these two dates", and the miner
-/// otherwise has no date dependency at all.
+/// Days since the epoch for an ISO-8601 stamp. Hinnant's civil-days algorithm,
+/// inline, so the miner has no date dependency.
 pub fn day_number(stamp: &str) -> Option<i64> {
     let bytes = stamp.as_bytes();
     if bytes.len() < 10 || bytes[4] != b'-' || bytes[7] != b'-' {
@@ -874,54 +640,28 @@ pub fn day_number(stamp: &str) -> Option<i64> {
     Some(era * 146097 + doe - 719468)
 }
 
-/// Weight a set of active days against `today`, newest counting most.
-///
-/// **Days present, not files touched.** A session that spent one afternoon
-/// making seventy-five edits in a repository it has not opened since is not a
-/// session that works there, but counting files says it is — and on the live
-/// data that single burst outvoted a fortnight of steady work in the project
-/// the session is actually named for. Counting the days it showed up cannot be
-/// dominated that way: a busy afternoon is worth one day, the same as a quiet
-/// one.
-///
-/// Nothing decays to zero, so an old project fades out of the ordering rather
-/// than disappearing — the lifetime counts alongside it stay undecayed.
+/// Weight a set of active days against `today`, newest counting most. Days
+/// present, not files touched: one afternoon of seventy-five edits outvoted a
+/// fortnight of steady work. Nothing decays to zero.
 pub fn recency(days: &std::collections::BTreeSet<i64>, today: i64) -> f64 {
     weighted(days.iter().copied(), today, HALF_LIFE_DAYS)
 }
 
-/// The same, over any days and any half-life.
-///
-/// ⚠ **The half-life is a parameter so that it can be doubted.** The constant
-/// above is trusted on the evidence that halving it did not move the answer, and
-/// that evidence has to be reproducible on demand rather than remembered from
-/// the afternoon somebody checked. A weighting nobody can re-run is a weighting
-/// that has quietly become the thing deciding.
+/// The same, over any days and any half-life — a parameter so that the constant
+/// can be doubted on demand.
 pub fn weighted(days: impl Iterator<Item = i64>, today: i64, half_life: f64) -> f64 {
     let total: f64 = days
         .map(|d| 0.5f64.powf(((today - d).max(0)) as f64 / half_life))
         .sum();
-    // ⚠ **`+ 0.0` is not redundant.** Rust sums `f64` from an identity of `-0.0`,
-    // deliberately, because `-0.0 + x == x` preserves the sign of every term
-    // where `0.0 + -0.0` would not. So a memory with no days at all comes back
-    // as negative zero, which is numerically zero and prints as `-0.00` — a
-    // column of those in a report reads as a bug in the weighting rather than as
-    // the absence of any use. Adding positive zero normalises the sign and
-    // nothing else.
+    // `+ 0.0` is not redundant: Rust sums `f64` from `-0.0`, so a memory with no
+    // days prints as `-0.00`.
     total + 0.0
 }
 
-/// The days one memory was opened and the days it was changed, corpus-wide.
-///
-/// ⚠ **The days themselves, not a score.** A weight is a reading of the days
-/// through one half-life, and the whole method here rests on being able to take
-/// that reading twice: the constant is trustworthy only for as long as halving
-/// it does not move the answer. Storing the weight would make that check
-/// impossible without re-mining three gigabytes, which is how a constant quietly
-/// becomes the thing deciding.
-///
-/// Days since the epoch, as [`day_number`] counts them. Sorted and unique, so
-/// the set is the same fact however many times a memory was opened that day.
+/// The days one memory was opened and the days it was changed, corpus-wide. The
+/// days themselves, not a score: the half-life is trustworthy only while halving
+/// it does not move the answer, and a stored weight cannot be re-read. Sorted
+/// and unique.
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MemoryDays {
     /// Days something opened it with `Read`.
@@ -933,20 +673,10 @@ pub struct MemoryDays {
 }
 
 /// Fold an earlier `memory-days.json` into this run's, and report how many days
-/// only the earlier record still had.
-///
-/// ⚠ **This file used to be a fresh derivation from whichever transcripts still
-/// existed.** So a transcript that went away silently deleted every day it
-/// contributed and the file went on looking complete —
-/// invisible by construction, because nothing compared today's days with
-/// yesterday's. A day is a historical fact and cannot stop being true, so union
-/// is the correct merge and there is no case for dropping one.
-///
-/// Returns the number of `(memory, day)` pairs this run did not observe and the
-/// previous file did — the count of days whose evidence has left the disk. A
-/// A missing previous file returns 0 — the first run has none. A file that
-/// EXISTS but will not parse is an ERROR, because the only alternative is to
-/// overwrite it with this run's smaller view and lose the record silently.
+/// only the earlier record still had. A day is a historical fact, so union is the
+/// merge: a fresh derivation silently dropped every day a vanished transcript had
+/// contributed. A missing file is the first run; a file that will not parse is an
+/// ERROR, or this run's smaller view overwrites the record.
 pub fn carry_forward(
     path: &std::path::Path,
     days: &mut BTreeMap<String, MemoryDays>,
@@ -955,12 +685,9 @@ pub fn carry_forward(
     let Ok(text) = std::fs::read_to_string(path) else {
         return Ok(0);
     };
-    // ⚠ **A file that EXISTS and will not parse is fatal, not zero.** Returning 0
-    // would be indistinguishable from "nothing to carry", and the mine would then
-    // overwrite the file with this run's smaller view — deleting the very history
-    // this function exists to protect, without a word.
-    // `feedback_a_precondition_that_can_pass_wrongly`; the first version of this
-    // function had exactly that bug.
+    // Fatal, not zero: 0 is indistinguishable from "nothing to carry", and the
+    // first version of this had exactly that bug
+    // (`feedback_a_precondition_that_can_pass_wrongly`).
     let earlier: BTreeMap<String, MemoryDays> = serde_json::from_str(&text).with_context(|| {
         format!(
             "{} exists but will not parse — refusing to overwrite it, because that \
@@ -982,18 +709,9 @@ pub fn carry_forward(
     Ok(carried)
 }
 
-/// The days an agent was present in each project, kept apart from the counts
-/// because a day is not a tally — the same day seen twice is still one day.
-///
-/// The same question is asked of memories, and for a sharper reason: whether a
-/// memory belongs in the index is decided by how *recently and repeatedly* it is
-/// consulted, and one afternoon of forty opens is a worse claim on the index
-/// than a fortnight of one a day. Counting events answered that wrong; counting
-/// days answers it right, which is the one thing settled by measurement here.
-/// ⚠ **Serialised because a resumed mine cannot rebuild it.** Only the
-/// corpus-wide UNION of these day sets is written, to `memory-days.json`, and a
-/// union cannot be taken apart again into the per-agent sets the weights are
-/// computed from. See [`crate::mine::Carried`].
+/// The days an agent was present in each project, kept apart from the counts: a
+/// day is not a tally. Serialised because a resumed mine cannot rebuild it — only
+/// the corpus-wide UNION is written to `memory-days.json`. See [`crate::mine::Carried`].
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DaysSeen {
     reads: BTreeMap<String, std::collections::BTreeSet<i64>>,
@@ -1002,14 +720,9 @@ pub struct DaysSeen {
     memory_edits: BTreeMap<String, std::collections::BTreeSet<i64>>,
 }
 
-/// The project a path belongs to: the first element under the code root.
-///
-/// `None` for anywhere else, which deliberately drops the two largest sources of
-/// noise — the scratchpad under `/private/tmp`, where every session writes
-/// throwaway scripts, and the memory corpus itself, which every session reads
-/// and which says nothing about what any of them works on. The corpus is
-/// counted separately, by [`memory_of`], because *which* memory an agent opens
-/// says a great deal even though *that* it opens memories says nothing.
+/// The project a path belongs to: the first element under the code root. `None`
+/// elsewhere, dropping the scratchpad under `/private/tmp` and the corpus
+/// itself, which is counted by [`memory_of`].
 fn project_of(path: &str, code_root: &str) -> Option<String> {
     let root = code_root.trim_end_matches('/');
     let rest = path.strip_prefix(root)?.strip_prefix('/')?;
@@ -1017,30 +730,17 @@ fn project_of(path: &str, code_root: &str) -> Option<String> {
     (!name.is_empty()).then(|| name.to_string())
 }
 
-/// A path's position under the code root — `xinutec-infra/plan/backup.dhall`.
-///
-/// The project prefix is kept rather than stripped, so a result reads as itself
-/// with no second lookup, and so a query naming a repository works like any other
-/// substring.
+/// A path's position under the code root, prefix kept, so a query naming a
+/// repository works like any other substring.
 fn relative_to(path: &str, code_root: &str) -> Option<String> {
     let root = code_root.trim_end_matches('/');
     let rest = path.strip_prefix(root)?.strip_prefix('/')?;
     (!rest.is_empty() && rest.contains('/')).then(|| rest.to_string())
 }
 
-/// Whether a path is one that work can be attributed to at all.
-///
-/// Build output, dependency trees, logs and editor leftovers are files an agent
-/// touches *because* of the work rather than *as* the work — `rm -rf dist`
-/// changes forty files and says nothing about who owns the code that built
-/// them.
-///
-/// Measured before it was written, on the live corpus: generated paths are 0.1%
-/// of tool-call use and **4.3% of shell use**, because `Write` and `Edit`
-/// hardly ever address a build directory and `rm`, `>` and `cp` constantly do.
-/// The same rule applies to both dimensions even so — one definition of a file
-/// worth attributing, not one per source of evidence — and on the tool side it
-/// removes 44 uses out of 49,699.
+/// Whether a path is one work can be attributed to. Build output, dependency
+/// trees and logs are touched BECAUSE of the work, not as it. Measured: 0.1% of
+/// tool-call use, 4.3% of shell use; one rule for both.
 fn attributable(rel: &str) -> bool {
     const GENERATED: [&str; 14] = [
         "node_modules",
@@ -1063,38 +763,17 @@ fn attributable(rel: &str) -> bool {
     !segments.any(|s| GENERATED.contains(&s)) && !LEFTOVER.iter().any(|s| rel.ends_with(s))
 }
 
-/// Whether a path on another machine is one work can be attributed to.
-///
-/// The same idea as [`attributable`] and a different list, because a remote path
-/// is absolute and answers to no code root. Scratch and kernel filesystems go:
-/// `/tmp` is where every session drops a throwaway, and reading `/proc` is not
-/// work on a file. Logs go for the same reason they do locally — the busiest
-/// remote path in the corpus is a drill run's log at 90 reads and 17 writes, and
-/// none of that is authorship.
+/// Whether a path on another machine is one work can be attributed to — the
+/// same idea and a different list, since a remote path answers to no code root.
 fn remotely_attributable(path: &str) -> bool {
     const SCRATCH: [&str; 5] = ["/tmp/", "/var/tmp/", "/proc/", "/sys/", "/dev/"];
     !SCRATCH.iter().any(|dir| path.starts_with(dir)) && attributable(path)
 }
 
-/// The memory a path names, for paths inside the corpus directory.
-///
-/// The canonical id is the filename stem, matching the rest of the app — the
-/// frontmatter `name` is not trusted anywhere else either. Anything that is not
-/// a `.md` file directly in the corpus is `None`, so `MEMORY.md` (the index,
-/// which every session is given and which distinguishes nobody) is excluded by
-/// name.
-///
-/// ⚠ **A GLOB NAMES NO MEMORY, and this is not a nicety.** Shell attribution
-/// arrives here with whatever the command wrote, and a flat corpus makes
-/// `memory/*.md` collapse to a stem of `*` — which, counted, invented a memory
-/// called `*` with 459 uses, more than any real one has. Named patterns are the
-/// same shape one level down: `project_*`, `reference_*`, `*health_node_toolchain*`.
-///
-/// Dropped rather than expanded to every file the pattern matches. Crediting all
-/// of them would be the honest-looking option and is worse: `grep -l x memory/*.md`
-/// reads all 531, so expanding gives every memory the same score and destroys the
-/// ranking this feeds. The reader's rule holds — withhold rather than record more
-/// than happened.
+/// The memory a path names, for paths inside the corpus directory: the filename
+/// stem, `MEMORY.md` excluded. A GLOB NAMES NO MEMORY: `memory/*.md` collapsed to
+/// a stem of `*` with 459 uses. Dropped rather than expanded — `grep -l x
+/// memory/*.md` reads all 531 and would score them equally.
 fn memory_of(path: &str, memory_root: &str) -> Option<String> {
     let root = memory_root.trim_end_matches('/');
     let rest = path.strip_prefix(root)?.strip_prefix('/')?;
@@ -1107,29 +786,16 @@ fn memory_of(path: &str, memory_root: &str) -> Option<String> {
 /// One transcript file and the session whose work it records.
 struct Transcript {
     path: std::path::PathBuf,
-    /// The session id that owns this work — for a delegated transcript, the
-    /// session that dispatched it, not the subagent's own id.
+    /// The session id that owns this work — for a delegated transcript, the session
+    /// that dispatched it.
     owner: String,
     delegated: bool,
 }
 
-/// Every transcript under a project directory, attributed to its owner.
-///
-/// The layout is `<project>/<session>.jsonl` for a session's own turns, and
-/// `<project>/<session>/subagents/…` — nested again under `workflows/<run>/`
-/// for workflow agents — for everything it dispatched.
-///
-/// **Delegated work belongs to the session that dispatched it.** A subagent has
-/// no name, no continuity and no purpose of its own; it exists because a named
-/// session asked for it, and its edits are that session's edits. Filing them
-/// separately would invent hundreds of one-shot agents and subtract their work
-/// from the sessions actually responsible for it.
-///
-/// It is not a rounding error. On the live corpus about a tenth of all
-/// Read/Write/Edit calls happen in delegated transcripts, and the share runs
-/// from none at all to a seventh depending on the session — so ignoring them
-/// does not merely undercount, it undercounts unevenly, which is what makes
-/// agents incomparable rather than uniformly understated.
+/// Every transcript under a project directory, attributed to its owner:
+/// `<project>/<session>.jsonl`, and `<project>/<session>/subagents/…` for what
+/// it dispatched. Delegated work belongs to the session that dispatched it —
+/// about a tenth of all Read/Write/Edit calls, unevenly across sessions.
 fn transcripts_under(projects_root: &Path) -> Vec<Transcript> {
     fn descend(dir: &Path, owner: &str, out: &mut Vec<Transcript>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -1137,10 +803,8 @@ fn transcripts_under(projects_root: &Path) -> Vec<Transcript> {
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            // `file_type` comes from the directory entry and does NOT follow
-            // symlinks, where `is_dir` would: a link back to an ancestor would
-            // otherwise recurse until the stack gives out. It also saves a stat
-            // per entry, and there are a thousand of them.
+            // `file_type` does not follow symlinks, where `is_dir` would recurse a link
+            // back to an ancestor until the stack gives out.
             let Ok(kind) = entry.file_type() else {
                 continue;
             };
@@ -1191,8 +855,7 @@ fn transcripts_under(projects_root: &Path) -> Vec<Transcript> {
         }
     }
     // A session's own transcript before anything it dispatched, so the name is
-    // resolved from the transcript that carries the naming reminder before a
-    // subagent — which carries none — can settle the agent under a bare id.
+    // resolved before a subagent can settle the agent under a bare id.
     out.sort_by(|a, b| {
         a.owner
             .cmp(&b.owner)
@@ -1202,11 +865,7 @@ fn transcripts_under(projects_root: &Path) -> Vec<Transcript> {
     out
 }
 
-/// Session id → name, from the live registry at `~/.claude/sessions`.
-///
-/// Keyed by pid, and each entry carries `sessionId` and `name`. This is the
-/// authority over the in-transcript "the user named this session" reminder,
-/// which is written once and goes stale the moment a session is renamed.
+/// Session id → name, from the live registry at `~/.claude/sessions`, keyed by pid.
 pub fn registry_names(dir: &Path) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -1229,18 +888,8 @@ pub fn registry_names(dir: &Path) -> BTreeMap<String, String> {
 }
 
 /// The name a transcript records for itself, for sessions the registry has
-/// forgotten. Stale after a rename, which is why it is only the fallback.
-///
-/// **The quotes are backslash-escaped**, because the reminder is prose inside a
-/// JSON string: the bytes on disk read `named this session \"home\"`. Matching
-/// the unescaped form finds nothing at all, and the failure is silent — every
-/// session the registry has forgotten simply shows as a bare uuid, which looks
-/// like an unnamed session rather than a broken parser.
-///
-/// First occurrence wins, which is right for the session's own reminder (it is
-/// injected near the top) but is not airtight: a transcript can quote another
-/// session's name later on, and this one does. Acceptable only because the
-/// registry is the authority and this runs when the registry has nothing.
+/// forgotten; stale after a rename. The quotes are backslash-escaped — the bytes
+/// read `named this session \"home\"`. First occurrence wins.
 fn named_in_transcript(text: &[u8]) -> Option<String> {
     let needle = b"named this session ";
     let mut start = find_at(text, needle, 0)? + needle.len();
@@ -1253,37 +902,15 @@ fn named_in_transcript(text: &[u8]) -> Option<String> {
     (!name.is_empty() && name.len() <= 40).then(|| name.to_string())
 }
 
-/// The name a session is going by *now*, from the line the CLI re-appends as it
-/// goes along.
-///
-/// ⚠ **This, not the registry, is where a chosen name lives.** `~/.claude/sessions`
-/// used to hold it and no longer does: every entry there now carries a name the
-/// CLI made up for itself — `code-c4`, `code-fa`, the working directory's last
-/// segment and two hex digits — so a conversation called `health` was shown as
-/// `code-c4` while the console's own front page, which reads these lines, called
-/// it `health`. Every entry there is of that form and none carries a name
-/// anybody chose.
-///
-/// **Last occurrence wins**, which is what makes this current where the
-/// once-written `named this session` reminder goes stale — a rename appends
-/// another of these, and the newest is the answer.
-///
-/// Anchored on the whole opening of the line, `{"type":"agent-name",`, rather
-/// than on the key alone. Inside a transcript every quote of a quoted line is
-/// backslash-escaped, so this shape occurs only where the CLI wrote the line
-/// itself and never in a tool result that happens to print one — which
-/// transcripts on this machine do.
-///
-/// The session id on the line has to be the transcript's own, so a line copied
-/// from elsewhere cannot rename an agent. Returns `None` when the CLI changes the
-/// shape, which costs the fallbacks and not correctness.
+/// The name a session is going by NOW, from the `agent-name` line the CLI
+/// re-appends. This, not the registry, is where a chosen name lives: every
+/// registry entry now carries a name the CLI made up (`code-c4`). Last occurrence
+/// wins. Anchored on the whole opening `{"type":"agent-name",` — quoted lines
+/// inside a transcript are backslash-escaped — and the session id on the line
+/// must be the transcript's own.
 fn titled_in_transcript(text: &[u8], owner: &str) -> Option<String> {
-    // ⚠ **The actor's order, and the console deliberately uses the other one.**
-    // This page answers "who did this work", so the name it was given wins over
-    // the title one view shows it under. The console lists conversations to pick
-    // between and prefers the title, which is the same split the CLI itself
-    // makes — see [`reader::transcript::AS_ACTOR`], where both orders and the
-    // CLI's two chains are set out.
+    // The actor's order: the name it was given wins over the title, where the
+    // console prefers the title — see [`reader::transcript::AS_ACTOR`].
     let written: Vec<Vec<u8>> = reader::transcript::AS_ACTOR
         .iter()
         .map(|line| reader::transcript::name_needle(line))
@@ -1298,8 +925,7 @@ fn last_titled(text: &[u8], needle: &[u8], owner: &str) -> Option<String> {
     let start = last_at(text, needle)? + needle.len();
     let end = find_at(text, b"\"", start)?;
     let line = find_at(text, b"\n", end).unwrap_or(text.len());
-    // The id is on the same line, after the name. A line naming another session
-    // is not this session's name, however it got here — so no id, no name.
+    // A line naming another session is not this session's name.
     find_at(&text[end..line], owner.as_bytes(), 0)?;
     let name = std::str::from_utf8(&text[start..end]).ok()?;
     (!name.is_empty() && name.len() <= 40).then(|| name.to_string())
@@ -1309,16 +935,9 @@ fn last_titled(text: &[u8], needle: &[u8], owner: &str) -> Option<String> {
 const PATH_KEY: &[u8] = b"\"file_path\":\"";
 
 /// The `Bash` commands on one transcript line, and the directory they ran in.
-///
-/// Parsed as JSON rather than scanned for a needle, because a command is a JSON
-/// string full of escapes — `\"`, `\n`, `\\` — and reading the raw bytes would
-/// hand the shell parser text nobody typed. The cheap byte test comes first: the
-/// corpus is gigabytes and about one line in forty carries a `Bash` call, so
-/// parsing every line would cost minutes to no purpose.
-///
-/// The `cwd` is the line's own, and is what a relative path in the command is
-/// resolved against. `None` where the transcript does not record one, which
-/// makes relative paths unusable rather than guessed at.
+/// Parsed as JSON — a command is a string full of escapes — after a cheap byte
+/// test, since one line in forty carries a `Bash` call. `None` for a `cwd` the
+/// transcript does not record, so relative paths are unusable rather than guessed.
 pub fn bash_calls(line: &[u8]) -> Option<(Option<String>, Vec<String>)> {
     let line = bash_calls_with_ids(line)?;
     Some((
@@ -1333,18 +952,9 @@ pub fn bash_calls(line: &[u8]) -> Option<(Option<String>, Vec<String>)> {
 pub struct BashCall {
     pub id: String,
     pub command: String,
-    /// The `description` the caller wrote beside the command.
-    ///
-    /// ⚠ **A CLAIM about the command, never evidence about what ran.** It is
-    /// prose written by the same author, at the same moment, and it can be
-    /// wrong — which is exactly what makes it useful as an independent second
-    /// reading (`docs/concept-model.md`, *The corpus is self-labelling*). No
-    /// reader may consult it to decide what a command did: that would be
-    /// inference from prose, and the whole chain below is a static analysis of
-    /// the text that ran.
-    ///
-    /// `None` where the caller wrote none, which is a fact worth keeping —
-    /// presence is one of the things the description report measures.
+    /// The `description` the caller wrote beside the command: a CLAIM, never
+    /// evidence about what ran (`docs/concept-model.md`). No reader may consult it to
+    /// decide what a command did. `None` where the caller wrote none.
     pub description: Option<String>,
 }
 
@@ -1352,23 +962,14 @@ pub struct BashCall {
 #[derive(Debug, Clone)]
 pub struct BashLine {
     pub cwd: Option<String>,
-    /// When the line was written, as the transcript spells it (RFC 3339, UTC).
-    ///
-    /// ⚠ **The line's own stamp, so it is the time of the CALL and not of its
-    /// result** — the result arrives on a later line, and pairing the two would
-    /// measure how long the command took rather than when it was issued.
-    /// Absent on a line that carries none rather than defaulted to a date,
-    /// because a wrong date is worse here than a missing one: these rows are
-    /// counted into days.
+    /// When the line was written (RFC 3339, UTC) — the time of the CALL, not its
+    /// result. Absent rather than defaulted: these rows are counted into days.
     pub at: Option<String>,
     pub calls: Vec<BashCall>,
 }
 
-/// As [`bash_calls`], keeping each call's id.
-///
-/// The id is the join to the result that came back, which arrives on a later
-/// line as a `tool_result` naming it — the only way to know whether the work
-/// succeeded.
+/// As [`bash_calls`], keeping each call's id — the join to the result that
+/// arrives on a later line.
 pub fn bash_calls_with_ids(line: &[u8]) -> Option<BashLine> {
     find_at(line, b"\"name\":\"Bash\"", 0)?;
     let row: serde_json::Value = serde_json::from_slice(line).ok()?;
@@ -1395,43 +996,15 @@ pub fn bash_calls_with_ids(line: &[u8]) -> Option<BashLine> {
     })
 }
 
-/// The harness's own words for a call the user would not allow. Anchored to the
-/// front of the content, which is what makes it safe to match — see
-/// [`reader::doing::Verdict`].
+/// The harness's own words for a call the user would not allow, anchored to the
+/// front — see [`reader::doing::Verdict`].
 const REFUSED: &[u8] = b"\"content\":\"The user doesn't want to proceed with this tool use";
 
-/// What became of every call in one transcript, by id.
-///
-/// A pass of its own, because a result is written below the call it answers and
-/// a transcript is read from the top.
-///
-/// ⚠ **`Ok` is kept rather than left implicit.** Absent from this map means *no
-/// result came back at all* — interrupted, or still running — which is
-/// [`reader::doing::Verdict::Unknown`] and admits nothing. Dropping the
-/// successes to save space would make silence and success the same answer.
-/// The map is per transcript and freed with it, so there is no space to save.
-/// Memories a corpus-wide search printed a LINE of, and how many times.
-///
-/// ⚠ **The colon is the whole discriminator, and it is measured rather than
-/// assumed.** `grep` prints `path:line:text`, so a memory that MATCHED appears
-/// as `/memory/<name>.md:`. Scanning for the bare `/memory/<name>.md` instead
-/// matches orders of magnitude more result lines, and almost all of them are the
-/// `Read` tool's own result envelope, `"file":{"filePath":…}`, which is ALREADY
-/// counted as a read. Counting those again would double the strongest evidence
-/// in the corpus.
-///
-/// It also excludes exactly what this ticket's argument excludes: `grep -l`
-/// prints a bare filename and put no LINE in front of anybody, and a directory
-/// listing prints relative names with no `/memory/` prefix at all.
-///
-/// ⚠ **Pre-filtered on bytes before any UTF-8 work**, in the style of
-/// [`tool_result`] above: a result carries the command's whole output, which is
-/// most of the corpus's bytes, and almost none of it mentions a memory.
+/// What became of every call in one transcript, by id. `Ok` is kept: absent means
+/// no result came back at all ([`reader::doing::Verdict::Unknown`]).
 fn grep_matched_memories(text: &[u8], memory_root: &str) -> BTreeMap<String, usize> {
-    // ⚠ Built from `memory_root`, never a hardcoded `/memory/`. The literal
-    // happens to be right for the live corpus and silently matches nothing in
-    // any test or on any other machine — the shell site one screen up takes
-    // the root for the same reason.
+    // Built from `memory_root`, never a hardcoded `/memory/`, which silently
+    // matches nothing in a test.
     let needle = format!("{}/", memory_root.trim_end_matches('/'));
     let needle = needle.as_bytes();
     const _: () = ();
@@ -1442,10 +1015,8 @@ fn grep_matched_memories(text: &[u8], memory_root: &str) -> BTreeMap<String, usi
         {
             continue;
         }
-        // ⚠ Counted ONCE per result, not once per matching line. A grep over
-        // the corpus prints one line per hit, so a memory with forty matches
-        // would otherwise outweigh forty memories with one — and what this
-        // records is that the session was shown the memory, not how loudly.
+        // Counted ONCE per result, not per matching line: this records that the session
+        // was shown the memory, not how loudly.
         let mut seen: BTreeSet<String> = BTreeSet::new();
         let mut at = 0;
         while let Some(found) = find_at(line, needle, at) {
@@ -1488,28 +1059,16 @@ fn outcomes(text: &[u8]) -> std::collections::HashMap<String, reader::doing::Ver
     out
 }
 
-/// The `cd` targets each call's own output says the shell refused.
-///
-/// A second map rather than a field on the verdict, because it is a different
-/// kind of fact: a verdict is what became of the call, and this is something the
-/// shell said *during* it. `cd nope; cat x` exits 0 — the verdict is `Ok` and the
-/// directory still never moved. See [`reader::doing::refused_dirs`].
-///
-/// ⚠ **The cheap byte test first, then the JSON.** This walks the same gigabytes
-/// as [`outcomes`], and a `serde_json` parse per result line would cost minutes;
-/// a refusal is rare enough (247 in the whole corpus) that parsing only the lines
-/// carrying the wording is free. The needle is the shell's own ending rather than
-/// `cd: `, which matches prose — commit subjects in a `git log` begin that way.
+/// The `cd` targets each call's own output says the shell refused — a different
+/// fact from the verdict: `cd nope; cat x` exits 0. See
+/// [`reader::doing::refused_dirs`]. Cheap byte test first: a refusal is rare
+/// (247 in the corpus), and the needle is the shell's own ending, since `cd: `
+/// matches prose.
 pub fn refusals(text: &[u8]) -> std::collections::HashMap<String, Vec<String>> {
     let mut out = std::collections::HashMap::new();
     for line in text.split(|c| *c == b'\n') {
-        // ⚠ **The gate comes from the parser, not from here.** This held its own
-        // `b"No such file or directory"`, which decided what `refused_dirs` was
-        // ever shown — and being one needle where the parser reads four, it hid
-        // zsh's lower-cased wording (77 Bash calls in the 40 largest transcripts)
-        // and bash's own `Not a directory` as well. A cheap prescan is right; a
-        // cheap prescan with its own private idea of the thing it is screening
-        // for is a second implementation that cannot be seen disagreeing.
+        // The gate comes from the parser, not from here: a private needle hid zsh's
+        // lower-cased wording and bash's `Not a directory`.
         if !reader::doing::may_hold_refusal(line)
             || find_at(line, b"\"type\":\"tool_result\"", 0).is_none()
         {
@@ -1525,12 +1084,8 @@ pub fn refusals(text: &[u8]) -> std::collections::HashMap<String, Vec<String>> {
             let Some(call) = item["tool_use_id"].as_str() else {
                 continue;
             };
-            // A result's content is a string on some rows and a list of blocks
-            // on others. ⚠ **Not `to_string()` on the list** — that re-escapes,
-            // turning every newline back into a two-character `\n` and leaving
-            // the whole output as one line, where only the last refusal could be
-            // found and only if nothing followed it. The blocks' own text is
-            // already unescaped.
+            // A result's content is a string on some rows and a list of blocks on others.
+            // Not `to_string()` on the list — that re-escapes every newline.
             let said = match &item["content"] {
                 serde_json::Value::String(text) => text.clone(),
                 serde_json::Value::Array(blocks) => blocks
@@ -1549,37 +1104,12 @@ pub fn refusals(text: &[u8]) -> std::collections::HashMap<String, Vec<String>> {
     out
 }
 
-/// Whether this transcript exists only to name another conversation.
-///
-/// ⚠ **These are not agents, and they outnumber the agents four to one.** The
-/// CLI titles a conversation by handing a summary of it to a one-shot Haiku
-/// session, which persists a transcript like any other — 307 of them against 13
-/// real sessions, each a bare uuid with every counter at zero, filling the page
-/// they were supposed to be measured on.
-///
-/// **Both halves of the test are needed.** An `ai-title` line alone is not the
-/// marker: older CLI versions wrote the title into the working session's *own*
-/// transcript, and nine such sessions in the corpus carry one — 11,000 to
-/// 110,000 lines, thousands of tool calls, Opus and Fable. Excluding on the line
-/// alone would delete the largest sessions there are. A titler makes no tool
-/// call at all, and that is what separates them.
-///
-/// Two markers, because neither alone is complete: four of these produced a
-/// title in their reply without an `ai-title` line ever being written, and are
-/// recognisable only by the prompt they were handed.
-///
-/// ⚠ **The tool-call test runs first, and that ordering is load-bearing.** Any
-/// session that *investigates* this problem quotes the titling prompt into its
-/// own transcript — this very rule was written in one that now contains the
-/// string twice. Matching the prompt first would make a session disappear for
-/// having looked into why sessions disappear. Making a tool call is what no
-/// titler ever does, and it is checked before any text is.
-///
-/// Deleting the rest is not the alternative: a transcript with no tool call
-/// contributes nothing either way, so if these markers ever go stale the cost is
-/// a few visible empty rows rather than lost work. A bare "made no tool call"
-/// test would be simpler and would also drop the 7 dispatched subagents (of 940)
-/// that answered without using one, which is real delegation and worth counting.
+/// Whether this transcript exists only to name another conversation: the CLI
+/// titles a conversation with a one-shot Haiku session — 307 of them against 13
+/// real sessions. Both halves are needed: older CLIs wrote `ai-title` into the
+/// working session's own transcript, so the line alone would delete the largest
+/// sessions; a titler makes no tool call. The tool-call test runs FIRST, since a
+/// session investigating this quotes the titling prompt into its own transcript.
 fn titling(text: &[u8]) -> bool {
     if find_at(text, b"\"type\":\"tool_use\"", 0).is_some() {
         return false;
@@ -1589,15 +1119,9 @@ fn titling(text: &[u8]) -> bool {
     find_at(text, TITLED, 0).is_some() || find_at(text, ASKED, 0).is_some()
 }
 
-/// Whether the tool call whose name begins at `at` did what it was asked.
-///
-/// The id belongs to the same JSON object and is written before the name, so the
-/// nearest `"id":"` behind the needle is this call's. A line can carry several
-/// calls, which is why it is the *nearest* rather than the first.
-///
-/// A call whose id cannot be read is treated as completed: the alternative is to
-/// drop real work over a parse this function is not confident about, and being
-/// unable to find an id says nothing about whether the tool acted.
+/// Whether the tool call whose name begins at `at` did what it was asked. The
+/// nearest `"id":"` behind the needle is this call's — a line can carry several.
+/// An unreadable id is treated as completed rather than dropping real work.
 fn call_completed(
     line: &[u8],
     at: usize,
@@ -1613,14 +1137,9 @@ fn call_completed(
         .completed()
 }
 
-/// The `file_path` inside one tool call's input object, if it has one.
-///
-/// ⚠ **It is not always the input's first key.** `Edit` serialises
-/// `replace_all` ahead of it — every one of the 28,546 in the live corpus — so a
-/// needle demanding the path directly after the tool name matched none of them
-/// at all, and the miner reported zero edits while calling the number "writes".
-/// The key is looked up inside the object instead, bounded by `limit` so a call
-/// carrying no path cannot borrow the following call's.
+/// The `file_path` inside one tool call's input, if it has one. Not always the
+/// first key — `Edit` serialises `replace_all` ahead of it, all 28,546 of them —
+/// so it is looked up inside the object, bounded by `limit`.
 fn path_in(line: &[u8], input: usize, limit: usize) -> Option<&str> {
     let key = find_at(line, PATH_KEY, input)?;
     if key >= limit {
@@ -1631,12 +1150,8 @@ fn path_in(line: &[u8], input: usize, limit: usize) -> Option<&str> {
     std::str::from_utf8(&line[start..end]).ok()
 }
 
-/// The tool-use id of the call a needle landed inside.
-///
-/// The id sits just before the name in the same object, so the nearest one
-/// behind the needle is this call's — the same reasoning [`call_completed`]
-/// relies on, shared rather than written twice so a timeline row and the
-/// completeness gate can never disagree about which call they are talking about.
+/// The tool-use id of the call a needle landed inside, shared with
+/// [`call_completed`] so the two cannot disagree.
 fn call_id(line: &[u8], at: usize) -> Option<&str> {
     const ID: &[u8] = b"\"id\":\"";
     let start = crate::couse::last_at(&line[..at], ID).map(|pos| pos + ID.len())?;
@@ -1644,14 +1159,8 @@ fn call_id(line: &[u8], at: usize) -> Option<&str> {
     std::str::from_utf8(&line[start..end]).ok()
 }
 
-/// The call a `tool_result` line answers, and what became of it.
-///
-/// Read with needles rather than parsed: a result carries the command's whole
-/// output, which is most of the corpus's bytes, and none of that text is wanted
-/// — only the id it names and how it went.
-///
-/// The refusal needle is anchored to the front of the content on purpose; see
-/// [`reader::doing::Verdict`] for what goes wrong unanchored.
+/// The call a `tool_result` line answers, and what became of it. Needles rather
+/// than a parse: a result carries the command's whole output.
 pub fn tool_result(line: &[u8]) -> Option<(String, reader::doing::Verdict)> {
     find_at(line, b"\"type\":\"tool_result\"", 0)?;
     const ID: &[u8] = b"\"tool_use_id\":\"";
@@ -1668,36 +1177,21 @@ pub fn tool_result(line: &[u8]) -> Option<(String, reader::doing::Verdict)> {
     Some((id, verdict))
 }
 
-/// The first time each commit hash was mentioned, and by whom.
-///
-/// A hash does not exist until the commit is made, so the earliest mention is
-/// the session that made it. Keyed by full sha; the value is the timestamp and
-/// the agent name.
-///
-/// ⚠ **Earliest by TIMESTAMP, not by which transcript was walked first** — so
-/// this accumulator is order-independent, and two halves of a scan can be
-/// merged with [`keep_earliest`] to the same answer the whole scan gives. That
-/// is what makes a resumed or split mine possible at all; a fold that depended
-/// on file order could not be restarted from a saved artefact (memview#1240).
+/// The first time each commit hash was mentioned, and by whom — the session that
+/// made it. Earliest by TIMESTAMP, not by walk order, so two halves of a scan
+/// merge with [`keep_earliest`] to the whole scan's answer (memview#1240).
 pub type FirstSeen = BTreeMap<String, (String, String)>;
 
-/// Fold one map of sightings into another, keeping the earlier sighting of each
-/// hash.
-///
-/// ⚠ **The merge IS the ordering rule**, written once so a resumed scan and a
-/// whole scan cannot disagree: both reduce to "smallest timestamp wins", and a
-/// tie keeps what was already there.
+/// Fold one map of sightings into another, keeping the earlier of each. The
+/// merge IS the ordering rule, written once.
 pub fn keep_earliest(into: &mut FirstSeen, other: FirstSeen) {
     for (sha, (stamp, who)) in other {
         note_earliest(into, &sha, &stamp, &who);
     }
 }
 
-/// Record one sighting, keeping whichever is earlier.
-///
-/// ⚠ **The single copy of the comparison.** The scan records sightings one line
-/// at a time and a merge records them a map at a time; writing `<=` twice is how
-/// a resumed scan would start disagreeing with a whole one over ties.
+/// Record one sighting, keeping whichever is earlier — the single copy of the
+/// comparison.
 fn note_earliest(first: &mut FirstSeen, sha: &str, stamp: &str, who: &str) {
     match first.get(sha) {
         Some((seen, _)) if seen.as_str() <= stamp => {}
@@ -1725,9 +1219,7 @@ fn note_hashes(
         let Some(shas) = index.get(&candidate[..crate::commits::SHORT]) else {
             continue;
         };
-        // The whole candidate must prefix the hash, not just its first seven
-        // characters — a longer mention is a stronger claim, and checking it is
-        // what keeps a `git log` printing nine from matching the wrong commit.
+        // The whole candidate must prefix the hash, not just its first seven characters.
         for sha in shas.iter().filter(|sha| sha.starts_with(candidate)) {
             note_earliest(first, sha, stamp, name);
         }
@@ -1735,24 +1227,10 @@ fn note_hashes(
 }
 
 /// Whether a transcript line is somebody typing, rather than the machinery
-/// answering the agent's own call.
-///
-/// ⚠ **A `user` line is usually NOT a prompt.** Over the whole corpus 492,124
-/// lines wear the user's name and 39,973 are somebody typing; the rest carry a
-/// list of `tool_result` blocks. Which of the two decides whether an episode is
-/// an instruction or a turn of the machinery.
-///
-/// ⚠ **The needle is the JSON key, not the bare word, and the difference was 17
-/// merged episodes.** Testing for `tool_result` anywhere in the line rejects a
-/// prompt that merely *discusses* tool results — and a rejected prompt starts no
-/// episode, so its work joins the one before it. That is the merging error this
-/// boundary exists to prevent, and it was happening.
-///
-/// Matching `"type":"tool_result"` is exact rather than lucky: **inside a JSON
-/// string every quote is escaped**, so those bytes can only ever be structure
-/// and never prose quoting them. Checked against a real parse of all 492,124
-/// lines — no prompt missed, none invented — which is the whole-corpus parse
-/// this avoids paying for on every mine.
+/// answering the agent's own call: of 492,124 `user` lines, 39,973 are typing.
+/// The needle is the JSON key `"type":"tool_result"`, not the bare word — a
+/// prompt that DISCUSSES tool results merged 17 episodes — and inside a JSON
+/// string every quote is escaped, so those bytes are only ever structure.
 pub fn is_prompt(line: &[u8]) -> bool {
     field(line, "type") == Some(b"user") && find_at(line, b"\"type\":\"tool_result\"", 0).is_none()
 }
@@ -1772,9 +1250,7 @@ fn scan_transcript(
     effects: &mut reader::effects::Log,
     resume: Option<&reader::watermark::Resume>,
 ) {
-    // Borrowed field by field: one tool call updates either a project counter
-    // or a memory counter, and the compiler cannot see they are disjoint
-    // through `agent`.
+    // Borrowed field by field: the compiler cannot see the two counters are disjoint.
     let Agent {
         name: agent_name,
         reads: agent_reads,
@@ -1790,14 +1266,13 @@ fn scan_transcript(
     // What became of each call — read ahead, because the answer is always below
     // the question.
     let outcomes = outcomes(text);
-    // ⚠ **A whole-transcript pass, not a per-line one inside the walk below.**
-    // The evidence is a tool RESULT, which the walk below does not visit as a
-    // tool call — there is no `tool_use` line to hang it on.
+    // A whole-transcript pass: the evidence is a tool RESULT, which the walk below
+    // does not visit.
     for (name, hits) in grep_matched_memories(text, memory_root) {
         memories.entry(name).or_default().grep_matches += hits;
     }
-    // What the shell said it could not do, which no verdict can carry — see
-    // [`refusals`]. A `cd` it refused must not be applied to the walk below.
+    // What the shell said it could not do — see [`refusals`]. A refused `cd` must
+    // not be applied to the walk below.
     let refusals = refusals(text);
     // Built once per transcript rather than once per line — the needles are
     // fixed and the corpus is millions of lines.
@@ -1805,15 +1280,9 @@ fn scan_transcript(
         .iter()
         .map(|(tool, role)| (format!("\"name\":\"{tool}\",\"input\":{{"), *tool, *role))
         .collect();
-    // ⚠ **Per transcript, or the last instruction of one session adopts the
-    // first rows of the next file read.**
-    //
-    // ⚠ **But a RESUMED read must not reset, and getting this wrong is silent.**
-    // Calling `Log::reopen` just before this function and clearing it on the next
-    // statement applies the carried episode and throws it away at once: the tail
-    // rows then land in no episode, where a whole scan puts them in one. That was
-    // the last thing differing between a resumed artefact and a full one
-    // (memview#1240).
+    // Per transcript, or the last instruction of one session adopts the first rows
+    // of the next file. But a RESUMED read must not reset: reopening here and
+    // clearing on the next statement threw the carried episode away (memview#1240).
     match resume {
         None => log.open_transcript(),
         Some(open) => log.reopen(open.episode, open.prompt.clone()),
@@ -1836,21 +1305,14 @@ fn scan_transcript(
             }
             day = day_number(stamp);
         }
-        // Which commits this session knew about, and when. Attribution happens
-        // after every transcript has been read, because "first" is a claim about
-        // all of them and cannot be settled one at a time.
+        // Attribution happens after every transcript has been read: "first" is a
+        // claim about all of them.
         if !index.is_empty() {
             note_hashes(line, stamp, index, agent_name, first);
         }
-        // What the shell did, beside what the tools did. Counted into its own
-        // map and into no project or recency counter: this is a new dimension,
-        // not a correction to the old ones.
-        //
-        // A command the grammar cannot read contributes nothing and is not
-        // reported here — `shell-report` is where that is measured, against a
-        // corpus, rather than buried in a mine that takes minutes to run.
-        // The result of a call made earlier in this transcript, which is how a
-        // row learns whether the work succeeded.
+        // What the shell did, beside what the tools did — a new dimension, not a
+        // correction. A command the grammar cannot read contributes nothing;
+        // `shell-report` measures that.
         if let Some((call, verdict)) = tool_result(line) {
             log.resolve(&call, verdict);
             effects.resolve(&call, verdict);
@@ -1858,9 +1320,8 @@ fn scan_transcript(
         // The miner takes its time from the row it is already walking, so the
         // call's own stamp is not needed here.
         if let Some(BashLine { cwd, calls, .. }) = bash_calls_with_ids(line) {
-            // The description is deliberately not read here: the miner is a
-            // static analysis of what ran, and prose beside a command is a
-            // claim about it. See [`BashCall::description`].
+            // The description is deliberately not read: the miner is a static analysis of
+            // what ran. See [`BashCall::description`].
             for BashCall {
                 id: call, command, ..
             } in calls
@@ -1868,28 +1329,22 @@ fn scan_transcript(
                 let Ok(parsed) = reader::project::read(&command) else {
                     continue;
                 };
-                // ⚠ **Traced, because the effects artefact shows the command a
-                // claim rests on** and only a `Step` carries it. Everything the
-                // roster does with `found.files` is unchanged — a step's files
-                // are the same uses, attributed to the command that made them.
+                // Traced, because the effects artefact shows the command a claim rests on and
+                // only a `Step` carries it.
                 let found = reader::shell_files::trace_knowing(
                     &parsed,
                     cwd.as_deref(),
                     home,
                     refusals.get(&call).map_or(&[][..], Vec::as_slice),
                 );
-                // ⚠ **What the text required, met with what the call returned.**
-                // The timeline row goes in whatever happened — being refused or
-                // failing is part of the record — but a path only reaches
-                // somebody's name when the command that opened it certainly
-                // ran. Absent from the map is a call that never answered.
+                // What the text required, met with what the call returned: the timeline row
+                // goes in whatever happened, but a path reaches somebody's name only when the
+                // command that opened it certainly ran.
                 let verdict = outcomes
                     .get(&call)
                     .copied()
                     .unwrap_or(reader::doing::Verdict::Unknown);
-                // What this turn was doing, one row per kind of work in it.
-                // Grouped rather than one row per command: a call that runs
-                // `sed` over four files is one edit to anybody reading it.
+                // One row per kind of work in the turn: `sed` over four files is one edit.
                 let mut kinds: BTreeMap<&str, u32> = BTreeMap::new();
                 for activity in &found.activities {
                     if activity.is_work() {
@@ -1960,10 +1415,8 @@ fn scan_transcript(
                             };
                             effect(did, Some(used.path.as_str()), searched, Some(&used.host));
                         }
-                        // ⚠ **The admissions travel too.** A turn that used a
-                        // file nobody can name is not a turn that used none, and
-                        // an artefact showing only what resolved would read as a
-                        // complete account of the work.
+                        // The admissions travel too: a turn that used a file nobody can name is not a
+                        // turn that used none.
                         for pattern in &step.bounded {
                             effect(
                                 reader::effects::Did::Unnamed,
@@ -1975,12 +1428,7 @@ fn scan_transcript(
                         for _ in &step.unnamed {
                             effect(reader::effects::Did::Unnamed, None, None, None);
                         }
-                        // ⚠ **A third vector, and skipping it lost 1,019 rows in
-                        // silence** (memview#1458). `Step` has carried three
-                        // admissions since locus reading landed; this loop knew
-                        // about two, so every subject the text placed well enough
-                        // to locate was counted by the reader and emitted by
-                        // nothing.
+                        // A third vector, and skipping it lost 1,019 rows in silence (memview#1458).
                         for locus in &step.located {
                             effect(
                                 reader::effects::Did::Located,
@@ -1991,8 +1439,8 @@ fn scan_transcript(
                         }
                     }
                 }
-                // A refusal drops the whole call; everything else is recorded
-                // under one of two claims, never thrown away for being unsure.
+                // A refusal drops the whole call; everything else is recorded under one of two
+                // claims, never thrown away for being unsure.
                 for used in found
                     .files
                     .into_iter()
@@ -2001,17 +1449,9 @@ fn scan_transcript(
                     let certain = verdict.admits(used.reached);
                     let Some(rel) = relative_to(&used.path, code_root).filter(|p| attributable(p))
                     else {
-                        // ⚠ **The corpus is outside the code root, so this
-                        // `continue` was the whole of it: a `grep` over
-                        // `memory/`, an `ls` of it, a `cat` of one file counted
-                        // for NOTHING.** The tool-call site below has had a
-                        // `memory_of` arm all along; this one did not, and the
-                        // asymmetry mattered more than it looked. There is no
-                        // recall channel — measured across all 16 transcripts,
-                        // every memory arrival is a `Read` or a shell command —
-                        // so searching the directory by hand is one of only two
-                        // ways a DEMOTED memory is ever reached, and it was the
-                        // half the evidence could not see (#822).
+                        // The corpus is outside the code root, so a `grep` over `memory/` counted for
+                        // NOTHING here while the tool-call site had a `memory_of` arm — and searching
+                        // the directory is one of only two ways a demoted memory is ever reached (#822).
                         if let Some(memory) = memory_of(&used.path, memory_root) {
                             if let Some(day) = day {
                                 let days = if used.write {
@@ -2021,11 +1461,7 @@ fn scan_transcript(
                                 };
                                 days.entry(memory.clone()).or_default().insert(day);
                             }
-                            // Four-way, where the tool call two hundred lines
-                            // down is two-way: a tool call either opened the
-                            // file or did not, and a command only may have.
-                            // `MemoryUse` has carried the `maybe_` pair since it
-                            // was written — this is the first thing to fill it.
+                            // Four-way where the tool call is two-way: a command only may have opened it.
                             let use_ = memories.entry(memory).or_default();
                             match (certain, used.write) {
                                 (true, true) => use_.edits += 1,
@@ -2036,15 +1472,8 @@ fn scan_transcript(
                         }
                         continue;
                     };
-                    // **The day counts, even though the count does not.**
-                    // Recency decides which project an agent is listed under,
-                    // and deciding that from tool calls alone was the very
-                    // unevenness this dimension exists to correct: a session
-                    // that does its editing through `sed` or a `python3 -`
-                    // heredoc was present in that repository, and ordering it
-                    // below a session that opened one file with `Edit` says
-                    // otherwise. The displayed totals stay apart; only the
-                    // ordering signal is made whole.
+                    // The day counts, even though the count does not: recency decides which project
+                    // an agent is listed under, and a session editing through `sed` was present.
                     if let (Some(project), Some(day)) = (project_of(&used.path, code_root), day) {
                         let days = if used.write {
                             &mut seen.writes
@@ -2061,10 +1490,7 @@ fn scan_transcript(
                         (false, false) => use_.maybe_reads += 1,
                     }
                 }
-                // Work on another machine, kept under its host. No code-root
-                // filter: `/etc/nixos` is where odin's work lives and there is
-                // no `~/Code` there — the shape of the filesystem is the remote
-                // machine's business, not this one's.
+                // Work on another machine, kept under its host, with no code-root filter.
                 for used in found
                     .remote
                     .into_iter()
@@ -2084,28 +1510,19 @@ fn scan_transcript(
                 }
             }
         }
-        // A line can carry more than one tool call, so every occurrence is
-        // walked rather than only the first — a batched turn that opens six
-        // files is six reads, and counting it as one would understate exactly
-        // the sessions that work hardest.
+        // A line can carry more than one tool call; a batched turn that opens six files
+        // is six reads.
         for (head, tool, role) in &needles {
             let mut from = 0;
             while let Some(at) = find_at(line, head.as_bytes(), from) {
                 let input = at + head.len();
                 from = input;
-                // Bounded by the next tool call so a call carrying no path
-                // cannot borrow the following call's. A tool's own payload
-                // cannot forge the marker: it is a JSON string, so its quotes
-                // arrive backslash-escaped.
+                // Bounded by the next tool call so a call carrying no path cannot borrow the
+                // following call's. A payload cannot forge the marker: its quotes are escaped.
                 let limit = find_at(line, b"\"name\":\"", input).unwrap_or(line.len());
-                // ⚠ **The timeline row goes in whatever the call returned**,
-                // exactly as a shell command's does: being refused or failing is
-                // part of the record, and the verdict arrives later by id. File
-                // attribution is the opposite and is gated below — a `Edit` that
-                // failed left the file untouched.
-                //
-                // Pushed before the path is known, because a `Grep` or a `Task`
-                // never has one and is still work somebody did.
+                // The timeline row goes in whatever the call returned; file attribution is
+                // gated below. Pushed before the path is known, because a `Grep` never has one
+                // and is still work.
                 if let Some(minute) = stamp.and_then(reader::doing::minute)
                     && let Some(activity) = reader::activity::Activity::of_tool(tool)
                     && let Some(call) = call_id(line, at)
@@ -2134,11 +1551,8 @@ fn scan_transcript(
                 if !call_completed(line, at, &outcomes) {
                     continue;
                 }
-                // ⚠ **A tool call that failed did nothing.** `Edit` fails when
-                // its `old_string` is absent and leaves the file untouched; 990
-                // of them in the corpus, plus 289 `Write`s, were counted as
-                // changes to files they never altered. One thing, one result —
-                // none of the reachability reasoning a shell script needs.
+                // A tool call that failed did nothing: 990 failed `Edit`s and 289 `Write`s were
+                // counted as changes to files they never altered.
                 let Some(path) = path_in(line, input, limit) else {
                     continue;
                 };
@@ -2158,11 +1572,8 @@ fn scan_transcript(
                             }
                         }
                     } else if let Some(memory) = memory_of(path, memory_root) {
-                        // The day, beside the count. Which memories the index
-                        // should hold is a question about what is live, and a
-                        // total cannot answer it: a memory opened forty times
-                        // during one afternoon's work on a dead project outranks
-                        // one opened daily for a fortnight, on counts alone.
+                        // The day, beside the count: a memory opened forty times in one afternoon
+                        // outranks one opened daily for a fortnight, on counts alone.
                         if let Some(day) = day {
                             let days = if is_write {
                                 &mut seen.memory_edits
@@ -2184,21 +1595,8 @@ fn scan_transcript(
     }
 }
 
-/// Mine every transcript under `projects_root` into per-agent directory counts.
-///
-/// Every project directory is walked, not just one: agents are named per
-/// session and a session's transcripts live under whichever root it was started
-/// in, so scoping to one root would silently lose whole agents. Work a session
-/// delegated counts as its own — see [`transcripts_under`].
-///
-/// `memory_root` is the corpus directory, so opening a memory is attributed to
-/// the memory rather than discarded as "outside the code root". A path that
-/// does not exist is harmless: nothing matches it and the profile is empty.
-/// Where a scan reads from.
-///
-/// Bundled because passing five paths positionally is how a caller ends up
-/// handing `memory_root` to `code_root` — and because clippy was right that
-/// eight arguments is too many to keep straight.
+/// Where a scan reads from. Bundled because passing five paths positionally is
+/// how `memory_root` ends up handed to `code_root`.
 #[derive(Clone, Copy)]
 pub struct Roots<'a> {
     pub projects: &'a Path,
@@ -2208,19 +1606,13 @@ pub struct Roots<'a> {
     pub home: &'a str,
 }
 
-/// What a caller actually wants out of a scan, so the rest is not computed.
-///
-/// ⚠ **This exists because `memory-rank` referenced commit data ZERO times and
-/// paid 4.4s of git walk for it on every run** — most of a 5.9s refresh, to
-/// produce numbers it never read. A scan that computes everything is the right
-/// default for the miner and the wrong one for a reader.
+/// What a caller actually wants out of a scan: `memory-rank` referenced commit
+/// data zero times and paid 4.4s of git walk for it on every run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Needs {
-    /// Attribute commits to the agents who mentioned them. Walks the git log of
-    /// every repository under the code root.
-    ///
-    /// ⚠ **Off means the commit fields are EMPTY, not stale** — so a scan with
-    /// this off must never be written to `agents.json`.
+    /// Attribute commits to the agents who mentioned them, walking every repository's
+    /// git log. Off means the commit fields are EMPTY, so such a scan must never be
+    /// written to `agents.json`.
     pub commits: bool,
 }
 
@@ -2232,14 +1624,11 @@ impl Needs {
 }
 
 /// The artefacts a previous run wrote, plus the fold state they could not carry.
-///
-/// See [`crate::mine::Carried`] for why three of the folds below are not
-/// recoverable from `agents.json`, `doing.json` or `memory-days.json`.
+/// See [`crate::mine::Carried`].
 pub struct Resumed {
-    /// Watermarks and the fold state the artefacts cannot hold, INCLUDING the
-    /// raw roster. There is deliberately no field for `agents.json`'s roster:
-    /// that one has renames applied, and re-seeding from it toggles any path
-    /// caught in a rename cycle. See [`crate::mine::Carried::agents`].
+    /// Watermarks and the fold state the artefacts cannot hold, INCLUDING the raw
+    /// roster: `agents.json`'s has renames applied, and re-seeding from it toggles
+    /// any path in a rename cycle.
     pub carried: crate::mine::Carried,
     /// The timeline as last written.
     pub doing: reader::doing::Doing,
@@ -2247,10 +1636,8 @@ pub struct Resumed {
     pub effects: reader::effects::Effects,
 }
 
-/// Read the whole corpus from scratch.
-///
-/// The unconditional form, kept because most callers want it and because it is
-/// what [`Plan::Full`](reader::watermark::Plan::Full) falls back to.
+/// Read the whole corpus from scratch — what [`Plan::Full`](reader::watermark::Plan::Full)
+/// falls back to.
 pub fn scan(
     projects_root: &Path,
     sessions_dir: &Path,
@@ -2275,17 +1662,9 @@ pub fn scan(
 }
 
 /// Read only what has changed since `from`, and return the state the next run
-/// resumes from.
-///
-/// ⚠ **All-or-nothing.** One transcript that cannot be proved an append forces
-/// the whole corpus to be re-read and everything carried to be discarded — the
-/// artefacts carry no per-transcript provenance, so a file's old contribution
-/// cannot be subtracted and would be counted twice. See
-/// [`reader::watermark::plan`], which fails closed for the same reason.
-///
-/// ⚠ **A transcript that did not change is not re-read AND not forgotten**: its
-/// watermark is carried into the next run's state unchanged. Dropping it would
-/// make the following run believe the file was new and read it whole.
+/// resumes from. All-or-nothing: the artefacts carry no per-transcript
+/// provenance, so one unprovable append forces a whole re-read. An unchanged
+/// transcript is not re-read AND not forgotten: its watermark is carried.
 pub fn scan_resumed(
     at: Roots<'_>,
     generated: &str,
@@ -2305,9 +1684,8 @@ pub fn scan_resumed(
         doing: reader::doing::Doing::default(),
         effects: reader::effects::Effects::default(),
     });
-    // ⚠ Seeded from the CARRIED raw roster, never from `agents.json` — that one
-    // has renames applied, and the rename map is not idempotent. See
-    // [`crate::mine::Carried::agents`].
+    // Seeded from the CARRIED raw roster, never `agents.json` — the rename map is
+    // not idempotent. See [`crate::mine::Carried::agents`].
     let mut by_name: BTreeMap<String, Agent> = held
         .carried
         .agents
@@ -2321,12 +1699,8 @@ pub fn scan_resumed(
     // own file for the same reasons.
     let mut effects = reader::effects::Log::resume(held.effects);
     let mut days: BTreeMap<String, DaysSeen> = held.carried.days;
-    // Read before the transcripts, because recognising a hash in one needs the
-    // set of hashes to look for. Empty when the code root has no repositories,
-    // in which case the whole dimension is skipped rather than half-built.
-    // ⚠ Empty when the caller does not need attribution — see [`Needs`]. The
-    // commit fields then come out ZERO, which is why such a scan must not be
-    // written to the artefact.
+    // Read before the transcripts, since recognising a hash needs the set to look
+    // for. Empty when the caller does not need attribution — see [`Needs`].
     let history = if needs.commits {
         crate::commits::all(Path::new(code_root))?
     } else {
@@ -2342,35 +1716,21 @@ pub fn scan_resumed(
         }
     }
     let mut first_seen: FirstSeen = held.carried.first_seen;
-    // "Now" is the mine's own stamp, not the wall clock, so the weights are a
-    // property of the artefact and re-reading it never changes what it says.
+    // "Now" is the mine's own stamp, so the weights are a property of the artefact.
     let today = day_number(generated).unwrap_or(0);
 
     std::fs::metadata(projects_root)
         .with_context(|| format!("reading {}", projects_root.display()))?;
-    // The name an owner settled on, so a dispatched transcript lands under the
-    // same agent as the session that dispatched it.
-    // ⚠ **Carried, because a session is named in the HEAD of its transcript.**
-    // A resumed run reads only the tail, so without this every long-lived agent
-    // would come back as a bare uuid — see [`crate::mine::Carried`].
+    // The name an owner settled on, carried because a session is named in the HEAD
+    // of its transcript and a resumed run reads only the tail.
     let mut resolved: BTreeMap<String, String> = held.carried.resolved;
 
     let found = transcripts_under(projects_root);
     let present: Vec<std::path::PathBuf> = found.iter().map(|t| t.path.clone()).collect();
     let plan = reader::watermark::plan(&held.carried.marks, &present);
-    // ⚠ **A full re-read must also DISCARD what was carried**, or the carried
-    // contribution is counted once from the artefact and again from the re-read.
-    // This is the half of all-or-nothing that is easy to leave out, because
-    // forgetting it produces a plausible artefact with everything doubled.
-    // ⚠ **Marks and the carried folds must agree about how much has been read.**
-    // Zero marks beside a non-empty roster is incoherent: `plan` then calls every
-    // transcript NEW, reads them all whole, and adds them ON TOP of what was
-    // carried — which doubles everything. It is exactly the first bug this
-    // resume ever had, reachable again through a damaged or truncated resume
-    // file rather than through the code.
-    //
-    // Treated as a full re-mine, which is the only sound answer when the two
-    // halves of the resume state disagree.
+    // A full re-read must also DISCARD what was carried, or everything is doubled.
+    // Zero marks beside a non-empty roster is incoherent — `plan` would call every
+    // transcript new and add it on top — and is treated as a full re-mine.
     let incoherent = held.carried.marks.is_empty() && !held.carried.agents.is_empty();
     if incoherent {
         eprintln!(
@@ -2390,8 +1750,8 @@ pub fn scan_resumed(
 
     for transcript in &found {
         let key = transcript.path.to_string_lossy().into_owned();
-        // Where this run starts in this file: the beginning unless the plan
-        // proved the prefix is untouched.
+        // Where this run starts in this file: the beginning unless the plan proved the
+        // prefix untouched.
         let resume = match &plan {
             reader::watermark::Plan::Full { .. } => None,
             reader::watermark::Plan::Resume { tails, .. } => match tails.get(&key) {
@@ -2412,34 +1772,19 @@ pub fn scan_resumed(
         let Ok(text) = read_from(&transcript.path, start) else {
             continue;
         };
-        // ⚠ Only meaningful for a whole read. A tail does not contain the
-        // header this inspects, and asking it would drop the file's tail rows.
+        // Only meaningful for a whole read: a tail does not contain the header.
         if start == 0 && titling(&text) {
             continue;
         }
-        // ⚠ **The open episode is handed to `scan_transcript`, not applied
-        // here.** That function opens the log itself, per transcript, and doing
-        // it here as well meant this was cleared one statement later.
-        // The name it goes by now, then the registry, then the reminder it was
-        // given once, then the id.
-        //
-        // ⚠ **The registry used to come first and no longer can.** It is still
-        // live where the once-written reminder goes stale, which was the whole
-        // argument for it — but what it now holds is a name the CLI made up
-        // (`code-c4`), so trusting it first renamed every conversation on the
-        // page to a placeholder. See [`titled_in_transcript`]. It stays ahead of
-        // the reminder, and a session nobody named still shows the CLI's short
-        // handle in preference to a bare uuid.
-        //
-        // An unnamed session is shown as its id rather than merged into an
-        // "unknown" bucket — several distinct agents pooled under one label
-        // would be a claim about the work that nothing supports.
+        // The open episode is handed to `scan_transcript`, which opens the log itself.
+        // The name it goes by now, then the registry, then the reminder, then the id:
+        // the registry now holds a CLI-invented name (`code-c4`), so it cannot come
+        // first — see [`titled_in_transcript`]. An unnamed session shows its id rather
+        // than joining an "unknown" bucket.
         let name = resolved
             .entry(transcript.owner.clone())
             .or_insert_with(|| {
-                // Only a session's own transcript names it; a subagent carries
-                // its parent's context, and quoting a name is not being called
-                // one.
+                // Only a session's own transcript names it; quoting a name is not being called one.
                 (!transcript.delegated)
                     .then(|| titled_in_transcript(&text, &transcript.owner))
                     .flatten()
@@ -2456,20 +1801,10 @@ pub fn scan_resumed(
             name,
             ..Agent::default()
         });
-        // The owner id, so a delegated transcript records the session that
-        // dispatched it rather than the subagent's own id — the same identity
-        // the rest of the row is counted under, and the one a memory's
-        // `originSessionId` will name.
-        // A set, so re-inserting on a resumed read is already harmless.
+        // The owner id, so a delegated transcript records the session that dispatched it.
         agent.sessions.insert(transcript.owner.clone());
-        // ⚠ **Counted once per transcript, not once per READ.** A resumed run
-        // reads the tail of a file a previous run already counted, and
-        // incrementing again reports one session as two. Only a parity run over
-        // a transcript that GREW can find it — a zero-change comparison reads
-        // nothing and so sees nothing.
-        //
-        // `resume.is_none()` is exactly "this run is reading the file from the
-        // start", which is the only time it has not been counted before.
+        // Counted once per transcript, not once per READ: a resumed run reads the tail
+        // of a file already counted. `resume.is_none()` is "reading from the start".
         if resume.is_none() {
             if transcript.delegated {
                 agent.delegated += 1;
@@ -2490,9 +1825,8 @@ pub fn scan_resumed(
             &mut effects,
             resume.as_ref(),
         );
-        // Taken AFTER the read, at the length actually consumed, together with
-        // whatever episode is still open — the two have to describe the same
-        // instant or the next run resumes into the wrong instruction.
+        // Taken AFTER the read, at the length consumed, with whatever episode is still
+        // open: the two must describe the same instant.
         if let Some(mark) = reader::watermark::observe(&transcript.path) {
             let (episode, prompt) = log.open_episode();
             marks.insert(
@@ -2506,12 +1840,8 @@ pub fn scan_resumed(
         }
     }
 
-    // ⚠ **Memory days are unioned across agents, where project days are not.**
-    // A project is somebody's work and the question is who; a memory is the
-    // corpus's and the question is whether the index should still carry it. Two
-    // agents opening one memory on the same day is one day of that memory being
-    // live, and summing per-agent weights instead would let a memory several
-    // sessions share outrank one that a single session depends on daily.
+    // Memory days are unioned across agents, where project days are not: a memory
+    // is the corpus's, and two agents opening it on one day is one day of it being live.
     type DaySet = std::collections::BTreeSet<i64>;
     let mut memory_read_days: BTreeMap<String, DaySet> = BTreeMap::new();
     let mut memory_edit_days: BTreeMap<String, DaySet> = BTreeMap::new();
@@ -2547,25 +1877,10 @@ pub fn scan_resumed(
         }
     }
 
-    // Every transcript has now been read, so "who saw this hash first" is a
-    // question with an answer. A commit nobody mentioned goes to nobody: work
-    // predating the corpus has no session left to credit.
-    //
-    // ⚠ **This used to say the transcripts are pruned by Claude Code. They are
-    // not** — odin's snapshots show no transcript deleted since the archive
-    // began (memview#1240, #1247). What is genuinely missing predates it, and
-    // is a single session of the ones the corpus names.
-    // ⚠ **Cleared first, because attribution is RECOMPUTED rather than
-    // accumulated.** `history` is the whole git log every run, not just what
-    // this run read, so the loop below is a fresh derivation — and a carried
-    // roster arrives with last run's counts already in it. Without this reset a
-    // resumed mine reports exactly DOUBLE the commits — every agent doubled,
-    // while `doing.json`, `effects.json` and `memory-days.json` stayed
-    // byte-identical, so nothing else pointed at it.
-    //
-    // ⚠ **The fixtures could not catch it** — they carry no git history, so the
-    // loop had nothing to double. Only a real corpus with real repositories
-    // shows it, which is why `--resume` stayed opt-in until that run happened.
+    // Every transcript has been read, so "who saw this hash first" has an answer;
+    // a commit nobody mentioned goes to nobody. Cleared first, because attribution
+    // is RECOMPUTED from the whole git log: without the reset a resumed mine
+    // reported exactly double, and the fixtures carry no git history to show it.
     for agent in by_name.values_mut() {
         agent.commits = 0;
         agent.commit_lines.clear();
@@ -2592,15 +1907,11 @@ pub fn scan_resumed(
         }
     }
 
-    // A file that was renamed has been filed under both of its names all along
-    // — by the tool calls that edited it before the move, by the shell that
-    // touched it after, and by git on either side. Git is the only one of the
-    // three that knows the two are one file, so its answer is applied to all of
-    // them here, at the end, where every dimension is complete.
+    // A renamed file has been filed under both names by tools, shell and git; git
+    // alone knows they are one file, so its answer is applied here, at the end.
     let renames = renames(&history);
     let mut agents: Vec<Agent> = by_name.into_values().collect();
-    // ⚠ Taken BEFORE `rename_keys` below. What is carried has to be the raw
-    // accumulation; renames are re-derived from git every run.
+    // Taken BEFORE `rename_keys`: what is carried is the raw accumulation.
     let raw_roster = agents.clone();
     for agent in &mut agents {
         agent.paths = rename_keys(std::mem::take(&mut agent.paths), &renames);
@@ -2631,15 +1942,9 @@ pub fn scan_resumed(
         })
         .collect();
 
-    // ⚠ **Finished BEFORE the resume state is built, because finishing
-    // renumbers the episodes.** `open_episode()` was recorded during the scan,
-    // against the live log's numbering; the artefact the next run loads uses the
-    // canonical one. Saved unremapped, every carried mark would name a different
-    // instruction — and it would read as a plausible timeline, not an error.
-    //
-    // Unchanged transcripts make it sharper still: their marks arrive already
-    // canonical from the PREVIOUS run, so without one uniform remap the file
-    // would mix two numbering schemes.
+    // Finished BEFORE the resume state is built, because finishing renumbers the
+    // episodes; saved unremapped, every carried mark would name a different
+    // instruction and read as a plausible timeline.
     let (doing, episodes) = log.finish_canonical(generated);
     for mark in marks.values_mut() {
         mark.episode = mark.episode.and_then(|old| episodes.get(&old).copied());
@@ -2667,11 +1972,8 @@ pub fn scan_resumed(
     ))
 }
 
-/// A transcript from `start` to its end.
-///
-/// ⚠ **Seeks rather than reading and slicing.** The files this resumes into are
-/// gigabytes; reading one whole in order to throw away all but its tail would
-/// spend exactly what resuming exists to save.
+/// A transcript from `start` to its end. Seeks rather than reading and slicing:
+/// the files are gigabytes.
 fn read_from(path: &Path, start: u64) -> std::io::Result<Vec<u8>> {
     use std::io::{Read, Seek, SeekFrom};
     let mut file = std::fs::File::open(path)?;
@@ -2683,12 +1985,9 @@ fn read_from(path: &Path, start: u64) -> std::io::Result<Vec<u8>> {
     Ok(buf)
 }
 
-/// Where each old path ended up, following a chain of renames to the end.
-///
-/// The history arrives newest-first, so a file renamed twice is met at its
-/// latest name first and the chain is walked forward from each entry rather
-/// than assumed to be one step. Bounded, because a rename cycle — `a → b` in
-/// one commit and `b → a` in another — is a thing git will happily record.
+/// Where each old path ended up, following a chain of renames. Newest-first
+/// history, so the chain is walked forward from each entry; bounded, since git
+/// will record a rename cycle.
 fn renames(history: &[crate::commits::Commit]) -> BTreeMap<String, String> {
     let mut step: BTreeMap<String, String> = BTreeMap::new();
     for commit in history {
@@ -2696,8 +1995,7 @@ fn renames(history: &[crate::commits::Commit]) -> BTreeMap<String, String> {
             if let Some(was) = &file.was
                 && was != &file.path
             {
-                // Newest first, so an earlier commit's rename of the same name
-                // is the *older* fact and must not overwrite the newer one.
+                // Newest first, so an earlier commit's rename is the older fact.
                 step.entry(was.clone()).or_insert_with(|| file.path.clone());
             }
         }
@@ -2730,19 +2028,15 @@ fn rename_keys<T: Default + Merge>(
     out
 }
 
-/// Adding one file's figures to another's — what re-keying two names onto one
-/// file has to do with the two sets of counts it finds there.
+/// Adding one file's figures to another's, for re-keying two names onto one file.
 pub trait Merge {
     fn merge(&mut self, other: Self);
 }
 
 impl Merge for MemoryUse {
     fn merge(&mut self, other: Self) {
-        // ⚠ **Destructured so a new field cannot quietly go unmerged.**
-        // `rename_keys` rebuilds every path map through this, so a counter
-        // missing here is not merely un-added — it is reset to zero for every
-        // entry, renamed or not. Naming the fields makes that a compile error
-        // instead of a silent loss, which is how `maybe_reads` was first lost.
+        // Destructured so a new field cannot quietly go unmerged — a counter missing
+        // here is reset to zero for every entry, which is how `maybe_reads` was first lost.
         let MemoryUse {
             reads,
             edits,

@@ -1,18 +1,9 @@
 //! The landmarks of each transcript, walked once and then only extended.
 //!
-//! ⚠ **The walk is the wait, not the payload.** On a large conversation the
-//! transfer is a rounding error against the walk, and remains the smaller half
-//! even over a slow phone link — so sending less would leave the wait where it
-//! is. Making the walk incremental is the only thing that moves it.
-//!
-//! **Append-only is what makes the cache correct**, and it is not an assumption
-//! invented here: [`crate::past::counted`] already trusts everything before a
-//! stored byte offset on every turn. Landmarks carry absolute offsets, so one
-//! found in the first megabyte stays true however much is appended.
-//!
-//! ⚠ **A file that SHRANK is re-walked, not extended.** Compaction rewrites
-//! history, so "smaller than last time" means the offsets here describe a file
-//! that no longer exists. Cheap to detect, silently wrong if it is not.
+//! The walk is the wait, not the payload, so only an incremental walk moves it.
+//! Append-only is what makes the cache correct — [`crate::past::counted`] already
+//! trusts everything before a stored offset — and a file that SHRANK (compaction
+//! rewrites history) is re-walked, not extended.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -39,19 +30,12 @@ impl Marks {
         Self::default()
     }
 
-    /// Every landmark in this transcript, walking only what has arrived since
-    /// last time.
+    /// Every landmark in this transcript, walking only what has arrived since last time.
     ///
-    /// ⚠ **Blocking, and it must stay off the executor.** The first call for a
-    /// conversation pays the whole walk — seconds on a large file — and no gate
-    /// ahead of the parser survives contact with the format
-    /// ([`crate::past::landmarks`] records the two that were tried). What this
-    /// removes is paying it *again*.
-    ///
-    /// The lock is not held across the walk. Two requests for the same
-    /// conversation arriving together will both walk, and the later answer wins;
-    /// duplicating a rare few seconds of work is better than making every other
-    /// session's sheet queue behind this one.
+    /// Blocking, and it must stay off the executor: the first call pays the whole walk,
+    /// seconds on a large file. The lock is not held across it — two requests for the
+    /// same conversation both walk and the later answer wins, rather than every other
+    /// sheet queueing behind this one.
     pub fn of(&self, id: &str, path: &Path) -> Vec<Landmark> {
         let len = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
         let known = self
@@ -62,13 +46,9 @@ impl Marks {
             .cloned()
             .unwrap_or_default();
 
-        // Nothing complete has arrived since the last walk. The common case once
-        // a sheet has been opened, and the whole point of the file.
-        //
-        // ⚠ Compared against the length, but `through` is where the WALK stopped
-        // — so a file whose tail is a half-written line is re-read from that
-        // line every time until it is finished. That is the correct amount of
-        // work, and it is bounded by one line.
+        // Nothing complete has arrived since the last walk. `through` is where the walk
+        // STOPPED, so a half-written tail line is re-read until it is finished — bounded
+        // by one line.
         if len == known.through {
             return known.found;
         }
@@ -101,11 +81,8 @@ impl Marks {
         found
     }
 
-    /// Forget a conversation, when it is no longer one this console holds.
-    ///
-    /// Without this the map is the one thing here that only grows, and it holds
-    /// a Vec per conversation — 6,107 landmarks on the largest, which is the
-    /// same 700 kB the wire was carrying.
+    /// Forget a conversation this console no longer holds; otherwise the map only
+    /// grows, a Vec per conversation.
     pub fn forget(&self, id: &str) {
         self.held.write().expect("marks poisoned").remove(id);
     }

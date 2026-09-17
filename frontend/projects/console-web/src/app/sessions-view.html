@@ -1,20 +1,9 @@
-<!-- First on the page, because it is the one fact here that is about the whole
-     account rather than about any session — and the question it answers ("have
-     I got room to start this?") is asked before choosing one, not after. -->
+<!-- First on the page: the one fact about the whole account, asked before
+     choosing a session. -->
 <app-usage-strip [usage]="state()?.usage" />
 
-<!-- What is not with any conversation, beside the other fact about the whole
-     account rather than about one session.
-
-     ⚠ **The pile is on no card, because it belongs to no session.** Everything
-     below is drawn per conversation, so unassigned work — the one queue nobody
-     is working — was invisible here by construction.
-
-     ⚠ **Above the cards, not below them.** It was under the list first, where it
-     read as a footnote to it; on the real page that put it past fourteen cards
-     and hard against the build stamp, which is not somewhere anybody scrolls to
-     find out what is waiting. The glyph is the cards' own, so the numbers are
-     read the same way — same shape, same sweep, see `console/src/tasks.rs`. -->
+<!-- The pile is on no card, because it belongs to no session. Above the cards:
+     below them it was a footnote past fourteen cards. The glyph is the cards' own. -->
 @if (elsewhere().length) {
   <p class="elsewhere">
     <mat-icon>checklist</mat-icon>
@@ -27,16 +16,13 @@
 }
 
 @if (trouble() || unreachable(); as what) {
-  <!-- An action's failure wins the line: it is the more specific of the two and
-       the one the reader just caused. -->
+  <!-- An action's failure wins the line: the more specific, and the one just caused. -->
   <p class="trouble">{{ what }}</p>
 }
 
 @if (anyInUse()) {
-  <!-- The only guard there is: nothing stops two processes appending to one
-       transcript, and the console cannot see a claude running in a terminal or
-       under Remote Control. Shown only when one of the rows is actually held, so
-       it is a fact about the list rather than a standing disclaimer. -->
+  <!-- The only guard there is: the console cannot see a claude in a terminal. Shown
+       only when a row is actually held. -->
   <p class="caution">In use ones are held back — two processes on one transcript both write.</p>
 }
 
@@ -44,16 +30,12 @@
   @if (rows().length === 0) {
     <p class="empty">No sessions yet.</p>
   }
-  <!-- One list, awake first. A row is a link when the console runs the process
-       and a button when all that exists is a transcript: the same card either
-       way, because which of the two it is is not what somebody came here to find
-       out — whether it is on is, and the row says that itself. -->
+  <!-- One list, awake first. A link when the console runs the process, a button
+       when all that exists is a transcript — the same card either way. -->
   @for (row of rows(); track row.id) {
     @if (row.live; as session) {
-      <!-- Named, because without it the trace logs the card's whole text — a real
-           line from the log: `label=Code idle nothing asked yet29m ago0 interactions$0.0000`.
-           The accessible name is what the harness prefers, so one attribute fixes
-           both the trace and what a screen reader announces. -->
+      <!-- Named, or the trace logs the card's whole text; the accessible name fixes the
+           trace and the screen reader at once. -->
       <a
         class="session"
         [class.off]="!session.alive"
@@ -64,9 +46,7 @@
       </a>
     } @else {
       <!-- A control rather than a styled div: a clickable row that is not one is
-           invisible to a screen reader AND to the activity trace, which records
-           only taps that landed on something interactive — so those rows were
-           being tapped and never recorded at all. -->
+           invisible to a screen reader and to the activity trace. -->
       <button
         type="button"
         class="session off"
@@ -89,62 +69,32 @@
         <span class="place" [class.anonymous]="!row.named">{{ row.title }}</span>
         @if (row.live; as session) {
           @if (session.deaf) {
-            <!-- ⚠ **Ahead even of a blocked session**, because it is the one
-                 state the reader cannot learn any other way. A session waiting
-                 for an answer says so the moment it is opened; one that has
-                 stopped reading looks exactly like one that is busy, from here
-                 and from inside — which is what cost two diagnoses by hand in
-                 one morning. See `session::Session::deaf`. -->
+            <!-- Ahead even of a blocked session: the one state the reader cannot learn any
+                 other way, and it looks exactly like busy. See `session::Session::deaf`. -->
             <span class="deaf">not reading</span>
           } @else if (session.waiting) {
-            <!-- Ahead of every other state: a blocked session is the only one
-                 that needs the reader to do something. -->
+            <!-- Ahead of every other state: the only one that needs the reader. -->
             <span class="waiting">waiting for you</span>
           } @else if (session.alive) {
-            <!-- ⚠ **`working` decides, `busy` only names it.** Falling back to
-                 `idle` on the absence of a status called a session that was
-                 running tools throughout idle — a status is announced when it
-                 CHANGES, so having none says nothing at all. See
-                 `session::Summary::working`. -->
+            <!-- `working` decides, `busy` only names it: a status is announced when it
+                 CHANGES, so having none says nothing. See `session::Summary::working`. -->
             <span class="live" [class.working]="session.working">
               {{ session.busy ?? (session.working ? 'working' : 'idle') }}
             </span>
             @if (session.unread) {
-              <!-- ⚠ **The list is where the re-sending starts.** A message
-                   written to a working session is parked by the CLI and shown to
-                   the model up to twelve minutes later (measured),
-                   and the session page is the only screen that has ever said so.
-                   From here the conversation looked untouched, so the same
-                   sentence went twice — three duplicates in one evening.
-                   See `session::Summary::unread`. -->
+              <!-- The list is where the re-sending starts: a message parked mid-turn shows to
+                   the model up to twelve minutes later, and from here the conversation looked
+                   untouched. See `session::Summary::unread`. -->
               <span class="unread">{{ session.unread }} unread</span>
             }
           } @else {
             <span class="ended">ended</span>
           }
-          <!-- ⚠ **Beside the status word, because it qualifies it.** A session
-               reading `idle` with a build still going is not idle in the sense
-               anybody means, and this was down in the facts row with the dates
-               and the counts — where it read as one more piece of history rather
-               than as the thing still happening.
-
-               Absent rather than `0 background tasks`: a row saying nothing is
-               running would be a claim, and the harness cannot see a command
-               backgrounded inside a shell.
-
-               ⚠ **"background task" is the harness's own word for all of these**
-               — a detached command, a subagent, a monitor — and each is issued a
-               task id and reports back through a task-notification. The label
-               was accurate all along; what was wrong was the counting, which
-               only ever saw the first kind. See `protocol::detached`.
-
-               ⚠ **Past tense beside `ended`, because the count is frozen there
-               (#879).** The task-notification that decrements it can only be
-               written by the `claude` process, so once that is gone the number
-               can never come down — `ended · 2 background tasks` read as a live
-               claim about a session that had stopped. Kept rather than dropped:
-               work orphaned by a session dying is the case worth a look at
-               `ps`. See the strip on the session page for the same decision. -->
+          <!-- Beside the status word, because it qualifies it: `idle` with a build still
+               going is not idle. Absent rather than `0 background tasks` — the harness
+               cannot see a command backgrounded inside a shell. Past tense beside `ended`:
+               the count is frozen there (#879), and kept because orphaned work is worth a
+               look at `ps`. See `protocol::detached`. -->
           @if (session.background; as running) {
             <span class="tasks" [class.past]="!session.alive">
               {{ running }} background task{{ running === 1 ? '' : 's' }}
@@ -158,34 +108,13 @@
         } @else {
           <span class="ended">off</span>
         }
-        <!-- What this conversation is holding. Outside the branches above
-             because it is the one fact here that does not care whether the
-             process is running: the work is in the tasks service, so a session
-             that ended yesterday can still say three things were left with it.
-
-             ⚠ **Absent rather than `0/0`.** Most conversations have never been
-             handed anything, and a tally on every card would say nothing on
-             most of them. A conversation that *finished* its list keeps its row
-             — `0/9` is a good day, and a different fact from never having been
-             given one.
-
-             ⚠ **The denominator is what is assigned now, not what ever was**, so
-             finishing work moves the fraction the right way. It could not say
-             this until tasks#636; before that it said `open` alone. Same numbers
-             as the ⋮ menu inside, from the same sweep — see
-             `console/src/tasks.rs`. -->
-        <!-- Something written here and not sent. Outside the branches above for
-             the same reason the tally is: a draft outlives the process, so a
-             conversation that ended yesterday can still be holding one.
-
-             ⚠ **The marker only, never the words.** What is wanted from this
-             page is which row to go back to; the draft itself is on the screen
-             you go back to, and a third line of prose on a phone card competes
-             with the sentence that says which row this IS.
-
-             Not a pill: the pills here are states that want acting on, and this
-             is not one. Same treatment as `unread` — loud enough to notice
-             beside the status word, quiet enough not to compete. -->
+        <!-- What this conversation is holding — outside the branches, since the work
+             outlives the process. Absent rather than `0/0`: most conversations were never
+             handed anything, and `0/9` is a different fact. The denominator is what is
+             assigned NOW (tasks#636). Same numbers as the ⋮ menu — `console/src/tasks.rs`. -->
+        <!-- Something written here and not sent — the marker only, never the words: the
+             draft is on the screen you go back to. Not a pill: pills are states that want
+             acting on. -->
         @if (row.draft) {
           <span class="draft">draft</span>
         }
@@ -200,32 +129,18 @@
             @if (tasks.total) {
               <span class="fraction">{{ tasks.open }}/{{ tasks.total }}</span>
             }
-            <!-- ⚠ **In parentheses and in the error colour, because it is a
-                 fault rather than a quantity.** Every file still in the built-in
-                 store is re-sent to its session 1.75 times per message with its
-                 whole body — 527 kB a turn on one conversation, which is what
-                 moved the lists out. So this says either "migrated and never
-                 deleted" or "still filing work into the store nothing reads",
-                 and both are something to do rather than something to know.
-
-                 A row with this and no fraction beside it is the second kind,
-                 and the one worth catching. -->
+            <!-- In parentheses and in the error colour, because it is a fault: every file
+                 still in the built-in store is re-sent with every message. A row with this
+                 and no fraction is a session still filing into the store nothing reads. -->
             @if (tasks.stray) {
               <span class="stray">({{ tasks.stray }})</span>
             }
           </span>
         }
       </div>
-      <!-- What it is about, which is the one thing on this card that nothing on
-           disk knows. Written by Haiku from the transcript every quarter of an
-           hour, and only for a conversation that has moved since — see
-           `console/src/gist.rs`.
-
-           ⚠ **Marked, because it is the only inference on the page.** The name,
-           the dates and the counts are all read off a file or a process; this is
-           a guess, and a guess about a conversation nobody has opened is exactly
-           the one somebody would act on without checking. The icon says who
-           wrote it and the label says when. -->
+      <!-- What it is about — the one thing on this card nothing on disk knows, written
+           by Haiku every quarter of an hour (`console/src/gist.rs`) and marked as the
+           only inference on the page. -->
       @if (row.gist; as gist) {
         <div class="gist">
           <mat-icon
@@ -238,33 +153,17 @@
         </div>
       }
       @if (row.live; as session) {
-        <!-- ⚠ **Only while nothing better has been said, because that is the
-             only time it is true.** This is the first instruction the console
-             heard, kept for ever — and a conversation's job drifts, so on
-             anything that has been running a while it describes work finished
-             days ago. Worse, a resumed session's view starts at the seed, so
-             what it kept was the first prompt in the last page of the
-             transcript: `push`, `Proceed`, a compact summary's boilerplate.
-
-             Two things say it better and both are kept current: a name, which
-             the CLI rewrites as the job changes, and the gist above, which is
-             re-read from the transcript every quarter of an hour. Either one
-             makes this a second, staler answer to the question the reader has
-             already had answered. So this stands in only for the first minutes
-             of a nameless session, before the first gist lands. -->
+        <!-- Only while nothing better has been said: the first instruction describes work
+             finished days ago, and a name or a gist says it better. This stands in for the
+             first minutes of a nameless session. -->
         @if (!row.named && !row.gist) {
           <div class="asked">{{ session.asked ?? 'nothing asked yet' }}</div>
         }
         <div class="facts">
-          <!-- When it last did anything, which is the same quantity the row
-               below reports and read from the same place — the transcript. It
-               used to be the age of the process, so a session worked all night
-               said `13h ago` while it was answering. -->
-          <!-- Runs neutral to yellow to red across the hour the prompt cache
-               lasts, then GOES: past the hour there is no decision left to make.
-               Shown only where there IS a cache — a finished conversation has
-               none, and nor has a session fresh out of `/compact` that has yet to
-               send a prompt. -->
+          <!-- When it last did anything, from the transcript: the age of the process said
+               `13h ago` while it was answering. -->
+          <!-- Neutral to yellow to red across the hour the prompt cache lasts, then GOES.
+               Only where there IS a cache. -->
           @if (row.cached && withinHour(row.at)) {
             <span class="since" [class.urgent]="cacheIsUrgent(row.at)" [style]="cacheStyle(row.at)">
               <mat-icon
@@ -279,8 +178,7 @@
             <span>{{ ago(row.at) }}</span>
           }
           <span>{{ session.interactions }} interactions</span>
-          <!-- How full it is, which is the other half of "how far into this am
-               I" and the half that says whether a compaction is coming. -->
+          <!-- How full it is — whether a compaction is coming. -->
           @if (row.context; as context) {
             <span>{{ context }}</span>
           }
@@ -299,23 +197,14 @@
           }
         </div>
       } @else if (row.past; as conversation) {
-        <!-- Everything a transcript can say about itself without being opened.
-             Deliberately not padded out to match the row above it: a
-             conversation that is not running has no cost, no mode and no model,
-             and a blank for each would read as missing rather than as not
-             applicable.
-
-             ⚠ **The size in MB is deliberately not here.** It was, and adding
-             the token count beside it made four facts where three fit: the row
-             wrapped and the card stopped being scannable. The history is the
-             fact somebody looks *up*, not one they scan a list by, so it lives
-             in the details sheet. See `session-sheet.ts`. -->
+        <!-- Everything a transcript can say about itself without being opened, not
+             padded to match the row above. The size in MB is in the details sheet: four
+             facts wrapped the row. -->
         <div class="facts">
           <span>{{ ago(row.at) }}</span>
           <span>{{ place(conversation) }}</span>
-          <!-- Read from the transcript's last assistant message, so a
-               conversation says how full it was when it stopped without being
-               opened. -->
+          <!-- From the transcript's last assistant message, so it says how full it was when
+               it stopped. -->
           @if (row.context; as context) {
             <span>{{ context }}</span>
           }
@@ -325,10 +214,8 @@
   </mat-card>
 </ng-template>
 
-<!-- The one control that starts a session, and the only thing on this page that
-     is not a conversation. Bottom right and out of the reading: the list is what
-     the console is opened for, and starting a new session is rare beside
-     scanning a dozen existing ones. The form it opens is in `start-sheet.ts`. -->
+<!-- The one control that starts a session, out of the reading: starting is rare
+     beside scanning. The form is `start-sheet.ts`. -->
 <button matFab class="add" aria-label="start a new session" (click)="add()">
   <mat-icon>add</mat-icon>
 </button>

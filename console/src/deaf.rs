@@ -1,40 +1,25 @@
-//! What a session that has stopped reading looked like, written down before it
-//! is restarted.
+//! What a session that has stopped reading looked like, written down before it is
+//! restarted — the cure (stop and resume) destroys the evidence.
 //!
-//! ⚠ **The cure destroys the evidence.** The only thing that gets a deaf session
-//! reading again is a stop and a resume, so by the time anyone concludes that is
-//! what happened, the process it happened to is gone. The one fact anybody has —
-//! fd 0 still an open pipe with unread bytes in it, so nothing had closed or
-//! broken and the process simply was not draining it — came from a hand capture.
+//! * `sample` — where the main thread is; the signature is every sample parked in `kevent64`.
+//! * `lsof` — whether fd 0 is still an open pipe.
+//! * `ps` — CPU total, an idle loop against work.
+//! * the tail of the transcript — what it had just done.
 //!
-//! So the console captures it at the moment it first concludes the session is
-//! deaf, before offering the cure.
-//!
-//! * `sample` — where the main thread is. The signature is nearly every sample
-//!   parked in `kevent64` with no work under it.
-//! * `lsof` — whether fd 0 is still there and still a pipe.
-//! * `ps` — CPU total, which tells an idle loop from work.
-//! * the tail of the transcript — what it had just done, and the `end_turn` that
-//!   says it was not mid-turn.
-//!
-//! Nothing here needs root. The one thing that would settle the root cause —
-//! whether stdin is still registered in the process's kqueue — needs `fs_usage`
-//! or `dtruss` and therefore does.
+//! Nothing here needs root. Whether stdin is still registered in the kqueue would
+//! settle the cause, and needs `fs_usage` or `dtruss`.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-/// How much of the transcript's tail to keep, in bytes. Enough for the last few
-/// turns, which is what says whether the session was working when it stopped.
+/// How much of the transcript's tail to keep, in bytes: the last few turns.
 const TAIL: u64 = 64 * 1024;
 
-/// How long any one probe may take. `sample` is asked for ten seconds of
-/// samples, so this is that plus room to write them out; the others answer at
-/// once or are not going to.
+/// How long any one probe may take: `sample` is asked for ten seconds, plus room
+/// to write them out.
 const PATIENCE: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// Where captures go. Overridable for the same reason
-/// [`crate::images::images_root`] is: this one *writes*, and a test has no home
+/// Where captures go. Overridable because this WRITES, and a test has no home
 /// directory worth writing to.
 pub fn evidence_root() -> PathBuf {
     if let Ok(set) = std::env::var("CONSOLE_DEAF_DIR") {
@@ -45,11 +30,8 @@ pub fn evidence_root() -> PathBuf {
         .join("deaf")
 }
 
-/// One probe: what to run, and what to call what it says.
-///
-/// A table rather than four call sites, so that adding one is a line and so the
-/// order they are taken in is visible. `sample` first, because it is the only
-/// one whose subject moves while it is being asked.
+/// One probe: what to run, and what to call what it says. `sample` goes first,
+/// being the only one whose subject moves while it is asked.
 fn probes(pid: u32) -> Vec<(&'static str, &'static str, Vec<String>)> {
     let pid = pid.to_string();
     vec![
@@ -72,13 +54,9 @@ fn probes(pid: u32) -> Vec<(&'static str, &'static str, Vec<String>)> {
     ]
 }
 
-/// Capture everything that can be known about a deaf session without root, and
-/// return where it was put.
-///
-/// **Errors are reported and not propagated.** This runs on the way to telling
-/// somebody their session is stuck, and a capture that failed must not be the
-/// reason they are not told — the alarm is the useful half and the evidence is
-/// the half that is only useful later.
+/// Capture what can be known about a deaf session without root, and return where
+/// it was put. Errors are reported, not propagated: a failed capture must not be
+/// why nobody is told the session is stuck.
 pub async fn capture(
     root: &Path,
     id: &str,
@@ -92,12 +70,9 @@ pub async fn capture(
         return None;
     }
     for (name, program, args) in probes(pid) {
-        // `spawn` + `wait_with_output` rather than the `output()` this was, for
-        // one reason: `output()` never hands back a pid, and #797 is a zombie
-        // under the console that nothing recorded the origin of. The two steps
-        // and the dropped-on-timeout behaviour are `output()`'s own — see
-        // `tests/suite/orphan.rs`, which forces the timeout on exactly this shape and
-        // finds it reaped.
+        // `spawn` + `wait_with_output` rather than `output()`, which never hands back a
+        // pid — a zombie under the console needs its origin logged. The timeout behaviour
+        // is `output()`'s own; `tests/suite/orphan.rs` forces it.
         let Ok(probe) = tokio::process::Command::new(program)
             .args(&args)
             .stdin(Stdio::null())
@@ -108,8 +83,7 @@ pub async fn capture(
             tracing::warn!("{program} would not start for {id}");
             continue;
         };
-        // Plain, not `{:?}` — see the same line in `gist.rs`: it is read beside
-        // what `ps` prints.
+        // Plain, not `{:?}`: read beside what `ps` prints.
         tracing::info!(
             "asking pid {} about {id} with {program}",
             probe.id().unwrap_or(0)
@@ -144,12 +118,8 @@ pub async fn capture(
     Some(into)
 }
 
-/// The last [`TAIL`] bytes of a file, from the first line boundary inside them.
-///
-/// From a boundary rather than from the byte: a transcript line is JSON, and
-/// half of one at the top of the file is a thing that has to be recognised and
-/// skipped by whoever reads it later, at exactly the moment they are trying to
-/// understand something else.
+/// The last [`TAIL`] bytes of a file, from the first line boundary inside them,
+/// so no reader meets half a JSON line.
 async fn tail(path: &Path) -> Option<Vec<u8>> {
     use tokio::io::{AsyncReadExt, AsyncSeekExt};
 

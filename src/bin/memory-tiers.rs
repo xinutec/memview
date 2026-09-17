@@ -4,67 +4,20 @@
 //!     cargo run --release --bin memory-tiers
 //!     cargo run --release --bin memory-tiers -- --lease-days 21 --breadth 5
 //!
-//! `MEMORY.md` is injected into every session before anything is asked, so its
-//! cost is paid constantly. Two kinds of entry earn that differently
-//! (`docs/memory.md`): **recent** work, live rather than proven, which the tier
-//! is supposed to turn over; and **consolidated** rules, which belong there
-//! because by the time they matter nobody knows to go looking.
+//! A REPORT, not an editor, like `memory-rank`. Breadth — distinct agents, not
+//! opens — is the measure: volume cannot separate forty reads by one session
+//! from a few by many, and a set cardinality survives the transcripts'
+//! duplication. Unprovable opens are shown and never scored (#1214), so breadth
+//! is a floor. A stale mine is disclosed, never refused: the refusal it replaced
+//! forced two full re-mines in an afternoon over one changed file (#1240).
 //!
-//! ⚠ **A REPORT, and deliberately not an editor**, the same as `memory-rank`.
-//! Which entries are live is a judgement — a memory can be correct, rarely
-//! opened, and exactly the thing that must sit in front of somebody every
-//! session. And the corpus is not memview's to hand-edit: the tools are built
-//! here, the memory session runs them.
+//! #884's freeze runs until [`HARVEST`] and is on the SPLIT; what it covers is
+//! printed under HELD. A demotion is proposed only for a memory judged a
+//! POINTER through [`memview::study::role_for`] — frontmatter first, the record
+//! behind it (memview#1537) — since for a tripwire a low open count is success.
 //!
-//! ⚠ **A stale mine is disclosed, never refused.** Ages come from
-//! `memory-created.json` and the wall clock, and nothing here is decay-weighted
-//! — breadth is a set cardinality — so an old artefact means one thing only:
-//! memories it has not seen show breadth 0, a floor that is printed and not
-//! scored. The refusal this replaced fired on one changed file and forced two
-//! full re-mines in an afternoon (#1240).
-//!
-//! ⚠ **#884's freeze runs until [`HARVEST`].** A prospective study has been
-//! running on these index lines, and the freeze is on the SPLIT: do not
-//! re-promote a treated memory, do not demote a control one.
-//! Anything the evidence would offer that the freeze covers is printed under
-//! HELD rather than dropped, so the proposal can be read now and acted on after.
-//!
-//! ## What it counts, and what that misses
-//!
-//! **Breadth, not opens** — how many distinct agents opened a memory, not how
-//! often. Volume alone cannot separate forty reads by one session on one
-//! afternoon (a topic being worked, which belongs one hop away under its hub)
-//! from a few reads each by many sessions (a rule that has consolidated). It is
-//! also a set cardinality, so it survives the duplication in the transcripts
-//! where a raw count would double.
-//!
-//! ⚠ **Unprovable opens are shown and never scored** (#1214), so breadth is a
-//! floor. `maybe` beside a row is the agents whose only evidence is a shell read
-//! after `&&` or inside a script with one exit status.
-//!
-//! ⚠ **The teaser paradox decides the demote half, and by ROLE, never by name
-//! prefix.** For the best entries the index line IS the memory — read from the
-//! teaser, file never opened — so breadth under-measures exactly the rules doing
-//! their job. `Tier::Thin` is breadth-derived, so a demotion filter that reads
-//! only the tier selects those entries first. `memory-rank` held them back by a
-//! `feedback_`/`user_` prefix test; #884's finding is that the prefix is the
-//! wrong classifier, since `reference_` is mostly tripwires, and
-//! that tool now decides by role as this one always has.
-//!
-//! So a demotion is proposed only for a memory judged a POINTER. A tripwire is
-//! held because demoting it deletes the only place it fires; an unjudged memory
-//! is held because an absent judgement is not a pointer. Dropping the prefix
-//! test without putting this in its place is what left the half unguarded, and
-//! only #884's freeze stopped it reaching a proposal (#1234).
-//!
-//! The judgement resolves through [`memview::study::role_for`]: the memory's
-//! own `role:` frontmatter first, `memory-roles.json` behind it. The record is
-//! a model's classification #884 was pre-registered on and so cannot grow, and
-//! a memory written after a pass was exempt from demotion forever until the
-//! frontmatter half landed (memview#1537).
-//!
-//! Reads four private files under `~/.claude` — memory NAMES are private and
-//! none of them may ever be committed to this public repo.
+//! Reads four private files under `~/.claude`; memory NAMES are private and
+//! none may ever be committed to this public repo.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -78,15 +31,8 @@ use memview::tiers::{
     Entry, Held, HeldEntry, Role, Thresholds, census, expired, median_entry_cost, propose,
 };
 
-/// The size the root is truncated at — see [`memview::lint::INDEX_CEILING`] for
-/// the number and how it was measured.
-///
-/// ⚠ **Defined THERE and not here, deliberately.** It was written out twice, in
-/// this tool and in the lint rule that reports the same overage, which is one
-/// edit away from the two disagreeing about where the ceiling is while both
-/// sound authoritative. A tool that proposes a trade against one reading of
-/// "24.4 KB" and a check that warns above the other would be a corpus with two
-/// ceilings — which is exactly the ambiguity that stood until it was measured.
+/// The size the root is truncated at — see [`memview::lint::INDEX_CEILING`].
+/// Defined THERE, not here: written twice it was one edit from two ceilings.
 const CEILING: usize = memview::lint::INDEX_CEILING;
 
 /// When #884's freeze lifts and the held half of the trade becomes actionable.
@@ -96,16 +42,15 @@ const HARVEST: &str = "2026-09-11";
 const CROSSED_WITHIN: i64 = 7;
 
 fn main() -> Result<()> {
-    // Refuse a flag this tool does not know, rather than running as if it were
-    // absent (memview#1588).
+    // Refuse a flag this tool does not know (memview#1588).
     memview::flags::reject_unknown(
         &std::env::args().collect::<Vec<_>>(),
         &["--breadth", "--lease-days"],
     )?;
     let args: Vec<String> = std::env::args().collect();
-    // ⚠ Both refuse a bad value rather than defaulting past it. These thresholds
-    // decide which memories are demoted, and a defaulted-past `--breadth bogus`
-    // would produce the default tiering while reading as parameterised. See `flags`.
+    // Both refuse a bad value rather than defaulting past it: a defaulted
+    // `--breadth bogus` would produce the default tiering while reading as
+    // parameterised.
     let at = Thresholds {
         lease_days: memview::flags::value_of(
             &args,
@@ -126,14 +71,9 @@ fn main() -> Result<()> {
         .unwrap_or_else(|_| format!("{root}/projects/-Users-pippijn-Code/memory"));
 
     let corpus = Corpus::load(&memory_dir)?;
-    // ⚠ **Brought up to date before it is read.** The disclosure below is the
-    // floor's mitigation, not a substitute for not having a floor: a memory the
-    // mine has not seen has no recorded opens, and #1210 came within one step of
-    // arguing a demotion from breadth figures that were zero for that reason
-    // alone. Refreshing costs about 0.3s — a reader carries only
-    // `mine-resume.json`, skips the git walk it does not read, and never writes.
-    // What still reaches the disclosure is genuinely unmined, which is the case
-    // it was written for.
+    // Brought up to date before it is read: #1210 came within one step of arguing
+    // a demotion from breadth figures that were zero only because the mine had not
+    // seen the memories. Refreshing costs about 0.3s.
     let mined = memview::fresh::mined(
         &memview::fresh::Where::from_env(),
         memview::agents::Needs::MEMORIES,
@@ -145,20 +85,9 @@ fn main() -> Result<()> {
         )
     })?;
 
-    // ⚠ **Disclose a stale mine; do NOT refuse on one.** This used to exit 2,
-    // and its own comment predicted the cost: "a refusal that fires on a
-    // harmless change trains people to pass the override." It trained the
-    // session that wrote it, twice in one afternoon, and forced two full re-mines
-    // to answer questions about a corpus that had changed by one file (#1240).
-    //
-    // ⚠ **The distortion it stood in for is fixed at the source instead.** Ages
-    // come from `memory-created.json` and `today` below, never from the mine —
-    // so measuring them from the mine's stamp made a week-old artefact
-    // understate every age by a week, silently. Nothing here is decay-weighted:
-    // breadth is a set cardinality with no time in it. So a stale mine now
-    // means exactly one thing, and it is a floor rather than a skew — memories
-    // it has not seen have no recorded opens, which is stated below and not
-    // scored.
+    // Disclose a stale mine; do NOT refuse on one (#1240). Ages come from
+    // `memory-created.json` and `today`, never from the mine, and nothing here is
+    // decay-weighted, so a stale mine means one thing: a floor, stated below.
     let projects = std::env::var("PROJECTS_DIR").unwrap_or_else(|_| format!("{root}/projects"));
     let freshness = mined.freshness(
         &[std::path::Path::new(&projects)],
@@ -166,8 +95,7 @@ fn main() -> Result<()> {
         &home,
     );
 
-    // ⚠ **The wall clock, not the mine's stamp.** An age is a fact about the
-    // corpus and the calendar; the mine contributes nothing to it.
+    // The wall clock: an age is a fact about the corpus and the calendar.
     let now = memview::couse::stamp(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -178,11 +106,9 @@ fn main() -> Result<()> {
     let index = corpus.index_md.clone().unwrap_or_default();
     let listed: BTreeSet<String> = index_links(&index).into_iter().collect();
     let reached = reachable_without(&corpus.docs, &index, &BTreeSet::new());
-    // ⚠ Built ONCE. Asking it per memory meant a full markdown parse of every
-    // document for every target — ~446,000 parses of a few megabytes.
+    // Built ONCE: per memory it was ~446,000 markdown parses.
     let incoming = incoming_links(&corpus.docs);
-    // How far each memory sits from the index, which is the traversal cost a
-    // root line buys down. Taken with nothing demoted, so it is today's graph.
+    // How far each memory sits from the index, with nothing demoted.
     let depths = memview::store::depths_without(&corpus.docs, &index, &BTreeSet::new());
 
     let created: BTreeMap<String, serde_json::Value> =
@@ -190,8 +116,7 @@ fn main() -> Result<()> {
     let days: BTreeMap<String, MemoryDays> = read_json(&reader::home::cache("memory-days.json"))?;
     let roles: serde_json::Value = read_json(&reader::home::file("memory-roles.json"))?;
 
-    // #884's two arms, which is what the freeze is on. Held together in the
-    // roles file, which `demotion-study` already reads.
+    // #884's two arms, which is what the freeze is on.
     let arm = |which: &str| -> BTreeSet<String> {
         roles["arms"][which]
             .as_array()
@@ -208,8 +133,7 @@ fn main() -> Result<()> {
         .docs
         .keys()
         .map(|name| {
-            // Breadth is over agents, so an agent that opened one memory forty
-            // times counts once — which is the whole distinction being drawn.
+            // Breadth is over agents, so forty opens by one agent count once.
             let uses = mined
                 .agents
                 .iter()
@@ -223,16 +147,10 @@ fn main() -> Result<()> {
                 }
             }
             Entry {
-                // ⚠ **The memory's own frontmatter first, the sidecar only
-                // as a fallback.** `memory-dated` writes `created:` into each
-                // file, which is the versioned copy; once every memory carries
-                // one the sidecar is a cache of what the corpus already says and
-                // can go (#1240). Until then a memory written before that pass
-                // still needs it.
-                //
-                // ⚠ `get`, not `[]`. Memories no transcript dates have no entry
-                // at all, and indexing a map by a missing key panics — turning a
-                // known DETECTION gap into a crash on the whole report.
+                // The memory's own frontmatter first, the sidecar as a fallback: once every
+                // memory carries `created:` the sidecar can go (#1240). `get`, not `[]`: a
+                // memory no transcript dates has no entry, and a panic would turn a DETECTION
+                // gap into a crash.
                 created: corpus
                     .docs
                     .get(name)
@@ -252,8 +170,7 @@ fn main() -> Result<()> {
                     .map(|d| today - d),
                 indexed: listed.contains(name),
                 entry_cost: index_entry_cost(&index, name),
-                // The author's own declaration first, the #884 record behind
-                // it — see `study::role_for`.
+                // The author's own declaration first, the #884 record behind it.
                 role: role_for(
                     corpus.docs.get(name).and_then(|d| d.meta.role.as_deref()),
                     &roles,
@@ -286,9 +203,8 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// An absent private file is a stop, not a default. Tiering on a missing
-/// creation record would put the whole corpus in UNDATED and read like a
-/// finding about the corpus rather than about the machine.
+/// An absent private file is a stop, not a default: tiering on a missing
+/// creation record would put the whole corpus in UNDATED.
 fn read_json<T: serde::de::DeserializeOwned + Default>(path: &std::path::Path) -> Result<T> {
     let text = std::fs::read_to_string(path).with_context(|| {
         format!(
@@ -366,14 +282,12 @@ fn report(corpus: &Corpus, entries: &[Entry], index: &str, today: i64, at: &Thre
     }
     println!();
 
-    // The exchange. Headroom is what the ceiling allows before anything moves;
-    // a root already over it has none, and the trade must pay its own way.
+    // The exchange. A root already over the ceiling has no headroom, and the trade
+    // must pay its own way.
     let headroom = CEILING.saturating_sub(index.len());
     let strands = |set: &[Entry]| -> Vec<String> {
-        // ⚠ The set, not the sum. Each home was found against the index as it
-        // stands, which still carries every other candidate's line — so a pair
-        // that links only each other reads as housed until both lines go
-        // together. Ask the invariant once, of the whole set.
+        // The set, not the sum: a pair that links only each other reads as housed until
+        // both lines go together.
         let cut: BTreeSet<String> = set.iter().map(|e| e.name.clone()).collect();
         let after = reachable_without(&corpus.docs, index, &cut);
         set.iter()
@@ -393,12 +307,8 @@ fn report(corpus: &Corpus, entries: &[Entry], index: &str, today: i64, at: &Thre
         at.tenure_breadth
     );
     println!("  strong direction of evidence: they were found without help.");
-    // ⚠ **`hops` is not a tie-breaker on breadth, it is a second question.** A
-    // memory reached by many agents from ONE hop already has a short traversal
-    // and a root line buys little; the same breadth from four hops out is a
-    // reader going a long way, repeatedly, for something the root does not
-    // carry. Printed rather than folded into a score, because nothing has
-    // measured which way it should weigh yet (#822).
+    // `hops` is a second question, not a tie-breaker: the same breadth from one hop
+    // and from four are different traversal costs. Printed rather than scored (#822).
     for (i, entry) in trade.admit.iter().take(15).enumerate() {
         println!(
             "    {:<52} {:>3} agents  {:>3} maybe  {:>4}  {:<4} {}",
@@ -417,19 +327,16 @@ fn report(corpus: &Corpus, entries: &[Entry], index: &str, today: i64, at: &Thre
         println!("    (nothing outside the root has been opened by that many agents)");
     }
     if trade.unproven_admissions > 0 {
-        // ⚠ Named rather than admitted. 43.7% of opens arrive through the shell,
-        // so a bar that ignores the unprovable half is a bar decided partly by
-        // what was discarded — and breadth counts SESSIONS, which is the axis
-        // shell-heavy reading distorts (#1214).
+        // Named rather than admitted: 43.7% of opens arrive through the shell, and
+        // breadth counts SESSIONS, the axis shell-heavy reading distorts (#1214).
         println!(
             "    ⚠ {} more would clear the bar if unprovable shell opens counted — shown, never scored.",
             trade.unproven_admissions
         );
     }
     if trade.affordable < trade.admit.len() {
-        // ⚠ The finding, not a footnote: entries earned a slot and the root has
-        // nowhere to put them. That argues for a demotion pass, which is a
-        // different conclusion from "nothing qualifies".
+        // The finding, not a footnote: entries earned a slot and the root has nowhere
+        // to put them.
         println!(
             "    ⚠ {} of {} have earned a slot and there is no room for them.",
             trade.admit.len() - trade.affordable,
@@ -437,13 +344,8 @@ fn report(corpus: &Corpus, entries: &[Entry], index: &str, today: i64, at: &Thre
         );
     }
 
-    // ⚠ **What a demotion COSTS is how far its target falls, not whether it
-    // survives.** `homes` answers the second question — is there anything left
-    // linking it — and that is a boolean: safe or stranded. One hop further out
-    // and four hops further out are both "safe", and they are not the same
-    // trade. Computed with the WHOLE demotion set struck out, for the reason
-    // `reachable_without` is: two entries that house each other each look one
-    // hop away until both lines go (#869).
+    // What a demotion COSTS is how far its target falls, not whether it survives.
+    // Computed with the WHOLE demotion set struck out (#869).
     let after = memview::store::depths_without(
         &corpus.docs,
         index,

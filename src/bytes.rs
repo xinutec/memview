@@ -1,21 +1,10 @@
-//! Where the bytes in a transcript actually are.
+//! Where the bytes in a transcript actually are. `claude_disk.py` charts three
+//! lines that do not sum to its total, because they name WHERE bytes sit and
+//! never WHAT they are (memview#1199, #1200).
 //!
-//! `claude_disk.py` charts three lines — transcripts, file history, uploads —
-//! and they do not sum to the total it also charts, because they name WHERE
-//! bytes sit and never WHAT they are (memview#1199, #1200).
-//!
-//! ⚠ **The buckets PARTITION, and that is the whole design constraint.** Every
-//! byte of every line lands in exactly one, so the report sums to the file on
-//! disk. Overlapping categories are what produced the three lines that do not
-//! add up; a bucket that double-counts is worse than a missing one, because it
-//! makes the total look explained.
-//!
-//! ⚠ **Copy is the dimension nothing had.** The CLI re-appends earlier stretches
-//! of a conversation into the same file, so a transcript holds many messages
-//! twice. Measured on the largest one, that is **48.5% of 1.7 GB** —
-//! bigger than any content category. A report that shows only what the bytes ARE
-//! answers "reads and edits are large" and misses that half of them are second
-//! copies of themselves.
+//! The buckets PARTITION: every byte lands in exactly one, so the report sums to
+//! the file on disk. Copy is the dimension nothing had — the CLI re-appends
+//! earlier stretches, and on the largest transcript that is 48.5% of 1.7 GB.
 
 use std::collections::BTreeMap;
 
@@ -46,27 +35,20 @@ pub enum Kind {
     Attachment,
     /// Claude Code's own before/after file snapshots.
     FileHistory,
-    /// The JSON around the content: uuid, timestamps, parent links, and the
-    /// separators between parts.
-    ///
-    /// ⚠ **Named rather than distributed.** Spreading it across the content
-    /// parts would make every other number slightly wrong in a way nothing could
-    /// check; as its own bucket it is a fact about the format that a reader can
-    /// see and judge.
+    /// The JSON around the content. Named rather than distributed across the parts,
+    /// so it is a fact a reader can see.
     Envelope,
-    /// A line type nothing above names, kept verbatim so the partition holds and
-    /// a new format shows up as itself rather than vanishing into `Envelope`.
+    /// A line type nothing above names, kept verbatim so the partition holds.
     Other(String),
 }
 
-/// Bytes by bucket. The two dimensions are orthogonal on purpose: "how much of
-/// this is repeats" is asked of every content kind, not of the file as a whole.
+/// Bytes by bucket. The two dimensions are orthogonal: "how much is repeats" is
+/// asked of every content kind.
 #[derive(Debug, Default, Serialize)]
 pub struct Bytes {
     pub by: BTreeMap<(Copy, Kind), u64>,
-    /// Lines that could not be parsed as JSON. ⚠ Counted, never skipped — a
-    /// damaged line is still bytes on disk, and dropping it would break the
-    /// partition silently.
+    /// Lines that could not be parsed as JSON. Counted, never skipped: dropping
+    /// them would break the partition silently.
     pub unparseable: u64,
     pub lines: u64,
     pub messages: u64,
@@ -104,20 +86,12 @@ fn tool_of(part: &serde_json::Value) -> String {
     part["name"].as_str().unwrap_or("?").to_string()
 }
 
-/// Bucket one transcript line.
+/// Bucket one transcript line. `seen` is per FILE: the same uuid in two
+/// transcripts is two conversations referring to one message.
 ///
-/// `seen` carries the message uuids already met in this file, so the second
-/// appearance of one is charged to [`Copy::Repeat`]. It is per FILE, not per
-/// corpus: the same uuid in two transcripts is two conversations referring to
-/// one message, not a duplicate on disk.
-///
-/// ⚠ **`raw` is the bytes the line OCCUPIES, newline included, and the caller
-/// must have counted them while reading.** Deriving it from `line.len()` was
-/// wrong twice over: the terminator is already stripped, and comparing the
-/// result against a later `metadata()` call measures a file that is still being
-/// written — the first run over a live transcript reported 13,611 bytes
-/// unexplained and the whole discrepancy was the file growing underneath it.
-/// Counting what was consumed makes the partition exact by construction.
+/// `raw` is the bytes the line OCCUPIES, newline included, counted while reading:
+/// `line.len()` strips the terminator, and comparing against a later
+/// `metadata()` measured a file still being written — 13,611 bytes unexplained.
 pub fn absorb(
     out: &mut Bytes,
     line: &str,
@@ -126,9 +100,8 @@ pub fn absorb(
     calls: &mut BTreeMap<String, String>,
 ) -> anyhow::Result<()> {
     out.lines += 1;
-    // ⚠ A line that is not JSON is DATA, not an error — a damaged transcript is
-    // still bytes on disk. This is the one (de)serialise here allowed to fall
-    // back, and it falls back into a NAMED bucket rather than into nothing.
+    // A line that is not JSON is DATA: the one deserialise here allowed to fall
+    // back, into a NAMED bucket.
     let Ok(row) = serde_json::from_str::<serde_json::Value>(line) else {
         out.unparseable += raw;
         return Ok(());
@@ -140,8 +113,8 @@ pub fn absorb(
             out.messages += 1;
             Copy::First
         }
-        // A line with no uuid cannot be told from its own second copy, so it is
-        // charged as a first appearance rather than guessed at.
+        // A line with no uuid cannot be told from its own second copy, so it is a first
+        // appearance rather than a guess.
         None => Copy::First,
     };
 
@@ -156,19 +129,15 @@ pub fn absorb(
         return Ok(());
     }
 
-    // A message: charge each content part its own serialised size and give the
-    // remainder to the envelope, so the parts and the line agree exactly.
+    // Charge each content part its own serialised size and the remainder to the
+    // envelope, so the parts and the line agree exactly.
     let content = &row["message"]["content"];
     let mut accounted = 0u64;
     if let Some(parts) = content.as_array() {
         for part in parts {
-            // ⚠ **Propagated, never defaulted to zero.** A `Value` parsed from
-            // this line re-serialises by construction, so a failure is
-            // impossible-in-practice — which is precisely why swallowing it
-            // would never be noticed. Charged as 0, the part's bytes fall
-            // silently into `Envelope`: the partition still balances and the
-            // attribution is wrong, which is the one failure this design exists
-            // to make impossible.
+            // Propagated, never defaulted to zero: charged as 0 the part's bytes fall
+            // silently into `Envelope`, and the partition still balances while the
+            // attribution is wrong.
             let size = serde_json::to_string(part)?.len() as u64;
             let kind = match part["type"].as_str().unwrap_or("?") {
                 "thinking" | "redacted_thinking" => Kind::Thinking,
@@ -179,8 +148,7 @@ pub fn absorb(
                     Kind::ToolUse(tool_of(part))
                 }
                 "tool_result" => {
-                    // The result names only the call, so the tool comes from the
-                    // `tool_use` that opened it — which is why calls are carried.
+                    // The result names only the call, so the tool comes from the `tool_use` that opened it.
                     let tool = part["tool_use_id"]
                         .as_str()
                         .and_then(|id| calls.get(id))
@@ -192,9 +160,8 @@ pub fn absorb(
                 "text" => Kind::UserText,
                 other => Kind::Other(other.to_string()),
             };
-            // Never charge a part more than the line has left: a part's own
-            // serialisation can exceed its share once escaping is re-applied,
-            // and an over-charge would put the envelope below zero.
+            // Never charge a part more than the line has left: re-applied escaping can
+            // exceed its share, and the envelope would go below zero.
             let size = size.min(raw - accounted);
             out.add(copy, kind, size);
             accounted += size;
@@ -213,13 +180,8 @@ pub fn absorb(
     Ok(())
 }
 
-/// One top-level entry of `~/.claude` and what it costs.
-///
-/// ⚠ **The WHERE dimension, and it exists to carry a REMAINDER.** `claude_disk.py`
-/// charts transcripts, file history and uploads against a total they do not add
-/// up to, so the gap between them is invisible and unnamed. A census that names
-/// every entry plus "everything else" cannot have that gap: the parts sum by
-/// construction or the walk is wrong (memview#1199, #1200).
+/// One top-level entry of `~/.claude` and what it costs — the WHERE dimension,
+/// carrying a REMAINDER so the parts sum by construction (memview#1199, #1200).
 #[derive(Debug, Clone, Serialize)]
 pub struct Part {
     pub name: String,
@@ -227,13 +189,9 @@ pub struct Part {
     pub files: u64,
 }
 
-/// Bytes and file counts per top-level entry, largest first.
-///
-/// ⚠ **Apparent size, not allocated blocks**, so it agrees with the byte census
-/// over the same transcripts. `du` reports allocation and would disagree with
-/// every other figure here by the filesystem's block size times the file count —
-/// 25,000 small files under `file-history/` is where that difference stops being
-/// rounding.
+/// Bytes and file counts per top-level entry, largest first. Apparent size, not
+/// allocated blocks: `du` would disagree by block size times file count, and
+/// `file-history/` holds 25,000 small files.
 pub fn top_level(root: &std::path::Path) -> std::io::Result<Vec<Part>> {
     let mut parts = Vec::new();
     for entry in std::fs::read_dir(root)? {
@@ -249,12 +207,8 @@ pub fn top_level(root: &std::path::Path) -> std::io::Result<Vec<Part>> {
     Ok(parts)
 }
 
-/// Bytes and file count under a path, following nothing.
-///
-/// ⚠ **Symlinks are counted as links, never followed.** `~/.claude` is itself a
-/// symlink to an external volume and several entries under it point elsewhere;
-/// following them would count another disk's bytes into this total and could
-/// recurse forever.
+/// Bytes and file count under a path. Symlinks are counted as links, never
+/// followed: `~/.claude` is itself a symlink to an external volume.
 fn weigh(path: &std::path::Path) -> (u64, u64) {
     let Ok(meta) = std::fs::symlink_metadata(path) else {
         return (0, 0);
@@ -278,12 +232,8 @@ fn weigh(path: &std::path::Path) -> (u64, u64) {
     (bytes, files)
 }
 
-/// How much of a set of file sizes the largest `n` hold.
-///
-/// ⚠ **The shape that decides what a cleanup could ever be worth.** A corpus of
-/// a thousand equal files and one where sixteen hold 97% need different answers,
-/// and the byte census cannot tell them apart — it says what bytes ARE and
-/// nothing about how they are distributed across files.
+/// How much of a set of file sizes the largest `n` hold — the shape that decides
+/// what a cleanup could ever be worth.
 pub fn concentration(mut sizes: Vec<u64>, n: usize) -> (u64, u64, usize) {
     sizes.sort_unstable_by_key(|b| std::cmp::Reverse(*b));
     let top: u64 = sizes.iter().take(n).sum();
@@ -292,24 +242,16 @@ pub fn concentration(mut sizes: Vec<u64>, n: usize) -> (u64, u64, usize) {
 }
 
 /// The census as an artefact, for a collector that must not read 6 GB itself.
-///
-/// ⚠ **Every field here becomes a fleetwatch TREND KEY, and a trend key is
-/// forever.** fleetwatch keys a series on `(source, collector, section, label)`,
-/// so a label that appears once creates a line that exists from then on. The
-/// bucket names are therefore a FIXED set with an `other` catch-all, never the
-/// raw [`Kind`] — `call: SomeNewTool` would mint a permanent series the first
-/// time anybody used a new tool, and a corpus with a hundred tool names would
-/// grow a hundred lines nobody chose.
+/// Every field becomes a fleetwatch TREND KEY, forever, so the bucket names are a
+/// FIXED set with an `other` catch-all, never the raw [`Kind`].
 #[derive(Debug, Default, Serialize, serde::Deserialize)]
 pub struct Census {
-    /// When the walk finished, so a reader can grade its own staleness rather
-    /// than trusting that a file it can open is current.
+    /// When the walk finished, so a reader can grade its own staleness.
     pub at: String,
     pub total_bytes: u64,
     pub lines: u64,
     pub messages: u64,
-    /// Bytes per top-level entry of `~/.claude`, `remainder` included so the
-    /// parts sum — which is the whole defect this closes (memview#1200).
+    /// Bytes per top-level entry, `remainder` included so the parts sum (memview#1200).
     pub where_bytes: BTreeMap<String, u64>,
     /// Bytes per content bucket, over the transcripts only.
     pub what_bytes: BTreeMap<String, u64>,
@@ -320,12 +262,9 @@ pub struct Census {
     pub rest_bytes: u64,
 }
 
-/// The stable label for a bucket, or `None` for one that must fold into `other`.
-///
-/// ⚠ **Adding a name here is adding a permanent chart line.** Removing one
-/// leaves its history orphaned in fleetwatch, which is why the set is small and
-/// chosen rather than derived: these are the buckets above 1% of the corpus when
-/// it was first measured, and `other` carries the tail honestly.
+/// The stable label for a bucket, or `None` for one that folds into `other`.
+/// Adding a name here adds a permanent chart line: the set is the buckets above
+/// 1% when first measured.
 pub fn stable_label(kind: &Kind) -> Option<&'static str> {
     Some(match kind {
         Kind::Envelope => "envelope",

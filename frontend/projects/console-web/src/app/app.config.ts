@@ -13,12 +13,10 @@ export const appConfig: ApplicationConfig = {
   providers: [
     provideBrowserGlobalErrorListeners(),
     provideZonelessChangeDetection(),
-    // Every request, because the failure it handles belongs to the transport
-    // rather than to any one call — see [[traceAndRenew]].
+    // Every request: the failure it handles belongs to the transport — see [[traceAndRenew]].
     provideHttpClient(withFetch(), withInterceptors([traceAndRenew])),
-    // Route params bind to component inputs (:id → SessionView.id), so the URL
-    // is the source of truth for which session is open — which is what makes a
-    // session linkable from memview's /agents page later.
+    // Route params bind to component inputs (`:id` → `SessionView.id`), so the URL
+    // is the source of truth for which session is open.
     provideRouter(routes, withComponentInputBinding()),
   ],
 };

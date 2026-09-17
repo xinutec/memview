@@ -5,56 +5,34 @@
  */
 export type Task = { 
 /**
- * The service's number, as a string — it is what a session calls a task in
- * its own prose (`#418 done`) and what the sheet prints.
+ * The service's number, as a string: what a session calls a task in its prose
+ * (`#418 done`) and what the sheet prints.
  */
 id: string, subject: string, 
 /**
- * `open`, `doing` or `done`, in the service's own words rather than a
- * boolean of our own: a third state exists and the client sorts on it.
+ * `open`, `doing` or `done`, in the service's own words: a third state exists
+ * and the client sorts on it.
  */
 status: string, 
 /**
- * Whether there is prose behind it worth fetching. A task written as a
- * one-line reminder has none, and offering to open an empty sheet is worse
- * than not offering.
+ * Whether there is prose behind it worth fetching.
  */
 detailed: boolean, 
 /**
- * How urgent, in the service's own words — `P0` to `P4`.
- *
- * ⚠ **Absent rather than null on almost everything, and absence is not a
- * sixth level.** An unranked task sorts exactly where `P2` does, so `P0`
- * and `P1` rise above the untriaged while `P3` and `P4` sink below it.
- * Which is why it is kept absent on the way out too — a `null` on 125 rows
- * of 127 invites a client to draw a placeholder for it, and the whole point
- * of an empty rank is that it costs nothing.
- *
- * ⚠ **Nothing here sorts on it.** `repo::list` is the service's only sort
- * and the rows arrive in the answer's order; a second ordering on this side
- * would be a second rule to keep true, and it would disagree the first time
- * either changed.
- *
- * A string, like [`Self::status`]: a sixth level the service invents later
- * is news to draw, not a parse failure that loses the whole list.
+ * How urgent, in the service's own words — `P0` to `P4`. Absent on most rows,
+ * and absence is not a sixth level: an unranked task sorts where `P2` does.
+ * Nothing here sorts on it; `repo::list` is the service's only ordering. A string,
+ * so a level invented later is news to draw, not a parse failure.
  */
 priority?: string, 
 /**
- * The day it has to be done by, `YYYY-MM-DD`. Absent on almost everything.
- *
- * ⚠ **Never sorted on, and it is not a rank.** A deadline is evidence for a
- * priority rather than a competing answer to what-next; the service has a
- * test that fails if anyone makes it sort, and `repo::list` stays the only
- * ordering. Drawing it is the whole job here.
+ * The day it has to be done by, `YYYY-MM-DD`. Never sorted on: a deadline is
+ * evidence for a priority, not a competing answer to what-next.
  */
 due?: string, 
 /**
- * Whether that day has passed.
- *
- * ⚠ **Server-decided, and NOT to be recomputed from [`Self::due`].** The
- * service answers from the database's clock so the CLI, the app and the
- * digest cannot disagree about what day it is — a phone in another timezone
- * working it out would be a fourth answer to a question with one.
+ * Whether that day has passed. Server-decided, from the database's clock, and NOT
+ * recomputed from [`Self::due`] on a phone in another timezone.
  */
 overdue: boolean, 
 /**
@@ -62,11 +40,7 @@ overdue: boolean,
  */
 blocked_on: Array<string>, 
 /**
- * Whether it is actually still waiting.
- *
- * ⚠ **Also server-decided, and NOT `blocked_on` being non-empty.** The link
- * survives its blocker closing, as a record of how the work went, and stops
- * counting — so the two disagree on every task whose blocker is done.
- * Deciding it here would need the status of rows this console never sees.
+ * Whether it is actually still waiting. Server-decided, and NOT `blocked_on`
+ * being non-empty: the link survives its blocker closing, as a record.
  */
 blocked: boolean, };

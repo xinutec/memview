@@ -1,10 +1,8 @@
 <h2 class="who">the command, as written and as read</h2>
 
-<!-- ⚠ **Raw first, entire, and never truncated.** The transcript row this was
-     opened from shows one ellipsised line; if this sheet cut the text too there
-     would be nowhere left on the phone that holds the whole command. It wraps
-     rather than scrolling sideways: a horizontal scroller inside a bottom sheet
-     is a swipe that fights the sheet's own. -->
+<!-- Raw first, entire, never truncated: the transcript row shows one ellipsised
+     line, so this is the only place on the phone that holds the whole command.
+     Wraps rather than scrolling sideways, which fights the sheet's own swipe. -->
 <pre class="raw">{{ about.command }}</pre>
 
 @if (parsed() === undefined) {
@@ -14,13 +12,9 @@
     <mat-progress-bar mode="indeterminate" />
   }
 } @else if (parsed()?.error; as where) {
-  <!-- A command the grammar could not read. An answer, not a failure — 0.4% of
-       the calls in the corpus land here, and saying so is the point. -->
-  <!-- ⚠ **Two flex items, not five.** This row is a flex container, so every
-       inline child of it — the icon, each run of text, the `<code>` — became a
-       COLUMN of its own: with a short reason that read as a sentence, and with
-       a real one ("parameter with an operator (${x:-y}, ${#x})") the code
-       turned into a tall skinny block mid-sentence. The words are one item. -->
+  <!-- A command the grammar could not read. An answer, not a failure. -->
+  <!-- Two flex items, not five: this row is a flex container, and each inline child
+       became a column of its own. The words are one item. -->
   <p class="unread">
     <mat-icon>report</mat-icon>
     <span>
@@ -32,15 +26,13 @@
   <p class="summary">
     {{ counted().steps }} commands · {{ counted().reads }} read · {{ counted().writes }} written
     @if (counted().unproven) {
-      <!-- Said in the summary rather than left to be discovered row by row: it
-           is the number a reader came for when a call failed. -->
+      <!-- In the summary: the number a reader came for when a call failed. -->
       · <span class="unproven">{{ counted().unproven }} unproven</span>
     }
   </p>
 
   @if (parsed()?.unrolled) {
-    <!-- Otherwise a reader counts three steps against one line of text and
-         assumes the view is broken. -->
+    <!-- Otherwise a reader counts three steps against one line and assumes the view is broken. -->
     <p class="note">
       {{ parsed()?.unrolled }} of these are a loop run out — one step per value it actually took.
     </p>
@@ -50,15 +42,12 @@
     @for (row of steps(); track $index) {
       <li class="step" [attr.data-indent]="row.indent">
         <div class="head">
-          <!-- ⚠ **Styled by `key`, labelled by `kind`.** They were one field, so
-               the chip's colour selected on its display string and improving a
-               label silently dropped its colour. -->
+          <!-- Styled by `key`, labelled by `kind`: as one field, improving a label
+               silently dropped its colour. -->
           <span class="kind" [attr.data-kind]="row.step.key">{{ row.step.kind }}</span>
           @if (row.step.host; as host) {
-            <!-- The machine, said on the step and again on every path it named.
-                 Twice on purpose: a reader scrolling fast sees paths, and a path
-                 that looks local and is not is the one mistake this whole
-                 separation exists to prevent. -->
+            <!-- The machine, on the step and again on every path it named: a path that looks
+                 local and is not is the mistake this separation exists to prevent. -->
             <span class="host"><mat-icon>dns</mat-icon>{{ host }}</span>
           }
           @if (row.step.depth > 0) {
@@ -66,21 +55,14 @@
           }
         </div>
 
-        <!-- ⚠ **What it is FOR, ABOVE the words, and the order is the point.**
-             Approval today reads argv — which is spelling — and every payload
-             trap in the corpus is a spelling that hides the act. The concept is
-             the one line that says what the command does rather than how it is
-             written, so it leads and the words follow as evidence.
-
-             Absent where no lens covers the command, deliberately: a command
-             with no concept keeps its chip and its `says` and is a counted leaf,
-             never absorbed into a catch-all phrase. -->
+        <!-- What it is FOR, above the words: approval reads argv, which is spelling, and
+             every payload trap is a spelling that hides the act. Absent where no lens
+             covers the command — a counted leaf, never a catch-all. -->
         @if (row.step.concept; as concept) {
           <p class="concept">{{ concise(concept) }}</p>
         }
 
-        <!-- The words the shell would have run, which is not always the words
-             that were typed. -->
+        <!-- The words the shell would have run, which is not always the words typed. -->
         <code class="words">{{ row.words }}</code>
 
         @if (row.step.says; as says) {
@@ -96,9 +78,8 @@
             @if (row.step.cwd) {
               in <code>{{ row.step.cwd }}</code>
             } @else {
-              <!-- A `cd` this reader cannot follow. Saying so is what keeps a
-                   later relative path from being resolved somewhere it never
-                   ran — the defect that invents a file out of nothing. -->
+              <!-- A `cd` this reader cannot follow. Saying so keeps a later relative path from
+                   resolving somewhere it never ran. -->
               in a directory this reader cannot follow, so only absolute paths survive
             }
           </p>
@@ -107,21 +88,15 @@
         @for (used of row.step.uses; track $index) {
           <p class="used" [class.wrote]="used.write" [class.unsure]="!used.certain">
             <mat-icon>{{ used.write ? 'edit' : 'visibility' }}</mat-icon>
-            <!-- ⚠ **Path and marker in ONE column**, which is why they are
-                 wrapped together rather than laid out as three flex items. A
-                 path here is 78 characters and wraps to three lines; as
-                 siblings, the icon stranded itself beside the middle line and
-                 the marker pinned itself to the end of the first, so one file
-                 read as three fragments. Found by looking at the render. -->
+            <!-- Path and marker in ONE column: a 78-character path wraps to three lines, and
+                 as siblings the icon and marker stranded themselves beside different lines. -->
             <span class="what">
               <span class="path">{{ used.path }}</span>
               @if (used.host) {
                 <span class="elsewhere">on {{ used.host }}</span>
               } @else if (!used.certain) {
-                <!-- ⚠ **One-sided, and the wording has to carry that.** This
-                     means "cannot say", never "did not happen" — and
-                     "unconfirmed" is the only short phrase that does not quietly
-                     claim the stronger thing. -->
+                <!-- One-sided: "cannot say", never "did not happen", and "unconfirmed" is the
+                     only short phrase that does not claim the stronger thing. -->
                 <span class="elsewhere">unconfirmed</span>
               }
             </span>
@@ -131,13 +106,8 @@
     }
   </ol>
 
-  <!-- ⚠ **Below the parse, not above it, and that was a measurement.** This is
-       three lines of absolute path at phone width, and above the steps it put
-       the first of them 15px off the bottom of the screen — which breaks the one
-       thing the sheet is stacked this way to do. It loses nothing by moving:
-       every path in the steps is already absolute, so this explains how a
-       relative operand got there rather than saying anything a reader needs
-       first. -->
+  <!-- Below the parse, not above: three lines of absolute path at phone width put
+       the first step 15px off the bottom of the screen. -->
   @if (against(); as dir) {
     <p class="against">
       relative paths resolved against <code>{{ dir }}</code>

@@ -1,9 +1,7 @@
 :host {
   display: block;
-  // ⚠ **No height cap and no scroller here** — `mat-bottom-sheet-container`
-  // already caps and scrolls, and a second scrolling region inside the first is
-  // how a swipe stops working (DL-ANGULAR-NESTED-SCROLLER). This list runs to
-  // hundreds of rows with "All" on, so the temptation is real.
+  // No height cap and no scroller: `mat-bottom-sheet-container` already caps and
+  // scrolls (DL-ANGULAR-NESTED-SCROLLER).
 }
 
 .who {
@@ -85,10 +83,8 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-// The rank. Drawn only when there is one — see the template — so this costs
-// nothing on the untriaged rows, which are nearly all of them. Sits after the
-// number so the numbers stay in their tabular column: a chip in front of them
-// would step the whole list in and out by its width.
+// The rank, drawn only when there is one, after the number so the numbers
+// keep their tabular column.
 .rank {
   flex: 0 0 auto;
   margin-top: 0.1rem;
@@ -108,10 +104,8 @@
   color: var(--mat-sys-on-error-container);
 }
 
-// A deadline and a blocker, as marks rather than words — see the template for
-// why. Sized down from the row's icons: these annotate the subject, where the
-// status mark on the left is what the row IS, and three full-size icons in front
-// of the words would read as three controls.
+// A deadline and a blocker as marks, sized down from the row's icons: these
+// annotate the subject, where the status mark on the left is what the row IS.
 .when,
 .held {
   flex: 0 0 auto;
@@ -122,10 +116,8 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-// Red once the day has passed, and only then. The same argument the rank's
-// `above` makes: a deadline that has not been missed is a fact about the task,
-// not a problem with it, and colouring both would leave nothing to say which is
-// which.
+// Red once the day has passed, and only then: a deadline not missed is a fact
+// about the task, not a problem with it.
 .when.late {
   color: var(--mat-sys-error);
 }
@@ -167,15 +159,10 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
-// The write-up. Only the box is set here: what is inside it is markdown put in
-// by `[innerHTML]`, which no rule in this file can reach — see the `rendered`
-// mixin in styles.scss.
-//
-// ⚠ **No `white-space: pre-wrap`.** It was here while this was plain text, and
-// against rendered HTML it turns every newline `marked` writes between blocks
-// into a real line break on top of that block's own margin. The same mistake in
-// the transcript cost 74% of a phone screen to nothing, and is measured in the
-// note beside the mixin.
+// The write-up. Only the box is set here; what is inside is markdown put in by
+// `[innerHTML]`, which no rule here can reach — see the `rendered` mixin in
+// styles.scss. No `white-space: pre-wrap`: against rendered HTML it turns every
+// newline between blocks into a line break on top of the block's margin.
 .said {
   margin: 0 0 0.8rem 2.2rem;
   overflow-wrap: anywhere;

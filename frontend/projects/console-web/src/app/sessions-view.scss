@@ -3,10 +3,8 @@
   margin-bottom: 0.75rem;
   text-decoration: none;
   color: inherit;
-  // The rows are two elements — a link for a session the console runs, a button
-  // for a transcript to pick up — and they have to be indistinguishable, so the
-  // button gives up everything a button brings: its own font, its centred text,
-  // its border, its background, its padding. The card inside supplies all of it.
+  // The rows are a link or a button and have to be indistinguishable, so the
+  // button gives up everything a button brings.
   width: 100%;
   padding: 0;
   border: 0;
@@ -16,11 +14,8 @@
   cursor: pointer;
 }
 
-// Not running. Greyed rather than hidden or filed elsewhere: what is on the
-// screen is everything that exists, and being off is a property of a row rather
-// than a reason to leave it out. Kept legible on purpose — this is the state
-// most of the list is in most of the time, and it is still what you read to find
-// the conversation you want back.
+// Not running: greyed rather than hidden, and kept legible — it is the state
+// most of the list is in, and still what you read to find a conversation.
 .session.off {
   opacity: 0.6;
 }
@@ -35,21 +30,13 @@
 
 .head {
   display: flex;
-  // ⚠ **Centres, not baselines, and the row was baseline-aligned for a year.**
-  // A baseline is the right rule for words set on a line; this row is a 14px
-  // name beside an 11px pill and an 11px count, and two things follow from that.
-  // Smaller text on a shared baseline has its optical middle LOWER — measured
-  // here: the name's glyphs centred on 10.0 and the pill's on 11.1. And the pill
-  // is not words at all but a filled shape with padding, so aligning the text
-  // inside it hung the shape itself 2px low: its rectangle ran 2.4→21.6 against
-  // a name running 0→20. Read as a row that was slightly off without anything
-  // being nameably wrong, which is how it was reported.
+  // Centres, not baselines: a 14px name beside an 11px pill has its optical middle
+  // lower on a shared baseline, and the pill is a filled shape whose rectangle
+  // hung 2px low.
   align-items: center;
   gap: 0.75rem;
-  // Wraps rather than overflowing. A full head is a long name, `waiting for
-  // you`, two background tasks and a task count, and on a four-inch screen that
-  // is more than one line — where the choice is between a second line and text
-  // running off the card.
+  // Wraps rather than overflowing: a full head is more than one line on a
+  // four-inch screen.
   flex-wrap: wrap;
   row-gap: 0.25rem;
 }
@@ -120,27 +107,16 @@
   flex: 0 0 auto;
   white-space: nowrap;
 
-  // ⚠ **History, in the colour history is in on this card.** The words went
-  // past tense for an ended session (#879) while the accent stayed, and a green
-  // line under a greyed-out row is read before it is read — the eye had already
-  // been told the session was busy by the time it got to "when it ended". Same
-  // token as the `ended` chip a few pixels above it.
+  // History, in the colour history is in on this card: past tense beside `ended`
+  // (#879) with a green accent read as busy before it was read.
   &.past {
     color: var(--mat-sys-on-surface-variant);
   }
 }
 
-// The task count, quiet by default and only coloured when something is left:
-// on a page of a dozen rows the useful reading is which conversations still owe
-// work, and a list that is entirely finished should not compete for that.
-// ⚠ **Laid out inline, NOT as a flex box, and that is the whole of it.** This
-// was `inline-flex` with `align-items: center`, and an inline-flex box takes its
-// baseline from its first flex item — here a 0.9rem icon. So the digits rode
-// 3.8px above the line: measured on the real page, `2/3` sat at 11.89 where
-// `requesting` beside it in the same 11px font sat at 15.69. The head aligns its
-// children on their baselines, and a box that reports the wrong one is aligned
-// perfectly to the wrong place. Inline, the text is simply part of the line and
-// the icon is nudged to it.
+// The task count, quiet by default and coloured only when something is left.
+// Laid out inline, NOT as a flex box: an inline-flex box takes its baseline from
+// its first item — the icon — and the digits rode 3.8px above the line.
 .list {
   font: var(--mat-sys-label-small);
   color: var(--mat-sys-on-surface-variant);
@@ -218,23 +194,12 @@
   font-variant-numeric: tabular-nums;
 }
 
-// The age and its clock travel together, so `flex-wrap` above cannot leave the
-// icon at the end of one line and the time at the start of the next.
-//
-// `--warm` and `--hot` (0..1 from [[cacheStops]]) drive two nested mixes: the
-// first 20 minutes arrive at yellow, the remaining 40 sweep yellow to red. The
-// sweep carries no orange stop of its own — `in oklch` interpolates hue, and
-// orange is what lies between the two. Both are set on the SPAN so the time
-// colours with the clock: a 15px glyph on its own is too quiet for the last ten
-// minutes, which is the stretch that has to be seen.
-//
-// ⚠ Deliberately NOT `--mat-sys-error`. That token is picked to contrast with its
-// own surface, so on a dark ground it is a tone-80 pastel — chroma 0.089, against
-// 0.19 in light mode — and reads as white rather than as red.
-//
-// ⚠ The two themes take different stops rather than one ramp. A yellow bright
-// enough to read on `#111411` is 2.3:1 on the light surface, so light mode holds
-// the same hues at a lower lightness.
+// The age and its clock travel together. `--warm` and `--hot` (0..1 from
+// [[cacheStops]]) drive two nested mixes `in oklch`, whose hue interpolation
+// supplies the orange between yellow and red; both on the SPAN so the time
+// colours with the clock. Not `--mat-sys-error`, a tone-80 pastel on a dark
+// ground. The two themes take different stops: a yellow readable on `#111411`
+// is 2.3:1 on the light surface.
 .since {
   --warm: 0;
   --hot: 0;
@@ -336,17 +301,9 @@
   padding: 0 1rem;
 }
 
-// The control that starts a session, pinned where a thumb already is.
-//
-// ⚠ **`fixed`, and clear of the stamp.** The shell is a column of toolbar, page
-// and build stamp, and the stamp is a real row at the bottom rather than an
-// overlay — so a button at `bottom: 1rem` sits on top of it. The offset is the
-// stamp's own height plus a gap, measured rather than guessed: it renders 26px
-// tall at body-small with its padding, and `expectTheStampIsClear` in the layout
-// suite is what keeps that true when the type scale moves.
-//
-// The list needs no bottom padding to match: `.page` scrolls, and its last row
-// stops above the stamp for the same reason this does.
+// The control that starts a session, pinned where a thumb already is. `fixed`,
+// and clear of the stamp, which is a real row at the bottom: the offset is its
+// measured height plus a gap, held true by `expectTheStampIsClear`.
 .add {
   position: fixed;
   right: 1rem;
@@ -357,14 +314,8 @@
 }
 
 // Something written and not sent. Neutral, which puts it with the task tally
-// rather than with the state words — and it belongs there: both are facts about
-// the row rather than about what the session is doing.
-//
-// ⚠ **Not `.unread`'s accent, and the render is why.** A full head reads
-// `idle · 2 background tasks · draft · 2/3`, and `.tasks` is primary while
-// `.unread` is tertiary — both green in this palette. A third green beside them
-// was swallowed by the run; the neutral reads at a glance because nothing else
-// near it is neutral except the tally it pairs with.
+// rather than the state words: `.tasks` is primary and `.unread` tertiary, both
+// green here, and a third green was swallowed by the run.
 .draft {
   font: var(--mat-sys-label-small);
   color: var(--mat-sys-on-surface-variant);

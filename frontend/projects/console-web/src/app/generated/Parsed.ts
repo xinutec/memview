@@ -3,25 +3,18 @@ import type { Line } from "./Line";
 import type { Unread } from "./Unread";
 
 /**
- * The parse, flat, in running order.
- *
- * Flat with a `depth` on each line rather than a tree of children, because the
- * one client is a phone: a tree costs a level of indentation per nesting and
- * there is no width to spend on it, while a flat list scrolls.
+ * The parse, flat, in running order, with a `depth` per line: the one client is
+ * a phone, and a tree costs indentation there is no width for.
  */
 export type Parsed = { 
 /**
- * Why the grammar could not read it, when it could not. A parse failure is
- * shown rather than smoothed over — 0.4% of the corpus's calls fail, and a
- * view that quietly returned no steps for them would be reporting an empty
- * command instead of an unread one.
+ * Why the grammar could not read it, when it could not. Shown rather than
+ * smoothed over: an empty command and an unread one are different reports.
  */
 error?: string, steps: Array<Line>, 
 /**
- * Commands whose operation is not in the table, by name and count. Named
- * here for the same reason the report names them: it is the honest size of
- * what this cannot read, and on one command it is usually the answer to
- * "why did nothing come out".
+ * Commands whose operation is not in the table, by name and count — on one
+ * command, usually the answer to "why did nothing come out".
  */
 unread: Array<Unread>, 
 /**

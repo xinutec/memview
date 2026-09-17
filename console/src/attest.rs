@@ -1,33 +1,22 @@
 //! Checking a phone's claim about the key it just made.
 //!
-//! Enrolment is the one moment where a mistake is permanent and quiet: whatever
-//! key is pinned is thereafter THE credential for arbitrary code execution on
-//! this machine, and a key that is a file on a phone's filesystem looks exactly
-//! like one in a secure element. Android Key Attestation tells them apart — the
-//! keystore signs a record describing the key, under a chain rooted in a
-//! certificate Google published, so the answer does not come from the software
-//! being asked about.
-//!
-//! **A binary rather than a paragraph**, because the check runs once per device,
-//! by hand, at the end of a fiddly session — the shape of a step that gets
-//! skipped or done by eye.
+//! Whatever key is pinned is thereafter THE credential for code execution on this
+//! machine, and a key that is a file on the phone looks exactly like one in a
+//! secure element. Android Key Attestation tells them apart: the keystore signs a
+//! record describing the key under a chain rooted in a certificate Google
+//! published. A binary, because the check runs once per device, by hand.
 //!
 //! ## Verified
 //!
-//! - Every signature in the chain.
-//! - That its root is a Google attestation root HELD HERE, not one the phone
-//!   supplied.
-//! - That no certificate appears in Google's revocation list.
-//! - That the challenge is the one this enrolment generated, which makes it an
-//!   answer rather than a recording.
-//! - StrongBox, key GENERATED rather than imported, user authentication required
-//!   with a time limit.
+//! - Every signature in the chain, and that its root is a Google root HELD HERE.
+//! - That no certificate is in Google's revocation list.
+//! - That the challenge is this enrolment's, so the chain is an answer, not a recording.
+//! - StrongBox; key GENERATED rather than imported; user authentication with a time limit.
 //!
 //! ## Not verified
 //!
-//! That the phone in your hand produced the chain — nothing in a certificate can
-//! say that. It is answered by the chain arriving over a USB cable from a device
-//! you are holding, which is why enrolment is not a network operation.
+//! That the phone in your hand produced the chain. That is answered by it arriving
+//! over a USB cable, which is why enrolment is not a network operation.
 
 use std::collections::BTreeMap;
 
@@ -77,11 +66,8 @@ impl std::fmt::Display for SecurityLevel {
     }
 }
 
-/// The handful of `AuthorizationList` entries this console has an opinion about.
-///
-/// The list has some seventy tags. Reading only these is deliberate: a check that
-/// parsed everything would have to decide what every field meant, and the ones
-/// omitted here are ones whose value could not change the answer.
+/// The `AuthorizationList` entries this console has an opinion about, out of some
+/// seventy; the rest could not change the answer.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Authorizations {
     /// `[503]` — present when the key may be used with nobody logged in.
@@ -152,10 +138,9 @@ impl Examination {
 
 /// Check a chain against a challenge, and against Google's revocation list.
 ///
-/// `status` is the body of <https://android.googleapis.com/attestation/status>,
-/// or `None`. None is **not** a pass: it produces a failing finding, because a
-/// revocation check that silently does nothing when the network is down is worse
-/// than no revocation check at all — it reads as having been done.
+/// `status` is the body of <https://android.googleapis.com/attestation/status>, or
+/// `None` — which FAILS: a revocation check that silently passes with the network
+/// down reads as having been done.
 pub fn examine(chain_pem: &str, challenge: &[u8], status: Option<&str>) -> Result<Examination> {
     let ders: Vec<Vec<u8>> = rustls_pemfile::certs(&mut chain_pem.as_bytes())
         .map(|one| one.map(|one| one.to_vec()))
@@ -205,11 +190,8 @@ pub fn record_of(cert: &X509Certificate) -> Result<Record> {
     parse_record(extension.value)
 }
 
-/// Parse a `KeyDescription`.
-///
-/// Written against the schema rather than a library because there is no crate for
-/// it that is worth a supply-chain entry on the machine this protects, and the
-/// structure is eight fields.
+/// Parse a `KeyDescription`. Against the schema rather than a crate: eight fields,
+/// and no dependency worth a supply-chain entry on the machine this protects.
 pub fn parse_record(der: &[u8]) -> Result<Record> {
     let (_, outer) = Any::from_der(der).map_err(|err| anyhow!("not a DER record: {err}"))?;
     let fields = items(outer.data)?;
@@ -334,9 +316,8 @@ fn answers_the_challenge(record: &Record, challenge: &[u8]) -> Finding {
 
 fn lives_in_strongbox(record: &Record) -> Finding {
     let what = "the key lives in StrongBox";
-    // Both levels, and the weaker one decides: a StrongBox key described by a
-    // TEE-signed record is a record that could have been written by compromised
-    // TEE software about a key it does not hold.
+    // Both levels, and the weaker decides: a StrongBox key described by a TEE-signed
+    // record could have been written by compromised TEE software.
     let levels = [
         record.attestation_security_level,
         record.keymint_security_level,
@@ -455,12 +436,9 @@ fn tagged_integer(entry: &Any) -> Result<u64> {
     integer(&inner, Tag::Integer)
 }
 
-/// The forms a serial number can take in Google's status list.
-///
-/// It publishes lowercase hex with no leading zero, but a DER serial carries one
-/// whenever its high bit would otherwise make it negative — so the obvious
-/// rendering misses exactly half the entries, silently, and a missed revocation
-/// looks the same as no revocation.
+/// The forms a serial number can take in Google's status list. It publishes
+/// lowercase hex with no leading zero; a DER serial carries one whenever its high
+/// bit is set, so the obvious rendering misses half the entries silently.
 fn serial_forms(raw: &[u8]) -> Vec<String> {
     let full = hex(raw);
     let trimmed = full.trim_start_matches('0').to_string();

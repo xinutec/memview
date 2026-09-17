@@ -1,55 +1,18 @@
-//! The `MEMORY.md` the corpus itself declares, beside the one a session wrote.
+//! The `MEMORY.md` the corpus itself declares, beside the one a session wrote:
+//! the difference between two whole files shows what no per-line rule can.
 //!
-//! Every other check here reports violations, candidates or an ordering — each
-//! answers a question somebody thought to ask. This assembles a WHOLE FILE, and
-//! the difference between two whole files shows what no per-line rule can: a
-//! line that has drifted from the memory it describes, a section that should
-//! not exist, an entry missing entirely.
+//! Pippijn: *"You write and maintain MEMORY.md, and we'll have an algorithm that
+//! generates the MEMORY.md we WOULD generate … but it's guiding you, not
+//! replacing you."* It never writes `MEMORY.md`; when the two disagree the
+//! ALGORITHM is the first suspect. Do not let it become authoritative by accident
+//! (memview#1310).
 //!
-//! Pippijn, deciding how the corpus and its tooling relate:
-//! *"You write and maintain MEMORY.md, and we'll have an algorithm that
-//! generates the MEMORY.md we WOULD generate given the algorithmic and historic
-//! data, but it's guiding you, not replacing you."*
-//!
-//! ⚠ **It never writes `MEMORY.md`.** It writes its own copy elsewhere and a
-//! session reads the diff and decides. When the two disagree the ALGORITHM is
-//! the first suspect — see `feedback_check_tokens_against_a_system_of_record`.
-//!
-//! ⚠ **Do not let it become authoritative by accident** (memview#1310). The
-//! moment its output is pasted rather than read, the corpus is capped at this
-//! algorithm's quality and nothing will ever read as wrong.
-//!
-//! ## What it decides, and what it deliberately does NOT
-//!
-//! **It assembles; it never writes prose.** Each memory carries its own index
-//! line in its `teaser:` frontmatter, which is what that field exists for:
-//! *"Let's make the teaser text part of the doc itself. The automation will be
-//! structural, not linguistic."* A memory with no teaser cannot be generated,
-//! and that is a signal rather than a failure.
-//!
-//! ⚠ **It does NOT decide ADMISSION, and that is a measured refusal rather than
-//! an unfinished edge.** Which memories deserve a line is memview#822's open
-//! question, and the study built to answer it (memview#884) harvested to a
-//! bounded null: every arm inside its own null band, with the design failing its
-//! own placebo by several times the bands. The retirement route is closed too —
-//! nearly every indexed tripwire sampled is a general claim about durable
-//! behaviour whose subject never disappears, so
-//! nothing expires and capacity is about one slot. Admission therefore rests on
-//! a comparative value judgement that no measurement here can make, which is
-//! why the cut stays Pippijn's. A generator that proposed one would be
-//! inventing the answer this repo has twice failed to measure.
-//!
-//! ⚠ **It does NOT decide ORDER either, and inherits it.** Section order and
-//! within-section order come from the file as written. Two reasons, and the
-//! second is the load-bearing one: the sections are a curated taxonomy that
-//! beats anything clustering would infer (the authored `##` headings and the
-//! link clusters agree only 56%), and **a generated ordering would make every
-//! line a diff line** — three hundred of them — burying the membership and
-//! drift findings that are the point. So a matching order is NOT the algorithm
-//! agreeing with the file; it is the algorithm declining to have an opinion.
-//!
-//! What that leaves it deciding is narrow and real: **which declared lines
-//! exist, what each says, and whether they fit.**
+//! It assembles and never writes prose: each memory carries its own `teaser:`.
+//! It does NOT decide ADMISSION — memview#884 harvested to a bounded null and
+//! the retirement route is closed, so admission is a judgement no measurement
+//! here can make. It does NOT decide ORDER either: the sections are a curated
+//! taxonomy, and a generated ordering would make every line a diff line. What
+//! it decides: which declared lines exist, what each says, and whether they fit.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -85,44 +48,27 @@ pub struct Section {
 #[derive(Debug, Clone, Default)]
 pub struct Shadow {
     pub sections: Vec<Section>,
-    /// Indexed today, but the memory declares no teaser.
-    ///
-    /// ⚠ **A DATA gap, never a proposal to drop.** The generator cannot spell a
-    /// line the memory does not carry, so these are absent from the assembled
-    /// file for a reason that says nothing about whether they belong. Reporting
-    /// them as removals would be the generator asserting a judgement it did not
-    /// make. It covers a sizeable minority of indexed memories.
+    /// Indexed today, but the memory declares no teaser. A DATA gap, never a
+    /// proposal to drop.
     pub no_teaser: Vec<String>,
-    /// Declares a teaser, and the written index does not carry it.
-    ///
-    /// ⚠ **Not an admission proposal either** — see the module note. A memory
-    /// can declare a line and still not belong in the root; what this says is
-    /// only that somebody wrote a line for it and the file does not have one.
+    /// Declares a teaser, and the written index does not carry it. Not an
+    /// admission proposal either.
     pub declared_not_carried: Vec<String>,
-    /// The memory's teaser and the written line say different things.
-    ///
-    /// ⚠ **The finding this whole artefact exists to surface.** Pippijn's reason
-    /// for moving the teaser into the doc was that a line in
-    /// `MEMORY.md` could rot separately from the memory it describes, and
-    /// nothing connected the two. This is the connection.
+    /// The memory's teaser and the written line say different things — the finding
+    /// this artefact exists to surface.
     pub drifted: Vec<Line>,
     /// Assembled lines the ceiling cuts, in the order they fall.
     pub over_ceiling: Vec<String>,
     pub bytes: usize,
 }
 
-/// Assemble the index the corpus declares.
-///
-/// `sections` is the written file's heading order and `section_of` its
-/// placement, both read from `MEMORY.md` — the generator inherits the taxonomy
-/// rather than inferring one, for the reason the module note gives.
+/// Assemble the index the corpus declares. `sections` and `section_of` are read
+/// from `MEMORY.md`: the generator inherits the taxonomy.
 pub fn assemble(corpus: &Corpus) -> Shadow {
     let Some(index) = corpus.index_md.as_deref() else {
         return Shadow::default();
     };
-    // ⚠ One parsed reading of the file, shared by every question below —
-    // placement, label and order. See `store::index_entries` for why this is
-    // not pattern-matched.
+    // One parsed reading of the file — see `store::index_entries`.
     let entries = crate::store::index_entries(index);
     let (_, titles) = crate::store::index_sections(index);
     let written: BTreeMap<&str, &str> = entries
@@ -154,11 +100,8 @@ pub fn assemble(corpus: &Corpus) -> Shadow {
             shadow.declared_not_carried.push(name.clone());
             continue;
         };
-        // ⚠ Compared as TRIMMED text and nothing cleverer. A teaser that
-        // differs only in surrounding whitespace is the same cue, and
-        // reporting it as drift would bury the real cases in noise; anything
-        // beyond that — punctuation, emphasis — is a real difference in what a
-        // reader meets, so it is drift.
+        // Compared as TRIMMED text and nothing cleverer: whitespace is the same cue,
+        // anything beyond is a real difference in what a reader meets.
         let says = written.get(name.as_str()).copied();
         let line = Line {
             name: name.clone(),
@@ -173,9 +116,7 @@ pub fn assemble(corpus: &Corpus) -> Shadow {
         placed.entry(section).or_default().push(line);
     }
 
-    // ⚠ **Within a section, the WRITTEN order — not alphabetical.** The file is
-    // read top to bottom by a person and its order carries intent no field
-    // records. Sorting here would rewrite every line of the diff.
+    // Within a section, the WRITTEN order: it carries intent no field records.
     for title in &titles {
         let Some(mut lines) = placed.remove(title.as_str()) else {
             continue;
@@ -192,9 +133,8 @@ pub fn assemble(corpus: &Corpus) -> Shadow {
 
     let rendered = render(&shadow);
     shadow.bytes = rendered.len();
-    // ⚠ **The ceiling is part of the artefact, not a warning beside it.** An
-    // assembled index that ignores the limit is not the file we would have
-    // written; it is a wish. `ceiling` owns the number and the cut model.
+    // The ceiling is part of the artefact: an assembled index that ignores the
+    // limit is a wish.
     let seen = crate::ceiling::cut(&rendered, crate::lint::INDEX_CEILING);
     if !seen.is_whole() {
         shadow.over_ceiling = crate::store::index_links(seen.dropped);

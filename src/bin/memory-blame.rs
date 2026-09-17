@@ -3,22 +3,11 @@
 //!     cargo run --release --bin memory-blame          # who owns what
 //!     cargo run --release --bin memory-blame -- --file   # and file it
 //!
-//! ⚠ **A check nobody is addressed by is a check nobody acts on.** `mem_check.py`
-//! runs as a fleetwatch collector: `--json` reports and exits 0. So an ERROR
-//! paints a panel, stops the nightly committing the corpus, and tells no session
-//! anything. Measured: four memories written as a byproduct of other
-//! work left the corpus uncommittable for about four hours, and the session that
-//! wrote them had no way to know. Every fix was mechanical — three stamps and a
-//! paragraph that needed marking bold (memview#1235).
-//!
-//! ⚠ **"Unattributable" was true of the FRONTMATTER, not of the corpus.** An
-//! unstamped memory carries no `originSessionId`, so `lint::passed_for_session`
-//! matches it to nobody and it fails no session's gate. The transcripts still
-//! record who wrote it — `blame::attribute` is the recovery `memory-stamp` has
-//! used all along, and this asks it the same question.
-//!
-//! ⚠ **A report, and with `--file` a task — never an edit to the corpus.** The
-//! fixes belong to whoever wrote the memory; this only makes sure they are asked.
+//! A check nobody is addressed by is a check nobody acts on: `mem_check.py`
+//! reports to a panel and tells no session anything, and four unstamped
+//! memories left the corpus uncommittable for four hours (memview#1235). The
+//! transcripts still record who wrote them — `blame::attribute`. A report, and
+//! with `--file` a task; never an edit to the corpus.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -29,8 +18,7 @@ use memview::lint::{self, Finding, Severity};
 use memview::store::Corpus;
 
 fn main() -> Result<()> {
-    // Refuse a flag this tool does not know, rather than running as if it were
-    // absent (memview#1588).
+    // Refuse a flag this tool does not know (memview#1588).
     memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--file"])?;
     let args: Vec<String> = std::env::args().collect();
     let file = args.iter().any(|a| a == "--file");
@@ -41,12 +29,9 @@ fn main() -> Result<()> {
         .unwrap_or_else(|_| format!("{root}/projects/-Users-pippijn-Code/memory"));
     let projects = std::env::var("PROJECTS_DIR").unwrap_or_else(|_| format!("{root}/projects"));
 
-    // ⚠ **Ask whether it can file BEFORE doing the work, not after.** `task`
-    // refuses without an identity — the nightly runs under launchd, where
-    // neither `CLAUDE_CODE_SESSION_ID` nor a terminal exists, so it needs
-    // `TASKS_SESSION` set. Discovering that per agent, after a transcript scan
-    // that reads gigabytes, prints a row of "not filed" into a log nobody is
-    // watching — which is this ticket's own failure, one layer down.
+    // Ask whether it can file BEFORE doing the work: the nightly runs under launchd
+    // and needs `TASKS_SESSION`, and discovering that after a gigabyte scan prints
+    // "not filed" into a log nobody watches.
     if file {
         run(&["task", "list", "--json"]).context(
             "cannot file: `task` needs an identity. Set TASKS_SESSION=<name> \
@@ -81,10 +66,7 @@ fn main() -> Result<()> {
         owner.insert(finding.memory.clone(), session);
     }
 
-    // ⚠ **Only for what the frontmatter could not answer.** This reads every
-    // transcript under the projects root, which is gigabytes; asking it about a
-    // memory that already declares its author is minutes spent to learn what one
-    // file already said.
+    // Only for what the frontmatter could not answer: this reads gigabytes.
     if !ask_the_transcripts.is_empty() {
         println!(
             "{} unattributed in frontmatter — reading the transcripts",
@@ -97,9 +79,8 @@ fn main() -> Result<()> {
         }
     }
 
-    // ⚠ Refreshed rather than read off disk: this names sessions, and a session
-    // that started since the last mine would otherwise show as a bare uuid.
-    // Costs about 0.3s — see `memview::fresh`.
+    // Refreshed rather than read off disk: a session started since the last mine
+    // would show as a bare uuid. About 0.3s — see `memview::fresh`.
     let mined = memview::fresh::mined(
         &memview::fresh::Where::from_env(),
         memview::agents::Needs::MEMORIES,
@@ -117,9 +98,7 @@ fn main() -> Result<()> {
             .unwrap_or_else(|| session.to_string())
     };
 
-    // ⚠ **Group by AGENT, not by session.** A name is reused across resumed
-    // sessions, and a task addressed to a uuid reaches whoever happens to be
-    // that uuid — which is nobody tomorrow.
+    // Group by AGENT, not by session: a task addressed to a uuid reaches nobody tomorrow.
     let mut by_agent: BTreeMap<String, Vec<&Finding>> = BTreeMap::new();
     let mut unclaimed: Vec<&Finding> = Vec::new();
     for finding in &findings {
@@ -143,11 +122,8 @@ fn main() -> Result<()> {
     }
 
     if !unclaimed.is_empty() {
-        // ⚠ **Named, not guessed.** No transcript claims these — it predates the
-        // archive, or something outside a session wrote the file. (Not pruning:
-        // memview#1240 measured that nothing holding a conversation is deleted.)
-        // Attaching
-        // them to whoever ran this would put a stranger's work in a real queue.
+        // Named, not guessed: no transcript claims these, and attaching them to whoever
+        // ran this would put a stranger's work in a real queue.
         println!("\nnobody claims these — no surviving transcript records the write");
         for finding in &unclaimed {
             println!("  {:<20} {}", finding.rule, finding.memory);
@@ -192,27 +168,18 @@ fn file_for(agent: &str, findings: &[&Finding]) -> Result<String> {
         run(&["task", "edit", &id, "--body", &body, "--subject", &title])?;
         return Ok(format!("refreshed #{id}"));
     }
-    // ⚠ **Ask, then overrule — never overrule first.** This tool's idempotence is
-    // PER AGENT and the service's duplicate check is global, so every agent's
-    // lint task reads like every other agent's and the third one gets refused:
-    // measured, a real error belonging to one agent went unfiled because two
-    // others already had one, which is #1235's failure
-    // reproduced by #1235's fix.
-    //
-    // ⚠ But `--no-duplicate-check` is only accepted AFTER a refusal — passing it
-    // unconditionally is itself a 400 and files nothing, which is how the first
-    // version of this fix broke filing altogether. The `open_task_in` check
-    // above is what makes overruling safe here.
+    // Ask, then overrule — never overrule first. Idempotence here is PER AGENT and
+    // the service's duplicate check is global, so the third agent's task got
+    // refused; but `--no-duplicate-check` passed unconditionally is itself a 400.
+    // The `open_task_in` check above is what makes overruling safe.
     let file = |flags: &[&str]| -> Result<String> {
         let mut argv = vec!["task", "add", &title, "--to", agent, "--priority", "p2"];
         argv.extend_from_slice(flags);
         argv.extend_from_slice(&["--body", &body]);
         run(&argv)
     };
-    // ⚠ The predicate is `filing::is_duplicate_refusal`, in the library so
-    // `tests/suite/filing.rs` can pin the service's live wordings. A `contains` here on
-    // the refusal's PROSE matches nothing the service emits, and this arm then
-    // never runs.
+    // The predicate is `filing::is_duplicate_refusal`, in the library so tests can
+    // pin the service's live wordings.
     let out = match file(&[]) {
         Ok(out) => out,
         Err(refused) if filing::is_duplicate_refusal(&format!("{refused:#}")) => {

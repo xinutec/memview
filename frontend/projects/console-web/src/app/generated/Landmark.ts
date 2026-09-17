@@ -2,30 +2,16 @@
 import type { Mark } from "./Mark";
 
 /**
- * A place in a transcript somebody might want to come back to.
- *
- * The set is deliberately small and it is the set a person remembers: things
- * they said, pictures they sent, and where the conversation was cut. Assistant
- * text and tool calls are the bulk of every file and nobody has ever wanted to
- * return to one, so they are not here.
+ * A place in a transcript somebody might want to come back to: things they said,
+ * pictures they sent, and where the conversation was cut.
  */
 export type Landmark = { 
 /**
- * Where to ask for it, as a byte offset.
- *
- * ⚠ **The END of the line carrying it, not the start**, and the difference
- * is whether "go to" works. `page` reads *backwards* from a cursor, so a
- * cursor at the start of the line returns the page that stops just short of
- * the landmark — a jump to somebody's message that does not show their
- * message. Ending the cursor past the line puts the landmark last on the
- * page it comes back on, which is what tapping it means.
- *
- * ⚠ **A cursor, not a measure.** It is exactly what
- * `/api/sessions/{id}/earlier` already takes, so a jump is the existing
- * paging with a different starting point rather than a second mechanism.
- * What it is *not* is a position anybody can be shown: one picture is
- * kilobytes of base64 on a single line where a sentence is a few dozen
- * bytes, so a scrollbar drawn over these offsets would be a lie.
+ * Where to ask for it, as a byte offset — the END of the line carrying it, since
+ * `page` reads backwards from a cursor and a cursor at the start would return the
+ * page that stops just short. The same cursor `/api/sessions/{id}/earlier`
+ * takes; not a position anybody can be shown, since one picture is kilobytes on
+ * a line.
  */
 at: number, 
 /**

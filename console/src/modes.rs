@@ -1,22 +1,10 @@
 //! What each conversation was last allowed to do without asking.
 //!
-//! ⚠ **Nothing else records this, and that is the whole reason the file
-//! exists.** The permission mode is passed to the CLI on the command line and
-//! never written to the transcript in a form that can be trusted — a session
-//! resumed from an interactive one carries *that* session's mode lines, so
-//! reading them back reports the wrong answer with complete confidence (see
-//! [`crate::session::Summary::mode`]). The console is the only thing that knows,
-//! and until now it only knew for as long as it held the process.
-//!
-//! **What that cost.** Measured on `hardware`: a session left in
-//! `auto` — deliberately, because nobody was watching it — was stopped and
-//! resumed, and came back as `default`. Manual. It then stops at the first tool
-//! call that needs approval and waits, which from a phone is indistinguishable
-//! from the stall that prompted the restart. Nothing said the mode had changed;
-//! the console reported the new one as though it had always been that.
-//!
-//! So the mode is remembered here, across a restart of the session, of the
-//! console, and of the machine.
+//! Nothing else records it: the mode goes to the CLI on the command line, and the
+//! transcript's mode lines belong to whichever session was resumed (see
+//! [`crate::session::Summary::mode`]). Without this file a session left in `auto`
+//! came back Manual after a restart and stopped at its first approval, with
+//! nothing saying why.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -30,13 +18,8 @@ pub struct Modes {
 }
 
 impl Modes {
-    /// Read what the last run wrote.
-    ///
-    /// An unreadable file is an empty set and a loud log line, not an error: a
-    /// console that refuses to start because it cannot remember a preference is
-    /// worse than one that starts and asks. The cost of the empty case is that
-    /// sessions come back Manual — which is the behaviour this replaces, so it
-    /// is a return to the old failure rather than a new one.
+    /// Read what the last run wrote. An unreadable file is an empty set and a loud log
+    /// line: sessions then come back Manual, which is the old failure, not a new one.
     pub fn load(store: PathBuf) -> Self {
         let held = match std::fs::read_to_string(&store) {
             Ok(text) => match serde_json::from_str(&text) {
@@ -63,12 +46,8 @@ impl Modes {
         self.held.read().expect("modes poisoned").get(id).cloned()
     }
 
-    /// Remember a conversation's mode, if it has changed.
-    ///
-    /// Guarded on a change rather than written every time, because this is
-    /// called on every spawn and every mode request, and the common case is that
-    /// nothing is different — a rewrite per message would be a file write on a
-    /// path that has no reason to touch the disk at all.
+    /// Remember a conversation's mode, if it has changed — this runs on every spawn
+    /// and every mode request.
     pub fn set(&self, id: &str, mode: &str) {
         let all = {
             let mut held = self.held.write().expect("modes poisoned");

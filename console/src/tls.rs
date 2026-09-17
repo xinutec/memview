@@ -1,26 +1,15 @@
 //! The gate: who may talk to this console at all.
 //!
-//! **The pinned thing is a public key, not a certificate and not a name.** There
-//! is no CA and no PKI here on purpose — one client, one server, both known to
-//! each other in advance, and a certificate authority would add a third party
-//! able to mint a fourth. What the runner holds is a set of SHA-256 hashes of
-//! `SubjectPublicKeyInfo`: the key survives the certificate being reissued, which
-//! matters because the client's key is generated once inside a phone's secure
-//! element and can never be replaced, while its certificate is just a wrapper
-//! that may want a longer expiry one day.
+//! The pinned thing is a public key — SHA-256 of `SubjectPublicKeyInfo` — not a
+//! certificate and not a name. No CA: one client and one server known to each
+//! other, and the phone's key lives in its secure element and can never be
+//! replaced, while its certificate may be reissued.
 //!
-//! **Why this and not a firewall rule.** The WireGuard hub decrypts and
-//! re-encrypts every peer-to-peer packet, so it can forge a source address. An
-//! allow-list of addresses is a doorman; this is the lock. A compromised hub can
-//! still deny service — unavoidable for a router — but it cannot produce a
-//! `CertificateVerify` signature over a key it does not hold, so it cannot
-//! impersonate the phone and it cannot read the traffic.
+//! Not a firewall rule, because the WireGuard hub can forge a source address; it
+//! cannot produce a `CertificateVerify` over a key it does not hold.
 //!
-//! **What this deliberately does NOT check.** Not the certificate's expiry, not
-//! its subject, not its chain, not its issuer. Those are questions about who
-//! vouched for a name, and nobody vouches for anything here: the key is either
-//! the pinned one or it is not. Checking expiry would add a way for the console
-//! to lock the phone out on a date nobody chose.
+//! Deliberately unchecked: expiry, subject, chain, issuer. Nobody vouches for
+//! anything here, and expiry would lock the phone out on a date nobody chose.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -34,11 +23,8 @@ use sha2::{Digest, Sha256};
 /// A key's fingerprint, as it is written in configuration: 64 hex characters.
 pub type Pin = String;
 
-/// The fingerprint of the public key inside a DER certificate.
-///
-/// This is the whole enrolment mechanism: run it over the certificate the phone
-/// hands out once, put the answer in the config, and the console will talk to
-/// that key and nothing else.
+/// The fingerprint of the public key inside a DER certificate — the whole
+/// enrolment mechanism.
 pub fn pin_of(der: &[u8]) -> Result<Pin> {
     let (_, parsed) =
         x509_parser::parse_x509_certificate(der).context("that is not a DER certificate")?;
@@ -54,9 +40,8 @@ fn hex(bytes: &[u8]) -> String {
 #[derive(Debug)]
 struct Pinned {
     allowed: BTreeSet<Pin>,
-    /// The signature algorithms the provider actually supports. Verification of
-    /// the handshake signature itself is left to rustls — the pin decides *whose*
-    /// key it must be, not whether the maths is right.
+    /// Handshake signature verification is rustls's; the pin decides WHOSE key, not
+    /// whether the maths is right.
     supported: rustls::crypto::WebPkiSupportedAlgorithms,
 }
 
@@ -79,10 +64,8 @@ impl ClientCertVerifier for Pinned {
         if self.allowed.contains(&pin) {
             return Ok(ClientCertVerified::assertion());
         }
-        // Logged as well as returned, because the returned error goes into a TLS
-        // alert and the client sees "handshake failure" and nothing else. The
-        // rejected fingerprint is the one thing that makes enrolment possible:
-        // plug the device in, watch the log, paste the line into the config.
+        // Logged as well as returned: the client sees only "handshake failure", and the
+        // rejected fingerprint is what enrolment pastes into the config.
         tracing::warn!(key = %pin, "refused a client key that is not pinned");
         Err(rustls::Error::General(format!(
             "client key {pin} is not pinned"
@@ -130,11 +113,8 @@ impl Gate {
         }
         let key = rustls_pemfile::private_key(&mut key_pem.as_bytes())?
             .context("no private key in the PEM")?;
-        // Checked here so the failure is legible. rustls refuses a version-1
-        // certificate with `UnsupportedCertVersion` and no hint about which
-        // certificate or why — and the openssl shipped with macOS (LibreSSL)
-        // produces exactly that from a plain `req -x509`, silently, because a
-        // certificate with no extensions has no need of version 3.
+        // Checked here for a legible failure: rustls says only `UnsupportedCertVersion`,
+        // and macOS's LibreSSL makes a version-1 certificate from a plain `req -x509`.
         for one in &cert {
             let (_, parsed) = x509_parser::parse_x509_certificate(one)
                 .context("the server certificate is not readable DER")?;

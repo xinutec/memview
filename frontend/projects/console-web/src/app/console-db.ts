@@ -15,22 +15,22 @@ import { replicateRxCollection } from 'rxdb/plugins/replication';
 
 import { Telemetry } from './telemetry';
 
-/** One conversation's unsent words, as they travel. Mirrors `DraftDoc` in
- *  `console/src/drafts.rs`; the two are one contract and move together. */
+/**
+ * One conversation's unsent words, as they travel. Mirrors `DraftDoc` in
+ * `console/src/drafts.rs`.
+ */
 export interface DraftDoc {
-  /** The SESSION id. Every other collection in the fleet mints a ulid per row;
-   *  a draft is one per conversation, which already has a stable identity. */
+  /**
+   * The SESSION id: a draft is one per conversation, which already has a stable
+   * identity.
+   */
   ulid: string;
   text: string;
   at: number;
   /**
-   * RxDB's tombstone flag, always present and always false.
-   *
-   * ⚠ **A cleared draft is a live document with empty text, never a deletion.**
-   * The entry has to survive so the other device cannot push back a message
-   * already sent — which is the reverse of what this flag means everywhere else.
-   * Required rather than optional because RxDB's `WithDeleted` demands it on
-   * every row it is handed, and the runner always writes it.
+   * RxDB's tombstone flag, always present and always false: a cleared draft is a
+   * live document with empty text, so the other device cannot push back a message
+   * already sent. Required because RxDB's `WithDeleted` demands it.
    */
   _deleted: boolean;
   /** The server revision. Minted by the runner, never by a local edit. */
@@ -42,8 +42,7 @@ export const DRAFT_SCHEMA: RxJsonSchema<DraftDoc> = {
   primaryKey: 'ulid',
   type: 'object',
   properties: {
-    // A session id is a uuid; the length is RxDB's requirement for a primary
-    // key, not a claim about the format.
+    // A session id is a uuid; the length is RxDB's requirement for a primary key.
     ulid: { type: 'string', maxLength: 64 },
     text: { type: 'string' },
     at: { type: 'number' },
@@ -53,16 +52,13 @@ export const DRAFT_SCHEMA: RxJsonSchema<DraftDoc> = {
   required: ['ulid', 'text', 'at', 'rev'],
 };
 
-// ⚠ **Registered once, at module load, and statically imported.** No dynamic
-// loading anywhere in this app: the whole bundle ships together and the budget is
-// raised when it needs to be, rather than split into pieces.
+// Registered once, at module load, and statically imported: no dynamic loading
+// anywhere in this app.
 addRxPlugin(RxDBLocalDocumentsPlugin);
 
 /**
- * The database this console keeps its local state in.
- *
- * ⚠ **RxDB refuses a second database of the same name in one process**, so
- * anything opening more than one — a test, chiefly — passes its own.
+ * The database this console keeps its local state in. RxDB refuses a second
+ * database of the same name in one process, so a test passes its own.
  */
 export const CONSOLE_DATABASE = 'consoledrafts';
 
@@ -70,11 +66,9 @@ export const CONSOLE_DATABASE = 'consoledrafts';
 const PULL_EVERY_MS = 5000;
 
 /**
- * The batch, shape-checked.
- *
- * ⚠ **The row TYPE is our own contract and is trusted; the SHAPE is not.** A
- * non-array `documents` reaches RxDB as a batch, and a missing `checkpoint.rev`
- * rewinds the pull to zero and refetches everything for ever, silently.
+ * The batch, shape-checked. The row TYPE is our own contract; the SHAPE is not:
+ * a non-array `documents` reaches RxDB as a batch, and a missing
+ * `checkpoint.rev` rewinds the pull to zero for ever, silently.
  */
 function asDocs(body: unknown): DraftDoc[] | null {
   if (typeof body !== 'object' || body === null || !('documents' in body)) return null;
@@ -100,13 +94,8 @@ export interface Clash {
   readonly theirs: DraftDoc;
   /**
    * RxDB's own name for where the conflict was detected — a push the runner
-   * refused, or a pull that found the master had moved.
-   *
-   * ⚠ **Carried for the LOG, not for the screen.** A clash is the one outcome
-   * here nobody can diagnose from the phone: it says two devices wrote, and
-   * cannot say which side went first or which half of replication noticed. Two
-   * rounds of these were guessed at from the symptom before anything recorded
-   * it.
+   * refused, or a pull that found the master moved. For the LOG: a clash is the
+   * one outcome nobody can diagnose from the phone.
    */
   readonly where: string;
 }
@@ -114,16 +103,12 @@ export interface Clash {
 /**
  * How a collision is settled.
  *
- * ⚠ **`isEqual` compares content and NOTHING else.** Bringing `rev` into it
- * fails in both directions, and both are pinned by tests: on its own it judges
- * every local edit already-replicated and drops the push silently; alongside the
- * text it calls the runner's own echo a conflict and offers a choice between a
- * text and itself.
+ * `isEqual` compares content and NOTHING else: `rev` alone judges every local
+ * edit already-replicated, and beside the text it calls the runner's own echo a
+ * conflict. Both are pinned by tests.
  *
- * ⚠ **`resolve` gives the master to THEIRS, not to this device.** Prose cannot
- * be field-merged, and a resolver that silently picks a side destroys writing
- * nobody chose to lose. The server keeps what it has, this device keeps its own,
- * both go on screen, and a person decides.
+ * `resolve` gives the master to THEIRS: prose cannot be field-merged, so both go
+ * on screen and a person decides.
  */
 export function draftConflicts(onClash: (clash: Clash) => void): RxConflictHandler<DraftDoc> {
   return {
@@ -141,13 +126,10 @@ export function draftConflicts(onClash: (clash: Clash) => void): RxConflictHandl
 }
 
 /**
- * The draft collection and its replication against the runner.
- *
- * ⚠ **This is not what the composer reads.** Typing must not wait for a database
- * and must not stop when the tunnel does, so [[Drafts]] seeds the composer from
- * local storage before first paint and this sits behind it — owning the
- * checkpoint, the retry and the conflict detection, which is the bookkeeping
- * that was hand-written and wrong four times over.
+ * The draft collection and its replication against the runner. Not what the
+ * composer reads — typing must not wait for a database — so [[Drafts]] seeds the
+ * composer from local storage first and this sits behind it, owning the
+ * checkpoint, the retry and the conflict detection.
  */
 @Injectable({ providedIn: 'root' })
 export class ConsoleDb {
@@ -156,22 +138,22 @@ export class ConsoleDb {
   private running?: ReturnType<typeof replicate>;
   readonly clash = signal<Clash | undefined>(undefined);
 
-  /** The collection, created once. Concurrent callers share one promise:
-   *  `createRxDatabase` with the same name throws on a second call. */
+  /**
+   * The collection, created once; concurrent callers share one promise, since
+   * `createRxDatabase` with the same name throws on a second call.
+   */
   collection(
     storage: RxStorage<unknown, unknown> = getRxStorageDexie(),
     get: typeof fetch = fetch,
     name = CONSOLE_DATABASE,
   ): Promise<RxCollection<DraftDoc>> {
-    // ⚠ The arguments are read ONLY on the call that opens it. Storing them
-    // would let any later caller using the defaults rename a database that is
-    // already open, or reach for the real one from a test.
+    // The arguments are read ONLY on the call that opens it, so a later caller
+    // cannot rename a database already open or reach for the real one from a test.
     if (!this.opened) {
       this.opened = this.open(storage, get, name);
-      // ⚠ **A memoised promise is unhandled from the moment it is made.** If
-      // opening fails — no IndexedDB, which some private-browsing modes refuse —
-      // the rejection is loose before any caller has attached, and that is an
-      // unhandled rejection whatever the callers then do. They still see it.
+      // A memoised promise is unhandled from the moment it is made: if opening fails
+      // (some private-browsing modes refuse IndexedDB) the rejection is loose before
+      // any caller attaches. They still see it.
       this.opened.catch(() => undefined);
     }
     return this.opened;
@@ -179,21 +161,16 @@ export class ConsoleDb {
 
   /**
    * The database, for state that is NOT replicated — a kept transcript, a held
-   * picture. RxDB excludes local documents from replication itself, so staying
-   * on one device is a property of the storage rather than a promise.
+   * picture. RxDB excludes local documents from replication itself.
    */
   async database(): Promise<RxDatabase> {
     return (await this.collection()).database;
   }
 
   /**
-   * Ask the runner now, rather than waiting out the rest of the interval.
-   *
-   * For the two moments somebody is certainly looking: opening a conversation,
-   * and the app coming back to the front — see [[Foreground]]. The heartbeat
-   * already covers `online`, but a phone taken out of a pocket fires no such
-   * event, and five seconds of a stale composer is five seconds of the wrong
-   * words on screen.
+   * Ask the runner now rather than waiting out the interval, for the two moments
+   * somebody is certainly looking: opening a conversation, and coming back to the
+   * front — see [[Foreground]]. A phone taken out of a pocket fires no `online`.
    */
   resync(): void {
     void this.collection()
@@ -207,11 +184,8 @@ export class ConsoleDb {
   }
 
   /**
-   * Raise a clash, and SAY SO.
-   *
-   * ⚠ **Lengths and times, never the words.** A draft is a private message, and
-   * this reaches `adb logcat` and the fleet trace. Lengths are enough to tell two
-   * drafts apart, which is all a diagnosis needs.
+   * Raise a clash, and SAY SO — lengths and times, never the words: this reaches
+   * `adb logcat` and the fleet trace.
    */
   private raise(clash: Clash): void {
     this.clash.set(clash);
@@ -220,17 +194,14 @@ export class ConsoleDb {
       `draft clash on ${clash.id.slice(0, 8)}: ${clash.mine.length} char(s) here ` +
       `against ${clash.theirs.text.length} at rev ${clash.theirs.rev}, written ${age}s ago ` +
       `(noticed by ${clash.where})`;
-    // Both, deliberately: the console is the phone's only live window, and the
-    // trace is the only one that can be read without the phone on a cable.
+    // Both: the trace is the only one readable without the phone on a cable.
     console.warn(said);
     this.telemetry.note('draft-clash', said);
   }
 
   /**
-   * Stop replicating and close the database.
-   *
-   * ⚠ **Cancel the replication FIRST** — it holds a subscription and a retry
-   * timer, and closing underneath those leaves a handler writing into nothing.
+   * Stop replicating and close the database. Cancel the replication FIRST: it
+   * holds a subscription and a retry timer.
    */
   async close(): Promise<void> {
     const opened = this.opened;
@@ -251,25 +222,22 @@ export class ConsoleDb {
       name,
       storage,
       multiInstance: true,
-      // Enabled on the DATABASE as well as on the collection below: a kept
-      // transcript belongs to this console rather than to the drafts.
+      // Enabled on the DATABASE as well as the collection: a kept transcript belongs
+      // to this console rather than to the drafts.
       localDocuments: true,
     });
     const added = await db.addCollections({
       drafts: {
         schema: DRAFT_SCHEMA,
         conflictHandler: draftConflicts((c) => this.raise(c)),
-        // ⚠ **Where the held picture lives.** RxDB excludes local documents
-        // from replication itself, so the picture staying on one device is a
-        // property of the storage rather than a promise in a comment.
+        // Where the held picture lives; RxDB excludes local documents from replication.
         localDocuments: true,
       },
     });
     this.running = replicate(added.drafts, get);
-    // ⚠ **Said out loud, because replication failing is SILENT.** A dead tunnel
-    // is the ordinary case this whole thing exists for and must not be noise —
-    // but a handler that throws on every cycle looks exactly like a quiet one
-    // from the composer, and the phone's only window is `adb logcat`.
+    // Said out loud, because replication failing is SILENT: a dead tunnel is the
+    // ordinary case, and a handler that throws on every cycle looks exactly like a
+    // quiet one from the composer.
     this.running.error$.subscribe((err: unknown) => {
       console.warn('draft replication:', err instanceof Error ? err.message : err);
     });
@@ -278,18 +246,15 @@ export class ConsoleDb {
 }
 
 /**
- * Pull and push against `/api/sync/drafts`.
- *
- * Exported and taking its own `fetch` so the wire shape can be tested without a
- * runner — the handlers are where a protocol mismatch would live, and a mismatch
- * is silent: replication simply never converges.
+ * Pull and push against `/api/sync/drafts`. Exported and taking its own `fetch`
+ * so the wire shape can be tested without a runner — a mismatch is silent;
+ * replication simply never converges.
  */
 export function replicate(
   collection: RxCollection<DraftDoc>,
   get: typeof fetch,
 ): ReturnType<typeof replicateRxCollection<DraftDoc, { rev: number }>> {
-  // Ask again on a timer, and at once on coming back from offline rather than
-  // waiting out the rest of the interval.
+  // Ask again on a timer, and at once on coming back from offline.
   const heartbeat$: Observable<'RESYNC'> = merge(
     interval(PULL_EVERY_MS),
     typeof window === 'undefined' ? EMPTY : fromEvent(window, 'online'),
@@ -307,10 +272,8 @@ export function replicate(
         const res = await get(`/api/sync/drafts?since=${since}`);
         if (!res.ok) throw new Error(`draft pull failed: ${res.status}`);
         const body: unknown = await res.json();
-        // ⚠ **Two things replication cannot survive being wrong about.** A
-        // non-array `documents` is fed to RxDB as a batch; a missing
-        // `checkpoint.rev` rewinds the pull to 0 and refetches everything on
-        // every cycle, for ever, saying nothing.
+        // Two things replication cannot survive being wrong about: a non-array
+        // `documents`, and a missing `checkpoint.rev`, which rewinds the pull to 0 for ever.
         const documents = asDocs(body);
         const rev = asRev(body);
         if (documents === null || rev === null)
@@ -326,12 +289,9 @@ export function replicate(
           body: JSON.stringify(rows),
         });
         if (!res.ok) throw new Error(`draft push failed: ${res.status}`);
-        // ⚠ An EMPTY answer means every row landed. A push that conflicts is a
-        // successful request carrying the current master, not a failed one.
-        //
-        // `_deleted` is filled in rather than trusted: the runner never writes
-        // it (a cleared draft is a live document with empty text), and RxDB's
-        // type requires it present on every row it is handed back.
+        // An EMPTY answer means every row landed: a conflicting push is a successful
+        // request carrying the current master. `_deleted` is filled in rather than
+        // trusted — the runner never writes it, and RxDB's type requires it.
         const lost = asDocs({ documents: (await res.json()) as unknown });
         if (lost === null) throw new Error('draft push returned a malformed answer');
         return lost;

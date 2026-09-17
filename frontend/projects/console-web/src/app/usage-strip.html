@@ -5,8 +5,7 @@
         <span class="label">{{ bar.label }}</span>
         @if (bar.left; as left) {
           <span class="pct" [class.high]="bar.high">{{ bar.pct }}%</span>
-          <!-- The bar and its markers share one box: the ticks and the clock
-               are positions ON the level, not siblings beside it. -->
+          <!-- The bar and its markers share one box: positions ON the level. -->
           <span class="level">
             <mat-progress-bar
               [class.high]="bar.high"
@@ -18,12 +17,8 @@
               <i class="day" [style.left.%]="at" aria-hidden="true"></i>
             }
             @if (bar.elapsed; as at) {
-              <!-- ⚠ **Where the CLOCK is, against where the spend is.** The two
-                   readings are from one instant, so their distance apart is the
-                   whole message: fill behind the mark is room to spare, fill
-                   past it is going faster than the week does. Titled rather than
-                   labelled — a phone has no hover, and a word here would cost
-                   the row its height. -->
+              <!-- Where the CLOCK is, against where the spend is: fill behind the mark is room
+                   to spare. Titled rather than labelled — a phone has no hover. -->
               <i
                 class="clock"
                 [style.left.%]="at"
@@ -34,20 +29,16 @@
           </span>
           <span class="left">{{ left }}</span>
         } @else {
-          <!-- ⚠ **Not the last figure, and not zero either.** The window this
-               reading described has turned over since it was taken, so what was
-               spent in it is a fact about a window that has gone. Drawn as the
-               absence it is: this console is normally hours behind, so it is the
-               common case rather than a corner one. -->
+          <!-- Not the last figure, and not zero: the window has turned over since, and this
+               console is normally hours behind. -->
           <span class="gone" [attr.title]="'the ' + bar.label + ' window has reset since'"
             >reset since</span
           >
         }
       </div>
     }
-    <!-- Which machine, and how old. The number is account-wide, so the host is
-         the only part of it that is local — and the age is the difference
-         between a figure worth acting on and one worth ignoring. -->
+    <!-- Which machine, and how old: the host is the only local part of an
+         account-wide number. -->
     <p class="taken">{{ usage()?.host }} · {{ taken() }}</p>
   </section>
 }

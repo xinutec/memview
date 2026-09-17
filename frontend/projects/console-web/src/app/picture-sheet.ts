@@ -28,16 +28,15 @@ import {
 } from './zoom';
 
 /**
- * How far a finger may wander before the gesture stops being a tap.
- *
- * A thumb on glass never holds still, and at zero every tap was a one-pixel drag
- * that then refused to toggle.
+ * How far a finger may wander before the gesture stops being a tap: at zero
+ * every tap was a one-pixel drag.
  */
 const SLIP = 8;
 
-/** How much wheel it takes to double the magnification. `Math.exp` rather than a
- *  step, so a trackpad's stream of small deltas is smooth and a mouse's notches
- *  still move it. */
+/**
+ * How much wheel it takes to double the magnification. `Math.exp` rather than a
+ * step, so a trackpad's stream of small deltas is smooth.
+ */
 const WHEEL = 300;
 
 /** Which picture is being looked at: the address as the session wrote it. */
@@ -48,22 +47,11 @@ export interface Looking {
 /**
  * A picture a session pointed at, opened over the conversation.
  *
- * ⚠ **A lightbox here, where the sent-picture path deliberately has none.** A
- * picture sent from the phone is already in the transcript with the words about
- * it around it, so it opens in place — covering those words would take away the
- * reason for looking. This one is not in the transcript at all: there is nothing
- * to expand and nothing to cover, and what it usually holds is a render of a
- * room that is unreadable at a quarter of a phone screen.
- *
- * ⚠ **Back closes the viewer and only the viewer.** That is [[Dismiss]]'s
- * history entry, the same as every other sheet — without it, a back gesture
- * would close this *and* leave the conversation behind it, which is what
- * Material's `closeOnNavigation` does on its own.
- *
- * The bytes come through [[ConsoleApi.elsewhere]] rather than from an `<img
- * src>`, because the failures here are ordinary — the session's render server
- * outlives its links by minutes — and an `<img>` that fails says nothing about
- * why.
+ * A lightbox here, where a sent picture opens in place: that one has the words
+ * about it around it, this one is not in the transcript at all and is usually a
+ * render unreadable at a quarter of a phone screen. Back closes the viewer and
+ * only the viewer — [[Dismiss]]'s history entry. The bytes come through
+ * [[ConsoleApi.elsewhere]] because an `<img>` that fails says nothing about why.
  */
 @Component({
   selector: 'app-picture-sheet',
@@ -97,13 +85,9 @@ export class PictureSheet implements OnDestroy {
   protected readonly close_up = computed(() => this.view().scale > 1);
 
   /**
-   * The fingers currently on the picture, by the id the browser gives each.
-   *
-   * ⚠ **A `Map` and not two fields.** A third finger landing mid-pinch, or a
-   * pointer whose `up` never arrives because the sheet closed under it, are both
-   * ordinary — and the version of this that tracked "the first" and "the second"
-   * pointer left a stale one behind after either, so the next single-finger drag
-   * was read as a pinch against a finger that was no longer there.
+   * The fingers currently on the picture, by the id the browser gives each. A
+   * `Map`: a third finger mid-pinch, or a pointer whose `up` never arrives, are
+   * ordinary, and two fields left a stale one behind.
    */
   private readonly fingers = new Map<number, Point>();
   /** Whether this gesture has moved far enough to be a drag rather than a tap. */
@@ -120,9 +104,8 @@ export class PictureSheet implements OnDestroy {
   }
 
   ngOnDestroy(): void {
-    // ⚠ **A blob URL is a reference the document holds until it is revoked**, and
-    // these are megabytes. Opening six renders in a conversation without this
-    // keeps all six in the tab for as long as it lives.
+    // A blob URL is a reference the document holds until it is revoked, and these
+    // are megabytes.
     const at = this.at();
     if (at) URL.revokeObjectURL(at);
   }
@@ -132,12 +115,9 @@ export class PictureSheet implements OnDestroy {
   }
 
   /**
-   * The frame's size and what the picture is drawn at inside it.
-   *
-   * ⚠ **Read from the elements every time, not remembered.** The phone rotates,
-   * the browser's chrome comes and goes, and the picture's own size is not known
-   * until it has loaded — a measurement taken once is wrong after any of those,
-   * and what it produces is a picture that cannot be dragged to its own edge.
+   * The frame's size and what the picture is drawn at inside it — read from the
+   * elements every time: the phone rotates, the chrome comes and goes, and the
+   * picture's own size is not known until it has loaded.
    */
   private measures(): { frame: Size; base: Size } | undefined {
     const frame = this.frame()?.nativeElement;
@@ -152,11 +132,8 @@ export class PictureSheet implements OnDestroy {
   }
 
   /**
-   * A page point, as the transform measures: from the middle of the frame.
-   *
-   * Everything `zoom.ts` is given is relative to that centre, because that is
-   * where `transform-origin` puts it. A gesture's anchor arrives in page
-   * coordinates and has to be moved into those before it means anything.
+   * A page point, as the transform measures: from the middle of the frame, which
+   * is where `transform-origin` puts it.
    */
   private at_point(page: Point): Point {
     const box = this.frame()?.nativeElement.getBoundingClientRect();
@@ -170,25 +147,18 @@ export class PictureSheet implements OnDestroy {
   }
 
   protected took(event: PointerEvent): void {
-    // ⚠ **Captured, so the gesture survives leaving the element.** A drag that
-    // reaches the edge of a magnified picture otherwise stops getting `move`
-    // events, and the finger is still down: the next `up` lands somewhere else
-    // and the pointer is never cleared.
+    // Captured, so the gesture survives leaving the element: a drag reaching the
+    // edge otherwise stops getting `move` events with the finger still down.
     this.frame()?.nativeElement.setPointerCapture(event.pointerId);
     this.fingers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     this.travelled = false;
   }
 
   /**
-   * A finger moved: pinch if there is another one down, pan if not.
-   *
-   * ⚠ **The two positions of the pair come from the map, either side of this one
-   * update.** Only one finger moves per event — the browser sends a `move` for
-   * each — so "where they were" is the map before the write and "where they are"
-   * is the map after it. Keeping a separate copy of the pair instead lost the
-   * first increment of every pinch, because the copy could only be taken once a
-   * finger had already moved: a spread from 60px to 240px, which is four times,
-   * came out as 1.6.
+   * A finger moved: pinch if there is another one down, pan if not. The two
+   * positions of the pair come from the map either side of this update — only one
+   * finger moves per event. A separate copy of the pair lost the first increment
+   * of every pinch.
    */
   protected drew(event: PointerEvent): void {
     const was = this.fingers.get(event.pointerId);
@@ -201,8 +171,8 @@ export class PictureSheet implements OnDestroy {
     if (Math.hypot(now.x - was.x, now.y - was.y) > SLIP) this.travelled = true;
 
     if (after.length >= 2) {
-      // The first two, so a third finger joining mid-gesture changes nothing —
-      // a Map keeps its insertion order, including when a key is written again.
+      // The first two, so a third finger joining changes nothing — a Map keeps
+      // insertion order, including when a key is written again.
       const gesture = pinched([before[0], before[1]], [after[0], after[1]]);
       this.view.update((view) =>
         scaledAbout(view, this.at_point(gesture.at), gesture.by, measures.frame, measures.base),
@@ -220,11 +190,8 @@ export class PictureSheet implements OnDestroy {
   }
 
   /**
-   * The wheel, for the same picture at a desk.
-   *
-   * The console is read on a phone and driven from a browser on this Mac, and a
-   * viewer that can only be worked with two fingers is unusable in the second.
-   * `preventDefault` because the alternative is the page scrolling behind it.
+   * The wheel, for the same picture at a desk. `preventDefault`, or the page
+   * scrolls behind it.
    */
   protected rolled(event: WheelEvent): void {
     const measures = this.measures();
@@ -242,32 +209,24 @@ export class PictureSheet implements OnDestroy {
   }
 
   /**
-   * A tap, or Enter on the focused picture: in about that point, or back out.
-   *
-   * ⚠ **Not after a drag.** A pan ends with a `click` on the element it started
-   * on, so without this every time the picture was moved it also jumped to
-   * fitted — the gesture undoing itself at the moment it finished.
+   * A tap, or Enter on the focused picture: in about that point, or back out. Not
+   * after a drag — a pan ends with a `click`, and the gesture would undo itself.
    */
   protected tapped(event: MouseEvent): void {
     if (this.travelled) return;
     const measures = this.measures();
     if (!measures) return;
-    // A keyboard `click` reports the element's corner rather than a point on the
-    // picture; the centre is what "look closer" means with no place to look at.
+    // A keyboard `click` reports the element's corner; the centre is what "look
+    // closer" means with no place to look at.
     const at =
       event.detail === 0 ? { x: 0, y: 0 } : this.at_point({ x: event.clientX, y: event.clientY });
     this.view.update((view) => toggled(view, at, measures.frame, measures.base));
   }
 
   /**
-   * Why the picture did not arrive.
-   *
-   * ⚠ **Asking for a `Blob` means the failure arrives as one too.** The console
-   * answers a failed fetch with a sentence — "it answered 404 Not Found", "what
-   * came back is not a PNG… it begins `<!DOCTYPE html>`" — and with
-   * `responseType: 'blob'` that sentence is a `Blob` on `err.error`, where
-   * [[reason]] finds no string and falls back to "the runner answered 502". So
-   * it is read out here, and [[reason]] answers everything else.
+   * Why the picture did not arrive. With `responseType: 'blob'` the console's
+   * sentence arrives as a `Blob` on `err.error`, where [[reason]] finds no string;
+   * so it is read out here.
    */
   private async explain(err: unknown): Promise<void> {
     const body: unknown = err && typeof err === 'object' ? Reflect.get(err, 'error') : undefined;

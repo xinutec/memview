@@ -1,10 +1,6 @@
-// In flow at the end of a column that fills the screen, which puts it under your
-// thumb wherever you are in the transcript — the same result `position: fixed`
-// was reaching for, without covering the last message to get it.
-//
-// The host is the flex item; a custom element is `display: inline` until
-// something says otherwise, and an inline item in a column would not stretch to
-// the width the form is measured against.
+// In flow at the end of a column that fills the screen — under your thumb
+// wherever you are, without covering the last message as `position: fixed`
+// did. The host is the flex item, so it is `display: block`.
 :host {
   flex: 0 0 auto;
   display: block;
@@ -26,10 +22,8 @@
   flex: 1;
 }
 
-// The file input itself, which is never seen: the button beside it is what a
-// thumb presses. `display: none` would do it and is the one thing that must not
-// be used — a hidden-that-way input cannot be clicked programmatically in every
-// engine, and the whole control depends on that call.
+// The file input itself, never seen. Not `display: none`: an input hidden that
+// way cannot be clicked programmatically in every engine.
 .picker {
   position: absolute;
   width: 1px;
@@ -64,9 +58,8 @@
   }
 }
 
-// Why a chosen image was refused. The same rule the session view uses for a
-// connection it cannot reach; a second copy because styles do not cross a
-// component boundary, and the message belongs beside the picture it is about.
+// Why a chosen image was refused. A second copy of the session view's rule,
+// since styles do not cross a component boundary.
 .trouble {
   color: var(--mat-sys-error);
 }

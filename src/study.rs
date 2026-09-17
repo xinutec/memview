@@ -1,60 +1,35 @@
-//! The demotion study's estimator (#884), written before its outcome existed.
-//!
-//! ⚠ **Written 2026-08-21, three weeks before the 2026-09-11 harvest, and
-//! deliberately without looking at any post-period data.** Every choice left
-//! open by the pre-registration — how ties in the match are broken, what an edit
-//! with no read means, what happens to a memory that left the corpus — is a
-//! choice that could be nudged toward a result if made while the answer was
-//! visible. The pre-period was inspected; the post-period was not.
-//!
-//! The design, fixed in #884 before any post-period data existed:
+//! The demotion study's estimator (#884), written 2026-08-21, three weeks
+//! before the 2026-09-11 harvest and without looking at post-period data: every
+//! choice the pre-registration left open was made blind.
 //!
 //!   treated   the 152 memories demoted from `MEMORY.md` between 08-10 and 08-14
 //!   control   the 336 still listed at t = 2026-08-14
 //!   outcome   DAYS a memory was opened, in [t-28, t) against [t, t+28)
 //!   estimate  (treated_post - treated_pre) - (control_post - control_pre)
 //!
-//! ⚠ **Matching is mandatory and on the selection variable itself.** Demotion
-//! was assigned BECAUSE opens were low — measured, not assumed: 82% of treated
-//! had any pre-period open against 96% of control. An unmatched before/after
-//! would show a fall from regression to the mean alone and would read as proof
-//! that the index line works.
+//! Matching is mandatory and on the selection variable: demotion was assigned
+//! BECAUSE opens were low (82% of treated had any pre-period open against 96%
+//! of control), so an unmatched before/after shows regression to the mean.
 
 use std::collections::{BTreeMap, VecDeque};
 
-/// What an index line is for, from `memory-roles.json`.
-///
-/// The two succeed differently — a tripwire works by being read in the index and
-/// never opened — so an estimate that averages them answers neither question.
+/// What an index line is for, from `memory-roles.json`. A tripwire works by
+/// being read and never opened, so an estimate averaging the two answers neither.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
     Tripwire,
     Pointer,
 }
 
-/// What `memory-roles.json` judges one name to be, if it judges it at all.
-///
-/// ⚠ **One reader, because three tools decide demotion from this file.**
-/// `memory-tiers` holds a demotion unless the entry is judged a pointer,
-/// `memory-rank` reports the candidates, and this study split its arms by it. A
-/// second copy of the string match is how two tools come to disagree about the
-/// same memory — which is the shape memview#884 spent a month confirming, where
-/// `memory-rank`'s `feedback_`/`user_` prefix test and `memory-tiers`' role test
-/// gave opposite answers for 192 entries.
-///
-/// ⚠ **`None` is a THIRD state and is never a pointer.** An unjudged memory is
-/// not "safe to demote", it is unexamined. A caller must hold it, and should
-/// report how many it is holding rather than let them fall silently out of both
-/// halves of a report.
+/// What `memory-roles.json` judges one name to be. One reader, because three
+/// tools decide demotion from this file; two copies of the string match gave
+/// opposite answers for 192 entries (memview#884). `None` is a THIRD state and
+/// never a pointer: unjudged is unexamined, and a caller must hold it.
 pub fn role_of(roles: &serde_json::Value, name: &str) -> Option<Role> {
     named_role(roles["roles"][name].as_str())
 }
 
-/// The vocabulary itself — the one place these two words are spelled.
-///
-/// ⚠ **Anything unrecognised is `None`, never a third kind.** A typo in a
-/// memory's frontmatter must read as unjudged, which holds it, rather than as
-/// a role nothing else understands.
+/// The vocabulary itself. Anything unrecognised is `None`, never a third kind.
 pub fn named_role(text: Option<&str>) -> Option<Role> {
     match text {
         Some("tripwire") => Some(Role::Tripwire),
@@ -63,20 +38,10 @@ pub fn named_role(text: Option<&str>) -> Option<Role> {
     }
 }
 
-/// What a memory's role is, taking the AUTHOR'S declaration over the record.
-///
-/// ⚠ **The file wins, and the order is the whole design.** `memory-roles.json`
-/// is one model's classification made in two passes (2026-08-18, 2026-08-31)
-/// and extended by a third on 2026-09-11; it is what memview#884 was
-/// pre-registered on, so it cannot be re-run without becoming a different
-/// experiment. It therefore cannot keep up with a growing corpus, and every
-/// memory written after a pass stayed exempt from demotion forever
-/// (memview#1537).
-///
-/// Reading the frontmatter first fixes that without touching the record:
-/// a memory declares its own role while it is being written, the 597 already
-/// judged keep working from the file behind it, and nothing needed a
-/// backfill across the corpus to begin.
+/// A memory's role, taking the AUTHOR'S declaration over the record. The record
+/// is one model's classification memview#884 was pre-registered on, so it cannot
+/// be re-run and cannot keep up; every memory written after a pass stayed
+/// exempt forever (memview#1537). The frontmatter fixes that without a backfill.
 pub fn role_for(declared: Option<&str>, roles: &serde_json::Value, name: &str) -> Option<Role> {
     named_role(declared).or_else(|| role_of(roles, name))
 }
@@ -99,11 +64,8 @@ impl Subject {
         f64::from(self.post) - f64::from(self.pre)
     }
 
-    /// ⚠ **A memory at zero pre-period opens cannot fall**, so it carries no
-    /// information about whether the index line drives opens — a floor, not a
-    /// null. 27 of the 152 treated are here. They are matched and reported like
-    /// any other, and also counted separately, because quoting n=152 for an
-    /// estimate that ~121 memories can actually move would overstate its base.
+    /// A memory at zero pre-period opens cannot fall — a floor, not a null. 27 of
+    /// the 152 treated; matched and reported, and counted separately.
     pub fn can_fall(&self) -> bool {
         self.pre > 0
     }
@@ -120,19 +82,14 @@ pub struct Pair {
 #[derive(Debug, Clone)]
 pub struct Matching {
     pub pairs: Vec<Pair>,
-    /// ⚠ Treated memories with no control at their own pre-period level.
-    /// **Reported, never silently dropped** — 16 of 152 at the last check, both
-    /// failures at the extremes of the distribution.
+    /// Treated memories with no control at their own pre-period level. Reported,
+    /// never dropped — 16 of 152 at the last check.
     pub unmatched: Vec<Subject>,
 }
 
-/// Exact 1:1 matching on pre-period opens.
-///
-/// Exact rather than a caliper: the variable is a small integer count (0..=17
-/// observed), so "the same number of days" is available and needs no tolerance
-/// to justify. Deterministic by construction — subjects are consumed in name
-/// order within each stratum — so the same input gives the same pairs on any
-/// machine and the estimate can be re-derived rather than trusted.
+/// Exact 1:1 matching on pre-period opens. Exact rather than a caliper: a small
+/// integer count. Deterministic — subjects consumed in name order — so the
+/// estimate can be re-derived rather than trusted.
 pub fn match_on_pre_opens(subjects: &[Subject]) -> Matching {
     let mut by_level: BTreeMap<u32, VecDeque<Subject>> = BTreeMap::new();
     let mut treated: Vec<Subject> = Vec::new();
@@ -175,10 +132,7 @@ pub struct Estimate {
     pub did: f64,
 }
 
-/// The estimate over a set of pairs.
-///
-/// Returns zeros for an empty set rather than a NaN: an arm with no pairs is a
-/// fact to report, and a NaN downstream reads as a broken run instead.
+/// Zeros for an empty set rather than a NaN, which reads as a broken run.
 pub fn difference_in_differences(pairs: &[&Pair]) -> Estimate {
     if pairs.is_empty() {
         return Estimate {
@@ -201,19 +155,14 @@ pub fn difference_in_differences(pairs: &[&Pair]) -> Estimate {
     }
 }
 
-/// The arms the pre-registration asks for, each estimated on its own.
-///
-/// ⚠ **A closed set with ONE definition of each filter.** The estimate and its
-/// null band have to be computed over the same pairs, and the band lives in the
-/// caller — so a second copy of "what is in this arm", written as a `match` on
-/// the label, would let a band describe a different subset than the number
-/// beside it with nothing to show for it.
+/// The arms the pre-registration asks for. A closed set with ONE definition of
+/// each filter: the null band lives in the caller and must be computed over the
+/// same pairs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Arm {
     All,
-    /// The arm #884 turns on: mostly tripwires, whose success mode is being read
-    /// in the index and never opened, so ranking them by opens asks the wrong
-    /// question of them.
+    /// The arm #884 turns on: mostly tripwires, which succeed by being read in the
+    /// index and never opened.
     Reference,
     Project,
     Tripwire,
@@ -264,10 +213,7 @@ pub fn by_arm(matching: &Matching) -> Vec<(Arm, Estimate)> {
         .collect()
 }
 
-/// Today, as `YYYY-MM-DD`.
-///
-/// Its own function so the harvest guard has one place to be read from, and so a
-/// test never has to reach for the real clock.
+/// Today, as `YYYY-MM-DD`. Its own function so a test never reaches for the clock.
 pub fn today() -> String {
     time::OffsetDateTime::now_utc()
         .date()
@@ -275,14 +221,9 @@ pub fn today() -> String {
         .unwrap_or_default()
 }
 
-/// A deterministic 64-bit generator, written out rather than taken from a crate.
-///
-/// ⚠ **A dependency's generator is not guaranteed stable across versions**, and
-/// this one decides whether a result is called distinguishable from zero. A
-/// `rand` bump that silently changed the stream would move the null band under a
-/// published estimate with nothing in the diff to show it. SplitMix64 is six
-/// lines, is fixed by its constants, and gives the same band on any machine and
-/// any year — the same reason [`match_on_pre_opens`] is deterministic.
+/// A deterministic 64-bit generator, written out rather than taken from a crate:
+/// a `rand` bump could silently move the null band under a published estimate.
+/// SplitMix64 is six lines and fixed by its constants.
 struct SplitMix64(u64);
 
 impl SplitMix64 {
@@ -300,11 +241,8 @@ impl SplitMix64 {
     }
 }
 
-/// The per-pair differences the estimate is the mean of.
-///
-/// Public because the null band below is a statement about THESE numbers, and a
-/// caller that recomputed them another way could band a different quantity than
-/// the one it reports.
+/// The per-pair differences the estimate is the mean of. Public because the null
+/// band is a statement about THESE numbers.
 pub fn pair_differences(pairs: &[&Pair]) -> Vec<f64> {
     pairs
         .iter()
@@ -321,30 +259,18 @@ pub struct Null {
 }
 
 impl Null {
-    /// Whether an estimate is inside the band, i.e. indistinguishable from zero.
-    ///
-    /// ⚠ **This is the decision rule's missing half.** #884 says to act on
-    /// whether the estimate is "indistinguishable from zero" and nothing in the
-    /// code could answer that — the estimator returned a point and no spread, so
-    /// any number at all read as an effect.
+    /// Whether an estimate is inside the band — the decision rule's missing half:
+    /// #884 says to act on "indistinguishable from zero", and a point estimate
+    /// without a spread made any number read as an effect.
     pub fn covers(&self, did: f64) -> bool {
         self.lo <= did && did <= self.hi
     }
 }
 
-/// A 95% null band for the DiD, by flipping the sign of each pair's difference.
-///
-/// ⚠ **Sign-flipping is the test the design licenses.** Under the null that
-/// demotion did nothing, a matched pair's two members are exchangeable, so
-/// negating a pair's difference gives an equally likely dataset. That needs no
-/// distributional assumption — which matters here, where the outcome is a small
-/// integer count with a floor at zero and is nothing like normal.
-///
-/// ⚠ **It says nothing about BIAS.** The band is symmetric around zero by
-/// construction, so it can only ask whether an estimate is larger than noise. An
-/// estimator that returns the same number when no treatment happened will
-/// produce an estimate outside this band and still be measuring nothing —
-/// [`placebo`] is what answers that, and the two are not substitutes.
+/// A 95% null band for the DiD, by flipping the sign of each pair's difference:
+/// under the null a matched pair's members are exchangeable, and this needs no
+/// distributional assumption for an outcome floored at zero. It says nothing
+/// about BIAS — [`placebo`] answers that, and the two are not substitutes.
 pub fn sign_flip_null(diffs: &[f64], draws: usize, seed: u64) -> Null {
     if diffs.is_empty() || draws == 0 {
         return Null {
@@ -372,13 +298,8 @@ pub fn sign_flip_null(diffs: &[f64], draws: usize, seed: u64) -> Null {
     }
 }
 
-/// One memory's exposure and outcome, measured around an arbitrary day.
-///
-/// ⚠ **Factored out so the placebo cannot drift from the estimate.** A placebo
-/// built by a second copy of this loop would answer a slightly different
-/// question than the one it is supposed to be checking, and the divergence would
-/// be invisible — the same "second implementation of one invariant" that let
-/// `memory-rank` strand a pair (#869).
+/// One memory's exposure and outcome, measured around an arbitrary day. Factored
+/// out so the placebo cannot drift from the estimate (#869's lesson).
 pub fn subjects_at(
     treated: &[String],
     control: &[String],
@@ -412,23 +333,16 @@ pub struct Placebo {
 }
 
 impl Placebo {
-    /// Whether the procedure claimed an effect where there was none to find.
-    ///
-    /// ⚠ **True here invalidates the real estimate, it does not qualify it.** A
-    /// difference-in-differences rests on the two arms trending together in the
-    /// absence of treatment; this is that assumption measured. When it fails,
-    /// the harvest number is the sum of an effect and a divergence that was
-    /// already running, and nothing in the output can separate them.
+    /// Whether the procedure claimed an effect where there was none. True
+    /// INVALIDATES the real estimate: the parallel-trends assumption, measured.
     pub fn flags_an_effect(&self) -> bool {
         !self.null.covers(self.estimate.did)
     }
 }
 
-/// Run the whole procedure at fake treatment days before the real one.
-///
-/// ⚠ **Uses only days before `t`, so it can be run while the study is live.**
-/// That is the point: a pre-trend found after the harvest is an excuse, and the
-/// same finding eleven days before it is still a design decision.
+/// Run the whole procedure at fake treatment days before the real one. Only
+/// days before `t`, so it can run while the study is live — a pre-trend found
+/// after the harvest is an excuse.
 pub fn placebo(
     treated: &[String],
     control: &[String],
@@ -454,13 +368,9 @@ pub fn placebo(
 // ── The pre-trend correction (#884, written 2026-08-31, eleven days before the
 // ── harvest and without looking at any post-period outcome).
 
-/// The treated-minus-control gap in one window, and what it was measured on.
-///
-/// ⚠ **A GAP, not an effect.** It is the level of the difference between the
-/// arms over one stretch of time. Under parallel trends a series of these is
-/// flat before treatment and steps at it; the whole point of measuring them
-/// separately is that here it is NOT flat, and a single before/after cannot
-/// tell a step from a slope.
+/// The treated-minus-control gap in one window. A GAP, not an effect: under
+/// parallel trends a series of these is flat before treatment and steps at it;
+/// here it is NOT flat, and one before/after cannot tell a step from a slope.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Gap {
     /// Which window, counted in bin widths from `t`. `-1` is the bin ending at
@@ -470,12 +380,9 @@ pub struct Gap {
     pub gap: f64,
 }
 
-/// The treated-minus-control gap in each equal-length bin around `t`.
-///
-/// `leads` bins before `t` and one bin after. Pairs are matched ONCE, on opens
-/// in the bin immediately before `t`, and the same pairing is used for every
-/// bin — re-matching per bin would let the composition move under the series
-/// and turn a change of membership into an apparent trend.
+/// The gap in each equal-length bin around `t`: `leads` before, one after.
+/// Pairs are matched ONCE, on the bin before `t`, and the same pairing serves
+/// every bin, or a change of membership reads as a trend.
 pub fn event_study(
     treated: &[String],
     control: &[String],
@@ -512,11 +419,8 @@ pub fn event_study(
     out
 }
 
-/// A straight line through the pre-treatment gaps, as `gap ≈ slope * at + at_zero`.
-///
-/// ⚠ **Least squares over the LEADS ONLY.** The post bin is what the line is
-/// used to predict; fitting it in would let the effect pull the counterfactual
-/// toward itself and shrink the very thing being measured.
+/// A straight line through the pre-treatment gaps. Least squares over the LEADS
+/// ONLY: fitting the post bin in would let the effect pull the counterfactual.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Trend {
     pub slope: f64,
@@ -532,16 +436,11 @@ impl Trend {
     }
 }
 
-/// Fit the counterfactual through the pre-treatment gaps.
-///
-/// Returns `None` for fewer than two bins: one point has no slope, and pretending
-/// it does — by assuming flat — is the parallel-trends assumption this exists to
-/// stop assuming.
+/// Fit the counterfactual through the pre-treatment gaps. `None` for fewer than
+/// two bins: assuming flat is the assumption this exists to stop assuming.
 pub fn pre_trend(gaps: &[Gap]) -> Option<Trend> {
-    // ⚠ **`at != -1`: the anchor is excluded.** Exact matching forces the gap in
-    // the bin before `t` to zero, so it is a definition rather than a
-    // measurement — fitting through it drags every slope toward flat and hides
-    // the drift this exists to expose.
+    // `at != -1`: exact matching forces the anchor bin's gap to zero, so it is a
+    // definition, and fitting through it drags every slope toward flat.
     let leads: Vec<&Gap> = gaps.iter().filter(|g| g.at < 0 && g.at != -1).collect();
     if leads.len() < 2 {
         return None;
@@ -556,8 +455,7 @@ pub fn pre_trend(gaps: &[Gap]) -> Option<Trend> {
         num += dx * (g.gap - mean_y);
         den += dx * dx;
     }
-    // Every lead at the same bin index cannot happen (they are distinct by
-    // construction), but a zero denominator would be a silent NaN downstream.
+    // Distinct by construction, but a zero denominator would be a silent NaN.
     if den == 0.0 {
         return None;
     }
@@ -584,10 +482,9 @@ pub struct Corrected {
 
 /// Subtract the pre-existing divergence from the post-treatment gap.
 ///
-/// ⚠⚠ **THIS DOES NOT RESCUE #884'S DESIGN, and that was measured rather than
-/// feared.** It was written as the standard repair for a failed parallel-trends
-/// assumption and put to the same acceptance test as the raw estimator: run at
-/// fake treatment days where nothing was demoted, it must return ~0.
+/// THIS DOES NOT RESCUE #884'S DESIGN, measured rather than feared: put to the
+/// same acceptance test as the raw estimator — fake treatment days must return
+/// ~0 — it does not.
 ///
 /// ```text
 /// fake t     raw      corrected
@@ -596,21 +493,10 @@ pub struct Corrected {
 /// t-14d    -1.007       -0.763
 /// ```
 ///
-/// It does not. The residue reaches 2.2x the noise floor — the correction's own
-/// error is larger than the effect it exists to recover — and adding leads moves
-/// it without settling it. The pre-period gap series is not a clean trend plus
-/// noise; extrapolating a line through it amplifies the noise.
-///
-/// ⚠ **So this is a DIAGNOSTIC, not an estimator.** It is kept because the gap
-/// series it rests on is what made the problem legible, and because a caller
-/// that wants the corrected number should have to see the placebo beside it —
-/// `demotion-study` prints both and never one alone.
-///
-/// ⚠ **The anchor bin is zero BY CONSTRUCTION.** Matching is exact on opens in
-/// `[t-bin, t)`, so the gap there cannot be anything but zero and carries no
-/// information about the trend. [`pre_trend`] fits through the other leads for
-/// that reason; including it was the first version and it flattened every slope
-/// toward nothing.
+/// The residue reaches 2.2x the noise floor. So this is a DIAGNOSTIC, kept
+/// because the gap series made the problem legible; `demotion-study` prints it
+/// beside the placebo and never alone. The anchor bin is zero by construction,
+/// which is why [`pre_trend`] fits through the other leads.
 pub fn correct(gaps: &[Gap]) -> Option<Corrected> {
     let post = gaps.iter().find(|g| g.at == 0)?;
     let trend = pre_trend(gaps)?;

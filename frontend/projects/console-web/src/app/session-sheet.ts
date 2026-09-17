@@ -7,22 +7,16 @@ import { titleOf } from './naming';
 import { fullness } from './tokens';
 
 /**
- * One labelled fact about a session.
- *
- * `mono` marks the values that are identifiers rather than prose — a path, a
- * model id, a session id. They are read a character at a time when they are read
- * at all, and a proportional face makes `l` and `1` the same shape.
+ * One labelled fact about a session. `mono` marks identifiers — a path, a
+ * model id — where a proportional face makes `l` and `1` the same shape.
  */
 export interface Fact {
   readonly label: string;
   readonly value: string;
   readonly mono?: boolean;
   /**
-   * Where the value came from, when that is not obvious and matters.
-   *
-   * Only one fact needs it so far and it is the one that is not a fact: the
-   * sentence a model wrote. On the card that provenance is an icon with a
-   * tooltip, because there is no room; here there is room, so it is words.
+   * Where the value came from, when it matters: the one fact that is not a fact,
+   * the sentence a model wrote.
    */
   readonly note?: string;
 }
@@ -34,92 +28,53 @@ export interface Details {
 }
 
 /**
- * Everything about a session that has nowhere else to be said.
- *
- * ⚠ **The header is not a shorter version of this.** What the header shows is
- * chosen for a glance — is it working, how many exchanges, how full the context
- * — and three of the facts below were only ever reachable as a `title=`
- * tooltip: the full model id and the permission mode's name. **A phone has no
- * hover.** On the device this console exists for, those were written and
- * unreadable.
- *
- * Absent facts are left out rather than shown blank. A session the runner has
- * not finished reading has no name, no model and no mode, and a column of
- * em-dashes says "missing" where the truth is "not known yet".
+ * Everything about a session that has nowhere else to be said. The header is
+ * chosen for a glance, and three of these facts were only reachable as a
+ * `title=` tooltip — a phone has no hover. Absent facts are left out rather
+ * than shown blank: "not known yet" is not "missing".
  */
 export function factsOf(session: Summary, gist?: Details['gist']): Fact[] {
   const facts: Fact[] = [];
-  // First, because it is the question the sheet is opened with. Whole, where the
-  // card clamps it to two lines — a sentence cut mid-clause on a card is a
-  // prompt to open this, and finding it cut here as well would be the panel
-  // failing at its one job.
+  // First, and whole where the card clamps it to two lines.
   if (gist) {
     facts.push({
       label: 'about',
       value: gist.text,
-      // ⚠ Said in words rather than implied. Every other line here is read off
-      // a file or a process; this one was written by a model from the
-      // transcript, and it can be wrong in ways none of the others can.
+      // Said in words: every other line here is read off a file or a process.
       note: `written by Haiku, ${when(gist.at)}`,
     });
   }
   facts.push({ label: 'where', value: session.dir, mono: true });
-  // ⚠ **No "started with" here, and it is not an omission.** It said the first
-  // instruction the console heard — which for a resumed session is the first
-  // prompt in the seeded page rather than the conversation's opening, and which
-  // for any session that has run a while describes a job it has since moved on
-  // from: `push`, `Proceed`, the boilerplate a compaction writes. A sheet is
-  // where somebody stops to look something up, so a line that is usually wrong
-  // there is worse than none. The list card keeps it only while a session has no
-  // name yet — see `sessions-view.html`.
-  // The id it is shipped under, not the name the header shows: `claude-opus-5`
-  // and `claude-opus-5[1m]` are one word apart on screen and a million tokens
-  // apart in what they can hold.
+  // No "started with": for a resumed session it is the first prompt of the
+  // seeded page, and for any long session it describes a job it has moved on
+  // from. The id it is shipped under, not the header's name: `claude-opus-5` and
+  // `claude-opus-5[1m]` are a million tokens apart.
   if (session.model) facts.push({ label: 'model', value: session.model, mono: true });
   const mode = modeTitle(session.mode);
-  // The CLI's own term for this setting, so it matches what a person reading
-  // `--permission-mode` in a terminal is looking at.
+  // The CLI's own term, matching `--permission-mode` in a terminal.
   if (mode) facts.push({ label: 'permission mode', value: mode });
-  // What `--resume` takes. Nowhere else in the console at all, and it is the
-  // one fact somebody needs when they want to pick this conversation up from a
-  // terminal instead.
+  // What `--resume` takes — nowhere else in the console.
   facts.push({ label: 'session id', value: session.id, mono: true });
-  // Absolute, where the list is relative. "9h ago" is the right answer to
-  // "which of these is warm"; this is where you find out it has been running
-  // since Tuesday.
+  // Absolute, where the list is relative.
   facts.push({ label: 'started', value: when(session.started * 1000) });
   if (session.touched) facts.push({ label: 'last active', value: when(session.touched) });
-  // The two sizes a conversation has, and they belong next to each other
-  // because the gap between them is the interesting quantity: the context is
-  // what the model still has in front of it, the history is everything ever
-  // said — compacted-away turns and whole tool results included. A session
-  // reading `140k / 1M` under a 62 MB history has forgotten most of itself.
+  // The two sizes a conversation has, next to each other because the gap is the
+  // interesting quantity: `140k / 1M` under a 62 MB history has forgotten most
+  // of itself.
   const full = fullness(session.context, session.window);
   if (full) facts.push({ label: 'context', value: full });
-  // Looked up rather than scanned, which is why it is here and not on the list
-  // card: four facts in that row wrapped it onto a second line.
+  // Looked up rather than scanned: four facts in the card's row wrapped it.
   if (session.bytes) facts.push({ label: 'history', value: megabytes(session.bytes) });
-  // ⚠ **Named for what it is, which is why it is no longer a dollar sign on a
-  // card.** It used to appear beside a session as soon as the account's own
-  // verdict stopped being plain `allowed` — but that verdict is account-wide
-  // while the display was per-session, so the figure landed on whichever
-  // sessions happened to be talking when the API started warning: $422 against
-  // `memview`, and nothing against `health`, which had spent $395.
-  //
-  // And it is not a bill in any case. These sessions inherit the CLI's
-  // credentials and run on the subscription, so nothing is billed per token —
-  // at the limit the work waits for the window to reset rather than being
-  // charged for. What "have I got room" actually wants is the utilisation strip
-  // on the front page, which is measured off the API's own headers rather than
-  // inferred from a price list. So the number stays, where somebody who wants it
-  // can look it up, saying what it is.
+  // Named for what it is. It was a dollar sign on a card, shown once the
+  // account's verdict stopped being `allowed` — but that verdict is account-wide
+  // and the display per-session, so $422 landed on `memview` and nothing on
+  // `health`, which had spent $395. And it is not a bill: the sessions run on the
+  // subscription. The utilisation strip is what "have I got room" wants.
   if (session.cost_usd) {
     facts.push({ label: 'tokens at list price', value: `$${session.cost_usd.toFixed(2)}` });
   }
-  // The CLI's own vocabulary — `allowed`, `allowed_warning`, `rejected` — kept
-  // verbatim rather than reworded: these are the account's words, not ours.
-  // Shown only when it is not the ordinary answer, because a line saying
-  // `allowed` on every session is a line nobody reads.
+  // The CLI's own vocabulary, verbatim, and only when it is not the ordinary
+  // answer.
   if (session.limit && session.limit !== 'allowed') {
     facts.push({ label: 'rate limit', value: session.limit });
   }
@@ -131,20 +86,14 @@ function when(ms: number): string {
   return new Date(ms).toLocaleString();
 }
 
-/** Megabytes, which is the only sense of a transcript's size worth showing.
- *
- *  Floored at 1: a conversation with anything in it at all is not `0 MB`, and a
- *  fraction of a megabyte is a precision nobody is reading this for. */
+/** Megabytes, floored at 1: a conversation with anything in it is not `0 MB`. */
 function megabytes(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / 1048576))} MB`;
 }
 
 /**
- * What this session is, in full.
- *
- * A bottom sheet rather than a centred dialog: this console is driven
- * one-handed, and a sheet arrives under the thumb that opened it and leaves with
- * a downward swipe. It is also the pattern the rest of the fleet uses on phones.
+ * What this session is, in full. A bottom sheet: driven one-handed, it arrives
+ * under the thumb that opened it.
  */
 @Component({
   selector: 'app-session-sheet',

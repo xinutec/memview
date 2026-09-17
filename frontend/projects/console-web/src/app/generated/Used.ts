@@ -10,14 +10,10 @@ export type Used = { path: string, write: boolean,
  */
 reached: Reach, 
 /**
- * Whether the text's condition and the call's own outcome together make
- * this certain — [`Verdict::admits`].
- *
- * ⚠ **One-sided, and the view must not round it.** `false` means "cannot
- * say", never "did not happen". It is the only field here that is not a
- * property of the command alone, and it is the reason the whole view exists:
- * a command can parse perfectly, classify correctly, name the right path,
- * and still attribute nothing.
+ * Whether the text's condition and the call's outcome together make this
+ * certain — [`Verdict::admits`]. One-sided: `false` means "cannot say", never
+ * "did not happen". It is the reason the view exists — a command can parse, name
+ * the right path, and still attribute nothing.
  */
 certain: boolean, 
 /**

@@ -7,8 +7,8 @@ import type { Window } from "./Window";
  */
 export type Reading = { 
 /**
- * Which machine took it. Shown because the number is account-wide and the
- * machine is the only part of it that is local.
+ * Which machine took it: the number is account-wide, and the machine is the only
+ * local part.
  */
 host: string, 
 /**
@@ -16,16 +16,13 @@ host: string,
  */
 age_ms: number, 
 /**
- * ⚠ **Absent is a third state, and not the same as an expired window.** An
- * event names one window at a time, so a console can know the week's figure
- * and have heard nothing at all about the five hours — which is "no reading"
- * rather than "reset since", and is drawn as no row rather than as a row
- * saying something untrue.
+ * Absent is a third state, not an expired window: an event names one window at a
+ * time, so the week can be known and the five hours unheard of — drawn as no row
+ * rather than a row saying something untrue.
  */
 five_hour?: Window, seven_day?: Window, 
 /**
  * The windows belonging to one model, in name order so the strip does not
- * reshuffle between polls. Empty for a reading that came from the dashboard,
- * which carries none — see [`merged`].
+ * reshuffle between polls. Empty for a dashboard reading — see [`merged`].
  */
 models: Array<Scoped>, };

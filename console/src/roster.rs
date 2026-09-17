@@ -1,9 +1,5 @@
-//! Every session the console owns.
-//!
-//! Sessions stay listed after they end. A session that failed to start, or that
-//! exited on its own, is the thing most worth seeing — dropping it from the list
-//! the moment it dies would leave a client that looked a second too late with no
-//! evidence that anything ever happened.
+//! Every session the console owns. Sessions stay listed after they end: one that
+//! failed to start is the thing most worth seeing.
 
 use anyhow::Context as _;
 use std::collections::BTreeMap;
@@ -14,19 +10,16 @@ use anyhow::Result;
 use crate::config::Config;
 use crate::session::{Session, Summary};
 
-/// How long [`Roster::revive`] will wait for a stopped session to actually go.
-///
-/// A stop closes stdin and kills only after a grace period, and one measured
-/// session took about thirty seconds to leave the process table — where the
-/// resume guard can still see it. Bounded rather than patient for ever, because
-/// the caller is somebody holding a phone.
+/// How long [`Roster::revive`] will wait for a stopped session to actually go. A
+/// stop kills only after a grace period, and one session took thirty seconds to
+/// leave the process table, where the resume guard can still see it.
 const REVIVE_PATIENCE: std::time::Duration = std::time::Duration::from_secs(90);
 
 pub struct Roster {
     config: Config,
     sessions: RwLock<BTreeMap<String, Arc<Session>>>,
-    /// The account's rate-limit figure, fetched rather than measured — see
-    /// [`crate::usage`]. Held here so the front page reads it from memory.
+    /// The account's rate-limit figure — see [`crate::usage`]. Held here so the front
+    /// page reads it from memory.
     usage: Arc<crate::usage::Usage>,
     /// What each conversation is about, in a sentence. See [`crate::gist`].
     gists: Arc<crate::gist::Gists>,
@@ -40,33 +33,19 @@ pub struct Roster {
     /// Each transcript's landmarks, walked once and then only extended. See
     /// [`crate::marks`] — the walk is the whole of the "go to" sheet's wait.
     marks: Arc<crate::marks::Marks>,
-    /// The truest reading of each rate-limit window this console has seen, kept
-    /// **across the sessions that heard it**.
-    ///
-    /// ⚠ **Because a session taking its reading away with it made the figure go
-    /// backwards.** [`Self::spent`] built this fresh from the live sessions on
-    /// every poll, so when the session holding the highest figure ended, the
-    /// next highest took its place and the front page flapped between the two
-    /// (memview #87). Nothing about the account changed; the console just forgot
-    /// who had told it.
-    ///
-    /// Held rather than derived, so a reading survives its source. Utilisation
-    /// only rises inside a window, so remembering the highest is not a cache
-    /// that can go stale within one instance — and across instances
-    /// [`crate::usage::fresher`] discards the old window outright, so the figure
-    /// still drops when it *should*, which is when the window turns over.
+    /// The truest reading of each rate-limit window, kept ACROSS the sessions that
+    /// heard it: derived fresh from live sessions, the figure went 92 → 93 → 92 as a
+    /// session ended (memview #87). Utilisation only rises inside a window, and
+    /// [`crate::usage::fresher`] discards an old window outright.
     spent: std::sync::Mutex<BTreeMap<String, crate::session::Seen>>,
 }
 
 /// The environment variable an upgrade hands its sessions over in.
 const HANDOVER: &str = "CONSOLE_HANDOVER";
 
-/// And the one it hands over the sessions it was in the middle of stopping.
-///
-/// A second variable rather than a second field on [`Carried`]: the two lists
-/// mean opposite things, and this way an upgrade *from* a build that predates it
-/// is simply an absent variable — nothing to finish — rather than a shape the
-/// new image cannot parse and a handover that loses every session.
+/// And the one for the sessions it was in the middle of stopping. A second
+/// variable, so an upgrade from an older build is an absent variable rather than
+/// a shape it cannot parse.
 const STOPPING: &str = "CONSOLE_HANDOVER_STOPPING";
 
 /// One session, as it travels across an upgrade.
@@ -76,29 +55,21 @@ struct Carried {
     dir: String,
     pid: u32,
     fds: crate::session::Fds,
-    /// The counters, which unlike the conversation are on no disk anywhere —
-    /// see [`crate::session::Tally`]. Defaulted so a handover written by an
-    /// older image is still readable rather than dropping every session.
+    /// The counters, which are on no disk anywhere — see [`crate::session::Tally`].
+    /// Defaulted so a handover from an older image still reads.
     #[serde(default)]
     tally: crate::session::Tally,
 }
 
-/// A session that was stopped, and whose kill is still owed to it.
-///
-/// ⚠ **Carried apart from the live ones because it is the opposite kind of
-/// thing.** A [`Carried`] session survives the upgrade — its descriptors are
-/// handed over and the conversation goes on. This one is on its way out: its
-/// stdin is already closed, which is what makes it unkeepable and therefore
-/// invisible to the handover, and all the new image can still do for it is
-/// finish it off at the time the old one promised.
+/// A session that was stopped, and whose kill is still owed to it. Carried apart
+/// from the live ones: its stdin is already closed, which makes it invisible to
+/// the handover, and all the new image can do is finish it off on time.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct Stopping {
     id: String,
     pid: u32,
-    /// When the kill falls due, in epoch milliseconds. Kept as the original
-    /// deadline rather than a fresh grace period: the session was given thirty
-    /// seconds to flush its transcript, and an upgrade is not a reason to give
-    /// it thirty more or to take what is left away.
+    /// When the kill falls due, in epoch milliseconds — the original deadline, not a
+    /// fresh grace period.
     due: i64,
 }
 
@@ -133,15 +104,8 @@ impl Roster {
         self.modes.set(id, mode);
     }
 
-    /// Who is holding what, for the front page: every conversation's tally, and
-    /// the two holders that are not conversations.
-    ///
-    /// ⚠ **Over the network now, where this was a sweep of a directory.** It
-    /// used to be `spawn_blocking`, because reading every session's task files
-    /// cold was seconds of I/O and would have stalled every stream on the
-    /// executor. The service answers in well under a second and is cached for
-    /// thirty seconds — see [`crate::tasks::Tasks`] — so this is now an ordinary
-    /// await that is usually not a request at all.
+    /// Who is holding what, for the front page. Over the network now, cached for
+    /// thirty seconds — see [`crate::tasks::Tasks`] — so an ordinary await.
     pub async fn tasks(&self) -> crate::tasks::Sweep {
         self.tasks.sweep().await
     }
@@ -162,7 +126,7 @@ impl Roster {
     }
 
     /// The unsent words each conversation is holding, so a client that has just
-    /// connected learns which of them have one without asking per session.
+    /// connected learns which have one without asking per session.
     pub fn drafts(&self) -> Arc<crate::drafts::Drafts> {
         Arc::clone(&self.drafts)
     }
@@ -175,12 +139,8 @@ impl Roster {
             .await;
     }
 
-    /// Drop the pictures whose conversations are gone. Called on a timer from
-    /// `main`; see [`crate::images::tidy`] for what it refuses to do.
-    ///
-    /// Off the runtime, like [`Self::tasks`]: this walks two directory trees and
-    /// may delete from one of them, and neither is work to do on a thread that is
-    /// meant to be answering requests.
+    /// Drop the pictures whose conversations are gone; see [`crate::images::tidy`] for
+    /// what it refuses to do. Off the runtime: it walks two trees and deletes.
     pub async fn tidy_images(&self) {
         let done = tokio::task::spawn_blocking(|| {
             let keep = crate::past::transcript_ids(&crate::past::projects_root());
@@ -200,23 +160,18 @@ impl Roster {
         &self.usage
     }
 
-    /// Pick up the sessions an upgrade handed over, if this image was exec'd by
-    /// one. See [`Self::handover`].
+    /// Pick up the sessions an upgrade handed over, if this image was exec'd by one.
+    /// See [`Self::handover`].
     ///
-    /// A session that cannot be rebuilt is *dropped rather than guessed at*: its
-    /// process is still running and now unreachable, which is bad, but writing
-    /// somebody's next instruction into a descriptor that turned out to be a
-    /// different session's would be worse. The number carried alongside each
-    /// descriptor is the id, so a mismatch is at least visible in the log.
-    ///
-    /// Also finishes off whatever the old image was in the middle of stopping —
-    /// see [`Self::finish_stopping`], which is the other half of memview #750.
+    /// A session that cannot be rebuilt is dropped rather than guessed at: writing an
+    /// instruction into a descriptor that was another session's would be worse than
+    /// an unreachable process. Also finishes off what the old image was stopping —
+    /// [`Self::finish_stopping`].
     pub fn inherit(&self) -> usize {
         let Ok(handed) = std::env::var(HANDOVER) else {
             return 0;
         };
-        // Not left lying around: a session started later must not think it was
-        // inherited, and the numbers in here mean nothing once used.
+        // Not left lying around: a session started later must not think it was inherited.
         unsafe { std::env::remove_var(HANDOVER) };
         let carried: Vec<Carried> = match serde_json::from_str(&handed) {
             Ok(carried) => carried,
@@ -230,12 +185,9 @@ impl Roster {
         let mut taken = 0;
         for one in carried {
             let mut tally = one.tally;
-            // ⚠ **Never blank about permissions.** A handover written by an image
-            // that did not carry the mode leaves this empty, and an empty mode on
-            // the header reads as the careful setting — which is the one case it
-            // might not be. What this console would have started the session with
-            // is the best answer available, and it is right whenever the session
-            // was started by a console configured as this one is.
+            // Never blank about permissions: an empty mode on the header reads as the careful
+            // setting, which is the one case it might not be. What this console would have
+            // started the session with is the best answer available.
             if tally.mode.is_none() {
                 tally.mode = Some(
                     self.config
@@ -270,24 +222,14 @@ impl Roster {
 
     /// Send the kills the image before this one promised and could not deliver.
     ///
-    /// ⚠ **The deadline is the old image's, not a fresh grace period.** A
-    /// session stopped twenty-nine seconds before an upgrade has one second
-    /// left, and it gets one second: restarting the clock would hand every
-    /// upgrade a reason to keep a stopped process alive for another half minute,
-    /// and enough upgrades in a row would be the leak this fixes wearing a
-    /// different face.
-    ///
-    /// Each waits on its own task, because they fall due at different times and
-    /// the console has a page to serve in the meantime. Nothing is returned: by
-    /// the time any of it happens, whoever pressed stop is long since looking at
-    /// something else, and the log is where this reports.
+    /// The deadline is the old image's: a session stopped twenty-nine seconds before
+    /// an upgrade gets one second, or enough upgrades in a row are the leak this
+    /// fixes. Each waits on its own task; the log is where this reports.
     pub fn finish_stopping(&self) -> usize {
         let Ok(handed) = std::env::var(STOPPING) else {
             return 0;
         };
-        // Removed for the same reason the sessions' one is: a variable left in
-        // the environment would be read again by the next upgrade, which would
-        // aim a kill at a pid that has been dealt with once already.
+        // Removed so the next upgrade does not aim a kill at a pid dealt with already.
         unsafe { std::env::remove_var(STOPPING) };
         let stopping: Vec<Stopping> = match serde_json::from_str(&handed) {
             Ok(stopping) => stopping,
@@ -306,8 +248,7 @@ impl Roster {
             );
             tokio::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(left)).await;
-                // Which checks the pid is still that conversation before
-                // sending anything — see the warning there.
+                // Which checks the pid is still that conversation before sending anything.
                 crate::session::finish(one.pid, &one.id);
             });
         }
@@ -329,36 +270,24 @@ impl Roster {
             id.clone(),
             Session::start(id.clone(), &real, &self.config.spawn),
         )?;
-        // From the very first spawn, so that a conversation resumed after this
-        // console is gone comes back on the mode it was actually started with
-        // rather than on whatever the default is by then. See [`crate::modes`].
+        // From the very first spawn, so a resume after this console is gone comes back on
+        // the mode it was started with. See [`crate::modes`].
         if let Some(mode) = session.mode() {
             self.modes.set(&id, &mode);
         }
         Ok(session)
     }
 
-    /// Pick up an existing conversation, keeping its id.
+    /// Pick an existing conversation back up, keeping its id and its mode.
     ///
-    /// Refuses one this console is already running, because two processes
-    /// appending to one transcript is a mess with no clean end — each writes
-    /// turns the other does not know about. It cannot refuse a `claude` in a
-    /// terminal, which the console has no way to see, so the guard is a rail and
-    /// not a boundary.
-    /// Pick a conversation back up on the mode it was last on.
+    /// Refused when this console is already running it: two processes appending to
+    /// one transcript is a mess with no clean end. It cannot see a `claude` in a
+    /// terminal, so the guard is a rail, not a boundary.
     ///
-    /// ⚠ **Resuming used to drop a session to Manual without saying so.**
-    /// A session running in `auto` was stopped and
-    /// resumed, and came back `default` — and the console reported that as
-    /// though it had always been the mode. A session left in `auto` was left
-    /// that way because nobody is watching it, so Manual means it stops at the
-    /// first tool call needing approval and waits, which from a phone looks
-    /// exactly like the stall that prompted the restart (memview #119).
-    ///
-    /// The mode comes from the session still in hand if there is one, and from
-    /// [`crate::modes`] otherwise — which is the case that matters, because a
-    /// console upgrade drops ended sessions and it is precisely a session that
-    /// has ended that somebody is resuming.
+    /// The mode comes from the session still in hand, else from [`crate::modes`] —
+    /// the case that matters, since it is an ended session that gets resumed, and a
+    /// resume on the console's default once dropped a session to Manual silently
+    /// (memview #119).
     pub fn resume(&self, dir: &str, id: &str) -> Result<Arc<Session>, String> {
         let known = self
             .get(id)
@@ -367,8 +296,8 @@ impl Roster {
         self.resume_as(dir, id, known)
     }
 
-    /// The same, with the mode to bring the session back on stated outright —
-    /// `None` for the console's configured one. See [`Self::revive`].
+    /// The same, with the mode stated outright — `None` for the console's configured
+    /// one. See [`Self::revive`].
     fn resume_as(&self, dir: &str, id: &str, mode: Option<String>) -> Result<Arc<Session>, String> {
         let real = self.config.resolve(dir).inspect_err(|why| {
             tracing::warn!("refused a resume of {id} in {dir}: {why}");
@@ -377,27 +306,16 @@ impl Roster {
             tracing::info!("refused {id}: this console already has it open");
             return Err(format!("{id} is already open here"));
         }
-        // And refused when anything *else* appears to be using it. This is the
-        // guard that was a warning in the UI first, which is not a guard: it let
-        // a second process onto a transcript a remote-controlled session was
-        // still writing. `busy` is inferred rather than reported — see
-        // `past::in_use` for why there is nothing to report it.
+        // And refused when anything ELSE appears to be using it; as a warning in the UI
+        // it let a second process onto a transcript. `busy` is inferred — see
+        // `past::in_use`.
         if crate::past::conversations(&crate::past::projects_root())
             .iter()
             .any(|conversation| conversation.id == id && conversation.busy)
         {
-            // Logged with its own reason, because from the phone a refusal is one
-            // sentence with nothing behind it.
-            //
-            // ⚠ **This claimed the check has TWO arms, and that which one fired
-            // is the difference between "wait a minute" and "close the other
-            // window".** The second — a transcript written moments ago — was
-            // since been deleted, so there is one arm and no such difference
-            // to preserve (memview#1457). A refusal now means either a
-            // running `claude` names this conversation, or `ps` could not be
-            // asked at all; `past::arguments` logs its own warning for the
-            // second, and that is the line to look for when everything reads
-            // busy at once.
+            // Logged with its reason, since from the phone a refusal is one sentence. It
+            // means a running `claude` names this conversation, or `ps` could not be asked;
+            // `past::arguments` warns for the second.
             tracing::info!("refused {id}: past::in_use says something is already there");
             return Err(format!(
                 "{id} looks like it is still in use — close it first. Two processes \
@@ -411,8 +329,7 @@ impl Roster {
             },
             None => self.config.spawn.clone(),
         };
-        // Said out loud, because it is the one thing about a resume that used to
-        // change silently.
+        // Said out loud: the one thing about a resume that used to change silently.
         tracing::info!(
             "resuming {id} in {} on {}",
             real.display(),
@@ -425,8 +342,8 @@ impl Roster {
             id.to_string(),
             Session::resume(id.to_string(), &real, &spawn),
         )?;
-        // Remembered on the way out as well as in, so a conversation this
-        // console has never held before is known from its first resume onward.
+        // Remembered on the way out as well, so a conversation this console never held
+        // before is known from its first resume.
         if let Some(mode) = session.mode() {
             self.modes.set(id, &mode);
         }
@@ -436,21 +353,10 @@ impl Roster {
     /// Stop a session that has stopped listening, start it again on the same
     /// conversation, and give it back what it never read.
     ///
-    /// **The only known cure**, and it is not a repair — nothing here fixes
-    /// whatever stops the CLI draining its pipe. What it does keep is the part
-    /// that matters: the id, the transcript and the conversation all survive, so
-    /// the cost is the in-memory state and the wait.
-    ///
-    /// **The unread messages have to be re-sent by hand**, because they are in
-    /// the old process's pipe and the old process is being killed. This is the
-    /// step somebody doing it manually forgets, and then the session is answering
-    /// a question nobody remembers asking.
-    ///
-    /// ⚠ **The mode is carried across deliberately.** A plain resume passes the
-    /// console's configured mode and a session that was on `acceptEdits` comes
-    /// back on `default`, asking permission for every call (memview #119). A cure
-    /// that quietly takes a session's permissions away is a cure people learn not
-    /// to use.
+    /// The only known cure, and not a repair. The unread messages are re-sent by hand,
+    /// since they sit in the old process's pipe — the step somebody doing it manually
+    /// forgets. The mode is carried across; a cure that takes a session's permissions
+    /// away is one people learn not to use (memview #119).
     pub async fn revive(&self, id: &str) -> Result<Arc<Session>, String> {
         let old = self
             .get(id)
@@ -462,18 +368,13 @@ impl Roster {
             "reviving {id}: {} message(s) to re-send afterwards",
             unread.len()
         );
-        // ⚠ **Only if it is still running.** `stop` arms a timer that kills the
-        // pid thirty seconds later if it has not gone — and for a session that
-        // has *already* gone, that is a SIGKILL sent to a pid this console no
-        // longer owns, thirty seconds after a new process was started in its
-        // place. Rare, and the kind of rare that is untraceable when it happens.
+        // Only if it is still running: `stop` arms a kill thirty seconds out, which for a
+        // session already gone is a SIGKILL at a pid this console no longer owns.
         if old.alive() {
             old.stop().await;
         }
-        // Bounded, and the bound is generous on purpose: a stop closes stdin and
-        // only kills after a grace period, and a session has been measured taking
-        // about thirty seconds to go — passing through `Z` on the way, which is a
-        // process the resume guard can still see.
+        // Bounded, generously: a stop kills only after a grace period, and a session has
+        // taken thirty seconds to go, passing through `Z` where the resume guard sees it.
         let gone = std::time::Instant::now();
         while old.alive() && gone.elapsed() < REVIVE_PATIENCE {
             tokio::time::sleep(std::time::Duration::from_millis(250)).await;
@@ -509,15 +410,9 @@ impl Roster {
         Ok(session)
     }
 
-    /// Kill every session this console owns.
-    ///
-    /// For shutdown, and it has to be *kill* rather than a polite stop: the
-    /// console is on its way out and has no time left to wait for a turn to
-    /// finish. `kill_on_drop` covers a clean exit and nothing else — a signalled
-    /// process never runs a destructor, and the children it leaves behind keep
-    /// their session ids, their working directories, and their place in the
-    /// process table, where they go on making their conversations look busy to
-    /// the next console that starts.
+    /// Kill every session this console owns, for shutdown. Kill, not a polite stop:
+    /// `kill_on_drop` covers a clean exit only, and orphans keep their session ids
+    /// and make their conversations look busy to the next console.
     pub fn shut_down(&self) {
         for session in self.sessions.read().expect("roster poisoned").values() {
             tracing::info!("killing {}", session.id);
@@ -527,27 +422,15 @@ impl Roster {
 
     /// Replace this console with a newer build, keeping every session alive.
     ///
-    /// `execve` replaces the image without touching the process: same pid, so
-    /// the `claude` children never notice, and open descriptors survive unless
-    /// close-on-exec. Carrying the pipes across is the whole feature — stopping
-    /// and starting kills every conversation.
+    /// `execve` keeps the pid and every descriptor not close-on-exec, so the `claude`
+    /// children never notice. Per session, id, directory, pid and three descriptor
+    /// numbers travel as JSON in [`HANDOVER`]; the listening sockets deliberately do
+    /// not, so the port is free at once and clients reconnect on `Last-Event-ID`.
     ///
-    /// What travels is per session: id, directory, pid and three descriptor
-    /// numbers, as JSON in [`HANDOVER`]. The new image rebuilds from those.
-    ///
-    /// ⚠ **The listening sockets are deliberately NOT carried.** They stay
-    /// close-on-exec, so the port is free the instant the image is replaced.
-    /// Clients reconnect quoting `Last-Event-ID`, as they do for a tunnel.
-    ///
-    /// ⚠ **If this RETURNS, the upgrade failed and this is still the old build**,
-    /// holding everything it held. Exiting instead would leave live `claude`
-    /// processes with nobody on their stdin, reachable only by being killed.
-    ///
-    /// ⚠ **A session being stopped travels too, in [`STOPPING`].** It fails the
-    /// descriptor test by construction — [`crate::session::Session::stop`] closes
-    /// stdin — so dropping it left the process with no row in the new image and
-    /// its kill in a `tokio::spawn` that `execve` discarded: nothing would ever
-    /// end it (memview #750).
+    /// If this RETURNS, the upgrade failed and this is still the old build, holding
+    /// everything it held. A session being stopped travels in [`STOPPING`]: it fails
+    /// the descriptor test by construction, and dropping it left its kill in a task
+    /// `execve` discarded (memview #750).
     pub fn handover(&self) -> anyhow::Result<std::convert::Infallible> {
         use std::os::unix::process::CommandExt;
 
@@ -557,9 +440,8 @@ impl Roster {
             .filter(|session| session.alive())
             .filter(|session| {
                 let fds = session.fds();
-                // All three or none: a session missing one of its pipes cannot
-                // be spoken to or heard, and carrying it would produce a
-                // conversation on screen that answers nothing.
+                // All three or none: a session missing a pipe would be a conversation on screen
+                // that answers nothing.
                 [fds.stdin, fds.stdout, fds.stderr]
                     .into_iter()
                     .all(crate::session::keepable)
@@ -573,8 +455,8 @@ impl Roster {
             })
             .collect();
 
-        // Everything that was stopped and has not gone yet. Not filtered on the
-        // descriptors: closing stdin is what put it here.
+        // Everything stopped and not yet gone. Not filtered on the descriptors: closing
+        // stdin is what put it here.
         let stopping: Vec<Stopping> = sessions
             .values()
             .filter(|session| session.alive())
@@ -611,26 +493,11 @@ impl Roster {
             .cloned()
     }
 
-    /// Most recently active first, which is the order a console is read in.
-    /// Ask a live session what the account has spent.
-    ///
-    /// ⚠ **One session, not all of them.** The figure is account-wide.
-    ///
-    /// ⚠ **The freshest IDLE one.** A session answers `get_usage` from its
-    /// process's cached headers, as old as its last request to the API, so an
-    /// idle-since-pickup session answers truthfully about an hour ago. But a busy
-    /// CLI does not answer a control request until its turn ends — one written
-    /// 2.0 s into a turn was answered at 8.5 s — and "spoke most recently" very
-    /// nearly defines "is working now", so ranking by recency alone asked the
-    /// session least able to reply.
-    ///
-    /// `(not working, last heard)` picks the freshest idle session and falls back
-    /// to the freshest working one when the whole fleet is busy. See
-    /// [`crate::usage::fresher`] for the half of the fix that survives being
-    /// asked the wrong session anyway.
-    ///
-    /// Nothing is returned: the answer lands on that session's stdout and in its
-    /// tally, where [`Self::spent`] finds it.
+    /// Ask a live session what the account has spent. One session — the figure is
+    /// account-wide — and the freshest IDLE one: a busy CLI answers no control request
+    /// until its turn ends, and "spoke most recently" nearly defines "working now".
+    /// `(not working, last heard)` falls back to the freshest working one. Nothing is
+    /// returned; the answer lands in that session's tally, where [`Self::spent`] finds it.
     pub async fn ask_usage(&self) {
         let asked = {
             let sessions = self.sessions.read().expect("roster poisoned");
@@ -647,23 +514,13 @@ impl Roster {
         }
     }
 
-    /// What the API has most recently said about each rate-limit window.
-    ///
-    /// ⚠ **Across every session, keeping the newest per window.** The figure is
-    /// account-wide — it comes off the response headers of whichever request was
-    /// answered last — so the session that heard it is an accident of which one
-    /// happened to be working. Taking any single session's copy would report the
-    /// account as it stood when *that* conversation last did something, which
-    /// for an idle one is hours ago.
+    /// What the API has most recently said about each rate-limit window, across every
+    /// session: the session that heard it is an accident of which one was working.
     pub fn spent(&self) -> std::collections::BTreeMap<String, crate::session::Seen> {
         let sessions = self.sessions.read().expect("roster poisoned");
-        // ⚠ **Merged into what is remembered, not gathered afresh.** Building
-        // this from the live sessions alone meant a reading lasted exactly as
-        // long as the session that heard it — see [`Self::spent`]'s field.
-        //
-        // ⚠ Not "whichever arrived last" either — see [`crate::usage::fresher`].
-        // An idle session answers from its own process's cache, so the freshest
-        // arrival is routinely the oldest figure.
+        // Merged into what is remembered, not gathered afresh, and not "whichever
+        // arrived last" — see [`crate::usage::fresher`]: an idle session answers from
+        // its cache, so the freshest arrival is routinely the oldest figure.
         let mut newest = self.spent.lock().expect("spent poisoned");
         for session in sessions.values() {
             crate::usage::remember(&mut newest, session.tally().spent);
@@ -671,17 +528,10 @@ impl Roster {
         newest.clone()
     }
 
-    /// Notice sessions that have stopped reading their stdin, and write down
-    /// what they look like before anybody restarts them.
-    ///
-    /// Swept rather than pushed, because deafness is the absence of events:
-    /// nothing arrives to announce it, which is the whole difficulty. See
-    /// [`crate::session::Session::deaf`] for the verdict and [`crate::deaf`] for
-    /// what is captured.
-    ///
-    /// Each session is announced once per episode, so this can be run as often
-    /// as the sharpness of the alarm is worth — the cost of a sweep that finds
-    /// nothing is one comparison per session.
+    /// Notice sessions that have stopped reading their stdin, and write down what they
+    /// look like before anybody restarts them. Swept rather than pushed: deafness is
+    /// the absence of events. See [`crate::session::Session::deaf`] and [`crate::deaf`].
+    /// Announced once per episode.
     pub async fn watch_for_deafness(&self) {
         let live: Vec<_> = {
             let sessions = self.sessions.read().expect("roster poisoned");
@@ -700,8 +550,7 @@ impl Roster {
                 "{} has not read {unread} message(s) in {seconds}s — capturing before it is cured",
                 session.id
             );
-            // UTC and named so, like every other stamped file this console
-            // writes — see the note in [`crate::api`].
+            // UTC and named so, like every stamped file this console writes.
             let stamp = time::OffsetDateTime::now_utc()
                 .format(&time::macros::format_description!(
                     "[year]-[month]-[day]-[hour][minute][second]Z"
@@ -720,18 +569,15 @@ impl Roster {
 
     pub fn list(&self) -> Vec<Summary> {
         let sessions = self.sessions.read().expect("roster poisoned");
-        // Neither the name nor the last-activity time is the session's to know —
-        // the CLI writes both to the transcript and announces neither — so the
-        // roster reads them here, one pass over the file's tail and metadata.
+        // The name and the last-activity time are the transcript's, not the session's,
+        // so the roster reads them here in one pass over the tail and metadata.
         let root = crate::past::projects_root();
         let mut all: Vec<Summary> = sessions
             .values()
             .map(|session| {
                 let mut summary = session.summary();
-                // One pass over the file for all three — see
-                // [`crate::past::about`], and [`crate::past::last_moved`] for why
-                // the date is read out of the conversation rather than off the
-                // file.
+                // See [`crate::past::about`], and [`crate::past::last_moved`] for why the date is
+                // read out of the conversation rather than off the file.
                 if let Some(about) = crate::past::about(&root, &summary.id) {
                     summary.name = about.name;
                     summary.touched = Some(about.touched);
@@ -740,18 +586,16 @@ impl Roster {
                 summary
             })
             .collect();
-        // By last activity, falling back to when this console picked the session
-        // up — a session with no transcript yet has nothing else to be ordered
-        // by, and `started` is in seconds where `touched` is in milliseconds.
+        // By last activity, falling back to pickup time: `started` is seconds, `touched`
+        // milliseconds.
         all.sort_by_key(|session| {
             std::cmp::Reverse(session.touched.unwrap_or(session.started * 1000))
         });
         all
     }
 
-    /// Forget an ended session. A live one is killed first: forgetting a session
-    /// while its process runs would leave an agent working with nothing holding
-    /// its handle.
+    /// Forget an ended session. A live one is killed first, or an agent would be
+    /// working with nothing holding its handle.
     pub fn forget(&self, id: &str) -> bool {
         let Some(session) = self.sessions.write().expect("roster poisoned").remove(id) else {
             tracing::info!("asked to forget {id}, which this console does not have");
@@ -759,8 +603,7 @@ impl Roster {
         };
         tracing::info!("forgetting {id} — killing it first if it is still running");
         session.force();
-        // And the landmarks walked for it, which are the largest thing this
-        // console keeps per conversation.
+        // And its landmarks, the largest thing kept per conversation.
         self.marks.forget(id);
         true
     }

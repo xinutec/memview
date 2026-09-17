@@ -26,14 +26,9 @@ import { StartSheet } from './start-sheet';
 
 /**
  * One line of the list — a session this console is running, or a conversation
- * sitting on disk that could be picked up.
- *
- * ⚠ **One list, because two were a lie about what is there.** The conversations
- * used to live behind a collapsed card, so a console driving a dozen sessions
- * showed the three it had started this run and hid the rest behind a count. What
- * somebody wants from this page is *everything that exists and which of it is
- * awake* — so the two sources are merged and the answer to "is it on" is carried
- * by the row rather than by which list it was filed under.
+ * on disk that could be picked up. One list: two of them hid a dozen
+ * conversations behind a count, and the answer to "is it on" is carried by the
+ * row.
  */
 interface Row {
   readonly id: string;
@@ -46,48 +41,28 @@ interface Row {
   /** Present when there is a transcript to resume. */
   readonly past?: Conversation;
   /**
-   * Whether a prompt has been sent, and so whether there is a cache to lose.
-   *
-   * A session fresh out of `/compact` has sent none: its next turn re-reads
-   * everything regardless, so counting down an hour it is not in would be a
-   * deadline against nothing.
+   * Whether a prompt has been sent, and so whether there is a cache to lose: a
+   * session fresh out of `/compact` has sent none.
    */
   readonly cached?: boolean;
   /**
-   * How full its context is, as `496k / 1M` — the same fact the session's own
-   * header shows, and read the same way for a row that is running and a row
-   * that is not. Undefined when nothing has said.
-   *
-   * Computed here rather than in a template method: a binding is re-evaluated
-   * on every change-detection pass, and this one is a fact about the row that
-   * changes when the row does.
+   * How full its context is, as `496k / 1M`, read the same way for a running row
+   * and a finished one. Undefined when nothing has said.
    */
   readonly context?: string;
   /**
-   * What this conversation is about, in a sentence — and the moment it was
-   * written, because it is a description of a thing that keeps changing.
-   *
-   * ⚠ **Inference, and drawn as such.** Every other field here is read off a
-   * file or a process; this one is a model's reading of the transcript. See
-   * `console/src/gist.rs`.
+   * What this conversation is about, in a sentence, and when it was written.
+   * Inference, drawn as such — see `console/src/gist.rs`.
    */
   readonly gist?: Gist;
   /**
-   * How much of its own task list is left, when it keeps one.
-   *
-   * ⚠ **Present for a conversation that is not running, too.** The list is on
-   * disk beside the transcript and outlives the process — so a session finished
-   * yesterday can still say it left three things open, which is exactly the row
-   * somebody scanning this page is looking for.
+   * How much of its own task list is left. Present for a conversation that is
+   * not running too: the list outlives the process.
    */
   readonly tasks?: TaskCount;
   /**
-   * Whether something is written here and not sent.
-   *
-   * ⚠ **Whether there is TEXT, not whether there is an entry.** A cleared draft
-   * stays as a tombstone so that a message already sent cannot be pushed back by
-   * the other device — so the map holds empty drafts, and keying this on
-   * presence would mark every conversation ever typed in, permanently.
+   * Whether something is written here and not sent — whether there is TEXT, not
+   * an entry: a cleared draft stays as a tombstone.
    */
   readonly draft: boolean;
   /** Working, waiting, idle, off — see [RANK]. */
@@ -97,21 +72,11 @@ interface Row {
 }
 
 /**
- * The order the list is read in.
- *
- * Working first, because that is the question the page is opened to answer.
- * Blocked second: it needs an answer, but it is not going anywhere, whereas a
- * working session is the one whose output is arriving now. Everything awake sits
- * above everything that is not, and the ones that are off keep their places
- * relative to each other by when they were last touched.
- *
- * ⚠ **Work left running is its own rank, above idle.** Within a rank the order
- * is last activity, and a background task is silent until it finishes — so a
- * session with two of them running sank at exactly the rate of one that had
- * finished for the day, and was found below a conversation that had genuinely
- * stopped. It sits under `waiting` because that one is blocked on *you*: this
- * needs nothing, but it is not done either, and it is the row to find when the
- * notification lands.
+ * The order the list is read in. Working first, because that is the question
+ * the page is opened to answer; blocked second — it needs an answer but is not
+ * going anywhere. Work left running is its own rank above idle: a session with
+ * two background tasks is silent until they finish, and sank like one that had
+ * stopped for the day. Within a rank, last activity.
  */
 const RANK = { working: 0, waiting: 1, background: 2, idle: 3, off: 4 } as const;
 
@@ -145,27 +110,22 @@ export class SessionsView {
   readonly state = this.roster.state;
   readonly trouble = signal('');
   /**
-   * The last poll's verdict on whether the Mac is reachable.
-   *
-   * ⚠ Separate from [trouble] because the two have opposite lifetimes. A failed
-   * action is news that stays true until it is retried; a failed poll is a
-   * snapshot that the next poll five seconds later supersedes. Sharing one
-   * signal meant a single missed poll — a phone freezing, a socket dropped mid
-   * flight — left "cannot reach the runner" on screen for as long as the page
-   * was open, over a console that had been answering the whole time.
+   * The last poll's verdict on whether the Mac is reachable. Separate from
+   * [trouble] because the two have opposite lifetimes: a failed action stays true
+   * until retried, a failed poll is superseded five seconds later.
    */
   readonly unreachable = this.roster.unreachable;
   readonly starting = signal(false);
-  /** Conversations on disk, newest first. Held in a root store so opening a
-   *  session and coming back does not blank the list — see [[PastStore]]. */
+  /**
+   * Conversations on disk, newest first. In a root store so coming back does not
+   * blank the list — see [[PastStore]].
+   */
   readonly past = this.pastStore.conversations;
 
   /**
-   * What the card's tally says out loud — the hover and the accessible name,
-   * which are the same sentence because the question is the same one.
-   *
-   * A sentence rather than template concatenation: with the leftovers it has
-   * two clauses, either of which can be the only one.
+   * What the card's tally says out loud — the hover and the accessible name. A
+   * sentence, since with leftovers it has two clauses, either of which can be the
+   * only one.
    */
   protected tally(tasks: TaskCount): string {
     return [
@@ -178,32 +138,22 @@ export class SessionsView {
 
   /**
    * Who is holding tasks who is not a conversation: Pippijn, and the unassigned
-   * pile.
-   *
-   * ⚠ **In the service's order, not re-sorted here.** It decides who is loaded
-   * in one place, so `task sessions`, the app and this cannot disagree about it.
-   * A holder with nothing at all is already left out upstream.
+   * pile. In the service's order, so `task sessions`, the app and this agree.
    */
   readonly elsewhere = computed<readonly Holder[]>(() => this.state()?.tasks?.elsewhere ?? []);
 
   /**
-   * Everything there is, awake first.
-   *
-   * ⚠ **Deduped by id, and the running process wins.** A session the console
-   * started also has a transcript on disk, so both sources describe it — and the
-   * process is the one that knows what it is doing, what it was asked and how
-   * much it has cost. The disk copy of the same conversation would otherwise
-   * appear a second time, greyed, directly below the live one.
+   * Everything there is, awake first. Deduped by id, the running process winning:
+   * it knows what it is doing, what it was asked and what it has cost.
    */
   readonly rows = computed<Row[]>(() => {
     const rows: Row[] = [];
     const seen = new Set<string>();
     const gists = this.state()?.gists ?? {};
-    // Keyed by conversation like the sentences, and read the same way for both
-    // halves of the list — see [[Overview.tasks]].
+    // Keyed by conversation, read the same way for both halves — see [[Overview.tasks]].
     const tasks = this.state()?.tasks?.sessions ?? {};
-    // Unsent words, by session id — on the transcripts on disk as well as the
-    // running sessions, since a draft outlives the process it was written for.
+    // Unsent words, by session id — for transcripts on disk too, since a draft
+    // outlives the process.
     const drafts = this.state()?.drafts ?? {};
     for (const session of this.state()?.sessions ?? []) {
       seen.add(session.id);
@@ -213,8 +163,7 @@ export class SessionsView {
         named: !!session.name,
         live: session,
         context: fullness(session.context, session.window),
-        // `context` is the last request's prompt size, so absent means no
-        // request has gone out yet — nothing is cached.
+        // `context` is the last request's prompt size, so absent means nothing cached.
         cached: !!session.context,
         gist: gists[session.id],
         tasks: tasks[session.id],
@@ -228,12 +177,9 @@ export class SessionsView {
               : session.background
                 ? RANK.background
                 : RANK.idle,
-        // ⚠ **Last activity, not when the process started.** `started` is when
-        // this console picked the session up; a conversation that has run all
-        // day reported `13h ago` while its transcript was four seconds old.
-        // Falls back to `started` only for a session with no transcript yet,
-        // which has nothing else to be dated by. Milliseconds either way —
-        // `started` is the one quantity here that arrives in seconds.
+        // Last activity, not when the process started: a conversation that ran all day
+        // reported `13h ago` with a transcript four seconds old. `started` (seconds)
+        // only for a session with no transcript yet.
         at: session.touched ?? session.started * 1000,
       });
     }
@@ -244,11 +190,8 @@ export class SessionsView {
         title: conversation.name ?? conversation.id.slice(0, 8),
         named: !!conversation.name,
         past: conversation,
-        // ⚠ **Named, where a running session's is not.** A transcript records
-        // how full each request was and never how big the window is (see
-        // [[Conversation.context]]), so this is `340k` where the row above says
-        // `340k / 1M` — and a bare `340k` beside `12 MB` could be anything. The
-        // denominator is what carries the unit when there is one.
+        // Named, where a running session's is not: a transcript records how full each
+        // request was and never the window, so a bare `340k` beside `12 MB` needs a unit.
         context: conversation.context ? `${tokens(conversation.context)} tokens` : undefined,
         // Where it earns its keep: a name you have not opened in a week is a
         // word, and this says what the week's work was.
@@ -259,36 +202,24 @@ export class SessionsView {
         at: conversation.modified,
       });
     }
-    // Newest last-activity first inside a rank, so the top of each group is the
-    // one most recently in play.
+    // Newest last-activity first inside a rank.
     return rows.sort((a, b) => a.rank - b.rank || b.at - a.at);
   });
 
-  /** Whether anything on the list is held by a process the console cannot see,
-   *  which is the only reason the warning about it is worth the space. */
+  /** Whether anything on the list is held by a process the console cannot see. */
   readonly anyInUse = computed(() => this.rows().some((row) => row.past?.busy));
 
   constructor() {
-    // The list is a snapshot of processes, and a session started from another
-    // window — or one that just ended — should not need a manual refresh to
-    // appear. The roster does the asking; this says it is being read, and stops
-    // saying so when the page goes.
+    // The roster does the asking; this says the list is being read, and stops when
+    // the page goes.
     this.until.onDestroy(this.roster.follow());
-    // The conversations on disk are this page's alone, so it keeps its own
-    // timer for them. Unconditional now that they are in the list rather than
-    // behind a disclosure: they are on screen whenever this page is, so `busy`
-    // has to be as fresh as the sessions beside it.
-    //
-    // ⚠ **Stopped when the page goes, and it was not.** This component is
-    // rebuilt on every navigation back, so a poll left running accumulated one
-    // timer per visit — and this request walks every project directory and reads
-    // the tail of every transcript on the Mac, so the leak was not the phone's
-    // alone.
+    // The conversations on disk are this page's alone, so it keeps its own timer.
+    // Stopped when the page goes: rebuilt on every navigation back, a poll left
+    // running accumulated a timer per visit, each walking every transcript on the Mac.
     const poll = setInterval(() => this.pastStore.load(), 5000);
     this.until.onDestroy(() => clearInterval(poll));
     this.pastStore.load();
-    // And whenever the phone comes back, because neither ran while it was away
-    // — see [[Foreground]].
+    // And whenever the phone comes back — see [[Foreground]].
     this.foreground.onReturn(() => {
       this.roster.ask();
       this.pastStore.load();
@@ -297,9 +228,8 @@ export class SessionsView {
 
   /** Offer the form that starts one. See [[StartSheet]] for why it is a sheet. */
   add(): void {
-    // ⚠ Wired into history like the details sheet, and this is the case that
-    // matters most: the list is the root, so a back press with this open leaves
-    // the app altogether. See [[Dismiss]].
+    // Wired into history: the list is the root, so a back press with this open
+    // leaves the app altogether. See [[Dismiss]].
     this.dismiss.onBack(
       this.sheet.open(StartSheet, {
         data: { repos: this.state()?.repos ?? [], common: this.commonest() },
@@ -309,16 +239,10 @@ export class SessionsView {
   }
 
   /**
-   * The directory this machine's conversations actually run in.
-   *
-   * ⚠ **Not the first repository alphabetically**, which is what the field used
-   * to open on — a real directory, but one nothing had ever been started in. It
-   * looked deliberate and was not: `repos` is `read_dir` sorted, so the default
-   * was whichever name happened to come first.
-   *
-   * Counted over the live sessions and the transcripts together, because a
-   * console that has just started holds no sessions at all and the conversations
-   * on disk are the whole of what it knows.
+   * The directory this machine's conversations actually run in — counted over
+   * live sessions and transcripts together, since a console that has just started
+   * holds no sessions. Not the first repository alphabetically, which is what the
+   * field used to open on.
    */
   private commonest(): string | undefined {
     const seen = new Map<string, number>();
@@ -328,33 +252,25 @@ export class SessionsView {
     ]) {
       if (dir) seen.set(dir, (seen.get(dir) ?? 0) + 1);
     }
-    // Ties broken by whichever was counted first, which is the live sessions —
-    // what is running now beats what once ran.
+    // Ties go to the live sessions, counted first.
     return [...seen.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
   }
 
   /**
-   * Pick up a conversation where it left off.
-   *
-   * ⚠ Only safe for one that has ended. Nothing stops two processes appending to
-   * a transcript, and the console cannot see a `claude` running in a terminal —
-   * so the warning in the template is the whole of the guard.
+   * Pick up a conversation where it left off. Only safe for one that has ended;
+   * the console cannot see a `claude` in a terminal, so the template's warning
+   * is the whole of the guard.
    */
   resume(conversation: Conversation | undefined): void {
-    // The row is the whole control, so the guard belongs here rather than only
-    // in the styling: a busy conversation tapped anyway would reach the runner,
-    // be refused, and put an error on screen for doing what the row offered.
+    // The row is the whole control, so the guard belongs here: a busy conversation
+    // tapped anyway would be refused with an error for doing what the row offered.
     if (!conversation || conversation.busy) return;
     this.open(conversation.dir, conversation.id);
   }
 
   /**
-   * Pick a conversation up, with no opening instruction.
-   *
-   * ⚠ **It used to send whatever was typed in the start form**, which shared
-   * this page with the list. The form is a sheet now, so there is no such field
-   * to read — and resuming with nothing said is the better default anyway: the
-   * conversation already has a subject, and the composer is right there.
+   * Pick a conversation up, with no opening instruction: it already has a
+   * subject, and the composer is right there.
    */
   private open(dir: string, resume?: string): void {
     if (!dir || this.starting()) return;
@@ -382,9 +298,10 @@ export class SessionsView {
     return withinCacheHour(at);
   }
 
-  /** Where along the ramp this row sits. The two legs are mixed in the
-   *  stylesheet, not here, so both ends stay theme colours and follow light and
-   *  dark — the same reason `coloured.ts` uses classes instead of inline style. */
+  /**
+   * Where along the ramp this row sits. The two legs are mixed in the
+   * stylesheet, so both ends follow light and dark.
+   */
   cacheStyle(at: number): Record<string, number> {
     const { warm, hot } = cacheStops(at);
     return { '--warm': warm, '--hot': hot };
@@ -398,15 +315,11 @@ export class SessionsView {
   /** What the reddening clock means, for a title and a screen reader. */
   cacheSays(at: number): string {
     const left = Math.max(0, Math.round(60 - (Date.now() - at) / 60000));
-    // Says what is LEFT rather than what has passed: the number the reader acts
-    // on is how long they still have.
+    // What is LEFT, which is the number the reader acts on.
     return `${left}m left of the hour the prompt cache lasts`;
   }
 
-  /** The last path element, which is what a repository is called.
-   *
-   *  Takes the directory rather than a session, because a conversation on disk
-   *  has one too and the answer is the same question about the same string. */
+  /** The last path element, which is what a repository is called. */
   place(what: { dir: string }): string {
     return placeOf(what.dir);
   }

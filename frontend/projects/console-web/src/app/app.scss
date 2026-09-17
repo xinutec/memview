@@ -2,9 +2,7 @@
   position: sticky;
   top: 0;
   z-index: 2;
-  // The one gap in the row, so neither branch of the template has to space
-  // itself: back to name on a session, glyph to word on the list. The spacer
-  // absorbs it, so the ⋮ stays against the toolbar's own padding.
+  // The one gap in the row, so neither branch of the template spaces itself.
   gap: 0.5rem;
 }
 
@@ -12,108 +10,60 @@
   flex: 1;
 }
 
-// The bar's LEADING icon button, whichever it is — the back arrow on a session,
-// the menu on the list.
-//
-// ⚠ **Pulled back into the toolbar's own padding, so the two screens start in
-// the same place.** A bare `mat-icon` begins at the toolbar's 16px; a glyph in
-// an icon button begins 12px further in, so the first mark on the screen jumped
-// sideways every time you entered a session or left one.
-//
-// **12, not the 8 Material's own padding would suggest** — `styles.scss` raises
-// every icon button to a 48px thumb target and centres the 24px glyph in it with
-// `padding: 0`, which is (48 − 24) / 2. Arithmetic from the framework's numbers
-// gave 8 and left 4px of jump; the harness measured what was left, and that is
-// where this number comes from. The touch target keeps its full 48px: only the
-// box moves.
-//
-// ⚠ **Structural, and it did not used to be.** This was keyed to `.leave`, the
-// back arrow's own class, which worked only while the list had a bare
-// `<mat-icon>` and no button at all; the moment the list gained a leading button
-// it started 12px in, and the jump this comment describes came back on the
-// screen it was written for. The invariant is about POSITION — first control in
-// the bar — so the selector says that, and the class is gone: it had no style
-// left and existed only for the layout checks, which now key on the accessible
-// name instead.
+// The bar's LEADING icon button, whichever it is, pulled back into the toolbar's
+// own padding so the two screens start in the same place. 12, not the 8
+// Material's padding suggests: `styles.scss` raises every icon button to a 48px
+// target with `padding: 0`, and the harness measured what was left. Keyed on
+// position rather than a class: the class-keyed version broke the moment the
+// list gained a leading button.
 .bar > button:first-of-type {
   margin-left: -0.75rem;
 }
 
-// The two headlines: the session's name, and the app's own on the list. Both
-// `h1`, because each names the screen it is on — that is the heading a screen
-// reader is looking for, and before this the console had none at all.
-//
-// A heading brings a browser font size and margins with it, and a toolbar has
-// already decided both.
+// The two headlines, both `h1`: each names the screen it is on. A heading
+// brings a font size and margins a toolbar has already decided.
 .name,
 .title {
   margin: 0;
   font: inherit;
-  // Weight rather than size: this is a bar, not a banner, and a headline that
-  // outgrows its row is the thing the row cannot afford.
+  // Weight rather than size: a headline that outgrows its row is what the row
+  // cannot afford.
   font-weight: 500;
 }
 
-// ⚠ **The name has to be allowed to lose.** Three things share a 412px row: the
-// back button, this, and the overflow button — and a name is arbitrary text out
-// of a transcript, so it is the one that must give way rather than push the
-// controls off the edge or paint over the button beside it.
+// The name has to be allowed to lose: three things share a 412px row, and the
+// name is arbitrary text out of a transcript.
 .name {
-  // One line, cut with an ellipsis. A name is a repository or a folder — one
-  // long unbreakable word — so wrapping is not an option a toolbar has.
-  //
-  // ⚠ **`overflow: hidden` is also what lets it shrink at all**, and there is no
-  // `min-width: 0` beside it for that reason. A flex item's floor is its own
-  // content — but only while its overflow is `visible`, and this rule is what
-  // takes that floor away. `styles.scss` documents the same mechanism on
-  // `mat-icon`, where it is a hazard: a glyph that clips rather than hold its
-  // box. Here it is the point. `min-width: 0` did stand here, and ablating it
-  // changed nothing measurable, which is the only reason it is gone.
+  // One line, cut with an ellipsis; a name is one long unbreakable word.
+  // `overflow: hidden` is also what lets it shrink — it removes a flex item's
+  // content floor — so there is no `min-width: 0` beside it; ablating that
+  // changed nothing.
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-// A session the runner has not read a name for yet shows where it runs instead.
-// Quieter, so the difference between a name and a stand-in can be seen without
-// being told.
+// A session with no name yet shows where it runs, quieter.
 .name.anonymous {
   opacity: 0.8;
 }
 
 .page {
-  // A column that fills what is left below the toolbar, so a view can put a
-  // scrolling region inside it and pin its own controls beneath.
-  //
-  // ⚠ This replaced `padding-bottom` under a `position: fixed` composer, which
-  // cannot work: a bar pinned to the viewport covers whatever is behind it, and
-  // no amount of padding helps at any scroll position except the very bottom.
-  // The layout harness proved it — the approve/refuse buttons of the last entry
-  // sat 66px behind the composer, and grew there the moment messages rendered as
-  // markdown and the page passed one screen.
-  //
-  // **Sized by the column above it, not by arithmetic.** `flex: 1` against a
-  // shell that is `100dvh` tall gives exactly the room the toolbar and the stamp
-  // leave over — where `calc(100dvh - var(--toolbar-height, 64px))` had to guess
-  // the toolbar's height, and guessed a different one whenever Material's
-  // density or a wrapped title changed it.
+  // A column that fills what is left below the toolbar, so a view can scroll a
+  // region inside it and pin its own controls beneath. This replaced
+  // `padding-bottom` under a `position: fixed` composer, which covered the last
+  // entry's buttons by 66px. Sized by the column, not `calc(100dvh - toolbar)`,
+  // which guessed the toolbar's height.
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  // ⚠ **`min-height: 0` without this is a box that spills.** The pair is one
-  // decision, not two: `min-height: 0` exists only to let a flex item be shorter
-  // than what is inside it, and a box shorter than its content with
-  // `overflow: visible` neither clips nor scrolls — it paints straight over the
-  // row below. The stamp is that row, and a list of twelve sessions went through
-  // it. A view that scrolls its own region (the transcript does) never reaches
-  // this scrollbar; one that does not (the session list) gets it from here.
+  // `min-height: 0` without this is a box that spills straight over the stamp: a
+  // flex item shorter than its content with `overflow: visible` neither clips nor
+  // scrolls.
   overflow-y: auto;
-  // ⚠ **Vertical only.** Horizontal padding here insets everything a view puts
-  // inside it, including the parts meant to reach the edges: the composer has
-  // its own background and its own padding, and a page inset left it as a narrow
-  // strip with a margin either side on a 412px screen. Each view pads its own
-  // reading column instead.
+  // Vertical only: horizontal padding here insets the composer too, leaving it a
+  // narrow strip on a 412px screen.
   padding: 1rem 0 0;
   width: 100%;
   max-width: 60rem;
@@ -121,9 +71,7 @@
 }
 
 .build {
-  // Present, never competing: it is checked deliberately and read at no other
-  // time. A row of the shell's column, so it sits below the page rather than
-  // being dragged back over it.
+  // Present, never competing: a row of the shell's column, below the page.
   flex: 0 0 auto;
   padding: 0.25rem 0 calc(0.25rem + env(safe-area-inset-bottom));
   text-align: center;

@@ -5,14 +5,8 @@
  */
 export type Window = { pct: number, 
 /**
- * How long until this window turns over, in milliseconds.
- *
- * ⚠ **Absent once it has passed, and that is not a formatting detail.** A
- * percentage belongs to a window; when the window resets the percentage
- * goes back to nothing, and a reading taken before the turn describes a
- * window that no longer exists. Since this arrives hours late as a matter
- * of course, that is the ordinary case rather than an edge one — so the
- * figure is withheld here rather than drawn as though it still meant
- * something.
+ * How long until this window turns over, in milliseconds. Absent once it has
+ * passed: the percentage belonged to a window that no longer exists, and since a
+ * reading arrives hours late as a matter of course, that is the ordinary case.
  */
 resets_in_ms?: number, };

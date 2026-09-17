@@ -2,49 +2,35 @@
 import type { Reply } from "./Reply";
 
 /**
- * What the console tells its clients about a session.
- *
- * This is the API's vocabulary, not the CLI's: a small closed set that a UI can
- * render, derived from a protocol that is neither small nor closed.
+ * What the console tells its clients about a session: a small closed set a UI
+ * can render, derived from a protocol that is neither.
  */
 export type Event = { "kind": "joined", earlier: number, 
 /**
- * Where in the transcript the seed began, as a byte offset — the cursor
- * for asking what came before it. Zero means the seed reached the start
- * of the file and there is nothing older.
+ * Where in the transcript the seed began, as a byte offset — the cursor for
+ * asking what came before. Zero means nothing older.
  */
 from: number, 
 /**
- * Whether the conversation was picked up by a **new process**, so a
- * tool call above this line that never finished never will.
- *
- * ⚠ **The client marks those calls dead, and it must not do it
- * blindly.** `Joined` used to be pushed only where the console started
- * watching, and everything above it really had been written by a
- * process that was gone. It is now also emitted per reader, at the end
- * of a seed read from the file — where the session is alive and the last
- * call in the page is the one running RIGHT NOW. Marking that one *no
- * result recorded* is the opposite of the truth.
- *
- * `true` for [`crate::session::Session::resume`], which starts a fresh
- * `claude` on an old conversation. `false` for an upgrade, which keeps
- * the same child, and for a reader joining a live session.
+ * Whether the conversation was picked up by a NEW process, so a tool call above
+ * this line that never finished never will. The client marks those dead, and
+ * must not do it blindly: `Joined` is also emitted per reader at the end of a
+ * seed, where the last call in the page is the one running right now. `true`
+ * for [`crate::session::Session::resume`], `false` for an upgrade or a reader.
  */
 restarted: boolean, } | { "kind": "started", model: string, cwd: string, tools: number, } | { "kind": "accepted", text: string, } | { "kind": "prompt", text: string, } | { "kind": "command", text: string, } | { "kind": "shown", name: string, } | { "kind": "text", text: string, } | { "kind": "context", tokens: number, } | { "kind": "tool", id: string, name: string, input: { [key in string]: unknown }, } | { "kind": "background", tool?: string, task?: string, status: string, } | { "kind": "tool_result", id: string, ok: boolean, 
 /**
- * What it returned, as text. Empty when it returned nothing, or nothing
- * that is text — an image result says so in words instead.
+ * What it returned, as text. Empty when it returned nothing that is text; an
+ * image result says so in words.
  */
 detail: string, 
 /**
- * The full length in characters, present only when `detail` is a cut of
- * it. A snippet that does not admit to being one is a lie about what the
- * tool said.
+ * The full length in characters, present only when `detail` is a cut of it.
  */
 cut?: number, } | { "kind": "turn", cost_usd: number, 
 /**
- * How big the context window is. Declared on the result line and
- * nowhere else; how *full* it is comes from [`Event::Context`].
+ * How big the context window is. Declared on the result line and nowhere else;
+ * how full it is comes from [`Event::Context`].
  */
 window?: number, turns: number, duration_ms: number, stop?: string, } | { "kind": "limit", window: string, status: string, resets_at?: number, 
 /**
@@ -57,36 +43,19 @@ utilization?: number, } | { "kind": "busy", status: string, } | { "kind": "ask",
  */
 id: string, 
 /**
- * The call this is asking about — the `tool_use` id, which is also on
- * the [`Event::Tool`] the CLI emitted a moment earlier.
- *
- * ⚠ **Without it one action draws two widgets.** The CLI announces the
- * call and then asks about it, so a client that cannot tell they are
- * the same thing shows a tool row AND a permission card for one Write —
- * and, worse, the card between two calls breaks the run they would
- * otherwise fold into — a `tool` is followed by an `ask` carrying
- * identical input.
- *
- * Optional because not every call site sends it — the CLI has three
- * that build this request and one omits it — so a client must still
- * cope with an ask it cannot attach to anything.
+ * The call this is asking about — the `tool_use` id on the [`Event::Tool`] the
+ * CLI emitted a moment earlier. Without it one action draws two widgets.
+ * Optional because one of the CLI's three call sites omits it.
  */
 call?: string, tool: string, 
 /**
- * The CLI's own one-line rendering of the question, when it offers one
- * — better than anything reconstructed from the arguments.
+ * The CLI's own one-line rendering of the question, when it offers one.
  */
 title?: string, detail?: string, input: { [key in string]: unknown }, } | { "kind": "answered", id: string, allowed: boolean, 
 /**
- * What was said, when the question was one a person answers.
- *
- * **Carried here because this is the only place that knows it for
- * everybody.** The client that tapped has it in hand; a second screen
- * watching the same session, and the one that tapped after a reload, do
- * not — and an `ask` is a control request rather than a transcript
- * line, so [`crate::past`] cannot hand it back either. Sending it with
- * the verdict is what lets an answered card say what was chosen instead
- * of only that something was.
+ * What was said, when the question was one a person answers. Carried here
+ * because an `ask` is a control request, not a transcript line, so a second
+ * screen or a reload has no other way to learn what was chosen.
  */
 reply?: Reply, } | { "kind": "compacted" } | { "kind": "deaf", 
 /**

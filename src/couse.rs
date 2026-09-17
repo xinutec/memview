@@ -1,38 +1,17 @@
-//! Which memories get used together in one unit of thinking.
+//! Which memories get used together in one unit of thinking — how the corpus
+//! is USED, where the written `[[links]]` say how it describes itself. Mined
+//! from the session transcripts.
 //!
-//! The written `[[links]]` say how the corpus *describes* itself. This says how
-//! it is actually *used*: two memories that keep turning up in the same piece of
-//! work belong near each other whether or not either one ever mentions the
-//! other. Mined from the Claude session transcripts, which are the only record
-//! of that.
+//! The unit is a turn (`promptId`), not a session and not a clock window:
+//! sessions span weeks of unrelated work, and several run at once. A session is
+//! a tree — `parentUuid` chains messages, a rewind starts a sibling branch — so
+//! `promptId`, present on a third of messages, is inherited down the parent
+//! chain rather than carried in file order.
 //!
-//! **The unit is a turn, not a session, and not a clock window.** Sessions here
-//! run to gigabytes and span weeks of unrelated work, so whole-session
-//! co-occurrence would relate everything to everything. Wall-clock is worse
-//! still: several sessions run at once and are not thinking the same thoughts,
-//! so two memories a second apart in different sessions share nothing.
-//! `promptId` groups everything done in service of one user request, which is
-//! the closest thing in the data to one thought.
-//!
-//! **A session is a tree, not a line.** `parentUuid` chains each message to its
-//! predecessor, and a rewind or an edited prompt starts a sibling branch — two
-//! branches are alternative histories that were never in one context together.
-//! `promptId` is present on only about a third of messages, so it is inherited
-//! *down the parent chain* rather than carried forward in file order, which
-//! keeps those branches apart instead of merging them.
-//!
-//! **Nothing but names and counts leaves this module.** The transcripts contain
-//! everything — the whole of the medical case file, every credential ever
-//! pasted, every private conversation. The artefact is a list of memory names,
-//! project names and integers.
-//!
-//! That constraint is the design, not a precaution. memview exists to give good
-//! access to the *memory documents*; the transcripts are evidence used to rank
-//! and cluster them, and nothing more. A viewer that also served the literal
-//! history would make the corpus depend on the transcripts rather than distil
-//! them — so the full history is read here, in bulk, and only counts come out.
-//! An earlier version of this project did serve the literal history and was
-//! removed for exactly that reason.
+//! Nothing but names and counts leaves this module. The transcripts contain the
+//! whole medical case file and every credential ever pasted; the artefact is
+//! memory names, project names and integers. An earlier version served the
+//! literal history and was removed for exactly that.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
@@ -49,23 +28,14 @@ pub struct Pair {
     pub turns: usize,
     /// Distinct sessions those turns came from. This is the support.
     pub sessions: usize,
-    /// Normalised pointwise mutual information. The formula's range is
-    /// (-1, 1]; **the artefact carries only (0, 1]**, because the mine drops
-    /// below-chance pairs — see the filter in [`scan`].
-    ///
-    /// Raw counts rank the hubs and nothing else — `project_dev_lint` appears
-    /// everywhere, so it pairs highly with everything and says nothing. This
-    /// measures how much more often two memories appear together than chance
-    /// would give, which is what "these belong together" actually means.
+    /// Normalised pointwise mutual information; the artefact carries only (0, 1]
+    /// because the mine drops below-chance pairs — see [`scan`]. Raw counts rank
+    /// the hubs and nothing else.
     pub npmi: f64,
 }
 
-/// Signs of life for one memory: how much it is actually used, and when last.
-///
-/// The graph could already show how *connected* a memory is — that is just its
-/// links. It could not show whether anyone ever goes there. A rule cited by six
-/// projects and never once consulted looks identical, in a link graph, to the
-/// one that governs every session.
+/// Signs of life for one memory: a rule cited by six projects and never once
+/// consulted looks identical, in a link graph, to the one that governs every session.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Usage {
     /// Distinct sessions that mentioned it at all.
@@ -78,29 +48,16 @@ pub struct Usage {
     pub edits: usize,
     /// Most recent mention, ISO-8601, or absent if never seen.
     pub last: Option<String>,
-    /// Mentions per project, from the `cwd` of the line that named it.
-    ///
-    /// The context a memory is actually consulted in, which its text does not
-    /// say: a rule filed under "rules" may in practice be a health-sync rule.
-    /// This is what lets the graph cluster by where work happens rather than
-    /// by what a document calls itself.
-    ///
-    /// `cwd` is used rather than any text signal, and that is the whole point.
-    /// MEMORY.md names every project and is injected into every session, so
-    /// searching a transcript for a project name matches nearly everything.
-    /// Where a session *was* cannot be faked by injected context.
+    /// Mentions per project, from the `cwd` of the line that named it — the context
+    /// a memory is consulted in, which its text does not say. `cwd` rather than any
+    /// text signal: MEMORY.md names every project and is injected everywhere.
     #[serde(default)]
     pub projects: BTreeMap<String, usize>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct CoUse {
-    /// When this was mined, ISO-8601.
-    ///
-    /// The artefact's own account of its age, because the file's mtime is when
-    /// it was last *copied* — a push without a re-mine would report month-old
-    /// content as fresh, and the whole value of a derived artefact is that
-    /// someone can tell when it stopped being derived.
+    /// When this was mined, ISO-8601: the file's mtime is when it was last COPIED.
     #[serde(default)]
     pub generated: String,
     /// Turns that used at least two memories — the denominator.
@@ -112,40 +69,19 @@ pub struct CoUse {
     pub usage: BTreeMap<String, Usage>,
 }
 
-/// Distinct sessions a pair must meet in before it is reported at all.
-///
-/// **The session is the sample; the turn is only how a meeting is detected.**
-/// Turns inside one session are not independent observations — they are one
-/// piece of work counted many times. Scored per turn, the strongest pair in the
-/// corpus was 710 turns of a single health-sync week, outranking every genuine
-/// relationship while saying no more than "these two came up a lot that
-/// Tuesday". Requiring the pair in one turn keeps the precision that made the
-/// turn the right detector; counting sessions keeps the statistics honest.
-///
-/// Small numbers, because there are only thirteen sessions in total. A pair
-/// found in three separate ones, days apart, is a relationship the work keeps
-/// rediscovering.
+/// Distinct sessions a pair must meet in before it is reported. The session is
+/// the sample; the turn is only how a meeting is detected — scored per turn, the
+/// strongest pair was 710 turns of one health-sync week. Small numbers: there
+/// are only about thirteen sessions.
 pub const MIN_SESSIONS: usize = 3;
 
-/// Most memories one turn may contribute before it is discarded entirely.
-///
-/// A turn that touches half the corpus is not thinking about half the corpus —
-/// it has quoted MEMORY.md, which lists every memory by name in one blob, or it
-/// is a bulk edit over the whole directory. Left in, one such turn manufactures
-/// tens of thousands of pairs and drowns everything real.
+/// Most memories one turn may contribute before it is discarded: a turn touching
+/// half the corpus has quoted MEMORY.md or bulk-edited the directory.
 const MAX_BASKET: usize = 40;
 
-/// Most memories one *line* may contribute.
-///
-/// A line naming many memories is a listing, not a thought: a `ls` of the corpus
-/// directory, a grep result, or — the one that actually poisoned this — a line
-/// of MEMORY.md. The index groups related memories onto single bullets, one of
-/// which names seventeen, and the index is injected into every session. Left in,
-/// those seventeen co-occur in almost every turn and manufacture 136 pairs that
-/// outrank everything real: the top of the first ranking was six rules that
-/// share one bullet in the index and are otherwise unconnected.
-///
-/// The per-turn cap does not catch it, because seventeen is well under forty.
+/// Most memories one LINE may contribute: a line naming many is a listing — a
+/// grep result, or a bullet of MEMORY.md naming seventeen, which manufactured
+/// 136 pairs that outranked everything real. The per-turn cap does not catch it.
 const MAX_PER_LINE: usize = 6;
 
 impl CoUse {
@@ -160,25 +96,11 @@ impl CoUse {
             .with_context(|| format!("writing {}", path.display()))
     }
 
-    /// Pairs that are used together and that the corpus connects nowhere —
-    /// neither directly nor through a memory that links both. Strongest first.
-    ///
-    /// Returns the worklist and the count held back as already-connected, so the
-    /// caller can report the split rather than quietly shrink the list.
-    ///
-    /// ⚠ **A shared neighbour is a connection, and treating it as one removes
-    /// 59% of what this used to report.** Measured: of 1222 pairs
-    /// seen in >= 3 sessions with no direct link, 723 already had some memory
-    /// linking both — overwhelmingly a hub and its own children, which co-occur
-    /// *because* the hub sent the reader to each in turn. The four memories
-    /// split out of `project_health_lean_port_roadmap` are the
-    /// clean case: pairwise npmi 1.00, no link between any two of them, and the
-    /// roadmap lists all four with a line each. Reporting that as a missing link
-    /// asks a well-formed hub to become a clique, and the corpus was right.
-    ///
-    /// ⚠ **One hop only.** Two memories reachable from each other in five hops
-    /// are not "near each other" in any sense a reader benefits from, so this
-    /// asks for a common neighbour and not for connectivity.
+    /// Pairs used together that the corpus connects nowhere — neither directly nor
+    /// through a memory linking both. Returns the worklist and the count held back.
+    /// A shared neighbour is a connection, and counting it removed 59% of the
+    /// report: a hub and its own children co-occur BECAUSE the hub sent the reader
+    /// to each. One hop only.
     pub fn unlinked<'a>(
         &'a self,
         adjacency: &BTreeMap<String, BTreeSet<String>>,
@@ -207,13 +129,8 @@ pub(crate) fn find_at(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
     (from..=hay.len() - needle.len()).find(|&i| &hay[i..i + needle.len()] == needle)
 }
 
-/// Find the LAST `needle` in `hay`, searched from the end.
-///
-/// The pair of [`find_at`], and worth having as its own function rather than as
-/// a forward scan that keeps the last hit: what this is for is a line the CLI
-/// re-appends as a session goes along, so the answer is a few kilobytes from the
-/// end of a file that can be gigabytes. Searching backwards stops there; the
-/// full pass is only paid when there is nothing to find.
+/// Find the LAST `needle` in `hay`, searched from the end: the line the CLI
+/// re-appends sits a few kilobytes from the end of a file that can be gigabytes.
 pub(crate) fn last_at(hay: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || hay.len() < needle.len() {
         return None;
@@ -223,12 +140,9 @@ pub(crate) fn last_at(hay: &[u8], needle: &[u8]) -> Option<usize> {
         .find(|&i| &hay[i..i + needle.len()] == needle)
 }
 
-/// The value of a `"key":"…"` field, as bytes, without parsing the line.
-///
-/// A full `serde_json` parse of every line costs minutes across three gigabytes,
-/// and all but a handful of lines mention no memory at all. Note that probing
-/// for `"uuid":"` cannot collide with `"parentUuid":"` — the latter capitalises
-/// the U, so the lowercase needle does not occur in it.
+/// The value of a `"key":"…"` field, as bytes, without parsing the line: a
+/// `serde_json` parse of every line costs minutes across three gigabytes.
+/// `"uuid":"` cannot collide with `"parentUuid":"`.
 pub(crate) fn field<'a>(line: &'a [u8], key: &str) -> Option<&'a [u8]> {
     let needle = format!("\"{key}\":\"");
     let start = find_at(line, needle.as_bytes(), 0)? + needle.len();
@@ -236,22 +150,14 @@ pub(crate) fn field<'a>(line: &'a [u8], key: &str) -> Option<&'a [u8]> {
     Some(&line[start..end])
 }
 
-/// Every corpus memory named anywhere in the line.
-///
-/// Deliberately any mention, not only a file that was opened. Counting only
-/// deliberate reads was tried first and is far too sparse — 14 usable pairs
-/// against 829 — because most memories reach a session by being recalled into
-/// context, never by being opened. A name written in prose or in reasoning is
-/// the memory having been *thought about*, which is the thing being measured.
-///
-/// Sound here because a pair needs two memories in ONE turn, which re-injected
-/// context does not manufacture. It does not generalise: counting mentions of a
-/// single memory measures what recall injected, not what was thought about —
-/// see [`crate::agents::MemoryUse`], which counts opened files instead.
+/// Every corpus memory named anywhere in the line — any mention, not only a
+/// file opened: counting reads gave 14 usable pairs against 829, since most
+/// memories reach a session by recall. Sound because a pair needs two memories
+/// in ONE turn; it does not generalise to single memories — see
+/// [`crate::agents::MemoryUse`].
 fn names_in(line: &[u8], corpus: &BTreeSet<String>) -> BTreeSet<String> {
     let mut found = BTreeSet::new();
-    // Candidate runs of [a-z0-9_], checked against the corpus. Cheaper than
-    // searching for each of ~350 names, and it cannot invent one.
+    // Candidate runs of [a-z0-9_], checked against the corpus; cannot invent one.
     let mut start = None;
     for (i, &c) in line.iter().enumerate() {
         let wordish = c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_';
@@ -272,11 +178,8 @@ fn names_in(line: &[u8], corpus: &BTreeSet<String>) -> BTreeSet<String> {
     found
 }
 
-/// The project a working directory belongs to: the first path element under
-/// the code root, or `None` for anywhere else.
-///
-/// `code_root` is a parameter rather than a constant because this is a public
-/// repo and a home directory must not be compiled into it.
+/// The project a working directory belongs to. `code_root` is a parameter
+/// because this is a public repo.
 pub fn project_of(cwd: &str, code_root: &str) -> Option<String> {
     let root = code_root.trim_end_matches('/');
     let rest = cwd.strip_prefix(root)?.strip_prefix('/')?;
@@ -318,20 +221,14 @@ fn scan_session(
         if named.len() > MAX_PER_LINE {
             continue;
         }
-        // Which tool, if any, this line is a call of. A line can in principle
-        // carry more than one call; in practice it does not, and attributing a
-        // read to the wrong one of two memories named together is a smaller
-        // error than not counting reads at all. Stated because it is a limit,
-        // not because it is exact.
+        // Which tool, if any, this line is a call of. A line can in principle carry
+        // more than one; in practice it does not.
         let opened = find_at(line, b"\"name\":\"Read\"", 0).is_some();
         let written = find_at(line, b"\"name\":\"Write\"", 0).is_some()
             || find_at(line, b"\"name\":\"Edit\"", 0).is_some();
         let stamp =
             field(line, "timestamp").and_then(|t| std::str::from_utf8(t).ok().map(str::to_string));
-        // Attributed per line rather than per turn. A turn can move between
-        // directories, and the line that names a memory is the one that says
-        // where it was consulted; rolling that up to a turn's first `cwd` would
-        // credit the wrong project every time work crosses repositories.
+        // Attributed per line, not per turn: a turn can move between directories.
         let project = field(line, "cwd")
             .and_then(|c| std::str::from_utf8(c).ok())
             .and_then(|c| project_of(c, code_root));
@@ -347,8 +244,7 @@ fn scan_session(
             if let Some(project) = &project {
                 *entry.projects.entry(project.clone()).or_insert(0) += 1;
             }
-            // Kept as the maximum rather than the last seen: transcripts are
-            // scanned in filename order, which is not chronological order.
+            // The maximum rather than the last seen: filename order is not chronological.
             if let Some(stamp) = &stamp
                 && entry
                     .last
@@ -361,8 +257,7 @@ fn scan_session(
         }
     }
 
-    // Nearest ancestor-or-self carrying a promptId. Memoised, because a deep
-    // chain would otherwise be rewalked for every reference on it.
+    // Nearest ancestor-or-self carrying a promptId, memoised.
     let mut turn_cache: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
     let mut turn_of = |uuid: &[u8]| -> Vec<u8> {
         let mut walked: Vec<Vec<u8>> = Vec::new();
@@ -376,9 +271,8 @@ fn scan_session(
             }
             walked.push(cur.clone());
             match parent_of.get(&cur) {
-                // No promptId anywhere up the chain: the message predates the
-                // field. Its own id becomes the turn, which keeps it from
-                // pooling with unrelated orphans into one enormous basket.
+                // No promptId up the chain: the message predates the field. Its own id
+                // becomes the turn, so orphans do not pool into one basket.
                 None => break uuid.to_vec(),
                 Some(p) => cur = p.clone(),
             }
@@ -429,9 +323,7 @@ pub fn scan(
             ..CoUse::default()
         });
     }
-    // Sessions per memory, which is the honest "how often is this used" — turns
-    // inside one session are one piece of work, so a memory hammered for a week
-    // and never touched again would otherwise outrank one consulted every week.
+    // Sessions per memory: turns inside one session are one piece of work.
     {
         let mut per_name: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
         for (session, basket) in &baskets {
@@ -445,9 +337,7 @@ pub fn scan(
             }
         }
     }
-    // Per-session presence: which names appeared in any turn, and which pairs
-    // met inside some single turn. Collapsing to presence here is what makes the
-    // session the sampling unit.
+    // Per-session presence, which is what makes the session the sampling unit.
     let mut name_sessions: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
     let mut pair_sessions: BTreeMap<(&str, &str), BTreeSet<usize>> = BTreeMap::new();
     let mut pair_turns: BTreeMap<(&str, &str), usize> = BTreeMap::new();
@@ -476,13 +366,9 @@ pub fn scan(
                 b: b.to_string(),
                 turns: pair_turns[&(a, b)],
                 sessions: k,
-                // ⚠ pab = 1 makes the formula 0/0: a pair present in EVERY
-                // session has nothing left for chance to explain, which is the
-                // strongest claim this measure can make — so it is 1 by
-                // definition rather than NaN by arithmetic. NaN would fail the
-                // below-chance filter and silently drop the best-supported
-                // pair in a small corpus (three test sessions hit this; ~23
-                // real ones make it unlikely but not impossible).
+                // pab = 1 makes the formula 0/0: a pair present in EVERY session is 1 by
+                // definition, not NaN — which would fail the filter below and drop the
+                // best-supported pair in a small corpus.
                 npmi: if pab >= 1.0 {
                     1.0
                 } else {
@@ -490,16 +376,10 @@ pub fn scan(
                 },
             }
         })
-        // ⚠ **Below chance is not an affinity.** Session support admits a pair;
-        // npmi then judges it — and with a couple of dozen sessions, two popular
-        // memories sharing the minimum three genuinely co-occur LESS than chance
-        // would give, so a correct formula returns a negative number. Keeping
-        // those pairs made 78% of the artefact weightless: counted in every
-        // total, drawn in the companions panel, clamped to zero by the layout
-        // (memview#1307). A pair this filter drops is not evidence of anything —
-        // not of belonging together, and at these counts not of avoidance
-        // either — so it is dropped at the mine, where every consumer agrees,
-        // rather than re-judged differently in each one.
+        // Below chance is not an affinity: two popular memories sharing the minimum
+        // three sessions can co-occur LESS than chance, and keeping those made 78% of
+        // the artefact weightless (memview#1307). Dropped at the mine, where every
+        // consumer agrees.
         .filter(|pair| pair.npmi > 0.0)
         .collect();
     pairs.sort_by(|x, y| {
@@ -517,8 +397,7 @@ pub fn scan(
     })
 }
 
-/// ISO-8601 UTC from a unix timestamp, without pulling in a date crate for one
-/// string. The artefact carries it purely so a reader can tell how stale it is.
+/// ISO-8601 UTC from a unix timestamp, without a date crate for one string.
 pub fn stamp(secs: u64) -> String {
     let days = secs / 86_400;
     let rem = secs % 86_400;

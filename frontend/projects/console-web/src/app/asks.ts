@@ -8,16 +8,9 @@ import { type Answers, type Notes, type Question, complete } from './questions';
 
 /**
  * What has been tapped, typed and noted against the questions on screen.
- *
- * ⚠ **Keyed by ASK ID, and that is the whole reason this is not in the card.**
- * The transcript's rows are tracked by object identity, so a re-seed — which the
- * stream does on every reconnect it cannot resume — builds new entries and
- * destroys every card. State held in a card would go with them, and the answers
- * at risk are exactly the ones that matter: options tapped while the tunnel was
- * dropping. Held here, they outlive the card, the view and the route.
- *
- * The card reads its own ask out of this and calls back into it. Nothing is
- * drilled through the transcript as bindings.
+ * Keyed by ASK ID, which is why this is not in the card: a re-seed builds new
+ * entries and destroys every card, and the answers at risk are exactly the ones
+ * tapped while the tunnel was dropping. The card reads its own ask out of this.
  */
 @Injectable({ providedIn: 'root' })
 export class Asks {
@@ -31,11 +24,8 @@ export class Asks {
   private readonly noting = signal<ReadonlySet<string>>(new Set());
 
   /**
-   * What went wrong sending an answer, if anything.
-   *
-   * ⚠ **Cleared when the next attempt is made, not only on failure.** A message
-   * left standing after a retry succeeds tells somebody their answer did not go
-   * when it did.
+   * What went wrong sending an answer, if anything. Cleared when the next attempt
+   * is made, not only on failure.
    */
   readonly trouble = signal('');
 
@@ -52,13 +42,9 @@ export class Asks {
   }
 
   /**
-   * Whether this ask is being answered in words rather than by choice.
-   *
-   * ⚠ **The two are alternatives, not companions.** The CLI's result builder
-   * tests `response` before `answers` and reports only the one it finds, so
-   * words sent alongside a set of taps would throw the taps away without saying
-   * so. Typing therefore takes the card over: the options go quiet, and clearing
-   * the field hands it back.
+   * Whether this ask is being answered in words rather than by choice. The two
+   * are alternatives: the CLI reports `response` before `answers` and only the
+   * one it finds, so typing takes the card over and clearing the field hands it back.
    */
   replying(ask: string): boolean {
     return this.words(ask).trim() !== '';
@@ -70,8 +56,7 @@ export class Asks {
     return complete(entry.questions ?? [], this.answers(ask), this.notes(ask));
   }
 
-  /** Whether a question's note field has been opened. It never closes on its
-   *  own: a field that vanished while it held words would be taking them away. */
+  /** Whether a question's note field has been opened. It never closes on its own. */
   noteOpen(ask: string, question: Question): boolean {
     return (
       this.noting().has(`${ask}::${question.question}`) ||
@@ -95,13 +80,9 @@ export class Asks {
   }
 
   /**
-   * Choose an option.
-   *
-   * **One question with one answer sends on the tap.** That is the shape almost
-   * every question has, and on a phone the difference between one tap and two is
-   * the difference between answering from the lock screen and putting it off.
-   * Anything else — several questions, or one that takes several answers — has
-   * no moment where the choice is obviously finished, so it waits for [answer].
+   * Choose an option. One question with one answer sends on the tap — the shape
+   * almost every question has, and on a phone one tap against two is answering
+   * from the lock screen against putting it off. Anything else waits for [answer].
    */
   pick(entry: Questioned, question: Question, label: string): void {
     const ask = entry.ask;
@@ -131,8 +112,7 @@ export class Asks {
     const ask = entry.ask;
     if (entry.allowed !== undefined) return;
     if (this.replying(ask)) {
-      // Words override the choices in the CLI, so nothing else goes with them —
-      // notes included, which would be qualifying an answer that is not sent.
+      // Words override the choices in the CLI, so nothing else goes with them.
       this.send(entry, undefined, this.words(ask).trim(), undefined);
       return;
     }

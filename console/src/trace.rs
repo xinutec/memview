@@ -1,15 +1,9 @@
-//! Client activity trace: what the browser sees and the API does not.
+//! Client activity trace: what the browser sees and the API does not — that a
+//! person meant to send, found the control, waited, or gave up. The events fold
+//! into the same log stream as the requests. No storage: logs, not data.
 //!
-//! The API log already records that a session was told something. It cannot
-//! record that a person meant to send it, found the control, waited, or gave up
-//! — and on a four-inch screen that is most of what goes wrong. The events fold
-//! into the same log stream as the requests, so a session reads as one timeline.
-//!
-//! **No storage.** These are logs, not data: the endpoint moves the events into
-//! the backend log and forgets them.
-//!
-//! The same shape as memview's `routes/telemetry.rs`, and separate on purpose:
-//! the console links nothing from the viewer.
+//! The same shape as memview's `routes/telemetry.rs`, and separate on purpose: the
+//! console links nothing from the viewer.
 
 use axum::Json;
 use axum::http::StatusCode;
@@ -30,13 +24,8 @@ pub struct Trace {
     pub at: Option<i64>,
 }
 
-/// Flatten a client-supplied label to one line.
-///
-/// A newline in a label would let a caller forge log entries that appear to come
-/// from somewhere else, and a log that can be forged stops being evidence.
-/// Control characters become spaces, runs of whitespace collapse, and the result
-/// is capped — `is_control` misses U+2028/U+2029, which `split_whitespace`
-/// catches, so the two passes together cover both.
+/// Flatten a client-supplied label to one line, so a newline cannot forge a log
+/// entry. `is_control` misses U+2028/U+2029, which `split_whitespace` catches.
 pub fn one_line(label: &str, max: usize) -> String {
     label
         .chars()
@@ -50,11 +39,8 @@ pub fn one_line(label: &str, max: usize) -> String {
         .collect()
 }
 
-/// `POST /api/telemetry` — fold the client's events into the log stream.
-///
-/// Always 204. Best-effort by design: the client neither reads the response nor
-/// retries, because a trace that interferes with the app it observes is worse
-/// than no trace.
+/// `POST /api/telemetry` — fold the client's events into the log stream. Always
+/// 204: a trace that interferes with the app it observes is worse than none.
 pub async fn record(Json(events): Json<Vec<Trace>>) -> StatusCode {
     for event in events.into_iter().take(MAX_EVENTS) {
         tracing::info!(

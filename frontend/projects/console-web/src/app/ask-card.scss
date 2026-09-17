@@ -1,5 +1,4 @@
-// The permission question card. Split out of `session-view.scss` with the
-// component it styles.
+// The permission question card.
 
 // A question is the one thing on this page that stops everything until it is
 // answered, so it is the only thing allowed to shout.
@@ -19,12 +18,9 @@
   align-items: baseline;
 }
 
-// One question of an `AskUserQuestion`. Several can arrive in one ask, so each
-// carries its own topic and text rather than relying on the row above.
-//
-// Not `.asked`, which is this reader's own prompt: sharing the name would have
-// pulled its left rule, its indent and its muted colour onto a card that is
-// neither quiet nor the reader speaking.
+// One question of an `AskUserQuestion`; several can arrive in one ask. Not
+// `.asked`, which is the reader's own prompt and would pull its left rule and
+// muted colour onto a card that is neither.
 .query {
   display: flex;
   flex-direction: column;
@@ -95,17 +91,9 @@
   cursor: default;
 }
 
-// A note against one question, beside whatever was picked for it.
-//
-// ⚠ **Scoped to the element, because `.note` is two different things in this
-// component** and the unscoped rule was styling both. A transcript row is
-// `<li class="entry note">` — the marker where a resumed session joins its
-// replayed transcript — and it was being drawn as an input: dashed border,
-// surface background, 3rem of min-height, and 0.4rem of top padding the clock in
-// the margin does not see, since an absolutely positioned `top: 0` resolves
-// against the PADDING box. That last one is all memview#725 could see from the
-// outside, as a clock sitting 7.4px above the line it dates. The border was the
-// defect; the offset was its shadow.
+// A note against one question. Scoped to the element, because a transcript row
+// is also `class="note"` and the unscoped rule drew it as an input — the clock
+// beside it sat 7.4px high (memview#725) from the padding alone.
 input.note {
   width: 100%;
   box-sizing: border-box;
@@ -175,15 +163,12 @@ input.note:disabled {
   white-space: nowrap;
 }
 
-// The send button is square and full-height rather than text-shaped: it is the
-// most-pressed control in the app and the only one that has to work with no
-// keyboard at all. Its size and the centring of its glyph both come from the
-// app-wide icon-button rules in `styles.scss` now — this is where they were
-// first needed and first written, one button at a time.
+// The send button is square and full-height: the most-pressed control in the
+// app and the only one that has to work with no keyboard. Its size comes from
+// the icon-button rules in `styles.scss`.
 
-// Two decisions, side by side and each half the screen. They were text-sized
-// buttons on a line with a shell command — the smallest targets on the page
-// attached to the only irreversible choice on it.
+// Two decisions, each half the screen: they were the smallest targets on the
+// page attached to the only irreversible choice on it.
 .choose button {
   flex: 1;
 }

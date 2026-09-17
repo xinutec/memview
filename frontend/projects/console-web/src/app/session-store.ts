@@ -7,12 +7,8 @@ import { Entry, Timed } from './models';
 import { fold } from './transcript';
 
 /**
- * How many sessions' transcripts are kept once they are no longer on screen.
- *
- * Small on purpose. This is the memory of the last few things you looked at, not
- * a cache of everything — the transcripts are on disk, the runner will replay
- * them, and a phone is not the place to hold a dozen conversations that nobody
- * is reading.
+ * How many sessions' transcripts are kept once off screen. Small: the memory
+ * of the last few things looked at, not a cache of everything.
  */
 const KEPT = 4;
 
@@ -22,97 +18,50 @@ export interface Held {
   /** Where the page on screen begins in the transcript, as a byte offset. */
   readonly cursor: WritableSignal<number>;
   /**
-   * What the session is doing right now, or undefined when it is idle.
-   *
-   * Live, from the stream's own `busy` events, which the transcript
-   * deliberately drops — they are state, not conversation. Before this they
-   * were dropped by everybody, so the only source of "is it working" was the
-   * five-second poll of the summary: too slow to catch a short burst and
-   * silent for up to five seconds at the start of a long one.
+   * What the session is doing right now, or undefined when idle. Live, from the
+   * stream's `busy` events, which the transcript deliberately drops.
    */
   readonly doing: WritableSignal<string | undefined>;
   /**
-   * When it started working, in milliseconds — for the timer beside [doing].
-   *
-   * ⚠ **Set when it stops being idle, not on every status.** The CLI reports
-   * several statuses inside one stretch of work, and restarting the count on
-   * each would answer "how long has it been *requesting*" — which is a question
-   * about the CLI's vocabulary. The one worth asking is how long you have been
-   * waiting, and that runs from the moment it stopped being idle.
-   *
-   * From the event's own stamp rather than the clock, so a burst replayed after
-   * a reconnect is not dated to the reconnection.
+   * When it started working, in milliseconds — for the timer beside [doing]. Set
+   * when it stops being idle, not on every status: the question is how long you
+   * have been waiting. From the event's own stamp, so a replayed burst is not
+   * dated to the reconnection.
    */
   readonly since: WritableSignal<number | undefined>;
   /**
-   * Whether the stream has said anything about activity since this transcript
-   * was seeded — which is what makes [doing]'s `undefined` mean "idle".
-   *
-   * ⚠ **Until it has, `undefined` means "no idea" instead**, and the summary's
-   * own `busy` is the better answer. A re-seed leaves this client knowing
-   * nothing about the present: the console announces a status when it changes,
-   * so a session that was already working before the reconnect says nothing
-   * further until it stops. Without this the page read `idle` over a session
-   * that was plainly working, having simply not been listening when it said so.
+   * Whether the stream has said anything about activity since this transcript was
+   * seeded — what makes [doing]'s `undefined` mean "idle". Until it has,
+   * `undefined` means "no idea" and the summary's `busy` is the better answer.
    */
   readonly spoken: WritableSignal<boolean>;
   /**
-   * Whether the stream has got past the replay and is describing now.
-   *
-   * ⚠ **The replay and the live stream arrive on one connection**, which is
-   * convenient and was the whole trap: a replayed `turn` is indistinguishable
-   * from a turn that just ended unless somebody marks the boundary. The runner
-   * marks it with a named `caught-up` event once the backlog is flushed, and
-   * until that arrives nothing on this stream is evidence about the present.
-   *
-   * ⚠ **Not the `joined` event, though it looks like the obvious candidate.**
-   * That one lives in the session's log and can therefore be trimmed out from
-   * under a client that connects late — and it is never pushed at all by a
-   * session that had no transcript to replay. The marker has to be a property of
-   * the connection, which is what makes it unmissable.
-   *
-   * Separate from [spoken] because they answer different questions and were
-   * conflated into one wrong answer: this is *has the past finished*, that is
-   * *has the present been described*. Only the second may turn `undefined` into
-   * "idle"; only the first may let an event set it.
+   * Whether the stream has got past the replay and is describing now. The runner
+   * marks the boundary with a named `caught-up` event — not `joined`, which lives
+   * in the log and can be trimmed out from under a late client. Separate from
+   * [spoken]: this is *has the past finished*, that is *has the present been
+   * described*.
    */
   readonly live: WritableSignal<boolean>;
   /**
    * Whether what is on screen is a copy kept on this phone rather than the
-   * conversation itself.
-   *
-   * ⚠ **Set before the stream has said anything, and cleared by the seed.** It
-   * is true only in the window between opening a session the Mac cannot be
-   * reached for and the transcript actually arriving — see [[Kept]]. The page
-   * says so out loud, because a transcript that has stopped growing looks
-   * exactly like a quiet one.
+   * conversation itself — true only between opening a session the Mac cannot be
+   * reached for and the transcript arriving. See [[Kept]].
    */
   readonly stale: WritableSignal<boolean>;
   /**
-   * Whether the stream is connected right now.
-   *
-   * The browser retries on its own, so this is "not connected at this moment"
-   * rather than "gone" — and it is what decides whether the last kept copy is
-   * worth offering instead of a blank screen.
+   * Whether the stream is connected right now. The browser retries on its own; this
+   * decides whether the kept copy is worth offering.
    */
   readonly offline: WritableSignal<boolean>;
   /**
-   * Whether the reader has jumped away from the live end of the transcript.
-   *
-   * ⚠ **Not "the stream is closed", though a jump does close it.** Leaving a
-   * session closes it too — see [[SessionStore.leave]] — and coming back from
-   * that goes to the newest message, where coming back from a jump means
-   * abandoning a page from the middle of the file. Only [[SessionStore.goTo]]
-   * sets this and only [[SessionStore.rejoin]] clears it, because it is about
-   * where the reader is, not about the connection.
+   * Whether the reader has jumped away from the live end. Only
+   * [[SessionStore.goTo]] sets this and only [[SessionStore.rejoin]] clears it: it
+   * is about where the reader is, not the connection.
    */
   readonly adrift: WritableSignal<boolean>;
-  // ⚠ **No background count here, and there was one.** It was derived from this
-  // stream, which was the only way to know until the runner started counting
-  // for the list — and then the same question had two answers: this one reset
-  // whenever the transcript was re-seeded and the runner's did not. It now
-  // arrives on the summary, from the runner, which is the copy that survives a
-  // reload. See `session::Summary::background` and `protocol::running`.
+  // No background count here: it arrives on the summary, from the runner, which is
+  // the copy that survives a reload. See `session::Summary::background`.
   /** The last sequence number this transcript accounts for, 0 for none. */
   seen: number;
   /** Closes the stream, while there is one. */
@@ -124,23 +73,12 @@ export interface Held {
 /**
  * The transcripts being read, and the streams that fill them.
  *
- * ⚠ **Root-provided because the component is not the reader — the person is.**
- * Held in the component, the fold and its stream died with the view, so opening
- * a session, going back to the list and opening it again started from nothing:
- * every page somebody had scrolled back to load was thrown away by a navigation.
- * That is the same defect a dropped connection used to have, and it has the same
- * fix — say what you hold and be sent the rest.
- *
- * The stream is closed on the way out rather than left running. A session nobody
- * is looking at has nothing to say to the screen, and browsers allow only a
- * handful of connections to one host — a few abandoned streams would starve the
- * state poll, which is the part that says whether the Mac is reachable at all.
- * Closing costs nothing now that re-opening resumes.
- *
- * Deliberately not kept: where the reader was scrolled to. Restoring an offset
- * measured against a transcript that has grown since lands somewhere arbitrary,
- * and entries carry no identity to anchor on instead. Re-entry goes to the
- * newest message, which is at least always the same answer.
+ * Root-provided because the person is the reader, not the component: held in the
+ * component, every page scrolled back to was thrown away by a navigation. The
+ * stream is closed on the way out — browsers allow a handful of connections to
+ * one host, and abandoned streams would starve the state poll — and re-opening
+ * resumes. Deliberately not kept: the scroll position, which means nothing
+ * against a transcript that has grown.
  */
 @Injectable({ providedIn: 'root' })
 export class SessionStore {
@@ -150,10 +88,8 @@ export class SessionStore {
   private clock = 0;
 
   /**
-   * Read a session: resume the transcript if it is still here, start it if not.
-   *
-   * Idempotent in the way that matters — an id opened twice ends with one
-   * stream, because the second open closes whatever the first left running.
+   * Read a session: resume the transcript if it is still here, start it if not. An
+   * id opened twice ends with one stream.
    */
   open(id: string): Held {
     const held = this.held.get(id) ?? this.fresh(id);
@@ -166,10 +102,8 @@ export class SessionStore {
           held.offline.set(false);
           this.take(id, held, from.event, from.seq);
           break;
-        // Only when the runner says the stream starts again — see
-        // [[ConsoleApi]]. Everything held has to go: it would otherwise be
-        // appended to by a replay of itself, and there is no way to tell the two
-        // copies apart.
+        // Only when the runner says the stream starts again — see [[ConsoleApi]].
+        // Everything held has to go, or a replay would append to a copy of itself.
         case 'reset':
           this.forget(held);
           break;
@@ -178,12 +112,8 @@ export class SessionStore {
           held.offline.set(false);
           held.live.set(true);
           break;
-        // ⚠ **The one moment a kept copy is wanted, and being told about it is
-        // the whole point of the stream saying so.** It used to be shown on
-        // open, speculatively, and cleared again by whatever arrived — a guess
-        // that had to be read synchronously to beat the seed, which is what tied
-        // it to storage that answers synchronously. Asked for here it races
-        // nothing: the conversation is known not to be arriving.
+        // The one moment a kept copy is wanted. Asked for here it races nothing: the
+        // conversation is known not to be arriving.
         case 'offline':
           held.offline.set(true);
           void this.hydrate(id, held);
@@ -197,12 +127,9 @@ export class SessionStore {
 
   /**
    * Show what was last kept, for a conversation whose stream is not connected.
-   *
-   * ⚠ **Every condition is a separate fact and all of them matter.** Entries on
-   * screen mean the conversation is arriving; a sequence number means it arrived
-   * and was then cleared, which is what a reset leaves behind; and a stream that
-   * came back while this was being read wants none of it. Any one of them makes
-   * showing the copy a conversation drawn twice — see [[Kept]] and memview #90.
+   * Every condition matters: entries on screen mean it is arriving, a sequence
+   * number means it arrived and was cleared by a reset, and a stream that came
+   * back wants none of it. See [[Kept]] and memview #90.
    */
   private async hydrate(id: string, held: Held): Promise<void> {
     const copy = await this.kept.entries(id);
@@ -212,41 +139,30 @@ export class SessionStore {
   }
 
   /**
-   * Stop reading, without forgetting.
-   *
-   * The transcript stays; only the stream goes. What survives here is exactly
-   * what makes coming back cheap: the entries, the cursor into the file, and the
-   * sequence number to resume from.
+   * Stop reading, without forgetting: the entries, the cursor and the sequence
+   * number stay, which is what makes coming back cheap.
    */
   leave(id: string): void {
     const held = this.held.get(id);
     if (!held) return;
     held.close?.();
     held.close = undefined;
-    // ⚠ **Flushed on the way out, past the throttle.** The throttle is there so
-    // that reading a busy conversation is not a write per event; it also means
-    // everything since the last one is unwritten at the moment somebody leaves,
-    // which is the moment a copy is most likely to be wanted next. A stale copy
-    // is not what the throttle is for.
+    // Flushed on the way out, past the throttle: leaving is the moment a copy is
+    // most likely to be wanted next.
     if (!held.stale()) this.kept.keepNow(id, held.entries());
   }
 
   /**
-   * Put the page before the one on screen in front of it.
-   *
-   * The store does this rather than the view because the entries are the store's
-   * — but it deliberately reports nothing about scrolling. Holding the reader's
-   * place is a measurement of the DOM, and the caller is the one that has it.
+   * Put the page before the one on screen in front of it. Reports nothing about
+   * scrolling: holding the reader's place is a DOM measurement the caller has.
    */
   earlier(id: string): Observable<void> {
     const held = this.held.get(id) ?? this.fresh(id);
     return this.api.earlier(id, held.cursor()).pipe(
       map((older) => {
         held.cursor.set(older.from);
-        // Folded on their own and put in front, rather than folded into the
-        // list: fold joins an event to whatever precedes it, and an older page
-        // has nothing before it here — appending would glue the top of the
-        // conversation onto the bottom.
+        // Folded on their own and put in front: fold joins an event to what precedes
+        // it, and appending would glue the top of the conversation onto the bottom.
         let head: Entry[] = [];
         for (const event of older.events) head = fold(head, event);
         held.entries.update((entries) => [...head, ...entries]);
@@ -255,18 +171,10 @@ export class SessionStore {
   }
 
   /**
-   * Show the page that ends at a landmark, leaving the live stream behind.
-   *
-   * ⚠ **The stream is closed first, and that is the point rather than a
-   * tidy-up.** A jump puts an hour-old page on screen; with the stream still
-   * running, the next thing the session said would be appended under it, with
-   * nothing between them and no way for a reader to tell the join from a
-   * continuation. Detached, the page is what it claims to be — a look at the
-   * past — and [[Held.adrift]] is what offers the way back.
-   *
-   * Replaces rather than prepends, unlike [[earlier]]: this is not the page
-   * before the one on screen, it is somewhere else entirely, and gluing the two
-   * together would invent a conversation that never happened.
+   * Show the page that ends at a landmark, leaving the live stream behind. The
+   * stream is closed first, or the next thing said would be appended under an
+   * hour-old page with nothing between them. Replaces rather than prepends: this
+   * is somewhere else entirely.
    */
   goTo(id: string, at: number): Observable<void> {
     const held = this.held.get(id) ?? this.fresh(id);
@@ -279,9 +187,8 @@ export class SessionStore {
         held.entries.set(page);
         held.cursor.set(there.from);
         held.adrift.set(true);
-        // Nothing is known about the present any more — the stream that would
-        // have said is closed. Claiming otherwise would leave the working
-        // spinner from an hour ago running over a page from an hour ago.
+        // Nothing is known about the present any more — the stream that would have
+        // said is closed.
         held.live.set(false);
         held.spoken.set(false);
         held.doing.set(undefined);
@@ -291,12 +198,8 @@ export class SessionStore {
   }
 
   /**
-   * Come back to the present from a jump.
-   *
-   * Everything held goes, because what is held is a page from the middle of the
-   * file and the stream about to arrive replays the end of it — keeping both
-   * would show the same conversation twice with a hole in the middle. The
-   * re-open then seeds from scratch, which is the same path a first visit takes.
+   * Come back to the present from a jump. Everything held goes: it is a page from
+   * the middle of the file, and the stream about to arrive replays the end.
    */
   rejoin(id: string): Held {
     const held = this.held.get(id) ?? this.fresh(id);
@@ -324,34 +227,24 @@ export class SessionStore {
   }
 
   private take(id: string, held: Held, event: Timed, seq: number): void {
-    // The seed arrives with the cursor it started from. This is the only place
-    // that learns where the page on screen begins — nothing else in the stream
-    // knows the conversation is longer than the page.
+    // The seed arrives with the cursor it started from — the only place that learns
+    // where the page on screen begins.
     if (event.kind === 'joined') {
       held.cursor.set(event.from);
-      // The conversation itself has started arriving, so the copy has done its
-      // job. Emptied rather than appended to: the seed is the same entries over
-      // again, and nothing tells the two copies apart.
+      // The conversation itself has started arriving, so the copy has done its job.
+      // Emptied, not appended to: the seed is the same entries over again.
       if (held.stale()) {
         held.entries.set([]);
         held.stale.set(false);
       }
     }
-    // Only ever forward. The unnumbered events arrive as 0, and a transcript
-    // that claimed to hold nothing after one of those would ask for the whole
-    // conversation again on the next reconnect.
+    // Only ever forward: unnumbered events arrive as 0.
     if (seq > held.seen) held.seen = seq;
-    // Activity is state, so it is kept beside the transcript rather than in it.
-    // A turn ending is what says the work stopped: the runner clears its own
-    // busy on the same event, and nothing else on the wire announces idleness.
-    //
-    // ⚠ **Live events only, and that was a real defect.** A seed ends with the
-    // `turn` that closed the previous piece of work; applied as news it cleared
-    // `doing` and set `spoken`, which switched off the fallback to the runner's
-    // own flag — so a session that was already working when this client joined
-    // read `idle`, and stayed that way, because the CLI announces a status only
-    // when it CHANGES and had nothing further to say until it stopped. Twelve
-    // minutes of it on the phone, over a session running tools throughout.
+    // Activity is state, kept beside the transcript. A turn ending is what says the
+    // work stopped. Live events only: a seed ends with the `turn` that closed the
+    // previous work, and applied as news it cleared `doing` and switched off the
+    // fallback to the runner's flag — twelve minutes of `idle` over a session
+    // running tools throughout.
     if (held.live()) {
       if (event.kind === 'busy') {
         // Only the first one starts the clock — see [Held.since].
@@ -366,26 +259,16 @@ export class SessionStore {
       }
     }
     held.entries.update((entries) => fold(entries, event));
-    // Throttled inside, and deliberately not done on leaving instead: leaving is
-    // not how a phone stops reading — the tunnel drops, or the app is swapped
-    // out and killed, and neither runs any code here.
+    // Throttled inside, and not done on leaving instead: a phone stops reading when
+    // the tunnel drops or the app is killed, and neither runs code here.
     if (!held.stale()) this.kept.keep(id, held.entries());
   }
 
   /**
-   * Drop everything held about a conversation.
-   *
-   * All three, because they are one fact in three places: the entries, where the
-   * page begins — which the `joined` event of the replay re-establishes — and
-   * how far the transcript had got, which is now nowhere.
-   *
-   * ⚠ **What it was doing goes too, and that is the point.** [Held.doing] is
-   * cleared only by the `turn` or `exited` that ends the work, so a turn that
-   * ended while this client was disconnected clears nothing: the console
-   * replaced itself mid-turn, the event went to nobody, and the page showed a
-   * session working with a timer running for as long as it was left open. A
-   * re-seed means this client knows nothing about the present, which is what
-   * `undefined` says — the next status line off the stream says the rest.
+   * Drop everything held about a conversation: the entries, where the page
+   * begins, and how far the transcript had got. What it was doing goes too — a
+   * turn that ended while this client was disconnected cleared nothing, and the
+   * page showed a timer running for as long as it was left open.
    */
   private forget(held: Held): void {
     held.entries.set([]);
@@ -398,10 +281,10 @@ export class SessionStore {
     held.stale.set(false);
   }
 
-  /** Let go of the least recently opened transcripts past [KEPT].
-   *
-   *  Never one with a stream on it: that is a session being read right now, and
-   *  the count is of what is being remembered rather than what is being used. */
+  /**
+   * Let go of the least recently opened transcripts past [KEPT], never one with a
+   * stream on it.
+   */
   private evict(): void {
     const idle = [...this.held.entries()]
       .filter(([, held]) => !held.close)

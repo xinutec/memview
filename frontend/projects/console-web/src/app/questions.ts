@@ -1,13 +1,8 @@
 /**
  * The one tool whose approval is an answer rather than a permission.
- *
- * `AskUserQuestion` is gated by `can_use_tool` like every other tool, so it
- * arrives as an ordinary `ask` — but allowing it unchanged is not answering it.
- * The tool reads `answers` out of its own arguments and formats them; it prompts
- * nobody. So a client answers by approving an input it has written the choice
- * into, which is what `updatedInput` is for. Until this console did that, every
- * question it was shown came back to the session as *"The user did not answer
- * the questions."*
+ * `AskUserQuestion` arrives as an ordinary `ask`, but it reads `answers` out of
+ * its own arguments and prompts nobody — so a client answers by approving an
+ * input it has written the choice into (`updatedInput`).
  */
 import type { Answer } from './generated/Answer';
 import type { Reply } from './generated/Reply';
@@ -30,19 +25,16 @@ export interface Question {
   readonly options: readonly Choice[];
 }
 
-/** What was chosen: the question's own text against the label, or labels,
- *  picked. The CLI matches these against what it offered, so they go back
- *  verbatim rather than by index. */
+/**
+ * What was chosen: the question's own text against the label, or labels,
+ * picked — verbatim, since the CLI matches them against what it offered.
+ */
 export type Answers = Record<string, Answer>;
 
 /**
  * The questions in a tool call's arguments, or nothing if they cannot be read.
- *
- * ⚠ **All or nothing, deliberately.** A half-read question would show fewer
- * options than were offered, and a person choosing from a list cannot tell that
- * an option is missing — they would answer a question nobody asked. Failing
- * whole is not a dead end either: a caller that gets nothing back falls to the
- * ordinary allow/refuse row, which still lets the session move.
+ * All or nothing: a half-read question would show fewer options than were
+ * offered. A caller that gets nothing falls to the ordinary allow/refuse row.
  */
 export function questionsOf(input: unknown): readonly Question[] | undefined {
   if (!isRecord(input)) return undefined;
@@ -63,8 +55,7 @@ function question(value: unknown): Question | undefined {
   return {
     question: asked,
     header: typeof raw['header'] === 'string' ? raw['header'] : '',
-    // Anything other than an explicit `true` is a single choice: guessing the
-    // other way would let one tap answer a question that wanted several.
+    // Anything other than an explicit `true` is a single choice.
     multiSelect: raw['multiSelect'] === true,
     options: read,
   };
@@ -81,8 +72,7 @@ function choice(value: unknown): Choice | undefined {
   };
 }
 
-/** A narrowing rather than an assertion: everything read here arrives as JSON
- *  off a socket, and `as` would let a wrong guess through silently. */
+/** A narrowing rather than an assertion: everything here arrives as JSON off a socket. */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -94,20 +84,15 @@ export type Notes = Record<string, string>;
 export type { Reply };
 
 /**
- * What was said, in one line for the row that records it.
- *
- * The labels alone, without the questions they answer: the questions are still
- * on screen directly above, and repeating them turns a one-line record into a
- * paragraph on a phone. Words win over labels because that is the CLI's own
- * precedence — a reply with both never leaves this app, but one arriving from
- * somewhere else should read the way the session will read it.
+ * What was said, in one line for the row that records it: the labels alone,
+ * since the questions are on screen above. Words win over labels, which is the
+ * CLI's own precedence.
  */
 export function choiceOf(reply: Reply | undefined): string {
   const said = reply?.response?.trim();
   if (said) return said;
-  // Every question that was answered at all: by a choice, by a note, or by both.
-  // Keyed off the union rather than off `answers`, because a note on its own is
-  // an answer the CLI reports as `(no option selected)`.
+  // Every question answered at all — by a choice, a note, or both; a note alone
+  // is an answer the CLI reports as `(no option selected)`.
   const asked = new Set([
     ...Object.keys(reply?.answers ?? {}),
     ...Object.keys(reply?.annotations ?? {}),
@@ -126,11 +111,7 @@ export function choiceOf(reply: Reply | undefined): string {
 
 /**
  * Whether every question has been answered — what the send button waits for.
- *
- * ⚠ **A note counts.** The CLI reports a question carrying only a note as
- * `"<question>"=(no option selected) notes: …` and treats it as answered, so a
- * card that insisted on a tap would refuse to send something the session would
- * have accepted — and would do it silently, with a button that just stays grey.
+ * A note counts: the CLI treats a question carrying only a note as answered.
  */
 export function complete(
   questions: readonly Question[],

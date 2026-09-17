@@ -5,34 +5,17 @@ import { Marked, type Tokens } from 'marked';
 import { fetchable, fetchedAt, pictorial } from './picture';
 
 /**
- * A checked and an unchecked task, as characters rather than as controls.
- *
- * ⚠ **The sanitiser will always strip an `<input>`**, which is what GFM emits
- * for `- [x]`. Measured: both `- [x] done` and `- [ ] not` rendered as a plain
- * bullet with a leading space, so the two states were indistinguishable — worse
- * than not supporting task lists at all, because a list that says nothing still
- * looks like it is saying something.
- *
- * Characters rather than a styled span: they survive being copied out of the
- * page, which a box drawn in CSS does not, and this text is quoted into commit
- * messages and notes.
+ * A checked and an unchecked task, as characters: the sanitiser strips the
+ * `<input>` GFM emits, which left the two states indistinguishable. Characters
+ * survive being copied out of the page, which a CSS box does not.
  */
 const TICKED = '☑';
 const UNTICKED = '☐';
 
 /**
- * The class a picture link carries, and what session-view watches for.
- *
- * The mark travels in the class rather than in a `data-` attribute because this
- * string is sanitised on the way out and again by the `[innerHTML]` binding, and
- * a class is something both keep. The rest of what the tap needs is in the
- * `href`.
- *
- * ⚠ **Not `picture`, which is taken.** That is the button around a picture
- * somebody sent from the phone, and `session-view.scss` styles it and the `img`
- * inside it. Two unrelated things under one class name is a rule that reaches
- * something it was never written for, and an e2e selector that quietly matches
- * twice.
+ * The class a picture link carries, and what session-view watches for. In the
+ * class rather than a `data-` attribute, which the sanitiser and `[innerHTML]`
+ * would strip. Not `picture`, which is the button around a sent picture.
  */
 export const PICTURE = 'picture-link';
 
@@ -46,10 +29,8 @@ function attribute(text: string): string {
 }
 
 /**
- * marked, with the two things it renders that this app renders differently.
- *
- * An instance rather than the global `marked`, so a renderer override here
- * cannot leak into any other use of the library in this app.
+ * marked, with the two things it renders that this app renders differently. An
+ * instance, so a renderer override cannot leak into any other use.
  */
 const renderer = new Marked({
   gfm: true,
@@ -58,24 +39,16 @@ const renderer = new Marked({
     listitem(item: Tokens.ListItem): string {
       const body = this.parser.parse(item.tokens);
       if (!item.task) return `<li>${body}</li>`;
-      // No space added: GFM's own tokeniser leaves the one that followed the
-      // `]`, and adding a second is visible.
+      // No space added: GFM's tokeniser leaves the one that followed the `]`.
       return `<li class="task">${item.checked ? TICKED : UNTICKED}${body}</li>`;
     },
 
     /**
      * A link to a picture points at the console; every other link is untouched.
-     *
-     * ⚠ **GFM already made these anchors** — a bare URL in a sentence is
-     * autolinked, which is why tapping one on the phone did something rather
-     * than nothing. What it did was hand the address to the browser, which
-     * cannot reach the LAN it names. See [[pictorial]].
-     *
-     * The `href` is rewritten rather than only marked, so the tap has somewhere
-     * to go if the handler ever misses it: the console's own origin is a host
-     * the shell keeps in the app, where the original address is one it hands
-     * away. The text of the link is left as it was written — the address is what
-     * a person recognises the render by.
+     * GFM already made these anchors, and tapping one handed the address to a
+     * browser that cannot reach the LAN it names — see [[pictorial]]. The `href` is
+     * rewritten so the tap has somewhere to go if the handler misses it; the text
+     * is left as written.
      */
     link(token: Tokens.Link): string {
       const body = this.parser.parseInline(token.tokens);
@@ -85,24 +58,10 @@ const renderer = new Marked({
     },
 
     /**
-     * `![alt](url)` is drawn as the same link, and not as an `<img>`.
-     *
-     * ⚠ **A transcript that inlines pictures is a transcript that fetches as it
-     * scrolls.** Each one is a megabyte down a tunnel to a phone that may be on
-     * cellular, arriving because somebody scrolled past a sentence — and the
-     * pictures a session writes are renders it is iterating on, so a
-     * conversation accumulates dozens. The links open in one tap and cost
-     * nothing until they are asked for.
-     *
-     * The alt text is the label when there is one, because that is what it was
-     * written to be.
-     *
-     * ⚠ **[[fetchable]] here, where a plain link asks [[pictorial]].** The `!`
-     * is the author saying this is a picture, so an extension has nothing left
-     * to decide — and what a session renders is not always named for what it
-     * is. A link written without the `!` gets the stricter test, because most
-     * links are not pictures and guessing wrong takes a page away from the
-     * browser that could have shown it.
+     * `![alt](url)` is drawn as the same link, not an `<img>`: a transcript that
+     * inlines pictures fetches a megabyte per render as it scrolls, down a tunnel to
+     * a phone. [[fetchable]] here, where a plain link asks [[pictorial]]: the `!` is
+     * the author saying this is a picture.
      */
     image(token: Tokens.Image): string {
       const label = attribute(token.text || token.href);
@@ -113,22 +72,12 @@ const renderer = new Marked({
 });
 
 /**
- * A message as its author wrote it — tables, headings, code and all.
- *
- * Raw characters made an answer arrive as a wall with `## The state, concretely`
- * and `| stream | window |` in it: right, unreadable, and on a four-inch screen
- * that is the same as wrong.
- *
- * **Rendered on the client** because a session's text streams as deltas and is
- * assembled here; rendering upstream would mean re-rendering per delta, or two
- * paths for live and recorded text.
- *
- * ⚠ **Sanitised even though the source is trusted.** A model's output is not a
- * threat model, but it is also whatever a tool result, a file or a web page put
- * in front of that model, any of which can contain a `<script>`. `marked`
- * stopped sanitising in v5, so `SecurityContext.HTML` does it.
- * `bypassSecurityTrustHtml` would also have compiled and is exactly what this
- * must not do.
+ * A message as its author wrote it — tables, headings, code and all. Rendered
+ * on the client because text streams as deltas and is assembled here.
+ * Sanitised even though the source is trusted: a model's output is whatever a
+ * tool result or a web page put in front of it. `marked` stopped sanitising in
+ * v5, so `SecurityContext.HTML` does it; `bypassSecurityTrustHtml` is exactly
+ * what this must not do.
  */
 @Pipe({ name: 'rendered' })
 export class Rendered implements PipeTransform {
@@ -136,9 +85,7 @@ export class Rendered implements PipeTransform {
 
   transform(text: string | undefined): string {
     if (!text) return '';
-    // Synchronous: `marked` can return a promise when extensions ask for it, and
-    // this uses none. `async: false` makes that a type-level fact rather than a
-    // hope.
+    // Synchronous: `async: false` makes it a type-level fact.
     const html = renderer.parse(text, { async: false });
     return this.sanitizer.sanitize(SecurityContext.HTML, html) ?? '';
   }

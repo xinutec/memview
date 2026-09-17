@@ -2,25 +2,11 @@
 //!
 //!     cargo run --release --bin task-lint
 //!
-//! **`dangling-citation`** — a memory cites `#N` and no such task exists. A
-//! dangling id appears whenever a task is deleted, and nothing notices.
-//!
-//! **`closed-but-still-asking`** — a CLOSED ticket whose subject is still phrased
-//! as the open question it was filed with. The subject is what `task list`
-//! prints, so a false one is read far more often than the body that corrects it.
-//!
-//! ⚠ **The nightly, never the pre-commit gate.** Both need the task service, and
-//! the gate runs offline and fast. `claude-sync.sh` already runs on the Mac,
-//! reaches the service, and has a reporting channel — which is the argument
-//! memview#1179 settled, and where `memory-blame` went for the same reason.
-//!
-//! ⚠ **Report, never rewrite.** A subject is somebody's sentence about their own
-//! work; a tool can say the service disagrees with it, and choosing the new
-//! words is not a tool's job (memview#1227).
-//!
-//! ⚠ **The yield is low and that is the honest case for it.** Around 1% of
-//! citations, measured by hand over 207 of them. Its value is catching DRIFT: it
-//! costs nothing to run nightly, and the corpus cannot regress on it.
+//! `dangling-citation`: a memory cites `#N` and no such task exists.
+//! `closed-but-still-asking`: a CLOSED ticket whose subject is still phrased as
+//! its open question. The nightly, never the pre-commit gate, which runs offline
+//! (memview#1179). Report, never rewrite (memview#1227). Yield is ~1% of
+//! citations; the value is catching drift for free.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -29,16 +15,13 @@ use memview::cites::{citations, cited_paths, is_ours, repo_of, still_asks};
 use memview::store::Corpus;
 
 fn main() -> Result<()> {
-    // Refuse a flag this tool does not know, rather than running as if it were
-    // absent (memview#1588).
+    // Refuse a flag this tool does not know (memview#1588).
     memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
     let home = std::env::var("HOME").unwrap_or_default();
     let memory_dir = std::env::var("MEMORY_DIR")
         .unwrap_or_else(|_| format!("{home}/.claude/projects/-Users-pippijn-Code/memory"));
 
-    // One call, not one per id: the service answers the whole question at once,
-    // and 571 lookups over the network would make this the slow step in a
-    // nightly that has none.
+    // One call, not one per id.
     let listed = std::process::Command::new("task")
         .args(["list", "--all", "--done", "--json"])
         .output()
@@ -51,8 +34,8 @@ fn main() -> Result<()> {
     );
     let tasks: Vec<serde_json::Value> = serde_json::from_slice(&listed.stdout)?;
     let known: BTreeSet<u64> = tasks.iter().filter_map(|t| t["id"].as_u64()).collect();
-    // The names the service itself uses, so a qualified citation can be told
-    // from another project's tracker without a list this repo has to maintain.
+    // The names the service itself uses, so a qualified citation can be told from
+    // another project's tracker.
     let ours: BTreeSet<String> = tasks
         .iter()
         .filter_map(|t| t["assignee"]["name"].as_str().map(str::to_string))
@@ -76,16 +59,14 @@ fn main() -> Result<()> {
         }
     }
 
-    // dead-path: what an OPEN task claims still exists in its own repository.
-    //
-    // ⚠ **Open only.** A closed task describes work that finished, and the files
-    // it names are supposed to be gone — flagging those reports history as damage.
+    // dead-path: what an OPEN task claims still exists in its own repository. Open
+    // only — a closed task's files are supposed to be gone.
     let code_root = std::path::PathBuf::from(
         std::env::var("CODE_ROOT").unwrap_or_else(|_| format!("{home}/Code")),
     );
     let mut dead: Vec<(u64, String, String)> = Vec::new();
     let mut paths_checked = 0usize;
-    // ⚠ Reported, so "no findings" cannot mean "nothing was read".
+    // Reported, so "no findings" cannot mean "nothing was read".
     let mut unreadable = 0usize;
     for t in &tasks {
         if t["status"]
@@ -97,8 +78,7 @@ fn main() -> Result<()> {
         let (Some(id), Some(who)) = (t["id"].as_u64(), t["assignee"]["name"].as_str()) else {
             continue;
         };
-        // ⚠ A session with no checkout here says NOTHING about paths. Reporting
-        // its citations as dead would accuse a repo this machine cannot see.
+        // A session with no checkout here says NOTHING about paths.
         let Some(repo) = repo_of(who, &code_root) else {
             continue;
         };
@@ -106,11 +86,9 @@ fn main() -> Result<()> {
             .args(["show", "--json", &id.to_string()])
             .output();
         let Ok(shown) = shown else { continue };
-        // ⚠ **A body that will not parse is COUNTED, never treated as empty.**
-        // `unwrap_or_default()` here would turn a broken service response into a
-        // task with no citations — so a service returning nonsense would report
-        // "every path still exists", which is the loudest possible lie this check
-        // can tell. dev-lint's `rust-serde-swallow` caught exactly that.
+        // A body that will not parse is COUNTED, never treated as empty:
+        // `unwrap_or_default()` would make a broken service report "every path still
+        // exists".
         let body = match serde_json::from_slice::<serde_json::Value>(&shown.stdout) {
             Ok(v) => v["body"].as_str().unwrap_or_default().to_string(),
             Err(_) => {
@@ -140,11 +118,9 @@ fn main() -> Result<()> {
             println!("  #{id:<6} {}", memories.join(", "));
         }
     }
-    // ⚠ **Reported last and separately**: it is the highest-yield rule here by an
-    // order of magnitude, and burying it under the citation counts would read as
-    // a footnote to a check that finds almost nothing.
-    // ⚠ **Said before any verdict.** A run that could not read half the tasks and
-    // found nothing is not a clean run, and the two must never look alike.
+    // Reported last and separately: the highest-yield rule here by an order of
+    // magnitude. Said before any verdict: a run that could not read half the tasks
+    // is not a clean run.
     if unreadable > 0 {
         println!("\n  ⚠ {unreadable} task(s) returned a body that would not parse — NOT checked");
     }
@@ -168,9 +144,7 @@ fn main() -> Result<()> {
         );
     }
 
-    // ⚠ **Closed only.** An open ticket SHOULD still ask its question; that is
-    // what an open ticket is. The claim only becomes false when the status says
-    // the work is finished.
+    // Closed only: an open ticket SHOULD still ask its question.
     let mut asking: Vec<(u64, &str)> = tasks
         .iter()
         .filter(|t| matches!(t["status"].as_str(), Some("done" | "dropped")))

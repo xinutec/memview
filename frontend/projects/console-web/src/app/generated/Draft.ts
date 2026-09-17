@@ -9,22 +9,14 @@ export type Draft = {
  */
 text: string, 
 /**
- * Bumped on every accepted write, and used for ONE thing: ordering a pull.
- * A client's checkpoint is the highest `rev` it has been handed, so this
- * counts across the WHOLE store rather than per conversation — see
- * [`Drafts::apply`], where a per-document counter silently stranded every
- * draft written after another conversation had got ahead.
- *
- * ⚠ **It is NOT what a conflict is judged on** — see [`Drafts::apply`],
- * which compares the text, and says why a revision cannot.
+ * Bumped on every accepted write, and used for ONE thing: ordering a pull. It
+ * counts across the WHOLE store, not per conversation — see [`Drafts::apply`].
+ * It is NOT what a conflict is judged on; the text is.
  */
 rev: number, 
 /**
- * Unix milliseconds.
- *
- * ⚠ **The only thing that distinguishes the two drafts, and deliberately
- * so.** A field naming the writing device was tried and removed: whoever is
- * choosing is standing at one of the two, so "the other one" needs no name,
- * and the useful question is which thought is newer.
+ * Unix milliseconds. The only thing distinguishing the two drafts, deliberately:
+ * whoever is choosing stands at one of the two devices, and the useful question
+ * is which thought is newer.
  */
 at: number, };

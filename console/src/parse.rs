@@ -1,22 +1,12 @@
 //! One `Bash` command, shown as the reader saw it.
 //!
-//! ⚠ **This module renders a walk; it never performs one.** Every figure here
-//! comes out of [`reader::shell_files::trace`], which is the same code path the
-//! index is built from — so a command that attributes a file in the artefact
-//! attributes it here, for the reason shown here. A second walk written for the
-//! view would be free to disagree with the first, and would do it silently: the
-//! view would look right and the index would be wrong, or the reverse, with
-//! nothing to say which.
+//! This module renders a walk and never performs one: every figure comes out of
+//! [`reader::shell_files::trace`], the same path the index is built from, so the
+//! view and the index cannot disagree. Nothing here runs anything.
 //!
-//! ⚠ **Nothing in this module runs anything.** The text arrives, is parsed, and
-//! is described. That is worth stating because everything it describes is a
-//! command that *did* run, and the difference is one careless `Command::new`
-//! away.
-//!
-//! The working directory is not the client's to supply — it comes from the
-//! session, because a relative path resolves against it and a caller who could
-//! choose it could make this view say anything. Where it is not known, it is
-//! `None` and only absolute paths survive, exactly as in the miner.
+//! The working directory comes from the session, not the client: a caller who
+//! could choose it could make this view say anything. Unknown, only absolute
+//! paths survive, as in the miner.
 
 use serde::{Deserialize, Serialize};
 
@@ -31,35 +21,27 @@ use reader::shell_ops::{GitOp, Op};
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct Asked {
     pub command: String,
-    /// The tool result's own verdict, when the call has returned. `None` while
-    /// it is still running — which is a real state and not a synonym for
-    /// success, so it is carried rather than guessed.
+    /// The tool result's own verdict, when the call has returned. `None` while it is
+    /// still running — a real state, not a synonym for success.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub ok: Option<bool>,
 }
 
-/// The parse, flat, in running order.
-///
-/// Flat with a `depth` on each line rather than a tree of children, because the
-/// one client is a phone: a tree costs a level of indentation per nesting and
-/// there is no width to spend on it, while a flat list scrolls.
+/// The parse, flat, in running order, with a `depth` per line: the one client is
+/// a phone, and a tree costs indentation there is no width for.
 #[derive(Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct Parsed {
-    /// Why the grammar could not read it, when it could not. A parse failure is
-    /// shown rather than smoothed over — 0.4% of the corpus's calls fail, and a
-    /// view that quietly returned no steps for them would be reporting an empty
-    /// command instead of an unread one.
+    /// Why the grammar could not read it, when it could not. Shown rather than
+    /// smoothed over: an empty command and an unread one are different reports.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub error: Option<String>,
     pub steps: Vec<Line>,
-    /// Commands whose operation is not in the table, by name and count. Named
-    /// here for the same reason the report names them: it is the honest size of
-    /// what this cannot read, and on one command it is usually the answer to
-    /// "why did nothing come out".
+    /// Commands whose operation is not in the table, by name and count — on one
+    /// command, usually the answer to "why did nothing come out".
     pub unread: Vec<Unread>,
     /// Commands that exist because a determinate loop was run out. Shown because
     /// a reader counting lines will otherwise find more steps than they wrote.
@@ -119,31 +101,19 @@ pub struct Line {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub cwd: Option<String>,
-    /// What the command was FOR, as a sentence — the L4 concept, when a lens
-    /// can say ([`reader::concept::describe`], `docs/concept-model.md`).
+    /// What the command was FOR, as a sentence — the L4 concept, when a lens can say
+    /// ([`reader::concept::describe`], `docs/concept-model.md`).
     ///
-    /// ⚠ **Absent is the honest miss, and it must stay visible as one.**
-    /// Approval today reads argv, which means it reads *spelling*, and every
-    /// payload trap in the corpus is a spelling that hides the act. Where no
-    /// lens covers a command this says nothing at all and the chip and `says`
-    /// below carry the L2/L3 reading instead — a command with no concept stays
-    /// a counted leaf rather than being absorbed into a catch-all, which is the
-    /// same refusal the parser makes about a construct it has not been taught.
-    ///
-    /// ⚠ **Its unit is the ROW, not the step, and the two differ fivefold.**
-    /// 13.06% of steps lift; `Page` alone covers 148,883 of 206,314 corpus rows
-    /// (72%), and a row is what a person approves. Quoting the step rate at a
-    /// card is the same unit error the census itself warns about.
+    /// Absent is the honest miss: a command no lens covers stays a counted leaf with
+    /// the chip and `says` carrying the L2/L3 reading, rather than a catch-all. Its
+    /// unit is the ROW a person approves, not the step; the two rates differ fivefold.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub concept: Option<String>,
     /// The operation, in one or two words, for the chip.
     pub kind: &'static str,
-    /// The stable key behind that chip, for styling.
-    ///
-    /// ⚠ **Separate from `kind` so the wording is free to change.** The chip's
-    /// colour selects on this; while the two were one field, improving a label
-    /// silently dropped its colour.
+    /// The stable key behind that chip, for styling. Separate from `kind` so the
+    /// wording is free to change without dropping the colour.
     pub key: &'static str,
     /// What that operation says that its paths do not — the pattern a search
     /// looked for, the program a transform applied, the name of a command
@@ -161,14 +131,10 @@ pub struct Used {
     pub write: bool,
     /// What the *text* said had to hold.
     pub reached: Reach,
-    /// Whether the text's condition and the call's own outcome together make
-    /// this certain — [`Verdict::admits`].
-    ///
-    /// ⚠ **One-sided, and the view must not round it.** `false` means "cannot
-    /// say", never "did not happen". It is the only field here that is not a
-    /// property of the command alone, and it is the reason the whole view exists:
-    /// a command can parse perfectly, classify correctly, name the right path,
-    /// and still attribute nothing.
+    /// Whether the text's condition and the call's outcome together make this
+    /// certain — [`Verdict::admits`]. One-sided: `false` means "cannot say", never
+    /// "did not happen". It is the reason the view exists — a command can parse, name
+    /// the right path, and still attribute nothing.
     pub certain: bool,
     /// The machine it is on, for a use that is not local.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -185,12 +151,8 @@ pub fn parsed(asked: &Asked, cwd: Option<&str>, home: &str) -> Parsed {
     };
     let commands = match reader::project::read(&asked.command) {
         Ok(commands) => commands,
-        // ⚠ **The construct, in the words the label was written in.** The flat
-        // grammar handed back the TEXT it gave up at, and the sheet's sentence
-        // was built around that — "stopped at `>/dev/tcp/…`". This reader knows
-        // something better, the construct it was looking at, but `{:?}` on it
-        // spells a Rust identifier: "stopped at `Grouping`". `Reason::label` is
-        // the phrase a person reads, and the sheet's wording now fits it.
+        // The construct, in the words the label was written in: `{:?}` would spell a
+        // Rust identifier, and `Reason::label` is the phrase a person reads.
         Err(refusal) => {
             let at = refusal.reason.label().to_string();
             return Parsed {
@@ -230,10 +192,8 @@ fn line(step: &Step, verdict: Verdict) -> Line {
         reached: step.reached.into(),
         scope: step.scope.clone(),
         cwd: step.cwd.clone(),
-        // ⚠ **`.ok()` and no more.** The refusal (`concept::Why`) is census
-        // material — it ranks what to build next — and putting it on a card
-        // would explain the reader to a person deciding about a command. The
-        // honest miss is the concept being absent, not a reason for it.
+        // `.ok()` and no more: the refusal (`concept::Why`) is census material, and on a
+        // card it would explain the reader rather than the command.
         concept: reader::concept::lift(step)
             .ok()
             .map(|concept| reader::concept::describe(&concept)),
@@ -254,11 +214,8 @@ fn local_use(used: &FileUse, verdict: Verdict) -> Used {
     }
 }
 
-/// ⚠ **A remote use is never `certain`.** The verdict belongs to the local call,
-/// and what it says about a command that ran on another machine is nothing:
-/// `ssh host 'a && b'` reports one status for the whole payload. Marking these
-/// uncertain is not caution, it is the same rule that keeps them out of the
-/// local index.
+/// A remote use is never `certain`: `ssh host 'a && b'` reports one status for
+/// the whole payload. The same rule keeps them out of the local index.
 fn away_use(used: &RemoteUse) -> Used {
     Used {
         path: used.path.clone(),
@@ -269,12 +226,9 @@ fn away_use(used: &RemoteUse) -> Used {
     }
 }
 
-/// The operation as a label and a phrase.
-///
-/// The phrase carries what the paths cannot: `grep hsmmDecode src/x.ts` and
-/// `cat src/x.ts` project to the same single read, and the difference between
-/// them — that one was looking for something — is the whole reason
-/// [`reader::shell_ops`] is a typed operation rather than a path table.
+/// The operation as a label and a phrase. The phrase carries what the paths
+/// cannot: `grep x f` and `cat f` project to the same read, and that one was
+/// looking for something is why [`reader::shell_ops`] is a typed operation.
 fn described(op: Option<&Op>) -> (reader::reading::Naming, String) {
     let Some(op) = op else {
         return (
@@ -286,10 +240,8 @@ fn described(op: Option<&Op>) -> (reader::reading::Naming, String) {
             String::new(),
         );
     };
-    // ⚠ **The words come from `reader::reading::naming`, not from here.** This
-    // function decides only what a step SAYS beyond its paths; what the
-    // operation is CALLED is one table shared with the viewer, because two
-    // exhaustive matches over one enum both compile and can still disagree.
+    // The words come from `reader::reading::naming`: one table shared with the
+    // viewer, because two exhaustive matches over one enum can still disagree.
     let naming = reader::reading::naming(op);
     let says = match op {
         Op::Remove { recursive, .. } => if *recursive { "recursive" } else { "" }.to_string(),
@@ -303,19 +255,14 @@ fn described(op: Option<&Op>) -> (reader::reading::Naming, String) {
                 program.clone()
             }
         }
-        // ⚠ **The script is not repeated as a phrase.** It is already the one
-        // file a `Run` projects to, so saying it twice costs two lines of a
-        // 412px screen to tell a reader the same absolute path they are looking
-        // at. Found by reading the runner's own output for a real command.
+        // The script is not repeated as a phrase: it is already the one file a `Run`
+        // projects to, and a 412px screen has no room to say it twice.
         Op::Run { .. } => String::new(),
         // The script itself is not repeated: its commands are the steps below
         // this one, which is a better answer than the text they came from.
         Op::Nested { .. } | Op::Python { .. } | Op::JavaScript { .. } => String::new(),
-        // ⚠ **Names the TABLES, not the statements.** The step's subject line is
-        // what the command acted on, and for every other verb that is a path;
-        // for this one it is a table, which is the only place in this sheet a
-        // subject is not a file. Saying "sql" and nothing else would leave the
-        // one interesting fact — which table — off the screen.
+        // Names the TABLES: for every other verb the subject is a path, and "sql" alone
+        // would leave the one interesting fact off the screen.
         Op::Sql { source, .. } => {
             let queried = reader::sql::read(source);
             let mut named: Vec<&str> = queried
@@ -327,9 +274,8 @@ fn described(op: Option<&Op>) -> (reader::reading::Naming, String) {
             named.dedup();
             named.join(", ")
         }
-        // The same line for both payload shapes: a reader watching a step wants
-        // the machine, and whether the far side had a shell is a fact about how
-        // the payload was READ, not about what happened.
+        // The same line for both payload shapes: whether the far side had a shell is a
+        // fact about how the payload was READ, not about what happened.
         Op::Remote { host, .. } | Op::RemoteRun { host, .. } => host.clone(),
         Op::ChangeDir { to } => to
             .clone()

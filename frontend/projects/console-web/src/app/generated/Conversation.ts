@@ -13,37 +13,23 @@ id: string,
  */
 dir: string, 
 /**
- * When anything last happened in it, in milliseconds since the epoch.
- *
- * ⚠ **From the last line of the conversation, not from the file's date** —
- * see [`last_moved`]. Picking a transcript up writes to it without anybody
- * saying anything, so the two differ by exactly the gap this console kept
- * getting wrong.
+ * When anything last happened in it, in milliseconds since the epoch — from the
+ * last line of the conversation, not the file's date; see [`last_moved`].
  */
 modified: number, 
 /**
- * How much was said. A rough weight, and the cheap one: counting turns means
- * reading the whole file, and these reach tens of megabytes.
+ * How much was said. A rough weight, and the cheap one.
  */
 bytes: number, 
 /**
- * What the conversation calls itself — `music`, `health` — or none when it
- * never took a name. A hex prefix identifies a transcript; only this
- * identifies the *work*.
+ * What the conversation calls itself — `music`, `health` — or none. A hex prefix
+ * identifies a transcript; only this identifies the work.
  */
 name: string | null, 
 /**
- * How full the context was at the last request the transcript records, in
- * tokens — the same quantity a running session reports for itself.
- *
- * ⚠ **No window to divide it by.** The size of the context window is
- * declared on the result line, which lives on the CLI's stdout and never in
- * the file, so a conversation that is not running can say how full it is and
- * not what it is full of. The client shows the count alone for these.
- *
- * `None` when the tail read finds no assistant message — a conversation
- * that ended on a large tool result can push the last one out of
- * [`TAIL_BYTES`], and no number is the honest answer there.
+ * How full the context was at the last request recorded, in tokens. No window
+ * to divide by: that is declared on the CLI's stdout, never in the file. `None`
+ * when the tail holds no assistant message.
  */
 context?: number, 
 /**

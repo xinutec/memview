@@ -19,18 +19,10 @@ export interface StartWhere {
 }
 
 /**
- * Start a session, from behind the one control that offers it.
- *
- * **A sheet rather than a card on the page, because of how often this is
- * wanted.** The list is what the console is opened for — a dozen conversations,
- * scanned for the one that is waiting — and starting a new one is rare beside
- * that. The form was the first thing on the page and the first thing scrolled
- * past, taking a screenful of a phone with it every time.
- *
- * It carries its own trouble rather than reporting up: this is the one place its
- * failures can be read without the sheet having to close first, and a refusal
- * here — a directory outside the allow list — is answered by editing the field
- * that caused it.
+ * Start a session, from behind the one control that offers it. A sheet: the
+ * list is what the console is opened for and starting is rare, yet the form
+ * was the first thing on the page. It carries its own trouble, since a refusal
+ * — a directory outside the allow list — is answered by editing the field.
  */
 @Component({
   selector: 'app-start-sheet',
@@ -50,33 +42,19 @@ export class StartSheet {
   private sheet = inject(MatBottomSheetRef<StartSheet>);
 
   /**
-   * Prefilled with the directory this machine's conversations are actually
-   * started in — one less thing to type on a phone, and still editable, since
-   * the field carries the whole list as its suggestions.
-   *
-   * ⚠ **It used to be `repos[0]`**, the first repository alphabetically. That is
-   * a real directory and a plausible-looking default, which is what made it
-   * quietly wrong: nothing had ever been started there, so the commonest action
-   * was to notice and retype it.
+   * Prefilled with the directory conversations are actually started in. It used
+   * to be `repos[0]`, alphabetically first — plausible-looking and wrong.
    */
   protected readonly dir = signal(this.given.common ?? this.repos[0] ?? '');
 
   /**
-   * The repositories worth offering for what has been typed so far.
-   *
-   * ⚠ **Matched on the last path element, not the whole value.** Every
-   * repository here lives under `~/Code`, which is also what the field opens on
-   * — so a whole-value match offers all twenty-four of them the moment the sheet
-   * is opened, which is exactly what a native `<datalist>` did.
-   *
-   * Nothing is called `Code`, so the default offers nothing at all; typing `mem`
-   * still finds `memview`. An empty field offers everything, which is right —
-   * and is why the panel is height-capped rather than merely short.
+   * The repositories worth offering for what has been typed so far, matched on
+   * the last path element: every repository lives under `~/Code`, which is what
+   * the field opens on, so a whole-value match offered all of them at once.
    */
   protected readonly suggestions = computed(() => {
     const whole = this.dir().trim();
-    // Nothing to suggest once the answer is typed: a row identical to what is
-    // already in the field can only take space.
+    // Nothing to suggest once the answer is typed.
     if (this.repos.some((repo) => repo === whole)) return [];
     const typed = whole.split('/').filter(Boolean).at(-1)?.toLowerCase() ?? '';
     return this.repos.filter((repo) => this.shortened(repo).toLowerCase().includes(typed));
@@ -95,13 +73,11 @@ export class StartSheet {
     if (!dir || this.starting()) return;
     this.starting.set(true);
     this.trouble.set('');
-    // No opening instruction: the sheet navigates straight to the session, where
-    // the composer is. See the note in the template.
+    // No opening instruction: the sheet navigates straight to the session.
     this.api.start(dir, '').subscribe({
       next: (session) => {
         this.starting.set(false);
-        // Closed before navigating: the sheet is a sibling of the router outlet
-        // and would otherwise sit over the session it just started.
+        // Closed before navigating: the sheet is a sibling of the router outlet.
         this.sheet.dismiss();
         void this.router.navigate(['/s', session.id]);
       },

@@ -1,27 +1,14 @@
 //! Conversations that have already happened, and could be picked up again.
 //!
-//! The console starts processes; it cannot attach to one. A `claude` running in a
-//! terminal has its stdin held by the terminal, and one started with
-//! `--remote-control` talks to Anthropic over HTTPS with no local endpoint at all
-//! — measured, not assumed: no listening socket and no named socket anywhere
-//! under `~/.claude`. So *reaching an existing conversation* means resuming its
-//! transcript in a process of our own, and this is the list of what there is to
-//! resume.
+//! The console starts processes; it cannot attach to one — a `claude` in a
+//! terminal has its stdin, and `--remote-control` talks to Anthropic with no local
+//! endpoint. Reaching a conversation means resuming its transcript in a process
+//! of our own.
 //!
-//! ## Read from the transcripts, not from a name we compute
-//!
-//! Claude Code files transcripts under `~/.claude/projects/<slug>/<id>.jsonl`,
-//! where the slug is the working directory with its separators flattened. That
-//! encoding is undocumented, so this does not reproduce it: it walks the
-//! directories and reads each transcript's own record of its `cwd` instead. A
-//! guessed encoding is wrong silently and only for the paths nobody tested —
-//! a directory with a dot in it, say — and the failure looks like "there are no
-//! past sessions here" rather than like a bug.
-//!
-//! ⚠ The `cwd` is **not** on the first line. Every line of the conversation
-//! carries it and every line of the opening metadata omits it, so the search is
-//! "read until one appears", bounded by bytes — see [`BYTES_TO_FIND_CWD`] for why
-//! bounding it by a number of lines cannot be right at any value.
+//! Transcripts live under `~/.claude/projects/<slug>/<id>.jsonl`, where the slug is
+//! an undocumented flattening of the working directory. This does not reproduce
+//! it: it walks the directories and reads each transcript's own `cwd`, which is
+//! not on the first line — see [`BYTES_TO_FIND_CWD`].
 
 use std::path::{Path, PathBuf};
 
@@ -36,31 +23,17 @@ pub struct Conversation {
     pub id: String,
     /// Where it was running. Resuming has to happen in the same place.
     pub dir: String,
-    /// When anything last happened in it, in milliseconds since the epoch.
-    ///
-    /// ⚠ **From the last line of the conversation, not from the file's date** —
-    /// see [`last_moved`]. Picking a transcript up writes to it without anybody
-    /// saying anything, so the two differ by exactly the gap this console kept
-    /// getting wrong.
+    /// When anything last happened in it, in milliseconds since the epoch — from the
+    /// last line of the conversation, not the file's date; see [`last_moved`].
     pub modified: u64,
-    /// How much was said. A rough weight, and the cheap one: counting turns means
-    /// reading the whole file, and these reach tens of megabytes.
+    /// How much was said. A rough weight, and the cheap one.
     pub bytes: u64,
-    /// What the conversation calls itself — `music`, `health` — or none when it
-    /// never took a name. A hex prefix identifies a transcript; only this
-    /// identifies the *work*.
+    /// What the conversation calls itself — `music`, `health` — or none. A hex prefix
+    /// identifies a transcript; only this identifies the work.
     pub name: Option<String>,
-    /// How full the context was at the last request the transcript records, in
-    /// tokens — the same quantity a running session reports for itself.
-    ///
-    /// ⚠ **No window to divide it by.** The size of the context window is
-    /// declared on the result line, which lives on the CLI's stdout and never in
-    /// the file, so a conversation that is not running can say how full it is and
-    /// not what it is full of. The client shows the count alone for these.
-    ///
-    /// `None` when the tail read finds no assistant message — a conversation
-    /// that ended on a large tool result can push the last one out of
-    /// [`TAIL_BYTES`], and no number is the honest answer there.
+    /// How full the context was at the last request recorded, in tokens. No window
+    /// to divide by: that is declared on the CLI's stdout, never in the file. `None`
+    /// when the tail holds no assistant message.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub context: Option<u64>,
@@ -68,32 +41,15 @@ pub struct Conversation {
     pub busy: bool,
 }
 
-/// How much of a transcript to read while looking for its working directory.
-///
-/// ⚠ **A budget in bytes, and it took two wrong answers to get here.** This was a
-/// count of lines — 16, then 64 — and a count of lines cannot be right at any
-/// value, because the number of lines before the first conversation line is data
-/// rather than format. A transcript opens with metadata that carries no `cwd`
-/// (`mode`, `permission-mode`, `queue-operation`, `file-history-snapshot`) and how
-/// many of those there are depends on how many files the session had open. Twelve
-/// of the thirteen transcripts on this machine reach `cwd` inside 1 KB; one opens
-/// with twelve `file-history-snapshot` lines and reaches it at **456 KB**. At 16
-/// that conversation was missing from the list entirely, and 64 would have hidden
-/// the next session that happened to hold thirty files instead of twelve.
-///
-/// Bytes are what the bound is for: these files reach gigabytes, and the promise
-/// worth making is "never read much of one", which is a statement about cost. A
-/// line count dressed that up as a statement about the format, and the format
-/// does not support it. Set well past the largest opening seen — headroom is
-/// cheap here, and being short is invisible.
+/// How much of a transcript to read while looking for its working directory. A
+/// budget in bytes, not lines: the opening metadata carries no `cwd`, and how
+/// many such lines there are depends on how many files the session had open — one
+/// transcript reaches it at 456 KB. Well past the largest opening seen.
 const BYTES_TO_FIND_CWD: u64 = 4 * 1024 * 1024;
 
-/// How much of the end of a transcript to read when looking for its name.
-///
-/// From the **end**, because a session is renamed as its job changes and the
-/// current name is the one worth showing. The name lines are re-emitted every
-/// turn, so the last few kilobytes always carry several — and reading a whole
-/// multi-gigabyte transcript to learn one word is not a trade worth making.
+/// How much of the end of a transcript to read when looking for its name. From
+/// the END: a session is renamed as its job changes, and the name lines are
+/// re-emitted every turn.
 const TAIL_BYTES: u64 = 128 * 1024;
 
 /// Where Claude Code keeps its transcripts.
@@ -106,44 +62,22 @@ pub fn projects_root() -> PathBuf {
         .join("projects")
 }
 
-/// The directories a conversation is not worth listing from.
-///
-/// Three prefixes rather than one because they are the same place: `/tmp` is a
-/// symlink to `/private/tmp` on macOS, so which of the two a transcript records
-/// depends on how its process was started, and `$TMPDIR` is a third path again
-/// under `/var/folders`. Checking one of them is the version that looks right and
-/// silently misses.
+/// The directories a conversation is not worth listing from. Three prefixes for
+/// one place: `/tmp` is a symlink to `/private/tmp`, and `$TMPDIR` is a third
+/// path under `/var/folders`.
 const DISPOSABLE: [&str; 3] = ["/tmp/", "/private/tmp/", "/var/folders/"];
 
-/// Whether this is a conversation the console made while testing itself.
-///
-/// The spawner takes a working directory, and pointing it at a scratchpad is how
-/// its own behaviour gets tested. Claude Code files transcripts per working
-/// directory, so every probe became a project directory beside the real ones —
-/// nine of them from one afternoon, one to five turns each, and nothing in the
-/// list distinguished them from a conversation worth picking up.
-///
-/// Judged on the working directory a transcript records, not on the name of the
-/// folder holding it, for the reason this module opens with: the folder-name
-/// encoding is undocumented and a guess at it is wrong silently.
-///
-/// ⚠ This hides a conversation that genuinely ran from a temporary directory. It
-/// is a display filter and nothing more — [`transcript_of`] still finds any
-/// session by id, so such a conversation stays resumable by name; it just stops
-/// competing for room on a phone screen with the repositories this exists to get
-/// back to.
+/// Whether this is a conversation the console made while testing itself — every
+/// probe becomes a project directory beside the real ones. Judged on the recorded
+/// working directory, not the folder name. A display filter only:
+/// [`transcript_of`] still finds any session by id.
 fn disposable(dir: &str) -> bool {
     DISPOSABLE.iter().any(|temp| dir.starts_with(temp))
 }
 
-/// Every id that has a transcript under `root`, filtered by nothing.
-///
-/// ⚠ **Deliberately not [`conversations`].** That one is a display list: it
-/// leaves out anything that ran from a temporary directory, and reads each file
-/// to learn what it is. This is the plain question of which conversations exist,
-/// asked by the housekeeping that deletes things — see [`crate::images::tidy`],
-/// where using the display list instead would throw away the pictures belonging
-/// to a conversation that was only ever hidden.
+/// Every id that has a transcript under `root`, filtered by nothing — unlike
+/// [`conversations`], the display list. Asked by the housekeeping that deletes;
+/// see [`crate::images::tidy`].
 pub fn transcript_ids(root: &Path) -> std::collections::BTreeSet<String> {
     std::fs::read_dir(root)
         .into_iter()
@@ -153,8 +87,8 @@ pub fn transcript_ids(root: &Path) -> std::collections::BTreeSet<String> {
         .flat_map(|project| std::fs::read_dir(project.path()).into_iter().flatten())
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
-        // The extension, for the reason [`transcript_of`] gives at length: there
-        // is a directory beside each transcript with the same name.
+        // The extension, for the reason [`transcript_of`] gives: a directory sits beside
+        // each transcript with the same name.
         .filter(|path| reader::transcript::is_transcript(path))
         .filter_map(|path| {
             path.file_stem()
@@ -176,8 +110,7 @@ pub fn conversations(root: &Path) -> Vec<Conversation> {
         .filter_map(|entry| read(&entry.path()))
         .filter(|conversation| !disposable(&conversation.dir))
         .collect();
-    // Newest first: the one worth picking up again is almost always the last
-    // one that was open.
+    // Newest first: the one worth picking up is almost always the last one open.
     found.sort_by_key(|conversation| std::cmp::Reverse(conversation.modified));
     let running = arguments();
     for conversation in &mut found {
@@ -188,30 +121,17 @@ pub fn conversations(root: &Path) -> Vec<Conversation> {
 
 /// Whether a conversation looks like somebody else's already.
 ///
-/// **There is no first-party answer**, which is why it is inferred. Claude Code
-/// holds no handle on the transcript, writes no lock or pid file, and leaves
-/// `~/.claude/daemon/roster.json` empty for `--remote-control` sessions.
+/// There is no first-party answer — Claude Code holds no handle and writes no
+/// lock — so the one signal is a running `claude` naming it, by id or by name,
+/// in whole arguments of processes that really are `claude`; see
+/// [`words_of_claude_processes`].
 ///
-/// **One signal: a running `claude` names it** — by session id or by the name it
-/// currently goes by. Matched against whole arguments of processes that really
-/// are `claude`; see [`words_of_claude_processes`] for why both halves matter.
-///
-/// ⚠ **Freshness is NOT a second signal.** Treating a recently written
-/// transcript as in use made every conversation this console had just stopped
-/// look busy for two minutes — the exact moment somebody wants it back. Nothing
-/// on this machine runs `claude` except this console, and what it runs it kills
-/// on the way out, so the process table is accurate when it matters.
-///
-/// The remaining risk is a session started outside the console whose command
-/// line names neither its id nor its name: it reads as free and could be resumed
-/// underneath. Freshness guarded that, and charged everybody two minutes for it.
+/// Freshness is NOT a second signal: it made every conversation this console had
+/// just stopped look busy for two minutes. The remaining risk is a session
+/// started outside the console whose command line names neither.
 pub fn in_use(conversation: &Conversation, running: &Running) -> bool {
-    // ⚠ **Could not ask, so cannot say it is free.** The alternative is what
-    // this was: an unanswerable question read as "nothing is running", which
-    // declares every conversation resumable at exactly the moment the evidence
-    // is missing. Held busy is visible and recoverable — the console says so and
-    // refuses — where the other direction puts two processes on one transcript
-    // and neither sees the other's turns.
+    // Could not ask, so cannot say it is free. Held busy is visible and recoverable;
+    // the other direction puts two processes on one transcript.
     let Running::Asked(running) = running else {
         return true;
     };
@@ -224,15 +144,9 @@ pub fn in_use(conversation: &Conversation, running: &Running) -> bool {
     })
 }
 
-/// What the process table said, or that it could not be asked.
-///
-/// ⚠ **Two states, because collapsing them removed the guard in silence**
-/// (memview#1457). [`arguments`] returned `Vec::new()` for three unrelated
-/// reasons — no `USER`, `ps` failing, and nothing actually running — so
-/// [`in_use`] answered `false` for EVERY conversation and each one read as free.
-/// Two processes then land on one transcript, which is precisely the risk
-/// [`in_use`]'s own doc calls "the risk that remains". An empty answer is never
-/// evidence that nothing is running.
+/// What the process table said, or that it could not be asked. Two states,
+/// because collapsing them removed the guard in silence (memview#1457): an empty
+/// answer is never evidence that nothing is running.
 pub enum Running {
     /// `ps` answered. Empty means nothing is running, which is a real answer.
     Asked(Vec<String>),
@@ -241,19 +155,11 @@ pub enum Running {
 }
 
 /// Every argument of every `claude` this user is running, as separate words.
-///
-/// Shelled out to rather than taken from a crate: the alternative is a process
-/// -inspection dependency in a binary whose whole job is to be small, to answer a
-/// question `ps` already answers.
-///
-/// ⚠ **Failing to ask is [`Running::Unasked`], never an empty list.** An empty
-/// list once meant "the freshness check stands alone" — and that check is gone
-/// (see [`in_use`]), so there is nothing to fall back to.
+/// Shelled out rather than a crate. Failing to ask is [`Running::Unasked`], never
+/// an empty list.
 fn arguments() -> Running {
     let Ok(user) = std::env::var("USER") else {
-        // ⚠ Loud, because being silent was the whole defect. launchd DOES inject
-        // `USER` — verified with `ps -E` against the live console, where
-        // `launchctl print` shows only the job's own overrides and lists none.
+        // Loud, because silence was the defect. launchd does inject `USER`.
         tracing::warn!("cannot read USER — holding every conversation busy");
         return Running::Unasked;
     };
@@ -272,18 +178,10 @@ fn arguments() -> Running {
     )))
 }
 
-/// The words of the command lines that actually *are* `claude`.
-///
-/// ⚠ Not "lines mentioning claude". Every shell Claude Code spawns for a command
-/// sources a snapshot under `~/.claude/`, so its whole command line — the command
-/// included — matches that substring. A session called `utterance` was then held
-/// as in use by any command anywhere on this machine that happened to contain the
-/// word: `grep utterance`, `cd utterance`, this function being tested. The name is
-/// the thing conversations are chosen by, so the false match landed exactly where
-/// it hurt.
-///
-/// So the executable is what decides: the first word's last path element must be
-/// `claude`. Arguments are read only from those lines.
+/// The words of the command lines that actually ARE `claude`: every shell Claude
+/// Code spawns sources a snapshot under `~/.claude/`, so `grep utterance` held a
+/// session called `utterance` as in use. The first word's last path element
+/// decides.
 pub fn words_of_claude_processes(ps_output: &str) -> Vec<String> {
     ps_output
         .lines()
@@ -298,55 +196,24 @@ pub fn words_of_claude_processes(ps_output: &str) -> Vec<String> {
         .collect()
 }
 
-/// How much of a transcript's end to replay when picking it up.
-///
-/// Generous where the name-reading tail is not: this is what somebody reads to
-/// remember where they were, and a conversation cut off mid-tool-call is worse
-/// than one that starts a little early. Still bounded — these files reach tens of
-/// megabytes, and the last few hundred kilobytes are the last few dozen turns.
+/// How much of a transcript's end to replay when picking it up. Generous: a
+/// conversation cut off mid-tool-call is worse than one starting a little early.
 const REPLAY_BYTES: u64 = 512 * 1024;
 
-/// And how many events of it to keep, whatever that came to.
-///
-/// The byte cap is about the file; this is about the screen. One tool call with a
-/// large result can be most of a megabyte on its own, so bytes alone are a poor
-/// proxy for how much conversation was recovered.
+/// And how many events of it to keep: one tool call can be most of a megabyte,
+/// so bytes alone say little about how much conversation was recovered.
 const REPLAY_EVENTS: usize = 400;
 
-/// What a live session calls itself, read from the transcript it is writing.
-///
-/// The name is not on the wire — the CLI writes `customTitle`/`agentName` to
-/// its transcript and announces neither on stdout — so a running session can
-/// only be named by reading the file it is filling in. Read per request rather
-/// than cached because a session is renamed as its job changes, and a stale
-/// name on screen is worse than none: it says the wrong thing confidently.
-///
-/// Cheap despite the file being enormous: [`tail_of`] reads the last
-/// [`TAIL_BYTES`] and no more.
-/// When this session last did anything, from the transcript it is writing.
-///
-/// ⚠ **The question the list actually asks.** A session's `started` is when this
-/// console picked the process up — carried across an in-place upgrade, reset by a
-/// restart — and for a long conversation the two are nothing like each other:
-/// the console's own session showed `13h ago` on a card whose transcript had been
-/// written to four seconds earlier. Every turn appends, so the file's modification
-/// time is the last moment anything happened, and it is the same quantity a
-/// conversation on disk reports — which is what lets one column mean one thing.
-///
-/// `None` rather than zero when there is no transcript: a missing date is a
-/// thing a client can decline to render, where the epoch is a date it would
-/// render as half a century ago.
+/// When this session last did anything, from the transcript it is writing — the
+/// question the list actually asks. `started` is when this console picked the
+/// process up, which for a long conversation is hours off. `None` rather than
+/// zero when there is no transcript.
 pub fn touched(root: &Path, id: &str) -> Option<u64> {
     Some(about(root, id)?.touched)
 }
 
-/// What a live session's transcript says about it, in one read.
-///
-/// The roster wants all three for every session on every poll, and they come off
-/// one `stat` and one tail read between them — see [`tail_of`]. Asking
-/// separately would be three passes over the same bytes and, worse, three
-/// answers taken at three different moments over a file that is being appended
-/// to.
+/// What a live session's transcript says about it, in one read: one `stat` and
+/// one tail read for all three, taken at one moment over a file being appended to.
 #[derive(Debug)]
 pub struct About {
     pub name: Option<String>,
@@ -367,24 +234,12 @@ pub fn about(root: &Path, id: &str) -> Option<About> {
     })
 }
 
-/// When this conversation last did anything.
-///
-/// ⚠ **Not the file's own date, and the difference is not academic.** Picking a
-/// conversation up appends to it: `mode`, `permission-mode` and `bridge-session`
-/// lines go in at the moment of resume, none of them anything anybody said. So
-/// a conversation opened after days is stamped as of that second, and a list
-/// dated by the file says `just now` about one nobody has spoken to.
-///
-/// So the date comes from the last line of the transcript that *is* a
-/// conversation — which [`crate::protocol::read_recorded`] already knows how to
-/// tell apart, since it yields nothing for the metadata. The file's own date is
-/// the fallback for a transcript whose tail holds no such line at all, which a
-/// conversation ending in a very large tool result can manage.
-///
-/// ⚠ An earlier version of this compared the file's *size* against what it was
-/// when the session picked it up, on the reasoning that nothing is said without
-/// being appended. True, and not enough: things nobody said are appended too,
-/// which is exactly what those three lines are.
+/// When this conversation last did anything. Not the file's date: picking a
+/// conversation up appends `mode`, `permission-mode` and `bridge-session` lines,
+/// none of them anything anybody said, and a list dated by the file said `just
+/// now` about one nobody had spoken to. So: the last line that IS conversation,
+/// which [`crate::protocol::read_recorded`] tells apart; the file's date only when
+/// the tail holds none.
 fn last_moved(tail: &Tail, meta: &std::fs::Metadata) -> u64 {
     if let Some(spoke) = tail.spoke {
         return spoke.max(0) as u64;
@@ -411,22 +266,14 @@ pub struct Material {
     pub recent: Vec<String>,
 }
 
-/// How much of one line of conversation to keep.
-///
-/// A summariser needs the shape of what was said, not the whole of it, and one
-/// pasted stack trace would otherwise be the entire budget.
+/// How much of one line of conversation to keep: a summariser needs the shape,
+/// and one pasted stack trace would otherwise be the whole budget.
 const LINE: usize = 400;
 
-/// Read a conversation down to what it is about.
-///
-/// ⚠ **Prompts and replies only.** Tool calls and their results are most of the
-/// bytes in any working transcript and almost none of the subject — a hundred
-/// `Bash` lines say a build was run, not what it was for. Dropping them is what
-/// makes a few thousand characters enough.
-///
-/// Both ends, because they answer different halves of "what is this": the
-/// opening says what it was set up to do, and the last few exchanges say what it
-/// has become. A conversation drifts, so neither is enough alone.
+/// Read a conversation down to what it is about: prompts and replies only, since
+/// tool calls are most of the bytes and almost none of the subject. Both ends,
+/// because the opening says what it was set up to do and the last exchanges what
+/// it has become.
 pub fn material(path: &Path, keep: usize) -> Material {
     use std::io::{BufRead, Read};
 
@@ -434,10 +281,8 @@ pub fn material(path: &Path, keep: usize) -> Material {
     if let Ok(file) = std::fs::File::open(path) {
         for line in std::io::BufReader::new(file.take(BYTES_TO_FIND_CWD)).lines() {
             let Ok(line) = line else { break };
-            // `read_recorded` already drops the plumbing a transcript opens with
-            // — the command echoes, the caveats, the local-command output — so
-            // the first `Prompt` it yields is the first thing a person actually
-            // said. Reproducing that filter here would be a second copy of it.
+            // `read_recorded` already drops the plumbing a transcript opens with, so its
+            // first `Prompt` is the first thing a person said.
             if let Some(text) =
                 crate::protocol::read_recorded(&line)
                     .into_iter()
@@ -477,95 +322,50 @@ fn cut(text: &str) -> String {
     }
 }
 
-/// How many times someone has spoken to this session since it was last compacted.
-///
-/// **Exchanges, not messages.** `num_turns` counts the assistant messages one
-/// exchange took — a fine number for a bill, a poor one for a person.
-///
-/// **Counted from the file, not kept as a running total.** A total only ever
-/// counts from when this console picked the session up, so a resumed
-/// conversation started at zero and every in-place upgrade restarted it.
-///
-/// The count resets at each compaction: a number spanning that boundary would
-/// describe a conversation the session itself cannot recall.
-///
-/// ⚠ **Read forward from where the last count stopped.** A whole-file pass ran
-/// at the end of every turn, and these files reach gigabytes — the read plus a
-/// serde parse per line, in the task that reads that session's stdout, so every
-/// turn ended with the console deaf to its own session. The offset keeps the
-/// count derived from the file, so a compaction the CLI announces nowhere is
-/// still seen.
+/// How many times someone has spoken to this session since it was last
+/// compacted — exchanges, not messages, and counted from the file so a resume or
+/// an upgrade does not reset it. Read forward from where the last count stopped:
+/// a whole-file pass at the end of every turn left the console deaf to its own
+/// session on gigabyte files.
 #[derive(Debug, Clone, Copy, Default, Serialize, serde::Deserialize)]
 pub struct Counted {
     /// Exchanges since the last compaction.
     pub interactions: u32,
     /// How far into the file that answer accounts for, in bytes — always a line
-    /// boundary, so the next read starts on a whole line.
+    /// boundary.
     pub through: u64,
 }
 
-/// What the bytes appended to a transcript since last time turned out to hold.
-///
-/// Three questions off one read, because they want the same few kilobytes and
-/// the file is measured in gigabytes.
+/// What the bytes appended to a transcript since last time turned out to hold:
+/// three questions off one read.
 #[derive(Debug, Clone, Default)]
 pub struct Appended {
     pub counted: Counted,
-    /// Background tasks the harness reported finished, by whichever name each
-    /// notification gave — usually the call that started it, the same id
-    /// [`crate::protocol::Running::Began`] carries, and for a monitor's timeout
-    /// the task id instead. See [`crate::protocol::Named`].
-    ///
-    /// ⚠ **This is the only way a live session ever finds out.** A backgrounded
-    /// call returns at once with a task id, so its notification is the sole
-    /// end-of-work signal — and the notification is injected as a user message
-    /// nobody typed, which the CLI writes to the transcript and does **not**
-    /// replay on stdout. So every `Background` event the console showed came from
-    /// a seed replaying the file, and a task that had finished in a minute sat on
-    /// the front page for half an hour.
+    /// Background tasks the harness reported finished, by whichever name the
+    /// notification gave — see [`crate::protocol::Named`]. The only way a live
+    /// session finds out: the notification is a user message the CLI writes to the
+    /// transcript and does NOT replay on stdout.
     pub finished: Vec<crate::protocol::Named>,
-    /// Whether a compaction was filed among these bytes.
-    ///
-    /// ⚠ **The only way a running session finds out.** The CLI writes the
-    /// boundary to the transcript and says nothing on stdout, so a console
-    /// watching the stream sees a compaction as silence — see
-    /// [`crate::protocol::Event::Compacted`]. Until it knows, it goes on showing
-    /// how full a conversation was that no longer exists.
+    /// Whether a compaction was filed among these bytes — again the only way a
+    /// running session finds out; see [`crate::protocol::Event::Compacted`].
     pub compacted: bool,
-    /// The newest fullness these bytes recorded, and `None` when a compaction
-    /// came after the last of them.
-    ///
-    /// Only meaningful alongside [`Self::compacted`], and read only then: at any
-    /// other time the live stream is the better source, because it arrives per
-    /// message rather than per turn.
+    /// The newest fullness these bytes recorded, and `None` when a compaction came
+    /// after. Read only alongside [`Self::compacted`]; otherwise the live stream is
+    /// the better source.
     pub context: Option<u64>,
 }
 
-/// A place in a transcript somebody might want to come back to.
-///
-/// The set is deliberately small and it is the set a person remembers: things
-/// they said, pictures they sent, and where the conversation was cut. Assistant
-/// text and tool calls are the bulk of every file and nobody has ever wanted to
-/// return to one, so they are not here.
+/// A place in a transcript somebody might want to come back to: things they said,
+/// pictures they sent, and where the conversation was cut.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct Landmark {
-    /// Where to ask for it, as a byte offset.
-    ///
-    /// ⚠ **The END of the line carrying it, not the start**, and the difference
-    /// is whether "go to" works. `page` reads *backwards* from a cursor, so a
-    /// cursor at the start of the line returns the page that stops just short of
-    /// the landmark — a jump to somebody's message that does not show their
-    /// message. Ending the cursor past the line puts the landmark last on the
-    /// page it comes back on, which is what tapping it means.
-    ///
-    /// ⚠ **A cursor, not a measure.** It is exactly what
-    /// `/api/sessions/{id}/earlier` already takes, so a jump is the existing
-    /// paging with a different starting point rather than a second mechanism.
-    /// What it is *not* is a position anybody can be shown: one picture is
-    /// kilobytes of base64 on a single line where a sentence is a few dozen
-    /// bytes, so a scrollbar drawn over these offsets would be a lie.
+    /// Where to ask for it, as a byte offset — the END of the line carrying it, since
+    /// `page` reads backwards from a cursor and a cursor at the start would return the
+    /// page that stops just short. The same cursor `/api/sessions/{id}/earlier`
+    /// takes; not a position anybody can be shown, since one picture is kilobytes on
+    /// a line.
     pub at: u64,
     /// When the file says it happened, for grouping by day.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -592,34 +392,16 @@ pub enum Mark {
     Compacted,
 }
 
-/// How much of a landmark to carry.
-///
-/// Shorter than [`LINE`] on purpose: this is a strip of things to tap, not a
-/// transcript. A first line is what anybody recognises their own message by.
+/// How much of a landmark to carry: shorter than [`LINE`], a strip of things to tap.
 const SIGN: usize = 120;
 
 /// Every landmark in a transcript, oldest first.
 ///
-/// ⚠ **This reads and parses the WHOLE file, and there is no cheaper way.**
-/// Seconds on a large transcript. Call it off the executor.
-///
-/// ⚠ **Two byte-level gates were tried and both were wrong**, which is why this
-/// does the obvious slow thing:
-///
-/// 1. Skipping lines by their `type`. The first `"type":"` in a line is a
-///    NESTED one — a conversation line opens `{"parentUuid":…` and the `message`
-///    object precedes the top-level tag — so reading it misclassifies much of
-///    the corpus and finds no `assistant` lines at all. The gate then rejected
-///    nothing and saved nothing, while looking like it worked.
-/// 2. Requiring the content blocks a landmark needs — `"type":"text"`,
-///    `"type":"image"`, `compact_boundary`. Derived from this parser's own
-///    dispatch and still wrong: a user message's `content` is often a bare
-///    string with no typed block anywhere, so plain prompts carry none of them.
-///    It found **129 of 1,665** landmarks in one file.
-///
-/// Both were caught only by running a parse-everything arm beside them over the
-/// whole corpus and comparing. A prescan here is not cheap to get right, and it
-/// is very cheap to get silently wrong.
+/// This reads and parses the WHOLE file, seconds on a large one; call it off the
+/// executor. Two byte-level gates were tried and both were wrong: the first
+/// `"type":"` in a line is a NESTED one, and a user message's `content` is often
+/// a bare string with no typed block, so a gate found 129 of 1,665 landmarks.
+/// A prescan here is very cheap to get silently wrong.
 pub fn landmarks(path: &Path) -> Vec<Landmark> {
     landmarks_from(path, 0).found
 }
@@ -628,30 +410,16 @@ pub fn landmarks(path: &Path) -> Vec<Landmark> {
 #[derive(Debug, Clone, Default)]
 pub struct Walk {
     pub found: Vec<Landmark>,
-    /// One past the last COMPLETE line read. Never the file's length: see
+    /// One past the last COMPLETE line read. Never the file's length — see
     /// [`landmarks_from`].
     pub through: u64,
 }
 
-/// The same walk, starting at a byte already read.
-///
-/// ⚠ **`from` must be a line boundary, and the only honest source of one is a
-/// previous walk's own [`Walk::through`].** Every offset here is absolute from
-/// the start of the file, which is what lets a walk be resumed at all: a
-/// landmark found in the first megabyte stays true however much is appended
-/// after it. See [`crate::marks`], which keeps them and is why this exists.
-///
-/// ⚠ **A half-written last line is not read, and `through` stops before it.**
-/// The console walks a file another process is appending to, so the tail is
-/// routinely a fragment of JSON. A one-shot walk could ignore that — the
-/// fragment parses as nothing and the walk ends anyway — but a *resumable* one
-/// cannot: taking the file's length as the mark would restart the next walk in
-/// the middle of that line, and the completed version of it would never be read.
-/// One landmark lost, silently, whenever a sheet is opened mid-write.
-/// [`counted`] has had this guard all along, for the same reason.
-///
-/// A `from` past the end of the file yields nothing, which is the right answer
-/// for a transcript that has not grown.
+/// The same walk, starting at a byte already read. `from` must be a line
+/// boundary, and the only honest source is a previous walk's [`Walk::through`].
+/// A half-written last line is not read and `through` stops before it: taking
+/// the file's length would restart the next walk mid-line and lose that landmark.
+/// A `from` past the end yields nothing.
 pub fn landmarks_from(path: &Path, from: u64) -> Walk {
     use std::io::BufRead;
     use std::io::Seek;
@@ -695,11 +463,8 @@ pub fn landmarks_from(path: &Path, from: u64) -> Walk {
     Walk { found, through: at }
 }
 
-/// One line of a landmark, cut to [`SIGN`].
-///
-/// The newlines go first: a pasted message is one landmark however many
-/// paragraphs it arrived in, and a strip showing three of its lines shows one
-/// fewer place to jump to.
+/// One line of a landmark, cut to [`SIGN`]. Newlines go first: a pasted message
+/// is one landmark.
 fn sign(text: &str) -> String {
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
     match flat.char_indices().nth(SIGN) {
@@ -708,39 +473,18 @@ fn sign(text: &str) -> String {
     }
 }
 
-/// How far back to look for the compaction boundary before giving up, and how
-/// much to read on the first try.
-///
-/// Two numbers for one search because the shape of the answer is known: the last
-/// compaction sits within the final megabytes of the file. The first window is
-/// generously past that, and the cap is where widening stops being cheaper than
-/// the whole read it is avoiding.
+/// How far back to look for the compaction boundary, and how much to read first.
+/// The last compaction sits within the final megabytes.
 const COMPACTION_WINDOW: u64 = 8 * 1024 * 1024;
 const COMPACTION_LIMIT: u64 = 64 * 1024 * 1024;
 
 /// Where a seed can start counting without changing what it counts.
 ///
-/// ⚠ **This is an optimisation that has to be exact, not close.** It is sound
-/// only because of what [`counted`] does with a compaction: it sets
-/// `interactions` to 0 and drops the context figure. Everything before the last
-/// boundary is therefore discarded by the read that passes over it, and starting
-/// **at** that line — not after it — reaches the same state having read a
-/// thousandth of the bytes. `finished` is the one field that differs, and only
-/// there: a seed's session has no background work to close yet, so the tools
-/// dropped are ones nothing was waiting for.
-///
-/// Seeding a large transcript read the whole of it — on the executor, from the
-/// handler that answers "resume this" — to arrive at a count the last megabyte
-/// determined on its own.
-///
-/// Searched backwards in widening windows, and searched **with the parser**: the
-/// boundary is whatever [`crate::protocol::read_recorded`] calls a compaction,
-/// never a string this function looks for itself. A private needle here would
-/// quietly decide what the count ever sees.
-///
-/// Returns 0 when there is no boundary within [`COMPACTION_LIMIT`], which is the
-/// honest answer — a conversation that has never compacted has to be counted
-/// whole, because every prompt in it still stands.
+/// Exact, not close: [`counted`] resets `interactions` and drops the context at a
+/// compaction, so starting AT the last boundary reaches the same state having read
+/// a thousandth of the bytes. Searched backwards in widening windows, WITH the
+/// parser — the boundary is whatever [`crate::protocol::read_recorded`] calls a
+/// compaction. 0 when none is within [`COMPACTION_LIMIT`].
 pub fn seed_from(path: &Path) -> u64 {
     use std::io::{Read, Seek, SeekFrom};
 
@@ -759,8 +503,7 @@ pub fn seed_from(path: &Path) -> u64 {
             return 0;
         }
         let mut buf = Vec::new();
-        // `by_ref`, because the span may have to widen and read again — the same
-        // reason [`page`] does it.
+        // `by_ref`, because the span may have to widen and read again.
         if file
             .by_ref()
             .take(end - start)
@@ -773,8 +516,8 @@ pub fn seed_from(path: &Path) -> u64 {
         let mut at = start;
         let mut found = None;
         for (index, line) in buf.split_inclusive(|byte| *byte == b'\n').enumerate() {
-            // The first line of a mid-file chunk is a fragment, and a fragment
-            // that happens to parse is worse than one that does not.
+            // The first line of a mid-file chunk is a fragment, and one that happens to
+            // parse is worse than one that does not.
             let whole = start == 0 || index > 0;
             if whole
                 && crate::protocol::read_recorded(&String::from_utf8_lossy(line))
@@ -795,18 +538,9 @@ pub fn seed_from(path: &Path) -> u64 {
     }
 }
 
-/// Count what has been appended since `so_far` was true.
-///
-/// `so_far.through` of 0 is the whole file. A seed wants that answer but not that
-/// read, and [`seed_from`] gives it the offset that reaches the same state.
-///
-/// ⚠ **Stops before a partial last line.** A transcript is appended to while
-/// this runs, so the tail can be half a line; counting it would read a truncated
-/// JSON object as nothing and then never look at it again, losing the exchange
-/// it recorded. The offset returned is the end of the last *complete* line.
-///
-/// A file that has shrunk is one that was replaced, so the count starts again:
-/// an offset into a file that no longer exists would land mid-line at best.
+/// Count what has been appended since `so_far` was true. Stops before a partial
+/// last line, or a truncated object reads as nothing and is never looked at again.
+/// A file that has shrunk was replaced, so the count starts again.
 pub fn counted(path: &Path, so_far: Counted) -> Appended {
     use std::io::{BufRead, Seek, SeekFrom};
 
@@ -851,22 +585,17 @@ pub fn counted(path: &Path, so_far: Counted) -> Appended {
                 crate::protocol::Event::Compacted => {
                     found.interactions = 0;
                     compacted = true;
-                    // What was measured before the boundary described a
-                    // conversation that has just stopped existing.
+                    // What was measured before the boundary described a conversation that has just
+                    // stopped existing.
                     context = None;
                 }
-                // Kept only for the compaction case: these bytes may hold a
-                // request made *after* the boundary, and that one is the answer.
-                // Otherwise the live stream is the better source — it arrives
-                // per message where this arrives per turn.
+                // Kept only for the compaction case: these bytes may hold a request made AFTER
+                // the boundary.
                 crate::protocol::Event::Context { tokens } => context = Some(tokens),
                 crate::protocol::Event::Prompt { .. } => found.interactions += 1,
-                // ⚠ **The only place a live session learns that background work
-                // has ended.** The harness files the notification as a user
-                // message nobody typed, and the CLI does not put it on stdout —
-                // measured, and see [`Appended::finished`] — so the reader of the
-                // stream never sees one. It is in the file, in the same few
-                // kilobytes this is already reading for the count.
+                // The only place a live session learns that background work has ended — the
+                // harness files it as a user message the CLI does not put on stdout; see
+                // [`Appended::finished`].
                 ref background @ crate::protocol::Event::Background { .. } => {
                     if let crate::protocol::Running::Ended(named) =
                         crate::protocol::running(background)
@@ -886,10 +615,8 @@ pub fn counted(path: &Path, so_far: Counted) -> Appended {
     }
 }
 
-/// The transcript file for a session id, wherever Claude Code filed it.
-///
-/// Searched rather than computed, for the reason the module opens with: the
-/// project-directory encoding is undocumented, and a guess is wrong silently.
+/// The transcript file for a session id, wherever Claude Code filed it. Searched
+/// rather than computed: the encoding is undocumented.
 pub fn transcript_of(root: &Path, id: &str) -> Option<PathBuf> {
     std::fs::read_dir(root)
         .into_iter()
@@ -899,40 +626,27 @@ pub fn transcript_of(root: &Path, id: &str) -> Option<PathBuf> {
         .flat_map(|project| std::fs::read_dir(project.path()).into_iter().flatten())
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
-        // ⚠ **The extension is what makes this a transcript**, and matching on
-        // the stem alone opens the directory Claude Code puts beside the file as
-        // if it were the conversation. The whole account is in
-        // [`reader::transcript::is_transcript`], which the viewer calls too —
-        // this bug existed here because the two crates knew it separately.
+        // The extension is what makes this a transcript; the stem alone matches the
+        // directory beside it. See [`reader::transcript::is_transcript`].
         .filter(|path| reader::transcript::is_transcript(path))
         .find(|path| path.file_stem().and_then(|stem| stem.to_str()) == Some(id))
 }
 
-/// The directory one conversation was working in.
-///
-/// By id, without listing anything: a caller that wants one conversation's
-/// directory must not pay for every conversation on the machine, which is what
-/// filtering [`conversations`] would cost.
+/// The directory one conversation was working in, by id, without listing anything.
 pub fn dir_of(root: &Path, id: &str) -> Option<String> {
     cwd_of(&transcript_of(root, id)?)
 }
 
-/// One page of a transcript, and where in the file it started.
-///
-/// `from` is the cursor: the byte offset of the first line this page contains.
-/// It is what the reader hands back to ask for the page before it, and `from ==
-/// 0` is the only honest way to say there is nothing older.
+/// One page of a transcript, and where in the file it started. `from` is the
+/// cursor the reader hands back for the page before; 0 means nothing older.
 #[derive(Debug)]
 pub struct Page {
     pub events: Vec<crate::protocol::Timed>,
     pub from: u64,
 }
 
-/// Every event one transcript line carries, each wearing that line's time.
-///
-/// The stamp is per *line*, and a line can hold several events — an assistant
-/// message with two tool calls in it. They share the time, which is what the file
-/// says: it recorded when the message arrived, not when each block within it did.
+/// Every event one transcript line carries, each wearing that line's time: a line
+/// can hold several events, and they share the time the file recorded.
 fn timed(line: &[u8]) -> Vec<crate::protocol::Timed> {
     let text = String::from_utf8_lossy(line);
     let at = crate::protocol::recorded_at(&text);
@@ -944,25 +658,10 @@ fn timed(line: &[u8]) -> Vec<crate::protocol::Timed> {
 
 /// What was said before the console was watching, and the page before that one.
 ///
-/// `before` is a cursor from a previous [`Page`], or `None` for the newest page.
-///
-/// ⚠ **A cursor, not a count.** This took a count of events the reader held and
-/// worked backwards from the end of the file, which is wrong twice over. The
-/// file grows, so counting from its end names a different place after every turn;
-/// and a count travels through a client that holds *folded entries* — several
-/// text deltas are one paragraph, a tool result belongs to its call — so the
-/// number that arrived was never the number that left, so a reader asking for
-/// the page before theirs got back events already on the screen. The feature
-/// could not advance, and both quantities were `usize`, so nothing said so.
-///
-/// A byte offset into an append-only file has neither problem: it survives the
-/// file growing, and it cannot be confused with a length by anything that
-/// carries it.
-///
-/// Re-read and re-parsed each time rather than kept: the alternative is holding a
-/// parsed copy of a file that reaches tens of megabytes, for a session that may
-/// never be scrolled at all. The span doubles until it has a page's worth, so
-/// reaching further back costs more only when somebody actually goes there.
+/// `before` is a cursor from a previous [`Page`], or `None` for the newest. A
+/// cursor, not a count: the file grows, and a client holds FOLDED entries, so a
+/// count never meant what the server read it as. Re-read each time rather than
+/// kept; the span doubles until it has a page's worth.
 pub fn page(path: &Path, before: Option<u64>) -> Page {
     use std::io::{Read, Seek, SeekFrom};
 
@@ -988,8 +687,7 @@ pub fn page(path: &Path, before: Option<u64>) -> Page {
             return empty;
         }
         let mut buf = Vec::new();
-        // `by_ref`, because `take` consumes the reader and the span may have to
-        // widen and read again.
+        // `by_ref`: `take` consumes the reader and the span may have to widen.
         if file
             .by_ref()
             .take(end - start)
@@ -999,25 +697,22 @@ pub fn page(path: &Path, before: Option<u64>) -> Page {
             return empty;
         }
 
-        // Line starts as absolute offsets, so a cursor can name one. Bytes
-        // rather than a decoded string: lossy decoding can change byte lengths,
-        // and an offset that is off by one names the middle of a line.
+        // Line starts as absolute offsets. Bytes, not a decoded string: lossy decoding
+        // can change lengths, and an offset off by one names the middle of a line.
         let mut lines: Vec<(u64, &[u8])> = Vec::new();
         let mut at = start;
         for line in buf.split_inclusive(|byte| *byte == b'\n') {
             lines.push((at, line));
             at += line.len() as u64;
         }
-        // The first line of a mid-file chunk is a fragment. Dropped
-        // unconditionally rather than tried and discarded on failure: a fragment
-        // that happens to parse is worse than one that does not.
+        // The first line of a mid-file chunk is a fragment; one that happens to parse is
+        // worse than one that does not.
         if start > 0 && !lines.is_empty() {
             lines.remove(0);
         }
 
-        // Backwards from the newest, taking whole lines until the page is full.
-        // Whole lines because the cursor has to name a line boundary — half a
-        // line is not a place a reader can come back to.
+        // Backwards from the newest, taking whole lines: the cursor has to name a line
+        // boundary.
         let mut taken = 0usize;
         let mut first = lines.len();
         for (index, (_, line)) in lines.iter().enumerate().rev() {
@@ -1029,9 +724,8 @@ pub fn page(path: &Path, before: Option<u64>) -> Page {
             first = index;
         }
 
-        // Ran out of buffer before filling the page, and there is more file
-        // behind it: widen and start again rather than return a short page that
-        // would read as "this is all there is".
+        // Ran out of buffer with more file behind it: widen, rather than return a short
+        // page that reads as "this is all there is".
         if first == 0 && start > 0 && taken < REPLAY_EVENTS {
             span = span.saturating_mul(2);
             continue;
@@ -1060,24 +754,14 @@ fn read(path: &Path) -> Option<Conversation> {
         bytes: meta.len(),
         name: tail.name,
         context: tail.context,
-        // Filled in by `conversations`, which reads the process table once for
-        // the whole list rather than once per file.
+        // Filled in by `conversations`, which reads the process table once for the list.
         busy: false,
     })
 }
 
-/// The working directory a transcript records for itself.
-///
-/// The first line that carries one answers it, and no line before then can: every
-/// line of the conversation proper — `system`, `user`, `assistant`, `attachment` —
-/// records the directory, and every line of the opening metadata omits it. So this
-/// reads forward until one appears rather than looking in a particular place.
-///
-/// The reader is capped by [`BYTES_TO_FIND_CWD`] rather than the loop counting,
-/// which also bounds how much a single line can cost: one `file-history-snapshot`
-/// runs to tens of kilobytes and nothing in the format promises an upper bound.
-/// A line cut off by the cap fails to parse and is skipped, which is the intended
-/// end of the search.
+/// The working directory a transcript records for itself: the first line that
+/// carries one, read forward, capped by [`BYTES_TO_FIND_CWD`] — which also bounds
+/// what one `file-history-snapshot` line can cost.
 fn cwd_of(path: &Path) -> Option<String> {
     use std::io::{BufRead, Read};
 
@@ -1094,74 +778,36 @@ fn cwd_of(path: &Path) -> Option<String> {
     None
 }
 
-/// What the end of a transcript says about the conversation as it stands.
-///
-/// Both facts here are "the last one wins" over the same bytes, which is why
-/// they are read together: one seek, one buffer, one pass.
+/// What the end of a transcript says about the conversation as it stands. Both
+/// facts are "the last one wins" over the same bytes: one seek, one pass.
 #[derive(Debug, Default)]
 struct Tail {
     /// See [`Conversation::name`].
     name: Option<String>,
     /// See [`Conversation::context`].
     context: Option<u64>,
-    /// When the last thing anybody *said* was said, in epoch milliseconds. See
-    /// [`Conversation::modified`] for why the file's own date will not do.
+    /// When the last thing anybody SAID was said, in epoch milliseconds. See
+    /// [`Conversation::modified`].
     spoke: Option<i64>,
 }
 
-/// Read the tail of a transcript for what it says about itself.
-///
-/// **The name.** Two line types carry it: `custom-title` (what it was
-/// deliberately called) and `agent-name`. The first wins where both exist,
-/// because one is a decision and the other is a default.
-///
-/// **The fullness.** Every assistant message records the tokens its request
-/// carried, so the last one in the file is how full the conversation was when it
-/// stopped — read through [`crate::protocol::read_recorded`] rather than off the
-/// JSON here, so that "input plus cache-creation plus cache-read" is stated in
-/// exactly one place.
-///
-/// Read from the **end** — see [`TAIL_BYTES`] — because both answers are about
-/// the conversation now: a session is renamed as its job changes, and a context
-/// that was full an hour before a compaction is not the number anybody wants. A
-/// chunk taken from an arbitrary byte offset starts mid-line and possibly
-/// mid-character, so the first line is expected to be rubbish and unparseable
-/// lines are skipped rather than treated as the end of the file.
 /// The first thing this session was asked to do, from the head of its transcript.
 ///
-/// ⚠ **Derived, never carried, because the head of an append-only file does not
-/// move.** `asked` used to be whatever prompt the state machine saw first, which
-/// after a re-seed meant the first prompt in the LAST page — so a session's
-/// subtitle changed on every console upgrade, with nobody touching it. Carrying
-/// it across the handover stops the drift but preserves whatever wrong value was
-/// already there; reading it from the front repairs it, and cannot drift again
-/// (memview #1146).
+/// Derived, never carried: the head of an append-only file does not move, where a
+/// value carried across handovers drifted on every upgrade (memview #1146). The
+/// first PROMPT, not the first line — `read_recorded` declines the plumbing a
+/// transcript opens with.
 ///
-/// ⚠ **The first prompt, not the first line.** A transcript commonly opens with
-/// plumbing — a `<local-command-caveat>`, a command wrapper, a caveat block —
-/// which `protocol::read_recorded` already declines to turn into a `Prompt`. So
-/// this asks for events and takes the first prompt among them rather than
-/// reading text out of the file itself.
-///
-/// ⚠ **A COMPACTED session has no origin in this file, and says so.** When a
-/// conversation runs out of context the CLI opens a fresh transcript with a
-/// summary and a `This session is being continued…` message, so the first user
-/// text can sit hundreds of kilobytes in and be exactly that preamble. It is the
-/// harness talking, not Pippijn, so it is refused here
-/// and the answer is `None`. **`None` is the right answer**: the origin is in a
-/// previous transcript that may no longer exist, and the card still carries the
-/// session's name. A recent prompt in its place would be a false claim about
-/// where the conversation began, which is the whole defect this repairs.
-///
-/// Cheap on a file of any size: the head is read, not the file.
+/// A compacted session has no origin in this file, and says so: the first user
+/// text is the harness's `This session is being continued…` preamble, refused
+/// here. `None` is the right answer; a recent prompt in its place would be a false
+/// claim about where the conversation began.
 pub fn opening(path: &Path) -> Option<String> {
     use std::io::{BufRead, BufReader, Read};
 
     let file = std::fs::File::open(path).ok()?;
-    // Enough for the opening exchange without reading a conversation. Generous
-    // because a compacted transcript opens with its whole summary, which can put
-    // the first user line hundreds of kilobytes in. Past this, no answer is
-    // better than a wrong one.
+    // Enough for the opening exchange: a compacted transcript opens with its whole
+    // summary, which can put the first user line hundreds of kilobytes in.
     let head = BufReader::new(file.take(OPENING_BYTES));
     for line in head.lines().map_while(Result::ok) {
         for event in crate::protocol::read_recorded(&line) {
@@ -1179,10 +825,8 @@ pub fn opening(path: &Path) -> Option<String> {
     None
 }
 
-/// How a transcript opens when it is not the beginning of the conversation.
-///
-/// Matched on the harness's own words rather than on a shape, because that is
-/// what identifies them — see [`opening`].
+/// How a transcript opens when it is not the beginning of the conversation —
+/// matched on the harness's own words; see [`opening`].
 const CONTINUED: [&str; 2] = [
     "This session is being continued from a previous conversation",
     "Caveat: The messages below were generated by the user while running local commands",
@@ -1209,17 +853,15 @@ fn tail_of(path: &Path, len: u64) -> Tail {
         return found;
     }
 
-    // Keyed by the field the line declares, so the precedence below is decided by
-    // the shared order and never by which local happens to be checked first.
+    // Keyed by the field the line declares, so the precedence is decided by the
+    // shared order.
     let mut names: std::collections::BTreeMap<&'static str, String> =
         std::collections::BTreeMap::new();
     for line in String::from_utf8_lossy(&tail).lines() {
         let events = crate::protocol::read_recorded(line);
-        // ⚠ **A line that carries a conversation event is a line somebody said**
-        // — and `read_recorded` is where that distinction already lives: it
-        // yields nothing for the metadata a transcript is full of. So the last
-        // line it accepts is the last thing that actually happened, whatever the
-        // CLI has appended since.
+        // A line that carries a conversation event is a line somebody said, and
+        // `read_recorded` yields nothing for the metadata — so the last line it accepts
+        // is the last thing that actually happened.
         if !events.is_empty()
             && let Some(at) = crate::protocol::recorded_at(line)
         {
@@ -1228,10 +870,8 @@ fn tail_of(path: &Path, len: u64) -> Tail {
         for event in events {
             match event {
                 crate::protocol::Event::Context { tokens } => found.context = Some(tokens),
-                // Everything measured above the boundary was replaced by a
-                // summary, so the last figure is not stale — it belongs to a
-                // conversation that no longer exists. Read forward, so a request
-                // made since the compaction takes the field back.
+                // Everything measured above the boundary belongs to a conversation that no
+                // longer exists. Read forward, so a request since the compaction takes it back.
                 crate::protocol::Event::Compacted => found.context = None,
                 _ => {}
             }
@@ -1239,21 +879,17 @@ fn tail_of(path: &Path, len: u64) -> Tail {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
             continue;
         };
-        // Field names from the shared vocabulary, so this and the viewer cannot
-        // drift on the spelling of a line they both read. Read forward, so the
-        // last of each kind in the tail is the one kept.
+        // Field names from the shared vocabulary, so this and the viewer cannot drift.
+        // Read forward, so the last of each kind wins.
         for line in reader::transcript::AS_CONVERSATION {
             if let Some(name) = value.get(line.field).and_then(|v| v.as_str()) {
                 names.insert(line.field, name.to_string());
             }
         }
     }
-    // ⚠ **The conversation's order, and the viewer deliberately uses the other
-    // one.** This names a conversation in a list somebody picks from, so the
-    // title a person last chose wins; `/agents` asks who did the work and
-    // prefers the agent name. That is the CLI's own split — see
-    // [`reader::transcript::AS_CONVERSATION`], which sets out both orders and
-    // the two chains in the CLI they come from.
+    // The conversation's order: the title a person last chose wins here, where
+    // `/agents` prefers the agent name — see
+    // [`reader::transcript::AS_CONVERSATION`] for both orders.
     found.name = reader::transcript::AS_CONVERSATION
         .iter()
         .find_map(|line| names.get(line.field))

@@ -2,70 +2,28 @@
 //!
 //!     cargo run --release --bin memory-rank [-- --half-life 7]
 //!
-//! `MEMORY.md` is loaded into every session, so its cost is paid constantly
-//! while its value is only in what is live *now*. Which entries those are has
-//! been a guess made under size pressure — and one such guess dropped a batch of
-//! entries without linking them first, stranding memories that still existed
-//! and could no longer be recalled. This is the evidence that guess was missing.
+//! A REPORT, and deliberately not an editor: what is live is a judgement, and
+//! the cut stays Pippijn's (`feedback_memory_index_is_the_working_set`).
 //!
-//! ⚠ **A REPORT, and deliberately not an editor.** What is live is a judgement:
-//! a memory can be correct, rarely opened, and exactly the thing that must be in
-//! front of somebody every session. This ranks and marks; the cut stays
-//! Pippijn's. See `feedback_memory_index_is_the_working_set`.
+//! ## What is counted
 //!
-//! ## What is counted, and what that misses
-//!
-//! **Days, not opens.** One afternoon of forty reads is one day of being live,
-//! the same as a quiet one — the correction that changed the answer when this
-//! weighting was first measured, where the choice of curve did not.
-//!
-//! **Only `Read` and `Edit` tool calls.** Mentions are unusable: context
-//! re-injection made one memory's name recur 3,370 times in a single transcript,
-//! and the index itself is injected every session, so every name in it appears
-//! constantly whether or not anybody looked.
-//!
-//! ⚠ **A shell read IS counted — and this said the opposite for a fortnight.**
-//! `d39d227` gave the shell site its own `memory_of` arm and more than doubled
-//! the reads. The claim that used to stand here outlived it and was believed:
-//! #1214 was filed on a wrong premise taken from this very paragraph, which is
-//! what a stale docstring costs.
-//!
-//! ⚠ **A corpus grep that MATCHED is counted apart and never scored.** A grep
-//! that printed a line of a memory put it in front of somebody — 125 memories,
-//! ~17% of the corpus, arrive only that way (memview#1238). It is shown beside
-//! a row and added to nothing: 8 agents run corpus-wide greps, so scoring it
-//! would lift the least-read memories most and compress the bottom of the list,
-//! which is where every demotion decision is made.
-//!
-//! ⚠ **What IS discarded is `maybe_reads`.** A shell read whose success cannot
-//! be established — after `&&`, or inside a script with one exit status — is
-//! collected under that name and never consulted by the ranking, so a memory
-//! whose only evidence is unprovable access still reads as never opened
-//! (#1214).
+//! Days, not opens; only `Read` and `Edit` tool calls and shell reads (mentions
+//! are unusable — re-injection made one name recur 3,370 times). A corpus grep
+//! that MATCHED is shown beside a row and never scored: ~17% of the corpus
+//! arrives only that way (memview#1238), but 8 agents run corpus-wide greps,
+//! so scoring it would compress the bottom of the list where demotions are
+//! decided. `maybe_reads` — shell reads whose success cannot be established — are
+//! discarded (#1214).
 //!
 //! ## The two hazards it prints rather than hides
 //!
-//! **The teaser paradox.** For the entries that work best the index LINE is the
-//! memory — a reader follows "no CoA" or "terse" straight from the teaser and
-//! never opens the file. So opens under-measure exactly the rules doing their
-//! job most efficiently, and a naive frequency cut would demote the
-//! best-compressed tripwires first. They are therefore reported apart, never
-//! ranked against the rest.
+//! The teaser paradox: for the best entries the index LINE is the memory, so
+//! opens under-measure exactly the rules doing their job. Which entries those
+//! are is a JUDGEMENT through [`memview::study::role_for`], never a name prefix
+//! — the prefix test put 192 tripwires on the demotion list (memview#884).
 //!
-//! ⚠ **Which entries those are is a JUDGEMENT read from `memory-roles.json`,
-//! not a guess from the name.** Splitting on a `feedback_`/`user_` prefix is
-//! right for those two prefixes and wrong for the rest: many `reference_` and
-//! `project_` entries are tripwires too, so they get ranked by a number their
-//! success mode suppresses and the demotion list becomes in large part a list of
-//! what was working (memview#884).
-//! `memory-tiers` already decided by role; this now agrees with it, and both
-//! resolve through [`memview::study::role_for`] so they cannot drift — the
-//! memory's own `role:` frontmatter first, the record behind it.
-//!
-//! **The ratchet.** Being listed causes opens; demoting cuts opens, which then
-//! justifies staying demoted. The measurement is entangled with the intervention
-//! and drifts one way. The DEMOTED BUT STILL CONSULTED section is the counter-
-//! evidence: anything there was reached without the index carrying it.
+//! The ratchet: being listed causes opens, so the measurement is entangled with
+//! the intervention. DEMOTED BUT STILL CONSULTED is the counter-evidence.
 
 use std::collections::BTreeSet;
 
@@ -83,29 +41,15 @@ struct Standing {
     /// Weighted days it was opened, at the trusted half-life and at half of it.
     read: f64,
     read_halved: f64,
-    /// Weighted days it was changed. Kept apart from opens on purpose:
-    /// consulting a memory and maintaining it are different claims on the index,
-    /// and a memory nobody reads but somebody keeps correct is an archive entry
-    /// in good standing rather than a candidate.
+    /// Weighted days it was changed, apart from opens: a memory nobody reads but
+    /// somebody keeps correct is an archive entry in good standing.
     edit: f64,
-    /// Opens the miner could not prove happened — a shell read after `&&`, or
-    /// inside a script with one exit status.
-    ///
-    /// ⚠ **Shown, never scored.** Counting these as opens overstates the record,
-    /// which is why `MemoryUse` keeps them apart; scoring them at a discount
-    /// would invent a factor, which `docs/memory.md` warns against. This list is
-    /// advisory, so the honest move is to put the evidence in front of whoever
-    /// decides. Only a handful of memories corpus-wide have no proven open and
-    /// some unproven one (#1214).
+    /// Opens the miner could not prove happened. Shown, never scored (#1214):
+    /// counting them overstates the record, discounting them invents a factor.
     maybe_reads: usize,
-    /// Times a corpus-wide search printed a LINE of this memory back.
-    ///
-    /// ⚠ **Shown, never scored — the same standing `maybe_reads` has, and for
-    /// a different reason.** A grep match is real evidence the memory reached
-    /// somebody: 125 memories, ~17% of the corpus, arrive only this way
-    /// (memview#1238). But 8 agents run corpus-wide greps, so adding it to the
-    /// ranking would lift the LEAST-read memories most and compress exactly the
-    /// bottom of the list where every demotion decision is made.
+    /// Times a corpus-wide search printed a LINE of this memory back. Shown, never
+    /// scored, for a different reason: 8 agents run corpus-wide greps, so scoring it
+    /// would lift the least-read memories most (memview#1238).
     grep_matches: usize,
     /// Days since it was last opened at all, or `None` if never.
     last_open: Option<i64>,
@@ -116,23 +60,17 @@ struct Standing {
     /// Reachable memories that already link it — the homes a demotion could land
     /// in without stranding it.
     homes: Vec<String>,
-    /// What the index line is FOR — the classifier this report used to guess
-    /// from the name prefix.
-    ///
-    /// ⚠ **`None` is unexamined, not "safe to demote".** See
-    /// [`memview::study::role_for`]: an absent judgement holds, and the count
-    /// of them is printed rather than left to vanish between the two halves.
+    /// What the index line is FOR. `None` is unexamined, not "safe to demote" —
+    /// see [`memview::study::role_for`].
     role: Option<Role>,
 }
 
 fn main() -> Result<()> {
-    // Refuse a flag this tool does not know, rather than running as if it were
-    // absent (memview#1588).
+    // Refuse a flag this tool does not know (memview#1588).
     memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--half-life"])?;
     let args: Vec<String> = std::env::args().collect();
-    // ⚠ Refuses a bad value rather than defaulting past it: this printed the same
-    // ranking for `--half-life bogus` as for no flag at all, so a figure quoted
-    // from it could be the default wearing a parameter's name. See `flags`.
+    // Refuses a bad value rather than defaulting past it: `--half-life bogus` once
+    // printed the default ranking wearing a parameter's name.
     let half_life = memview::flags::value_of(&args, "--half-life", HALF_LIFE_DAYS)?;
 
     let home = std::env::var("HOME").unwrap_or_default();
@@ -144,29 +82,23 @@ fn main() -> Result<()> {
             .into_owned()
     });
 
-    // ⚠ **Loaded with `?`, so a missing judgement is an ERROR and never a
-    // report that quietly proposes everything.** The whole point of reading
-    // this file is that the prefix test it replaces was wrong for 192 entries
-    // (memview#884); falling back to that test when the file is absent would
-    // reinstate the defect exactly when nobody could see it happening.
+    // Loaded with `?`: a missing judgement is an ERROR, never a report that
+    // proposes everything — the prefix test this replaces was wrong for 192 entries.
     let roles: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(reader::home::file("memory-roles.json"))
             .with_context(|| "reading memory-roles.json — the tripwire/pointer judgement")?,
     )?;
 
     let corpus = Corpus::load(&memory_dir)?;
-    // ⚠ **Brought up to date before it is read, not checked and complained
-    // about.** This used to load the artefact as it lay and REFUSE when the
-    // corpus had moved past it, because catching up cost 4m31. It now costs
-    // about 9 seconds — see `memview::fresh`.
+    // Brought up to date before it is read: catching up now costs about 9 seconds
+    // — see `memview::fresh`.
     let mined = memview::fresh::mined(
         &memview::fresh::Where::from_env(),
         memview::agents::Needs::MEMORIES,
     )
     .with_context(|| format!("refreshing {artefact}"))?;
 
-    // Beside the roster rather than inside it: `/api/agents` must not carry
-    // this, so the miner writes it to its own file. See `agents::Agents`.
+    // Beside the roster: `/api/agents` must not carry this.
     let days_file = std::path::Path::new(&artefact).with_file_name("memory-days.json");
     let memory_days: std::collections::BTreeMap<String, memview::agents::MemoryDays> =
         serde_json::from_str(&std::fs::read_to_string(&days_file).with_context(|| {
@@ -176,28 +108,18 @@ fn main() -> Result<()> {
             )
         })?)?;
 
-    // ⚠ **There is no staleness check here any more, and that is the point.**
-    // Every figure below is anchored to the mine's stamp, so a stale artefact
-    // does not merely omit recent memories — it moves the day every age is
-    // measured from, silently. That has produced breadth figures for memories
-    // written after the mine, and very nearly a demotion argument built on them
-    // (#1210).
-    //
-    // The old answer was to refuse and offer `--stale-ok`, which trains a reader
-    // to pass the override. The artefact is now refreshed above instead, so the
-    // condition the check guarded against cannot arise.
+    // No staleness check any more: every figure is anchored to the mine's stamp,
+    // and a stale artefact moved the day every age is measured from (#1210). The
+    // artefact is refreshed above instead, so `--stale-ok` never trains anybody.
 
-    // The artefact's own stamp, not the wall clock, so the report is a property
-    // of the mine and re-reading it never changes what it says.
+    // The artefact's own stamp, so re-reading the report never changes it.
     let today = day_number(&mined.generated).unwrap_or(0);
     let index = corpus.index_md.clone().unwrap_or_default();
     let listed: BTreeSet<String> = index_links(&index).into_iter().collect();
 
-    // Everything the index reaches by link, which is the invariant a demotion
-    // must not break. Recomputed per candidate below, without its own line.
+    // Everything the index reaches by link — the invariant a demotion must not break.
     let reached = reachable_without(&corpus.docs, &index, &BTreeSet::new());
-    // ⚠ Built ONCE. Asking it per memory meant a full markdown parse of every
-    // document for every target — ~446,000 parses of a few megabytes.
+    // Built ONCE: per memory it was ~446,000 markdown parses.
     let incoming = incoming_links(&corpus.docs);
 
     let mut standings: Vec<Standing> = corpus
@@ -229,8 +151,7 @@ fn main() -> Result<()> {
                 indexed: listed.contains(name),
                 entry_cost: index_entry_cost(&index, name),
                 homes: homes_for(&incoming, name, &reached),
-                // The author's own declaration first, the #884 record behind
-                // it — see `study::role_for`.
+                // The author's own declaration first, the #884 record behind it.
                 role: role_for(corpus.docs[name].meta.role.as_deref(), &roles, name),
                 name: name.clone(),
             }
@@ -243,22 +164,10 @@ fn main() -> Result<()> {
 }
 
 /// Whether this entry may be PROPOSED for demotion — judged a pointer, and
-/// nothing else.
-///
-/// ⚠ **This replaced a name-prefix test, and that was memview#884's finding.**
-/// The old rule was `feedback_` or `user_`, on the reasoning that those are
-/// rules to absorb rather than facts to look up. It is right about those two
-/// prefixes and wrong about the rest: classifying all 480 arm members put 136
-/// `reference_` and 56 `project_` entries at tripwire, so **192 memories were
-/// ranked by a number their success mode suppresses** — a tripwire works by
-/// being read in the index and never opened, so a low open count is evidence it
-/// is working. The list of what to demote was in large part a list of what was
-/// working.
-///
-/// The harvest that was meant to settle it came back uninterpretable (every arm
-/// inside its own null band, the design failing its own placebo by 2-4x the
-/// bands), so this rests on the ARGUMENT rather than on an effect size — which
-/// is what #884 closed recommending, and `memory-tiers` already did.
+/// nothing else. This replaced a `feedback_`/`user_` prefix test, which put 136
+/// `reference_` and 56 `project_` tripwires on the list: a tripwire works by
+/// being read and never opened. The harvest came back uninterpretable, so this
+/// rests on the argument, as #884 closed recommending.
 fn may_demote(role: Option<Role>) -> bool {
     matches!(role, Some(Role::Pointer))
 }
@@ -291,20 +200,15 @@ fn report(
         "  {:<58} {:>7} {:>7} {:>6} {:>5} {:>6}  home",
         "memory", "opens", "halved", "edits", "bytes", "maybe"
     );
-    // ⚠ `grep` is printed beside a row that has one, never added to `opens`.
-    // A reader deciding a demotion needs to see that a memory reached somebody
-    // by a route the ranking cannot score.
+    // `grep` is printed beside a row, never added to `opens`.
     let picked: Vec<&Standing> = standings
         .iter()
         .filter(|s| s.indexed && may_demote(s.role) && s.read <= 1.0 && !s.homes.is_empty())
         .take(25)
         .collect();
 
-    // ⚠ **The set, not the sum.** Each `home` above was found against the index
-    // as it stands, and that index still carries every other candidate's line.
-    // So a pair that links only each other is each other's home and both read as
-    // housed — until both lines go together. Asking the invariant once, of the
-    // whole set, is the only form of this question that has the right answer.
+    // The set, not the sum: a pair that links only each other reads as housed until
+    // both lines go together.
     let names: BTreeSet<String> = picked.iter().map(|s| s.name.clone()).collect();
     let after = reachable_without(&corpus.docs, index, &names);
 
@@ -372,9 +276,7 @@ fn report(
         let last = s
             .last_open
             .map_or("never".to_string(), |d| format!("{d}d ago"));
-        // ⚠ A grep match belongs HERE more than anywhere: this section exists
-        // to show a memory was reached without the index carrying it, and a
-        // corpus search that printed a line of it is exactly that.
+        // A grep match belongs HERE most: a memory reached without the index carrying it.
         let grep = if s.grep_matches > 0 {
             format!("   grep×{}", s.grep_matches)
         } else {
@@ -382,10 +284,8 @@ fn report(
         };
         println!("  {:<58} {:>7.2}  last {last}{grep}", s.name, s.read);
     }
-    // ⚠ **Printed whether or not a row above carries one.** The reach is a
-    // corpus-wide fact and the sections above are all top-15 slices, so a
-    // reader who saw no `grep×` would otherwise conclude the route is unused
-    // when it is how ~17% of the corpus arrives (memview#1238).
+    // Printed whether or not a row above carries one: the sections are top-15
+    // slices, and the reach is how ~17% of the corpus arrives.
     let reached: Vec<&Standing> = standings.iter().filter(|s| s.grep_matches > 0).collect();
     let unindexed = reached.iter().filter(|s| !s.indexed).count();
     println!(
@@ -409,11 +309,9 @@ fn report(
         "  {} indexed tripwires, {never} of them never opened in the window",
         rules.len()
     );
-    // ⚠ **The third state, printed rather than dropped.** An unjudged entry is
-    // in neither half — not proposed, not counted as a tripwire — and without
-    // this line it would simply be absent from both, which reads as a corpus
-    // smaller than it is. The judgement is one unblinded pass (#884), so the
-    // size of what it does not cover is part of reading the report.
+    // The third state, printed rather than dropped: an unjudged entry is in
+    // neither half, and the size of what one unblinded pass does not cover is part
+    // of reading the report.
     let unjudged = standings
         .iter()
         .filter(|s| s.indexed && s.role.is_none())
@@ -422,8 +320,8 @@ fn report(
         "  {unjudged} indexed memories carry NO judgement — held, and in neither half above\n"
     );
 
-    // The stability check, stated rather than assumed: if the ordering moves
-    // when the half-life halves, the constant is deciding and not the data.
+    // The stability check: if the ordering moves when the half-life halves, the
+    // constant is deciding.
     let by_trusted: Vec<&str> = standings.iter().map(|s| s.name.as_str()).take(30).collect();
     let mut halved: Vec<&Standing> = standings.iter().collect();
     halved.sort_by(|a, b| {

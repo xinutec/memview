@@ -1,33 +1,16 @@
 //! A `<defunct>` under the console, recorded at the moment it is seen.
 //!
-//! #797 is a zombie whose parent is the console and whose origin nothing
-//! recorded. Every look so far has been after the fact at a process table that
-//! has already been swept, and waiting has now failed twice — no sightings over
-//! nine days, across a window in which neither suspect's failing path ran. So
-//! the occurrence has to carry its own evidence.
+//! A zombie's command is gone (`comm` and `command` both read `<defunct>`), so a
+//! sighting carries `ppid` and `lstart`; the start time is what pairs it with the
+//! `asking pid N` lines the spawn sites log, safely across pid reuse.
 //!
-//! ⚠ **A zombie's command is gone, so the occurrence cannot say what it was.**
-//! Measured on this Mac by forcing one: a process in state `Z` still
-//! reports `ppid`, `lstart` and `etime`, but **both `comm` and `command` read
-//! `<defunct>`**. The task asked for "ppid and the command"; only the first half
-//! exists.
-//!
-//! **The start time is the half that identifies it.** `gist.rs` and `deaf.rs`
-//! already log `asking pid N` at their spawn, so a sighting pairs with a spawn
-//! site by pid — and `lstart` is what makes that pairing safe across pid reuse,
-//! which a bare pid on a host up for weeks cannot promise.
-//!
-//! ⚠ **This reads the process table; it must never reap.** `SIGCHLD` set to
-//! `SIG_IGN` and `waitpid(-1, …)` both reap indiscriminately and would take the
-//! exit status [`crate::session::Session::reap`] reads. `ps` takes nothing.
+//! This reads the process table and must never reap: `SIGCHLD` as `SIG_IGN` or
+//! `waitpid(-1, …)` would take the exit status [`crate::session::Session::reap`] reads.
 
 use std::collections::HashSet;
 
-/// One `<defunct>` child, as much of it as survives.
-///
-/// No command field, deliberately: see the module note. A `Sighting` that
-/// carried `"<defunct>"` would read like a recorded fact rather than an absent
-/// one.
+/// One `<defunct>` child, as much of it as survives. No command field: a recorded
+/// `"<defunct>"` would read like a fact.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Sighting {
     pub pid: u32,
@@ -36,11 +19,8 @@ pub struct Sighting {
     pub started: String,
 }
 
-/// The zombies whose parent is `parent`, from a `ps` table.
-///
-/// Expects rows of `pid ppid state lstart`, which is four columns of which the
-/// last is five words. Anything shorter is a row this does not understand, and
-/// is skipped rather than guessed at.
+/// The zombies whose parent is `parent`, from a `ps` table of `pid ppid state
+/// lstart` — four columns, the last of them five words. Shorter rows are skipped.
 pub fn parse(table: &str, parent: u32) -> Vec<Sighting> {
     let mut out = Vec::new();
     for row in table.lines() {
@@ -75,13 +55,8 @@ pub struct Watch {
 }
 
 impl Watch {
-    /// The sightings that are new since the last sweep, and the ones that have
-    /// gone.
-    ///
-    /// **Departures are worth a line too.** A zombie that is still there an hour
-    /// later is a leak; one that disappears is something reaping late, and the
-    /// two want different fixes. Nothing else records which of those is
-    /// happening.
+    /// The sightings new since the last sweep, and the ones gone. Departures matter:
+    /// a zombie still there an hour later is a leak, one that disappears is late reaping.
     pub fn sweep(&mut self, table: &str, parent: u32) -> (Vec<Sighting>, Vec<Sighting>) {
         let now: HashSet<Sighting> = parse(table, parent).into_iter().collect();
         let fresh = now.difference(&self.seen).cloned().collect();
@@ -100,13 +75,8 @@ fn table() -> Option<String> {
     Some(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// Log every `<defunct>` under this process as it appears, and as it goes.
-///
-/// A minute apart. The zombies this hunts have persisted for days — the count
-/// this task was filed on went 22 → 23 and stayed — so the cadence is not what
-/// decides whether one is caught. It is set for the case that would otherwise
-/// leave nothing at all: a zombie that something reaps late, which a slow sweep
-/// would miss entirely and report as "none, still".
+/// Log every `<defunct>` under this process as it appears, and as it goes. A
+/// minute apart — often enough to catch one that something reaps late.
 pub async fn watch() {
     let parent = std::process::id();
     let mut watch = Watch::default();

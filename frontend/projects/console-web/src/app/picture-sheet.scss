@@ -22,10 +22,8 @@
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
-  // ⚠ **`rtl` puts the cut at the START of the line**, which is where the least
-  // is lost: two renders of the same room differ in the end of the path and
-  // agree on the host. The ellipsis is what makes the cut visible at all — the
-  // first look at this showed an address quietly missing its `http://`.
+  // `rtl` puts the cut at the START of the line, where the least is lost; the
+  // ellipsis is what makes the cut visible at all.
   direction: rtl;
   text-align: left;
   text-overflow: ellipsis;
@@ -39,14 +37,9 @@
   margin: 1rem 0 0;
 }
 
-// The picture takes everything the header leaves.
-//
-// ⚠ **No scroller of its own** (DL-ANGULAR-NESTED-SCROLLER):
-// `mat-bottom-sheet-container` already scrolls, and a second one inside it
-// fights the first. Nothing here needs one — the picture is moved by a
-// transform, so what is off the edge is reached by dragging rather than by
-// scrolling, and `overflow: hidden` keeps a magnified picture from painting over
-// the address above it.
+// The picture takes everything the header leaves. No scroller of its own
+// (DL-ANGULAR-NESTED-SCROLLER): the picture is moved by a transform, and
+// `overflow: hidden` keeps a magnified one off the address above.
 .frame {
   flex: 1 1 auto;
   min-height: 0;
@@ -58,11 +51,8 @@
   justify-content: center;
   overflow: hidden;
 
-  // ⚠ **Load-bearing, not a nicety.** With the browser's own gestures left on,
-  // a pinch is taken for page zoom and the pointer stream stops part way
-  // through: the picture sticks at whatever it had reached. `none` says every
-  // touch on this element is the app's. The system back gesture is unaffected —
-  // that is the activity's, and it never reaches the page.
+  // Load-bearing: with the browser's own gestures left on, a pinch is taken for
+  // page zoom and the pointer stream stops part way through.
   touch-action: none;
   // A drag is what this is for; the pointer should say so before it is tried,
   // and while it is happening.
@@ -78,9 +68,8 @@
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
-    // ⚠ The transform is set from the component every frame of a gesture, so
-    // there must be no transition on it — one turns a pinch into the picture
-    // chasing the fingers a fifth of a second behind.
+    // No transition: the transform is set every frame of a gesture, and one turns
+    // a pinch into the picture chasing the fingers.
     transform-origin: center;
     // Dragging a picture is the gesture; dragging the FILE is the browser's own
     // idea about images and it fires instead of ours.

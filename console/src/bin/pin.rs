@@ -2,16 +2,11 @@
 //!
 //!     cargo run -p console --bin pin -- phone.pem
 //!
-//! This is the whole of enrolling a device: read the certificate it hands out
-//! once, put this line in `CONSOLE_CLIENT_KEYS`, restart. Revoking is deleting
-//! the line. There is no CA, no revocation list and no expiry to chase, because
-//! there is exactly one relationship being described and both ends of it are
-//! known in advance.
-//!
-//! The fingerprint is of the *key*, not the certificate, so re-issuing the
-//! certificate around the same key does not change it — which matters for a key
-//! generated inside a phone's secure element, where the key is the thing that
-//! cannot be replaced.
+//! Enrolling a device is this line in `CONSOLE_CLIENT_KEYS` and a restart;
+//! revoking is deleting it. No CA, no revocation list, no expiry: one
+//! relationship, both ends known in advance. The fingerprint is of the KEY, so
+//! re-issuing the certificate around it changes nothing — the key in a phone's
+//! secure element is the thing that cannot be replaced.
 
 use anyhow::{Context, Result, bail};
 use console::tls::pin_of;

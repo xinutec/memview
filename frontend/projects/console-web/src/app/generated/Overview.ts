@@ -18,53 +18,31 @@ dirs: Array<string>,
  */
 repos: Array<string>, sessions: Array<Summary>, 
 /**
- * A fingerprint of the bundle this runner is serving, when it serves one.
- *
- * The client compares it with the one it booted from and reloads when they
- * differ — the console has no service worker (deliberately: it would cache
- * an app behind a client-certificate gate, and ngsw's navigationUrls and
- * auth are a known source of trouble here), so nothing else would ever
- * tell a long-lived page that the bundle under it had changed.
+ * A fingerprint of the bundle this runner is serving, when it serves one. The
+ * client reloads when it differs from the one it booted from — there is no
+ * service worker, deliberately, behind a client-certificate gate.
  */
 bundle?: string, 
 /**
- * How much of the subscription is spent, when a reading has ever arrived.
- *
- * Measured from the sessions' own streams, with the home dashboard behind
- * it for a window nothing has reported yet — see [`crate::usage`]. Absent
- * means no reading rather than no usage, and the front page then shows
- * nothing at all: a bar drawn at 0% is a claim.
+ * How much of the subscription is spent, when a reading has ever arrived — see
+ * [`crate::usage`]. Absent means no reading, and the front page draws nothing: a
+ * bar at 0% is a claim.
  */
 usage?: Reading, 
 /**
- * What each conversation is about, by session id — written by a model from
- * the transcript rather than read off it, and marked as such by the client.
- * See [`crate::gist`].
- *
- * Keyed rather than folded into each session because it covers the
- * conversations on disk too, which arrive from a different endpoint and are
- * the ones a sentence helps most: a name you have not opened in a week is a
- * word, and this says what the week's work was.
+ * What each conversation is about, by session id — written by a model, and
+ * marked as such by the client. See [`crate::gist`]. Keyed rather than folded
+ * into each session because it covers the conversations on disk too.
  */
 gists: { [key in string]: Gist }, 
 /**
- * Who is holding what — see [`crate::tasks`]. The conversations are keyed
- * by session id; the rest is Pippijn and the unassigned pile.
- *
- * Keyed for the same reason [`Self::gists`] is, and it is the same reason
- * twice: the front page draws the transcripts on disk beside the running
- * sessions, and a conversation that is not running still has the list it
- * kept. A copy folded onto each summary would cover only half the page.
+ * Who is holding what — see [`crate::tasks`]. Keyed by session id for the same
+ * reason [`Self::gists`] is; the rest is Pippijn and the unassigned pile.
  */
 tasks: Sweep, 
 /**
- * The unsent words each conversation is holding, by session id.
- *
- * ⚠ **Carried by the roster because the roster is already being asked.** An
- * open session polls this every five seconds, so a draft written on the
- * other device arrives without a request of its own — and a draft is a
- * sentence, which is nothing beside what this payload already carries. A
- * per-session poll would have been a second timer answering the same
- * question later.
+ * The unsent words each conversation is holding, by session id. Carried here
+ * because the roster is already polled every five seconds, and a draft is a
+ * sentence.
  */
 drafts: { [key in string]: Draft }, };

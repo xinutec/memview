@@ -26,36 +26,27 @@ export interface Standing {
 }
 
 /**
- * How the statuses sort, and how they read.
- *
- * ⚠ **Underway above merely open.** The middle state is the answer to "what is
- * this session actually on", which is the question this sheet is opened with.
- * The closed ones sort last and are hidden by default: three hundred finished
- * things above eight open ones is a list nobody scrolls.
- *
- * ⚠ **`open` is a field rather than `status !== 'done'`.** The service grew a
- * fourth state, `dropped` — closed without being done — and the filter here said
- * "not done", which is the same thing right up until it isn't. Five dropped
- * tasks then showed among the open ones on the tasks session, with a question
- * mark for an icon, and the toggle offered to reveal work it was already
- * showing. The service made exactly this mistake first and fixed it the same
- * way: `Status::is_open` is a method there precisely so a fifth state cannot
- * quietly leave one call site behind.
+ * How the statuses sort, and how they read. Underway above merely open — the
+ * answer to "what is this session actually on"; the closed ones last and
+ * hidden by default. `open` is a field rather than `status !== 'done'`: the
+ * service grew `dropped`, closed without being done, and "not done" showed five
+ * of them among the open work. `Status::is_open` is a method there for the same
+ * reason.
  */
 const STATUS: Record<string, Standing> = {
   doing: { rank: 0, title: 'underway', icon: 'pending', open: true },
   open: { rank: 1, title: 'open', icon: 'radio_button_unchecked', open: true },
   done: { rank: 2, title: 'done', icon: 'check_circle', open: false },
-  // Not the primary colour the done mark gets, and not a tick: dropped is
-  // "decided against", and a list that credited it as finished work would be
-  // the reason the service keeps the two apart at all. The OUTLINE cross rather
-  // than the filled `cancel` — that one renders as a solid disc, which made the
-  // least important row on the screen the loudest mark on it.
+  // Not the done mark's colour and not a tick: dropped is "decided against". The
+  // OUTLINE cross — the filled `cancel` renders as a solid disc, the loudest mark
+  // on the screen for the least important row.
   dropped: { rank: 3, title: 'dropped', icon: 'highlight_off', open: false },
 };
 
-/** Anything the CLI grows later sorts with the open ones rather than vanishing:
- *  a state this console has not heard of is news, not a reason to hide a row. */
+/**
+ * Anything the service grows later sorts with the open ones rather than
+ * vanishing: a state this console has not heard of is news.
+ */
 const UNKNOWN: Standing = { rank: 1, title: 'open', icon: 'help', open: true };
 
 /** Where a status stands, including one this console has never heard of. */
@@ -66,55 +57,35 @@ export function standingOf(status: string): Standing {
 /** The rows to draw: open work first, and the closed ones only when asked. */
 export function shownTasks(all: readonly Task[], everything: boolean): Task[] {
   const wanted = everything ? [...all] : all.filter((task) => standingOf(task.status).open);
-  // Stable within a status: the list is already in the order the session made
-  // them, and the sort only lifts what is underway to the top.
+  // Stable within a status: the list is already in the session's order.
   return wanted.sort((left, right) => standingOf(left.status).rank - standingOf(right.status).rank);
 }
 
 /**
- * Whether a rank lifts a task above the work nobody has ranked.
- *
- * ⚠ **`P0` and `P1`, and nothing else.** `P2` is exactly where an unranked task
- * already sits, so drawing it as urgent would say something about the row that
- * is not true of it — and `P3`/`P4` mean *when there is room* and *not
- * scheduled*, which sort BELOW the untriaged. The letter itself carries which of
- * the five it is; this only decides whether the chip is loud.
- *
- * A level this console has never heard of is drawn quietly rather than hidden:
- * shown as its own letters, and not promoted on a guess.
+ * Whether a rank lifts a task above the unranked work. `P0` and `P1` only: `P2`
+ * is where an unranked task already sits, and `P3`/`P4` sort below it. A level
+ * this console has never heard of is drawn quietly as its own letters.
  */
 export function above(priority: string | undefined): boolean {
   return priority === 'P0' || priority === 'P1';
 }
 
 /**
- * What a deadline says, spelled out for the label rather than the row.
- *
- * ⚠ **The row gets an icon, not the date.** Settled by looking at the render at
- * phone width in the tasks app: spelling the date out pushed a long-subject
- * fixture from 9 wrapped lines to 12, on a screen where the subject is the thing
- * anybody came to read. The words live here, where a screen reader and a
- * long-press find them.
- *
- * Empty when there is no deadline, which is almost every task and always will
- * be: a row with neither field must cost nothing extra to draw.
+ * What a deadline says, spelled out for the label rather than the row: the row
+ * gets an icon, since the date pushed a long subject from 9 wrapped lines to
+ * 12 at phone width. Empty when there is no deadline, which is almost every task.
  */
 export function dueLabel(task: Task): string {
   if (!task.due) return '';
-  // ⚠ `overdue` from the service, never `due < today` worked out here — see
-  // [[Task.overdue]]. The phone's idea of the date is a fourth answer.
+  // `overdue` from the service, never `due < today` worked out here — see
+  // [[Task.overdue]].
   return task.overdue ? `overdue — was due ${task.due}` : `due ${task.due}`;
 }
 
 /**
- * What a task is waiting for, named by number.
- *
- * The numbers rather than the subjects, because the number is what a session
- * calls a task in its own prose — `#418 done` — and the subjects are not on this
- * client to print. Empty unless the service says it is still blocked: the link
- * survives its blocker closing as a record of how the work went, and a row that
- * went on saying "waiting on" afterwards would be wrong about the one thing it
- * is there to say.
+ * What a task is waiting for, by number — what a session calls a task in its
+ * prose (`#418 done`). Empty unless the service says it is still blocked: the
+ * link survives its blocker closing, as a record.
  */
 export function waitingOn(task: Task): string {
   if (!task.blocked || !task.blocked_on?.length) return '';
@@ -122,13 +93,9 @@ export function waitingOn(task: Task): string {
 }
 
 /**
- * What the "All" toggle would reveal, in the service's own words — empty when it
- * would reveal nothing and the toggle should not be drawn at all.
- *
- * The two closed states are named separately while only one of them is present,
- * because "13 done" and "5 dropped" are different facts and both fit. Together
- * they collapse to a count: "13 done, 5 dropped" is a long label on a phone, and
- * the icons in the list already tell them apart once the toggle is on.
+ * What the "All" toggle would reveal, in the service's own words — empty when
+ * nothing. "13 done" and "5 dropped" are named separately while only one is
+ * present; together they collapse to a count.
  */
 export function closedLabel(all: readonly Task[]): string {
   const closed = all.filter((task) => !standingOf(task.status).open);
@@ -140,13 +107,9 @@ export function closedLabel(all: readonly Task[]): string {
 }
 
 /**
- * A session's own task list, read-only.
- *
- * ⚠ **Read-only on purpose, and it should stay that way.** These are written by
- * the session's task tools; a second surface editing them is how one list
- * becomes two that disagree — which is the defect this console has now fixed
- * three times in other places. What this adds is the thing the session cannot
- * do: show you all of it at once, months after the fact.
+ * A session's own task list, read-only on purpose: a second surface editing
+ * them is how one list becomes two that disagree. What this adds is seeing all
+ * of it at once, months after the fact.
  */
 @Component({
   selector: 'app-tasks-sheet',
@@ -162,33 +125,29 @@ export class TasksSheet {
   /**
    * Why the list could not be read, when it could not be.
    *
-   * dev-lint: allow-sticky-error the sheet reads the list once, on the way up,
-   * and offers no retry — so there is no later success for this to be stale
-   * against. Withdrawing it means closing the sheet, which destroys this
-   * component and the message with it. The per-task failures below DO retry and
-   * are cleared accordingly.
+   * dev-lint: allow-sticky-error the sheet reads the list once and offers no
+   * retry, so there is no later success for this to be stale against.
    */
   protected readonly trouble = signal('');
   /** Whether finished tasks are shown. Off by default — see [STATUS]. */
   protected readonly everything = signal(false);
-  /** The task whose prose is open, and what it said. One at a time: this is a
-   *  sheet on a phone, and two expanded write-ups are no longer a list. */
+  /**
+   * The task whose prose is open, and what it said. One at a time: two expanded
+   * write-ups on a phone are no longer a list.
+   */
   protected readonly opened = signal<string | undefined>(undefined);
   protected readonly said = signal<Record<string, string>>({});
   /**
-   * Why one task's write-up could not be fetched, per task.
-   *
-   * ⚠ **Separate from [said], because a failure kept as the text would be
-   * permanent.** Written into the same map, the message became the task's
-   * description as far as this sheet was concerned — folding the row and opening
-   * it again found something cached and never asked twice, so a request that
-   * failed once failed for the life of the sheet. A fresh attempt withdraws it.
+   * Why one task's write-up could not be fetched, per task. Separate from [said]:
+   * kept as the text, a failure became the description for the life of the sheet.
    */
   protected readonly failed = signal<Record<string, string>>({});
 
   protected readonly shown = computed(() => shownTasks(this.all() ?? [], this.everything()));
-  /** Said plainly rather than as a count of nothing: an empty list and a list
-   *  with nothing left open are different facts about a session. */
+  /**
+   * Said plainly rather than as a count of nothing: an empty list and a list with
+   * nothing left open are different facts.
+   */
   protected readonly empty = computed(() => (this.all() ?? []).length === 0);
   /** What the toggle offers to reveal, and whether there is anything to. */
   protected readonly closed = computed(() => closedLabel(this.all() ?? []));

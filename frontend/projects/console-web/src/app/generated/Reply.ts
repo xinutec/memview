@@ -4,22 +4,12 @@ import type { Answer } from "./Answer";
 
 /**
  * What a person said about a question: options picked, or words instead.
- *
- * ⚠ **`response` and `answers` are alternatives, not companions.** The CLI's
- * result builder tests `response` first and reports only that, so prose sent
- * alongside a set of choices silently throws the choices away. Read off 2.1.220:
- *
- * ```text
- * else if (response?.trim()) a = `The user responded: ${response}`
- * else if (s)               a = `The user answered: …`
- * ```
- *
- * The client is where that is made visible — a card that offered both at once
- * would be offering one of them dishonestly.
+ * `response` and `answers` are alternatives — the CLI's result builder tests
+ * `response` first and reports only that (2.1.220), so prose sent alongside
+ * choices throws the choices away. The client is where that is made visible.
  */
 export type Reply = { answers?: { [key in string]: Answer }, response?: string, 
 /**
- * Notes beside the choices — see [`Annotation`]. These travel *with*
- * `answers`, not instead of them.
+ * Notes beside the choices — see [`Annotation`]. These travel WITH `answers`.
  */
 annotations?: { [key in string]: Annotation }, };

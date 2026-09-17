@@ -5,13 +5,10 @@
 //! It starts sessions in allowed directories, reads them live, sends them
 //! instructions and carries their permission questions.
 //!
-//! **Where it listens is the security model, not a setting.** With no client
-//! authentication configured it refuses to listen anywhere but loopback, because
-//! anything that can reach the socket can run code as this user and the house LAN
-//! is full of devices nobody patches. With the gate configured it serves the
-//! world on TLS with a pinned client key — and keeps a plaintext loopback socket
-//! beside it for this machine, which is sound for the same reason the loopback-only
-//! mode is: a local process can spawn `claude` itself. See `docs/agent-console.md`.
+//! Where it listens is the security model: without client authentication it
+//! refuses anything but loopback, since whatever reaches the socket runs code as
+//! this user. With the TLS gate it serves the world on a pinned client key and
+//! keeps a plaintext loopback socket for this machine. See `docs/agent-console.md`.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -31,12 +28,8 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    // ⚠ **Before any TLS client is built.** The outbound side is compiled with
-    // no crypto provider baked in — see `Cargo.toml` for why aws-lc is not
-    // wanted here — so one has to be the process default or building a client
-    // fails at run time rather than at compile time. Ring, the same provider the
-    // listener below is built with explicitly. Already-installed is not an
-    // error worth reporting: it means somebody got here first.
+    // The outbound side is built with no crypto provider baked in, so one must be
+    // the process default before any TLS client is built. Already installed is fine.
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     let config = Config::from_env();
@@ -45,10 +38,8 @@ async fn main() -> Result<()> {
         .parse()
         .with_context(|| format!("BIND_ADDR {:?} is not an address", config.bind))?;
     if !address.ip().is_loopback() && config.tls.is_none() {
-        // Not a warning and not an override. Without the client-certificate
-        // gate, listening off loopback means anything that can reach the socket
-        // can run code as this user — and the house LAN is full of devices
-        // nobody patches. See docs/agent-console.md, *Security model*.
+        // Without the client-certificate gate, off-loopback means anything on the LAN
+        // can run code as this user. Not a warning.
         bail!(
             "refusing to listen on {address}: no client authentication is configured, \
              so the console may only listen on loopback. Set CONSOLE_TLS_CERT, \
@@ -73,14 +64,10 @@ async fn main() -> Result<()> {
     let desk = config.desk.clone();
     let dirs = config.dirs.clone();
     let roster = Arc::new(Roster::new(config));
-    // Before anything else: if this image was exec'd by an upgrade, the sessions
-    // it was running are still running and their pipes came with us.
-    // Fetched in the background from here on, so no request ever waits on the
-    // dashboard and a console with none configured simply never asks.
+    // The dashboard is fetched in the background, so no request ever waits on it.
     roster.usage().clone().watch();
-    // And asked of the sessions themselves, which is where the current figures
-    // are. A minute apart: the number moves only when a request is answered, and
-    // this puts a line down a live conversation's stdin to get it.
+    // The sessions are asked a minute apart: the number moves only when a request
+    // is answered, and asking puts a line down a live conversation's stdin.
     {
         let asking = roster.clone();
         tokio::spawn(async move {
@@ -90,10 +77,7 @@ async fn main() -> Result<()> {
             }
         });
     }
-    // Sessions that have stopped reading what is written to them. Fifteen
-    // seconds apart: a sweep that finds nothing costs one comparison per
-    // session, and the number that matters is how long somebody stares at a
-    // *waiting to be read* marker before the console admits what it means.
+    // A sweep that finds nothing costs one comparison per session.
     {
         let watching = roster.clone();
         tokio::spawn(async move {
@@ -103,10 +87,7 @@ async fn main() -> Result<()> {
             }
         });
     }
-    // What each conversation is about, written by the cheapest model there is
-    // from the transcript itself — see [`console::gist`]. A quarter of an hour
-    // apart, and each sweep pays only for the conversations whose files have
-    // grown since their last sentence, so an idle console spends nothing.
+    // Each sweep pays only for conversations whose files have grown.
     {
         let writing = roster.clone();
         tokio::spawn(async move {
@@ -116,12 +97,7 @@ async fn main() -> Result<()> {
             }
         });
     }
-    // The pictures the phone has sent, kept only as long as the conversations
-    // they belong to — see [`console::images::tidy`]. Its own loop rather than a
-    // second job inside the one above, because it is the only thing here that
-    // deletes and that deserves to be visible on its own line. Hourly: what it
-    // reclaims is one directory per conversation deleted, which is not something
-    // that happens on a timescale worth chasing.
+    // The only thing here that deletes, so it gets its own line. Hourly.
     {
         let tidying = roster.clone();
         tokio::spawn(async move {
@@ -131,37 +107,24 @@ async fn main() -> Result<()> {
             }
         });
     }
-    // A `<defunct>` under this console, recorded when it appears rather than
-    // counted long afterwards — see [`console::zombies`] and #797. It reads the
-    // process table and reaps nothing, so it cannot take an exit status
-    // `Session::reap` is waiting for.
+    // A `<defunct>` under this console, recorded as it appears. It reaps nothing,
+    // so it cannot take an exit status `Session::reap` is waiting for.
     tokio::spawn(console::zombies::watch());
     let carried = roster.inherit();
     if carried > 0 {
         tracing::info!("{carried} session(s) carried across an upgrade — none was restarted");
     }
-    // And the ones the old image was in the middle of stopping, whose kill it
-    // could not deliver because `execve` took the timer with it. See #750.
+    // Their kill could not be delivered by the old image: `execve` took the timer.
     let finishing = roster.finish_stopping();
     if finishing > 0 {
         tracing::info!("{finishing} stopped session(s) still to be finished off");
     }
     let mut app = api::router(roster.clone());
     if let Some(dir) = &static_dir {
-        // The SPA owns its routes, so anything the API did not answer is the
-        // index and not a 404.
-        // `fallback`, not `not_found_service`: the latter answers only when the
-        // request never reached the directory service, so a deep link like
-        // /s/<id> — which is a real path with no file behind it — 404s instead
-        // of loading the app.
-        //
-        // ⚠ **But only for a navigation.** Falling back for *everything* meant a
-        // file that was briefly missing — the bundle is rewritten in place on
-        // every build — came back as `200 text/html`, and a browser handed HTML
-        // where it asked for a font neither retries nor complains. The icons
-        // vanished on a reload and nothing anywhere recorded a failure: not the
-        // server log, not the client trace, not the network panel. A 404 is the
-        // answer that can be seen.
+        // The SPA owns its routes, so a navigation the API did not answer gets the
+        // index. `fallback`, not `not_found_service`, which never sees a deep link.
+        // Only for a navigation: serving index.html for a missing font once broke the
+        // icons with nothing logged anywhere.
         let index = format!("{dir}/index.html");
         app = app.fallback_service(ServeDir::new(dir).fallback(axum::routing::any(
             move |uri: axum::http::Uri| {
@@ -171,10 +134,8 @@ async fn main() -> Result<()> {
         )));
     }
 
-    // Take the sessions with us. Without this, stopping the console orphans every
-    // `claude` it started: they keep running, keep their session ids, and keep
-    // appearing in the process table, where `past::in_use` reads them and refuses
-    // to resume the very conversations nobody is using any more.
+    // Take the sessions with us; orphaned ones keep their ids, and `past::in_use`
+    // then refuses to resume the very conversations nobody is using.
     {
         let roster = roster.clone();
         tokio::spawn(async move {
@@ -191,13 +152,8 @@ async fn main() -> Result<()> {
         });
     }
 
-    // SIGUSR2 upgrades in place, keeping the sessions. Deliberately a different
-    // signal from the one that stops: `kill` means stop, and an upgrade that
-    // answered to it would be a stop that sometimes did not stop. nginx spells
-    // it the same way, for the same reason.
-    //
-    // If it fails, the console carries on as it was — see [`Roster::handover`]
-    // for why returning beats exiting.
+    // SIGUSR2 upgrades in place, keeping the sessions. A different signal from the
+    // one that stops, so `kill` always means stop. See [`Roster::handover`].
     {
         let roster = roster.clone();
         tokio::spawn(async move {
@@ -221,9 +177,8 @@ async fn main() -> Result<()> {
 
     match gate {
         Some(tls_config) => {
-            // The desk keeps a way in. Without this, turning the gate on takes the
-            // console away from the machine it runs on: the gated socket demands a
-            // certificate of everybody, and an SSH forward has none to present.
+            // The desk keeps a way in: the gated socket demands a certificate, and an SSH
+            // forward has none to present.
             let desk: SocketAddr = desk
                 .parse()
                 .with_context(|| format!("CONSOLE_DESK_ADDR {desk:?} is not an address"))?;
@@ -244,9 +199,8 @@ async fn main() -> Result<()> {
                 axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(tls_config)),
             )
             .serve(app.into_make_service());
-            // Either one falling over takes the process down rather than leaving a
-            // console that is half there — which from a phone looks exactly like
-            // the Mac being asleep.
+            // Either socket failing takes the process down rather than leaving a console
+            // that is half there.
             tokio::select! {
                 served = plain => served.context("serving on loopback")?,
                 served = gated => served.context("serving with TLS")?,

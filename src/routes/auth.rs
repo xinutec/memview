@@ -1,7 +1,6 @@
-//! Auth routes: Nextcloud identity login, restricted to an explicit
-//! allow-list. Copied from `messages`; sessions are stateless here, so
-//! logout is just clearing the cookie. All three routes 404 when auth is
-//! unconfigured (local dev — there is nothing to log in to).
+//! Auth routes: Nextcloud identity login, restricted to an allow-list. Sessions
+//! are stateless, so logout is clearing the cookie. All three routes 404 when
+//! auth is unconfigured.
 
 use axum::extract::{Query, State};
 use axum::http::{StatusCode, header};
@@ -22,25 +21,16 @@ fn session_cookie(value: String) -> Cookie<'static> {
     Cookie::build((COOKIE_NAME, value))
         .path("/")
         .http_only(true)
-        // Not `Secure`: the isis deployment is plain http on the wg0
-        // hostPort (the VPN is the transport gate), matching recall.
+        // Not `Secure`: the isis deployment is plain http on the wg0 hostPort.
         .same_site(SameSite::Lax)
         .max_age(time::Duration::days(7))
         .build()
 }
 
-/// Only allow same-site internal paths as a post-login redirect target.
-///
-/// ⚠ **The test is on the character AFTER the leading slash, because that is
-/// what decides whether a host follows.** `//host` is protocol-relative, and so
-/// is `/\host`: the URL Standard treats a backslash as a slash for http(s), so a
-/// browser resolves `Location: /\attacker.com` to `http://attacker.com/` and the
-/// redirect leaves the site. Testing only for `//` reads as a same-site check
-/// and is not one.
-///
-/// A backslash anywhere LATER is an ordinary path character and stays allowed —
-/// it cannot open an authority, and rejecting it would drop a legitimate return
-/// to a search whose query holds one.
+/// Only same-site internal paths as a post-login redirect target. The test is
+/// on the character AFTER the leading slash: `/\host` is protocol-relative too,
+/// since the URL Standard treats a backslash as a slash for http(s). A backslash
+/// anywhere LATER is an ordinary path character.
 pub fn validate_return_to(return_to: Option<&str>) -> String {
     match return_to {
         Some(p) if p.starts_with('/') && !matches!(p.as_bytes().get(1), Some(b'/' | b'\\')) => {
@@ -55,13 +45,9 @@ pub struct LoginQuery {
     return_to: Option<String>,
 }
 
-/// The cookie that says *this browser started a sign-in, and it was this one*.
-///
-/// ⚠ **`Lax`, and it must not be `Strict`.** The callback arrives as a top-level
-/// navigation from the identity provider's origin, which is cross-site: a
-/// `Strict` cookie is withheld on exactly that hop, so the one request this
-/// exists for would be the one request without it. `Lax` is sent on top-level
-/// GET navigations, which is what a callback is.
+/// The cookie that says this browser started a sign-in. `Lax`, and it must not
+/// be `Strict`: the callback is a top-level cross-site navigation, on which a
+/// `Strict` cookie is withheld.
 fn pending_cookie(state: String) -> Cookie<'static> {
     Cookie::build((PENDING_COOKIE, state))
         .path("/")
@@ -82,9 +68,8 @@ pub async fn login(
 ) -> Result<(CookieJar, Redirect), AppError> {
     let auth = app.cfg.auth.as_ref().ok_or(AppError::NotFound)?;
     let state = app.create_oauth_state(q.return_to);
-    // The same value goes two ways: in the URL, where the provider is supposed
-    // to hand it back, and in a cookie, where nobody but this browser can. See
-    // `state_to_consume` for why the second is not redundant.
+    // The same value goes two ways — the URL, and a cookie only this browser can
+    // hold. See `state_to_consume`.
     Ok((
         jar.add(pending_cookie(state.clone())),
         Redirect::to(&identity::authorize_url(auth, &state)),
@@ -94,23 +79,13 @@ pub async fn login(
 /// Which pending sign-in this callback is for: the one named in the URL, or —
 /// when the provider dropped it — the one this browser is carrying.
 ///
-/// ⚠⚠ **Nextcloud loses the `state` it was given, so the URL cannot be the only
-/// source.** Observed in another app on the same code and same provider:
-/// `authorize` is handed 48 hex characters and the callback arrives as
-/// `state=&code=…`. Nextcloud stashes the value in its PHP session
-/// (`LoginRedirectorController.php:95`) and reads it back at the redirect
-/// (`ClientFlowLoginController.php:325`); a sign-in that crosses its own login
-/// page in between comes back empty. A live Nextcloud session does not save you
-/// either — NC sets `__Host-nc_sameSiteCookiestrict`, which a browser withholds
-/// on a cross-site redirect in, so NC treats the request as anonymous and
-/// demands a login even when you are already signed in.
-///
-/// ⚠ **What the cookie is worth, and what it is not.** `state` exists to prove
-/// the callback belongs to a flow *this browser* began. An `HttpOnly` cookie
-/// proves that directly and cannot be read or set across origins, so for the
-/// job `state` actually does it is not a weaker witness. What it cannot say is
-/// WHICH flow, when the URL says nothing — so two present and disagreeing is
-/// refused rather than guessed.
+/// Nextcloud loses the `state` it was given: it stashes it in its PHP session
+/// (`LoginRedirectorController.php:95`), and a sign-in that crosses its own
+/// login page comes back as `state=&code=…`; its `__Host-nc_sameSiteCookiestrict`
+/// is withheld on the cross-site redirect in, so it demands a login even when
+/// signed in. An `HttpOnly` cookie proves the flow is this browser's just as
+/// well; what it cannot say is WHICH flow, so two present and disagreeing is
+/// refused.
 pub fn state_to_consume<'a>(
     from_url: &'a str,
     from_cookie: &'a str,
@@ -125,13 +100,9 @@ pub fn state_to_consume<'a>(
     }
 }
 
-/// A sign-in that could not be finished, drawn for the BROWSER looking at it.
-///
-/// ⚠ **A navigation endpoint must not answer in JSON.** `/auth/callback` is
-/// somewhere a browser is *sent*; nothing calls it as an API. `AppError` renders
-/// as `{"error":"…"}`, which on a phone puts a raw JSON object on the screen and
-/// reads as the application being broken — measured in `tasks`, where the
-/// sentence had been right the whole time and only its content type was wrong.
+/// A sign-in that could not be finished, drawn for the BROWSER: `/auth/callback`
+/// is somewhere a browser is sent, and `AppError`'s JSON on a phone reads as the
+/// application being broken.
 fn sign_in_problem(status: StatusCode, said: &str) -> Response {
     let said = said
         .replace('&', "&amp;")
@@ -190,8 +161,7 @@ async fn finish_sign_in(
         .as_ref()
         .ok_or("Sign-in is not configured on this server.")?;
 
-    // Cleared whatever happens: a pending sign-in is spent by being answered,
-    // and leaving it set would let a second callback consume it.
+    // Cleared whatever happens: a pending sign-in is spent by being answered.
     let from_cookie = jar
         .get(PENDING_COOKIE)
         .map(|c| c.value().to_string())

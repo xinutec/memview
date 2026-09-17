@@ -23,10 +23,9 @@ export interface Signpost {
 }
 
 /**
- * ⚠ **Distinct icons, because the kinds are what make the list scannable.**
- * Grouped by day these run to dozens of rows of the reader's own words, and the
- * two that are not words — a picture, a cut — are the ones people navigate by.
- * A single bullet for all four turns the strip back into the paging it replaces.
+ * Distinct icons, because the kinds are what make the list scannable: grouped by
+ * day these run to dozens of rows of the reader's own words, and the two that
+ * are not words — a picture, a cut — are the ones people navigate by.
  */
 const SIGNPOST: Record<Mark, Signpost> = {
   prompt: { icon: 'chat_bubble_outline', instead: 'something said' },
@@ -49,16 +48,9 @@ export interface Day {
 }
 
 /**
- * Group landmarks into days, newest first.
- *
- * ⚠ **Newest first, against the transcript's own order.** The file is oldest
- * first and the console draws it that way, but this is a list of places to go
- * back to — and the thing somebody wants back is far more often this afternoon's
- * than March's. The same argument the conversation list already makes.
- *
- * Anything the transcript did not date is kept, in one group at the end. A
- * landmark with no stamp is still somewhere to jump to, and dropping it would
- * make the strip quietly incomplete.
+ * Group landmarks into days, newest first — this is a list of places to go back
+ * to, and this afternoon's is wanted far more often than March's. Anything
+ * undated is kept, in one group at the end.
  */
 export function byDay(marks: readonly Landmark[], now: number): Day[] {
   const days = new Map<string, Landmark[]>();
@@ -94,13 +86,10 @@ export function byDay(marks: readonly Landmark[], now: number): Day[] {
 export const FILTERS: readonly Mark[] = ['prompt', 'shown', 'command', 'compacted'];
 
 /**
- * Everywhere in this conversation worth going back to.
- *
- * ⚠ **This exists because paging cannot reach the past.** A transcript here runs
- * to hundreds of megabytes and comes back 400 events at a time, so anything an
- * hour old is a hundred taps away — reachable in principle and unreachable in
- * practice. What a person remembers is what they said, what they sent and where
- * the conversation was cut, so those are what this lists.
+ * Everywhere in this conversation worth going back to. Paging cannot reach the
+ * past — a transcript comes back 400 events at a time, so an hour ago is a
+ * hundred taps away. What a person remembers is what they said, what they sent
+ * and where the conversation was cut.
  */
 @Component({
   selector: 'app-jump-sheet',
@@ -117,17 +106,16 @@ export class JumpSheet {
   /**
    * Why the list could not be read.
    *
-   * dev-lint: allow-sticky-error read once on the way up, with no retry offered
-   * — closing the sheet destroys this component and the message with it.
+   * dev-lint: allow-sticky-error read once on the way up, with no retry offered.
    */
   protected readonly trouble = signal('');
   /** Which kinds are shown. All of them until somebody narrows it. */
   protected readonly kinds = signal<Mark[]>([...FILTERS]);
   protected readonly filters = FILTERS;
-  /** The toggles' icons, by kind. A plain lookup rather than a call, because a
-   *  template method runs on every change-detection pass
-   *  (DL-ANGULAR-TEMPLATE-METHOD-CALL) and this one would build an object each
-   *  time to ask a question with four fixed answers. */
+  /**
+   * The toggles' icons, by kind. A lookup rather than a call: a template method
+   * runs on every change-detection pass (DL-ANGULAR-TEMPLATE-METHOD-CALL).
+   */
   protected readonly icons: Record<Mark, string> = {
     prompt: SIGNPOST.prompt.icon,
     command: SIGNPOST.command.icon,

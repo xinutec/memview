@@ -2,9 +2,8 @@
 //!
 //!     cargo run --bin memory-lint [-- <corpus dir>]
 //!
-//! Defaults to the live corpus. Exits non-zero only on ERROR findings, so a
-//! rule can be introduced as a warning, worked down to zero, and then promoted
-//! in `lint.rs` — after which the corpus can never regress on it.
+//! Defaults to the live corpus. Exits non-zero only on ERROR findings; a rule is
+//! introduced as a warning, worked to zero, and promoted in `lint.rs`.
 use anyhow::Result;
 use memview::couse::CoUse;
 use memview::lint;
@@ -12,56 +11,24 @@ use memview::store::Corpus;
 
 /// How long to let a half-finished write finish before believing it.
 ///
-/// ⚠ **Measured, having been a guess when it was written — and the guess was
-/// short by a factor of ten.** It was 3 s, which felt like long enough for two
-/// consecutive tool calls. Across every memory creation in this
-/// machine's transcripts, paired with the next `MEMORY.md` edit in the same
-/// session, that covers one window in sixty-six:
+/// Measured across every memory creation paired with the next `MEMORY.md` edit:
 ///
 ///     <=   3s :  1.5%       <=  60s : 68.8%
 ///     <=  10s : 41.2%       <= 120s : 72.1%
 ///     <=  30s : 65.0%       <= 600s : 74.5%
 ///
-/// p50 is 13.7 s. **30 s is the knee**; past it each step buys single digits.
-///
-/// ⚠ **Deliberately short of the tail, because the tail is not a race.** p90 runs
-/// to 22 hours — a memory unindexed that long is unreachable for a day, which is
-/// the thing these rules exist to report. Waiting it out would only make the
-/// gate slower at saying nothing.
-///
-/// ⚠ **The cost lands on a person, which is the argument AGAINST raising it and
-/// it loses.** This runs in the pre-commit gate, so the wait is added to somebody
-/// already waiting — but only on a run that was about to fail, on a gate that
-/// takes minutes anyway, and the alternative is refusing a commit for a write
-/// that was never the committer's. `mem_check.py` took the same 30 s for the
-/// mirror-image reason: nobody is watching a daily collector at all
-/// (xinutec-infra `dc113c0`, memview #915/#927).
-///
-/// ⚠ **Calibrated for the index pair, and applied to `governs-unreciprocated` by
-/// analogy.** That rule's window is a rule file against the work it binds, which
-/// was not measured — same two-edit shape, unmeasured size.
+/// p50 is 13.7 s and 30 s is the knee. Short of the tail on purpose: p90 runs to
+/// 22 hours, which is the thing these rules exist to report. The wait lands only
+/// on a gate run that was about to fail (memview #915/#927). Applied to
+/// `governs-unreciprocated` by analogy, unmeasured.
 const SETTLE: std::time::Duration = std::time::Duration::from_secs(30);
 
 use memview::lint::RACY;
 
-/// Re-read once before reporting a racy rule, and believe the second answer.
-///
-/// A retry rather than a timestamp heuristic: "was this file written recently"
-/// needs a threshold that is wrong in both directions, whereas re-reading asks
-/// the corpus the same question again and takes the answer. A real finding
-/// survives it — the index is not going to fix itself — so nothing is hidden,
-/// and this costs [`SETTLE`] only on the runs that were about to fail.
-///
-/// ⚠ **It narrows the window; it does not close it.** At the measured p50 of
-/// 13.7 s a single 30 s re-read clears most of what it meets, and roughly a
-/// third of write windows are longer than that. A finding that survives means
-/// "still inconsistent half a minute later", which is worth reading — not
-/// "definitely broken", and not "the settle failed".
-///
-/// ⚠ **Untested, because it lives in a bin.** `mem_check.py` has four tests for
-/// the same mechanism with the sleep injected; this has none, and an untested
-/// constant is one nobody has a reason to check. Moving it into the library
-/// would fix that and is not this change.
+/// Re-read once before reporting a racy rule, and believe the second answer. A
+/// retry rather than a timestamp heuristic; a real finding survives it. It
+/// narrows the window and does not close it: roughly a third of write windows
+/// are longer than 30 s. Untested, because it lives in a bin.
 fn settle(
     corpus: Corpus,
     dir: &str,
@@ -83,27 +50,22 @@ fn settle(
 }
 
 fn main() -> Result<()> {
-    // Refuse a flag this tool does not know, rather than running as if it were
-    // absent (memview#1588).
+    // Refuse a flag this tool does not know (memview#1588).
     memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &[])?;
     let dir = std::env::args().nth(1).unwrap_or_else(|| {
         let home = std::env::var("HOME").unwrap_or_default();
         format!("{home}/.claude/projects/-Users-pippijn-Code/memory")
     });
     let corpus = Corpus::load(&dir)?;
-    // Optional: the artefact is produced by `cargo run --bin couse`, which reads
-    // gigabytes of transcripts. Absent on any machine but the Mac, and the lint
-    // is still worth running without it.
+    // Optional: the artefact reads gigabytes of transcripts and is absent on any
+    // machine but the Mac.
     let couse = std::path::Path::new(&dir)
         .parent()
         .map(|p| p.join("couse.json"))
         .and_then(|p| CoUse::load(&p));
-    // ⚠ **Absent is tolerated here and NOT in `memory-rank`**, and the two are
-    // different questions. That tool decides what to PROPOSE demoting, so a
-    // missing judgement would silently reinstate the classifier #884 measured
-    // wrong; this one only reports a gap, and a lint that refuses to run at all
-    // because a private analysis file is missing is a lint nobody can run on a
-    // fresh checkout. The rule is skipped, which `check` documents.
+    // Absent is tolerated here and NOT in `memory-rank`: that tool decides what to
+    // PROPOSE demoting, this one only reports a gap, and a lint that cannot run on a
+    // fresh checkout is a lint nobody runs.
     let roles: Option<serde_json::Value> =
         std::fs::read_to_string(reader::home::file("memory-roles.json"))
             .ok()
@@ -111,17 +73,14 @@ fn main() -> Result<()> {
     let (corpus, mut findings) = settle(corpus, &dir, couse.as_ref(), roles.as_ref())?;
 
     // The one pass that leaves the corpus and asks whether what it says is still
-    // true. `CODE_ROOT` overrides for a checkout somewhere else; the default is
-    // the tree every memory writes paths against.
+    // true. `CODE_ROOT` overrides for a checkout elsewhere.
     let code_root = std::env::var("CODE_ROOT").unwrap_or_else(|_| {
         let home = std::env::var("HOME").unwrap_or_default();
         format!("{home}/Code")
     });
     findings.extend(lint::check_world(&corpus, std::path::Path::new(&code_root)));
 
-    // The second outside-the-corpus pass, and the only referee for a stated
-    // birthday: `created` is frontmatter nothing else can contradict, so a
-    // typed value stands until this asks the transcripts.
+    // The second outside-the-corpus pass, and the only referee for a stated birthday.
     findings.extend(lint::check_created(
         &corpus,
         &reader::home::cache("memory-created.json"),
@@ -165,15 +124,10 @@ fn main() -> Result<()> {
         println!("    {sev:<8} {rule:<22} {count}");
     }
 
-    // ⚠ **One machine-readable line, because the nightly must not awk PROSE.**
-    // `claude-sync.sh` already lifts numbers out of this tool's output with awk
-    // to stamp them for `mem_check.py`; a finding's wording is written for a
-    // person and changes when the wording improves, which would silently stop
-    // the trend. This line exists to be parsed and says so.
-    //
-    // ⚠ **Emitted whether or not the root is over.** A line that appears only on
-    // failure makes "under the ceiling" and "the lint did not run" the same
-    // observation — see memview#1260, which is the same defect one layer up.
+    // One machine-readable line, because the nightly must not awk PROSE:
+    // `claude-sync.sh` lifts numbers out of this for `mem_check.py`. Emitted
+    // whether or not the root is over, or "under the ceiling" and "did not run"
+    // would be the same observation (memview#1260).
     if let Some(index) = corpus.index_md.as_deref() {
         let seen = memview::ceiling::cut(index, memview::ceiling::INDEX_CEILING);
         let mut entries = memview::store::index_links(index);
@@ -182,12 +136,8 @@ fn main() -> Result<()> {
         let mut below = memview::store::index_links(seen.dropped);
         below.sort();
         below.dedup();
-        // Teaser coverage rides the same line rather than becoming a finding
-        // per memory. 349 of them lack one today, and a rule that opens with
-        // 349 warnings is a wall nobody works down — the corpus convention is a
-        // warning worked to zero. As a COUNT it is a trend, and the trend is the
-        // question: how much of the corpus is index-eligible, and is that
-        // growing? See memview#822, which says nothing measures arrivals.
+        // Teaser coverage rides the same line rather than becoming 349 warnings; as a
+        // COUNT it is a trend — how much of the corpus is index-eligible (memview#822).
         let with_teaser = corpus
             .docs
             .values()
@@ -204,28 +154,19 @@ fn main() -> Result<()> {
         );
     }
 
-    // ⚠ **Only what this session wrote fails the gate.** The corpus is shared, so
-    // before this the block landed on whoever committed next rather than on the
-    // author. Outside a session — the nightly under launchd — `session` is None
-    // and every error still fails, which is what keeps the corpus out of its
-    // history until it is fixed. See [`lint::passed_for_session`].
+    // Only what this session wrote fails the gate; outside a session every error
+    // still fails. See [`lint::passed_for_session`].
     let session = std::env::var("CLAUDE_CODE_SESSION_ID").ok();
-    // ⚠ **And what this session last WROTE, a different question from what it
-    // created** (memview#1553): damaging a memory somebody else wrote used to
-    // read as not-yours and pass.
-    //
-    // ⚠ **Looked up only when it can change the answer.** Refreshing the record
-    // costs a mine catch-up, and with no session or no errors the verdict is
-    // already settled — so a clean run pays nothing.
+    // And what this session last WROTE, a different question from what it created
+    // (memview#1553). Looked up only when it can change the answer, since
+    // refreshing the record costs a mine catch-up.
     let writers = if session.is_some() && !lint::passed(&findings) {
         last_writers()
     } else {
         None
     };
-    // ⚠ **An absent record yields `Unrecorded`, keeping the OLD behaviour.**
-    // Treating "could not ask" as "not yours" silently would be the same
-    // masking this rule exists to remove; `last_writers` has already said on
-    // stderr why it is missing.
+    // An absent record yields `Unrecorded`, keeping the OLD behaviour; treating
+    // "could not ask" as "not yours" would be the masking this rule removes.
     let wrote = |memory: &str| match &writers {
         Some((record, dir, me)) => lint::wrote_by(record.of_memory(dir, memory), me),
         None => lint::Wrote::Unrecorded,
@@ -246,13 +187,9 @@ fn main() -> Result<()> {
     }
 }
 
-/// The write record, this session's name in it, and where memories live.
-///
-/// ⚠ **Every failure here SKIPS LOUDLY and returns `None`.** The caller then
-/// falls back to attribution by `originSessionId` alone, which is the behaviour
-/// that existed before — never to "nothing is yours". A check that quietly
-/// passes when its evidence is missing is the shape this whole rule exists to
-/// remove, and it would be invisible in a gate log that only prints failures.
+/// The write record, this session's name in it, and where memories live. Every
+/// failure here SKIPS LOUDLY and returns `None`, falling back to `originSessionId`
+/// alone — never to "nothing is yours".
 fn last_writers() -> Option<(memview::last_writer::LastWriter, String, String)> {
     let at = memview::fresh::Where::from_env();
     let (record, roster) = match memview::fresh::last_writer(&at) {
@@ -265,9 +202,9 @@ fn last_writers() -> Option<(memview::last_writer::LastWriter, String, String)> 
             return None;
         }
     };
-    // ⚠ **The agent NAME, from the roster.** The record names agents (`memview`,
-    // `life`), not session ids, and deriving one from the other by hand is how
-    // `staged-check` once made every file read as somebody else's.
+    // The agent NAME, from the roster: the record names agents, not session ids,
+    // and deriving one from the other by hand once made every file read as
+    // somebody else's.
     let me = std::env::var("CLAUDE_AGENT_NAME").ok().or_else(|| {
         std::env::var("CLAUDE_CODE_SESSION_ID")
             .ok()

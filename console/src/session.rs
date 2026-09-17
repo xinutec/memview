@@ -1,16 +1,10 @@
 //! One live Claude Code session: the subprocess, its transcript, its listeners.
 //!
-//! **A session is one long-lived process, not a chain of resumed ones.** Probed
-//! against CLI 2.1.220: with `--input-format stream-json` the process serves
-//! turn after turn on an open stdin, keeps one session id throughout, and exits
-//! 0 when stdin closes. So the console holds the process open and writes to it,
-//! which is what makes "send them a new instruction" a message rather than a
-//! cold start — and it is why closing stdin is the polite way to end a session.
-//!
-//! **The id is ours, chosen before the process exists.** `--session-id` takes a
-//! UUID we generate, so a session has a name the moment it is asked for rather
-//! than once the CLI has announced itself — which means a client can subscribe
-//! to a session that is still starting, and `--resume` later takes the same id.
+//! A session is one long-lived process: with `--input-format stream-json` it
+//! serves turn after turn on an open stdin and exits 0 when stdin closes, so
+//! closing stdin is the polite way to end one. The id is ours, chosen before the
+//! process exists (`--session-id`), so a client can subscribe to a session that
+//! is still starting and `--resume` later takes the same id.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -28,20 +22,13 @@ use tokio::sync::{broadcast, oneshot};
 
 use crate::protocol::{self, Event};
 
-/// Where a session's instructions go.
-///
-/// A trait object because a session is built two ways: spawned, where this is
-/// the child's own [`ChildStdin`], and **adopted across an upgrade**, where it
-/// is the same pipe reopened from a raw file descriptor the previous image left
-/// behind. Nothing downstream can tell the difference, which is the point.
+/// Where a session's instructions go. A trait object because a session is
+/// spawned, with the child's own [`ChildStdin`], or adopted across an upgrade,
+/// with the same pipe reopened from a raw descriptor.
 type Sink = Box<dyn tokio::io::AsyncWrite + Send + Unpin>;
 
-/// The three pipes to a session's process, by number.
-///
-/// Kept so they can outlive this image. `execve` preserves open descriptors and
-/// the process id, so the children of an upgraded console are still its
-/// children and still reachable through exactly these numbers — see
-/// [`crate::roster::Roster::handover`].
+/// The three pipes to a session's process, by number — so they can outlive this
+/// image. See [`crate::roster::Roster::handover`].
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct Fds {
     pub stdin: std::os::fd::RawFd,
@@ -49,140 +36,72 @@ pub struct Fds {
     pub stderr: std::os::fd::RawFd,
 }
 
-/// What a session has counted, for an upgrade to hand on.
-///
-/// ⚠ **None of this is in the transcript.** The result line is where the cost,
-/// the rate-limit status and the context window arrive, and it is a stream
-/// artefact — no transcript in the corpus contains a single `"type":"result"`
-/// line, so [`Session::seed`] cannot get any of it back. The model is the same
-/// story: it is announced on the init line and nowhere in the file. So an adopted
-/// session either carries these across or starts at zero and reads as a fresh
-/// conversation that has done nothing.
-///
-/// How full the context is is deliberately absent, because the file holds it
-/// better: it is on every assistant message, so a re-seed recovers it. Anything
-/// derivable from the transcript is derived, because that survives a cold start
-/// too — and this only survives an upgrade.
+/// What a session has counted, for an upgrade to hand on. None of this is in the
+/// transcript: cost, rate-limit status, window and model arrive on the stream
+/// only. Fullness is deliberately absent, since every assistant message records
+/// it and a re-seed recovers it — anything derivable from the file is derived.
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Tally {
-    /// Seconds since the epoch. Carried because `execve` leaves the child's
-    /// clock alone, so a session that has run for an hour must not claim to have
-    /// started when its console was last upgraded.
+    /// Seconds since the epoch. Carried because `execve` leaves the child's clock alone.
     pub started: u64,
     pub model: Option<String>,
     pub cost_usd: f64,
     pub window: Option<u64>,
     pub limit: Option<String>,
-    /// See [`Summary::mode`]. Carried because the console is the only thing
-    /// that knows it — no file records it in a way that can be trusted.
+    /// See [`Summary::mode`]. Carried because the console is the only thing that knows it.
     pub mode: Option<String>,
-    /// The first thing this session was asked to do — see [`Summary::asked`].
-    ///
-    /// ⚠ **A fallback. The source is [`crate::past::opening`]**, which reads the
-    /// name from the HEAD of the transcript and overwrites whatever is carried
-    /// here. This field is used only for a session with no transcript to read.
-    ///
-    /// ⚠ **Do not make the carried value authoritative.** It is only as good as
-    /// the image that computed it, and every image before this one computed it
-    /// wrongly: `asked` binds to the first `Prompt` seen with nothing bound, and
-    /// a re-seed replays one page, so it took whatever prompt began the last 400
-    /// events and moved again on the next upgrade. Trusting the carry preserves
-    /// those values instead of repairing them. Only the head of the file, which
-    /// cannot move, gives an answer that is both right and stable (memview
-    /// #1146).
-    ///
-    /// The rule the rest of the tally follows — carry only what nothing on disk
-    /// records — holds for facts that depend on RECENT events. This one depends
-    /// on the whole history, and one page is not the history.
+    /// The first thing this session was asked to do — see [`Summary::asked`]. A
+    /// fallback: [`crate::past::opening`] reads it from the HEAD of the transcript and
+    /// overwrites this, which is used only for a session with no transcript. The
+    /// carried value is only as good as the image that computed it, and every earlier
+    /// one computed it from the last page (memview #1146).
     #[serde(default)]
     pub asked: Option<String>,
-    /// What the session is doing, if anything. See [`Summary::busy`].
-    ///
-    /// ⚠ **A re-seed cannot recover this**, for the same reason it cannot
-    /// recover [`Self::pending`]: the CLI announces a status on stdout when it
-    /// *changes*, and nothing of the sort is written to the transcript. A
-    /// session that was mid-turn when the console replaced itself came back
-    /// reading `idle` on the front page and stayed that way until it next
-    /// printed something — which, for one that had gone quiet to compact, was
-    /// several minutes of saying nothing was happening while something was.
+    /// What the session is doing, if anything. See [`Summary::busy`]. A re-seed cannot
+    /// recover this: a status is announced on stdout when it changes and never
+    /// written to the transcript.
     #[serde(default)]
     pub busy: Option<String>,
-    /// ⚠ **Questions the session is blocked on, which nothing else can recover.**
-    /// A `can_use_tool` request is a control message, not a transcript line, so
-    /// a re-seed cannot produce it — and the *session* stays blocked on it
-    /// across an upgrade, because `execve` does not touch the child. Dropping
-    /// these orphaned the question: the process waited for an answer whose
-    /// request id no longer existed anywhere, the card vanished off every
-    /// screen, and the row sat on "running" for ever. Measured on a live
-    /// session that lost an hour that way.
+    /// Questions the session is blocked on. A `can_use_tool` request is a control
+    /// message, not a transcript line, and the session stays blocked on it across an
+    /// upgrade — dropping these orphaned the question and lost an hour.
     #[serde(default)]
     pub pending: BTreeMap<String, Pending>,
-    /// Background tasks still running — see [`Summary::background`].
-    ///
-    /// ⚠ **Same shape as [`Self::asked`], found looking for more of it.** A
-    /// task's start is a `tool` event, which the transcript does record, so a
-    /// re-seed appears to recover this — but only for a task started inside the
-    /// last page. One that has been running longer is silently forgotten while
-    /// the process it belongs to is still going, and the card then claims
-    /// nothing is in flight. `execve` does not touch the children, so they
-    /// really are still running: this is the console losing sight of them, not
-    /// them stopping.
-    ///
-    /// Carried rather than re-derived because "what is running right now" is a
-    /// fact about the present, and the transcript is a record of the past.
+    /// Background tasks still running — see [`Summary::background`]. A re-seed
+    /// recovers only the ones started inside the last page, while `execve` leaves
+    /// the children running; what is running now is a fact about the present.
     #[serde(default)]
     pub background: BTreeMap<String, crate::protocol::Called>,
-    /// What the API last said about each rate-limit window, keyed by the CLI's
-    /// own name for it (`five_hour`, `seven_day`, …).
-    ///
-    /// ⚠ **Account-wide, so any session's reading is the truth for all of
-    /// them** — it comes off the response headers of whichever request happened
-    /// most recently, not from anything this session did. Kept per session only
-    /// because that is where the stream arrives; the roster takes the newest.
-    /// Carried across an upgrade for the same reason the rest of the tally is:
-    /// nothing on disk records it.
+    /// What the API last said about each rate-limit window, keyed by the CLI's own
+    /// name (`five_hour`, `seven_day`, …). Account-wide, so any session's reading is
+    /// the truth for all; kept per session because that is where the stream arrives.
     #[serde(default)]
     pub spent: BTreeMap<String, Seen>,
-    /// The exchange count and how far into the transcript it accounts for.
-    ///
-    /// ⚠ **Carried for the cost, not because the file cannot say it.** The file
-    /// can, by being read from the beginning — but these reach gigabytes, and an
-    /// upgrade re-seeds every session at once, so dropping this means reading
-    /// every transcript on the machine each time the console replaces itself.
-    /// See [`crate::past::counted`].
+    /// The exchange count and how far into the transcript it accounts for. Carried
+    /// for the cost: an upgrade re-seeds every session at once, and the files reach
+    /// gigabytes. See [`crate::past::counted`].
     #[serde(default)]
     pub counted: crate::past::Counted,
 }
 
-/// When a rate-limit window turns over, in epoch **seconds** — the CLI's unit,
-/// and nothing else in this console's.
-///
-/// The reading's own subject: it names *which instance* of the window a figure
-/// belongs to, which is what makes two figures comparable at all.
-///
-/// A type rather than an `i64` because it sits beside [`Heard`] in [`Seen`] and
-/// the two are neither the same clock nor the same unit. See
-/// [`crate::usage::fresher`] for what went wrong when they were interchangeable.
+/// When a rate-limit window turns over, in epoch SECONDS — the CLI's unit. It
+/// names which instance of the window a figure belongs to. A type rather than an
+/// `i64` because it sits beside [`Heard`] and the two are neither the same clock
+/// nor the same unit; see [`crate::usage::fresher`].
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 pub struct ResetsAt(pub i64);
 
 impl ResetsAt {
-    /// The same instant in milliseconds, which is the unit of every other
-    /// moment here. The one place the conversion is written.
+    /// The same instant in milliseconds. The one place the conversion is written.
     pub fn in_ms(self) -> i64 {
         self.0 * 1000
     }
 }
 
-/// When this console heard a reading, in epoch **milliseconds**, by this
-/// machine's clock.
-///
-/// ⚠ **Arrival, not freshness.** Every session answers from its own process's
-/// cached rate-limit headers, so a reading that arrives now can describe the
-/// account as it stood an hour ago. Ordering by this is what
-/// [`crate::usage::fresher`] exists to stop.
+/// When this console heard a reading, in epoch MILLISECONDS, by this machine's
+/// clock. Arrival, not freshness: a session answers from cached headers.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
@@ -196,55 +115,30 @@ pub struct Seen {
     #[serde(default)]
     pub resets_at: Option<ResetsAt>,
     pub at: Heard,
-    /// **Whether the API itself said this, at a moment we can date.** A
-    /// `rate_limit_event` is the response headers of a request that just
-    /// completed, so its figure is true AT its stamp; the dashboard's row
-    /// carries the instant its host took it. A `get_usage` answer is neither —
-    /// it is a process's cached headers, of unknowable age, arriving now.
-    ///
-    /// The split is what lets [`crate::usage::fresher`] believe a genuine
-    /// mid-window reset (the figure DROPS, which no echo may claim) without
-    /// re-admitting the 81 → 77 → 81 flap that cached answers caused: a
-    /// measurement moves the figure both ways, an echo can only fill in where
-    /// no measurement has spoken. Defaulted false so anything deserialized
-    /// from before this field claims the weaker kind.
+    /// Whether the API itself said this, at a moment we can date: a
+    /// `rate_limit_event` or a dashboard row is a measurement; a `get_usage` answer is
+    /// a cache of unknowable age. A measurement moves the figure both ways, an echo
+    /// can only fill in — see [`crate::usage::fresher`]. Defaulted false.
     #[serde(default)]
     pub measured: bool,
 }
 
-/// Wait on an adopted child, so the kernel can let go of it when it ends.
+/// Wait on an adopted child, so the kernel can let go of it when it ends. An
+/// adopted session has no [`Child`] to wait on, and every one that ended left a
+/// `<defunct>` behind a parent that never asked (memview #753).
 ///
-/// ⚠ **An adopted session has no [`Child`] to wait on.** The handle belonged to the
-/// image that `execve`d away; only the pid and three descriptors crossed. So nothing
-/// called `wait`, and every adopted session that ended left a `<defunct>` entry behind a
-/// parent that would never ask — measured at 22 under a console up three days, one per
-/// session ended since the first upgrade. They cost a process-table slot each; the
-/// reason to fix it is that the number only ever goes up, this process being deliberately
-/// never restarted (memview #753).
-///
-/// A **blocking** `waitpid` rather than a timer poll: the pid is this process's own
-/// child, so the kernel knows when to wake us and there is no interval to choose. One
-/// thread per adopted session — a handful, against a blocking pool of hundreds.
-///
-/// ⚠ **NOT `SIGCHLD` = `SIG_IGN`**, the obvious cure and the wrong one: it reaps every
-/// child automatically and takes the exit status with it. [`Session::reap`] reads that
-/// status and [`Session::ended`] reports it, so a spawned session's clean exit would
-/// arrive as `code: None`, which reads as *killed*. This file has made that mistake once
-/// and has a test against it.
-///
-/// The status is dropped rather than reported: for an adopted session, end-of-file
-/// declares it over ([`Session::read_from`]) and has already fired by the time this
-/// returns, so making this the authority would be the same race that test guards.
+/// A blocking `waitpid`, one thread per adopted session. NOT `SIGCHLD` =
+/// `SIG_IGN`: that reaps every child and takes the exit status [`Session::reap`]
+/// reads, so a clean exit would arrive as `code: None` — this file has a test
+/// against it. The status is dropped: end-of-file has already declared an
+/// adopted session over ([`Session::read_from`]).
 fn reap_adopted(pid: u32) {
     tokio::task::spawn_blocking(move || {
         let mut status = 0;
-        // SAFETY: `pid` is a child of this process — it was one of the previous
-        // image's, and `execve` does not change parentage. `waitpid` only reads
-        // that child's exit status.
+        // SAFETY: `pid` is a child of this process — `execve` does not change parentage
+        // — and `waitpid` only reads its exit status.
         if unsafe { libc::waitpid(pid as libc::pid_t, &mut status, 0) } < 0 {
-            // ECHILD is the ordinary case for a session already gone and reaped
-            // by an earlier image of this console; nothing is wrong and there is
-            // nothing to do.
+            // ECHILD is the ordinary case for a session already reaped by an earlier image.
             tracing::debug!(
                 "adopted {pid} could not be waited on: {}",
                 std::io::Error::last_os_error()
@@ -253,14 +147,10 @@ fn reap_adopted(pid: u32) {
     });
 }
 
-/// Take a descriptor out of close-on-exec, and make it non-blocking.
-///
-/// ⚠ **Rust sets `O_CLOEXEC` on every pipe it creates**, so without the first
-/// half an upgraded image inherits nothing and every live session is silently
-/// unreachable. The second half is tokio's requirement for adopting a pipe.
-///
-/// Returns false when the descriptor is not there any more, which is the honest
-/// answer for a session whose process has already gone.
+/// Take a descriptor out of close-on-exec, and make it non-blocking. Rust sets
+/// `O_CLOEXEC` on every pipe it creates, so without the first half an upgraded
+/// image inherits nothing; the second is tokio's requirement. False when the
+/// descriptor is gone.
 pub fn keepable(fd: std::os::fd::RawFd) -> bool {
     // SAFETY: fcntl on a descriptor this process owns; both calls only read or
     // set flags and cannot invalidate it.
@@ -273,29 +163,19 @@ pub fn keepable(fd: std::os::fd::RawFd) -> bool {
     }
 }
 
-/// Whether a `ps` listing shows this conversation still being run.
-///
-/// The words are read through [`crate::past::words_of_claude_processes`], so a
-/// line that merely *mentions* the id — a grep, an editor, this console — is not
-/// a `claude`, for the reason written down there.
+/// Whether a `ps` listing shows this conversation still being run. Read through
+/// [`crate::past::words_of_claude_processes`], so a line that merely mentions
+/// the id is not a `claude`.
 pub fn names_session(ps_output: &str, id: &str) -> bool {
     crate::past::words_of_claude_processes(ps_output)
         .iter()
         .any(|word| word == id)
 }
 
-/// Kill a stopped session's process, after checking it is still that process.
-///
-/// ⚠ **A pid is not a handle, and this one is up to thirty seconds old.** The
-/// warning is already written down at [`crate::roster::Roster::revive`]: a late
-/// SIGKILL aimed at a pid the console no longer owns lands on whatever the
-/// system started in its place, and that is the kind of fault nothing can trace
-/// afterwards. So the pid is confirmed to still be running this conversation
-/// before anything is sent to it.
-///
-/// Anything unreadable — no `ps`, no permission, no such process — is *not* a
-/// kill. Leaving a process alive is the recoverable half of this decision; the
-/// other half is unbounded.
+/// Kill a stopped session's process, after checking it is still that process: a
+/// pid is not a handle, this one is up to thirty seconds old, and a late SIGKILL
+/// at a reused pid is a fault nothing can trace. Anything unreadable is NOT a
+/// kill — leaving a process alive is the recoverable half.
 pub fn finish(pid: u32, id: &str) {
     let Ok(output) = std::process::Command::new("ps")
         .args(["-p", &pid.to_string(), "-o", "args="])
@@ -305,54 +185,37 @@ pub fn finish(pid: u32, id: &str) {
         return;
     };
     if !names_session(&String::from_utf8_lossy(&output.stdout), id) {
-        // The ordinary case, and the one worth logging at info: the session took
-        // its stdin closing as the exit it is and went on its own.
+        // The ordinary case: the session took its stdin closing as the exit it is.
         tracing::info!("{id} had already gone, so pid {pid} was left alone");
         return;
     }
     tracing::info!("{id} outlived its grace period — killing pid {pid}");
-    // SAFETY: a kill to a pid this console started and has just confirmed is
-    // still running that session; ESRCH for one that went in between is ignored.
+    // SAFETY: a kill to a pid this console started and has just confirmed is still
+    // running that session; ESRCH is ignored.
     unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
 }
 
-/// How much transcript one session keeps in memory.
-///
-/// The console holds no database in phase 1 and the transcripts on disk are the
-/// durable record, so this is a scrollback, not an archive.
+/// How much transcript one session keeps in memory: a scrollback, not an archive.
 const SCROLLBACK: usize = 5000;
 
 /// How many recent tool calls are remembered so a detached one can be named.
-///
-/// ⚠ **Small on purpose.** The `Tool` event naming a call is immediately
-/// followed by the `ToolResult` that reveals it detached, so anything beyond a
-/// handful is never consulted — and this is per session, held for the life of a
-/// process that runs for days. 32 covers a turn that fans out several calls
-/// before any of them answers.
+/// Small: the `Tool` event is immediately followed by the `ToolResult` that
+/// reveals the detach, and this is held for the life of a process that runs for days.
 const CALLED_RING: usize = 32;
 
 /// How long a session gets to finish after its stdin closes, before it is killed.
-///
-/// Generous on purpose: the process may be mid-tool-call, and the clean exit is
-/// worth waiting for because it is the one that flushes the transcript.
+/// Generous: the clean exit is the one that flushes the transcript.
 const GRACE: Duration = Duration::from_secs(30);
 
 /// How much of the child's stderr to keep for diagnosis.
 const STDERR_KEPT: usize = 4000;
 
-/// How often to re-read the transcript while the child says nothing.
-///
-/// The read is incremental — a seek to where the last one stopped, then whatever
-/// has been appended, which for an idle session is nothing at all. So this is a
-/// handful of syscalls per session, and the interval is set by how long a wrong
-/// number may stay on screen rather than by what the read costs: about as long
-/// as it takes to look at the card and read it.
+/// How often to re-read the transcript while the child says nothing. The read
+/// is incremental, so this is set by how long a wrong number may stay on screen.
 const RECOUNT_EVERY: Duration = Duration::from_secs(5);
 
 /// The CLI's own name for the mode a session runs in when nothing is passed.
-///
-/// Displayed as *Manual*: it asks before every tool call that needs permission,
-/// which in headless mode means asking whoever is holding the phone.
+/// Displayed as *Manual*: it asks before every tool call that needs permission.
 pub const DEFAULT_MODE: &str = "default";
 
 /// What a client sees of a session without reading its transcript.
@@ -364,23 +227,14 @@ pub struct Summary {
     pub dir: String,
     /// Seconds since the epoch.
     pub started: u64,
-    /// When anything last happened, in **milliseconds**, from the transcript.
-    ///
-    /// ⚠ **Not `started`, and the difference is the whole point.** `started` is
-    /// when this console picked the process up; this is when the conversation
-    /// last moved. For a session running since last night they are thirteen hours
-    /// apart, and the second one is what somebody scanning the list wants. Filled
-    /// by the roster, which reads the file — see [`crate::past::touched`]. Absent
-    /// for a session whose transcript cannot be found, so a client can leave the
-    /// column empty rather than print the epoch.
+    /// When anything last happened, in MILLISECONDS, from the transcript — not
+    /// `started`, which is when this console picked the process up. Filled by the
+    /// roster; see [`crate::past::touched`]. Absent when the transcript cannot be found.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub touched: Option<u64>,
-    /// How much the transcript weighs, in bytes — the whole conversation as it
-    /// stands on disk. Filled by the roster from the same metadata read as
-    /// [`Self::touched`]. Not the same fact as [`Self::context`]: this is the
-    /// whole transcript's size on disk, that is the LAST request's prompt in
-    /// tokens.
+    /// How much the transcript weighs, in bytes. Not [`Self::context`], which is the
+    /// LAST request's prompt in tokens.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub bytes: Option<u64>,
@@ -392,84 +246,40 @@ pub struct Summary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub busy: Option<String>,
-    /// Whether a turn is running — observed by the runner, not narrated by the
-    /// CLI.
-    ///
-    /// ⚠ **[`Self::busy`] cannot answer this and reading it as though it could
-    /// called a working session idle.** A status is announced when it *changes*,
-    /// so a long stretch of one activity, or one the CLI does not narrate, leaves
-    /// nothing standing — and no status was drawn as *idle*, over a session that
-    /// was running tools throughout (memview #112). It made #111's invisible
-    /// queue actively misleading:
-    /// a message sent to a session the page calls idle should land at once, so
-    /// its not landing reads as a failure.
-    ///
-    /// A turn ending is an event the runner sees; so is the traffic while one
-    /// runs. This is those, and nothing the CLI has to be asked for. Deliberately
-    /// **not** a timeout over the last status — the console has had two defects
-    /// from inferring state on a timer, and a turn can legitimately be quiet for
-    /// minutes.
+    /// Whether a turn is running — observed by the runner, not narrated by the CLI.
+    /// [`Self::busy`] cannot answer this: a status is announced when it CHANGES, so
+    /// a long stretch of one activity leaves nothing standing, and no status was
+    /// drawn as *idle* over a session running tools throughout (memview #112).
+    /// Deliberately not a timeout: a turn can legitimately be quiet for minutes.
     pub working: bool,
     /// How many times someone has spoken to this session since it was last
-    /// compacted — exchanges, not messages, and not the result line's
-    /// `num_turns`. See [`crate::past::counted`] for why it is counted from
-    /// the transcript rather than added up as turns arrive.
+    /// compacted — exchanges, not messages. See [`crate::past::counted`].
     pub interactions: u32,
-    /// What this session's tokens would have cost at API list prices.
-    ///
-    /// ⚠ **This is not money.** A session inherits the CLI's own credentials and
-    /// runs on the subscription, so nothing here is billed per token — it is a
-    /// weight wearing a currency symbol, and shown as one it reads as a bill.
-    /// The client shows it only when [`Self::limit`] says the account has
-    /// stopped being all-you-can-eat, which is the first moment it means
-    /// anything.
+    /// What this session's tokens would have cost at API list prices. Not money: the
+    /// session runs on the subscription. Shown only when [`Self::limit`] says the
+    /// account has stopped being all-you-can-eat.
     pub cost_usd: f64,
     /// How many tokens the last request's prompt came to, and the window it went
-    /// into — so a reader can see when compaction is coming rather than meeting it.
-    ///
-    /// ⚠ Fullness is per MESSAGE, not per turn. The result line carries a usage
-    /// too and it sums every request the turn made: a turn of 23 requests read
-    /// 1.6M against a 1M window. Shipped that, saw it on the phone, fixed it.
-    ///
-    /// ⚠ Prompt size is input + cache-creation + cache-read added together. The
-    /// cached part is almost all of it — 496,000 read against 2 of input on this
-    /// session — so anything reading `input_tokens` alone reports nearly zero for
-    /// a conversation that is nearly full.
+    /// into. Per MESSAGE, not per turn — the result line sums every request the turn
+    /// made. Input + cache-creation + cache-read: the cached part is almost all of it.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub context: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub window: Option<u64>,
-    /// How many background tool calls this session has started and not had
-    /// reported finished.
-    ///
-    /// ⚠ **Only the ones the harness tracks.** A command backgrounded inside a
-    /// shell — `nohup … &` — returns at once and announces nothing, so it is
-    /// invisible here. This counts what can be seen, and the client's wording
-    /// claims no more than that.
-    ///
-    /// Counted by the runner rather than by whoever is watching, because the
-    /// list is drawn without opening anything: the page that knew this before
-    /// was the session's own, from its event stream, so the list could not say
-    /// it at all.
+    /// How many background tool calls this session has started and not had reported
+    /// finished. Only the ones the harness tracks: `nohup … &` is invisible. Counted
+    /// by the runner so the list can rank on it without opening anything.
     #[serde(skip_serializing_if = "none")]
     pub background: usize,
-    /// WHICH background calls are still running, not just how many.
-    ///
-    /// ⚠ **`background` is kept beside this deliberately.** The list ranks a row
-    /// on whether anything is running and never draws the names, so it wants a
-    /// number; the session strip wants the name, because *1* is only a reason to
-    /// ask (memview #740). Same fact, two readers, and deriving the count from
-    /// this vector in the client would put the ranking at the mercy of a label.
+    /// WHICH background calls are still running. `background` is kept beside this:
+    /// the list wants a number, the strip wants the name (memview #740).
     #[serde(default)]
     pub running: Vec<crate::protocol::Called>,
     /// The account's own verdict on its rate limit, when it has given one:
-    /// `allowed`, `allowed_warning` or `rejected`.
-    ///
-    /// The CLI's vocabulary, read off the 2.1.220 binary rather than guessed.
-    /// `None` until the account says something, which is the common case — and
-    /// the reason cost is hidden by default: no news is not news of trouble.
+    /// `allowed`, `allowed_warning` or `rejected` (CLI 2.1.220). `None` until the
+    /// account says something — the reason cost is hidden by default.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub limit: Option<String>,
@@ -477,93 +287,52 @@ pub struct Summary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub asked: Option<String>,
-    /// What the conversation calls itself — `memview`, `health`. Filled in by
-    /// the roster from the transcript, because the session's own process never
-    /// says it. See [`crate::past::named`].
+    /// What the conversation calls itself — `memview`, `health`. Filled by the roster
+    /// from the transcript; see [`crate::past::named`].
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub name: Option<String>,
     /// What the session may do without asking: `default`, `plan`, `dontAsk`,
-    /// `acceptEdits`, `auto`, `bypassPermissions`.
-    ///
-    /// ⚠ **This is what the console set, not what the transcript says.** The
-    /// first version of this read the last `permission-mode` line from the file,
-    /// which is wrong for the case that matters: a session *resumed* from an
-    /// interactive one carries that session's mode lines, so the header reported
-    /// `Auto` over a console that had passed no mode at all and was asking
-    /// permission for every single call. The console is the only thing that
-    /// knows what it asked for.
-    ///
-    /// **Stored names are not the displayed ones** — `default` is shown as
-    /// *Manual* — so the client keeps the CLI's own label table rather than
-    /// prettifying these itself.
+    /// `acceptEdits`, `auto`, `bypassPermissions`. What the console SET, not what the
+    /// transcript says — a resumed session carries the previous session's mode
+    /// lines. `default` is shown as *Manual*; the client keeps the label table.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub mode: Option<String>,
-    /// Why the last mode change was refused, in the CLI's own words.
-    ///
-    /// ⚠ **Present only until the next change is asked for**, because it
-    /// describes an attempt rather than a state. [`mode`](Self::mode) beside it
-    /// has already been put back to what the session is actually in, so this is
-    /// the explanation for a switch that appeared to happen and then did not.
-    ///
-    /// The CLI's wording rather than this console's — it names the cause and the
-    /// remedy ("…because the session was not launched with
-    /// --dangerously-skip-permissions") better than anything written from here.
+    /// Why the last mode change was refused, in the CLI's own words. Present only
+    /// until the next change is asked for: it describes an attempt, not a state.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub mode_refused: Option<String>,
-    /// How many questions it is blocked on. The one number that means "this
-    /// session cannot go on without you", so it belongs in the list of sessions
-    /// and not only on the page of one.
+    /// How many questions it is blocked on — the one number that means "this
+    /// session cannot go on without you".
     pub waiting: usize,
     /// How many messages have been written to this session and not read back.
     pub unread: usize,
-    /// How long it has been failing to read them, in **seconds** — present only
-    /// when the console is prepared to call it deaf. See [`Session::deaf`].
-    ///
-    /// Seconds, not milliseconds: this is a duration somebody reads off a card
-    /// to decide whether to restart a session, and the millisecond it began is
-    /// not a fact anybody wants at that moment.
+    /// How long it has been failing to read them, in SECONDS — present only when the
+    /// console is prepared to call it deaf. See [`Session::deaf`].
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub deaf: Option<u64>,
-    /// Slash commands waiting for the turn to end, oldest first. See
-    /// [`State::held`] for why they are not simply written.
-    ///
-    /// The words themselves, because the client draws them and cancels by them:
-    /// what is on screen has to say WHICH command is waiting, or it is one more
-    /// thing happening that nobody was told about.
+    /// Slash commands waiting for the turn to end, oldest first — see [`State::held`].
+    /// The words themselves, because the client draws them and cancels by them.
     #[serde(default)]
     pub held: Vec<String>,
 }
 
-/// An event and its place in the session's order.
-///
-/// The number is what makes a dropped connection survivable. Without it a
-/// reconnecting client has no way to say what it already has, so the only safe
-/// thing the server can do is send everything again and the only safe thing the
-/// client can do is throw its page away — which on a phone, over a tunnel, meant
-/// losing the history somebody had just scrolled back to read because a train
-/// went through a cutting.
-///
-/// Sequential from 1, per session, assigned under the same lock that appends to
-/// the log — so the number a client holds names exactly one event and the ones
-/// after it are exactly what it missed.
+/// An event and its place in the session's order. The number is what makes a
+/// dropped connection survivable: a reconnecting client says what it has and is
+/// sent what it missed. Sequential from 1, per session, assigned under the lock
+/// that appends to the log.
 #[derive(Debug, Clone)]
 pub struct Stamped {
     pub seq: u64,
-    /// When it happened, in milliseconds since the epoch. See [`protocol::Timed`]
-    /// — a live event is stamped as it arrives, a replayed one carries what the
-    /// transcript recorded, and a transcript line need not have said.
+    /// When it happened, in milliseconds since the epoch. See [`protocol::Timed`].
     pub at: Option<i64>,
     pub event: Event,
 }
 
-/// Nothing to report, for a count that is left off the wire when it is zero.
-///
-/// Absent rather than `0` so that a client can ask "is anything running" of the
-/// field's presence, and so an older client sees the same shape it always did.
+/// Nothing to report, for a count left off the wire when it is zero.
 fn none(count: &usize) -> bool {
     *count == 0
 }
@@ -579,50 +348,32 @@ pub fn now() -> i64 {
 /// What a connecting client is owed, and whether what it already has is good.
 #[derive(Debug)]
 pub struct Backlog {
-    /// False means the client's page cannot be kept: it named nothing, or named
-    /// an event this session no longer holds.
+    /// False means the client's page cannot be kept: it named nothing, or an event
+    /// this session no longer holds.
     pub resumed: bool,
     pub events: Vec<Stamped>,
-    /// The highest sequence number this client has now been sent — including the
-    /// one it arrived holding, when there was nothing after it. Live events at or
-    /// below it are duplicates and must not be sent again.
+    /// The highest sequence number this client has now been sent. Live events at or
+    /// below it must not be sent again.
     pub through: u64,
 }
 
 /// Whether a client holding everything through `after` can be sent only what it
-/// missed, given a log holding `held_from..=issued`.
-///
-/// Two things disqualify a number, and both mean the same thing — the events
-/// between what the client has and what the log holds cannot be produced:
-///
-/// * **Older than the log's front.** The session ran on past this client's place
-///   while it was away and the scrollback dropped the difference. A gap here
-///   would be silent, which is worse than the visible cost of starting again.
-/// * **Newer than anything issued.** The client is quoting another session's
-///   numbering — a console restarted under the same id — and resuming it would
-///   hide every real event until the count caught back up.
-///
-/// `after + 1` rather than `after` on the left: what has to still be reachable is
-/// the *next* event, not the one already held. That makes an exactly-caught-up
-/// client resumable against an empty log, which is the common case — somebody
-/// reconnecting to a session that has said nothing since.
+/// missed, given a log holding `held_from..=issued`. Older than the log's front
+/// means the scrollback dropped the difference; newer than anything issued means
+/// another session's numbering. `after + 1` on the left: the NEXT event is what
+/// has to be reachable, so an exactly-caught-up client resumes against an empty log.
 pub fn resumable(after: u64, held_from: u64, issued: u64) -> bool {
     after + 1 >= held_from && after <= issued
 }
 
-/// A question the session is waiting on an answer to.
-///
-/// The arguments are kept because an allow has to echo them back, and the tool's
-/// name because only one tool's arguments may be *edited* on the way back — see
-/// [`protocol::QUESTION_TOOL`]. The CLI's own sentence is kept for the same
-/// reason the event carries it: it reads better than one reassembled here.
+/// A question the session is waiting on an answer to. The arguments are kept
+/// because an allow has to echo them back, and the tool's name because only one
+/// tool's arguments may be edited — see [`protocol::QUESTION_TOOL`].
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Pending {
     pub tool: String,
-    /// The call being asked about — the `tool_use` id. Carried across an upgrade
-    /// with the rest, or a re-seeded question would come back unable to say
-    /// which tool row it belongs to and would draw a second widget beside it.
-    /// See [`crate::protocol::Event::Ask`].
+    /// The call being asked about — the `tool_use` id, carried across an upgrade so a
+    /// re-seeded question can still say which tool row it belongs to.
     #[serde(default)]
     pub call: Option<String>,
     pub input: serde_json::Value,
@@ -636,33 +387,25 @@ pub struct Pending {
 #[derive(Debug, Default)]
 struct State {
     log: VecDeque<Stamped>,
-    /// The last sequence number issued. Not the log's length: the log is a
-    /// scrollback and drops its front, and a number that was reused after an
-    /// eviction would resume a client into the wrong place.
+    /// The last sequence number issued. Not the log's length: the log drops its
+    /// front, and a reused number would resume a client into the wrong place.
     issued: u64,
     /// Questions the session is blocked on, by control-request id.
     pending: BTreeMap<String, Pending>,
     alive: bool,
-    /// When the kill armed by [`Session::stop`] falls due, in epoch
-    /// milliseconds, and `None` for a session nobody has stopped. Read by
-    /// [`crate::roster::Roster::handover`], which is the only reason it is
-    /// written down rather than left to the timer — see [`Session::stop`].
+    /// When the kill armed by [`Session::stop`] falls due, in epoch milliseconds;
+    /// `None` for a session nobody has stopped. Read by [`crate::roster::Roster::handover`].
     stopping: Option<i64>,
     model: Option<String>,
     busy: Option<String>,
-    /// See [`Summary::interactions`], and [`crate::past::counted`] for why the
-    /// byte offset travels with the number.
+    /// See [`Summary::interactions`], and [`crate::past::counted`] for why the byte
+    /// offset travels with the number.
     counted: crate::past::Counted,
-    /// See [`Summary::mode`]. Set when the session is spawned, written
-    /// optimistically when the console asks for a change, and **corrected when
-    /// the CLI answers** — see [`Session::settle_mode`]. Carried across an
-    /// upgrade, because no file records it in a way that can be trusted.
+    /// See [`Summary::mode`]. Written optimistically when the console asks for a
+    /// change, and corrected when the CLI answers — [`Session::settle_mode`].
     mode: Option<String>,
-    /// What the mode was before a change the CLI has not answered yet, so a
-    /// refusal can put back the mode the session is actually in.
-    ///
-    /// `None` means nothing is outstanding. Cleared either way when the answer
-    /// arrives, so a later refusal cannot restore a mode from two changes ago.
+    /// What the mode was before a change the CLI has not answered yet, so a refusal
+    /// can put it back. Cleared either way when the answer arrives.
     restore: Option<String>,
     /// See [`Summary::mode_refused`].
     mode_refused: Option<String>,
@@ -675,114 +418,63 @@ struct State {
     limit: Option<String>,
     /// What the API last said about each rate-limit window. See [`Tally::spent`].
     spent: BTreeMap<String, Seen>,
-    /// Background tool calls started and not yet ended, by the id of the call
-    /// that started each, against the task id the harness gave it. See
-    /// [`Summary::background`].
-    ///
-    /// Keyed by the call because that is what a notification names; carrying the
-    /// task because that is what a kill names, and a kill is silent afterwards.
+    /// Background tool calls started and not yet ended, keyed by the call (what a
+    /// notification names), carrying the task (what a kill names).
     background: std::collections::BTreeMap<String, crate::protocol::Called>,
-    /// The last few tool calls seen, by call id, so a background one can be
-    /// NAMED when its result arrives.
-    ///
-    /// ⚠ **A ring, not a map that grows.** The `Tool` event naming a call
-    /// immediately precedes the `ToolResult` that detaches it, so only the
-    /// recent ones can ever be needed — and an unbounded map here would hold
-    /// every call of a session that runs for days.
+    /// The last few tool calls seen, by call id, so a background one can be NAMED
+    /// when its result arrives. A ring: an unbounded map would hold every call of a
+    /// session that runs for days.
     called: std::collections::VecDeque<(String, crate::protocol::Called)>,
-    /// When the process last wrote a line, in epoch milliseconds. See
-    /// [`Session::heard`]; zero for one that has never said anything.
+    /// When the process last wrote a line, in epoch milliseconds — [`Session::heard`].
     heard: i64,
-    /// Whether the transcript has been consulted for the session's origin.
-    ///
-    /// ⚠ **Distinguishes "there is no origin" from "we have not looked", which
-    /// `asked: None` alone cannot.** A conversation continued from a compacted
-    /// one has no origin in its own file and correctly reports none — and the
-    /// three places that fill `asked` in from a live prompt would then hand it
-    /// the next thing said, reinstating the very false claim
-    /// [`crate::past::opening`] exists to remove, minutes later and invisibly.
-    ///
-    /// Only a session with no transcript at all may be named by what it is told
-    /// next, because there the first prompt really is the beginning.
+    /// Whether the transcript has been consulted for the session's origin —
+    /// "there is no origin" against "we have not looked", which `asked: None` cannot
+    /// say. A conversation continued from a compacted one correctly has none, and the
+    /// next prompt must not be taken for it. Only a session with no transcript may
+    /// be named by what it is told next.
     origin_read: bool,
     asked: Option<String>,
     stderr: String,
-    /// Messages written to stdin that the CLI has not echoed back, oldest
-    /// first. See [`Session::deaf`].
+    /// Messages written to stdin that the CLI has not echoed back, oldest first. See
+    /// [`Session::deaf`].
     unread: VecDeque<Unread>,
-    /// Whether the session has spoken since its last turn ended — the whole of
-    /// what [`Summary::working`] reports.
-    ///
-    /// ⚠ **A positive fact, not the absence of a negative one.** This was first
-    /// derived from `idle_since.is_none()`, which is true for a session that has
-    /// said *nothing at all* — so a freshly started session, still loading and
-    /// with no `Started` line on the wire yet, was reported as working. Seen on
-    /// screen within a minute of shipping it.
+    /// Whether the session has spoken since its last turn ended — [`Summary::working`].
+    /// A positive fact, not `idle_since.is_none()`, which is true for a session that
+    /// has said nothing at all and reported a still-loading one as working.
     working: bool,
-    /// When the last turn ended, in epoch milliseconds — `None` whenever the
-    /// session is working. See [`Session::deaf`] for why this and not silence.
+    /// When the last turn ended, in epoch milliseconds — `None` whenever the session
+    /// is working. See [`Session::deaf`].
     idle_since: Option<i64>,
     /// Whether this episode of deafness has already been announced. See
     /// [`Session::check_deaf`].
     announced_deaf: bool,
-    /// When the oldest decision the session has not acted on was written, in
-    /// epoch milliseconds. See [`Session::deaf`].
+    /// When the oldest decision the session has not acted on was written, in epoch
+    /// milliseconds. See [`Session::deaf`].
     decided: Option<i64>,
-    /// Slash commands written while a turn was running, oldest first, waiting
-    /// for it to end.
-    ///
-    /// ⚠ **A command sent mid-turn does not run — it is handed to the MODEL as
-    /// words.** The CLI parks it as a `queued_command` with
-    /// `commandMode: "prompt"` (1,756 of them on this machine) and releases it
-    /// into the conversation when the turn ends, so `/rename` reached an agent
-    /// which replied "nothing for me to do" while no name was ever written.
-    /// Nothing on any screen said the command had been demoted.
-    ///
-    /// Held here rather than in the client, because a client that is holding it
-    /// stops holding it the moment the phone is put away — and this console's
-    /// sessions are usually working, so the demoted case is the common one, not
-    /// the edge. See [`Session::send`] and [`Session::release_held`].
+    /// Slash commands written while a turn was running, oldest first. A command sent
+    /// mid-turn does not run: the CLI parks it as a `queued_command` with
+    /// `commandMode: "prompt"` and hands it to the MODEL as words. Held here rather
+    /// than in the client, which stops holding it when the phone is put away. See
+    /// [`Session::send`] and [`Session::release_held`].
     held: VecDeque<String>,
-    /// A `/compact` has been sent and the conversation has not moved since.
-    ///
-    /// The one long silence that is not a fault: a compaction summarises the
-    /// whole history first, leaving the transcript frozen for minutes. See
-    /// [`Session::deaf`].
+    /// A `/compact` has been sent and the conversation has not moved since — the one
+    /// long silence that is not a fault. See [`Session::deaf`].
     compacting: bool,
 }
 
 /// How long a message may sit unread, between turns and with the session
-/// otherwise silent, before the console stops calling it *waiting* and calls the
-/// session deaf.
-///
-/// ⚠ **Bounded at both ends.** The legitimate wait this has to clear is a
-/// message arriving just as a turn ends, which is seconds — the long waits are
-/// input parked *mid-turn*, and a working session never reaches this test
-/// because [`State::idle_since`] is unset while it works. The failures it has to
-/// catch stayed silent for tens of minutes. Ninety seconds
-/// sits an order of magnitude clear of each.
+/// otherwise silent, before the session is called deaf. The legitimate wait is
+/// seconds; the failures stayed silent for tens of minutes. Ninety seconds sits
+/// an order of magnitude clear of each.
 const DEAF_AFTER_MS: i64 = 90_000;
 
-/// The same wait, while a compaction is outstanding.
-///
-/// ⚠ **A compaction is a legitimate silence with no pulse at all.** The
-/// transcript stays frozen for minutes while the context is summarised, so
-/// neither the file nor the process says anything a shorter wait could tell
-/// apart from deafness.
-///
-/// Longer rather than suppressed outright, because a session can go deaf *around*
-/// a compaction — one of the two episodes this task is named for did — and an
-/// alarm that a single command can switch off for ever is worth less than the
-/// wolf it might cry.
+/// The same wait while a compaction is outstanding, which freezes the transcript
+/// for minutes. Longer rather than suppressed: a session can go deaf AROUND a
+/// compaction, and one of the two known episodes did.
 const DEAF_AFTER_COMPACT_MS: i64 = 15 * 60_000;
 
-/// Drop one piece of background work from the count, by whichever name the
-/// thing that ended it knew.
-///
-/// Both ways in — the live stream and the reread of the file — end work by both
-/// names, so the branch lives here rather than twice. A removal for a call
-/// because the map is keyed by them; a search for a task because it is carried
-/// on the value, and a monitor that timed out has no other name to give.
+/// Drop one piece of background work from the count, by whichever name the thing
+/// that ended it knew: a removal for a call, a search for a task.
 fn forget(
     background: &mut std::collections::BTreeMap<String, crate::protocol::Called>,
     named: &crate::protocol::Named,
@@ -797,58 +489,39 @@ fn forget(
     }
 }
 
-/// Keep track of what is in flight, and of whether the session is in a position
-/// to read it.
-///
-/// Everything [`Session::deaf`] decides on is maintained here, in one place,
-/// because the verdict is a conjunction and a field updated in only some of the
-/// arms that should update it fails silently — as an alarm that never fires.
+/// Keep track of what is in flight, and whether the session can read it.
+/// Everything [`Session::deaf`] decides on is maintained here, in one place: the
+/// verdict is a conjunction, and a field updated in only some arms fails silently.
 fn in_flight(state: &mut State, event: &Event) {
     match event {
-        // The read receipt. Oldest match first, for the same reason the client
-        // promotes the oldest waiting entry: stdin is a queue, and the same
-        // words sent twice must be answered in the order they were written.
+        // The read receipt. Oldest match first: stdin is a queue.
         Event::Prompt { text } => {
             if let Some(at) = state.unread.iter().position(|held| &held.text == text) {
                 state.unread.remove(at);
             }
-            // It read something, so whatever this episode was, it is over — and
-            // if it happens again it is worth saying again.
+            // It read something, so this episode is over; a next one is worth saying again.
             state.announced_deaf = false;
         }
         // A turn ended, so from here the session owes us a read.
         Event::Turn { .. } => state.idle_since = Some(now()),
-        // Nothing is running as of now.
-        //
-        // ⚠ **Both, and `Joined` matters most.** It is pushed *after* the seeded
-        // transcript, so it is what stops a conversation whose file ends
-        // mid-turn — killed, crashed, compacted — from reading as a turn that is
-        // still going in a process that has only just started. `Started` covers
-        // the fresh spawn, which has never had a turn to end.
+        // Nothing is running as of now. `Joined` matters most: pushed AFTER the seeded
+        // transcript, it stops a file ending mid-turn from reading as a turn still
+        // going in a process that has only just started.
         Event::Started { .. } | Event::Joined { .. } => state.idle_since = Some(now()),
         _ => {}
     }
     state.working = working_after(state.working, event);
     match event {
         Event::Command { text } if text.starts_with("/compact") => state.compacting = true,
-        // A decision written down the pipe of a session that ASKED for it and is
-        // blocked until it arrives.
-        //
-        // ⚠ **Its own clock, needing no `idle_since`.** A session blocked on a
-        // question is mid-turn, so the message test above can never fire for it —
-        // which is why `health` sat on an answered question for thirty-one
-        // minutes with nothing on screen but a green tick (memview #122). Here
-        // there is no ambiguity to allow for: the session said it could go no
-        // further without this, so silence afterwards is not work.
+        // A decision written down the pipe of a session that ASKED for it. Its own
+        // clock: a session blocked on a question is mid-turn, so the message test
+        // cannot fire — `health` sat on an answered question for thirty-one minutes
+        // (memview #122). Silence after this is not work.
         Event::Answered { .. } => state.decided = state.decided.or(Some(now())),
         _ => {}
     }
-    // Anything the session says of its own accord means it is working, and a
-    // working session is not deaf however long it has been quiet. Deliberately
-    // NOT `Busy`: a status is announced only when it changes (memview #112), so
-    // its absence says nothing and its presence can be minutes old.
-    //
-    // A `Turn` counts here too — it is the session speaking — but it must not
+    // Anything the session says of its own accord means it is working. Not `Busy`:
+    // a status is announced only when it changes. A `Turn` counts but must not
     // clear `idle_since`, which it has just set.
     if matches!(
         event,
@@ -868,22 +541,11 @@ fn in_flight(state: &mut State, event: &Event) {
     }
 }
 
-/// Whether a turn is running, after `event`.
-///
-/// Set by the session speaking, cleared when the turn ends — and false until it
-/// has ever spoken, which is what a session that is still starting up actually
-/// is.
-///
-/// ⚠ **`Started` and `Joined` clear it**, for the reason they set `idle_since` in
-/// [`in_flight`]: `Joined` is pushed after the seeded transcript, so it is what stops a
-/// conversation whose file ends mid-turn — killed, crashed, compacted — from reading as
-/// a turn still running in a process that has only just started. That half was written
-/// for `idle_since` and not for this, so a resumed session could be idle and working at
-/// once — reading `working` for over an hour against a process with no API socket,
-/// negligible CPU and nothing appended to its transcript (memview #640).
-///
-/// Public for [`deaf_after`]'s reason: this is the part worth testing, and reaching the
-/// case that was wrong otherwise needs a transcript ending mid-turn and a resume.
+/// Whether a turn is running, after `event`. Set by the session speaking,
+/// cleared when the turn ends, and false until it has ever spoken. `Started` and
+/// `Joined` clear it too, or a resumed session whose file ends mid-turn reads as
+/// working for over an hour (memview #640). Public because reaching that case
+/// in a test needs only this.
 pub fn working_after(was: bool, event: &Event) -> bool {
     match event {
         Event::Text { .. }
@@ -895,14 +557,13 @@ pub fn working_after(was: bool, event: &Event) -> bool {
         | Event::Exited { .. }
         | Event::Started { .. }
         | Event::Joined { .. } => false,
-        // Everything else says nothing either way — a status, a decision, a
-        // command — and must leave the answer where it was.
+        // Everything else — a status, a decision, a command — leaves the answer where it was.
         _ => was,
     }
 }
 
-/// The verdict itself, taken against state a caller is already holding — see
-/// [`Session::deaf`], which is this with the lock taken and the documentation.
+/// The verdict itself, against state a caller is already holding — see
+/// [`Session::deaf`].
 fn deaf_for(state: &State) -> Option<i64> {
     if !state.alive {
         return None;
@@ -916,21 +577,16 @@ fn deaf_for(state: &State) -> Option<i64> {
     )
 }
 
-/// The verdict as arithmetic, apart from where its inputs come from.
-///
-/// Public because it is the part worth testing: the conjunction, and which of
-/// the two clocks the wait is measured from. Waiting ninety seconds in a test to
-/// find out would make it a test nobody runs.
+/// The verdict as arithmetic. Public because it is the part worth testing without
+/// waiting ninety seconds.
 ///
 /// * `idle_since` — when the last turn ended, `None` while the session works.
-/// * `oldest` — when the oldest unread message was written, `None` for none.
-/// * `decided` — when the oldest unacted-on decision was written, `None` for
-///   none. See [`Session::deaf`] for why this one needs no `idle_since`.
+/// * `oldest` — when the oldest unread message was written.
+/// * `decided` — when the oldest unacted-on decision was written; needs no
+///   `idle_since`, since the session asked and stopped.
 ///
-/// **Two ways to be waiting, and either is enough.** They are not variants of
-/// one test: a message needs the session to be between turns before its silence
-/// means anything, and a decision does not, because the session asked for it and
-/// stopped. Whichever has waited longer is the one reported.
+/// Two ways to be waiting, and either is enough; whichever has waited longer is
+/// reported.
 pub fn deaf_after(
     idle_since: Option<i64>,
     oldest: Option<i64>,
@@ -938,12 +594,10 @@ pub fn deaf_after(
     compacting: bool,
     now: i64,
 ) -> Option<i64> {
-    // The LATER of the two: before the turn ended the session was entitled to
-    // park the message, and before the message arrived there was nothing to
-    // read. Only after both has it been given the chance this measures.
+    // The LATER of the two: only once the turn has ended AND the message has
+    // arrived has the session had the chance this measures.
     let unread_since = idle_since.zip(oldest).map(|(idle, at)| idle.max(at));
-    // The EARLIER of the two cases, so a long wait is not hidden by a short one
-    // that started later.
+    // The EARLIER of the two cases, so a long wait is not hidden by a short one.
     let since = [unread_since, decided].into_iter().flatten().min()?;
     let allowed = if compacting {
         DEAF_AFTER_COMPACT_MS
@@ -954,13 +608,9 @@ pub fn deaf_after(
     (waited >= allowed).then_some(waited)
 }
 
-/// A message written to the session's stdin that it has not read back.
-///
-/// The pair of it is what makes deafness observable at all:
-/// [`Event::Accepted`] says the bytes reached the pipe and the CLI's replay
-/// says they were taken out of it, so an entry that sits here is a message in
-/// flight and nothing else. Commands are deliberately absent — the CLI does not
-/// replay one, so a command would sit here for ever. See [`Event::Command`].
+/// A message written to the session's stdin that it has not read back:
+/// [`Event::Accepted`] says the bytes reached the pipe, the CLI's replay says
+/// they were taken out. Commands are absent — the CLI never replays one.
 #[derive(Debug, Clone)]
 struct Unread {
     text: String,
@@ -974,8 +624,7 @@ pub struct Session {
     started: SystemTime,
     state: Mutex<State>,
     stdin: tokio::sync::Mutex<Option<Sink>>,
-    /// The process id, kept because an adopted session has no [`Child`] handle
-    /// to kill through — the handle belonged to the image that exec'd away.
+    /// The process id, kept because an adopted session has no [`Child`] handle.
     pid: u32,
     /// See [`Fds`]. Kept for the same reason.
     fds: Fds,
@@ -983,8 +632,8 @@ pub struct Session {
     tx: broadcast::Sender<Stamped>,
 }
 
-/// By hand because the sink is a trait object, which cannot derive it — and the
-/// interesting half is the identity anyway.
+/// By hand because the sink is a trait object, and the identity is the
+/// interesting half anyway.
 impl std::fmt::Debug for Session {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Session")
@@ -1001,14 +650,9 @@ impl std::fmt::Debug for Session {
 pub struct Spawn {
     pub binary: String,
     pub model: Option<String>,
-    /// What the session may do without being asked.
-    ///
-    /// This matters more than it looks. In headless mode there is nobody to
-    /// answer a permission prompt, so under the CLI's default mode **every tool
-    /// call that needs permission is refused** — measured, not assumed: a
-    /// `Write` in a fresh session came back `is_error` with no file created. A
-    /// console left on the default is therefore a console that can converse and
-    /// nothing else, until the approval channel of phase 2 exists.
+    /// What the session may do without being asked. In headless mode there is nobody
+    /// to answer a prompt, so under the CLI's default EVERY tool call needing
+    /// permission is refused (measured: a `Write` came back `is_error`).
     pub permission_mode: Option<String>,
 }
 
@@ -1018,49 +662,26 @@ impl Session {
         Self::spawn(id, dir, spawn, false)
     }
 
-    /// Pick up a conversation that already exists, keeping its id.
-    ///
-    /// `--resume` rather than `--session-id`: the two are alternatives, and
-    /// passing an id the CLI has never seen to `--resume` is an error rather than
-    /// a fresh start, which is the behaviour worth having — a typo should not
-    /// silently open an empty session wearing the name of a real one.
-    ///
-    /// ⚠ **The transcript is not a lock.** Nothing stops two processes resuming
-    /// the same id and both appending; the roster refuses a second *console*
-    /// session, but a `claude` in a terminal is invisible to it. So this is for a
-    /// conversation that has been closed, and the console cannot check that for
-    /// you.
+    /// Pick up a conversation that already exists, keeping its id. `--resume` rather
+    /// than `--session-id`: an id the CLI has never seen is an error, not a fresh
+    /// session wearing a real one's name. The transcript is not a lock — a `claude`
+    /// in a terminal is invisible to the roster.
     pub fn resume(id: String, dir: &Path, spawn: &Spawn) -> Result<Arc<Self>> {
-        // ⚠ **Nothing is recorded here about the file's date, and there was.**
-        // Picking a conversation up writes to its transcript — `mode`,
-        // `permission-mode` and `bridge-session` lines go in at the moment of
-        // resume — so this used to read the file's date and size first and keep
-        // them as a floor. That worked only while nothing was appended, and
-        // those three lines are appended: `scanner`, opened after two days, said
-        // `just now`. The date now comes out of the conversation itself; see
+        // Nothing recorded here about the file's date: resuming appends `mode`,
+        // `permission-mode` and `bridge-session` lines, so a floor taken from the file
+        // said `just now` about a conversation opened after two days. See
         // [`crate::past::last_moved`].
         let session = Self::spawn(id, dir, spawn, true)?;
-        // A NEW `claude` on an old conversation: whatever the transcript shows
-        // still running was written by a process that is gone.
+        // A NEW `claude` on an old conversation: whatever the transcript shows still
+        // running was written by a process that is gone.
         session.seed(true);
         Ok(session)
     }
 
-    /// Put what was already said in front of what happens next.
-    ///
-    /// ⚠ **`--resume` restores the CLI's context, not the console's view.** The
-    /// process comes back knowing the whole conversation and replays none of it on
-    /// stdout, so without this a resumed session opens empty and its turn count
-    /// reads `0` — the console's count of what it watched, which a person reads as
-    /// the conversation's length. It looked like resume had not worked.
-    ///
-    /// The transcript on disk is the same vocabulary the stream uses, so the fix
-    /// is a different reader over the same shapes rather than a second model of a
-    /// conversation. See [`crate::protocol::read_recorded`].
-    ///
-    /// Silent when there is nothing to find. A conversation with no transcript we
-    /// can locate still resumes — the CLI has its own copy — and an empty view is
-    /// what it was before this existed.
+    /// Put what was already said in front of what happens next. `--resume` restores
+    /// the CLI's context and replays none of it on stdout, so without this a resumed
+    /// session opened empty. The same vocabulary the stream uses, read the other way
+    /// — [`crate::protocol::read_recorded`]. Silent when there is no transcript.
     fn seed(self: &Arc<Self>, restarted: bool) {
         let root = crate::past::projects_root();
         let Some(path) = crate::past::transcript_of(&root, &self.id) else {
@@ -1081,27 +702,17 @@ impl Session {
         for timed in seed.events {
             self.push_at(timed.event, timed.at);
         }
-        // Last, so it sits between what was read and what we watch — and it
-        // carries the cursor, which is the only thing that knows where this page
-        // began. A client asking for what came before has nothing else to go on.
+        // Last, so it sits between what was read and what we watch, carrying the cursor.
         // Stamped now, because joining is the one thing here that did happen now.
         self.push(Event::Joined {
             earlier: count,
             from: seed.from,
             restarted,
         });
-        // ⚠ **From the head of the file, overriding whatever the page set.** The
-        // replay above is the LAST page and it is full of prompts, the first of
-        // which would otherwise become this session's name — which is how a
-        // subtitle came to change on every upgrade. The front of an append-only
-        // file does not move, so this is both correct and stable, and it repairs
-        // a value an earlier image already got wrong. See
-        // [`crate::past::opening`] and memview #1146.
-        // Set unconditionally, including to `None`. A conversation continued
-        // from a compacted one has no origin in this file, and a recent prompt
-        // left standing in its place is the false claim being repaired — see
-        // [`crate::past::opening`]. `origin_read` is what makes `None` stick:
-        // without it the next thing said would be taken for the beginning.
+        // From the head of the file, overriding whatever the page set: the replay is
+        // the LAST page and full of prompts, which is how a subtitle changed on every
+        // upgrade (memview #1146). Set unconditionally, including to `None`;
+        // `origin_read` is what makes `None` stick. See [`crate::past::opening`].
         {
             let mut state = self.state.lock().expect("session state poisoned");
             state.asked = crate::past::opening(&path);
@@ -1110,45 +721,33 @@ impl Session {
         self.recount();
     }
 
-    /// Count the exchanges the transcript has gained. See [`crate::past::counted`].
-    ///
-    /// Silent when there is no transcript yet — a session that has just been
-    /// started has none, and reporting zero for it is right anyway. Reads the
-    /// file outside the lock, which is the whole reason this is a method and not
-    /// a line in `push_at`: this is the only thing in the session that touches a
-    /// file, and the state lock is taken by every event that arrives.
-    ///
-    /// Safe to call from anywhere in the reading task and nowhere else — it
-    /// reads the offset, then the file, then writes both back, and nothing else
-    /// in this console writes that pair.
+    /// Count the exchanges the transcript has gained — [`crate::past::counted`].
+    /// Reads the file OUTSIDE the lock, which is why this is a method and not a line
+    /// in `push_at`. Safe from the reading task only: it reads the offset, then the
+    /// file, then writes both back.
     fn recount(&self) {
         let root = crate::past::projects_root();
         let Some(path) = crate::past::transcript_of(&root, &self.id) else {
             return;
         };
         let mut so_far = self.state.lock().expect("session state poisoned").counted;
-        // A seed arrives here at zero, and zero is the whole file — gigabytes,
-        // on the executor, inside the handler that answers "resume this one".
-        // The count it arrives at was decided by the last megabyte, so start where that
-        // begins. See [`crate::past::seed_from`] for why the two agree exactly.
+        // A seed arrives at zero, and zero is the whole file — gigabytes, on the
+        // executor. Start where the last megabyte begins; [`crate::past::seed_from`]
+        // says why the two agree exactly.
         if so_far.through == 0 {
             so_far.through = crate::past::seed_from(&path);
         }
         let found = crate::past::counted(&path, so_far);
         let mut state = self.state.lock().expect("session state poisoned");
         state.counted = found.counted;
-        // The other half of what that read found: work the harness has reported
-        // finished. It closes the count here rather than through an event,
-        // because there is no event — see [`crate::past::Appended::finished`].
+        // Work the harness reported finished, closing the count here because there is
+        // no event — see [`crate::past::Appended::finished`].
         for named in &found.finished {
             forget(&mut state.background, named);
         }
-        // ⚠ **A compaction is announced in the file and nowhere else**, so this
-        // read is the only way a running session learns that its own fullness
-        // describes a conversation it no longer holds. Taken from the file
-        // rather than simply cleared, because the same few kilobytes may carry a
-        // request made after the boundary — and then the new figure is already
-        // known and there is no reason to show nothing.
+        // A compaction is announced in the file and nowhere else, so this read is the
+        // only way a running session learns its fullness is stale. Taken from the file
+        // rather than cleared: the same bytes may carry a request made after the boundary.
         if found.compacted {
             state.context = found.context;
         }
@@ -1159,32 +758,26 @@ impl Session {
         command
             .current_dir(dir)
             .arg("-p")
-            // stream-json output is refused without --verbose, which is a CLI
-            // validation rule rather than a preference of ours.
+            // stream-json output is refused without --verbose: the CLI's rule.
             .arg("--verbose")
             .args(["--input-format", "stream-json"])
             .args(["--output-format", "stream-json"])
             .arg("--include-partial-messages")
-            // The echo of our own prompt is how a client knows the message
-            // landed; see `protocol::Event::Prompt`.
+            // The echo of our own prompt is how a client knows the message landed.
             .arg("--replay-user-messages")
             .args(if resuming {
                 ["--resume", &id]
             } else {
                 ["--session-id", &id]
             })
-            // **The switch that makes approvals possible at all.** Undocumented
-            // in `--help` at 2.1.220 and found by reading the TypeScript SDK,
-            // which passes exactly this: without it a session in `manual` mode
-            // refuses every tool call outright and reports it in
-            // `permission_denials`, and no question ever reaches the client.
-            // With it, the CLI asks over the same stream it answers on.
+            // The switch that makes approvals possible at all — undocumented in `--help` at
+            // 2.1.220, found in the TypeScript SDK. Without it a session in `manual` mode
+            // refuses every tool call outright and no question ever reaches the client.
             .args(["--permission-prompt-tool", "stdio"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            // Without this the child keeps running when the console is killed,
-            // holding the session id and the working directory.
+            // Without this the child keeps running when the console is killed.
             .kill_on_drop(true);
         if let Some(model) = &spawn.model {
             command.args(["--model", model]);
@@ -1196,8 +789,8 @@ impl Session {
         let mut child = command
             .spawn()
             .with_context(|| format!("spawning {} in {}", spawn.binary, dir.display()))?;
-        // Read before the handles are moved out: after the upgrade these numbers
-        // are all that is left of the connection to this process.
+        // Read before the handles are moved out: after the upgrade these numbers are
+        // all that is left of the connection.
         let fds = Fds {
             stdin: child.stdin.as_ref().map_or(-1, AsRawFd::as_raw_fd),
             stdout: child.stdout.as_ref().map_or(-1, AsRawFd::as_raw_fd),
@@ -1214,11 +807,8 @@ impl Session {
             started: SystemTime::now(),
             state: Mutex::new(State {
                 alive: true,
-                // What was actually asked for. **Unset is not unknown** — it is
-                // the CLI's own default, under which every tool call needing
-                // permission comes back here for an answer. Recording it as
-                // `default` says that plainly instead of leaving the header
-                // blank about the one setting that governs every tap.
+                // What was actually asked for. Unset is not unknown — it is the CLI's own
+                // default, under which every tool call needing permission comes back here.
                 mode: Some(
                     spawn
                         .permission_mode
@@ -1241,18 +831,10 @@ impl Session {
         Ok(session)
     }
 
-    /// Take over a session the previous image was running.
-    ///
-    /// Everything about the process is unchanged — same pid, same pipes, same
-    /// conversation — because `execve` replaced this console's image without
-    /// touching its children. What is lost is the [`Child`] handle, so exit is
-    /// noticed by the child's stdout reaching end of file rather than by waiting
-    /// on it, and killing goes through the pid.
-    ///
-    /// ⚠ The scrollback does not survive. A client that reconnects is reseeded
-    /// from the transcript on disk, which is the durable record anyway — except
-    /// for [`Tally`], which no transcript holds and which therefore has to be
-    /// carried.
+    /// Take over a session the previous image was running: same pid, same pipes,
+    /// same conversation. What is lost is the [`Child`] handle, so exit is noticed by
+    /// end of file and killing goes through the pid. The scrollback does not survive;
+    /// a reconnecting client is reseeded from the transcript, and [`Tally`] is carried.
     pub fn adopt(
         id: String,
         dir: PathBuf,
@@ -1261,18 +843,12 @@ impl Session {
         mut tally: Tally,
     ) -> Result<Arc<Self>> {
         let pending = std::mem::take(&mut tally.pending);
-        // Taken out for the same reason as `pending`, and put back at the same
-        // moment — see below. Both are undone by the seed if set before it.
+        // Taken out for the same reason as `pending`, and put back after the seed.
         let background = std::mem::take(&mut tally.background);
-        // ⚠ The scrollback did NOT survive the exec, and a client reconnecting
-        // to an empty log is told its page is unresumable and starts blank. So
-        // an adopted session reseeds from the transcript exactly as a resumed
-        // one does — the conversation is on disk either way, and losing it on
-        // an *upgrade* would make the upgrade worse than the restart it
-        // replaced. Shipped without this and the history vanished; see
-        // [`Self::seed`].
-        // SAFETY: these descriptors were handed over by the image that exec'd,
-        // which held them open and cleared close-on-exec so they would survive.
+        // The scrollback did NOT survive the exec, so an adopted session reseeds from
+        // the transcript exactly as a resumed one does — see [`Self::seed`].
+        // SAFETY: these descriptors were handed over by the image that exec'd, which
+        // cleared close-on-exec so they would survive.
         let (stdin, stdout, stderr) = unsafe {
             (
                 OwnedFd::from_raw_fd(fds.stdin),
@@ -1292,8 +868,7 @@ impl Session {
         let session = Arc::new(Self {
             id,
             dir,
-            // A tally from an image that never counted a turn has a zero here;
-            // now is the only honest answer in that case.
+            // A tally from an image that never counted a turn has a zero here.
             started: match tally.started {
                 0 => SystemTime::now(),
                 secs => UNIX_EPOCH + Duration::from_secs(secs),
@@ -1302,24 +877,17 @@ impl Session {
                 alive: true,
                 model: tally.model,
                 mode: tally.mode,
-                // ⚠ **Before the seed runs, so the replay cannot overwrite it.**
-                // `asked` is only ever set when it is `None`, which is exactly
-                // what makes restoring it here sufficient: the page about to be
-                // replayed is full of prompts and the first would otherwise take
-                // the name. See the field's note in [`Tally`].
+                // Before the seed runs, so the replay cannot overwrite it: `asked` is only ever
+                // set when `None`. See the field's note in [`Tally`].
                 asked: tally.asked,
                 cost_usd: tally.cost_usd,
                 window: tally.window,
                 limit: tally.limit,
-                // Carried like the rest of the tally: nothing on disk records
-                // it, so an upgrade that dropped it would blank the front
-                // page until the next request came back.
+                // Carried like the rest of the tally: nothing on disk records it.
                 spent: tally.spent,
                 counted: tally.counted,
-                // The turn that was in flight is still in flight: `execve` does
-                // not touch the child, so whatever it was doing it is still
-                // doing, and its own next status line or `Turn` will correct
-                // this the moment one arrives.
+                // The turn that was in flight is still in flight; its next status line or
+                // `Turn` corrects this.
                 busy: tally.busy,
                 ..State::default()
             }),
@@ -1329,15 +897,13 @@ impl Session {
             kill: Mutex::new(Some(kill_tx)),
             tx,
         });
-        // The SAME child across the exec, so nothing above the boundary is dead
-        // on account of the upgrade — see [`crate::protocol::Event::Joined`].
+        // The SAME child across the exec, so nothing above the boundary is dead on
+        // account of the upgrade — see [`crate::protocol::Event::Joined`].
         session.seed(false);
-        // **After the seed, so the question lands where it happened: at the end
-        // of the conversation, which is where it is still standing.** Pushed as
-        // an ordinary `Ask` rather than restored into `pending` directly,
-        // because that is the same path a live question takes — one mechanism,
-        // so a client that reconnects is offered the decision again *and* the
-        // session is recorded as waiting for it, from a single event.
+        // After the seed, so the question lands at the end of the conversation, where
+        // it is still standing. Pushed as an ordinary `Ask`: one mechanism, so a
+        // reconnecting client is offered the decision again and the session is
+        // recorded as waiting for it.
         for (id, question) in pending {
             session.push(Event::Ask {
                 id,
@@ -1348,13 +914,9 @@ impl Session {
                 input: question.input,
             });
         }
-        // ⚠ **After the seed, because the seed deliberately clears this.**
-        // `seed` ends with a `Joined`, and `protocol::running` reads a `Joined`
-        // as `Running::Gone` — right for a session being picked up, whose
-        // replayed tool calls belong to a process that is long gone, and wrong
-        // for one being adopted, whose children `execve` did not touch and which
-        // are still running. Set before the seed it was silently wiped, which is
-        // what the test in `tests/cold.rs` caught. See [`Tally::background`].
+        // After the seed, because the seed ends with a `Joined`, which
+        // `protocol::running` reads as `Running::Gone` — right for a resume, wrong for
+        // an adoption whose children are still running. `tests/cold.rs` caught it.
         if !background.is_empty() {
             tracing::info!(
                 "{}: {} background task(s) carried across the upgrade",
@@ -1395,15 +957,9 @@ impl Session {
         }
     }
 
-    /// Questions this session is still waiting on an answer to.
-    ///
-    /// ⚠ **A cold reader has to be offered these again, and nothing else will
-    /// do it.** An `Ask` is the console's own word — the CLI sends it as a
-    /// control request and no transcript records it — so a seed read from the
-    /// file cannot contain one. [`Session::adopt`] already re-pushes them after
-    /// its seed for exactly this reason; `crate::api::cold` needs the same, and
-    /// without it the list says *waiting for you* while the session shows
-    /// nothing to answer.
+    /// Questions this session is still waiting on. A cold reader has to be offered
+    /// these again: an `Ask` is a control request no transcript records, so a seed
+    /// cannot contain one — `crate::api::cold` needs this as [`Session::adopt`] does.
     pub fn asking(&self) -> Vec<(String, Pending)> {
         self.state
             .lock()
@@ -1423,14 +979,10 @@ impl Session {
         self.pid
     }
 
-    /// Read the child's streams until they end.
-    ///
-    /// ⚠ **`ends_on_eof` decides who declares the session over**, and it is not
-    /// a preference. For an adopted session end of file is the only signal there
-    /// is — no [`Child`] survived the upgrade to be waited on. For a spawned one
-    /// [`Self::reap`] must be the one to say so, because **only it knows the exit
-    /// code**: letting the reader win a race it usually wins turned every clean
-    /// exit into `code: None`, which reads as "killed". A test caught that.
+    /// Read the child's streams until they end. `ends_on_eof` decides who declares
+    /// the session over: for an adopted session end of file is the only signal; for
+    /// a spawned one [`Self::reap`] must say so, because only it knows the exit code,
+    /// and letting the reader win turned every clean exit into `code: None`.
     fn read_from<O, E>(self: Arc<Self>, stdout: Option<O>, stderr: Option<E>, ends_on_eof: bool)
     where
         O: tokio::io::AsyncRead + Unpin + Send + 'static,
@@ -1441,76 +993,53 @@ impl Session {
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stdout).lines();
                 let mut beat = tokio::time::interval(RECOUNT_EVERY);
-                // Delay, not Burst: a session that was busy for a minute owes us
-                // one catch-up read, not a minute's worth back to back.
+                // Delay, not Burst: a session busy for a minute owes one catch-up read.
                 beat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
                 loop {
                     let line = tokio::select! {
                         line = lines.next_line() => line,
-                        // ⚠ **The transcript changes when the process says
-                        // nothing.** A compaction is written to the file and
-                        // announced on no stream, so tying the read to `Turn`
-                        // meant a session that compacted and then sat waiting
-                        // for its next instruction never read its own boundary:
-                        // `home` showed 258,318 tokens for ninety minutes, which
-                        // was the fullness of a conversation that had stopped
-                        // existing, and 13 exchanges the boundary had reset to 0.
-                        // A stale figure and a live one are drawn identically.
+                        // The transcript changes when the process says nothing: a compaction is written
+                        // to the file and announced on no stream, so a read tied to `Turn` left `home`
+                        // showing a stale fullness for ninety minutes.
                         _ = beat.tick() => {
                             session.recount();
                             continue;
                         }
                     };
                     let Ok(Some(line)) = line else { break };
-                    // ⚠ **Every line, whatever it turns out to be.** This is the
-                    // record of when the *process* last spoke, which is how the
-                    // roster decides who to ask for the account's usage — and an
-                    // idle session answers that question from a cache as old as
-                    // its own last request. See [`Session::heard`].
+                    // Every line, whatever it is: the record of when the PROCESS last spoke, which
+                    // is how the roster decides who to ask for usage. See [`Session::heard`].
                     session.heard();
-                    // Before the events, and separately from them: a control
-                    // response is an answer to something the console asked, not
-                    // something that happened in the conversation, so it has no
-                    // place in a transcript anyone reads. See
-                    // [`protocol::usage_reply`].
+                    // Before the events and separately: a control response is an answer to
+                    // something the console asked, not something that happened in the conversation.
                     if let Some(windows) = protocol::usage_reply(&line) {
                         session.record_usage(windows);
                         continue;
                     }
-                    // The other answer this console asks for, and for a long
-                    // time the one nothing read — see [`Session::settle_mode`].
+                    // The other answer this console asks for — see [`Session::settle_mode`].
                     if let Some(reply) = protocol::mode_reply(&line) {
                         session.settle_mode(reply);
                         continue;
                     }
                     for event in protocol::read(&line) {
-                        // The end of a turn is the one moment the exchange count
-                        // can have changed, and by then the CLI has written the
-                        // whole exchange to its transcript. Recounted rather than
-                        // incremented — see [`crate::past::counted`] — and
-                        // done here rather than in `push_at`, which holds the
-                        // state lock and must not be reading files. The heartbeat
-                        // above does not replace this: at the end of a turn the
-                        // count is wanted NOW, not within [`RECOUNT_EVERY`].
+                        // The end of a turn is the one moment the exchange count can have changed, and
+                        // the CLI has written the whole exchange by then. Here rather than in `push_at`,
+                        // which holds the state lock and must not read files; the count is wanted NOW.
                         let counted = matches!(event, Event::Turn { .. });
                         session.push(event);
                         if counted {
                             session.recount();
-                            // The moment the commands parked mid-turn have been
-                            // waiting for. Here rather than in `push_at` for the
-                            // same reason as the recount: that one holds the
-                            // state lock, and this writes to a pipe. A failure
-                            // is logged and not propagated — this loop is the
-                            // session's only reader, and ending it over a
-                            // refused write would take the transcript with it.
+                            // The moment the commands parked mid-turn have been waiting for. Here for the
+                            // same reason as the recount: this writes to a pipe. A failure is logged, not
+                            // propagated — ending this loop would take the transcript with it.
                             if let Err(err) = session.release_held().await {
                                 tracing::warn!("{}: holding a command back: {err:#}", session.id);
                             }
                         }
                     }
                 }
-                // The pipe closed, so the process did — but only say so when
-                // nothing better is watching. See the note above.
+                // The pipe closed, so the process did — but only say so when nothing better is
+                // watching.
                 if ends_on_eof {
                     session.ended(None);
                 }
@@ -1527,10 +1056,8 @@ impl Session {
         }
     }
 
-    /// Wait for a spawned child, and kill it when asked.
-    ///
-    /// The adopted half of this is [`reap_adopted`], which has only a pid to
-    /// work with.
+    /// Wait for a spawned child, and kill it when asked. The adopted half is
+    /// [`reap_adopted`].
     fn reap(self: Arc<Self>, mut child: Child, kill: oneshot::Receiver<()>) {
         tokio::spawn(async move {
             let code = tokio::select! {
@@ -1544,11 +1071,8 @@ impl Session {
         });
     }
 
-    /// Record that the process is gone, once.
-    ///
-    /// Called from two places for a spawned session — the reader seeing end of
-    /// file and the reaper seeing the exit — and from one for an adopted one.
-    /// Guarded so a client is not told twice that the same session ended.
+    /// Record that the process is gone, once — the reader and the reaper can both
+    /// notice.
     fn ended(&self, code: Option<i32>) {
         {
             let mut state = self.state.lock().expect("session state poisoned");
@@ -1560,14 +1084,10 @@ impl Session {
         self.push(Event::Exited { code });
     }
 
-    /// Send a message to the session.
-    ///
-    /// ⚠ **A slash command sent mid-turn is HELD, not written.** See
-    /// [`State::held`] for what the CLI does with one instead. The test and the
-    /// parking happen under a single lock on the state, which is the same lock
-    /// [`in_flight`] takes to clear `working` — so a turn ending beside this
-    /// either has not happened yet, and the flush that follows it drains what
-    /// was just parked, or has happened, and this writes straight through.
+    /// Send a message to the session. A slash command sent mid-turn is HELD, not
+    /// written — see [`State::held`] — under the same lock [`in_flight`] takes to
+    /// clear `working`, so a turn ending beside this either drains what was parked
+    /// or lets this write straight through.
     pub async fn send(&self, text: &str) -> Result<()> {
         let parked = {
             let mut state = self.state.lock().expect("session state poisoned");
@@ -1590,22 +1110,15 @@ impl Session {
             .context("writing to the session")?;
         stdin.flush().await.context("flushing to the session")?;
         drop(held);
-        // ⚠ **Announced on the way in, not on the echo.** The write above has
-        // succeeded, so the message is the CLI's problem now — but the CLI may
-        // not read it for minutes, and until it does nothing else on the wire
-        // mentions it. See [`Event::Accepted`] for the measurements.
-        //
-        // Which of the two it is has to be decided here, because it is a
-        // statement about what will come back and only the text can say: a
-        // prompt is echoed by `--replay-user-messages` and a command is not.
-        // See [`Event::Command`].
+        // Announced on the way in, not on the echo: the CLI may not read it for
+        // minutes — see [`Event::Accepted`]. Prompt or command is decided here, since
+        // only the text can say which will be echoed. See [`Event::Command`].
         if protocol::is_command(text) {
             self.push(Event::Command {
                 text: text.to_string(),
             });
         } else {
-            // In flight until the CLI replays it, which is the whole of what
-            // [`Self::deaf`] has to go on.
+            // In flight until the CLI replays it — the whole of what [`Self::deaf`] has to go on.
             self.state
                 .lock()
                 .expect("session state poisoned")
@@ -1618,8 +1131,7 @@ impl Session {
                 text: text.to_string(),
             });
         }
-        // Held even if the CLI never echoes it, so the record of what was asked
-        // does not depend on the CLI's replay behaviour.
+        // Held even if the CLI never echoes it.
         let mut state = self.state.lock().expect("session state poisoned");
         if state.asked.is_none() && !state.origin_read {
             state.asked = Some(text.to_string());
@@ -1627,17 +1139,10 @@ impl Session {
         Ok(())
     }
 
-    /// Write the commands that were waiting for this turn to end.
-    ///
-    /// Through [`Self::send`], which finds `working` already false and writes
-    /// straight through — so a released command takes the ordinary path and is
-    /// recorded by the ordinary [`Event::Command`], at the moment it actually
-    /// goes. One at a time, and re-locked between each, so a cancel arriving
-    /// mid-drain is honoured rather than raced.
-    ///
-    /// A write that fails stops the drain and leaves the rest held: the usual
-    /// reason is a session that has stopped taking input, and writing the second
-    /// command after the first was refused would be pretending.
+    /// Write the commands that were waiting for this turn to end, through
+    /// [`Self::send`], so each takes the ordinary path and is recorded as it goes.
+    /// One at a time, re-locked between each, so a cancel mid-drain is honoured. A
+    /// failed write stops the drain: writing the next after a refusal would be pretending.
     pub async fn release_held(&self) -> Result<()> {
         loop {
             let next = {
@@ -1649,12 +1154,8 @@ impl Session {
         }
     }
 
-    /// Take back a command that is waiting — by its exact text, which is what
-    /// the client has.
-    ///
-    /// Returns whether anything was holding it. A false is not an error: two
-    /// screens can be looking at the same session, and the second tap on a
-    /// command already released has nothing to undo.
+    /// Take back a command that is waiting, by its exact text. False is not an
+    /// error: a second tap on a command already released has nothing to undo.
     pub fn forget_held(&self, text: &str) -> bool {
         let mut state = self.state.lock().expect("session state poisoned");
         let Some(at) = state.held.iter().position(|held| held == text) else {
@@ -1664,12 +1165,8 @@ impl Session {
         true
     }
 
-    /// Show the session a picture, with whatever was said about it.
-    ///
-    /// The same write as [`Self::send`] and deliberately not folded into it: the
-    /// two differ in what they put on the wire (see
-    /// [`protocol::prompt_with_image`]), and an `Option<Image>` on the ordinary
-    /// send would put a branch on the path every message in the console takes.
+    /// Show the session a picture, with whatever was said about it. Not folded into
+    /// [`Self::send`]: the two differ on the wire ([`protocol::prompt_with_image`]).
     pub async fn show(
         &self,
         text: &str,
@@ -1690,9 +1187,8 @@ impl Session {
         drop(held);
         let mut state = self.state.lock().expect("session state poisoned");
         if state.asked.is_none() && !state.origin_read {
-            // What it was opened for, when a picture is the first thing said. The
-            // base64 is emphatically not this: it is a megabyte of characters, and
-            // this is a line on the front page.
+            // What it was opened for, when a picture is the first thing said — not the
+            // base64.
             state.asked = Some(match text.trim() {
                 "" => "an image".to_string(),
                 words => words.to_string(),
@@ -1701,21 +1197,11 @@ impl Session {
         Ok(())
     }
 
-    /// Answer a question the session is blocked on.
-    ///
-    /// Refusing carries a reason, because the session is told it and can act on
-    /// it — "not now, do the read-only part first" is a useful thing to say to
-    /// an agent, and a bare denial is not.
-    ///
-    /// Answering an unknown id is an error rather than a silent success: the
-    /// likeliest cause is two people looking at the same session, and the second
-    /// one deserves to be told that the decision was already taken.
-    ///
-    /// `reply` is what was said about a [`protocol::QUESTION_TOOL`] call, and is
-    /// refused for anything else. That is the narrow reading of `updatedInput`:
-    /// the protocol would let a client rewrite the arguments of any tool it
-    /// approves, and a console whose whole job is approving tool calls should not
-    /// also be able to change what it approved.
+    /// Answer a question the session is blocked on. Refusing carries a reason the
+    /// session can act on. An unknown id is an error: the likeliest cause is two
+    /// people looking at one session. `reply` is what was said about a
+    /// [`protocol::QUESTION_TOOL`] call, refused for anything else — a console whose
+    /// job is approving tool calls should not also rewrite what it approved.
     pub async fn decide(
         &self,
         id: &str,
@@ -1756,18 +1242,10 @@ impl Session {
         Ok(())
     }
 
-    /// Rename the conversation, so the list says what it is.
-    ///
-    /// ⚠ **A control request, not `/rename`**, and that is the whole of why this
-    /// exists: a slash command written to a working session is parked and handed
-    /// to the MODEL as words — measured, and the agent politely said "nothing for
-    /// me to do" while the name never changed. See [`protocol::rename`].
-    ///
-    /// Nothing is recorded here on the way out. The CLI writes a `custom-title`
-    /// line to the transcript, which is where the roster reads every name from
-    /// ([`crate::past::about`]), so the new one arrives by the same route as a
-    /// rename typed in a terminal — and a request that failed leaves the old name
-    /// standing rather than a claim nobody checked.
+    /// Rename the conversation — a control request, not `/rename`, which a working
+    /// session hands to the MODEL as words. See [`protocol::rename`]. Nothing is
+    /// recorded on the way out: the CLI writes a `custom-title` line and the roster
+    /// reads names from there ([`crate::past::about`]).
     pub async fn rename(&self, title: &str) -> Result<()> {
         let line = protocol::rename(&format!("rename-{}", self.id), title);
         let mut held = self.stdin.lock().await;
@@ -1782,14 +1260,9 @@ impl Session {
         Ok(())
     }
 
-    /// Change what this session may do without asking.
-    ///
-    /// ⚠ **Recorded optimistically.** The CLI answers with a `control_response`
-    /// and this does not wait for it — see [`protocol::set_mode`] — so what the
-    /// header shows is what was *asked for*, not a confirmation. That is the
-    /// honest trade for not freezing a client behind a busy session, and it is
-    /// why the mode is written only after stdin has taken the line: a write that
-    /// failed leaves the old mode on screen, which is the true one.
+    /// Change what this session may do without asking. Recorded optimistically —
+    /// the CLI's answer is not waited for, see [`protocol::set_mode`] — and only
+    /// after stdin has taken the line, so a failed write leaves the true mode on screen.
     pub async fn set_mode(&self, mode: &str) -> Result<()> {
         let line = protocol::set_mode(&format!("set-mode-{}", self.id), mode);
         let mut held = self.stdin.lock().await;
@@ -1803,10 +1276,9 @@ impl Session {
         stdin.flush().await.context("flushing the mode change")?;
         drop(held);
         let mut state = self.state.lock().expect("session state poisoned");
-        // Kept so a refusal can put back the mode the session is really in. Only
-        // when nothing is already outstanding: two changes in flight and the
-        // second would record the first's optimistic value as the truth to
-        // return to, which is the same defect one step along.
+        // Kept so a refusal can put back the mode the session is really in. Only when
+        // nothing is already outstanding, or the second change would record the first's
+        // optimistic value as the truth.
         if state.restore.is_none() {
             state.restore = state.mode.clone();
         }
@@ -1816,20 +1288,10 @@ impl Session {
         Ok(())
     }
 
-    /// Take the CLI at its word about what mode it is in.
-    ///
-    /// ⚠ **This is the correction [`Session::set_mode`]'s optimism depends on.**
-    /// Without it a mode the CLI refused stayed on screen for the life of the
-    /// session: a switch to `bypassPermissions` read *Bypass Permissions* in the
-    /// header while the CLI stayed in `auto` and went on asking for approval
-    /// (memview #96). Optimism between asking and hearing back is a fair trade
-    /// for not freezing a client behind a busy session; a claim that is never
-    /// corrected is not.
-    ///
-    /// **The confirmed mode comes from the reply**, not from what was asked for
-    /// — see [`protocol::mode_reply`], where the measured shapes are written
-    /// down. Taking "it succeeded" as agreement about *which* mode would be the
-    /// same mistake at one remove.
+    /// Take the CLI at its word about what mode it is in — the correction
+    /// [`Session::set_mode`]'s optimism depends on; without it a refused mode stayed
+    /// on screen for the life of the session (memview #96). The confirmed mode comes
+    /// from the reply, not from what was asked — see [`protocol::mode_reply`].
     fn settle_mode(&self, reply: protocol::ModeReply) {
         let mut state = self.state.lock().expect("session state poisoned");
         match reply {
@@ -1839,9 +1301,8 @@ impl Session {
             }
             protocol::ModeReply::Refused(why) => {
                 tracing::info!("{}: the mode change was refused — {why}", self.id);
-                // Back to what it was. `restore` is empty only if a reply
-                // arrived for a change this console did not make, in which case
-                // there is nothing it can honestly put back.
+                // Back to what it was. `restore` is empty only for a reply to a change this
+                // console did not make.
                 if let Some(was) = state.restore.clone() {
                     state.mode = Some(was);
                 }
@@ -1851,18 +1312,13 @@ impl Session {
         state.restore = None;
     }
 
-    /// Keep what the CLI answered about each window.
-    ///
-    /// Overwrites per window rather than wholesale, on the same reasoning as the
-    /// stream events: an answer that names one window says nothing about
-    /// another, and this reply and those events write to the same place.
+    /// Keep what the CLI answered about each window. Per window, not wholesale: an
+    /// answer naming one window says nothing about another.
     fn record_usage(&self, windows: Vec<(String, f64, Option<i64>)>) {
         let mut state = self.state.lock().expect("session state poisoned");
         let at = Heard(now());
-        // Through [`crate::usage::remember`], not a blind insert: an answer
-        // from cached headers is an echo, and an echo written over a fresh
-        // `rate_limit_event` in this same map would launder it into the
-        // roster's merge as if nothing better had been heard.
+        // Through [`crate::usage::remember`], not a blind insert: an answer from cached
+        // headers is an echo, and must not overwrite a fresh `rate_limit_event`.
         crate::usage::remember(
             &mut state.spent,
             windows.into_iter().map(|(window, utilization, resets_at)| {
@@ -1879,13 +1335,10 @@ impl Session {
         );
     }
 
-    /// Ask this session what the account has spent. See [`protocol::get_usage`].
-    ///
-    /// The answer does not come back here — it arrives on stdout like everything
-    /// else and is recorded as it passes [`Self::record_usage`], which is what makes one
-    /// question enough for every client watching. Failure is not worth
-    /// propagating: a session that will not take the question is one whose
-    /// figures the console simply does not have.
+    /// Ask this session what the account has spent — [`protocol::get_usage`]. The
+    /// answer arrives on stdout and is recorded as it passes [`Self::record_usage`].
+    /// Failure is not propagated: a session that will not take the question is one
+    /// whose figures the console does not have.
     pub async fn ask_usage(&self) {
         let line = protocol::get_usage(&format!("usage-{}", self.id));
         let mut held = self.stdin.lock().await;
@@ -1900,20 +1353,10 @@ impl Session {
     }
 
     /// End the session: close stdin, and kill it if it has not gone on its own.
-    ///
-    /// Closing stdin is the exit the CLI is built for. The timer behind it is
-    /// there because a session that will not end must not be able to keep the
-    /// console holding a handle to it for ever.
-    ///
-    /// ⚠ **The deadline is recorded as well as slept on, because the sleep does
-    /// not survive an upgrade.** `handover` re-execs this process, and a
-    /// `tokio::spawn` is part of the image that goes; the session is not carried
-    /// either, since closing stdin makes its descriptors unkeepable. Both at
-    /// once left a stopped session running for two and a quarter hours
-    /// (memview #750) — a child of the console with no row anywhere in it, which
-    /// is precisely the state [`crate::roster::Roster::finish_stopping`] exists to
-    /// avoid. So the *when* is written down where the handover can read it, and
-    /// the new image finishes what this one started.
+    /// The deadline is recorded as well as slept on, because the sleep does not
+    /// survive an upgrade — `handover` re-execs this process and the session is not
+    /// carried, so a stopped one once ran for two and a quarter hours (memview #750).
+    /// [`crate::roster::Roster::finish_stopping`] reads it.
     pub async fn stop(self: &Arc<Self>) {
         self.stdin.lock().await.take();
         self.state.lock().expect("session state poisoned").stopping =
@@ -1926,9 +1369,6 @@ impl Session {
     }
 
     /// When this session's kill falls due, for one that has been stopped.
-    ///
-    /// `None` for a session nobody has stopped, which is every session that is
-    /// simply running.
     pub fn stopping(&self) -> Option<i64> {
         self.state.lock().expect("session state poisoned").stopping
     }
@@ -1941,11 +1381,9 @@ impl Session {
                 return;
             }
         }
-        // An adopted one has no child handle — the image that owned it exec'd
-        // away — so the pid is the only handle left.
+        // An adopted one has no child handle, so the pid is the only handle left.
         if self.pid != 0 {
-            // SAFETY: a kill to a pid this console started; the worst case is
-            // ESRCH for a process that has already gone, which is ignored.
+            // SAFETY: a kill to a pid this console started; ESRCH is ignored.
             unsafe { libc::kill(self.pid as libc::pid_t, libc::SIGKILL) };
         }
     }
@@ -1955,13 +1393,9 @@ impl Session {
         self.push_at(event, Some(now()));
     }
 
-    /// Note that the process said something, whatever it was.
-    ///
-    /// Not the same as the transcript's last activity, which is about the
-    /// conversation and is read off the file. This is about the *process*: which
-    /// of them is currently talking to the API, and therefore which one holds a
-    /// current answer to `get_usage` rather than a cache from whenever it last
-    /// made a request. See [`crate::roster::Roster::ask_usage`].
+    /// Note that the process said something, whatever it was. About the PROCESS,
+    /// not the conversation: which one holds a current answer to `get_usage`. See
+    /// [`crate::roster::Roster::ask_usage`].
     fn heard(&self) {
         self.state.lock().expect("session state poisoned").heard = now();
     }
@@ -1971,43 +1405,22 @@ impl Session {
         self.state.lock().expect("session state poisoned").heard
     }
 
-    /// How long this session has been failing to read what was written to it,
-    /// in milliseconds — `None` for one that is merely busy, or quiet.
+    /// How long this session has been failing to read what was written to it, in
+    /// milliseconds — `None` for one that is merely busy, or quiet. See [`crate::deaf`].
     ///
-    /// ⚠ **A message to a deaf session gets an *Accepted*, drawn as *waiting to
-    /// be read*** — the same words used for a message a working session will
-    /// reach in a minute. See [`crate::deaf`].
-    ///
-    /// **Three things at once, and the conjunction is the point:**
-    ///
-    /// * a message is in flight — nothing to read is not deafness;
-    /// * the session is between turns ([`State::idle_since`]) — one working
-    ///   through a ten-minute tool call is silent and well, and parks input on
-    ///   purpose;
-    /// * long enough — [`DEAF_AFTER_MS`], or [`DEAF_AFTER_COMPACT_MS`] while a
-    ///   compaction is outstanding.
-    ///
-    /// The clock starts at whichever came second, the turn ending or the message
-    /// arriving.
-    ///
-    /// ⚠ **It cannot see a session that goes deaf MID-TURN**, there being
-    /// nothing to distinguish that from work. Both measured episodes were
-    /// between turns, which is what the failure mode predicts: the reader stops
-    /// when it goes back to waiting on the pipe.
+    /// Three things at once: a message is in flight; the session is between turns
+    /// ([`State::idle_since`]) — one mid tool call parks input on purpose; and long
+    /// enough, [`DEAF_AFTER_MS`] or [`DEAF_AFTER_COMPACT_MS`]. The clock starts at
+    /// whichever came second. It cannot see a session that goes deaf MID-TURN; both
+    /// measured episodes were between turns.
     pub fn deaf(&self) -> Option<i64> {
         deaf_for(&self.state.lock().expect("session state poisoned"))
     }
 
-    /// Say so, once, if this session has stopped reading.
-    ///
-    /// Returns how long it has been deaf when this is the call that noticed —
-    /// `None` on every later sweep of the same episode, and `None` for a session
-    /// that is fine. Swept rather than pushed from the read loop because
-    /// deafness is the absence of events, and nothing arrives to trigger it.
-    ///
-    /// The pid comes back with it because the caller's next job is to capture
-    /// what the process looks like before the cure destroys it — see
-    /// [`crate::roster::Roster::watch_for_deafness`].
+    /// Say so, once, if this session has stopped reading: how long, when this is the
+    /// call that noticed, and `None` on later sweeps of the same episode. The pid
+    /// comes back with it so the caller can capture the process before the cure
+    /// destroys it — [`crate::roster::Roster::watch_for_deafness`].
     pub fn check_deaf(&self) -> Option<(u64, usize)> {
         let mut state = self.state.lock().expect("session state poisoned");
         let seconds = (deaf_for(&state)? / 1000) as u64;
@@ -2021,8 +1434,7 @@ impl Session {
         Some((seconds, unread))
     }
 
-    /// What this session was last told it may do without asking. See
-    /// [`Summary::mode`] — the console is the only thing that knows.
+    /// What this session was last told it may do without asking. See [`Summary::mode`].
     pub fn mode(&self) -> Option<String> {
         self.state
             .lock()
@@ -2031,10 +1443,8 @@ impl Session {
             .clone()
     }
 
-    /// What was written to this session and never read, oldest first.
-    ///
-    /// The other half of the cure: a restart loses whatever is still sitting in
-    /// the old pipe, so it has to be given back afterwards. See
+    /// What was written to this session and never read, oldest first — the other
+    /// half of the cure, since a restart loses the old pipe. See
     /// [`crate::roster::Roster::revive`].
     pub fn unread(&self) -> Vec<String> {
         self.state
@@ -2046,30 +1456,20 @@ impl Session {
             .collect()
     }
 
-    /// Record an event and hand it to whoever is listening.
-    ///
-    /// `at` is passed rather than taken because a seeded event did not happen
-    /// now — it happened whenever the transcript says, which for a resumed
-    /// conversation may be weeks ago. Stamping those with the clock would put
-    /// today's date on every line of a conversation from June.
+    /// Record an event and hand it to whoever is listening. `at` is passed rather
+    /// than taken because a seeded event happened whenever the transcript says.
     fn push_at(&self, event: Event, at: Option<i64>) {
         let stamped = {
             let mut state = self.state.lock().expect("session state poisoned");
             match &event {
                 Event::Started { model, .. } => state.model = Some(model.clone()),
                 Event::Busy { status } => state.busy = Some(status.clone()),
-                // The window, which only the result line declares. How full it
-                // is arrives per message — see [`Event::Context`].
+                // The window, which only the result line declares.
                 Event::Context { tokens } => state.context = Some(*tokens),
-                // Everything the last measurement counted was replaced by a
-                // summary, so it is not a stale number — it is another
-                // conversation's. Cleared rather than estimated: a plausible
-                // figure is indistinguishable on screen from a measured one, and
-                // the client already draws nothing where there is nothing. The
-                // next message brings a real one.
-                //
-                // Seen only in a replayed transcript; the live path is
-                // [`Self::recount`], which reads the file for the same reason.
+                // Everything the last measurement counted was replaced by a summary, so this
+                // is another conversation's number. Cleared rather than estimated; the next
+                // message brings a real one. Seen only in a replay — live, [`Self::recount`]
+                // reads the file.
                 Event::Compacted => state.context = None,
                 Event::Turn {
                     cost_usd, window, ..
@@ -2078,19 +1478,11 @@ impl Session {
                         state.window = *window;
                     }
                     state.busy = None;
-                    // ⚠ **Assigned, not added.** The field behind this is the
-                    // CLI's `total_cost_usd`, and it means what it says: the
-                    // running total for the session so far, not the price of
-                    // the exchange that just ended. Adding those totals to each
-                    // other yields a triangular sum — measured on a live
-                    // session reading 3.03, 3.76, 8.00, 9.55, 10.66, 11.97,
-                    // 12.35, where `+=` had reached $59.32 against a true
-                    // $12.35.
+                    // Assigned, not added: `total_cost_usd` is the running total, and `+=` reached
+                    // $59.32 against a true $12.35.
                     state.cost_usd = *cost_usd;
-                    // The turn's own `num_turns` is deliberately not read: it
-                    // counts the assistant messages the exchange took, which is
-                    // a different question from how many exchanges there have
-                    // been. [`Self::recount`] answers that one, from the file.
+                    // `num_turns` is deliberately not read: it counts assistant messages, not
+                    // exchanges. [`Self::recount`] answers that from the file.
                 }
                 Event::Limit {
                     window,
@@ -2099,20 +1491,11 @@ impl Session {
                     utilization,
                 } => {
                     state.limit = Some(status.clone());
-                    // ⚠ **One window per event**, so they are collected as they
-                    // are seen rather than replaced wholesale: an event about
-                    // the five-hour window says nothing about the weekly one,
-                    // and overwriting would lose whichever was not mentioned.
+                    // One window per event, so they are collected rather than replaced wholesale.
                     if let Some(spent) = utilization {
-                        // A measurement: the API's own headers off a request
-                        // that just completed, dated by when it completed — the
-                        // event's own stamp on replay, `now()` via [`Self::push`]
-                        // live. The date matters: a transcript seeded on restart
-                        // replays old events, and one stamped "now" would be a
-                        // stale figure wearing a fresh measurement's authority.
-                        // An event with no stamp at all cannot be dated, and a
-                        // figure whose truth-instant is unknowable is the
-                        // definition of an echo — so that is what it claims.
+                        // A measurement: the API's own headers off a request that just completed, dated
+                        // by the event's stamp on replay and `now()` live. An event with no stamp
+                        // cannot be dated, which is the definition of an echo.
                         crate::usage::remember(
                             &mut state.spent,
                             [(
@@ -2154,20 +1537,16 @@ impl Session {
                 }
                 Event::Exited { .. } => {
                     state.busy = None;
-                    // Nothing can be approved for a process that has gone, and a
-                    // question left standing would keep saying the session is
-                    // waiting for someone.
+                    // Nothing can be approved for a process that has gone, and a question left
+                    // standing would keep saying the session is waiting.
                     state.pending.clear();
-                    // Nor can a command be written to it. Held ones were waiting
-                    // for a turn to end that now never will, and a chip promising
-                    // one is about to run is the same lie this whole mechanism
-                    // exists to stop.
+                    // Nor can a command be written to it: a chip promising one is about to run is
+                    // the lie this mechanism exists to stop.
                     state.held.clear();
                 }
                 _ => {}
             }
-            // Remember what each call IS, so that if it turns out to have
-            // detached, the strip can name it. See `State::called`.
+            // Remember what each call IS, so a detached one can be named — `State::called`.
             if let Event::Tool { id, name, input } = &event {
                 if state.called.len() >= CALLED_RING {
                     state.called.pop_front();
@@ -2176,15 +1555,11 @@ impl Session {
                     .called
                     .push_back((id.clone(), crate::protocol::called(name, input)));
             }
-            // Work left running, which is a different question about the same
-            // event and is decided where the events are read rather than here.
-            // See [`protocol::running`] for the two cases that mean "forget what
-            // you were counting".
+            // Work left running is decided where the events are read — [`protocol::running`].
             match protocol::running(&event) {
                 protocol::Running::Began { tool, task } => {
-                    // Unnamed rather than absent when the ring has already
-                    // rolled past it: that it is running is the fact worth
-                    // keeping, and a call with no name still beats a bare count.
+                    // Unnamed rather than absent when the ring has rolled past it: that it is
+                    // running is the fact worth keeping.
                     let mut named = state
                         .called
                         .iter()
@@ -2199,8 +1574,7 @@ impl Session {
                     state.background.insert(tool, named);
                 }
                 protocol::Running::Ended(named) => forget(&mut state.background, &named),
-                // By the task, because that is the only name a kill gives — and
-                // the call it belonged to is never heard from again.
+                // By the task, because that is the only name a kill gives.
                 protocol::Running::Killed(task) => {
                     forget(&mut state.background, &protocol::Named::Task(task));
                 }
@@ -2220,8 +1594,7 @@ impl Session {
             state.log.push_back(stamped.clone());
             stamped
         };
-        // An error here means nobody is listening, which is the normal state of
-        // a session working on its own.
+        // An error here means nobody is listening, which is normal.
         let _ = self.tx.send(stamped);
     }
 
@@ -2247,13 +1620,11 @@ impl Session {
     }
 
     /// What a client that says it holds everything through `after` still needs.
-    ///
-    /// Resuming is refused rather than approximated — see [resumable] for when,
-    /// and why a refusal is the kinder answer.
+    /// Resuming is refused rather than approximated — see [resumable].
     pub fn since(&self, after: Option<u64>) -> Backlog {
         let state = self.state.lock().expect("session state poisoned");
-        // With an empty log nothing is held, so the earliest number that could
-        // still be honoured is the next one to be issued.
+        // With an empty log nothing is held, so the earliest number still honourable
+        // is the next one to be issued.
         let held_from = state
             .log
             .front()
@@ -2283,13 +1654,9 @@ impl Session {
         }
     }
 
-    /// The last sequence number this session has issued.
-    ///
-    /// For a client being seeded from the transcript rather than from the log —
-    /// see [`crate::api`]. It is the number that client then holds through, and
-    /// the reason it can be: every event at or below it has already been
-    /// written, so the ones the file does not carry are the only thing lost, and
-    /// nothing after it has been sent twice.
+    /// The last sequence number this session has issued, for a client seeded from
+    /// the transcript — see [`crate::api`]. Every event at or below it has been
+    /// written, so nothing after it is sent twice.
     pub fn issued(&self) -> u64 {
         self.state.lock().expect("session state poisoned").issued
     }
@@ -2311,9 +1678,8 @@ impl Session {
         self.state.lock().expect("session state poisoned").alive
     }
 
-    /// Whether a turn is running right now. See [`Summary::working`], and ⚠ not
-    /// [`Summary::busy`], which cannot answer this — a status is announced when
-    /// it *changes*, so a long stretch of one activity leaves nothing standing.
+    /// Whether a turn is running right now — [`Summary::working`], and NOT
+    /// [`Summary::busy`], which cannot answer this.
     pub fn working(&self) -> bool {
         self.state.lock().expect("session state poisoned").working
     }
@@ -2328,8 +1694,7 @@ impl Session {
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
-            // Left for the roster, which reads the transcript once per listing
-            // and already goes there for the name.
+            // Left for the roster, which reads the transcript once per listing.
             touched: None,
             bytes: None,
             alive: state.alive,

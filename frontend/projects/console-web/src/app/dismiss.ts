@@ -3,24 +3,14 @@ import { Injectable, inject } from '@angular/core';
 import { MatBottomSheetRef } from '@angular/material/bottom-sheet';
 
 /**
- * Let the back gesture close an overlay, and close *only* the overlay.
+ * Let the back gesture close an overlay, and close ONLY the overlay.
  *
- * ⚠ **Back was doing two things at once.** A sheet takes no part in history, so
- * a back press with one open went to the page underneath — and Material's
- * `closeOnNavigation` then dismissed the sheet on the way past. Measured in the
- * layout harness: open the details sheet on a session, press back, and you land
- * on the session LIST with the sheet gone. The gesture that means "put this
- * panel away" also threw away the conversation it was opened from. On the list
- * it is worse: the start sheet sits on the root, so back goes out of the app.
- *
- * The fix is to give the sheet a history entry of its own, so there is a step
- * for back to spend itself on. Nothing here closes anything: pressing back pops
- * the entry, and `closeOnNavigation` does the dismissing exactly as before.
- *
- * ⚠ **The entry has to be taken away again when the sheet closes some other
- * way**, which is the ordinary way — a tap on the backdrop. Otherwise the step
- * outlives the panel it stood for and the next back press is spent on nothing,
- * which reads as a phone that ignored the gesture.
+ * A sheet takes no part in history, so back went to the page underneath and
+ * Material's `closeOnNavigation` dismissed the sheet on the way past — on the
+ * list, out of the app. The fix gives the sheet a history entry of its own for
+ * back to spend itself on; nothing here closes anything. The entry has to be
+ * taken away again when the sheet closes some other way, or the next back
+ * press is spent on nothing.
  */
 @Injectable({ providedIn: 'root' })
 export class Dismiss {
@@ -28,14 +18,13 @@ export class Dismiss {
 
   /** Wire `ref` into history, until it is dismissed. */
   onBack(ref: MatBottomSheetRef<unknown>): void {
-    // The same URL, so nothing routes: this is a step in history, not a place.
-    // `path(true)` keeps the query and hash, which a session's URL may carry.
+    // The same URL, so nothing routes: a step in history, not a place. `path(true)`
+    // keeps the query and hash.
     this.location.go(this.location.path(true), '', { overlay: true });
     // Completes on its own after one emission, so there is nothing to unwind.
     ref.afterDismissed().subscribe(() => {
-      // Only if the step is still there. When back is what closed the sheet it
-      // has already been popped, and a second `back()` here would leave the page
-      // as well — the exact fault this exists to fix, arriving by the other door.
+      // Only if the step is still there: when back is what closed the sheet it has
+      // already been popped, and a second `back()` would leave the page.
       if (this.stepped()) this.location.back();
     });
   }

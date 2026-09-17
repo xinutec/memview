@@ -1,21 +1,10 @@
 import { Pipe, PipeTransform } from '@angular/core';
 
 /**
- * How long something has been going, for a number that is still moving.
- *
- * ⚠ **Not [[fold]]'s `elapsed`, and the difference is the tenth of a second.**
- * That one measures a turn that has finished, where `48.2s` is a fact worth
- * stating precisely. This one is read while the thing is still happening and
- * repaints once a second, so a tenth would be a digit that is wrong for most of
- * its life and flickers for the rest.
- *
- * Zero-padded seconds past a minute — `2m 03s`, not `2m 3s` — because the number
- * is watched rather than read, and an unpadded one shifts the text sideways as
- * it counts.
- *
- * A pure pipe: it is read for every running row on every change-detection pass,
- * and memoising on the input is what keeps a ticking page from re-formatting the
- * whole transcript. See [[Clock]] for the same reasoning about times of day.
+ * How long something has been going, for a number that is still moving. Not
+ * [[fold]]'s `elapsed`: this repaints once a second, so a tenth would flicker.
+ * Zero-padded seconds past a minute, or the text shifts as it counts. A pure
+ * pipe, memoised on its input.
  */
 @Pipe({ name: 'lasted' })
 export class Lasted implements PipeTransform {

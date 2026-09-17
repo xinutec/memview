@@ -1,12 +1,8 @@
-//! The memory corpus: one directory of markdown files, each with YAML
-//! frontmatter (name/description/metadata.type) and a body that
-//! cross-references other memories as `[[name]]`, plus a MEMORY.md index
-//! whose links are `[title](file.md)`.
-//!
-//! Loaded fresh from disk on every request — the corpus is small (hundreds
-//! of small files) and the writer is a live Claude session, so staleness
-//! would be worse than the read cost. Rendering rewrites both link forms to
-//! the SPA route `/m/<name>`.
+//! The memory corpus: one directory of markdown files with YAML frontmatter and
+//! `[[name]]` cross-references, plus a MEMORY.md index whose links are
+//! `[title](file.md)`. Loaded fresh from disk on every request — the corpus is
+//! small and the writer is a live Claude session. Rendering rewrites both link
+//! forms to the SPA route `/m/<name>`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -24,39 +20,24 @@ use crate::rank;
 struct FrontmatterMeta {
     #[serde(rename = "type")]
     mtype: Option<String>,
-    /// The session that wrote this memory, as the memory instructions record
-    /// it. Camel-case on disk, so it is renamed rather than relied on.
+    /// The session that wrote this memory. Camel-case on disk, so it is renamed.
     #[serde(rename = "originSessionId")]
     origin_session: Option<String>,
-    /// When the memory itself says it last changed.
-    ///
-    /// ⚠ **Not the file's mtime, which is what this used and which is wrong by
-    /// days.** mtime records a touch, so most files disagree with their own
-    /// stamp and some carry an mtime EARLIER than it. `memory-lint` makes an
-    /// absent stamp an error and
-    /// `memory-stamp` exists to maintain it, so it is the corpus's own record
-    /// and the viewer had no business preferring the filesystem's (#1219).
+    /// When the memory itself says it last changed — not the file's mtime, which
+    /// records a touch and is wrong by days (#1219).
     modified: Option<String>,
-    /// When the memory was first written.
-    ///
-    /// ⚠ **Recovered, not observed.** It exists nowhere but the transcripts,
-    /// which reach further back than this repo's own history, so `memory-dated`
-    /// mines it and writes it here where it is versioned. This once said the
-    /// recovery "gets less complete every day"; odin's snapshots say it does not
-    /// (memview#1240). Absent on a memory no surviving transcript records, which
-    /// is a DETECTION gap and not a memory without a beginning; nothing falls
-    /// back to an mtime, which records a touch and is wrong by days.
+    /// When the memory was first written. Recovered from the transcripts by
+    /// `memory-dated`, not observed. Absent on a memory no surviving transcript
+    /// records — a DETECTION gap, never an mtime.
     created: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
 struct Frontmatter {
     description: Option<String>,
-    /// The memory's own line in the index, written here rather than in
-    /// MEMORY.md. See [`MemoryMeta::teaser`].
+    /// The memory's own line in the index. See [`MemoryMeta::teaser`].
     teaser: Option<String>,
-    /// `tripwire` or `pointer`, declared by whoever wrote the memory. See
-    /// [`MemoryMeta::role`].
+    /// `tripwire` or `pointer`, declared by the author. See [`MemoryMeta::role`].
     role: Option<String>,
     #[serde(default)]
     metadata: Option<FrontmatterMeta>,
@@ -66,50 +47,20 @@ struct Frontmatter {
 pub struct MemoryMeta {
     /// Canonical id = filename stem; frontmatter `name` normally matches.
     pub name: String,
-    /// The frontmatter description, held as the markdown it is and **sent as
-    /// HTML**.
-    ///
-    /// Rendered at the wire rather than at construction because ranking
-    /// tokenises this field and linting measures it: both want the words, and
-    /// neither wants `<code>` among them. Serialising is the only moment the
-    /// value is for a reader, so it is the only place it is rendered — which
-    /// also means every view that shows a description shows it the same way,
-    /// with no second field to fall out of step.
+    /// The frontmatter description, held as markdown and sent as HTML: ranking
+    /// tokenises it and linting measures it, and only serialising is for a reader.
     #[serde(serialize_with = "as_inline_html")]
     pub description: String,
-    /// This memory's line in the index — the cue a reader meets in a list of
-    /// three hundred, not a summary read on its own.
-    ///
-    /// ⚠ **Deliberately NOT `description`, which answers a different question.**
-    /// A description decides relevance when it is read alone and runs long; an
-    /// index teaser is read among hundreds and runs to a few words. Generating
-    /// the index from descriptions overruns
-    /// [`crate::ceiling::INDEX_CEILING`] several times over.
-    ///
-    /// **It lives with the memory so it cannot rot apart from it.** Held in
-    /// MEMORY.md, a teaser described a memory that had since changed and nothing
-    /// connected the two. Pippijn: "Let's make the teaser text part of the doc
-    /// itself. The automation will be structural, not linguistic."
-    ///
-    /// Absent is meaningful, not an error: a memory with no teaser cannot be
-    /// assembled into the index, which is the first signal the corpus has had
-    /// about what is index-eligible (memview#822, #1310).
+    /// This memory's line in the index — the cue a reader meets in a list of three
+    /// hundred. Deliberately NOT `description`, which runs long; generating the index
+    /// from descriptions overruns [`crate::ceiling::INDEX_CEILING`] several times.
+    /// Lives with the memory so it cannot rot apart from it. Absent means
+    /// index-ineligible, not an error (memview#822, #1310).
     pub teaser: Option<String>,
-    /// What the index line is FOR — `tripwire` or `pointer`, as the author
-    /// declared it.
-    ///
-    /// ⚠ **Held as the raw string, because the vocabulary belongs to
-    /// [`crate::study::Role`] and not to the store.** Anything unrecognised
-    /// arrives here and is resolved to `None` there, so a typo reads as
-    /// unjudged rather than as a silent third kind.
-    ///
-    /// ⚠ **Absent is UNEXAMINED, never "safe to demote".** A judgement held only
-    /// in `memory-roles.json` is a model's one-pass classification: it cannot
-    /// grow with the corpus, so every memory written after a pass is exempt from
-    /// demotion forever (memview#1537). Declaring it here is the half that
-    /// keeps up: the author knows what they meant, and says so while writing.
-    /// The file is consulted first and the record second, so nothing had to be
-    /// backfilled across 597 memories to start.
+    /// What the index line is FOR — `tripwire` or `pointer`. The raw string, since
+    /// the vocabulary belongs to [`crate::study::Role`]; a typo reads as unjudged.
+    /// Absent is UNEXAMINED, never "safe to demote": a judgement held only in
+    /// `memory-roles.json` cannot grow with the corpus (memview#1537).
     pub role: Option<String>,
     /// user | feedback | project | reference (from metadata.type, falling
     /// back to the filename prefix).
@@ -125,32 +76,16 @@ pub struct MemoryDoc {
     pub meta: MemoryMeta,
     /// Markdown body (frontmatter stripped).
     pub body: String,
-    /// This memory's outgoing wikilinks, parsed ONCE at load.
-    ///
-    /// ⚠ **Because parsing them per query was the whole cost of the memory
-    /// tools.** Every graph walk — `depths_without`, `reachable_without`,
-    /// `incoming_links`, the lint's link rules — used to call `wikilinks_of`,
-    /// which is a full markdown parse with a fresh arena. `memory-tiers` runs
-    /// four whole-corpus walks, so it paid ~2,700 parses of a few megabytes per
-    /// run; `homes_for` asked per memory and paid ~446,000 (memview#1274).
-    ///
-    /// The corpus is SMALL. Anything here that is slow is slow because of its
-    /// shape, and the fix is the shape rather than a cache.
+    /// This memory's outgoing wikilinks, parsed ONCE at load. Parsing them per
+    /// query was the whole cost of the memory tools — ~446,000 parses in `homes_for`
+    /// (memview#1274). The corpus is SMALL; anything slow here is slow by shape.
     pub links: Vec<Wikilink>,
-    /// The file exactly as written, frontmatter included. Kept because linting
-    /// the corpus has to see what the frontmatter *says*, not only what parsing
-    /// it produced — a `name:` that disagrees with the filename is invisible
-    /// once the parse has already preferred the filename.
+    /// The file exactly as written, so linting can see what the frontmatter SAYS.
     pub raw: String,
-    /// The session that wrote this memory (`metadata.originSessionId`), if it
-    /// declares one.
-    ///
-    /// Deliberately NOT part of [`MemoryMeta`]. That struct is serialised into
-    /// every list, backlink, outlink, search hit and graph node, all of which a
-    /// share-link recipient may read — and resolving a session to the agent
-    /// that owns it is exactly the roster `/api/agents` is owner-only to
-    /// protect. Keeping it on the doc means the leak cannot happen by
-    /// forgetting, only by writing a handler that opts in.
+    /// The session that wrote this memory, if it declares one. Deliberately NOT on
+    /// [`MemoryMeta`], which is serialised into every list and graph node a
+    /// share-link recipient may read; resolving a session to its agent is what
+    /// `/api/agents` is owner-only to protect.
     pub origin_session: Option<String>,
 }
 
@@ -207,13 +142,11 @@ impl Corpus {
             let mtype = meta
                 .mtype
                 .unwrap_or_else(|| name.split('_').next().unwrap_or("other").to_string());
-            // An empty value is absent: an origin that resolves to nothing is
-            // worse than none, because it renders as an agent that never was.
+            // An empty value is absent: an origin that resolves to nothing renders as an
+            // agent that never was.
             let origin_session = meta.origin_session.filter(|s| !s.trim().is_empty());
-            // ⚠ **The stamp the memory keeps, falling back to mtime only when
-            // it has none** — which `memory-lint` reports as an error, so the
-            // fallback is a stopgap for a corpus mid-repair, not a second
-            // opinion. See `FrontmatterMeta::modified`.
+            // The stamp the memory keeps, falling back to mtime only when it has none —
+            // which `memory-lint` reports as an error.
             let modified = meta
                 .modified
                 .as_deref()
@@ -226,17 +159,14 @@ impl Corpus {
                         .and_then(|m| m.modified().ok())
                         .map(DateTime::<Utc>::from)
                 });
-            // ⚠ **No mtime fallback here, unlike `modified` above.** An mtime
-            // is the last touch, which for a creation date is not a worse
-            // answer but a different fact — and a wrong date that looks present
-            // is worse than an absent one, because nothing goes looking for it.
+            // No mtime fallback here: an mtime is the last touch, a different fact from a
+            // creation date, and a wrong date that looks present is worse than an absent one.
             let created = meta
                 .created
                 .as_deref()
                 .and_then(|stamp| DateTime::parse_from_rfc3339(stamp).ok())
                 .map(|stamp| stamp.with_timezone(&Utc));
-            // Canonical id is the filename stem; frontmatter `name` normally
-            // agrees and is not trusted to (a mismatch shouldn't hide a file).
+            // Canonical id is the filename stem; a frontmatter mismatch should not hide a file.
             docs.insert(
                 name.clone(),
                 MemoryDoc {
@@ -273,9 +203,8 @@ impl Corpus {
         self.docs.values().map(|d| d.meta.clone()).collect()
     }
 
-    /// Names of memories whose body wikilinks to `name`. Shares
-    /// `wikilink_targets` with `outlinks` so the two directions of the graph
-    /// can't disagree about what counts as a link.
+    /// Names of memories whose body wikilinks to `name`. Shares `wikilink_targets`
+    /// with `outlinks` so the two directions cannot disagree.
     pub fn backlinks(&self, name: &str) -> Vec<MemoryMeta> {
         self.docs
             .values()
@@ -284,8 +213,8 @@ impl Corpus {
             .collect()
     }
 
-    /// `[[targets]]` referenced by this doc, split into existing and dangling
-    /// (a dangling wikilink marks something worth writing — not an error).
+    /// `[[targets]]` referenced by this doc, split into existing and dangling; a
+    /// dangling wikilink marks something worth writing.
     pub fn outlinks(&self, doc: &MemoryDoc) -> (Vec<MemoryMeta>, Vec<String>) {
         let mut existing = Vec::new();
         let mut dangling = Vec::new();
@@ -310,16 +239,9 @@ impl Corpus {
     }
 
     /// Memories matching `query`, best first, and whether the query had to be
-    /// relaxed to find them.
-    ///
-    /// `usage` is the mined co-use artefact when there is one; it supplies a mild
-    /// prior so that among comparable answers the ones the work actually leans on
-    /// come first. Empty is fine and changes only the ordering.
-    ///
-    /// **Every term is required first, and only if that finds nothing is the
-    /// query relaxed to any term** — with the fact returned, never swallowed. A
-    /// search that quietly widens its own query presents loose matches as though
-    /// they were what was asked for, and the reader has no way to tell.
+    /// relaxed. `usage` is the co-use artefact, a mild prior. Every term is
+    /// required first; only if that finds nothing is any term accepted — and the
+    /// fact is returned, never swallowed.
     pub fn search(&self, query: &str, usage: &BTreeMap<String, Usage>) -> SearchResult {
         if query.trim().is_empty() {
             return SearchResult::default();
@@ -347,10 +269,8 @@ impl Corpus {
             .into_iter()
             .map(|s| {
                 let d = values[s.index];
-                // Snippet anchored on the RAREST term the memory actually holds,
-                // not on the whole query: the query as typed usually appears
-                // nowhere, which is the fault this ranking exists to fix, and a
-                // snippet from offset zero would show the frontmatter every time.
+                // Snippet anchored on the RAREST term the memory holds: the query as typed
+                // usually appears nowhere, and offset zero would show the frontmatter.
                 let pos = rank::tokenize(query)
                     .iter()
                     .filter_map(|t| find_ci(&d.body, t).map(|p| (t.len(), p)))
@@ -366,13 +286,8 @@ impl Corpus {
         SearchResult { hits, relaxed }
     }
 
-    /// The whole corpus as a link graph: one node per memory, one edge per
-    /// distinct `[[wikilink]]` between two memories that both exist.
-    ///
-    /// Shares `wikilink_targets` with `backlinks`/`outlinks`, so the graph view
-    /// and the per-memory link panels cannot disagree about what a link is.
-    /// Dangling wikilinks are deliberately absent — they have no node to point
-    /// at; `outlinks` is where they stay visible.
+    /// The whole corpus as a link graph. Shares `wikilink_targets` with
+    /// `backlinks`/`outlinks`. Dangling wikilinks are absent; `outlinks` keeps them visible.
     pub fn graph(&self) -> Graph {
         let (section_of, sections) = self
             .index_md
@@ -386,11 +301,8 @@ impl Corpus {
         for doc in self.docs.values() {
             let mut seen = BTreeSet::new();
             for link in &doc.links {
-                // Mentioning a memory twice is still one relationship, and a
-                // memory linking itself is not a relationship at all. A typed
-                // mention beats an untyped one for the same pair, so a body that
-                // says `[[x]]` in passing and `[[governs:x]]` where it means it
-                // reports the claim rather than whichever came first.
+                // Twice is one relationship, self is none, and a typed mention beats an untyped
+                // one for the same pair.
                 if link.target == doc.meta.name || !self.docs.contains_key(&link.target) {
                     continue;
                 }
@@ -430,8 +342,7 @@ impl Corpus {
             nodes,
             edges,
             sections,
-            // Filled by the route when a co-use artefact is loaded; the corpus
-            // alone cannot say when the mine last ran.
+            // Filled by the route when a co-use artefact is loaded.
             as_of: None,
             usage: Default::default(),
             affinities: Default::default(),
@@ -440,21 +351,9 @@ impl Corpus {
 }
 
 /// Map each memory to the `## section` of MEMORY.md that indexes it, and list
-/// the section titles in the order the index writes them.
-///
-/// Parsed with comrak, like everything else that reads corpus markdown. The
-/// line-by-line scanner this replaced could not see a heading written with
-/// `setext` underlining, mis-read any link whose title contained `](`, and
-/// happily indexed links inside fenced code — three ways for the legend to
-/// disagree with the page it is a legend for.
-/// One entry of the written index: what it links, how it is labelled, and the
-/// `##` heading it sits under — in document order.
-///
-/// ⚠ **Parsed, never matched with a pattern.** [`index_sections`]' own note
-/// records what a hand-rolled reader cost: it missed `setext` underlining,
-/// mis-read any link whose title contained `](`, and indexed links inside
-/// fenced code. A second reader of this file would reacquire all three, so
-/// there is one walk and both callers take what they need from it.
+/// the section titles in index order. One comrak walk for both callers: the
+/// line scanner it replaced missed `setext` headings, misread links whose title
+/// held `](`, and indexed links inside fenced code.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct IndexEntry {
     pub name: String,
@@ -463,11 +362,8 @@ pub(crate) struct IndexEntry {
     pub section: Option<String>,
 }
 
-/// Every link in the written index, in the order it appears.
-///
-/// First mention wins per name, the same rule [`index_sections`] applies to
-/// placement: a name listed twice is one entry with one cue, and the later
-/// mention is a cross-reference.
+/// Every link in the written index, in order. First mention wins per name; a
+/// later mention is a cross-reference.
 pub(crate) fn index_entries(index_md: &str) -> Vec<IndexEntry> {
     let options = markdown_options();
     let arena = Arena::new();
@@ -539,20 +435,10 @@ pub(crate) fn index_sections(index_md: &str) -> (BTreeMap<String, String>, Vec<S
     (section_of, sections)
 }
 
-/// Everything a reader arrives at from the index, with `demoting` struck out of
-/// it — which is the question a demotion actually asks.
-///
-/// ⚠ **A SET, never one name at a time, and that is the whole point.** Asking
-/// per candidate answers "is this one housed *today*", and today includes every
-/// other candidate's index line. Two memories that link only each other are then
-/// each other's home and both look safe — until both lines go and neither is
-/// reachable from anything. That is not hypothetical: `memory-rank` has offered
-/// exactly that pair inside one batch of demotions (#869), and it is the
-/// stranding recorded in `feedback_memory_index_is_the_working_set`.
-///
-/// Reachability is the corpus's one invariant, so it is checked in one place and
-/// both callers ask it the same way: `lint` with nothing struck out, `memory-rank`
-/// with the demotions it is about to recommend.
+/// Everything a reader arrives at from the index, with `demoting` struck out. A
+/// SET, never one name at a time: two memories linking only each other are each
+/// other's home and both look safe until both lines go — `memory-rank` offered
+/// exactly that pair (#869). One place, both callers.
 pub fn reachable_without(
     docs: &BTreeMap<String, MemoryDoc>,
     index_md: &str,
@@ -563,28 +449,11 @@ pub fn reachable_without(
         .collect()
 }
 
-/// How many links a reader follows from the index to arrive at each memory.
-///
-/// **Depth 1 is a root line's own target — DIRECTLY linked.** Depth 2 is one hop
-/// beyond it, and a name absent from the map is not reachable at all.
-///
-/// ⚠ **This is the half of the root/traversal question nothing measured.**
-/// `docs/memory.md` splits the corpus into what is present without being asked
-/// for and what is reached by following a link, and every signal built for that
-/// decision so far describes USE — breadth, days, roles. None describes
-/// POSITION. So "consulted by fifteen agents from four hops out" and "consulted
-/// by fifteen agents from one" were the same reading, though one argues for a
-/// root line and the other says the traversal is already short.
-///
-/// ⚠ **Breadth-first, and the queue is why.** `reachable_without` used
-/// `Vec::pop`, which is a STACK — correct for reachability, where any order
-/// visits the same set, and wrong for distance, where a depth-first walk records
-/// whichever path it wandered down first rather than the shortest. The two share
-/// this walk now so they cannot disagree about what is reachable.
-///
-/// `demoting` is struck out first, so the depths are the ones a reader would
-/// face AFTER the demotion — which is the question a trade actually asks: does
-/// this line's target fall one hop, or out of the graph entirely?
+/// How many links a reader follows from the index to reach each memory. Depth 1
+/// is DIRECTLY linked; absent is unreachable. The half of the root/traversal
+/// question nothing measured: every other signal describes USE, this describes
+/// POSITION. Breadth-first — `reachable_without` used a stack, which is right for
+/// reachability and wrong for distance — and `demoting` is struck out first.
 pub fn depths_without(
     docs: &BTreeMap<String, MemoryDoc>,
     index_md: &str,
@@ -598,8 +467,7 @@ pub fn depths_without(
         .collect();
     while let Some((name, at)) = queue.pop_front() {
         let Some(doc) = docs.get(&name) else { continue };
-        // First arrival wins: BFS reaches a name by its shortest path, so a
-        // later, longer route must not overwrite it.
+        // First arrival wins: BFS reaches a name by its shortest path.
         if depth.contains_key(&name) {
             continue;
         }
@@ -630,12 +498,8 @@ pub fn index_links(index_md: &str) -> Vec<String> {
     out
 }
 
-/// Every bold run in a document, as plain text.
-///
-/// Parsed, not string-matched. `**Why:**` inside a fenced example is a sample
-/// of a rule, not a rule stating its reason, and a `contains()` cannot tell the
-/// difference — the same class of mistake as the three hand-rolled link parsers
-/// this file replaced.
+/// Every bold run in a document, as plain text. Parsed, not string-matched:
+/// `**Why:**` inside a fenced example is a sample, not a rule.
 pub fn bold_runs(body: &str) -> Vec<String> {
     let options = markdown_options();
     let arena = Arena::new();
@@ -649,14 +513,9 @@ pub fn bold_runs(body: &str) -> Vec<String> {
     out
 }
 
-/// Whether some bold run opens a section named `heading`.
-///
-/// Deliberately loose about what follows the name. The corpus writes
-/// `**Why (the nixos-repo caution):**` and `**How to apply, generally.**`, and
-/// both are the section this asks about — carrying a scope qualifier or ending
-/// in a full stop makes them better writing, not absent ones. A checker that
-/// demanded one exact byte sequence would be asking the corpus to write worse
-/// prose to satisfy it, which is the wrong way round.
+/// Whether some bold run opens a section named `heading`. Loose about what
+/// follows: `**Why (the nixos-repo caution):**` is better writing, not an absent
+/// section.
 pub fn has_section(body: &str, heading: &str) -> bool {
     bold_runs(body).iter().any(|run| {
         let run = run.trim();
@@ -667,12 +526,8 @@ pub fn has_section(body: &str, heading: &str) -> bool {
         else {
             return false;
         };
-        // The name has to be a whole word: `**Why:**`, `**Why (2026-07-21):**`
-        // and `**Why I was wrong.**` are all this section, while `**Whyever**`
-        // is not the word at all. A bold run *opening* with the word is taken as
-        // the section — anything bold that begins "Why" is announcing a reason,
-        // and demanding more structure than that would only push the corpus back
-        // toward one rigid phrasing.
+        // A whole word opening the run: `**Why (2026-07-21):**` is this section,
+        // `**Whyever**` is not.
         rest.is_empty() || rest.starts_with([':', '.', ' ', ',', '(', '—', '-'])
     })
 }
@@ -699,12 +554,9 @@ pub struct GraphNode {
     #[serde(flatten)]
     pub meta: MemoryMeta,
     /// The `## section` of MEMORY.md that indexes this memory — the curated
-    /// taxonomy, which beats anything clustering would infer. `None` when the
-    /// index never links it under a heading; that is a real corpus fact, so it
-    /// is reported rather than folded into a catch-all bucket.
+    /// taxonomy. `None` when the index never links it under a heading.
     pub section: Option<String>,
-    /// Body length in bytes. Spans ~50x across the real corpus (median ~1.9 KB,
-    /// max ~97 KB), so a renderer wanting node radii should scale it log-wise.
+    /// Body length in bytes; spans ~50x, so radii should scale log-wise.
     pub size: usize,
     pub in_degree: usize,
     pub out_degree: usize,
@@ -722,26 +574,16 @@ pub struct GraphEdge {
 pub struct Graph {
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,
-    /// When the co-use mine that produced `usage` and `affinities` last ran, as
-    /// the artefact itself records it. `None` when there is no artefact.
-    ///
-    /// ⚠ **The defect this closes is SILENCE, not staleness.** The viewer serves
-    /// whatever the last mine left, and that is the right trade for a page: a
-    /// per-request re-scan costs far more than a CLI run, and a reader
-    /// mid-scroll should not have the picture move under them. What was wrong is
-    /// that nothing said how old it was, so a graph missing yesterday's work and
-    /// a graph missing nothing looked identical. Nightly mining means this is
-    /// routinely hours behind — which is fine, and now legible (memview#1274).
+    /// When the co-use mine that produced `usage` and `affinities` last ran. The
+    /// defect this closes is SILENCE: a graph missing yesterday's work and one
+    /// missing nothing looked identical (memview#1274).
     pub as_of: Option<String>,
-    /// How much each memory is actually used, keyed by name. Empty when no
-    /// co-use artefact is available — the picture degrades to structure only,
-    /// rather than to nothing.
+    /// How much each memory is used, keyed by name. Empty when there is no co-use
+    /// artefact; the picture degrades to structure.
     #[serde(default)]
     pub usage: std::collections::BTreeMap<String, crate::couse::Usage>,
-    /// Pairs the work keeps using together, whether or not either links the
-    /// other. A second, weaker pull in the layout: 71% of these cross a region
-    /// boundary drawn from the written links alone, so they move the picture
-    /// rather than merely confirming it.
+    /// Pairs the work keeps using together — a second, weaker pull: 71% cross a
+    /// region boundary drawn from the written links alone.
     #[serde(default)]
     pub affinities: Vec<crate::couse::Pair>,
     /// Section titles in MEMORY.md order, so a legend reads in the order the
@@ -754,8 +596,7 @@ pub struct SearchHit {
     #[serde(flatten)]
     pub meta: MemoryMeta,
     pub snippet: Option<String>,
-    /// BM25 score. Exposed so a ranking regression shows up in the response
-    /// rather than only in how the page happens to feel.
+    /// BM25 score, exposed so a ranking regression shows in the response.
     pub score: f64,
 }
 
@@ -768,25 +609,9 @@ pub struct SearchResult {
     pub relaxed: bool,
 }
 
-/// The relations a link may declare, and what each one asserts.
-///
-/// A closed vocabulary on purpose. The corpus had 856 links and every one of
-/// them said only "related", while doing at least five different jobs — a rule
-/// governing a project, a project citing a fact, a sub-project belonging to a
-/// parent. An open vocabulary would record those distinctions once each and
-/// never let anything be asked of them; a fixed one can be checked, filtered and
-/// counted.
-///
-/// Unknown prefixes are deliberately NOT tolerated: `[[superseeds:x]]` keeps the
-/// typo in the target, finds no memory of that name, and shows up as a dangling
-/// link. A misspelt relation silently downgrading to an untyped link would hide
-/// exactly the mistake this vocabulary exists to make visible.
-/// The closed vocabulary for `metadata.type`.
-///
-/// Closed for the same reason [`RELATIONS`] is: [`MemoryMeta::mtype`] falls back
-/// to the filename prefix when the frontmatter declares nothing, so a missing or
-/// misspelt type parses as a perfectly good one and nothing downstream can tell.
-/// Lint checks the declared value against this list rather than the parsed one.
+/// The relations a link may declare. A closed vocabulary: 856 links all said
+/// "related" while doing five different jobs. Unknown prefixes are NOT
+/// tolerated — `[[superseeds:x]]` stays in the target and shows as dangling.
 pub const MEMORY_TYPES: [&str; 4] = ["user", "feedback", "project", "reference"];
 
 pub const RELATIONS: [&str; 6] = [
@@ -812,11 +637,8 @@ pub struct Wikilink {
     pub target: String,
 }
 
-/// Split a wikilink's inner text into an optional relation and a target.
-///
-/// Only a prefix in [`RELATIONS`] counts. Anything else stays part of the
-/// target, so it fails loudly as a dangling link rather than quietly becoming
-/// an untyped one.
+/// Split a wikilink's inner text into an optional relation and a target. Only a
+/// prefix in [`RELATIONS`] counts; anything else fails loudly as dangling.
 pub fn split_relation(inner: &str) -> (Option<String>, String) {
     if let Some((prefix, rest)) = inner.split_once(':')
         && RELATIONS.contains(&prefix)
@@ -827,26 +649,16 @@ pub fn split_relation(inner: &str) -> (Option<String>, String) {
     (None, inner.to_string())
 }
 
-/// Extract every `[[wikilink]]`, in order of appearance.
-///
-/// Parsed with comrak rather than scanned for `[[`, so this and the rendered
-/// HTML can never disagree about what a link is. The hand-rolled scanner this
-/// replaced could not see code: a shell snippet containing `rm -rf "${x[[-n
-/// "$target"]]}"`, a Lean type, a `[[la,lo,ts]]` tuple in a fenced block — all
-/// three were being reported as links to memories that had never been written,
-/// while comrak had correctly refused to make links of them. The bug was not
-/// that the guesses were bad; it was that there were two parsers.
-///
-/// Bodies are hand-wrapped, so a wikilink can straddle a source line. comrak
-/// renders that as one link, and now so does this.
+/// Extract every `[[wikilink]]`, in order. Parsed with comrak so this and the
+/// rendered HTML cannot disagree: a hand-rolled scanner reported `${x[[-n
+/// "$target"]]}` and a `[[la,lo,ts]]` tuple as links. A wikilink can straddle a
+/// wrapped source line.
 fn wikilink_targets(body: &str) -> Vec<String> {
     wikilinks(body).into_iter().map(|l| l.target).collect()
 }
 
-/// Every `[[link]]` in the body, in order, with the relation each declares.
-///
-/// Public so the corpus linter sees exactly the links the viewer does — the two
-/// disagreeing about what a link is would make every finding suspect.
+/// Every `[[link]]` in the body with its relation. Public so the linter sees
+/// exactly the links the viewer does.
 pub fn wikilinks_of(body: &str) -> Vec<Wikilink> {
     wikilinks(body)
 }
@@ -869,11 +681,8 @@ fn wikilinks(body: &str) -> Vec<Wikilink> {
     out
 }
 
-/// First byte offset in `body` (original casing) where the text, lowercased,
-/// begins with `needle` (already lowercased). Unlike `body.to_lowercase().find`,
-/// the returned offset is valid in `body` itself — case folding can change a
-/// char's byte length, so an offset into the lowercased copy can't be used to
-/// slice the original.
+/// First byte offset in `body` where the text, lowercased, begins with `needle`.
+/// The offset is valid in `body` itself: case folding can change byte lengths.
 fn find_ci(body: &str, needle: &str) -> Option<usize> {
     if needle.is_empty() {
         return None;
@@ -910,8 +719,8 @@ fn snippet_around(body: &str, pos: usize, match_len: usize) -> String {
     if end < body.len() {
         s.push('…');
     }
-    // Rendered here rather than on the wire like a description, because a
-    // snippet has no other use: it is built for a reader and read once.
+    // Rendered here rather than on the wire like a description: a snippet has no
+    // other use.
     render_inline(&s)
 }
 
@@ -920,24 +729,10 @@ fn as_inline_html<S: serde::Serializer>(md: &str, s: S) -> Result<S::Ok, S::Erro
     s.serialize_str(&render_inline(md))
 }
 
-/// Render a fragment of corpus markdown as *inline* HTML.
-///
-/// Descriptions and search snippets are markdown like everything else — a tenth
-/// of the descriptions and every body contain a code span, a bold run or a
-/// wikilink — and shown raw they read as punctuation: `` `code/kubes/dhall/` ``
-/// and `**How to apply:**` with the asterisks visible.
-///
-/// **Inline only**: block structure is walked through and contributes no markup,
-/// so a snippet cut out of a list or a heading yields its words rather than a
-/// stray `<li>`. And **links are unwrapped to their text**, deliberately: a
-/// search hit is a navigation surface with exactly one destination, and a second
-/// link inside a two-line preview is an ambiguous tap target on a phone, which
-/// is what this is mostly read on.
-///
-/// Parsed by comrak rather than pattern-matched, because CommonMark's rules are
-/// the ones that matter here: `project_kubes_dhall_model` must not turn into
-/// emphasis at its underscores, and this corpus is made of such names. A marker
-/// left unclosed by the truncation renders as the literal text it is.
+/// Render a fragment of corpus markdown as INLINE HTML: block structure
+/// contributes no markup, and links are unwrapped to their text — a second link
+/// inside a two-line preview is an ambiguous tap target. Parsed by comrak:
+/// `project_kubes_dhall_model` must not become emphasis at its underscores.
 pub fn render_inline(md: &str) -> String {
     let options = markdown_options();
     let arena = Arena::new();
@@ -967,8 +762,7 @@ fn inline_html<'a>(node: &'a comrak::nodes::AstNode<'a>, options: &Options, out:
         }
         let before = out.len();
         inline_html(child, options, out);
-        // One block running into the next would join two sentences into one
-        // word. Links need no separator — they sit inside a sentence.
+        // One block running into the next would join two sentences into one word.
         if block && out.len() > before && !out.ends_with(' ') {
             out.push(' ');
         }
@@ -982,8 +776,7 @@ pub(crate) fn markdown_options() -> Options<'static> {
     options.extension.tasklist = true;
     options.extension.autolink = true;
     options.extension.wikilinks_title_after_pipe = true;
-    // Raw HTML in bodies (e.g. quoted <tags> in prose) renders escaped, not
-    // omitted, so the text stays visible.
+    // Raw HTML in bodies renders escaped, not omitted.
     options.render.escape = true;
     options
 }
@@ -1009,12 +802,8 @@ pub fn render_markdown(md: &str) -> Result<String> {
                 let (relation, target) = split_relation(&wl.url);
                 match relation {
                     None => wl.url = format!("/m/{target}"),
-                    // A typed link becomes an ordinary link, because a wikilink
-                    // node has nowhere to put the relation — and it has to go
-                    // somewhere the reader can see. As a `title` it surfaces on
-                    // hover; left in the label the prose would read
-                    // "governs:project_x" mid-sentence, which puts structure
-                    // into the wording where it does not belong.
+                    // A typed link becomes an ordinary link with the relation as its `title`:
+                    // "governs:project_x" mid-sentence puts structure into the wording.
                     Some(relation) => {
                         data.value = NodeValue::Link(Box::new(NodeLink {
                             url: format!("/m/{target}"),
@@ -1046,22 +835,9 @@ pub fn render_markdown(md: &str) -> Result<String> {
     Ok(out)
 }
 
-/// The reachable memories that already link `target`.
-///
-/// ⚠ **This is the step a demotion pass skipped once**, and skipping it is what
-/// stranded memories that still existed. A demotion is only safe once something
-/// live already points at the memory; a candidate with no home is not a
-/// candidate, it is a deletion wearing a demotion's clothes.
-/// Who links to each memory, over the whole corpus, computed once.
-///
-/// ⚠ **This exists because [`homes_for`] used to re-derive it per target, and a
-/// small corpus was taking a minute.** Each `wikilinks_of` is a full markdown
-/// parse with a fresh arena, so asking it inside a per-memory loop costs a parse
-/// of the whole corpus per memory. Building the reverse map once is one parse
-/// each — the same answer, orders of magnitude less work.
-///
-/// The corpus is SMALL. Anything here that is slow is slow because of its shape,
-/// not its size, and the fix is the shape rather than a cache.
+/// Who links to each memory, over the whole corpus, computed once — [`homes_for`]
+/// re-derived it per target and a small corpus took a minute. The fix is the
+/// shape, not a cache.
 pub fn incoming_links(docs: &BTreeMap<String, MemoryDoc>) -> BTreeMap<String, BTreeSet<String>> {
     let mut out: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for (name, doc) in docs {
@@ -1074,10 +850,8 @@ pub fn incoming_links(docs: &BTreeMap<String, MemoryDoc>) -> BTreeMap<String, BT
     out
 }
 
-/// The memories that link to `target` and are themselves reachable.
-///
-/// Takes the map from [`incoming_links`] rather than the corpus: the caller
-/// builds it once and asks this many times.
+/// The memories that link to `target` and are themselves reachable. Takes the
+/// map from [`incoming_links`], built once and asked many times.
 pub fn homes_for(
     incoming: &BTreeMap<String, BTreeSet<String>>,
     target: &str,
@@ -1092,25 +866,18 @@ pub fn homes_for(
         .collect()
 }
 
-/// The bytes a memory's entry spends in the index, which is what demoting it
-/// recovers — and the only reason any of this is a question.
-///
-/// ⚠ **The entry, not the line.** A line here is a section listing dozens of
-/// memories — `[cite](a.md), [not chat](b.md), …` — so charging each of them the
-/// whole line overstates every one of them and, summed, claimed a saving of
-/// 20,266 bytes from a 20,411-byte file. What a demotion actually recovers is
-/// one `[teaser](name.md)` fragment and the `, ` that joins it to its neighbour.
+/// The bytes a memory's entry spends in the index — what demoting it recovers.
+/// The entry, not the line: a line lists dozens of memories, and charging each
+/// the whole line claimed a saving of 20,266 bytes from a 20,411-byte file.
 pub fn index_entry_cost(index_md: &str, name: &str) -> usize {
     let Some(link) = index_md.find(&format!("]({name}.md)")) else {
         return 0;
     };
-    // Back to the `[` that opens this entry's teaser; without it the label is
-    // free, which is the same overstatement in the other direction.
+    // Back to the `[` that opens this entry's teaser.
     let Some(open) = index_md[..link].rfind('[') else {
         return 0;
     };
     let close = link + format!("]({name}.md)").len();
-    // Plus the separator that goes with it — a comma and a space between
-    // entries, which is what is actually reclaimed when one is removed.
+    // Plus the `, ` that joins it to its neighbour.
     (close - open) + 2
 }

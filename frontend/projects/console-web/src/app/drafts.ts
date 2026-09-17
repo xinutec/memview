@@ -10,8 +10,7 @@ export type Resolution = 'mine' | 'theirs' | 'mine-first' | 'theirs-first';
 
 export type { Clash } from './console-db';
 
-/** A stored picture. Checked, not cast: storage outlives the build that wrote
- *  it, and a bad cast surfaces far from here as `data:undefined;base64,…`. */
+/** A stored picture. Checked, not cast: storage outlives the build that wrote it. */
 function revived(value: unknown): Picture | undefined {
   if (typeof value !== 'object' || value === null) return undefined;
   const held = value as Partial<HeldPicture>;
@@ -24,14 +23,16 @@ function revived(value: unknown): Picture | undefined {
     width: held.width,
     height: held.height,
     bytes: held.bytes,
-    // A data URL rather than an object URL: nothing to revoke, and it cannot be
-    // dead on arrival the way a `blob:` from a previous document is.
+    // A data URL rather than an object URL: nothing to revoke, and it cannot be dead
+    // on arrival like a `blob:` from a previous document.
     preview: `data:${held.mediaType};base64,${held.data}`,
   };
 }
 
-/** A held picture as stored — no preview, because an object URL dies with the
- *  document that made it. The preview is built on the way out. */
+/**
+ * A held picture as stored — no preview, since an object URL dies with the
+ * document that made it.
+ */
 interface HeldPicture {
   data: string;
   mediaType: string;
@@ -43,59 +44,50 @@ interface HeldPicture {
 /**
  * What has been written and not sent, per conversation, shared between devices.
  *
- * ⚠ **The collection is the only copy, and writes are not debounced.** Both
- * follow from one rule: this device's own write must come back as the value it
- * already holds, so that anything differing is from elsewhere. A mirror, or a
- * delay before writing, breaks that and there is then no reliable way to tell
- * the two apart. Replication coalesces pushes itself, so a debounce buys nothing.
+ * The collection is the only copy, and writes are not debounced: this device's
+ * own write must come back as the value it already holds, so anything differing
+ * is from elsewhere. Replication coalesces pushes itself.
  *
- * ⚠ **A draft is a RECORD, not an instruction.** Nothing leaves until a person
- * presses send. memview#90 refused the queued send for that reason; replication
- * is not permission to build one.
+ * A draft is a RECORD, not an instruction; nothing leaves until a person presses
+ * send. memview#90 refused the queued send for that reason.
  */
 @Injectable({ providedIn: 'root' })
 export class Drafts {
   private db = inject(ConsoleDb);
   private telemetry = inject(Telemetry);
 
-  /** Both texts, when this device and the runner have each moved since they
-   *  agreed. Raised by RxDB's conflict handler — see [[draftConflicts]]. */
+  /**
+   * Both texts, when this device and the runner have each moved since they
+   * agreed. Raised by RxDB's conflict handler — see [[draftConflicts]].
+   */
   readonly clash = this.db.clash;
 
   /**
-   * The words this conversation is holding.
-   *
-   * ⚠ **`undefined` until the collection answers** — "not read yet", which is
-   * not the same as "nothing written here". Treating them alike blanks a box
-   * somebody is typing in while the database opens.
+   * The words this conversation is holding. `undefined` until the collection
+   * answers — not the same as "nothing written", or a box being typed in blanks
+   * while the database opens.
    */
   text$(id: string): Observable<string | undefined> {
     return this.doc$(id).pipe(map((doc) => doc?.text ?? ''));
   }
 
   /**
-   * The picture waiting to go with the next message.
-   *
-   * A LOCAL document, so replication cannot carry it — #89 settled that a
-   * picture does not cross devices.
+   * The picture waiting to go with the next message. A LOCAL document, so
+   * replication cannot carry it — #89 settled that a picture does not cross devices.
    */
   picture$(id: string): Observable<Picture | undefined> {
     return from(this.db.collection()).pipe(
       switchMap((collection) => collection.getLocal$<HeldPicture>(`picture-${id}`)),
-      // ⚠ **Checked, not asserted.** Storage outlives every deploy that touched
-      // this phone, so what comes back may have been written by a build that is
-      // two versions gone; a cast would be a claim about code that no longer
-      // runs, and the damage lands far from here as `data:undefined;base64,…`.
+      // Checked, not asserted: what comes back may have been written by a build two
+      // versions gone, and a bad cast lands far from here as `data:undefined;base64,…`.
       map((held) => revived(held?.toJSON().data)),
     );
   }
 
   /**
-   * Record what the composer holds now — including nothing, which is what a
-   * successful send leaves behind.
-   *
-   * Clearing writes a tombstone rather than removing the row, and a conversation
-   * nobody has typed in gets no row at all. Both are pinned by tests.
+   * Record what the composer holds now — including nothing, which is what a send
+   * leaves behind. Clearing writes a tombstone rather than removing the row, and a
+   * conversation nobody has typed in gets no row; both are pinned by tests.
    */
   async write(id: string, text: string): Promise<void> {
     const collection = await this.db.collection();
@@ -105,8 +97,8 @@ export class Drafts {
       await collection.insert({ ulid: id, text, at: Date.now(), rev: 0, _deleted: false });
       return;
     }
-    // Incremental, so a keystroke applies to the document as it is now rather
-    // than to a copy read a moment ago. `rev` is the runner's to set.
+    // Incremental, so a keystroke applies to the document as it is now. `rev` is
+    // the runner's to set.
     await existing.incrementalPatch({ text, at: Date.now() });
   }
 
@@ -135,11 +127,9 @@ export class Drafts {
   }
 
   /**
-   * Settle a clash: put the chosen words in, and let them replicate.
-   *
-   * ⚠ **Written on top of THEIRS, which is what makes the choice stick.** The
-   * conflict handler gave the master to the runner, so writing from the losing
-   * state would bounce off the same refusal that raised the clash.
+   * Settle a clash: put the chosen words in, and let them replicate. Written on
+   * top of THEIRS, since the conflict handler gave the master to the runner, and
+   * writing from the losing state would bounce off the same refusal.
    */
   async resolve(id: string, theirs: DraftDoc, how: Resolution): Promise<void> {
     const mine = this.clash()?.mine ?? '';
@@ -151,8 +141,7 @@ export class Drafts {
           : how === 'mine-first'
             ? `${mine}\n\n${theirs.text}`
             : `${theirs.text}\n\n${mine}`;
-    // Which button and the three lengths — never the words. A trace that shows
-    // clashes but never how they ended reads as though all were abandoned.
+    // Which button and the three lengths — never the words.
     const said =
       `draft clash on ${id.slice(0, 8)} settled as ${how}: ` +
       `${mine.length} here, ${theirs.text.length} there, ${text.length} kept`;

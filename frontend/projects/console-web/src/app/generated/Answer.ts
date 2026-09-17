@@ -2,10 +2,6 @@
 
 /**
  * What was chosen: the question's own text, against the option label picked.
- *
- * One label for a single-choice question, several for a `multiSelect` one. The
- * CLI matches these against the labels it offered, so they are sent back
- * verbatim rather than by index — an index would silently mean the wrong option
- * if the list were ever reordered between asking and answering.
+ * Labels, not indexes, since the CLI matches these against what it offered.
  */
 export type Answer = string | Array<string>;

@@ -25,21 +25,12 @@ reached: Reach,
  */
 scope: Array<number>, cwd?: string, 
 /**
- * What the command was FOR, as a sentence — the L4 concept, when a lens
- * can say ([`reader::concept::describe`], `docs/concept-model.md`).
+ * What the command was FOR, as a sentence — the L4 concept, when a lens can say
+ * ([`reader::concept::describe`], `docs/concept-model.md`).
  *
- * ⚠ **Absent is the honest miss, and it must stay visible as one.**
- * Approval today reads argv, which means it reads *spelling*, and every
- * payload trap in the corpus is a spelling that hides the act. Where no
- * lens covers a command this says nothing at all and the chip and `says`
- * below carry the L2/L3 reading instead — a command with no concept stays
- * a counted leaf rather than being absorbed into a catch-all, which is the
- * same refusal the parser makes about a construct it has not been taught.
- *
- * ⚠ **Its unit is the ROW, not the step, and the two differ fivefold.**
- * 13.06% of steps lift; `Page` alone covers 148,883 of 206,314 corpus rows
- * (72%), and a row is what a person approves. Quoting the step rate at a
- * card is the same unit error the census itself warns about.
+ * Absent is the honest miss: a command no lens covers stays a counted leaf with
+ * the chip and `says` carrying the L2/L3 reading, rather than a catch-all. Its
+ * unit is the ROW a person approves, not the step; the two rates differ fivefold.
  */
 concept?: string, 
 /**
@@ -47,11 +38,8 @@ concept?: string,
  */
 kind: string, 
 /**
- * The stable key behind that chip, for styling.
- *
- * ⚠ **Separate from `kind` so the wording is free to change.** The chip's
- * colour selects on this; while the two were one field, improving a label
- * silently dropped its colour.
+ * The stable key behind that chip, for styling. Separate from `kind` so the
+ * wording is free to change without dropping the colour.
  */
 key: string, 
 /**

@@ -1,34 +1,23 @@
 //! The root's two populations, and the one operation that trades between them.
+//! `MEMORY.md` holds RECENT work, which is supposed to turn over, and
+//! CONSOLIDATED rules, which belong there because by the time they matter
+//! nobody knows to go looking (`docs/memory.md`). Conflating them is why cuts
+//! evict precisely the entries whose value is that they fire elsewhere.
 //!
-//! `MEMORY.md` holds two kinds of entry that earn their slot differently
-//! (`docs/memory.md`): **recent** work, which belongs there because it is live
-//! and is supposed to turn over, and **consolidated** rules, which belong there
-//! because by the time they matter nobody knows to go looking. Conflating them
-//! is why cuts keep going wrong — asked to make room, a session sees one topic
-//! and evicts precisely the entries whose value is that they fire elsewhere.
-//!
-//! ⚠ **Breadth is the factor a session cannot observe about itself.** How often
-//! a memory is opened cannot separate "forty reads by one session on one
-//! afternoon" (a topic being worked) from "a few reads each by many sessions" (a
-//! rule that has consolidated). How MANY distinct agents opened it can.
-//!
-//! ⚠ **Set cardinalities, never raw counts.** Breadth and days-live survive the
-//! duplication trap in the transcripts — the CLI rewrites earlier stretches into
-//! the same file, so a fifth of the corpus is second copies
-//! (`reference_claude_transcript_rewrites_history`). A count doubles; the number
-//! of distinct agents that opened something does not.
+//! Breadth — how MANY distinct agents opened a memory — is the factor a session
+//! cannot observe about itself. Set cardinalities, never raw counts: a fifth of
+//! the corpus is second copies (`reference_claude_transcript_rewrites_history`).
 
 use std::collections::BTreeMap;
 
-/// What an index line is for, from `memory-roles.json` — re-exported from the
-/// study so both read the same labels.
+/// What an index line is for, from `memory-roles.json` — re-exported from the study.
 pub use crate::study::Role;
 
 /// Which population an entry belongs to, and therefore what holds it in place.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tier {
-    /// New, live, and exempt — but only for a while. The failure this tier
-    /// exists to make visible is a lease quietly becoming tenure.
+    /// New, live, and exempt for a while. The failure this tier makes visible is a
+    /// lease quietly becoming tenure.
     Lease,
     /// Past its lease and consulted widely: it fires in situations other than
     /// the one that wrote it, which is the qualification for a root slot.
@@ -38,14 +27,9 @@ pub enum Tier {
     Middle,
     /// Past its lease and consulted by almost nobody.
     Thin,
-    /// No creation date, so its lease cannot be judged.
-    ///
-    /// ⚠ **Kept as its own tier rather than defaulted into one.** Defaulting to
-    /// old makes an undated entry a demotion candidate on the strength of a
-    /// missing field; defaulting to new exempts it forever. Both read as an
-    /// answer. This reads as the gap it is — a DETECTION gap, since the oldest
-    /// surviving transcript predates the earliest recovered creation date, so
-    /// nothing has been lost to pruning.
+    /// No creation date, so its lease cannot be judged. Its own tier rather than a
+    /// default: old makes it a demotion candidate on a missing field, new exempts
+    /// it forever. A DETECTION gap, not a loss to pruning.
     Undated,
 }
 
@@ -74,9 +58,8 @@ pub struct Thresholds {
 }
 
 impl Default for Thresholds {
-    /// Measured against the corpus rather than chosen (#1210): a fortnight
-    /// matches the ranking half-life, and the agent threshold is where the
-    /// outside-the-index population thins out.
+    /// Measured against the corpus (#1210): a fortnight matches the ranking
+    /// half-life, and the agent threshold is where the unindexed population thins out.
     fn default() -> Self {
         Thresholds {
             lease_days: 14,
@@ -96,11 +79,8 @@ pub struct Entry {
     pub created: Option<i64>,
     /// Distinct agents with a PROVEN open.
     pub breadth: usize,
-    /// Distinct agents whose only evidence is an open that cannot be proved —
-    /// a shell read after `&&`, or inside a script with one exit status.
-    ///
-    /// ⚠ **Shown, never scored** (#1214). Counting these as opens overstates the
-    /// record and scoring them at a discount invents a factor.
+    /// Distinct agents whose only evidence is an open that cannot be proved. Shown,
+    /// never scored (#1214).
     pub maybe_breadth: usize,
     /// Days since it was last opened, or `None` if never.
     pub last_open: Option<i64>,
@@ -114,29 +94,17 @@ pub struct Entry {
     pub homes: Vec<String>,
     /// Whether #884's freeze covers it. See [`Trade::held`].
     pub frozen: bool,
-    /// How many links a reader follows from the index to reach it — 1 for a
-    /// memory the root carries directly, `None` if nothing reaches it.
-    ///
-    /// ⚠ **The half of the root/traversal decision that use cannot answer.**
-    /// `docs/memory.md` splits the corpus by WHEN a memory arrives, and breadth
-    /// says only how widely it is consulted: "reached by fifteen agents from
-    /// four hops out" and "reached by fifteen agents from one" were the same
-    /// reading. The first argues for a root line; the second says the traversal
-    /// is already short and the line would buy little.
+    /// How many links a reader follows from the index to reach it — 1 for a root
+    /// line, `None` if nothing reaches it. The half of the root/traversal decision
+    /// that use cannot answer: fifteen agents from four hops and fifteen from one
+    /// were the same reading.
     pub depth: Option<usize>,
 }
 
-/// Where a demoted entry's target lands, as the report says it.
-///
-/// ⚠ **`None` after the demotion means STRANDED, not "no change".** That is the
-/// one outcome a demotion must never produce — [`propose`] holds back anything
-/// without a home for exactly this reason — so it is named loudly rather than
-/// printed as a dash, which reads as "nothing happened" in a column of arrows.
-///
-/// ⚠ **A demotion's cost is this number, not the boolean beside it.** `homes`
-/// answers "is there anything left linking it", which is safe-or-stranded; one
-/// hop further out and four hops further out are both "safe" and are not the
-/// same trade.
+/// Where a demoted entry's target lands. `None` after the demotion means
+/// STRANDED, the one outcome a demotion must never produce, so it is named
+/// loudly. A demotion's cost is this number: one hop further and four hops
+/// further are both "safe" and not the same trade.
 pub fn falls(before: Option<usize>, after: Option<usize>) -> String {
     match (before, after) {
         (_, None) => "STRANDS".to_string(),
@@ -180,13 +148,8 @@ pub fn census(entries: &[Entry], today: i64, at: &Thresholds) -> BTreeMap<&'stat
     out
 }
 
-/// The bytes an entry's line is likely to cost before one has been written.
-///
-/// ⚠ **An admission's cost cannot be measured, only budgeted.** A demotion
-/// recovers a line that exists and can be counted; an admission spends a line
-/// nobody has written yet, whose length depends on the teaser somebody chooses.
-/// The median of what the root already carries is the honest stand-in, and
-/// naming it as a budget is what stops the trade below reading as exact.
+/// The bytes an entry's line is likely to cost before one has been written: an
+/// admission's cost can only be budgeted, and the root's median is the stand-in.
 pub fn median_entry_cost(entries: &[Entry]) -> usize {
     let mut costs: Vec<usize> = entries
         .iter()
@@ -200,34 +163,20 @@ pub fn median_entry_cost(entries: &[Entry]) -> usize {
     costs[costs.len() / 2]
 }
 
-/// Why a demotion the evidence would offer is not being offered.
-///
-/// ⚠ **Checked in this order, and the order is load-bearing.** The freeze lifts
-/// at the harvest; a tripwire's reason never does. Reporting the freeze for an
-/// entry that is also a tripwire would make it read as demotable the day after
-/// the harvest, which moves the failure by a fortnight rather than fixing it.
+/// Why a demotion the evidence would offer is not being offered. Checked in this
+/// order: the freeze lifts at the harvest, a tripwire's reason never does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Held {
-    /// The line IS the memory: it fires from the index and the file is never
-    /// opened, so a low open count is what SUCCESS looks like. Demoting one
-    /// deletes the only place it fires.
+    /// The line IS the memory — a low open count is what SUCCESS looks like.
     Tripwire,
-    /// #884 has judged part of the corpus, not all of it. An absent judgement is
-    /// not a pointer — assuming so is a check that passes for the wrong reason,
-    /// and it fails toward deleting a rule that fires from its line.
+    /// An absent judgement is not a pointer: it fails toward deleting a rule that
+    /// fires from its line.
     Unjudged,
-    /// Its THIN verdict turns on opens that were collected and never scored —
-    /// a shell read after `&&`, or inside a script with one exit status. Count
-    /// them and it is not thin, so the tier is an artefact of what was
-    /// discarded rather than a reading of the record (#1214).
-    ///
-    /// ⚠ **Not a reason to score them.** Folding unprovable opens into `reads`
-    /// overstates the record, which is why the split exists. This holds the one
-    /// case where the discard is deciding, and leaves the rest alone.
+    /// Its THIN verdict turns on opens that were collected and never scored; count
+    /// them and it is not thin (#1214). Not a reason to score them — this holds the
+    /// one case where the discard is deciding.
     Unproven,
-    /// #884's freeze covers it. The freeze is on the SPLIT — do not re-promote a
-    /// treated memory, do not demote a control one — so acting on it perturbs a
-    /// series that has run since the split was drawn.
+    /// #884's freeze is on the SPLIT: acting on it perturbs a running series.
     Frozen,
 }
 
@@ -242,34 +191,22 @@ pub struct HeldEntry {
 /// whether the root is smaller afterwards.
 #[derive(Debug, Clone, Default)]
 pub struct Trade {
-    /// Not indexed, and consulted widely enough for tenure. Widest first.
-    ///
-    /// ⚠ **Every qualifier, not only the ones there is room for.** Truncating
-    /// this at the budget hides the evidence that the root is the wrong size:
-    /// a report saying "nothing has earned a slot" and one saying "eleven have
-    /// and none fit" are different findings, and the second is the one that
-    /// argues for a demotion pass.
+    /// Not indexed, and consulted widely enough for tenure. Every qualifier, not
+    /// only the ones there is room for: "eleven have earned a slot and none fit" is
+    /// the finding that argues for a demotion pass.
     pub admit: Vec<Entry>,
     /// How many of `admit`, from the front, the budget actually covers.
     pub affordable: usize,
-    /// Indexed, thin, housed, and judged a POINTER — the only role a demotion
-    /// may be proposed for.
+    /// Indexed, thin, housed, and judged a POINTER — the only role a demotion may
+    /// be proposed for.
     pub demote: Vec<Entry>,
-    /// Would qualify on opens, and must not be demoted anyway. See [`Held`].
-    ///
-    /// ⚠ **Held, not dropped.** A tool that silently drops these reports
-    /// "nothing to demote" when the truth is "everything that qualified was
-    /// disqualified for a reason" — and the reason is the finding.
+    /// Would qualify on opens, and must not be demoted anyway. Held, not dropped:
+    /// the reason is the finding.
     pub held: Vec<HeldEntry>,
-    /// Memories the tenure bar excludes only because their unprovable opens do
-    /// not count.
-    ///
-    /// ⚠ **Counted, never admitted.** 43.7% of corpus opens arrive through the
-    /// shell and 23 of 124 sessions read that way predominantly, so a memory
-    /// consulted widely BY SHELL-HEAVY SESSIONS reads as narrow — and breadth is
-    /// a count over sessions, which is exactly the axis that distorts (#1214).
-    /// Admitting them would score what the split exists not to score; hiding
-    /// them lets a bar decided by discarded evidence read as a measurement.
+    /// Memories the tenure bar excludes only because their unprovable opens do not
+    /// count. 43.7% of corpus opens arrive through the shell and 23 of 124 sessions
+    /// read that way predominantly, so breadth — a count over sessions — is exactly
+    /// the axis that distorts (#1214). Counted, never admitted.
     pub unproven_admissions: usize,
     /// Bytes the demotions recover.
     pub recovered: usize,
@@ -278,25 +215,17 @@ pub struct Trade {
 }
 
 impl Trade {
-    /// What the root's size becomes if this is carried out. Signed, because an
-    /// exchange that grows the root is the answer that matters.
+    /// What the root's size becomes. Signed: an exchange that grows the root is the
+    /// answer that matters.
     pub fn net(&self) -> i64 {
         self.budgeted as i64 - self.recovered as i64
     }
 }
 
-/// Propose an exchange, both halves in one operation.
-///
-/// ⚠ **Admission and demotion have to be decided together or the ceiling is
-/// breached.** The root grows by judgement and shrinks by measurement — a
-/// ratchet pointing the wrong way, and the reason it drifts up rather than
-/// settling. Two tools, one proposing joins and one proposing cuts, reproduce
-/// that ratchet with more steps.
-///
-/// ⚠ **A demotion whose only home is another demotion is not offered.** Homes
-/// were found against the index as it stands, so a pair that links only each
-/// other reads as housed until both lines go together. `strands` names those,
-/// and the caller asks the reachability question once of the whole set.
+/// Propose an exchange, both halves in one operation: the root grows by
+/// judgement and shrinks by measurement, a ratchet pointing the wrong way, and
+/// two tools reproduce it. A demotion whose only home is another demotion is not
+/// offered — `strands` names those, and the caller asks reachability of the set.
 pub fn propose(
     entries: &[Entry],
     today: i64,
@@ -313,16 +242,12 @@ pub fn propose(
         .collect();
     candidates.sort_by(|a, b| a.breadth.cmp(&b.breadth).then(a.name.cmp(&b.name)));
 
-    // ⚠ **The tier alone must never select a demotion.** `Tier::Thin` is derived
-    // from breadth, and for a tripwire a low open count is what success looks
-    // like — so filtering on the tier picks out the entries doing their job
-    // best. `memory-rank` held these back by name prefix; #884 showed the prefix
-    // is the wrong classifier, and dropping it without a replacement is what
-    // left this half unguarded (#1234).
+    // The tier alone must never select a demotion: for a tripwire a low open count
+    // is success. `memory-rank` held these back by name prefix, which #884 showed
+    // is the wrong classifier (#1234).
     let mut free: Vec<Entry> = Vec::new();
     for entry in candidates {
-        // ⚠ Would counting the unprovable opens lift it out of THIN? If so the
-        // verdict is about what was discarded, not about the record.
+        // Would counting the unprovable opens lift it out of THIN?
         let turns_on_discarded = entry.breadth + entry.maybe_breadth > at.thin_breadth;
         let why = match entry.role {
             Some(Role::Tripwire) => Some(Held::Tripwire),
@@ -357,8 +282,7 @@ pub fn propose(
         .collect();
     admit.sort_by(|a, b| b.breadth.cmp(&a.breadth).then(a.name.cmp(&b.name)));
 
-    // Spend what the demotions recovered plus whatever headroom the root has,
-    // and stop — an admission list longer than the space for it is a wish.
+    // Spend what the demotions recovered plus the root's headroom, and stop.
     let room = trade.recovered + budget;
     let median = median_entry_cost(entries);
     let mut spent = 0usize;
@@ -381,16 +305,9 @@ pub fn propose(
     trade
 }
 
-/// Entries that crossed out of the lease within the last `window` days.
-///
-/// ⚠ **A lease expiring is an EVENT, not a state.** "Past its lease" describes
-/// most of the root and is not a list anybody can act on; "crossed since you
-/// last looked" is a handful and is. The backlog of everything that crossed
-/// earlier is the census above, which is where it belongs — as a shape, once,
-/// rather than as a to-do that regenerates every run.
-///
-/// What each one landed in is [`Entry::tier`]: tenure means the lease earned
-/// out, thin means it did not, and middle means the evidence has not decided.
+/// Entries that crossed out of the lease within the last `window` days. A lease
+/// expiring is an EVENT: "past its lease" is most of the root, "crossed since
+/// you last looked" is a handful somebody can act on.
 pub fn expired(entries: &[Entry], today: i64, at: &Thresholds, window: i64) -> Vec<Entry> {
     let mut out: Vec<Entry> = entries
         .iter()

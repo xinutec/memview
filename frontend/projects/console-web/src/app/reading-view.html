@@ -12,9 +12,8 @@
     determine is counted as undetermined, so the gap below is a number rather than a silence.
   </p>
 
-  <!-- ⚠ **The claim and its ceiling are one block.** Two figures over two
-       different denominators — commands, and file uses — and the first alone
-       reads as a completeness claim it cannot support. -->
+  <!-- The claim and its ceiling are one block: two figures over two denominators,
+       and the first alone reads as a completeness claim. -->
   <section class="figures">
     <div class="figure">
       <span class="big">{{ got.understood | number: '1.1-1' }}%</span>
@@ -50,8 +49,7 @@
 
   @if (got.distinct_tables) {
     <h2>Databases</h2>
-    <!-- Said in words, because the figures alone would read as a subset of the
-         ones above them. -->
+    <!-- In words, because the figures alone would read as a subset of the ones above. -->
     <p class="note">
       <b>Tables, not files</b> — none of this is counted above, and no statement in this corpus
       names a file at all.

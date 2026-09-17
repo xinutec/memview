@@ -1,19 +1,10 @@
 /**
- * What a session may do without asking, in the CLI's own words.
+ * What a session may do without asking, in the CLI's own words. The stored
+ * name is not the shown name: `default` displays as *Manual*. Read off the
+ * 2.1.220 binary's label table; `rank` is its ordering, `plan` lowest.
  *
- * ⚠ **The stored name is not the shown name.** `default` displays as *Manual*,
- * which is why the modes feel like four with one called auto while the wire
- * carries six. Prettifying these here — title-casing `acceptEdits`, calling
- * `default` "Default" — would invent a vocabulary that disagrees with the CLI
- * the person is also using.
- *
- * Read off the 2.1.220 binary's own label table, not from memory. `rank` is its
- * ordering too: how much each mode lets through, `plan` lowest.
- *
- * The icons are ours — the CLI's are terminal glyphs and two of them are the
- * same ⏵⏵ for three different modes, which is fine beside a word and useless
- * standing alone. These have to be legible at 18px with no label, so each says
- * what the mode *does*: a raised hand asks, an open padlock does not.
+ * The icons are ours — the CLI's are terminal glyphs, two of them the same ⏵⏵
+ * — and each says what the mode DOES: a raised hand asks, an open padlock does not.
  */
 export const MODES: Record<string, { title: string; rank: number; icon: string }> = {
   plan: { title: 'Plan', rank: 0, icon: 'map' },
@@ -25,11 +16,8 @@ export const MODES: Record<string, { title: string; rank: number; icon: string }
 };
 
 /**
- * How a mode should read on screen.
- *
- * An unknown mode is shown as it arrived rather than hidden or renamed: the CLI
- * gains modes between releases, and a console that silently drops one it has not
- * heard of would show a session as unrestricted-looking when it is anything but.
+ * How a mode should read on screen. An unknown mode is shown as it arrived:
+ * the CLI gains modes between releases.
  */
 export function modeTitle(mode: string | undefined): string | undefined {
   if (!mode) return undefined;
@@ -37,31 +25,18 @@ export function modeTitle(mode: string | undefined): string | undefined {
 }
 
 /**
- * Whether a mode is one worth flagging rather than merely stating.
- *
- * The two the CLI itself colours as errors, and they are errors for opposite
- * reasons — in its own words, `bypassPermissions` "will not ask for your
- * approval before running potentially dangerous commands", where `dontAsk`
- * *skips* what would need approval "rather than prompting". One does the
- * dangerous thing unasked; the other quietly does not do the thing at all. The
- * rank above already says so: `dontAsk` sits with Manual at the bottom of the
- * dial, not with Auto at the top.
- *
- * Not a judgement of its own — it is the CLI's, kept because a phone four inches
- * wide cannot show everything and this is the one that changes what a glance at
- * the screen means.
+ * Whether a mode is worth flagging: the two the CLI itself colours as errors,
+ * for opposite reasons — `bypassPermissions` does the dangerous thing unasked,
+ * `dontAsk` quietly does not do it at all.
  */
 export function modeIsLoud(mode: string | undefined): boolean {
   return mode === 'bypassPermissions' || mode === 'dontAsk';
 }
 
 /**
- * The icon standing for a mode where there is no room for its name.
- *
- * ⚠ **A mode with no icon must not become an invisible one.** An unrecognised
- * mode gets a question mark rather than nothing, because the header's job here
- * is to say what the session may do — and a blank where that answer goes reads
- * as the careful setting, which is the one case it might not be.
+ * The icon standing for a mode where there is no room for its name. An
+ * unrecognised mode gets a question mark, since a blank reads as the careful
+ * setting.
  */
 export function modeIcon(mode: string | undefined): string | undefined {
   if (!mode) return undefined;
@@ -69,12 +44,8 @@ export function modeIcon(mode: string | undefined): string | undefined {
 }
 
 /**
- * The modes to offer, least allowed first.
- *
- * Sorted by the CLI's own rank so the menu reads as a dial rather than a set —
- * moving down the list is always moving toward asking less. `dontAsk` shares a
- * rank with `default` and is broken by name, so the order is stable rather than
- * whatever the object literal happened to be in.
+ * The modes to offer, least allowed first, so the menu reads as a dial.
+ * `dontAsk` shares a rank with `default` and is broken by name.
  */
 export function offeredModes(): { mode: string; title: string; icon: string; loud: boolean }[] {
   return Object.entries(MODES)

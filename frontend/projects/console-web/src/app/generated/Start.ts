@@ -2,13 +2,10 @@
 
 export type Start = { dir: string, 
 /**
- * The first instruction. Optional: a session can be opened and then talked
- * to, which is what starting one from the phone before deciding what to ask
- * looks like.
+ * The first instruction. Optional: a session can be opened and then talked to.
  */
 prompt?: string, 
 /**
- * A conversation to pick up rather than starting a new one. Its id is kept,
- * so the console's handle and the transcript stay the same thing.
+ * A conversation to pick up rather than starting a new one. Its id is kept.
  */
 resume?: string, };

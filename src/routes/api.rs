@@ -18,16 +18,9 @@ fn load_corpus(app: &AppState) -> Result<Corpus, AppError> {
     Ok(Corpus::load(&app.cfg.memory_dir)?)
 }
 
-/// GET /api/reading — the corpus survey: what the reader makes of the fleet's
-/// shell, and what it admits it cannot.
-///
-/// ⚠ **Owner-only, like the timeline and the evidence.** It names paths and
-/// command names from Pippijn's machines; a share-token holder gets memories,
-/// not a map of the fleet's filesystem.
-///
-/// 404 rather than an empty body when nothing has been mined: the view must be
-/// able to say "not mined yet" and mean it, which it cannot do from a `CorpusRead`
-/// full of zeroes.
+/// GET /api/reading — the corpus survey. Owner-only, like the timeline: it names
+/// paths from Pippijn's machines. 404 rather than an empty body when nothing has
+/// been mined, so the view can say "not mined yet".
 pub async fn reading(
     State(app): State<AppState>,
     OwnerOnly(_): OwnerOnly,
@@ -77,16 +70,9 @@ pub async fn memories(
 }
 
 /// Who wrote a memory: the session its frontmatter names, and the agent that
-/// session belongs to when the roster still knows.
-///
-/// The name is the point — a uuid answers "which session" without answering
-/// "which of my agents". It stays optional because a memory can outlive the
-/// transcript that wrote it; the id is still shown then, since "written by a
-/// session I no longer have" is a truer answer than silence.
-///
-/// ⚠ **NOT because Claude Code prunes them** — it does not (memview#1240). What
-/// is missing predates the archive's start, and is a single session of the ones
-/// the corpus names.
+/// session belongs to when the roster still knows. Optional because a memory can
+/// outlive the transcript that wrote it — a handful predate the archive, not
+/// pruning (memview#1240).
 #[derive(Serialize)]
 pub struct Origin {
     session: String,
@@ -101,22 +87,16 @@ pub struct MemoryPage {
     html: String,
     backlinks: Vec<MemoryMeta>,
     outlinks: Vec<MemoryMeta>,
-    /// Wikilink targets not written yet — surfaced, not hidden; a dangling
-    /// link marks something worth writing.
+    /// Wikilink targets not written yet — surfaced, not hidden.
     dangling: Vec<String>,
-    /// Owner-only, and absent for a share-link recipient. Same reason
-    /// `/api/agents` is owner-only: a link to one memory must not also hand
-    /// over who is working on what. Absent here means "not shown to you",
-    /// which is indistinguishable from "the memory declares none" — deliberately,
-    /// since the count of memories an agent wrote is itself part of the roster.
+    /// Owner-only, absent for a share-link recipient, for the reason `/api/agents`
+    /// is: a link to one memory must not hand over who is working on what.
     #[serde(skip_serializing_if = "Option::is_none")]
     origin: Option<Origin>,
 }
 
-/// The agent roster, or an empty one when nothing has been mined.
-///
-/// Absent is normal — a fresh checkout or CI has no transcripts — and it
-/// degrades to showing the bare session id rather than to an error.
+/// The agent roster, or an empty one when nothing has been mined — normal on a
+/// fresh checkout or CI.
 fn roster(app: &AppState) -> crate::agents::Agents {
     app.cfg
         .agents_file
@@ -134,9 +114,8 @@ pub async fn memory(
     let corpus = load_corpus(&app)?;
     let doc = corpus.get(&name).ok_or(AppError::NotFound)?;
     let (outlinks, dangling) = corpus.outlinks(doc);
-    // Resolved only for the owner, and only when the memory declares one. The
-    // roster is loaded inside the match so a share request does not pay to read
-    // an artefact it may not see.
+    // Resolved only for the owner, and the roster is loaded inside the match so a
+    // share request does not pay to read an artefact it may not see.
     let origin = match viewer {
         Viewer::Owner(_) => doc.origin_session.as_ref().map(|session| Origin {
             agent: roster(&app).name_of_session(session).map(str::to_string),
@@ -154,20 +133,10 @@ pub async fn memory(
     }))
 }
 
-/// GET /api/graph — the corpus as a link graph, for the 3D view. One payload
-/// for the whole graph, because a layout needs every node before it can place
-/// any.
-///
-/// ⚠ **The size claim that used to be here had rotted by two orders of
-/// magnitude**, and the replacement would rot the same way: every node carries
-/// its `description`, so this response is far larger than its node count
-/// suggests. Measure it rather than trusting a number in a comment —
-/// `curl -so /dev/null -w '%{size_download}'` against this route
-/// (\[\[feedback_a_count_in_prose_rots\]\]).
-///
-/// The one-payload decision still stands on the layout argument alone. What no
-/// longer follows from it is that this is cheap, or that every node belongs on
-/// screen at once — see memview#1306.
+/// GET /api/graph — the corpus as a link graph, one payload because a layout
+/// needs every node before it can place any. Every node carries its
+/// `description`, so measure the size rather than trusting a number here —
+/// the last one rotted by two orders of magnitude. See memview#1306.
 pub async fn graph(
     State(app): State<AppState>,
     ReadAccess(_): ReadAccess,
@@ -188,11 +157,8 @@ pub struct SearchQuery {
     q: String,
 }
 
-/// The mined per-memory usage, or an empty map when nothing has been mined.
-///
-/// Absent is a normal state, not a failure: a machine with no transcripts (CI,
-/// or a fresh checkout) has no artefact, and search must still work there —
-/// only the ordering among comparable answers changes.
+/// The mined per-memory usage, or an empty map — normal on a machine with no
+/// transcripts; only the ordering among comparable answers changes.
 fn usage_of(app: &AppState) -> BTreeMap<String, crate::couse::Usage> {
     app.cfg
         .couse_file
@@ -212,13 +178,8 @@ pub async fn search(
     Ok(Json(corpus.search(&query.q, &usage_of(&app))))
 }
 
-/// GET /api/agents — which named session works where (owner only).
-///
-/// Owner-only, and not because the numbers are secret — they are counts, the
-/// same shape of derived signal the graph already serves. A share token is a
-/// deliberately public surface, though, and a link to one memory must not also
-/// hand over the roster of what is being worked on and by whom. That is the
-/// shape of the work, not a memory.
+/// GET /api/agents — which named session works where. Owner-only: a share token
+/// is a deliberately public surface, and the roster is the shape of the work.
 pub async fn agents(
     State(app): State<AppState>,
     OwnerOnly(_): OwnerOnly,
@@ -226,13 +187,9 @@ pub async fn agents(
     Ok(Json(roster(&app)))
 }
 
-/// GET /api/work?q= — who has been changing the files a query names (owner only).
-///
-/// The companion to `/api/search`, which searches what was *written down*. This
-/// searches what was *worked on*, and they answer different questions: a subtree
-/// nobody has documented still has somebody who knows it.
-///
-/// Owner-only for the same reason as [`agents`] — it is the roster, sliced.
+/// GET /api/work?q= — who has been changing the files a query names. The
+/// companion to `/api/search`: what was WORKED ON rather than written down.
+/// Owner-only, as [`agents`] is.
 pub async fn work(
     State(app): State<AppState>,
     OwnerOnly(_): OwnerOnly,
@@ -264,38 +221,22 @@ pub struct Moment {
     pub kind: String,
     pub n: u32,
     pub verdict: reader::doing::Verdict,
-    /// How many effects `/api/effects` would return for this row.
-    ///
-    /// ⚠ **On the row, because 12.6% of rows have NONE.** Measured over the
-    /// live artefact: 58,644 of 466,951 moments have no effect at all — a
-    /// `test` or a `build` minute need not touch a file — and 27 of the newest
-    /// 200 are empty. Without this the only way to find that out is to open one
-    /// and read "nothing was recorded", which is a tap spent to learn there was
-    /// nothing to learn. It also says which turns are worth opening: the median
-    /// row carries 10 and the 90th percentile carries 85.
+    /// How many effects `/api/effects` would return for this row. On the row because
+    /// 12.6% of rows have NONE, and a tap to learn "nothing was recorded" is a tap
+    /// wasted; the median carries 10 and the 90th percentile 85.
     pub effects: u32,
-    /// Which instruction this was part of — an index into [`Timeline::episodes`]
-    /// for the page, not the artefact's own numbering.
-    ///
-    /// ⚠ **An id and not the episode itself**, because a stretch of one
-    /// instruction is commonly dozens of rows and repeating its bracket on each
-    /// would be most of the response.
+    /// Which instruction this was part of — an index into [`Timeline::episodes`]. An
+    /// id, not the episode: a stretch of one instruction is dozens of rows.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub episode: Option<usize>,
 }
 
-/// One instruction, as much of it as the page can see.
-///
-/// ⚠ **Not `Episode`, because `reader::doing::Episode` is already that** — and
-/// the wire-mirror check pairs a TypeScript interface with a Rust type BY NAME.
-/// Two candidates and it chose the artefact's, then reported every field of
-/// this one as drift.
+/// One instruction, as much of it as the page can see. Not `Episode`, which
+/// `reader::doing::Episode` already is — the wire-mirror check pairs types BY NAME.
 #[derive(Debug, Serialize)]
 pub struct TimelineEpisode {
     pub agent: String,
-    /// The minute of its first row — which may be older than anything on this
-    /// page, and is the point: an episode says how large the stretch was, not
-    /// how much of it fitted.
+    /// The minute of its first row, which may be older than anything on this page.
     pub at: i64,
     pub until: i64,
     pub n: u32,
@@ -308,22 +249,18 @@ pub struct Timeline {
     /// The instructions the moments above were carried out under, referenced by
     /// `Moment::episode`. Only those the page touches.
     pub episodes: Vec<TimelineEpisode>,
-    /// Kinds of work in the filtered range, biggest first — the shape of the
-    /// answer, which a page of two hundred rows cannot show.
+    /// Kinds of work in the filtered range, biggest first — the shape of the answer.
     pub summary: Vec<(String, usize)>,
     pub total: usize,
     pub failed: usize,
 }
 
-/// How many moments one request may take. A page, not a download: the artefact
-/// is two hundred thousand rows and nothing renders that.
+/// How many moments one request may take: the artefact is two hundred thousand rows.
 const PAGE: usize = 200;
 
-/// GET /api/doing — what the sessions did, newest first (owner only).
-///
-/// Owner-only for the same reason as the roster, and more so: this is the shape
-/// of the work over time. Derived throughout — no command line, no prompt and
-/// no output text exists in the artefact to serve.
+/// GET /api/doing — what the sessions did, newest first. Owner-only: the shape
+/// of the work over time. Derived throughout; no command line or prompt text
+/// exists in the artefact.
 pub async fn doing(
     State(app): State<AppState>,
     OwnerOnly(_): OwnerOnly,
@@ -332,10 +269,8 @@ pub async fn doing(
     let log = app.doing();
     // Counted with the artefact rather than here — see `effects_and_counts`.
     let (effects_log, counts) = app.effects_and_counts();
-    // ⚠ **The two artefacts index their agents separately**, so the join is by
-    // name — built ONCE for the whole timeline rather than per row. The first
-    // draft resolved it inside the loop and carried this same comment, which was
-    // then a false one: a page of 200 rows did 200 linear searches.
+    // The two artefacts index their agents separately, so the join is by name —
+    // built ONCE, not per row.
     let effects_agent: Vec<Option<u32>> = log
         .agents
         .iter()
@@ -356,9 +291,7 @@ pub async fn doing(
                 .map(|at| Some(at as u32)),
         }
     };
-    // A filter naming something the corpus has never seen matches nothing,
-    // rather than matching everything — the difference between "no such agent"
-    // and "here is the whole history".
+    // A filter naming something the corpus has never seen matches nothing, not everything.
     let (Some(agent), Some(project), Some(kind)) = (
         at(&log.agents, &query.agent),
         at(&log.projects, &query.project),
@@ -382,8 +315,7 @@ pub async fn doing(
     let mut total = 0usize;
     let mut failed = 0usize;
     let mut moments = Vec::new();
-    // The episodes this page touches, numbered for the page. A stretch of one
-    // instruction is commonly dozens of rows, so the same handful repeat.
+    // The episodes this page touches, numbered for the page.
     let mut episodes: Vec<TimelineEpisode> = Vec::new();
     let mut episode_at: BTreeMap<u32, usize> = BTreeMap::new();
     let limit = query.limit.unwrap_or(PAGE).min(PAGE);
@@ -482,17 +414,11 @@ pub struct Effect {
     pub command: String,
     pub reached: reader::shell::Reached,
     pub verdict: reader::doing::Verdict,
-    /// Whether this use may be attributed — [`reader::doing::Verdict::admits`],
-    /// the join of what the text required and what the call returned.
-    ///
-    /// ⚠ **Computed here because neither field alone answers it, and a client
-    /// joining them would be a third copy of the rule** (`console/src/parse.rs`
-    /// is the second). The timeline tried to decide from `reached` alone, which
-    /// it had typed `boolean` while the wire sends `"a"`, `"s"` or `"?"` — all
-    /// truthy, so *may not have run* never drew once (memview#1459).
-    ///
-    /// ⚠ **One-sided, and a view must not round it**: `false` means "cannot
-    /// say", never "did not run".
+    /// Whether this use may be attributed — [`reader::doing::Verdict::admits`].
+    /// Computed here because a client joining the two fields would be a third copy
+    /// of the rule (`console/src/parse.rs` is the second); the timeline once decided
+    /// from `reached` alone, typed `boolean` against a wire sending `"a"`
+    /// (memview#1459). One-sided: `false` means "cannot say".
     pub certain: bool,
 }
 
@@ -501,31 +427,21 @@ pub struct Effect {
 pub struct Evidence {
     pub effects: Vec<Effect>,
     pub total: usize,
-    /// How many of the total were subjects nobody could name — bounded, located
-    /// and neither alike, because each is the reader declining to say which file.
-    ///
-    /// ⚠ **Reported beside the rows rather than left to be counted from them.**
-    /// A page of two hundred effects that happens to contain no admission would
-    /// otherwise read as a complete account of the turn.
+    /// How many of the total were subjects nobody could name. Reported beside the
+    /// rows: a page that happens to contain no admission would read as complete.
     pub unnamed: usize,
 }
 
-/// GET /api/effects — what a turn actually did, and to what (owner only).
-///
-/// The question a reader asks standing on a `/api/doing` row: *which files, and
-/// how do you know?* Keyed by `(agent, at)`, which that row already carries, so
-/// this is a filter and not a join.
-///
-/// Owner-only for the reason the timeline is, and more so — a row carries the
-/// command text verbatim.
+/// GET /api/effects — what a turn actually did, and to what. Keyed by
+/// `(agent, at)`, which a `/api/doing` row already carries. Owner-only: a row
+/// carries the command text verbatim.
 pub async fn effects(
     State(app): State<AppState>,
     OwnerOnly(_): OwnerOnly,
     Query(query): Query<EffectsQuery>,
 ) -> Result<Json<Evidence>, AppError> {
     let log = app.effects();
-    // A filter naming an agent the artefact has never seen matches nothing,
-    // rather than matching everything — same rule as the timeline.
+    // An unknown agent matches nothing — same rule as the timeline.
     let agent = match &query.agent {
         None => None,
         Some(want) => {

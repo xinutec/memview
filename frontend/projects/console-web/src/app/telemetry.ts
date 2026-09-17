@@ -4,18 +4,10 @@ import { TelemetryCore } from '@xinutec/ui-harness/telemetry';
 import { filter } from 'rxjs';
 
 /**
- * The Angular binding for the fleet's activity trace.
- *
- * The queue, the flush policy and the transport are shared and tested once in
- * `@xinutec/ui-harness/telemetry`; what has to live in the app is the framework
- * binding, because an `@Injectable` cannot cross that boundary (the package is
- * built by plain tsc, and a decorated class arriving without Ivy definitions
- * fails a production build on `JIT compiler unavailable`).
- *
- * It matters more here than in the viewer. The console's API log says a session
- * was told something; it cannot say whether the person meant to send it, or
- * found the button, or gave up. When the phone is the client and the screen is
- * four inches wide, that is the only record of how it went.
+ * The Angular binding for the fleet's activity trace; the queue and transport
+ * are shared in `@xinutec/ui-harness/telemetry`, which is built by plain tsc and
+ * cannot carry an `@Injectable`. The console's API log says a session was told
+ * something; only this says whether the person found the button or gave up.
  */
 @Injectable({ providedIn: 'root' })
 export class Telemetry {
@@ -36,16 +28,14 @@ export class Telemetry {
       capture: true,
     });
 
-    // Anything that threw. Until this existed the trace showed only what the
-    // person did and what the API refused, so a page that broke on its own left
-    // no mark at all — the failure looked like somebody losing interest.
+    // Anything that threw. Without this a page that broke on its own left no mark,
+    // and the failure looked like somebody losing interest.
     const view = this.doc.defaultView;
     view?.addEventListener(
       'error',
       (ev) => {
-        // Two different events share this name. A resource that failed to load
-        // has an element as its target and no message; a script that threw has
-        // a message and no useful target.
+        // Two events share this name: a resource that failed to load has an element
+        // target and no message; a script that threw has a message and no useful target.
         const target = ev.target;
         const source =
           target instanceof HTMLElement
@@ -65,36 +55,26 @@ export class Telemetry {
   }
 
   /**
-   * A request that did not come back, or came back refused.
-   *
-   * Its own kind rather than a tap, because it is the one thing in the trace
-   * nobody did — and because reading a log for "what went wrong" should not mean
-   * inferring it from a gap between two navigations.
+   * A request that did not come back, or came back refused — the one thing in
+   * the trace nobody did.
    */
   failure(url: string, status: number): void {
     this.core.record('fail', url, String(status));
   }
 
   /**
-   * Something the app tried and could not do, where the person is not told.
-   *
-   * The menu changes what it shows before the runner has agreed, so a refusal
-   * puts the old value back and says nothing on screen — deliberately, since a
-   * dialog over a menu that has already closed is worse than the silence. This
-   * is where that goes instead, so it is not lost entirely.
+   * Something the app tried and could not do, where the person is not told: the
+   * menu shows a value before the runner has agreed, and a refusal puts it back
+   * silently.
    */
   note(what: string, detail: string): void {
     this.core.record('refused', what, detail);
   }
 
   /**
-   * A number the page measured about itself, where the number is the evidence.
-   *
-   * ⚠ **For the faults that only happen on the device.** A layout that settles
-   * wrongly on a phone and correctly in the harness cannot be reasoned about
-   * from here — the timing IS the bug — so the page reports what it measured at
-   * the moment it mattered, and the log says what happened instead of us
-   * guessing. Its own kind so it can be grepped apart from taps and failures.
+   * A number the page measured about itself, for the faults that only happen on
+   * the device — a layout that settles wrongly on a phone and correctly in the
+   * harness, where the timing IS the bug.
    */
   measured(what: string, detail: string): void {
     this.core.record('measured', what, detail);

@@ -11,16 +11,9 @@ export interface Choosing {
 }
 
 /**
- * What a session may do without asking.
- *
- * **Its own sheet rather than six rows in the ⋮ menu**, which is where these
- * lived. Six modes plus a heading was most of that menu — the two things anybody
- * opens it for, Details and Tasks, were above a wall of settings, and a menu that
- * long on a phone is scrolled rather than read.
- *
- * The escalation order and the icons are unchanged, and deliberately so: this is
- * still the only place both are shown together, so it is still where the icons
- * are learnt.
+ * What a session may do without asking. Its own sheet rather than six rows in
+ * the ⋮ menu, which they were most of. Still the one place the escalation order
+ * and the icons are shown together.
  */
 @Component({
   selector: 'app-modes-sheet',
@@ -33,14 +26,12 @@ export class ModesSheet {
   private sheet = inject(MatBottomSheetRef<ModesSheet, string>);
 
   protected readonly modes = offeredModes();
-  /** What it is on, as far as this sheet knows. See [[App.setMode]] for who
-   *  actually records it and why the answer is not read back from here. */
+  /** What it is on, as far as this sheet knows. See [[App.setMode]] for who records it. */
   protected readonly chosen = signal(this.given.mode);
 
   protected pick(mode: string): void {
-    // Dismissed WITH the choice rather than calling the API here: the toolbar
-    // already owns the optimistic set and the rollback on refusal, and two
-    // places doing that would disagree about which one is showing.
+    // Dismissed WITH the choice rather than calling the API here: the toolbar owns
+    // the optimistic set and the rollback.
     this.sheet.dismiss(mode);
   }
 }

@@ -5,18 +5,16 @@
  */
 export type Shown = { 
 /**
- * The bytes, base64 as the API itself wants them — the client has them in
- * that form already (a canvas hands back a data URL), so decoding them to
- * re-encode them at the far end would be work done twice.
+ * The bytes, base64 as the API wants them — the client already has them so (a
+ * canvas hands back a data URL).
  */
 data: string, 
 /**
- * What the client believes it is sending. Checked against the bytes rather
- * than believed — see [`crate::images::keep`].
+ * What the client believes it is sending. Checked against the bytes — see
+ * [`crate::images::keep`].
  */
 media_type: string, 
 /**
- * What was said about it. Optional: a screenshot sent with nothing said is
- * a complete message, and the commonest one.
+ * What was said about it. Optional: a screenshot alone is a complete message.
  */
 text: string, };

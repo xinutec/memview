@@ -22,15 +22,12 @@ export interface CacheStops {
 }
 
 /**
- * Two straight legs, not a curve. The hue sequence carries the escalation, so
- * the pacing does not have to: yellow at 20 minutes says something is there
- * without saying anything is wrong, and orange needs no stop of its own because
- * it lies between yellow and red in hue and falls out of the sweep at 40.
+ * Two straight legs, not a curve: yellow at 20 minutes says something is there
+ * without saying anything is wrong, and orange falls out of the sweep at 40.
  */
 export function cacheStops(at: number | undefined, now: number = Date.now()): CacheStops {
   if (at === undefined) return { warm: 0, hot: 0 };
-  // A future timestamp is the host's clock disagreeing with the browser's, not
-  // a negative age.
+  // A future timestamp is the host's clock disagreeing with the browser's.
   const minutes = Math.max(0, (now - at) / 60_000);
   const leg = (from: number, span: number): number =>
     Math.min(1, Math.max(0, (minutes - from) / span));

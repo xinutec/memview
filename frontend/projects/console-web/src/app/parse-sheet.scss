@@ -10,16 +10,10 @@
   margin: 0 0 0.75rem;
 }
 
-// The command as written. ⚠ **`pre-wrap` with `break-word`, never `anywhere`** —
-// `overflow-wrap: anywhere` drops the min-content width to a single character,
-// which collapses any grid or flex column this sits in. `break-word` wraps the
-// long unbroken paths a command line is full of without that side effect.
-// ⚠ **No height cap and no scroller of its own** (DL-ANGULAR-NESTED-SCROLLER).
-// It had both — `max-height: 30vh; overflow-y: auto` — to keep the parse on
-// screen under a long command, and that is a second scrolling region inside the
-// sheet's own: two gestures competing for one swipe, which is how a sheet stops
-// being draggable. A long command pushes the parse down and the reader scrolls
-// the sheet, once.
+// The command as written. `pre-wrap` with `break-word`, never `anywhere`, which
+// collapses any flex column this sits in. No scroller of its own: a nested
+// scroller fights the sheet's (DL-ANGULAR-NESTED-SCROLLER); a long command
+// pushes the parse down and the reader scrolls the sheet once.
 .raw {
   margin: 0 0 0.75rem;
   padding: 0.5rem 0.625rem;
@@ -85,9 +79,8 @@ code {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  // ⚠ **`min-width: 0` or the monospace words refuse to wrap.** A flex item's
-  // default `min-width: auto` is its content's min-content width, and a long
-  // path has none worth speaking of — the column grows past the phone instead.
+  // `min-width: 0` or the monospace words refuse to wrap: a flex item's floor is
+  // its content's min-content width.
   min-width: 0;
 
   // A step's own depth. Capped by the component at three: past that the indent
@@ -161,12 +154,11 @@ code {
   }
 }
 
-/* ⚠ **The one line here that is not the command, so it must not look like it.**
-   `.words` is monospace and `.says` is a muted italic aside; the concept is
-   neither. It is the sentence a person reads first and decides on, so it takes
-   the body weight and full-contrast colour, and the argv underneath becomes
-   evidence rather than headline. Sitting above `.words` in the markup is half
-   of that; not being dressed as code is the other half. */
+/*
+ * The one line here that is not the command, so it must not look like it: the
+ * sentence a person reads first, in body weight and full contrast, with the
+ * argv underneath as evidence.
+ */
 .concept {
   margin: 0 0 0.25rem;
   font: var(--mat-sys-body-medium);
@@ -206,10 +198,8 @@ code {
   }
 }
 
-// A file the command used, in two columns rather than three items in a row: the
-// mark, then everything about the
-// file. A path wraps to three lines here, and a grid keeps every one of them
-// under the first rather than running back beneath the icon.
+// A file the command used, in two columns: the mark, then everything about the
+// file, so a wrapped path stays under its first line.
 .used {
   margin: 0;
   display: grid;

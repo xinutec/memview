@@ -3,19 +3,13 @@
 //!     cargo run --release --bin demotion-study        # matching diagnostics
 //!     cargo run --release --bin demotion-study -- --harvest
 //!
-//! ⚠ **This refuses to compute the estimate before 2026-09-11**, and that is the
-//! feature. The study is pre-registered: design, matching rule and decision rule
-//! were all fixed before any post-period data existed. A tool that would print
-//! the answer on request invites looking early and then adjusting something —
-//! which is the one thing the pre-registration is for. `--harvest` overrides it
-//! and says so loudly, so an early look is at least on the record.
+//! Refuses to compute the estimate before 2026-09-11, and that is the feature:
+//! the study is pre-registered, and a tool that prints the answer on request
+//! invites looking early. `--harvest` overrides it loudly. The pre-period may be
+//! read freely; it was complete before treatment.
 //!
-//! The pre-period may be read freely: it is the selection variable, it was
-//! complete before treatment, and matching cannot be tuned to an outcome nobody
-//! has seen.
-//!
-//! Reads three private files under `~/.claude` — memory NAMES are private and
-//! none of them may ever be committed to this public repo.
+//! Reads three private files under `~/.claude`; memory NAMES are private and
+//! none may ever be committed to this public repo.
 
 use std::collections::BTreeMap;
 
@@ -30,19 +24,18 @@ use memview::study::{
 const T: &str = "2026-08-14";
 /// 28 days each side, as pre-registered.
 const WINDOW: i64 = 28;
-/// The date the post-period completes. Before this, the estimate is not the
-/// study's estimate — it is a peek at a half-finished window.
+/// The date the post-period completes. Before this, the estimate is a peek at a
+/// half-finished window.
 const HARVEST: &str = "2026-09-11";
-/// Fake treatment days, each a whole window before `t` so the placebo reads only
-/// pre-period data and can be run while the study is still live.
+/// Fake treatment days, each a whole window before `t`, so the placebo reads
+/// only pre-period data.
 const PLACEBO_DAYS: [i64; 3] = [-28, -21, -14];
 /// Fixed so a band is re-derivable. Any value would do; that it never changes is
 /// the property that matters.
 const SEED: u64 = 20_260_831;
 
 fn main() -> Result<()> {
-    // Refuse a flag this tool does not know, rather than running as if it were
-    // absent (memview#1588).
+    // Refuse a flag this tool does not know (memview#1588).
     memview::flags::reject_unknown(&std::env::args().collect::<Vec<_>>(), &["--harvest"])?;
     let harvest = std::env::args().any(|a| a == "--harvest");
 
@@ -74,9 +67,7 @@ fn main() -> Result<()> {
         reader::home::file("memory-roles.json"),
     )?)?;
 
-    // ⚠ Opens are READS. An edit is the author touching their own file, not the
-    // corpus being consulted, and counting it would let a memory look consulted
-    // because somebody fixed a typo in it.
+    // Opens are READS: an edit is the author touching their own file.
     let opens = |name: &str, lo: i64, hi: i64| -> u32 {
         days.get(name)
             .map(|d| d.reads.iter().filter(|&&x| lo <= x && x < hi).count())
@@ -110,10 +101,8 @@ fn main() -> Result<()> {
          before treatment and cannot fall"
     );
 
-    // ⚠ **Printed BEFORE the estimate and on every run, harvest or not.** It
-    // reads only days before `t`, so it costs the pre-registration nothing — and
-    // a pre-trend found after the number is published is an excuse, where the
-    // same finding before it is still a design decision.
+    // Printed BEFORE the estimate and on every run: it reads only days before `t`,
+    // and a pre-trend found after the number is published is an excuse.
     println!(
         "\nPLACEBO — the same procedure at fake treatment days, where nothing was demoted.\n\
          A working design returns a DiD inside its own null band here."
@@ -152,10 +141,8 @@ fn main() -> Result<()> {
         );
     }
 
-    // ⚠ **The gap in each period, which is what made the failure legible.** A
-    // single before/after cannot tell a step at `t` from a slope through it; a
-    // series can be looked at. The bin at -1 is zero BY CONSTRUCTION — matching
-    // is exact there — so it is printed as the anchor rather than as evidence.
+    // The gap in each period, which is what made the failure legible: a series can
+    // tell a step from a slope. The bin at -1 is zero BY CONSTRUCTION.
     const BIN: i64 = 14;
     const LEADS: usize = 6;
     println!("\nTHE GAP BY PERIOD — treated minus control, {BIN}-day bins, one pairing throughout");
@@ -172,8 +159,7 @@ fn main() -> Result<()> {
         );
     }
 
-    // ⚠ **Printed WITH its own placebo, never alone.** This correction was
-    // written as the standard repair and measured to fail: see `study::correct`.
+    // Printed WITH its own placebo, never alone — see `study::correct`.
     if let Some(c) = correct(&gaps) {
         println!(
             "\n  a linear pre-trend correction would give {:+.3} \
@@ -221,10 +207,8 @@ fn main() -> Result<()> {
          95% null band   verdict"
     );
     for (arm, e) in by_arm(&matching) {
-        // ⚠ The band is over THIS arm's pairs, not the whole matching — a
-        // sub-arm of 30 pairs has a wider null than one of 130, and quoting the
-        // pooled band beside a sub-arm estimate would call a small arm's noise
-        // an effect. `Arm::pairs` is the same filter the estimate used.
+        // The band is over THIS arm's pairs: a sub-arm of 30 has a wider null than one
+        // of 130, and the pooled band would call its noise an effect.
         let null = sign_flip_null(&pair_differences(&arm.pairs(&matching)), 4000, SEED);
         println!(
             "{:<18} {:6} {:12} {:9.2} {:9.2} {:9.2}   [{:+.3}, {:+.3}]   {}",

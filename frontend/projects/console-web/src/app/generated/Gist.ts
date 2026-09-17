@@ -9,14 +9,10 @@ export type Gist = {
  */
 text: string, 
 /**
- * A few words for the same conversation, offered when somebody renames it
- * and never applied on its own — see `RenameSheet`.
- *
- * ⚠ **Optional for ever, not just until the next sweep.** Every gist
- * written before this existed is on disk without one, a model that answers
- * with a single line leaves it unset, and a name that comes back looking
- * like a second sentence is refused by [`answer`]. A caller that treats
- * this as reliably present is wrong about all three.
+ * A few words for the same conversation, offered when somebody renames it and
+ * never applied on its own. Optional for ever: older gists lack one, a model may
+ * answer with a single line, and [`answer`] refuses a name that looks like a
+ * second sentence.
  */
 name: string | null, 
 /**

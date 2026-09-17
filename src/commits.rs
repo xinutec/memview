@@ -1,25 +1,11 @@
-//! What was committed, in lines, and which agent to credit it to.
+//! What was committed, in lines, and which agent to credit it to — the only
+//! evidence that counts SIZE, and what survived review.
 //!
-//! The third kind of evidence about who works on something, and the only one
-//! that counts *size*. Tool calls and shell commands both say a file was
-//! touched; a `Write` of three hundred lines and a one-character `Edit` are
-//! each worth 1. Git knows the difference, and knows what survived review.
-//!
-//! **The hard part is not the lines, it is the attribution.** Every commit in
-//! this fleet has the same git author by convention, so the repository cannot
-//! say which agent wrote anything. The join runs the other way: a commit hash
-//! exists nowhere until the commit is made, so **the session that mentions it
-//! first is the session that made it**. Every later mention is somebody quoting
-//! a commit that already existed — see [`crate::agents::scan`], where the
-//! earliest mention wins.
-//!
-//! That rule was arrived at by getting it wrong twice, and both wrong versions
-//! looked plausible:
-//! - matching a **9-character** prefix attributed 1 of 17 commits, because
-//!   `git commit` prints a 7-character short hash and the longer string appears
-//!   nowhere at all;
-//! - matching **any** mention put five agents on one commit, including the
-//!   session that was merely reading the history that afternoon.
+//! Every commit has the same git author, so the join runs the other way: a hash
+//! exists nowhere until the commit is made, so the session that mentions it
+//! FIRST made it ([`crate::agents::scan`]). Arrived at by getting it wrong
+//! twice: a 9-character prefix attributed 1 of 17 (`git commit` prints seven),
+//! and any mention put five agents on one commit.
 
 use anyhow::Context;
 use std::path::{Path, PathBuf};
@@ -31,11 +17,8 @@ pub struct FileDelta {
     /// Repo-relative to the code root — `xinutec-infra/plan/backup.dhall`, the
     /// same key the tool-call and shell dimensions use.
     pub path: String,
-    /// What the file was called before this commit, when the commit renamed it.
-    ///
-    /// The only place in the fleet's evidence where a file's two names are known
-    /// to be one file. Without it every rename splits a file's history in two
-    /// and says nothing about the join.
+    /// What the file was called before this commit, when it renamed it — the only
+    /// place in the evidence where a file's two names are known to be one file.
     pub was: Option<String>,
     pub added: usize,
     pub deleted: usize,
@@ -45,39 +28,19 @@ pub struct FileDelta {
 #[derive(Debug, Clone)]
 pub struct Commit {
     pub sha: String,
-    /// Committer date, ISO-8601. Not used for attribution — a commit can be
-    /// authored long before it lands — but kept so a mine can be explained.
+    /// Committer date, ISO-8601. Not used for attribution; kept so a mine can be explained.
     pub when: String,
     pub files: Vec<FileDelta>,
 }
 
-/// Every repository directly under the code root.
+/// Every repository directly under the code root, at depth two (there are no
+/// submodules or worktrees).
 ///
-/// Depth two, which is what the layout is: `~/Code/<repo>` and nothing nested
-/// (checked — there are no submodules and no worktree `.git` files). A deeper
-/// walk would have to skip `node_modules`, and would find nothing for it.
-/// ⚠ **A failure here must not read as an empty fleet** — the same rule
-/// [`history`] arrived at for its spawn, one level earlier. This was `let
-/// Ok(entries) … else { return out }` with `.flatten()` and `.exists()`, which
-/// between them turn every IO error — a directory unlistable under fd
-/// pressure, a transient `EMFILE` from three gates running beside each other —
-/// into "there are no repositories": attribution silently zero, blamed on the
-/// miner (memview#1243, seen in-gate under load). An error is an
-/// error; empty is a CLAIM.
-///
-/// Two answers are DEFINITE rather than failed questions, and both are let
-/// through as "not a repository":
-///
-///   * an ABSENT root — no fleet; the fixtures that run a scan with no code
-///     checkout state it as their contract;
-///   * `ENOTDIR` from `<entry>/.git`, which is what a plain FILE sitting in the
-///     scan root answers. ⚠ This was the regression the hardening shipped with:
-///     `~/Code/.gitignore` and `~/Code/check` are files, `try_exists` on
-///     `<file>/.git` is `NotADirectory`, and the nightly `claude-sync` died on
-///     the first of them with `probing /Users/pippijn/Code/.gitignore: Not a
-///     directory (os error 20)` — the old `.exists()` had swallowed it as
-///     `false`. A regular file is definitively not a checkout; `EMFILE` and
-///     `EACCES` still propagate, which is the whole point of asking.
+/// A failure here must not read as an empty fleet: `.flatten()` and `.exists()`
+/// turned a transient `EMFILE` under three gates into "there are no
+/// repositories" (memview#1243). An error is an error; empty is a CLAIM. Two
+/// answers are DEFINITE: an absent root, and `ENOTDIR` from `<entry>/.git` — a
+/// plain file like `~/Code/.gitignore`, which the hardening first died on.
 pub fn repositories(code_root: &Path) -> anyhow::Result<Vec<PathBuf>> {
     let mut out = Vec::new();
     let entries = match std::fs::read_dir(code_root) {
@@ -101,41 +64,23 @@ pub fn repositories(code_root: &Path) -> anyhow::Result<Vec<PathBuf>> {
     Ok(out)
 }
 
-/// Every commit in one repository, with per-file line counts.
-///
-/// **Renames are detected, and that was a correction.** This ran
-/// with `--no-renames` on the reasoning that a rename reported as one is 0
-/// added and 0 deleted, so the file would vanish from the record. It does not:
-/// `--numstat` still emits a row for it, carrying the touch without the lines.
-/// What `--no-renames` actually did was **restate every moved file as a whole
-/// deletion and a whole addition** — so a directory reshuffle read as writing
-/// the tree from scratch. Measured across four repositories, it inflated lines
-/// added by 6–17% and lines *deleted* by 33–41%, and it landed on whoever ran
-/// `git mv` rather than on whoever wrote the code.
-///
-/// Merges are skipped (`--no-merges`): a merge commit's diff restates changes
-/// already counted against whoever actually made them.
+/// Every commit in one repository, with per-file line counts. Renames are
+/// detected: `--no-renames` restated every moved file as a whole deletion and
+/// addition, inflating lines deleted by 33–41% and landing on whoever ran
+/// `git mv`. Merges are skipped: a merge's diff restates changes already counted.
 pub fn history(repo: &Path, code_root: &Path) -> anyhow::Result<Vec<Commit>> {
     let prefix = repo
         .strip_prefix(code_root)
         .unwrap_or(repo)
         .to_string_lossy()
         .to_string();
-    // \x01 as the field separator: it cannot occur in a commit subject, where a
-    // tab or a pipe easily can.
+    // \x01 as the field separator: it cannot occur in a commit subject.
     let mut cmd = Command::new("git");
     cmd.arg("-C").arg(repo);
-    // `-C` names the directory to work in; it does NOT override an inherited
-    // GIT_DIR, which wins and would silently read a different repository.
-    // Anything started from a git hook has one set — the miner is normally
-    // run from a nightly job, but "normally" is not a guarantee, and a
-    // history read from the wrong repo is attributed to the wrong sessions
-    // with nothing to give it away.
-    //
-    // ⚠ **Strip EVERY GIT_* variable, not a list.** The fixture that tests
-    // this learned it — an enumerated subset that missed one
-    // variable bound a fresh repo to the committing repo's dirs — and this
-    // was still the pre-lesson list of five. A prefix cannot drift.
+    // `-C` names the directory; an inherited `GIT_DIR` wins over it, and anything
+    // started from a git hook has one set. Strip EVERY GIT_* variable, not a list —
+    // an enumerated subset that missed one bound a fresh repo to the committing
+    // repo's dirs.
     for (key, _) in std::env::vars() {
         if key.starts_with("GIT_") {
             cmd.env_remove(key);
@@ -150,12 +95,8 @@ pub fn history(repo: &Path, code_root: &Path) -> anyhow::Result<Vec<Commit>> {
             "--format=\x01%H\x01%cI",
         ])
         .output()
-        // ⚠ **A failure here must not read as an empty history.** This was
-        // `let Ok(out) = out else { return Vec::new() }`, and a spawn that
-        // failed under load — fork pressure at load 27, two gates and a mine
-        // beside — surfaced as "this repository has no commits": attribution
-        // silently zero, twice, in-gate, with nothing anywhere naming the
-        // cause (memview#1243). An error is an error; empty is a CLAIM.
+        // A failure here must not read as an empty history: a spawn failing under
+        // load surfaced as "this repository has no commits" (memview#1243).
         .with_context(|| format!("running git log in {}", repo.display()))?;
     anyhow::ensure!(
         out.status.success(),
@@ -183,8 +124,7 @@ pub fn history(repo: &Path, code_root: &Path) -> anyhow::Result<Vec<Commit>> {
         let Some(commit) = commits.last_mut() else {
             continue;
         };
-        // `added \t deleted \t path`, where a binary file reports `-` for both
-        // and is skipped: a line count of a PNG is not a measure of anything.
+        // `added \t deleted \t path`; a binary file reports `-` for both and is skipped.
         let mut cols = line.split('\t');
         let (Some(added), Some(deleted), Some(path)) = (cols.next(), cols.next(), cols.next())
         else {
@@ -204,15 +144,9 @@ pub fn history(repo: &Path, code_root: &Path) -> anyhow::Result<Vec<Commit>> {
     Ok(commits)
 }
 
-/// The old and new names in a `--numstat` path, when it reports a rename.
-///
-/// Git writes the common parts once and brackets what changed:
-/// `code/kubes/ircd/{inspircd => k8s}/ircd.yaml`, and with an empty side when a
-/// file moved into or out of a directory — `code/kubes/ircd/{ => k8s}/x.yaml`.
-/// When nothing at all is shared it drops the braces: `old.rs => new.rs`.
-///
-/// Returns `(None, path)` for an ordinary change, so a caller need not ask
-/// which shape it got.
+/// The old and new names in a `--numstat` path, when it reports a rename: git
+/// brackets what changed — `a/{b => c}/d`, `a/{ => c}/d` — and drops the braces
+/// when nothing is shared. `(None, path)` for an ordinary change.
 pub fn renamed(path: &str) -> (Option<String>, String) {
     let Some((open, rest)) = path.split_once('{') else {
         return match path.split_once(" => ") {
@@ -226,8 +160,7 @@ pub fn renamed(path: &str) -> (Option<String>, String) {
     let Some((to, close)) = rest.split_once('}') else {
         return (None, path.to_string());
     };
-    // An empty side leaves a doubled separator — `a/{ => b}/c` is `a//c` — which
-    // is a different path from the one git meant.
+    // An empty side leaves a doubled separator — `a/{ => b}/c` is `a//c`.
     let join = |middle: &str| format!("{open}{middle}{close}").replace("//", "/");
     (Some(join(from)), join(to))
 }
@@ -241,28 +174,15 @@ pub fn all(code_root: &Path) -> anyhow::Result<Vec<Commit>> {
     Ok(every)
 }
 
-/// The shortest hash a mention can be recognised by.
-///
-/// `git commit` prints seven, and so does `git log --oneline`. Requiring more
-/// is what made the first attempt find 1 commit of 17.
+/// The shortest hash a mention can be recognised by: `git commit` prints seven,
+/// and requiring more found 1 commit of 17.
 pub const SHORT: usize = 7;
 
-/// The hash-shaped tokens on a line, as candidate mentions.
-///
-/// Deliberately fussy, because a false positive credits one agent's work to
-/// another:
-/// - **7 to 40 characters.** Below seven no hash is printed; above forty is not
-///   a git hash at all, which excludes every 64-character sha256 in the corpus
-///   — and there are a great many, in lockfiles and nix output.
-/// - **At least one letter.** `1234567` is valid hex and is nearly always a
-///   line number, a timestamp or a byte count. This has a measured cost: **162
-///   of the fleet's 4,697 commits (3.4%) have an all-digit short hash** and can
-///   never be attributed. They are counted in `Agents::unattributed` like any
-///   other miss, so the gap is reported rather than hidden — and it is the
-///   right side of the trade, since the alternative credits one agent with
-///   another's work every time a seven-digit number happens to collide.
-/// - **Bounded by non-alphanumerics**, so a hex-looking run inside a longer
-///   base64 blob is not mistaken for a hash.
+/// The hash-shaped tokens on a line, as candidate mentions. Fussy, since a false
+/// positive credits one agent's work to another: 7 to 40 characters (sha256s in
+/// lockfiles are 64); at least one letter, which costs the 3.4% of commits with
+/// an all-digit short hash — counted in `Agents::unattributed` rather than
+/// hidden; bounded by non-alphanumerics, so a run inside a base64 blob is not one.
 pub fn hash_candidates(line: &[u8]) -> Vec<&str> {
     let mut out = Vec::new();
     let mut i = 0;
@@ -286,8 +206,8 @@ pub fn hash_candidates(line: &[u8]) -> Vec<&str> {
         {
             out.push(text);
         }
-        // Step past the character that ended the run, so a `-`-separated uuid
-        // yields each of its segments rather than being re-scanned.
+        // Step past the character that ended the run, so a `-`-separated uuid yields
+        // each of its segments.
         i += 1;
     }
     out

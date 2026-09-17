@@ -3,8 +3,7 @@ import type { DraftDoc } from "./DraftDoc";
 
 /**
  * One change from a client: the state it wants, and the state it assumed —
- * `None` for a fresh insert. The assumed state is what makes the conflict
- * detectable rather than the last writer silently winning. Only its `text` is
- * read; [`Drafts::apply`] says why its `rev` cannot be.
+ * `None` for a fresh insert. Only the assumed `text` is read; [`Drafts::apply`]
+ * says why its `rev` cannot be.
  */
 export type PushEntry = { newDocumentState: DraftDoc, assumedMasterState: DraftDoc | null, };

@@ -10,23 +10,14 @@ export type Summary = { id: string, dir: string,
  */
 started: number, 
 /**
- * When anything last happened, in **milliseconds**, from the transcript.
- *
- * ⚠ **Not `started`, and the difference is the whole point.** `started` is
- * when this console picked the process up; this is when the conversation
- * last moved. For a session running since last night they are thirteen hours
- * apart, and the second one is what somebody scanning the list wants. Filled
- * by the roster, which reads the file — see [`crate::past::touched`]. Absent
- * for a session whose transcript cannot be found, so a client can leave the
- * column empty rather than print the epoch.
+ * When anything last happened, in MILLISECONDS, from the transcript — not
+ * `started`, which is when this console picked the process up. Filled by the
+ * roster; see [`crate::past::touched`]. Absent when the transcript cannot be found.
  */
 touched?: number, 
 /**
- * How much the transcript weighs, in bytes — the whole conversation as it
- * stands on disk. Filled by the roster from the same metadata read as
- * [`Self::touched`]. Not the same fact as [`Self::context`]: this is the
- * whole transcript's size on disk, that is the LAST request's prompt in
- * tokens.
+ * How much the transcript weighs, in bytes. Not [`Self::context`], which is the
+ * LAST request's prompt in tokens.
  */
 bytes?: number, alive: boolean, model?: string, 
 /**
@@ -34,89 +25,45 @@ bytes?: number, alive: boolean, model?: string,
  */
 busy?: string, 
 /**
- * Whether a turn is running — observed by the runner, not narrated by the
- * CLI.
- *
- * ⚠ **[`Self::busy`] cannot answer this and reading it as though it could
- * called a working session idle.** A status is announced when it *changes*,
- * so a long stretch of one activity, or one the CLI does not narrate, leaves
- * nothing standing — and no status was drawn as *idle*, over a session that
- * was running tools throughout (memview #112). It made #111's invisible
- * queue actively misleading:
- * a message sent to a session the page calls idle should land at once, so
- * its not landing reads as a failure.
- *
- * A turn ending is an event the runner sees; so is the traffic while one
- * runs. This is those, and nothing the CLI has to be asked for. Deliberately
- * **not** a timeout over the last status — the console has had two defects
- * from inferring state on a timer, and a turn can legitimately be quiet for
- * minutes.
+ * Whether a turn is running — observed by the runner, not narrated by the CLI.
+ * [`Self::busy`] cannot answer this: a status is announced when it CHANGES, so
+ * a long stretch of one activity leaves nothing standing, and no status was
+ * drawn as *idle* over a session running tools throughout (memview #112).
+ * Deliberately not a timeout: a turn can legitimately be quiet for minutes.
  */
 working: boolean, 
 /**
  * How many times someone has spoken to this session since it was last
- * compacted — exchanges, not messages, and not the result line's
- * `num_turns`. See [`crate::past::counted`] for why it is counted from
- * the transcript rather than added up as turns arrive.
+ * compacted — exchanges, not messages. See [`crate::past::counted`].
  */
 interactions: number, 
 /**
- * What this session's tokens would have cost at API list prices.
- *
- * ⚠ **This is not money.** A session inherits the CLI's own credentials and
- * runs on the subscription, so nothing here is billed per token — it is a
- * weight wearing a currency symbol, and shown as one it reads as a bill.
- * The client shows it only when [`Self::limit`] says the account has
- * stopped being all-you-can-eat, which is the first moment it means
- * anything.
+ * What this session's tokens would have cost at API list prices. Not money: the
+ * session runs on the subscription. Shown only when [`Self::limit`] says the
+ * account has stopped being all-you-can-eat.
  */
 cost_usd: number, 
 /**
  * How many tokens the last request's prompt came to, and the window it went
- * into — so a reader can see when compaction is coming rather than meeting it.
- *
- * ⚠ Fullness is per MESSAGE, not per turn. The result line carries a usage
- * too and it sums every request the turn made: a turn of 23 requests read
- * 1.6M against a 1M window. Shipped that, saw it on the phone, fixed it.
- *
- * ⚠ Prompt size is input + cache-creation + cache-read added together. The
- * cached part is almost all of it — 496,000 read against 2 of input on this
- * session — so anything reading `input_tokens` alone reports nearly zero for
- * a conversation that is nearly full.
+ * into. Per MESSAGE, not per turn — the result line sums every request the turn
+ * made. Input + cache-creation + cache-read: the cached part is almost all of it.
  */
 context?: number, window?: number, 
 /**
- * How many background tool calls this session has started and not had
- * reported finished.
- *
- * ⚠ **Only the ones the harness tracks.** A command backgrounded inside a
- * shell — `nohup … &` — returns at once and announces nothing, so it is
- * invisible here. This counts what can be seen, and the client's wording
- * claims no more than that.
- *
- * Counted by the runner rather than by whoever is watching, because the
- * list is drawn without opening anything: the page that knew this before
- * was the session's own, from its event stream, so the list could not say
- * it at all.
+ * How many background tool calls this session has started and not had reported
+ * finished. Only the ones the harness tracks: `nohup … &` is invisible. Counted
+ * by the runner so the list can rank on it without opening anything.
  */
 background: number, 
 /**
- * WHICH background calls are still running, not just how many.
- *
- * ⚠ **`background` is kept beside this deliberately.** The list ranks a row
- * on whether anything is running and never draws the names, so it wants a
- * number; the session strip wants the name, because *1* is only a reason to
- * ask (memview #740). Same fact, two readers, and deriving the count from
- * this vector in the client would put the ranking at the mercy of a label.
+ * WHICH background calls are still running. `background` is kept beside this:
+ * the list wants a number, the strip wants the name (memview #740).
  */
 running: Array<Called>, 
 /**
  * The account's own verdict on its rate limit, when it has given one:
- * `allowed`, `allowed_warning` or `rejected`.
- *
- * The CLI's vocabulary, read off the 2.1.220 binary rather than guessed.
- * `None` until the account says something, which is the common case — and
- * the reason cost is hidden by default: no news is not news of trouble.
+ * `allowed`, `allowed_warning` or `rejected` (CLI 2.1.220). `None` until the
+ * account says something — the reason cost is hidden by default.
  */
 limit?: string, 
 /**
@@ -124,45 +71,25 @@ limit?: string,
  */
 asked?: string, 
 /**
- * What the conversation calls itself — `memview`, `health`. Filled in by
- * the roster from the transcript, because the session's own process never
- * says it. See [`crate::past::named`].
+ * What the conversation calls itself — `memview`, `health`. Filled by the roster
+ * from the transcript; see [`crate::past::named`].
  */
 name?: string, 
 /**
  * What the session may do without asking: `default`, `plan`, `dontAsk`,
- * `acceptEdits`, `auto`, `bypassPermissions`.
- *
- * ⚠ **This is what the console set, not what the transcript says.** The
- * first version of this read the last `permission-mode` line from the file,
- * which is wrong for the case that matters: a session *resumed* from an
- * interactive one carries that session's mode lines, so the header reported
- * `Auto` over a console that had passed no mode at all and was asking
- * permission for every single call. The console is the only thing that
- * knows what it asked for.
- *
- * **Stored names are not the displayed ones** — `default` is shown as
- * *Manual* — so the client keeps the CLI's own label table rather than
- * prettifying these itself.
+ * `acceptEdits`, `auto`, `bypassPermissions`. What the console SET, not what the
+ * transcript says — a resumed session carries the previous session's mode
+ * lines. `default` is shown as *Manual*; the client keeps the label table.
  */
 mode?: string, 
 /**
- * Why the last mode change was refused, in the CLI's own words.
- *
- * ⚠ **Present only until the next change is asked for**, because it
- * describes an attempt rather than a state. [`mode`](Self::mode) beside it
- * has already been put back to what the session is actually in, so this is
- * the explanation for a switch that appeared to happen and then did not.
- *
- * The CLI's wording rather than this console's — it names the cause and the
- * remedy ("…because the session was not launched with
- * --dangerously-skip-permissions") better than anything written from here.
+ * Why the last mode change was refused, in the CLI's own words. Present only
+ * until the next change is asked for: it describes an attempt, not a state.
  */
 mode_refused?: string, 
 /**
- * How many questions it is blocked on. The one number that means "this
- * session cannot go on without you", so it belongs in the list of sessions
- * and not only on the page of one.
+ * How many questions it is blocked on — the one number that means "this
+ * session cannot go on without you".
  */
 waiting: number, 
 /**
@@ -170,20 +97,12 @@ waiting: number,
  */
 unread: number, 
 /**
- * How long it has been failing to read them, in **seconds** — present only
- * when the console is prepared to call it deaf. See [`Session::deaf`].
- *
- * Seconds, not milliseconds: this is a duration somebody reads off a card
- * to decide whether to restart a session, and the millisecond it began is
- * not a fact anybody wants at that moment.
+ * How long it has been failing to read them, in SECONDS — present only when the
+ * console is prepared to call it deaf. See [`Session::deaf`].
  */
 deaf?: number, 
 /**
- * Slash commands waiting for the turn to end, oldest first. See
- * [`State::held`] for why they are not simply written.
- *
- * The words themselves, because the client draws them and cancels by them:
- * what is on screen has to say WHICH command is waiting, or it is one more
- * thing happening that nobody was told about.
+ * Slash commands waiting for the turn to end, oldest first — see [`State::held`].
+ * The words themselves, because the client draws them and cancels by them.
  */
 held: Array<string>, };

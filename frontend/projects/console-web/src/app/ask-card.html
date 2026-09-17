@@ -13,8 +13,7 @@
           <span class="what">{{ question.question }}</span>
           <div class="options">
             @for (option of question.options; track option.label) {
-              <!-- Not a Material button: its label is a flex item that
-                     spills rather than wraps, and these carry two lines. -->
+              <!-- Not a Material button: its label spills rather than wraps, and these carry two lines. -->
               <button
                 type="button"
                 class="option"
@@ -30,10 +29,8 @@
               </button>
             }
           </div>
-          <!-- A note beside the choice, which the session reads as
-                 qualifying it rather than replacing it. Behind a tap:
-                 a field under every question is a screenful of card
-                 before it has said anything. -->
+          <!-- A note beside the choice, which the session reads as qualifying it. Behind a
+               tap: a field under every question is a screenful of card. -->
           @if (notable(question)) {
             <input
               #noting
@@ -57,10 +54,8 @@
           }
         </div>
       }
-      <!-- Words instead of a choice. Typing takes the card over — the
-             options above go quiet — because the CLI reads `response`
-             INSTEAD of `answers`, never both. Clearing it hands the
-             options back. -->
+      <!-- Words instead of a choice. Typing takes the card over, because the CLI reads
+           `response` INSTEAD of `answers`; clearing it hands the options back. -->
       <textarea
         #spoken
         class="say"
@@ -76,8 +71,7 @@
             {{ replying() ? 'reply' : 'answer' }}
           </button>
         }
-        <!-- The way out of a question there is no good answer to. The
-               session is told, and carries on. -->
+        <!-- The way out of a question with no good answer. The session is told. -->
         <button matButton (click)="decide(false)">skip</button>
       </div>
     } @else {
@@ -89,8 +83,7 @@
   } @else {
     <span class="verdict">{{ verdict() }}</span>
     @if (choice(); as choice) {
-      <!-- What was picked. The questions are still directly above, so
-             this is the labels alone rather than a paragraph. -->
+      <!-- What was picked — the labels alone, since the questions are directly above. -->
       <span class="chose">{{ choice }}</span>
     }
   }
