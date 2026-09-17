@@ -6,7 +6,7 @@
 
 use console::protocol::{Event, read};
 
-const TURN: &str = include_str!("fixtures/turn.jsonl");
+const TURN: &str = include_str!("../fixtures/turn.jsonl");
 
 fn events() -> Vec<Event> {
     TURN.lines().flat_map(read).collect()
