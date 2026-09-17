@@ -73,8 +73,8 @@ pub enum Subject {
 /// too would be a second name for `Read`. So the range is read off
 /// [`Step::argv`], the one place it survives.
 ///
-/// The vocabulary is closed to the shapes the corpus actually spells (measured
-/// 2026-09-04): a count from the top (`head`), a count from the bottom
+/// The vocabulary is closed to the shapes the corpus actually spells: a count
+/// from the top (`head`), a count from the bottom
 /// (`tail`), an explicit line span (`sed -n 'a,bp'`), or the whole file
 /// (`cat`). A byte count, a follow (`tail -f`), a `+N` prefix drop, and a
 /// `$`-relative address are **different acts** and refuse rather than flatten
@@ -150,8 +150,8 @@ pub enum Concept {
         substitution: Option<String>,
     },
     /// A file (or none, for a stream) shown without being changed — the corpus's
-    /// largest concept-shaped mass by a distance (census 2026-09-04: the `head`,
-    /// `tail`, `cat` and `sed -n` pager shapes together dwarf every `Rewrite`).
+    /// largest concept-shaped mass by a distance: the `head`, `tail`, `cat` and
+    /// `sed -n` pager shapes together dwarf every `Rewrite`.
     ///
     /// ⚠ **Its spellings do NOT meet at one `Op`, and that recast gate 2.**
     /// `head -5 f` is [`Op::Read`] and `sed -n '1,5p' f` is [`Op::Transform`]
@@ -167,8 +167,8 @@ pub enum Concept {
         range: Range,
     },
     /// The lines of a file that match a pattern — the largest shape left in the
-    /// queue after `Page` (census 2026-09-10: 119,690 rows across every search
-    /// spelling, of which this lens accepts 65,209).
+    /// queue after `Page`, and this lens accepts about half of every row spelled
+    /// as a search.
     ///
     /// ⚠ **Only the act that PRODUCES MATCHING LINES.** `-c` counts them, `-l`
     /// names the files, `-q` answers yes or no and prints nothing, `-o` prints
@@ -193,12 +193,12 @@ pub enum Concept {
     /// ⚠ **The product is NAMES, and that is the whole boundary.** `ls -l` adds
     /// size, mode and time; `du` adds bytes; `wc -l` returns a count. Each reads
     /// the same locus and hands back something else, so each refuses by name.
-    /// Measured 2026-09-10: of 19,376 `ls` rows, 11,378 are a bare `ls <dir>`
-    /// and ~5,800 carry the `-l` family.
+    /// Most `ls` rows are a bare `ls <dir>`, and the `-l` family is most of the
+    /// rest.
     ///
     /// ⚠ **`find` is NOT this concept, and the census is why.** Its operands are
-    /// a predicate EXPRESSION — 1,277 rows use `-o`, 1,242 `-not`, 281 `-prune`
-    /// — so no single `matching` field represents it, and keeping only the
+    /// a predicate EXPRESSION — `-o`, `-not` and `-prune` are all well used — so
+    /// no single `matching` field represents it, and keeping only the
     /// `-name` value would claim a NARROWER set than the command walked. That is
     /// a false lower bound, which is the direction this reader refuses
     /// everywhere else. [`Why::Predicate`] holds it, counted.
@@ -220,9 +220,8 @@ pub enum Concept {
     /// `grep -c` refuses ([`Why::NotLines`] — a count of MATCHES is a
     /// different question), and `du`/`stat` are numbers about the FILE rather
     /// than its contents — metadata, the [`Concept::List`] `-l` boundary — and
-    /// stay queued with the census sizing them (2026-09-05: `wc -l` 7,979
-    /// rows, `wc -c` 1,365, `du -sh` 724, the `stat` shapes ~480 and carrying
-    /// format strings besides).
+    /// stay queued, with `wc -l` much the largest of them and the `stat` shapes
+    /// the smallest and the most awkward, carrying format strings besides.
     ///
     /// ⚠ **One quantity.** Bare `wc` is the POSIX lines-words-bytes triple — a
     /// real default, readable not writable — but a TABLE is a different
@@ -242,9 +241,9 @@ pub enum Concept {
     /// field — the concept says what the text says, and where it ran is the
     /// step's business, exactly as a relative path's directory is.
     ///
-    /// ⚠ **`git log`'s dominant shape is one shape.** Measured 2026-09-10 over
-    /// 23,160 steps: 94% carry `--oneline` and 87% a count, and 20,846 (90%)
-    /// need nothing but a count, a revision and paths after `--`.
+    /// ⚠ **`git log`'s dominant shape is one shape.** Nearly every step carries
+    /// `--oneline` and a count, and nearly every one needs nothing but a count,
+    /// a revision and paths after `--`.
     History {
         /// `-3`, `-n 3`, `--max-count=3`. `None` where the text gave none, which
         /// is git's own unbounded default — NOT a number invented here, and the
@@ -454,9 +453,8 @@ pub fn lift(step: &Step) -> Result<Concept, Why> {
             // first operand and each word after it is a subject. `None` when
             // there are no operands at all — `grep -- pat` counts none, because
             // [`search_shape`] stops counting at `--` — and it must refuse at
-            // the COUNT check, not before it: measured 2026-09-10, nine remote
-            // `grep -- pat` steps refuse as Remote, which outranks a miscount
-            // in every lens.
+            // the COUNT check, not before it: a remote `grep -- pat` refuses as
+            // Remote, which outranks a miscount in every lens.
             let subjects = counted_subjects(step, paths, shape.operands.checked_sub(1))?;
             Ok(Concept::Search {
                 subjects,
@@ -1059,8 +1057,8 @@ fn subjects_or_refuse(step: &Step, paths: &[String]) -> Result<Vec<Subject>, Why
     let subjects = subjects(step, paths);
     // ⚠ **A DESCRIBED subject cannot be lowered, so it is refused by name.**
     // `Bounded` and `Located` are the reader's middle — `S ⊆ L` at a locus — and
-    // no single command spells them: measured 2026-09-03, lowering
-    // `/home/…/*.ts` and lifting it back gives [`Subject::Named`], because a
+    // no single command spells them: lowering `/home/…/*.ts` and lifting it
+    // back gives [`Subject::Named`], because a
     // pattern written literally in an operand position IS a resolved path to
     // this reader. The language came from a loop, and a loop is not what a
     // single-command concept lowers to.
@@ -1204,8 +1202,8 @@ fn line_count(argv: &[String]) -> Option<(u32, usize)> {
 ///
 /// ⚠ **`u32::parse` accepts a leading `+`, and `tail -n +2` means the
 /// opposite of a count** — it drops the first line and shows the rest, so
-/// `"+2".parse()` reading as `2` lifted a prefix-drop as a two-line tail
-/// (caught by the refusal test, 2026-09-04). Digits only.
+/// `"+2".parse()` reading as `2` lifts a prefix-drop as a two-line tail. The
+/// refusal test holds this. Digits only.
 fn digits(word: &str) -> Option<u32> {
     word.chars()
         .all(|c| c.is_ascii_digit())

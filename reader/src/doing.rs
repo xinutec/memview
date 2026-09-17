@@ -8,12 +8,12 @@
 //! kept: a row is an agent, a moment, a repository, a kind of work, how many
 //! commands of it, and whether it worked. That is the surviving half of
 //! `feedback_memview_distils_never_serves_history` — Pippijn lifted the
-//! no-timeline half on 2026-08-02 and left this one standing, for the reason it
-//! was written: a viewer that serves the literal history makes the corpus
+//! no-timeline half and left this one standing, for the reason it was written:
+//! a viewer that serves the literal history makes the corpus
 //! depend on the transcripts instead of distilling them.
 //!
-//! ⚠ **Everything that happened, not the notable part of it** — Pippijn's call,
-//! 2026-08-17, when tool calls joined the shell here. Reading a file is smaller
+//! ⚠ **Everything that happened, not the notable part of it** — Pippijn's call
+//! when tool calls joined the shell here. Reading a file is smaller
 //! work than running a build and the timeline does not say so: it is a record,
 //! and a record that quietly dropped the small things would answer "what was
 //! this session doing" with a curated version of it. Weighting is a question for
@@ -291,11 +291,11 @@ impl Log {
     /// ⚠ **Everything here carries except `pending`.** A row waiting on a result
     /// that had not arrived when the artefact was written stays
     /// [`Verdict::Unknown`] forever: its answer lands in the tail, where nothing
-    /// is left to match it to. Measured 2026-08-29 against a real watermark —
-    /// **3 calls across the whole corpus** crossed the cut, against 349 already
-    /// unresolved by a full scan. Carrying it would mean remapping row indices
-    /// through `finish`'s sort and putting resume state on an exported wire
-    /// type, which is not what three rows a night buys.
+    /// is left to match it to. Against a real watermark a mere handful of calls
+    /// across the whole corpus cross the cut, far fewer than a full scan already
+    /// leaves unresolved. Carrying it would mean remapping row indices through
+    /// `finish`'s sort and putting resume state on an exported wire type, which
+    /// is not what a few rows a night buys.
     ///
     /// The open episode is a different size of loss and does not stay here — see
     /// [`Log::reopen`].
@@ -328,11 +328,10 @@ impl Log {
     /// ⚠ **This is the loss a byte offset alone cannot avoid.** An episode is
     /// bracketed by a user's turn, so a cut taken while an instruction is still
     /// being carried out leaves every row until the *next* prompt with no
-    /// episode above it. Measured 2026-08-29 against a real 21:38 watermark:
-    /// **66 of 2,815 tail calls** would land in no episode, twenty times the
-    /// three calls whose result crossed the same cut. Unlike those three this is
-    /// cheap to keep, because the state is an index and a name rather than a row
-    /// position — [`crate::watermark::Resume`] carries it.
+    /// episode above it. That strands an order of magnitude more tail calls than
+    /// the unresolved results above, and unlike those it is cheap to keep,
+    /// because the state is an index and a name rather than a row position —
+    /// [`crate::watermark::Resume`] carries it.
     pub fn reopen(&mut self, episode: Option<u32>, prompt: Option<String>) {
         self.prompt = prompt;
         // ⚠ **An episode this log does not hold cannot be continued.** The index
@@ -431,8 +430,8 @@ impl Log {
         // ⚠ **Episode identity was its POSITION in this vector**, assigned as
         // `episodes.len()` at creation — so it depended on when the scan reached
         // it, which is exactly what reading only the changed transcripts alters.
-        // Measured 2026-08-30 on the real corpus: 682,865 rows of 1,061,700
-        // differed by nothing but this index (memview#1240).
+        // Most rows in the corpus differed by nothing but this index
+        // (memview#1240).
         //
         // Renumbered here in the order an episode is first REFERENCED by the
         // sorted rows, so the numbering is a property of the content rather than
@@ -519,13 +518,13 @@ impl Doing {
 ///
 /// ⚠ This read bash's form only, on the stated grounds that *"no measured call
 /// in the corpus uses"* zsh's. That was wrong, and it was wrong by a lot:
-/// measured 2026-08-12, **74 calls carry a zsh-worded refusal and 99 a
-/// bash-worded one**, so 43% of the refusals in the corpus were invisible — and
-/// every one of them is a `cd` the parser applied and the shell did not, which
-/// is precisely the failure this function exists to prevent. The claim had no
-/// measurement behind it; `SHELL` being `bashInteractive` says what the session's
-/// own shell is, not what the thousands of `nix develop -c`, `nix-shell --run`
-/// and `ssh` invocations inside these commands run.
+/// zsh-worded refusals are nearly as common as bash-worded ones, so a large
+/// fraction of the corpus's refusals were invisible — and every one of them is a
+/// `cd` the parser applied and the shell did not, which is precisely the failure
+/// this function exists to prevent. The claim had no measurement behind it;
+/// `SHELL` being `bashInteractive` says what the session's own shell is, not what
+/// the `nix develop -c`, `nix-shell --run` and `ssh` invocations inside these
+/// commands run.
 ///
 /// The zsh grammar is anchored on the message *in position* — `cd`, an optional
 /// line number, then the message, then the target — so the same prose that

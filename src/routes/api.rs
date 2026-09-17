@@ -40,7 +40,7 @@ pub async fn reading(
 pub async fn me(State(app): State<AppState>, ReadAccess(viewer): ReadAccess) -> Json<Value> {
     let auth_enabled = app.cfg.auth.is_some();
     match viewer {
-        // dev-lint: allow-wire-untyped pre-standard debt (DL-WIRE-UNTYPED-RESPONSE landed 2026-09-03): give this handler a Serialize response struct when the route is next touched
+        // dev-lint: allow-wire-untyped pre-standard debt (DL-WIRE-UNTYPED-RESPONSE): give this handler a Serialize response struct when the route is next touched
         Viewer::Owner(user) => Json(json!({
             "user_id": user.user_id,
             "display_name": user.display_name,
@@ -61,7 +61,7 @@ pub async fn index(
 ) -> Result<Json<Value>, AppError> {
     let corpus = load_corpus(&app)?;
     let md = corpus.index_md.ok_or(AppError::NotFound)?;
-    // dev-lint: allow-wire-untyped pre-standard debt (DL-WIRE-UNTYPED-RESPONSE landed 2026-09-03): give this handler a Serialize response struct when the route is next touched
+    // dev-lint: allow-wire-untyped pre-standard debt (DL-WIRE-UNTYPED-RESPONSE): give this handler a Serialize response struct when the route is next touched
     Ok(Json(json!({
         "html": render_markdown(&md)?,
         "count": corpus.docs.len(),
@@ -84,9 +84,9 @@ pub async fn memories(
 /// transcript that wrote it; the id is still shown then, since "written by a
 /// session I no longer have" is a truer answer than silence.
 ///
-/// ⚠ **NOT because Claude Code prunes them** — measured 2026-08-29, it does not
-/// (memview#1240). What is missing predates the archive's 2026-07-31 start, and
-/// as of 2026-08-30 that is exactly ONE session of the 18 the corpus names.
+/// ⚠ **NOT because Claude Code prunes them** — it does not (memview#1240). What
+/// is missing predates the archive's start, and is a single session of the ones
+/// the corpus names.
 #[derive(Serialize)]
 pub struct Origin {
     session: String,
@@ -159,11 +159,11 @@ pub async fn memory(
 /// any.
 ///
 /// ⚠ **The size claim that used to be here had rotted by two orders of
-/// magnitude.** It read "hundreds of nodes, ~2 edges each, tens of KB"; measured
-/// 2026-09-01 the response is 680 nodes, 2576 edges (3.8 each) and **972 KB**,
-/// because every node carries its `description`. Measure it rather than trusting
-/// a number in a comment — `curl -so /dev/null -w '%{size_download}'` against
-/// this route (\[\[feedback_a_count_in_prose_rots\]\]).
+/// magnitude**, and the replacement would rot the same way: every node carries
+/// its `description`, so this response is far larger than its node count
+/// suggests. Measure it rather than trusting a number in a comment —
+/// `curl -so /dev/null -w '%{size_download}'` against this route
+/// (\[\[feedback_a_count_in_prose_rots\]\]).
 ///
 /// The one-payload decision still stands on the layout argument alone. What no
 /// longer follows from it is that this is cheap, or that every node belongs on

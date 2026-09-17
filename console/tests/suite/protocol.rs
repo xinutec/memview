@@ -389,12 +389,11 @@ fn a_notification_that_names_neither_the_call_nor_an_ending_names_nothing() {
 #[test]
 fn a_monitors_timeout_is_an_ending_that_can_only_name_its_task() {
     // ⚠ **Verbatim, and the whole of memview #925.** A monitor's three ordinary
-    // endings — `stream ended`, `script failed`, `stopped`, 687 of them on this
-    // machine — all carry a `<tool-use-id>` and close through the branch above.
-    // Its timeout carries none, so the console kept counting it: monitor
-    // b9drzo2f6 was armed at 13:16:30 on 2026-08-15, timed out at 14:06:32, and
-    // was still drawn as running at 15:00, when Pippijn asked why one session
-    // had two monitors.
+    // endings — `stream ended`, `script failed`, `stopped` — all carry a
+    // `<tool-use-id>` and close through the branch above. A timeout carries
+    // none, so the console kept counting one: armed, timed out an hour later,
+    // and still drawn as running when Pippijn asked why one session had two
+    // monitors.
     let line = r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<task-notification>\n<task-id>b9drzo2f6</task-id>\n<summary>Monitor event: \"fleet bump progress, per repo\"</summary>\n<event>[Monitor timed out — re-arm if needed.]</event>\n</task-notification>"}]}}"#;
     assert!(
         matches!(
@@ -462,8 +461,8 @@ fn a_message_that_merely_mentions_a_notification_is_still_a_prompt() {
 
 #[test]
 fn the_same_words_in_two_blocks_were_delivered_twice_and_are_shown_once() {
-    // Verbatim from a real transcript (`health` 2026-08-06): the same words
-    // reached the CLI twice inside a millisecond and were recorded as one
+    // Verbatim from a real `health` transcript: the same words reached the CLI
+    // twice inside a millisecond and were recorded as one
     // message of two identical blocks. Read per block it showed a question asked
     // twice that was asked once.
     let line = r#"{"type":"user","message":{"role":"user","content":[{"text":"What's next?","type":"text"},{"text":"What's next?","type":"text"}]}}"#;
@@ -475,8 +474,8 @@ fn the_same_words_in_two_blocks_were_delivered_twice_and_are_shown_once() {
 
 #[test]
 fn two_messages_the_cli_handed_over_together_stay_two_messages() {
-    // Verbatim from `recall` 2026-09-03. Both were typed on the phone while the
-    // session was working, minutes apart, and the CLI delivered everything
+    // Verbatim from a `recall` transcript. Both were typed on the phone while
+    // the session was working, minutes apart, and the CLI delivered everything
     // queued as one message with a block each.
     //
     // ⚠ **Joining them is not merely a mangled bubble.** A prompt is the read
@@ -593,7 +592,7 @@ fn the_usage_reply_gives_up_both_windows() {
 
 /// The same reply as CLI 2.1.226 gives it, trimmed to the rate limits.
 ///
-/// ⚠ **Copied from a live answer on 2026-08-12, not composed here.** Every fixed
+/// ⚠ **Copied from a live answer, not composed here.** Every fixed
 /// model key is `null` and the one live scope is in the `model_scoped` array —
 /// which is the whole reason this shape had to be read rather than assumed.
 const SCOPED_REPLY: &str = r#"{"type":"control_response","response":{"request_id":"usage-x","subtype":"success","response":{"rate_limits":{"five_hour":{"utilization":62,"resets_at":"2026-08-12T18:19:59.060276+00:00"},"seven_day":{"utilization":87,"resets_at":"2026-08-14T01:59:59.060301+00:00"},"seven_day_opus":null,"seven_day_sonnet":null,"model_scoped":[{"display_name":"Fable","utilization":6,"resets_at":"2026-08-14T01:59:59.060589+00:00"}]}}}}"#;
@@ -866,7 +865,7 @@ fn the_seed_boundary_forgets_what_the_transcript_replayed() {
 mod synthetic {
     use console::protocol::{Event, read};
 
-    /// Measured 2026-08-08 against CLI 2.1.221, from a real `/context`.
+    /// Taken from a real `/context` against CLI 2.1.221.
     // `r###`, because the answer is markdown: `"## Context Usage` contains
     // both `"#` and `"##`, which end an `r#` and an `r##` string respectively,
     // in the middle of the fixture.
@@ -910,8 +909,8 @@ fn renaming_goes_over_the_control_channel() {
     // ⚠ **The whole reason this exists.** `/rename` is INPUT: written to stdin,
     // parked by the CLI when it arrives mid-turn, and released as a prompt
     // (`commandMode: "prompt"`) — so the model reads the words and the name never
-    // changes. Measured 2026-08-08 on a working session, which replied "Noted the
-    // rename (CLI-side, nothing for me to do)".
+    // changes. Measured on a working session, which replied "Noted the rename
+    // (CLI-side, nothing for me to do)".
     //
     // A control request is answered whatever the turn is doing. Measured against
     // 2.1.226 two seconds into a running turn: `success` at once, and the
@@ -934,7 +933,7 @@ fn a_permission_request_says_which_call_it_is_about() {
     // for one Write — and the card, sitting between two calls, breaks the run
     // they would otherwise fold into.
     //
-    // Measured on a live session 2026-08-11, in this order:
+    // Measured on a live session, in this order:
     //   tool  toolu_01E9WgUY8w6dso4ZA43ybzng  Write  {content, file_path}
     //   ask   c8471a53-2b00-4a5e-a8d3-610f6d8c6b07  Write  {the same input}
     let line = r#"{"type":"control_request","request_id":"c8471a53","request":{"subtype":"can_use_tool","tool_name":"Write","tool_use_id":"toolu_01E9WgUY","input":{"file_path":"/tmp/x"},"description":"/tmp/x"}}"#;
@@ -1026,7 +1025,7 @@ fn a_long_label_is_cut_and_flattened() {
     assert_eq!(multi.label.as_deref(), Some("one two three"));
 }
 
-/// The three answers CLI 2.1.226 gave on 2026-08-16, copied from the probe.
+/// The three answers CLI 2.1.226 gives, copied from the probe.
 ///
 /// ⚠ **Not composed here.** The success carries the mode it settled on, which is
 /// the whole reason the console can confirm rather than assume; and the refusals
@@ -1096,8 +1095,8 @@ fn what_is_not_a_control_response_is_not_a_mode() {
 }
 
 /// ⚠ **A message sent to a BUSY session exists only as a `queued_command`
-/// attachment** — the CLI writes no `user` line for it. Reported 2026-08-27:
-/// three messages showed as waiting and then vanished, because a re-seed reads
+/// attachment** — the CLI writes no `user` line for it. Reported from the
+/// phone: messages showed as waiting and then vanished, because a re-seed reads
 /// the transcript and the transcript's only record of them produced no event.
 #[test]
 fn a_message_delivered_to_a_busy_session_is_a_prompt() {

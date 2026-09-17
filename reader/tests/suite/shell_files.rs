@@ -177,7 +177,7 @@ fn a_subject_the_text_does_not_determine_is_counted_rather_than_dropped() {
     // never looks like a path at all, while `$d/report.txt` looks like one and
     // then resolves to nothing.
     //
-    // ⚠ The glob case moved on 2026-08-13: a variable a glob loop bound is now
+    // ⚠ The glob case has moved: a variable a glob loop bound is now
     // BOUNDED rather than merely unnamed, and lives in `Extract::bounded` — see
     // `a_glob_bounds_what_its_loop_variable_can_be`. It is still not a named
     // file, and `subjects_not_named` still counts it.
@@ -592,9 +592,9 @@ fn a_local_shell_inside_a_command_is_read_too() {
 #[test]
 fn the_test_runners_read_the_specs_they_are_given() {
     // ⚠ **The top of the unread list, and no grammar was needed for any of it.**
-    // `vitest` 1,412 calls, `playwright` 1,330, `tsx` 1,459 — measured
-    // 2026-08-06 — sitting unread behind the assumption that JavaScript meant a
-    // parser. Their operands are spec files, which is a table row.
+    // `vitest`, `playwright` and `tsx` sat unread behind the assumption that
+    // JavaScript meant a parser. Their operands are spec files, which is a
+    // table row.
     assert_eq!(
         uses("vitest run src/geo/velocity.spec.ts"),
         [(
@@ -623,10 +623,10 @@ fn the_test_runners_read_the_specs_they_are_given() {
 #[test]
 fn a_name_bound_to_a_literal_is_the_path_it_holds() {
     // ⚠ **The largest unread name in the corpus, and its value is one line
-    // above its use.** `$ADB` appears in 1,023 commands and **564 of them assign
-    // it in the same command text**, usually to a literal nix-store path. It was
-    // written off as unresolvable — measured 2026-08-06, it never was: the
-    // reader simply had nowhere to keep a binding.
+    // above its use.** `$ADB` appears in many commands and over half of them
+    // assign it in the same command text, usually to a literal nix-store path.
+    // It was written off as unresolvable; it never was, the reader simply had
+    // nowhere to keep a binding.
     assert_eq!(
         uses("ADB=/nix/store/abc-androidsdk/platform-tools/adb\ncat $ADB"),
         [(
@@ -847,10 +847,10 @@ fn only_a_shells_inline_flag_is_shell() {
         uses("python3 -c 'import os; os.remove(\"src/a.py\")'"),
         [("/home/example/Code/health/src/a.py".to_string(), true)]
     );
-    // ⚠ **This asserted `is_empty()` until 2026-08-22**, when `node -e` was
-    // ranked as a query tool on a count of its writes alone. Its READS are
-    // 1,790 `readFileSync` calls across the corpus, and a projection is mostly
-    // about reads — so the decision moved when the denominator did.
+    // ⚠ **This asserted `is_empty()` once**, when `node -e` was ranked as a
+    // query tool on a count of its writes alone. Its READS are the larger half
+    // by far, and a projection is mostly about reads — so the decision moved
+    // when the denominator did.
     assert_eq!(
         uses("node -e 'require(\"fs\").readFileSync(\"src/a.ts\")'"),
         [("/home/example/Code/health/src/a.ts".to_string(), false)]
@@ -1413,8 +1413,8 @@ fn uses_knowing(script: &str, refused: &[&str]) -> Vec<(String, bool)> {
 
 #[test]
 fn a_cd_the_shell_refused_does_not_move_the_directory() {
-    // Reported from the console 2026-08-08 by typing it: `cd memcheck` into a
-    // directory with no `memcheck` in it, then reading a file. The `cat` ran
+    // Reported from the console by typing it: `cd memcheck` into a directory
+    // with no `memcheck` in it, then reading a file. The `cat` ran
     // where it already was, and the path recorded was under a directory that has
     // never existed.
     let script = "cd nowhere; cat Cargo.toml";
@@ -1472,10 +1472,10 @@ fn a_refusal_from_one_command_does_not_silence_another() {
 
 #[test]
 fn a_cd_into_the_directory_the_line_is_already_in_moves_nothing() {
-    // ⚠ **The transcript's `cwd` means two different things** — measured
-    // 2026-08-12 across 191,273 `Bash` calls: 168 single-call lines record the
-    // directory their command STARTED in and 84 record the one it ENDED in, in
-    // the same transcript at the same CLI version (memview #449). On a line of
+    // ⚠ **The transcript's `cwd` means two different things** — some
+    // single-call lines record the directory their command STARTED in and some
+    // the one it ENDED in, in the same transcript at the same CLI version
+    // (memview #449). On a line of
     // the second kind, applying the command's own `cd` again doubles the
     // segment: all 84 landed in a directory that has never existed.
     //
@@ -1561,9 +1561,8 @@ fn a_script_in_the_work_is_still_recorded_when_it_is_run() {
 /// no entry for that name*, and the list built from it says what to teach next.
 /// A local helper can never be taught — `probe` is a different function in every
 /// script that declares one — so counting it there is work that cannot be done.
-/// Measured 2026-08-23 by `--example defined-here`: **2,493 of 18,083 unread
-/// calls, 13.8%, across 78 names**, which was the largest single category on
-/// that list. memview#1124.
+/// Count them with `--example defined-here`; they were the largest single
+/// category on that list. memview#1124.
 #[test]
 fn a_function_this_text_defines_is_not_an_unread_command() {
     let script = "probe() { echo hi; }\nprobe one\nprobe two";
@@ -1804,9 +1803,8 @@ fn a_suffix_holding_a_glob_is_still_a_transduction_and_still_refused() {
 /// ⚠ **The worklist is what this protects, the same as a local function.**
 /// `$BIN` is a different program in every script that sets it, so there is no
 /// entry anybody could write — and `unhandled` means precisely *the table has
-/// no entry for that name*. Measured 2026-08-25 over the union corpus: **27
-/// such names, 287 calls**, beside 8 more entries and 503 calls of the same
-/// cause with the variable resolved and then not word-split. memview#1158.
+/// no entry for that name*. More calls again have the same cause with the
+/// variable resolved and then not word-split. memview#1158.
 #[test]
 fn a_command_named_by_a_variable_is_not_an_unread_command() {
     for script in ["$BIN --version", "${TOOL} run", "$exe -c 'x'"] {
@@ -2067,7 +2065,7 @@ fn every_refusal_has_exactly_one_reason() {
 }
 
 /// ⚠ **`scope` marks SUBSHELLS and nothing else — a loop body is invisible to
-/// it** (memview#1364, measured 2026-09-10).
+/// it** (memview#1364).
 ///
 /// The multi-step concept seeds (`Poll`, `Glance`, `Probe`) rested on a written
 /// hypothesis: *"`Step.scope` is the chain of subshells a node sits in, so a
