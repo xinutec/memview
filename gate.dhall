@@ -103,6 +103,15 @@ in  { name = "memview"
         , argv = [ "./scripts/workspace-members.sh" ]
         , timeout_s = 60
         }
+      , {-  Cargo does not check `test = false`: a `#[test]` written under `src/`
+            is never run and nothing says it was skipped. Every crate here
+            declares it, so this is what makes the declaration fail instead.
+        -}
+        G.Check::{
+        , name = "every test lives in tests/"
+        , argv = [ "./scripts/tests-live-in-tests.sh" ]
+        , timeout_s = 60
+        }
       , G.Check::{
         , name = "formatting"
         , argv = G.inDevShell [ "cargo", "fmt", "--all", "--check" ]

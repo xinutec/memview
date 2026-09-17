@@ -12,6 +12,16 @@
     },
     {
       "argv": [
+        "./scripts/tests-live-in-tests.sh"
+      ],
+      "artifacts": [],
+      "cwd": ".",
+      "env": {},
+      "name": "every test lives in tests/",
+      "timeout_s": 60
+    },
+    {
+      "argv": [
         "nix",
         "develop",
         "--no-warn-dirty",
