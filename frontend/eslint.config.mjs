@@ -49,6 +49,24 @@ export default tseslint.config(
     },
   },
   {
+    // ⚠ **The e2e trees need a project that knows about node.** `projectService`
+    // resolves each file against the nearest `tsconfig.json`, and neither the
+    // app's nor the spec's reaches `e2e/` — so `spawn()` came back unresolved
+    // and every use of it read as an unsafe call on `any`. `tsconfig.e2e.json`
+    // is the config that actually describes these files; naming it here is what
+    // makes the type-aware rules mean anything over them.
+    files: ['e2e/**/*.ts', 'projects/*/e2e/**/*.ts', 'projects/*/playwright*.config.ts'],
+    languageOptions: {
+      parserOptions: {
+        // `projectService: false` alongside it, because the two are exclusive
+        // and the service is what was picking the wrong config.
+        projectService: false,
+        project: './tsconfig.e2e.json',
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+  {
     files: ['src/**/*.html', 'projects/**/*.html'],
     extends: [...angular.configs.templateRecommended, ...angular.configs.templateAccessibility],
   },

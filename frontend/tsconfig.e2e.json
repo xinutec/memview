@@ -20,16 +20,24 @@
   "compilerOptions": {
     "noEmit": true,
     // ⚠ **So a golden fixture can be IMPORTED rather than read.** The parse
-    // sheet's expected answer is written by `console/tests/parse.rs` and read
-    // here; importing the JSON keeps the types resolved, where `node:fs` is not
-    // in this config's scope and resolves as `error`.
-    "resolveJsonModule": true
+    // sheet's expected answer is written by `console/tests/suite/parse.rs` and
+    // read here; importing the JSON keeps the types resolved, and is still the
+    // right way to reach one even now that `node:` resolves.
+    "resolveJsonModule": true,
+    // For `e2e/runner.ts`, which starts a real console: spawning a process and
+    // writing a fixture are node's, not the browser's. Pinned to the major the
+    // flake installs — types a version ahead of the runtime describe APIs that
+    // are not there.
+    "types": ["node"]
   },
   "include": [
     "playwright.config.ts",
     "e2e/**/*.ts",
     "e2e/**/*.d.mts",
-    "projects/*/playwright.config.ts",
+    // Every Playwright config, not just the one named `playwright.config.ts`:
+    // `playwright.sync.config.ts` matched nothing under the narrower glob, which
+    // is the same gap this file was written to close.
+    "projects/*/playwright*.config.ts",
     "projects/*/e2e/**/*.ts",
     "projects/*/e2e/**/*.d.mts"
   ]

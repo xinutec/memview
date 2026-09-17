@@ -267,6 +267,29 @@ in  { name = "memview"
         , env = G.oneAngularWorker # G.nonInteractive
         , timeout_s = 1800
         }
+      , {-  The ONLY check where the Rust runner and the RxDB client meet.
+            `cargo test`'s drafts suite drives the protocol with documents Rust
+            wrote; the frontend's drives the client against a stub answering what
+            TypeScript expects. Both stay green while the two disagree about the
+            wire, which is how four sync defects reached the phone — every one
+            found by hand with two browsers.
+
+            ⚠ **It builds the console binary itself.** The alternative is a suite
+            that passes against whatever was left in `target/`.
+
+            ⚠ **The runner it starts is isolated by ASSERTION.** A console given
+            an incomplete environment does not fail: it falls back to the real
+            `~/.claude`, lists the real conversations and spawns the real CLI
+            over them. `e2e/runner.ts` refuses to hand back a runner that can see
+            anything but its own fixture.
+        -}
+        G.Check::{
+        , name = "drafts cross between two devices"
+        , argv = G.inDevShell [ "./scripts/sync-check.sh" ]
+        , artifacts = [ "frontend/projects/console-web/test-results" ]
+        , env = G.nonInteractive
+        , timeout_s = 1800
+        }
       , {-  The graph layout, measured rather than looked at. Every bug this view
             has had was a picture that looked plausible — a zoom that was a silent
             no-op, labels that overprinted, sections that smeared into one ball —
