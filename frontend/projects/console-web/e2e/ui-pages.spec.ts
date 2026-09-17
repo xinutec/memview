@@ -3922,7 +3922,7 @@ test('a seed that arrives in pieces still ends at the end @ phone width', async 
  * no longer sends. Nothing failed, because a stub agrees with whatever it was
  * last told.
  *
- * `console/tests/parse.rs` now compares its own output against
+ * `console/tests/suite/parse.rs` now compares its own output against
  * `parsed.fixture.json` and fails with instructions; `BLESS=1` updates it, and
  * the change lands in the same commit as the reader change that caused it.
  *

@@ -9,7 +9,7 @@ first was chosen by the census, not guessed.** `bash-corpus --said` + `said-repo
 mine and read the description corpus; `reader/src/concept.rs` lifts and lowers
 `Rewrite`, `Page`, `Search`, `List`, `Measure`, `History`, `Status`, `Stage` and
 `Commit` — and answers every miss by name (`concept::Why`)
-— with gates 1–3 in `reader/tests/concept.rs`; `concept-report` is the census,
+— with gates 1–3 in `reader/tests/suite/concept.rs`; `concept-report` is the census,
 balanced to the unit. Adding `Page` took the lift rate from 0.18% to **13.06%
 of steps**, `Search` to **17.32%**, `List` to **18.04%**, `History` to **19.30%**, the git working-tree three to
 **20.98%**, `Measure` to **21.86%** and repairing the `--` operand count to
@@ -176,10 +176,10 @@ satisfies the law perfectly. The gates generalise with it:
   forbid exactly the cross-spelling unification the layer exists to make, so the
   authority is what the reader says was *touched*, not which arm it took. Where
   spellings happen to share an `Op` (`Rewrite`), variant equality holds for
-  free; the gate does not demand it. `reader/tests/concept.rs::read_as` is the
+  free; the gate does not demand it. `reader/tests/suite/concept.rs::read_as` is the
   judge.
 - **gate 3** — is the lowered text valid at all: `bash -n`, unchanged, plus the
-  PATH-shim oracle on fixtures (`reader/tests/oracle.rs`) for semantics.
+  PATH-shim oracle on fixtures (`reader/tests/suite/oracle.rs`) for semantics.
 - **gate 4** — the author's own statement, below: a lift that contradicts the
   recorded description is a finding about one of them.
 
@@ -458,7 +458,7 @@ placement down before this layer existed: *"it must live above this library —
 convenience."*
 
 Both arms are falsifiable by the instrument that exists.
-`reader/tests/oracle.rs` runs fixtures for real under PATH shims and asserts
+`reader/tests/suite/oracle.rs` runs fixtures for real under PATH shims and asserts
 `S ⊆ L`; a dynamic resolution claims the stronger `S = L ∩ Files(D, t)`, which
 the same shim refutes or confirms exactly. Sound-but-unfalsifiable is what this
 design refuses at every level; the dynamic arm is *more* checkable than the

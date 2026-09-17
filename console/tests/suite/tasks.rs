@@ -344,7 +344,7 @@ async fn a_task_with_prose_returns_the_markdown_not_the_html() {
     // and taking the HTML would put content outside that renderer's rules.
     // ⚠ `r###"…"###`, not one or two hashes. The body starts `"## Why`, and
     // that sequence closes BOTH `r#"…"#` and `r##"…"##`. Same trap as the
-    // `## Context Usage` fixture in `console/tests/past.rs`.
+    // `## Context Usage` fixture in `console/tests/suite/past.rs`.
     let full = r###"{"id":98,"subject":"x","status":"open","assignee":{"kind":"nobody"},"detailed":true,"created_at":"2026-08-08T10:00:00Z","updated_at":"2026-08-08T10:00:00Z","body":"## Why\n\nBecause.","body_html":"<h2>Why</h2>","events":[]}"###;
     let (address, _) = serving(vec![("/api/tasks/98", full)]).await;
     let said = reading(address).detail("98").await.expect("prose");

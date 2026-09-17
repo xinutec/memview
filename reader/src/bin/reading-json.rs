@@ -43,7 +43,7 @@ fn main() -> anyhow::Result<()> {
     });
 
     // Epoch seconds, NOT a formatted string. `reader` is a leaf crate — see
-    // `reader/tests/leaf.rs` — and carrying `chrono` so that one field arrives
+    // `reader/tests/suite/leaf.rs` — and carrying `chrono` so that one field arrives
     // pre-formatted would put a date library in every binary that links the
     // parser. Both clients are Angular and already have a date pipe.
     let at = std::fs::metadata(&corpus)

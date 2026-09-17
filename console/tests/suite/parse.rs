@@ -167,7 +167,7 @@ fn an_unread_command_is_named_rather_than_left_blank() {
     // What is under test is the naming, not the command.
     //
     // ⚠ **THREE tests hold this placeholder and they are in three crates**:
-    // here, `reader/tests/shell_ops.rs` and `reader/tests/shell_files.rs`.
+    // here, `reader/tests/suite/shell_ops.rs` and `reader/tests/suite/shell_files.rs`.
     // Teaching a command turns all three red, and `cargo test -p reader` shows
     // only two of them — this one costs a whole gate run to find. Change them
     // together.

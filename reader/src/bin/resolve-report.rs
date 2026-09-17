@@ -24,7 +24,7 @@
 //! this counts what may be asked, which bounds above what may be answered.
 //!
 //! ⚠ **And it says nothing about whether a resolved prediction is CORRECT.**
-//! That is the oracle's job — `reader/tests/oracle.rs` shims `PATH` and can
+//! That is the oracle's job — `reader/tests/suite/oracle.rs` shims `PATH` and can
 //! falsify the dynamic claim `S = L ∩ Files(D, t)` exactly, because it is
 //! stronger than the static `S ⊆ L` it already checks. A ceiling and a
 //! correctness check are different instruments and neither substitutes.

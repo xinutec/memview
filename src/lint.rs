@@ -53,10 +53,10 @@ pub struct Finding {
 
 /// The most a single index teaser may take from the ceiling.
 ///
-/// Not tuned to today's longest line (123 bytes) — a cap that tight would argue
-/// with wording. It is set to sit between an index teaser and a description,
-/// whose medians measured over the corpus on 2026-09-01 were 8 and 193 bytes, so
-/// what it catches is a description pasted into the wrong field.
+/// Not tuned to the longest line in the corpus — a cap that tight would argue
+/// with wording. It sits between the length of a teaser and that of a
+/// description, so what it catches is a description pasted into the wrong
+/// field.
 pub const TEASER_MAX: usize = 140;
 
 /// The injection ceiling, owned by [`crate::ceiling`] and re-exported here.
@@ -73,17 +73,19 @@ pub use crate::ceiling::INDEX_CEILING;
 /// not reachable. Both are ERRORS and the pre-commit gate runs this, so a
 /// concurrent session writing a memory can fail an unrelated commit for a
 /// reason that was never the committer's and that evaporates on retry.
-/// `governs-unreciprocated` was a third until 2026-08-25, when the typed-link
-/// requirement was retired — see `feedback_typed_memory_links`.
 ///
 /// ⚠ **Here rather than in `bin/memory-lint.rs`, because there it named a rule
-/// that no longer existed.** It listed `"not-in-index"`, renamed to
-/// `"unreachable"` on 2026-08-02 when the rule became reachability rather than
-/// membership. The string still compiled, still read as deliberate, and matched
-/// nothing — so the retry covered one of its two rules, and not the likelier
-/// one (memview#1456). Beside [`RULES`] it is one grep from its subject, and
-/// `every_racy_rule_is_a_real_rule` in `tests/lint.rs` now fails on a rename
+/// that no longer existed.** A renamed rule leaves behind a string that still
+/// compiles, still reads as deliberate, and matches nothing — so the retry
+/// covered one of its two rules, and not the likelier one (memview#1456). Beside [`RULES`] it is one grep from its subject, and
+/// `every_racy_rule_is_a_real_rule` in `tests/suite/lint.rs` now fails on a rename
 /// instead of silently disarming the retry.
+/// How much of a file the Read tool returns by default.
+///
+/// A memory past this still opens and still looks whole; only its tail is
+/// missing, which is the one failure a reader cannot see in the output.
+pub const READ_LIMIT: usize = 2000;
+
 pub const RACY: [&str; 2] = ["unreachable", "index-points-nowhere"];
 
 /// Every rule, with the severity it currently carries.
@@ -99,14 +101,12 @@ const RULES: &[(&str, Severity, &str)] = &[
          one line, at most TEASER_MAX bytes",
     ),
     (
-        // Introduced 2026-09-11 as a WARNING although the count was already
-        // ZERO, which the two-tier design would normally let go straight to
-        // ERROR. The ratchet's condition is "worked down to zero"; this
-        // reached zero minutes earlier, when 27 indexed memories were judged
-        // in one pass (memview#1537), and a rule that has never been observed
-        // stable should not decide whether sixteen other sessions can commit.
-        // Promote it once it has held — that is the one-word edit the design
-        // is built around.
+        // A WARNING although the corpus is at zero, which the two-tier design
+        // would otherwise send straight to ERROR: the ratchet's condition is
+        // "worked down to zero", and this reached zero in the very pass that
+        // judged the backlog. A rule never observed stable should not decide
+        // whether the other sessions can commit. Promote it once it has held —
+        // the one-word edit the design is built around.
         "unjudged-role",
         Severity::Warning,
         "an indexed memory with no `role:` and no entry in the judgement record \
@@ -114,11 +114,11 @@ const RULES: &[(&str, Severity, &str)] = &[
          only grow (memview#1537)",
     ),
     (
-        // Introduced 2026-09-11 with 160 live violations, so a WARNING for a
-        // long time. ⚠ It may NEVER be promoted by writing longer lines: the
-        // index has 148 bytes of headroom and taking those 160 to a claim
-        // costs ~4,000. Zero is reached by demoting them or by the corpus
-        // getting smaller, not by editing toward the rule (memview#822).
+        // A WARNING while violations remain. ⚠ It may NEVER be promoted by
+        // writing longer index lines: the index is near its size ceiling, and
+        // stating a claim on every one of these costs far more than the headroom
+        // left. Zero comes from demoting them or from the corpus getting
+        // smaller, never from editing toward the rule (memview#822).
         "mute-tripwire",
         Severity::Warning,
         "a memory judged TRIPWIRE whose index line states no claim — it reminds \
@@ -155,56 +155,35 @@ const RULES: &[(&str, Severity, &str)] = &[
         "the description is what recall reads to decide relevance; without one the memory is invisible",
     ),
     (
-        // Introduced 2026-08-14 directly at ERROR, which the two-tier design
-        // allows only because the corpus was taken to zero first: 190 of 542
-        // memories carried no stamp, and every one was backfilled from the
-        // file's mtime — with mtime then restored, since completing the
-        // frontmatter is not a modification of what the memory says.
-        //
         // ⚠ **Presence is not accuracy, and this rule only checks presence.**
         // The stamp is maintained by the memory-writing path and goes silently
         // wrong whenever a file is edited by any other route.
         //
-        // ⚠ **"`modified` is never EARLIER than mtime" was measured on
-        // 2026-08-14 and is no longer true — 11 files break it (#1219).** The
-        // rest of that measurement got worse rather than better: across the
-        // whole corpus on 2026-08-27, only 129 of 647 files agreed with their
-        // own stamp within an hour, the median gap was 9.9 days and the worst
-        // 34. A freshness rule built on mtime would misfire on any synced or
-        // restored copy — and on a plain touch, which is most of them.
+        // ⚠ **Do not rebuild this on mtime.** Most files disagree with their
+        // own stamp by days: a synced, restored or merely touched copy carries
+        // an mtime that says nothing about when the memory was written, and
+        // `modified` is not even reliably later than it (#1219).
         //
         // ⚠ **The message names a repair tool; do NOT let that become an
         // auto-fix.** `memory-stamp` must stay a thing a person runs, because
         // this rule failing is the only visible symptom of a write that skipped
         // the stamping path, and the harder half is the AUTHOR — recoverable only
-        // from the transcripts, and only for sessions the archive still holds
-        // (it begins 2026-07-31; memview#1240 measured that nothing since has
-        // been deleted, so this is a floor rather than a countdown). Silence the
-        // rule and the authorship loss continues unseen; see
+        // from the transcripts the archive still holds. Silence the rule and
+        // the authorship loss continues unseen; see
         // `feedback_a_precondition_that_can_pass_wrongly`. What the pointer
         // removes is the forensics, not the failure: the session that trips this
-        // is usually not the one that wrote the file (three authors in three
-        // hours, each invisible to itself and each blocking somebody else).
+        // is usually not the one that wrote the file.
         "missing-modified",
         Severity::Error,
         "no `modified` stamp — its age cannot be judged, so a stale claim reads as current; \
          `cargo run --bin memory-stamp` names the session that wrote it and repairs it",
     ),
     (
-        // Introduced 2026-09-02 at ERROR, which the two-tier design allows only
-        // because the corpus was taken to zero first: five memories carried the
-        // pair the wrong way round and were repaired by hand the same day
-        // (memory corpus e1a6388), each `created` set to the earliest write the
-        // evidence supported.
-        //
-        // ⚠ **What this catches is a BACKFILL, not a typo.** The worst of the
-        // five was `reference_sqlx_mysql_type_traps`: created 08-21 against
-        // modified 08-19, where git showed the file already existed on 08-19 —
-        // so the 08-28 backfill invented a birthday after the memory's own first
-        // commit. Nothing downstream reads the pair together, which is why five
-        // of them sat there unremarked; a memory whose age is stated backwards
-        // still recalls, still renders, and quietly poisons anything that later
-        // asks how old the corpus is.
+        // ⚠ **What this catches is a BACKFILL, not a typo.** A `created` stamp
+        // written later than the file's own first commit invents a birthday the
+        // memory never had. Nothing downstream reads the pair together, so one
+        // sits unremarked: it still recalls, still renders, and quietly poisons
+        // anything that later asks how old the corpus is.
         //
         // ⚠ **Ordering only.** Whether either stamp is TRUE is not decidable
         // here — see `missing-modified` above on why mtime cannot referee it.
@@ -216,8 +195,7 @@ const RULES: &[(&str, Severity, &str)] = &[
          so one of the two stamps was written by something that did not check",
     ),
     (
-        // Introduced 2026-08-14 at ERROR; the corpus was already at zero. The
-        // stem is what everything resolves by, so a missing `name:` breaks
+        // The stem is what everything resolves by, so a missing `name:` breaks
         // nothing at runtime — which is the reason to check it. It is the
         // memory's own statement of its id, and a reader quoting frontmatter
         // that is not there cites nothing.
@@ -226,9 +204,6 @@ const RULES: &[(&str, Severity, &str)] = &[
         "no `name:` in frontmatter — the memory does not state its own id",
     ),
     (
-        // Introduced 2026-08-14 at ERROR; the corpus was already at zero, and
-        // all four declared types were in vocabulary.
-        //
         // ⚠ Covers absent AND out-of-vocabulary in one rule, because they fail
         // identically downstream: `mtype` falls back to the filename prefix, so
         // `type: refrence` and no type at all both parse as a valid memory and
@@ -243,12 +218,12 @@ const RULES: &[(&str, Severity, &str)] = &[
         "no links in either direction — can only be found by already knowing its name",
     ),
     (
-        // **Reachability, not membership** — corrected 2026-08-02 at Pippijn's
-        // word: *"MEMORY.md doesn't need to index everything. things have to be
-        // reachable, but don't need to all be in MEMORY.md"*. The rule used to
-        // demand an index line for every memory, and it failed the gate on a
-        // corpus that was perfectly navigable: three lares memories had just
-        // been consolidated under one index entry that links them all. What
+        // **Reachability, not membership**, at Pippijn's word: *"MEMORY.md
+        // doesn't need to index everything. things have to be reachable, but
+        // don't need to all be in MEMORY.md"*. Demanding an index line for every
+        // memory fails the gate on a corpus that is perfectly navigable —
+        // several memories consolidated under one entry that links them all.
+        // What
         // matters is that a reader starting at MEMORY.md can get there, by any
         // number of hops.
         "unreachable",
@@ -290,13 +265,12 @@ const RULES: &[(&str, Severity, &str)] = &[
         "links a memory that was never written — an intent marker, so this is a backlog and never an error",
     ),
     (
-        // Promoted 2026-07-30, at zero. Nine of the nineteen this rule was
-        // reporting turned out to be the CHECK, not the corpus: it demanded the
-        // literal bytes `**Why:**`, so `**Why (the nixos-repo caution):**` —
-        // better writing, a scope the rule genuinely has — read as no reason at
-        // all. Fixing that first mattered: promoting the old check would have
-        // made "phrase it exactly this way" an error, and the corpus would have
-        // been edited to satisfy a string match.
+        // ⚠ **Match the shape, not the literal bytes.** An earlier version
+        // demanded exactly `**Why:**`, so `**Why (the nixos-repo caution):**` —
+        // better writing, and a scope the rule genuinely has — read as no reason
+        // at all. Promoting a check that strict would make "phrase it exactly
+        // this way" an error, and the corpus would be edited to satisfy a string
+        // match.
         "missing-why",
         Severity::Error,
         "a feedback memory needs a bold **Why…** section — a rule without its reason gets misapplied",
@@ -307,12 +281,8 @@ const RULES: &[(&str, Severity, &str)] = &[
         "a feedback memory needs a bold **How to apply…** section — a rule you cannot act on is a note",
     ),
     (
-        // Introduced 2026-09-09 AT ZERO, having just been worked there: 12 of
-        // 719 memories carried no author and nothing reported it, so the field
-        // was invisible to this check AND to `memory-stamp`, which keyed on a
-        // missing `modified:` alone. All 12 were recovered from the transcripts.
-        // Armed now so it reports a REGRESSION rather than a backlog, which is
-        // the corpus convention and the only moment it is cheap.
+        // Armed at zero so it reports a REGRESSION rather than a backlog, which
+        // is the corpus convention and the only moment it is cheap.
         //
         // ⚠ **WARNING, and it must NOT be promoted without somewhere to route
         // it.** A memory with no `originSessionId` cannot be attributed, so
@@ -323,8 +293,8 @@ const RULES: &[(&str, Severity, &str)] = &[
         // Catching this needs the WRITER at write time (#1498), not a louder
         // corpus rule.
         //
-        // ⚠ **`missing-modified` does not cover this path.** All 12 HAD a stamp.
-        // A heredoc creates the file with neither field; a later Edit stamps
+        // ⚠ **`missing-modified` does not cover this path.** These files HAVE a
+        // stamp. A heredoc creates one with neither field; a later Edit stamps
         // `modified:` because the body changed, and never adds the origin
         // because an edit is not a creation. The stamp heals itself and the
         // author is lost for good.
@@ -333,42 +303,29 @@ const RULES: &[(&str, Severity, &str)] = &[
         "no `originSessionId:` — nobody can be asked about it, and a rule that FAILED on it would block the nightly and no session",
     ),
     (
-        // Introduced 2026-08-24 at ERROR with the corpus at zero — the point of
-        // it is to be armed before the cliff, not to describe a fall.
-        //
-        // The Read tool returns the first 2,000 lines by default. Past that a
-        // memory still opens, still looks whole, and its tail is silently not
-        // there — the one failure mode a reader cannot detect from the output.
-        // The corpus has hit it twice and both times found out afterwards:
-        // `project_health_lean_port_roadmap` reached 2,403 lines (split
-        // 2026-08-14, its last 403 lines outside an ordinary read), and the log
-        // that came out of it was pushed to 2,233 by appending (split again
-        // 2026-08-22).
+        // Armed before the cliff rather than after one: past [`READ_LIMIT`] a
+        // memory still opens and still looks whole, and its tail is silently not
+        // there — the one failure a reader cannot detect from the output. The
+        // corpus has hit it twice, and both times found out afterwards.
         "past-read-limit",
         Severity::Error,
-        "over 2,000 lines: the Read tool's default stops there, so the tail is silently unread",
+        "past the Read tool's default line limit, so the tail is silently unread",
     ),
     (
-        // The same cliff with room to act. 1,000 lines is 2.4x the corpus's p99
-        // (415) and half the hard limit, so it marks a genuine outlier while
-        // leaving a full thousand lines of headroom — at the log's observed
-        // ~138 lines/day that is about a week to split deliberately rather than
-        // in a panic.
+        // The same cliff with room to act: half of [`READ_LIMIT`] is well past
+        // the corpus's ordinary spread, so it marks a real outlier while leaving
+        // enough headroom to split deliberately rather than in a panic.
         //
-        // ⚠ **Both previous splits were reactive**, which is why the warning
-        // exists at all: a rule that only fires once the tail is already
-        // invisible reports a loss instead of preventing one.
+        // ⚠ **Every split so far has been reactive**, which is why the warning
+        // exists at all: a rule that fires only once the tail is invisible
+        // reports a loss instead of preventing one.
         "nearing-read-limit",
         Severity::Warning,
-        "over 1,000 lines and growing toward the Read tool's 2,000-line default — split it deliberately, before the tail goes quiet",
+        "over half the Read tool's default line limit and growing — split it deliberately, before the tail goes quiet",
     ),
     (
-        // Introduced 2026-08-25 at ERROR, with the corpus already at zero — the
-        // three memories holding `173/173` all link the retraction already.
-        //
-        // ⚠ **The failure it exists for is measured, not imagined.**
-        // `project_health_verified_core_lean` retracted `compare-match 173/173`
-        // and then went on quoting it about TWELVE times, including in its own
+        // ⚠ **The failure it exists for has happened.** A memory retracted a
+        // figure and then went on quoting it throughout, including in its own
         // description. Its defence was a hand-written CORRECTION banner, applied
         // afterwards and checkable by nobody, because a retraction was prose.
         //
@@ -403,10 +360,9 @@ const RULES: &[(&str, Severity, &str)] = &[
         "the checkout root could not be read, so no path claim was actually verified",
     ),
     (
-        // Introduced 2026-08-25 at WARNING with 15 findings of 369 sha-shaped
-        // tokens — 4.1%. A warning and not an error because the rule cannot
-        // separate "this sha is wrong" from "the repo holding it is not cloned
-        // here", and both look identical from the code root.
+        // A warning and not an error because the rule cannot separate "this sha
+        // is wrong" from "the repo holding it is not cloned here", and both look
+        // identical from the code root.
         //
         // ⚠ **Three filters, and each was measured rather than guessed.**
         // Checking every `[0-9a-f]{7,10}` token against the memory's OWN repo,
@@ -423,11 +379,6 @@ const RULES: &[(&str, Severity, &str)] = &[
         "cites a commit hash that exists in no repository here — a mistyped sha, a rebased-away commit, or a repo that is not cloned on this machine",
     ),
     (
-        // Introduced 2026-09-16 at ERROR, which the two-tier design allows only
-        // because the corpus was taken to zero first: six memories declared a
-        // birthday after their own first write and were repaired the same day,
-        // each `created` set to the earliest write the transcripts show.
-        //
         // ⚠ **This is `created-after-modified`'s blind half.** That rule states
         // what is decidable inside the corpus — a memory cannot have been
         // changed before it existed — and it caught exactly one of the six,
@@ -436,10 +387,9 @@ const RULES: &[(&str, Severity, &str)] = &[
         // simply wrong about when they began.
         //
         // ⚠ **One-sided ON PURPOSE.** A `created` EARLIER than the mined first
-        // write is expected and correct: the transcript archive begins
-        // 2026-07-31, so a memory older than that shows its first RE-write
-        // instead of its creation, and `reference_sqlx_mysql_type_traps` reads
-        // 23 days early for that reason. Only the other direction is impossible.
+        // write is expected and correct: the transcript archive does not reach
+        // back forever, so a memory older than it shows its first RE-write
+        // instead of its creation. Only the other direction is impossible.
         "created-after-first-write",
         Severity::Error,
         "`created` is later than the earliest write the transcripts record — a birthday typed \
@@ -617,13 +567,13 @@ pub fn check(
         // Counted on `raw`, because the Read tool's limit applies to the file
         // on disk — frontmatter included — and not to the parsed body.
         let lines = doc.raw.lines().count();
-        if lines > 2000 {
+        if lines > READ_LIMIT {
             push("past-read-limit", name, format!("{lines} lines"));
-        } else if lines > 1000 {
+        } else if lines > READ_LIMIT / 2 {
             push(
                 "nearing-read-limit",
                 name,
-                format!("{lines} lines, {} from the limit", 2000 - lines),
+                format!("{lines} lines, {} from the limit", READ_LIMIT - lines),
             );
         }
 
@@ -731,10 +681,10 @@ pub fn check(
                     continue;
                 };
                 // ⚠ **Only a TRIPWIRE, because a bare label is CORRECT for a
-                // pointer.** Measured 2026-09-11: 47 of 56 indexed pointers
-                // state no claim, which is the control that makes the tripwire
-                // figure mean anything — 160 of 290, where the line's whole job
-                // is to act on a reader who did not come looking.
+                // pointer.** Most indexed pointers state no claim, and that is
+                // the control: a tripwire's whole job is to act on a reader who
+                // did not come looking, so silence means something there and
+                // nothing on a pointer.
                 if role == crate::study::Role::Tripwire && !states_a_claim(&entry.label) {
                     push(
                         "mute-tripwire",
@@ -779,10 +729,10 @@ pub fn check(
                     lost.len()
                 ),
             );
-            // ⚠ **These are the casualties, not an estimate.** The ceiling
-            // was measured on 2026-08-31 (see [`INDEX_CEILING`]) and is the
-            // edge rather than a warning line, so every name here is a memory
-            // a new session is not given. The one remaining slack is the cut
+            // ⚠ **These are the casualties, not an estimate.** [`INDEX_CEILING`]
+            // is the edge rather than a warning line, so every name here is a
+            // memory a new session is not given. The one remaining slack is the
+            // cut
             // model: whole lines, which can over-report by at most one partial
             // line at the boundary.
             for name in lost {
@@ -1006,10 +956,10 @@ fn code_repos_named(text: &str, code_root: &std::path::Path) -> BTreeSet<String>
 /// Kept separate from [`check`] because that function is pure over the corpus and
 /// worth keeping that way; this one is the only part that touches a filesystem.
 ///
-/// **Why this exists.** On 2026-08-01 an audit found that `lares` had been retired
-/// to `~/Archive/lares` and recorded in exactly one memory, while fifteen others —
-/// four of them feedback rules, the highest-authority documents here — still sent a
-/// reader to `~/Code/lares`. Every rule in the table above passed the whole time,
+/// **Why this exists.** A repo retired to `~/Archive` was recorded in exactly one
+/// memory while many others — including feedback rules, the highest-authority
+/// documents here — still sent a reader to `~/Code`. Every rule in the table
+/// above passed the whole time,
 /// because all of them ask whether the document graph is well-formed and none of
 /// them ask whether it is true. A corpus can be perfectly consistent with itself
 /// and still be describing a machine that no longer exists.
@@ -1022,10 +972,10 @@ fn code_repos_named(text: &str, code_root: &std::path::Path) -> BTreeSet<String>
 /// is the whole rule.** Scoped per document it under-fires exactly where it matters:
 /// a long project memory opens with "retired to `~/Archive/lares`" and forty lines
 /// later still instructs "captures live at `~/Code/lares/captures`". Same repo, so
-/// the per-repo check cannot separate them — the banner cleared the file. Measured
-/// on the real corpus 2026-08-12: `project_lares_recon` carried the banner in its
-/// first paragraph and four live paths below it, and this rule was silent on all
-/// four while the audit that found them read the file by hand. A retirement note
+/// the per-repo check cannot separate them — the banner clears the file. That has
+/// happened: a banner in the first paragraph and live paths below it, with this
+/// rule silent on every one while the audit that found them read by hand.
+/// A retirement note
 /// records the retirement where it is written; it is not a document-wide waiver.
 /// Sha-shaped tokens a memory writes in backticks, minus the two shapes that
 /// look identical and are not commits.
@@ -1184,11 +1134,10 @@ fn repos_under(code_root: &std::path::Path) -> Vec<std::path::PathBuf> {
         // ⚠ **`~/.claude` IS a repository, not a directory holding some** — which
         // is why `collect` cannot reach it: that walks a directory's children.
         //
-        // Measured 2026-09-13: all three `unresolvable-commit` warnings in the
-        // corpus were claude-config commits, and all three resolve here. The rule
-        // was 3-for-3 wrong, and its own text accused a "mistyped sha" or "a repo
-        // that is not cloned on this machine" about the repository the corpus
-        // itself lives in — the shape that teaches a reader to skim the rule.
+        // Without it, every `unresolvable-commit` warning about a claude-config
+        // commit is wrong, and the rule's own text accuses a "mistyped sha" or
+        // "a repo that is not cloned on this machine" about the repository the
+        // corpus itself lives in — the shape that teaches a reader to skim it.
         //
         // Same defect as `~/.config` above, recorded separately because the SHAPE
         // differs: anyone adding a third location has to know which kind it is.
@@ -1347,15 +1296,14 @@ pub fn check_world(corpus: &Corpus, code_root: &std::path::Path) -> Vec<Finding>
                 }
                 // ⚠ **The third state: alive, pushed, and simply not cloned
                 // here.** Retirement is not the only honest reason a `~/Code`
-                // path is absent. `project_phonos` names a repo pushed on
-                // 2026-08-26 with no working copy on this Mac, and the honest
-                // sentence — "there is no clone here, it is at
-                // github.com/xinutec/phonos" — tripped this rule for saying
-                // where the repo was expected to be.
+                // path is absent: a repo can be pushed with no working copy on
+                // this Mac, and the honest sentence — "there is no clone here,
+                // it is at github.com/xinutec/<repo>" — trips this rule for
+                // saying where the repo was expected to be.
                 //
-                // It was worked around by deleting the path from the prose
-                // (`ac6bf80`), which is strictly worse: the reader loses the
-                // location and the rule learns nothing. Naming the remote beside
+                // Deleting the path from the prose is strictly worse: the reader
+                // loses the location and the rule learns nothing. Naming the
+                // remote beside
                 // the path is the same shape of record as naming the archive,
                 // and is accepted on the same terms — per repo, and per BLOCK,
                 // so a header cannot excuse an instruction forty lines down.
@@ -1417,13 +1365,13 @@ pub fn check_world(corpus: &Corpus, code_root: &std::path::Path) -> Vec<Finding>
 /// ⚠ **Deliberately reads `raw` rather than the parsed [`crate::store::MemoryMeta`].**
 /// That struct's `modified` is `Some` for every memory that exists, so a check
 /// against it can never fire — which is exactly how `missing-modified` was first
-/// written, and it passed a corpus with 190 missing stamps.
+/// written, and it passed a corpus full of missing stamps.
 ///
-/// ⚠ **The reason changed on 2026-08-27 and the conclusion did not.** Until
-/// `0c5b940` it was always `Some` because it came from the file's mtime; now it
-/// prefers the frontmatter stamp and falls back to mtime, so it is still always
-/// `Some` and this rule must still read `raw`. A note that survives the change
-/// it describes is the dangerous kind. `mtype` has the same hazard from
+/// ⚠ **The reason has changed once and the conclusion did not.** It was always
+/// `Some` when it came from the file's mtime; it now prefers the frontmatter
+/// stamp and falls back to mtime, so it is still always `Some` and this rule
+/// must still read `raw`. A note that survives the change it describes is the
+/// dangerous kind. `mtype` has the same hazard from
 /// the other direction: it falls back to the filename prefix, so a memory
 /// declaring no type at all parses as a valid one. What the frontmatter *says*
 /// is the only thing that travels with the file, and it is what these rules are
@@ -1548,13 +1496,12 @@ pub fn passed(findings: &[Finding]) -> bool {
 /// file, which is what `last-writer.json` folds out of the transcripts.
 ///
 /// ⚠ **[`Wrote::Unrecorded`] keeps the old behaviour, and that residual is
-/// real.** Measured 2026-09-12 over the live corpus: 390 of 733 memories have a
-/// recorded writer, which sounds thin until the population is narrowed to the
-/// one that matters — of the 155 edited in the previous seven days, **152 are
-/// recorded and 3 are not**. A memory nobody has touched is not one this session
-/// damaged, so the corpus-wide 53% is a diluted number and 98% is the honest
-/// one. This closes most of the class, not all of it; do not describe it as
-/// closing the class.
+/// real.** Only about half the corpus has a recorded writer, which sounds thin
+/// until the population is narrowed to the one that matters: nearly every memory
+/// edited in the last week is recorded. A memory nobody has touched is not one
+/// this session damaged, so the corpus-wide rate is diluted and the recent one
+/// is honest. This closes most of the class, not all of it; do not describe it
+/// as closing the class.
 pub fn passed_for_session(
     corpus: &Corpus,
     findings: &[Finding],
@@ -1638,12 +1585,11 @@ pub fn relation_usage(corpus: &Corpus) -> BTreeMap<String, usize> {
 /// Tolerance between a frontmatter `created` and the transcript entry for the
 /// same write.
 ///
-/// ⚠ **Measured, not chosen.** Over the whole corpus on 2026-09-16 a stamp
-/// written by the Write tool lands a hair AFTER the transcript entry it belongs
-/// to — six memories inside 62 ms and one at 12.8 s. The smallest real defect
-/// was 2m58s. The two populations are ~14x apart and this sits in the gap,
-/// rather than on either edge where a jitter outlier or a lazy round-minute
-/// would decide the rule.
+/// ⚠ **Measured, not chosen.** A stamp written by the Write tool lands a hair
+/// AFTER the transcript entry it belongs to, while the smallest real defect is
+/// minutes out. The two populations are an order of magnitude apart and this
+/// sits in the gap, rather than on either edge where a jitter outlier or a lazy
+/// round-minute would decide the rule.
 const BIRTHDAY_SLACK_SECS: i64 = 60;
 
 /// Referee each memory's stated birthday against the mined creation record.

@@ -144,10 +144,10 @@ in  { name = "memview"
         }
       , G.cargoDoc
       , {-  `--test '*'`: the integration targets, which is where every test in
-            this workspace lives. Without it cargo also links and runs a test
-            harness for each lib and bin — around forty binaries holding no test
-            — and macOS assesses each freshly linked one on its first execution,
-            which costs far more than the tests themselves do.
+            this workspace lives. Without it cargo links and runs a harness for
+            each lib and bin too, nearly all of them empty, and macOS assesses
+            every freshly linked binary on its first execution — which costs more
+            than running the tests does.
 
             ⚠ **What makes that safe is `every test lives in tests/` above**, not
             this comment: cargo would skip a `#[test]` written under `src/`

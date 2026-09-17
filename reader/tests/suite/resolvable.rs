@@ -12,7 +12,7 @@
 //! `resolve-report`'s own output and arrived holding a home directory;
 //! `DL-TEST-REAL-PATH` caught it at the gate. The corpus is the test suite here
 //! by design, so this will recur — sanitise to `/home/example` on the way in,
-//! which is the constant `reader/tests/concept.rs` already uses.
+//! which is the constant `reader/tests/suite/concept.rs` already uses.
 //!
 //! ⚠ **Every test here is a guard against ONE classifier, in ONE order.** The
 //! defect it exists to prevent (memview#1445) was not a missing rule — it was a

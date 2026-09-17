@@ -158,7 +158,7 @@ pub enum Concept {
     /// printing — the reader below reads two operations for one act. The concept
     /// is where they meet, so the level-below authority a lowered `Page` answers
     /// to is the L3 *effect* reading (what was touched, in which direction), not
-    /// the `Op` variant. `reader/tests/concept.rs::read_as` carries the reason.
+    /// the `Op` variant. `reader/tests/suite/concept.rs::read_as` carries the reason.
     Page {
         /// Empty for a stream: `… | head -50` pages what flows in, and no file
         /// was named. Not a hole — a hole is a subject the text gestured at and

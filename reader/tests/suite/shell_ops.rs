@@ -2,7 +2,7 @@
 //!
 //! These are the facts the older path-and-direction table threw away: what was
 //! searched for, what a file used to be called, which script ran. A test here
-//! is a claim about meaning; `tests/shell_files.rs` still tests the projection.
+//! is a claim about meaning; `tests/suite/shell_files.rs` still tests the projection.
 
 use reader::project::read as parse;
 use reader::shell_ops::{GitOp, Op, classify, verb_kind};

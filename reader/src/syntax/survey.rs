@@ -27,7 +27,7 @@
 //!
 //! ⚠ The survey can only ever be *approximately* right, so it is pinned to the
 //! parser by an invariant rather than trusted: whatever [`crate::syntax::parse::parse`] refuses must
-//! appear in the survey's set. `reader/tests/syntax.rs` asserts it, and the
+//! appear in the survey's set. `reader/tests/suite/syntax.rs` asserts it, and the
 //! corpus report re-checks it on every row.
 
 use std::collections::BTreeSet;

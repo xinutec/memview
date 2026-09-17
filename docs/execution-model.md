@@ -140,7 +140,7 @@ could quietly expire.
 does nothing looks exactly like one that works: the payload must still escape a
 bare `eval`, and must not escape the gate.
 
-Distinct from `reader/tests/oracle.rs`, which shims `PATH` and diffs predictions
+Distinct from `reader/tests/suite/oracle.rs`, which shims `PATH` and diffs predictions
 against real execution. That covers expansion, globbing and `cd`, and cannot
 scale to the corpus — history is never re-executed. Two oracles, two jobs: shims
 for semantics on fixtures, `declare -f` for parse shape on the corpus.

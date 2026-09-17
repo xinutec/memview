@@ -95,7 +95,7 @@ fn is_deceptive_format(c: char) -> bool {
 /// which end a line in some renderers; `split_whitespace` catches those, so the
 /// two passes together cover both.
 ///
-/// Public so `tests/telemetry.rs` can exercise it directly: it is the one part
+/// Public so `tests/suite/telemetry.rs` can exercise it directly: it is the one part
 /// of this endpoint whose input an attacker chooses.
 pub fn one_line(label: &str, max: usize) -> String {
     let unbroken: String = label

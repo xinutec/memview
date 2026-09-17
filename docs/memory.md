@@ -177,7 +177,7 @@ So the two tiers want two different rules, and only one of them is a cut:
 
 **Opens of `MEMORY.md` itself carry no information.** It is injected, so every
 session "opened" it and the number says the same thing about everyone. memview
-knows this — `tests/agents.rs::the_index_is_not_a_memory_anyone_knows` exists to
+knows this — `tests/suite/agents.rs::the_index_is_not_a_memory_anyone_knows` exists to
 hold the line — and ranking therefore counts opens of a root line's *target*, not
 of the root.
 

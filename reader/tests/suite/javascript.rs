@@ -1,7 +1,7 @@
 //! What the JavaScript reader may and may not conclude.
 //!
 //! Every test here is a shape the corpus actually writes, and — as in
-//! `tests/python.rs` — the refusals matter more than the successes: a missed
+//! `tests/suite/python.rs` — the refusals matter more than the successes: a missed
 //! write is an undercount, and an invented path is a claim that somebody
 //! changed a file they never opened.
 

@@ -59,7 +59,7 @@ pub fn write(path: &Path, bytes: &[u8]) -> Result<()> {
 
 /// The temp's name, beside the target. Private: which name it uses is not a
 /// promise, but that it is a SIBLING is — see the module header on EXDEV — and
-/// `tests/atomic.rs` pins that through what the directory holds afterwards.
+/// `tests/suite/atomic.rs` pins that through what the directory holds afterwards.
 fn tmp_beside(path: &Path) -> std::path::PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(".tmp");

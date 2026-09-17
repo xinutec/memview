@@ -96,7 +96,7 @@ pub async fn capture(
         // one reason: `output()` never hands back a pid, and #797 is a zombie
         // under the console that nothing recorded the origin of. The two steps
         // and the dropped-on-timeout behaviour are `output()`'s own — see
-        // `tests/orphan.rs`, which forces the timeout on exactly this shape and
+        // `tests/suite/orphan.rs`, which forces the timeout on exactly this shape and
         // finds it reaped.
         let Ok(probe) = tokio::process::Command::new(program)
             .args(&args)

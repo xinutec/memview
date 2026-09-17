@@ -521,7 +521,7 @@ fn walk(
             // `and_or '&&' newline_list pipeline` — but both the `&&` and the
             // newline arrive here as separators, and reading the newline as one
             // put `b` back at unconditional. The same shape as the `a |⏎b`
-            // misparse in `reader/tests/oracle.rs`, one level up. 86 corpus
+            // misparse in `reader/tests/suite/oracle.rs`, one level up. 86 corpus
             // commands, found by `--bin projection`.
             let mut connected = false;
             for inner in pair.into_inner() {

@@ -19,7 +19,7 @@ const PICTURE: Picture = {
 };
 
 /** A runner that answers the protocol and holds nothing. What the RUNNER decides
- *  is tested in Rust — `console/tests/drafts.rs` owns which pushes land. */
+ *  is tested in Rust — `console/tests/suite/drafts.rs` owns which pushes land. */
 function quiet(): typeof fetch {
   return vi.fn((_url: string | URL | Request, init?: RequestInit) =>
     Promise.resolve(

@@ -1864,7 +1864,7 @@ phase is declined.
    then will it bind off loopback. Proven with `curl --cert` against the real
    binary on `0.0.0.0`: the pinned key gets JSON, an unpinned key gets a
    handshake failure, no certificate fails, and plain HTTP to the port gets
-   nothing. `console/tests/gate.rs` makes the same four claims by connecting.
+   nothing. `console/tests/suite/gate.rs` makes the same four claims by connecting.
 
    Three things worth knowing before touching it:
    - **`ring`, not the default `aws-lc-rs` provider.** aws-lc wants cmake and a C

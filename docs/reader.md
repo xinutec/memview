@@ -259,7 +259,7 @@ can belong to either side:
   `$(a|b)` is one reader's source text and the other's reprint of a parsed tree,
   so `2>/dev/null` comes back as `2> /dev/null` and `${x}` as `$x`. Nothing reads
   inside an expansion — its value is undetermined either way. Roughly 2,600
-  commands, and `reader/tests/projection.rs` asserts they stay spellings.
+  commands, and `reader/tests/suite/projection.rs` asserts they stay spellings.
 - **One systematic spelling difference outnumbers every real misreading**, which
   is why the buckets are named apart and why `--only` exists.
 - **The largest real one is structural**: 1,048 loop bodies whose `&&` condition
@@ -1264,7 +1264,7 @@ and one use does not pay for it.
 
 ## Correctness
 
-`reader/tests/oracle.rs` is the only test that catches a *wrong* reading rather
+`reader/tests/suite/oracle.rs` is the only test that catches a *wrong* reading rather
 than a missing one. Shims go first on `PATH`, each logging its argv and cwd
 before exec'ing the real tool, so the log is what bash did — globs expanded,
 variables substituted, loops iterated.

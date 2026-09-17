@@ -35,7 +35,7 @@
             ./console
             ./reader
             ./src
-            # ⚠ One FILE, not the frontend. `console/tests/parse.rs` compares the
+            # ⚠ One FILE, not the frontend. `console/tests/suite/parse.rs` compares the
             # runner's output against this golden, and without it the read
             # returns "" and the test reports a diff against nothing — which
             # reads as a parser regression rather than a missing fixture.
@@ -72,7 +72,7 @@
           # `nix-rust-package-docheck-false` while testing nothing, which is the
           # defect that rule exists to catch.
           cargoTestFlags = [ "--package" "console" ];
-          # `console/tests/orphan.rs` shells out to `ps` to prove a child was
+          # `console/tests/suite/orphan.rs` shells out to `ps` to prove a child was
           # reaped; the sandbox has no `ps`, and the failure reads as a broken
           # test rather than a missing tool.
           nativeCheckInputs = [ pkgs.procps ];

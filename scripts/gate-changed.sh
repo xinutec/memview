@@ -1,48 +1,30 @@
 #!/usr/bin/env bash
-# Run the gate checks that this working tree's changes could break — with the
-# GATE'S OWN argv, never a retyped approximation.
+# Run the gate checks that this working tree's changes could break, with the
+# GATE'S OWN argv rather than a retyped approximation.
 #
 #   ./scripts/gate-changed.sh          # against HEAD
 #   ./scripts/gate-changed.sh --all    # every check, i.e. the full gate
 #
 # ⚠ **THIS IS NOT THE GATE AND MUST NEVER READ AS IT.** A subset that passes is
-# not the gate passing. It prints what it SKIPPED and says so at the end, because
-# a silent subset is exactly the failure it exists to prevent — the pre-commit
-# hook remains the only thing that judges a commit.
+# not the gate passing, so it prints what it SKIPPED and says so at the end. The
+# pre-commit hook is the only thing that judges a commit, and a skipped check is
+# not a passed one — dev-lint's DL-NO-SILENT-CAPS.
 #
-# ⚠ **It is NOT fast by default, and the first run of it proved that.** On
-# 2026-08-30 a one-file `.rs` edit selected `transcript-lint`, which walks 6.28 GB
-# of transcripts, and the whole thing ran over ten minutes. The cause was the
-# gate's own argv, faithfully reproduced: `cargo run` with no `--release`, i.e. a
-# debug binary, 4m51s against release's 34s. Fixed in `gate.dhall`.
+# ⚠ **Not fast by default.** It costs whatever the selected checks cost, and a
+# corpus or transcript change selects the slow ones. Read the SKIPPED list, not a
+# remembered duration.
 #
-# ⚠ **So read the SKIPPED list, not a remembered duration.** What this costs is
-# whatever the selected checks cost; the checks it picks for a corpus or
-# transcript change are the slow ones, and no wrapper makes them cheap.
+# ⚠ **The argv comes out of `gate.json` and is never written here.** A retyped
+# command drifts from the one that will judge the commit, and the drift is
+# invisible because the weaker command still exits 0: `cargo clippy
+# --all-targets` without `--workspace` lints the root package alone and passes.
 #
-# ⚠ **Why it exists at all.** Measured 2026-08-29: the full gate is ~13 minutes,
-# so during an edit loop it is not run, and what gets run instead is fast and
-# WRONG. That day I typed `cargo clippy --all-targets` after nearly every edit
-# and reported "clippy exit=0" each time — the gate runs `--workspace
-# --all-targets`, and without it cargo lints the ROOT PACKAGE ONLY. One crate of
-# four. The same day, `cargo test` built 39 test targets where `--workspace`
-# builds 94. Both true, both green, both 42% of the claim.
-#
-# ⚠ **So the argv comes out of `gate.json` and is not written here.** That is the
-# whole mechanism: a hand-typed command drifts from the one that will judge the
-# commit, and the drift is invisible because the weaker command still exits 0.
-#
-# ⚠ **A skipped check is not a passed check** — see `dev-lint`'s own rule about
-# reporting what was not run (DL-NO-SILENT-CAPS).
-# ⚠ **`-e` is safe here even though this must survive a failing check**: every
-# check runs inside `if out=$(...)`, a TESTED command, where `set -e` does not
-# fire. Omitting it was the first instinct and dev-lint was right to refuse —
-# DL-SHELL-STRICT-MODE.
+# ⚠ **`-e` is safe even though this must survive a failing check to collect the
+# rest**: every check runs inside `if out=$(...)`, a tested command, where `set
+# -e` does not fire. Dropping it is refused by DL-SHELL-STRICT-MODE.
 set -euo pipefail
-# ⚠ `|| exit 1` because this deliberately does NOT `set -e` — it must survive a
-# failing check to collect the rest — so an unchecked `cd` would run every line
-# below in the wrong directory and say nothing (DL-SHELL-CD-UNCHECKED, caught by
-# dev-lint on the first run of this very script).
+# An unchecked `cd` would run every line below in the wrong directory and say
+# nothing — DL-SHELL-CD-UNCHECKED.
 cd "$(git rev-parse --show-toplevel)" || exit 1
 
 want_all=false

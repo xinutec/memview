@@ -355,7 +355,7 @@ pub struct Agents {
 }
 
 /// The index's stem. It lives in the corpus directory and is not a memory —
-/// `tests/agents.rs::the_index_is_not_a_memory_anyone_knows` holds the same line
+/// `tests/suite/agents.rs::the_index_is_not_a_memory_anyone_knows` holds the same line
 /// for opens.
 pub const INDEX_STEM: &str = "MEMORY";
 
