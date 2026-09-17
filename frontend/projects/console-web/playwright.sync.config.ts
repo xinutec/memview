@@ -21,5 +21,8 @@ export default defineConfig({
   // "now". The per-expect timeouts say so; this only has to outlast them.
   timeout: 120_000,
   reporter: [['list']],
+  // Named rather than defaulted, so the gate's `artifacts` path and this agree.
+  // The gate reported "the check wrote nothing there" on a real failure.
+  outputDir: './test-results',
   use: { ...devices['Desktop Chrome'] },
 });
