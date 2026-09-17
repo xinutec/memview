@@ -12,6 +12,20 @@
     },
     {
       "argv": [
+        "nix",
+        "develop",
+        "--no-warn-dirty",
+        "--command",
+        "./scripts/manifests-parse-from-stubs.sh"
+      ],
+      "artifacts": [],
+      "cwd": ".",
+      "env": {},
+      "name": "the manifests parse without their sources",
+      "timeout_s": 120
+    },
+    {
+      "argv": [
         "./scripts/tests-live-in-tests.sh"
       ],
       "artifacts": [],
@@ -84,7 +98,9 @@
         "--command",
         "cargo",
         "test",
-        "--workspace"
+        "--workspace",
+        "--test",
+        "*"
       ],
       "artifacts": [],
       "cwd": ".",

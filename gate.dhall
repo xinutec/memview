@@ -103,9 +103,17 @@ in  { name = "memview"
         , argv = [ "./scripts/workspace-members.sh" ]
         , timeout_s = 60
         }
-      , {-  Cargo does not check `test = false`: a `#[test]` written under `src/`
-            is never run and nothing says it was skipped. Every crate here
-            declares it, so this is what makes the declaration fail instead.
+      , {-  The image is built from manifests alone before the sources arrive, and
+            nothing else here looks: the gate does not build the image.
+        -}
+        G.Check::{
+        , name = "the manifests parse without their sources"
+        , argv = G.inDevShell [ "./scripts/manifests-parse-from-stubs.sh" ]
+        , timeout_s = 120
+        }
+      , {-  The `tests` row below runs the integration targets only, so a
+            `#[test]` written under `src/` is never run and cargo says nothing.
+            This is what makes that fail instead.
         -}
         G.Check::{
         , name = "every test lives in tests/"
@@ -135,9 +143,19 @@ in  { name = "memview"
         , timeout_s = 1800
         }
       , G.cargoDoc
-      , G.Check::{
+      , {-  `--test '*'`: the integration targets, which is where every test in
+            this workspace lives. Without it cargo also links and runs a test
+            harness for each lib and bin — around forty binaries holding no test
+            — and macOS assesses each freshly linked one on its first execution,
+            which costs far more than the tests themselves do.
+
+            ⚠ **What makes that safe is `every test lives in tests/` above**, not
+            this comment: cargo would skip a `#[test]` written under `src/`
+            without saying so.
+        -}
+        G.Check::{
         , name = "tests"
-        , argv = G.inDevShell [ "cargo", "test", "--workspace" ]
+        , argv = G.inDevShell [ "cargo", "test", "--workspace", "--test", "*" ]
         , timeout_s = 1800
         }
       , {-  `--frozen-lockfile` is pnpm ci: install exactly pnpm-lock.yaml, or

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Every test in this workspace lives in `tests/`, and each crate's Cargo.toml says
-# so by declaring `test = false` on its lib and bins. That declaration is a claim
-# cargo does not check: a `#[test]` written under `src/` is simply never run, and
-# nothing says it was skipped. This is what makes the claim fail instead.
+# Every test in this workspace lives in `tests/`, so the gate's `tests` row runs
+# the integration targets only — see the note on it in gate.dhall. That leaves a
+# gap cargo will not close: a `#[test]` written under `src/` is simply never run,
+# and nothing says it was skipped. This is what makes it fail instead.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)" || exit 1
 

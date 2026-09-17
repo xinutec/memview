@@ -79,30 +79,3 @@ flate2 = "1"
 # Backdating a fixture's mtime. The freshness half of the in-use guard cannot be
 # tested by waiting two minutes.
 filetime = "0.2"
-
-# ⚠ **Declared only to say `test = false`.** Cargo builds a test harness for
-# every bin and lib target and then runs it, and macOS assesses each freshly
-# linked binary on its first execution — which costs far more than an empty
-# harness is worth. Every test in this workspace lives in `tests/`, so none of
-# these targets holds one. `scripts/tests-live-in-tests.sh` is a gate row, so a
-# `#[test]` added to one of them fails rather than being silently skipped.
-[lib]
-test = false
-doctest = false
-
-[[bin]]
-name = "console"
-path = "src/main.rs"
-test = false
-
-[[bin]]
-name = "attest"
-test = false
-
-[[bin]]
-name = "pin"
-test = false
-
-[[bin]]
-name = "sessions"
-test = false
