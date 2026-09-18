@@ -2,22 +2,19 @@
 //!
 //!     cargo run --release --bin transcript-drift          # record, or compare
 //!
-//! ⚠ **This is the evidence a resumable mine rests on.** Making the mine cheap
-//! means reading only what was appended, and that is sound only if the CLI
-//! appends. It reads like it does not: the CLI writes earlier stretches of a
-//! conversation back into the same file. But those copies are appended, a median
-//! 21 MB apart, and the prefix does not move
-//! (`reference_claude_transcript_rewrites_history`, memview#1240).
+//! ⚠ **This is the evidence a resumable mine rests on.** Making the mine cheap means
+//! reading only what was appended, and that is sound only if the CLI appends. It
+//! reads like it does not: the CLI writes earlier stretches of a conversation back
+//! into the same file. But those copies are appended, tens of megabytes apart, and
+//! the prefix does not move (memview#1240).
 //!
-//! ⚠ **A wrong resume is SILENT.** It mines from an offset that means something
-//! else and reports no error, so the claim has to keep being checked rather than
-//! established once. Two files watched for 25 minutes is where this started;
-//! this makes it the whole corpus, repeatably, and every run adds a longer
-//! window than the last.
+//! ⚠ **A wrong resume is SILENT.** It mines from an offset that means something else
+//! and reports no error, so the claim has to keep being checked rather than
+//! established once. Two files watched for twenty-five minutes is where this started;
+//! this makes it the whole corpus, repeatably.
 //!
-//! First run records. Every later run compares, reports what drifted, and
-//! re-records — so a `Rewritten` here is the finding that would have made a
-//! resumed mine wrong.
+//! First run records. Every later run compares, reports what drifted, and re-records
+//! — so a `Rewritten` here is the finding that would have made a resumed mine wrong.
 
 use std::collections::BTreeMap;
 

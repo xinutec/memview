@@ -1,20 +1,18 @@
 //! What the table read out of a whole corpus, as a value rather than as print.
 //!
-//! `--bin shell-files` was the only thing that knew how to survey a corpus, and
-//! it knew it as thirty mutable locals inside `main`. That is fine for a report
-//! nobody else reads, and it is exactly wrong the moment a *second* consumer
-//! wants the same numbers: the alternative to this module is the API recomputing
-//! the survey its own way, and two answers to "how much is understood" that
-//! drift apart silently.
+//! `--bin shell-files` was the only thing that knew how to survey a corpus, and it
+//! knew it as thirty mutable locals inside `main`. That is fine for a report nobody
+//! else reads, and exactly wrong the moment a *second* consumer wants the same
+//! numbers: the alternative is the API recomputing the survey its own way, and two
+//! answers to "how much is understood" that drift apart silently.
 //!
-//! So the accumulation lives here and the binary prints from it. **The report is
-//! now a view of this type, not a separate calculation** — which is the only
-//! form in which "the number on the phone is the number in the report" is a fact
-//! rather than a hope.
+//! So the accumulation lives here and the binary prints from it. **The report is a
+//! view of this type, not a separate calculation** — the only form in which "the
+//! number on the phone is the number in the report" is a fact rather than a hope.
 //!
-//! ⚠ **Counted per call, not per distinct command.** Forty runs of one command
-//! count forty times, because frequency is the whole signal here: a command run
-//! four thousand times is worth adding to the table and one run once is not.
+//! ⚠ **Counted per call, not per distinct command.** Forty runs of one command count
+//! forty times, because frequency is the whole signal here: a command run four
+//! thousand times is worth adding to the table and one run once is not.
 //! `shell-report` counts the other way, and says so for the same reason.
 
 use std::collections::BTreeMap;
@@ -26,12 +24,11 @@ use crate::shell_ops::{GitOp, Op};
 
 /// How one operation is named, in the three registers the views need.
 ///
-/// ⚠ **One definition, because two drifted.** The console labelled a chip and
-/// the viewer labelled a histogram row, each from its own exhaustive `match`.
-/// Both compile when an `Op` variant is added — the compiler forces a value,
-/// not a consistent one — so the same command could be called two different
-/// things in two places, and was: `Op::Nothing` was `nothing` on the phone and
-/// `nothing with files` in the viewer.
+/// ⚠ **One definition, because two drifted.** The console labelled a chip and the
+/// viewer labelled a histogram row, each from its own exhaustive `match`. Both
+/// compile when an `Op` variant is added — the compiler forces a value, not a
+/// consistent one — so the same command could be called two different things in two
+/// places, and was.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Naming {
     /// A stable key for styling and data attributes.

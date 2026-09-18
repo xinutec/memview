@@ -1,23 +1,21 @@
-//! How much of a transcript has already been read, and whether it is still the
-//! same file underneath.
+//! How much of a transcript has already been read, and whether it is still the same
+//! file underneath.
 //!
 //! ⚠ **A whole-corpus fold cannot be made cheap by parsing faster.** Measured:
-//! the mine takes 347 s over 5.9 GB, and removing its entire
-//! shell-parsing arm leaves 241 s. Nothing per-operation reaches seconds — only
-//! reading less does, and the corpus is shaped for it: the ten largest
-//! transcripts hold 90% of the bytes and they only grow at the tail
-//! (memview#1240).
+//! removing the mine's entire shell-parsing arm leaves most of its runtime standing.
+//! Nothing per-operation reaches seconds — only reading less does, and the corpus is
+//! shaped for it: the ten largest transcripts hold 90% of the bytes and they only
+//! grow at the tail (memview#1240).
 //!
-//! ⚠ **Resuming is only sound because the CLI APPENDS.** It writes earlier
-//! stretches of a conversation back into the same file, which reads like history
-//! being rewritten — but the copies are appended, a median 21 MB apart, and the
-//! prefix does not move (`reference_claude_transcript_rewrites_history`). This
-//! module exists to keep checking that rather than trusting it: a resume that is
-//! wrong reads no error, it silently mines a file from the wrong offset.
+//! ⚠ **Resuming is only sound because the CLI APPENDS.** It writes earlier stretches
+//! of a conversation back into the same file, which reads like history being
+//! rewritten — but the copies are appended, tens of megabytes apart, and the prefix
+//! does not move. This module exists to keep checking that rather than trusting it: a
+//! resume that is wrong reads no error, it silently mines a file from the wrong
+//! offset.
 //!
-//! ⚠ **And the miner does not dedup by message uuid**, so a resumed scan sees
-//! exactly the lines a full scan sees, in the same order. Parity needs no
-//! carried set of ids.
+//! ⚠ **And the miner does not dedup by message uuid**, so a resumed scan sees exactly
+//! the lines a full scan sees, in the same order. Parity needs no carried set of ids.
 
 use std::collections::BTreeMap;
 use std::io::{Read, Seek, SeekFrom};

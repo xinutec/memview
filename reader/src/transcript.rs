@@ -14,22 +14,20 @@ use std::path::Path;
 /// Whether this path is a conversation, as opposed to the directory beside it.
 ///
 /// ⚠ **The extension is the whole rule, and leaving it out has already cost a
-/// session.** Claude Code files a transcript as `<id>.jsonl` and may put a
-/// DIRECTORY named `<id>` right beside it, holding `subagents/` and
-/// `tool-results/`. A directory's file stem is its whole name, so anything
-/// matching on the stem finds the directory first whenever `read_dir` happens to
-/// return it first — which is a coin toss, and made a first regression test pass
-/// under ablation.
+/// session.** Claude Code files a transcript as `<id>.jsonl` and may put a DIRECTORY
+/// named `<id>` right beside it. A directory's file stem is its whole name, so
+/// anything matching on the stem finds the directory whenever `read_dir` returns it
+/// first — a coin toss, which made a first regression test pass under ablation.
 ///
-/// Everything downstream then reads a directory as a conversation and gets
-/// nothing, **and nothing anywhere reports an error**, because "no events" is a
-/// legitimate answer for a session that has just started. Seen live: a resumed
-/// 119 MB conversation opened with no history, no name and 0 exchanges, while
-/// its transcript sat in the same directory.
+/// Everything downstream then reads a directory as a conversation and gets nothing,
+/// **and nothing anywhere reports an error**, because "no events" is legitimate for a
+/// session that has just started. Seen live: a resumed 119 MB conversation opened
+/// with no history, no name and no exchanges, while its transcript sat in the same
+/// directory.
 ///
-/// The viewer had required the extension for months; the console had not, and
-/// shipped the bug with the knowledge one module away. That is the argument for
-/// this crate in one function.
+/// The viewer had required the extension for months; the console had not, and shipped
+/// the bug with the knowledge one module away. That is the argument for this crate in
+/// one function.
 pub fn is_transcript(path: &Path) -> bool {
     path.extension().and_then(|ext| ext.to_str()) == Some("jsonl")
 }
@@ -77,35 +75,30 @@ pub const AS_CONVERSATION: [&NameLine; 2] = [&CUSTOM_TITLE, &AGENT_NAME];
 pub const AS_ACTOR: [&NameLine; 2] = [&AGENT_NAME, &CUSTOM_TITLE];
 
 // ⚠ **THE TWO CRATES DISAGREED, AND THE ANSWER IS THAT BOTH WERE RIGHT.** The
-// console preferred `custom-title`, the viewer `agent-name`, each with a
-// confident rationale, and the rationales were opposite. Resolved by reading the
-// CLI rather than by choosing: **it carries both orders, split by
-// what the name is for.** From the 2.1.221 binary —
+// console preferred `custom-title`, the viewer `agent-name`, each with a confident
+// rationale, and the rationales were opposite. Resolved by reading the CLI rather
+// than by choosing: **it carries both orders, split by what the name is for.** From
+// the 2.1.221 binary —
 //
 //     the session labeller: agentName || customTitle || aiTitle || summary
 //                           || firstPrompt || … || sessionId.slice(0, 8)
 //     the resume picker   : customTitle || aiTitle || lastPrompt || summaryHint
 //                           || firstPrompt          (agentName is never consulted)
 //
-// So the disagreement was this distinction, discovered twice and named nowhere.
-// The console lists conversations to pick between, which is the picker's
-// question; `/agents` says who works where, which is the labeller's. Each keeps
-// the behaviour it already had, and the order is now a stated decision instead
-// of two independent guesses that happened to agree.
+// The console lists conversations to pick between, which is the picker's question;
+// `/agents` says who works where, which is the labeller's. Each keeps the behaviour
+// it already had, and the order is now a stated decision instead of two independent
+// guesses that happened to agree.
 //
-// ⚠ **`ai-title` is deliberately in neither.** It is the CLI's own description of
-// a conversation — "Review DICOM scan documentation" — written once near the head
-// of the file and never changed. Acceptable as a caption; wrong as a name on a
-// page about who did the work. The actor chain falls through to the session id
-// instead.
+// ⚠ **`ai-title` is deliberately in neither.** It is the CLI's own description of a
+// conversation, written once near the head of the file and never changed. Acceptable
+// as a caption; wrong as a name on a page about who did the work.
 //
-// Measured on the live corpus while deciding: 13 of 13 conversations carry both
-// line types and **none disagree at the end**, because the CLI writes both on
-// adjacent lines. But 6 of the 13 have been renamed at least once — one four
-// times, one five — so the agreement is the CLI's doing rather than luck, and the
-// precedence still has to be right for the day a single mechanism writes one of
-// them. In one file `agent-name` had taken a value `custom-title` never did: that
-// file's `ai-title`.
+// Measured while deciding: every conversation carries both line types and none
+// disagree at the end, because the CLI writes both on adjacent lines. But most have
+// been renamed at least once, so the agreement is the CLI's doing rather than luck,
+// and the precedence still has to be right for the day a single mechanism writes
+// one of them.
 
 // ---------------------------------------------------------------------------
 // Structure: whether a transcript is intact, as opposed to merely readable.
@@ -155,20 +148,19 @@ pub fn is_uuid(value: &str) -> bool {
 pub const CONVERSATION_TYPES: [&str; 4] = ["assistant", "user", "attachment", "system"];
 
 /// A line that describes the conversation from outside it, and never carries
-/// identity — no `uuid`, no `parentUuid`, in 1.29M lines.
+/// identity — no `uuid`, no `parentUuid`, anywhere in the corpus.
 ///
-/// ⚠ Sixteen types exist, not fifteen. A survey that found fifteen missed
-/// `pr-link` entirely, and an unknown type is indistinguishable from a corrupt
-/// one, so the omission would have been reported as damage.
+/// ⚠ Sixteen types exist, not fifteen. A survey that found fifteen missed `pr-link`
+/// entirely, and an unknown type is indistinguishable from a corrupt one, so the
+/// omission would have been reported as damage.
 ///
-/// ⚠ **`atis-latch` is that same lesson a second time.** The harness began
-/// writing `{type, atis, sessionId}` — no identity, like everything else here —
-/// and because this list did not name it, every one read as damage, across every
-/// transcript and still climbing while live sessions wrote more. It is the ONLY
-/// unknown type in the corpus, and the cost
-/// was that `transcript-lint` failed for any session whose OWN transcript held
-/// one, which by then was every session. The nightly alone was exempt, having
-/// no session to call its own — the asymmetry #1546 built deliberately.
+/// ⚠ **`atis-latch` is that same lesson a second time.** The harness began writing
+/// `{type, atis, sessionId}` — no identity, like everything else here — and because
+/// this list did not name it, every one read as damage, across every transcript and
+/// still climbing while live sessions wrote more. The cost was that `transcript-lint`
+/// failed for any session whose OWN transcript held one, which by then was every
+/// session. The nightly alone was exempt, having no session to call its own — the
+/// asymmetry #1546 built deliberately.
 pub const METADATA_TYPES: [&str; 13] = [
     "last-prompt",
     "permission-mode",
@@ -615,33 +607,28 @@ fn cycles(parent_of: &HashMap<String, String>) -> Vec<Violation> {
 
 /// How much damage should fail this run.
 ///
-/// ⚠ **A damaged transcript can never be repaired.** A rewrite drops a message
-/// and it is gone, so a run that fails on any damage anywhere fails **forever**,
-/// for every session — which is what happened: one session's transcript lost a
-/// message and memview's gate became unpassable for everybody (#1062). A check
-/// that cannot go green is a broken instrument, not a signal.
+/// ⚠ **A damaged transcript can never be repaired.** A rewrite drops a message and it
+/// is gone, so a run that fails on any damage anywhere fails **forever**, for every
+/// session — which is what happened: one session's transcript lost a message and
+/// memview's gate became unpassable for everybody (#1062). A check that cannot go
+/// green is a broken instrument, not a signal.
 ///
-/// So inside a session only that session's OWN transcript fails it, which is the
-/// one file its author could still have done something about. Outside a session
-/// — `None`, the nightly — the count is reported in full and gates NOTHING; it
-/// rides into fleetwatch so the TREND is visible. Same routing as
-/// `lint::passed_for_session` for the corpus, and for the same reason: a shared
-/// substrate must not fail whoever happens to commit next.
+/// So inside a session only that session's OWN transcript fails it, which is the one
+/// file its author could still have done something about. Outside a session — the
+/// nightly — the count is reported in full and gates NOTHING; it rides into
+/// fleetwatch so the TREND is visible.
 ///
-/// ⚠ **This paragraph described the nightly for three weeks while the code did
-/// the opposite** (memview#1546). `None => damaged` made `verify/memview` red
-/// over two unrepairable files, hiding every check that does test the code.
-/// Damaged transcripts exist and always will, so that branch could not go
-/// green — the failure mode this very docstring names.
+/// ⚠ **This paragraph described the nightly for three weeks while the code did the
+/// opposite** (memview#1546). `None => damaged` made `verify/memview` red over two
+/// unrepairable files, hiding every check that does test the code.
 ///
-/// ⚠ **The cost, said plainly: outside a session damage can no longer turn this
-/// check red.** That is deliberate but it is not free — a check that cannot fail
-/// is weak. It is the better half of the trade because the alternative cannot
-/// PASS, and a permanently-red check takes 19 healthy ones down with it. The
-/// alarm did not disappear, it moved somewhere that can act on a rising number:
-/// `claude-sync.sh` runs this with `|| true`, parses the count into
-/// `transcripts_damaged`, and `mem_check.py`'s `delivery` section warns on it
-/// with the value attached. Do not restore the gate here; raise it there.
+/// ⚠ **The cost, said plainly: outside a session damage can no longer turn this check
+/// red.** That is deliberate but not free — a check that cannot fail is weak. It is
+/// the better half of the trade because the alternative cannot PASS, and a
+/// permanently-red check takes every healthy one down with it. The alarm moved
+/// somewhere that can act on a rising number: `claude-sync.sh` runs this with
+/// `|| true`, parses the count into `transcripts_damaged`, and `mem_check.py` warns
+/// on it. Do not restore the gate here; raise it there.
 pub fn fatal_damage(mine: usize, session: Option<&str>) -> usize {
     match session {
         None => 0,
@@ -671,23 +658,21 @@ pub struct Turn {
 
 /// Every human turn in a conversation, in order.
 ///
-/// ⚠ **Five facts, each of which has cost somebody an afternoon.** They are
-/// listed here because the crate owns them and callers kept re-deriving them
-/// (memview#1215):
+/// ⚠ **Five facts, each of which has cost somebody an afternoon.** They are listed
+/// here because the crate owns them and callers kept re-deriving them (memview#1215):
 ///
-/// 1. **Dedupe by `uuid`, keep the FIRST.** The CLI rewrites earlier stretches
-///    back into the same file, so a linear read returns the conversation twice
-///    and the later copy is the degraded one.
+/// 1. **Dedupe by `uuid`, keep the FIRST.** The CLI rewrites earlier stretches back
+///    into the same file, so a linear read returns the conversation twice and the
+///    later copy is the degraded one.
 /// 2. **A `tool_result` row carries `role: user`** and is not a human turn.
 /// 3. **`isMeta` rows** are not human turns.
-/// 4. **`<command-name>` wrappers and `<system-reminder>` blocks** are injected
-///    into user messages and are not what the person typed.
-/// 5. **A `queued_command` attachment IS a human turn.** A message typed while
-///    the session is working is queued and handed to the running turn; the text
-///    lives in an `attachment` row, never in a `user` one. There are tens of
-///    thousands in the corpus, and reading only `user` rows once produced a
-///    confident report that messages of Pippijn's had been LOST when they had
-///    been delivered normally.
+/// 4. **`<command-name>` wrappers and `<system-reminder>` blocks** are injected into
+///    user messages and are not what the person typed.
+/// 5. **A `queued_command` attachment IS a human turn.** A message typed while the
+///    session is working is queued and handed to the running turn; the text lives in
+///    an `attachment` row, never in a `user` one. Reading only `user` rows once
+///    produced a confident report that messages of Pippijn's had been LOST when they
+///    had been delivered normally.
 pub fn human_turns(bytes: &[u8]) -> Vec<Turn> {
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut out = Vec::new();

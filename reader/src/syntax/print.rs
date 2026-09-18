@@ -1,28 +1,26 @@
 //! Tree to text, reading nothing but the tree.
 //!
-//! ⚠ **The printer may not look at the source.** Condition (2) of the round-trip
-//! law — that the generated form is a fixpoint — follows from condition (1) only
-//! when `G` is a pure function of the tree, and the usual way to break it is a
-//! printer that reaches back for the original spelling of a token. There is no
-//! `&str` of source in this module's signatures, which is the enforcement.
+//! ⚠ **The printer may not look at the source.** Condition (2) of the round-trip law
+//! — that the generated form is a fixpoint — follows from condition (1) only when `G`
+//! is a pure function of the tree, and the usual way to break it is a printer that
+//! reaches back for the original spelling of a token. There is no `&str` of source in
+//! this module's signatures, which is the enforcement.
 //!
 //! The form is canonical: one command per line, one space between words, and the
-//! least quoting that reads back as the same tree. Two commands that differ only
-//! in layout or quoting print identically, which is what makes the printed form
-//! usable as an equivalence test.
+//! least quoting that reads back as the same tree. Two commands that differ only in
+//! layout or quoting print identically, which is what makes the printed form usable
+//! as an equivalence test.
 //!
 //! ⚠ **Two things break the line, and neither is a layout choice.**
 //!
-//! - A heredoc inside `$( )` opens inside a word, and its body has to follow the
-//!   line the `<<` was written on — which is a line inside the substitution. So
-//!   that word is printed across lines, exactly as bash prints it.
-//! - A **comment** runs to the end of its own line, so a list holding one cannot
-//!   be written on a single line at all. Every construct that carries a comment
-//!   therefore takes the lines it needs, and the keyword that closes it takes one
-//!   of its own — `# note; done` is all comment, and the loop never closes.
+//! - A heredoc inside `$( )` opens inside a word, and its body has to follow the line
+//!   the `<<` was written on — which is a line inside the substitution.
+//! - A **comment** runs to the end of its own line, so a list holding one cannot be
+//!   written on a single line at all. `# note; done` is all comment, and the loop
+//!   never closes.
 //!
-//! Canonicity survives both: the layout is still a function of the tree alone,
-//! and a tree holding neither still prints on one line.
+//! Canonicity survives both: the layout is still a function of the tree alone, and a
+//! tree holding neither still prints on one line.
 
 use super::ast::{
     Anchor, AndOr, Arith, ArmEnd, ArrayElement, Assignment, BinaryOp, Brace, Case, Class,
@@ -429,19 +427,18 @@ fn terminated(list: &str) -> String {
     }
 }
 
-/// Does this printed list span lines — so that nothing may be appended to its
-/// last one?
+/// Does this printed list span lines — so that nothing may be appended to its last
+/// one?
 ///
-/// ⚠ **The one thing a closing keyword has to ask, and TWO different things
-/// make the answer yes.** A comment: `# note; done` is all comment and the loop
-/// never closes. And a heredoc body, whose terminator is a line that must hold
-/// the delimiter and nothing else — `PY; done` is body text, the heredoc runs
-/// away, and the `done` is gone. The second was found by the round-trip law on
-/// one command in 134,555, and gate 3 could not see it: bash ACCEPTS a runaway
-/// heredoc, with a warning and an exit code of zero.
+/// ⚠ **The one thing a closing keyword has to ask, and TWO different things make the
+/// answer yes.** A comment: `# note; done` is all comment and the loop never closes.
+/// And a heredoc body, whose terminator must hold the delimiter and nothing else —
+/// `PY; done` is body text, the heredoc runs away, and the `done` is gone. The second
+/// was found by the round-trip law on one corpus command, and gate 3 could not see
+/// it: bash ACCEPTS a runaway heredoc, with a warning and an exit code of zero.
 ///
-/// Asking about lines rather than about either cause is deliberate: once a list
-/// is several lines, what its last one will hold is not this function's to know.
+/// Asking about lines rather than about either cause is deliberate: once a list is
+/// several lines, what its last one will hold is not this function's to know.
 fn spans_lines(list: &str) -> bool {
     list.contains('\n')
 }
@@ -644,17 +641,15 @@ pub fn print_word(word: &Word, first: bool) -> String {
 /// [`crate::project`] is its only caller. It sits here rather than there because
 /// spelling an expansion is this module's job and nobody else can do it right:
 /// **`${n}_v4` is not `$n_v4`.** Built one segment at a time by the caller, a
-/// parameter had nothing following it to run into and the braces came off — a
-/// word naming the variable `n_v4` instead of `n`. Found by `--bin projection`
-/// on 8 corpus commands, all of them redirection targets, all of them a file
-/// nobody wrote to.
+/// parameter had nothing following it to run into and the braces came off — a word
+/// naming the variable `n_v4` instead of `n`. Found by `--bin projection`, every case
+/// a redirection target, every one a file nobody wrote to.
 ///
-/// The two halves come from different places on purpose. A literal already *is*
-/// its value — `'a b'`, `"a b"` and `a\ b` are one `Literal` — so it goes out as
-/// itself, unquoted, which is what a value means. An expansion has no value
-/// until something runs, so what a value can hold is its spelling; the quoting
-/// that is part of the NODE (`"$x"`) is dropped with the rest, because argv is
-/// a list of strings and cannot say it.
+/// The two halves come from different places on purpose. A literal already *is* its
+/// value — `'a b'`, `"a b"` and `a\ b` are one `Literal` — so it goes out as itself,
+/// unquoted. An expansion has no value until something runs, so what a value can hold
+/// is its spelling; the quoting that is part of the NODE (`"$x"`) is dropped with the
+/// rest, because argv is a list of strings and cannot say it.
 pub fn print_value(word: &Word) -> String {
     let mut out = String::new();
     for (index, segment) in word.segments.iter().enumerate() {
@@ -815,17 +810,16 @@ fn print_suffix_op(op: Option<&ParameterOp>) -> String {
 
 /// A word inside `${…}`, where quoting works differently from a word outside.
 ///
-/// ⚠ **No quoting is added.** The braces already delimit it — `${x:-a b}` is one
-/// word to bash with the space bare — and a quote here would be read back as
-/// part of the value. What must still be escaped is the handful of characters
-/// that would end the expansion or change its operator.
+/// ⚠ **No quoting is added.** The braces already delimit it — `${x:-a b}` is one word
+/// to bash with the space bare — and a quote here would be read back as part of the
+/// value. What must still be escaped is the handful of characters that would end the
+/// expansion or change its operator.
 ///
-/// ⚠ **`*` and `?` are on that list because this operand is a PATTERN.** A
-/// literal one can only have arrived escaped or quoted — `${p%%\?*}` and
-/// `${x:-'*'}` — and printing it bare reads back as a glob, which is a
-/// different program: `${p%%?*}` cuts at the first character rather than at a
-/// question mark. Caught by the round-trip law on one corpus command, the only
-/// `A₂ ≠ A₁` there was.
+/// ⚠ **`*` and `?` are on that list because this operand is a PATTERN.** A literal one
+/// can only have arrived escaped or quoted, and printing it bare reads back as a
+/// glob, which is a different program: `${p%%?*}` cuts at the first character rather
+/// than at a question mark. Caught by the round-trip law on the only `A₂ ≠ A₁` in the
+/// corpus.
 fn print_operand(word: &Word) -> String {
     let mut out = String::new();
     for segment in &word.segments {
@@ -983,19 +977,17 @@ fn print_segment(segment: &Segment) -> String {
 
 /// `$( … )`, `<( … )`, `>( … )` — a command list inside a word.
 ///
-/// ⚠ **`$((` is arithmetic, so a substitution holding a subshell needs the space
-/// bash needs.** `$( (cd x) && y )` written without it opens an arithmetic
-/// expansion instead — for bash as well as for this parser, which is how the
-/// round-trip law caught it on 9 commands the moment grouping made the shape
-/// reachable. Written for every opener rather than only for `$`, because the
-/// rule is about what follows the paren and the cost is one character.
+/// ⚠ **`$((` is arithmetic, so a substitution holding a subshell needs the space bash
+/// needs.** `$( (cd x) && y )` written without it opens an arithmetic expansion
+/// instead — for bash as well as for this parser, which is how the round-trip law
+/// caught it the moment grouping made the shape reachable. Written for every opener
+/// rather than only for `$`, because the rule is about what follows the paren and the
+/// cost is one character.
 ///
-/// ⚠ **The one place a word is printed across lines.** A heredoc's body has to
-/// follow the line its `<<` was written on, and that line is in here — so the
-/// list takes the lines it needs and closes on one of its own. This is bash's
-/// own spelling: `declare -f` renders `x=$(cat <<X⏎body⏎X⏎)` exactly so and
-/// re-prints its own print unchanged, measured in
-/// `reader/probes/substitution-heredoc.sh`.
+/// ⚠ **The one place a word is printed across lines.** A heredoc's body has to follow
+/// the line its `<<` was written on, and that line is in here. This is bash's own
+/// spelling: `declare -f` renders `x=$(cat <<X⏎body⏎X⏎)` exactly so and re-prints its
+/// own print unchanged, measured in `reader/probes/substitution-heredoc.sh`.
 fn print_parenthesised(items: &[Item], opener: &str) -> String {
     let mut bodies = Vec::new();
     let body = print_body(items, &mut bodies);
@@ -1013,17 +1005,15 @@ fn print_parenthesised(items: &[Item], opener: &str) -> String {
     }
 }
 
-/// `[abc]`, `[!a-z]`, `[[:digit:]]` — the set, spelled so it reads back as
-/// itself.
+/// `[abc]`, `[!a-z]`, `[[:digit:]]` — the set, spelled so it reads back as itself.
 ///
-/// ⚠ **`!`, never `^`.** The two negate identically — measured — so they are one
-/// tree and the printer has to pick one; `!` is the POSIX spelling and the one
-/// the corpus writes. `t₂ ≠ t₁` where the source said `^`, which the law
-/// permits, and bash's own print of the original re-reads to the same tree.
+/// ⚠ **`!`, never `^`.** The two negate identically — measured — so they are one tree
+/// and the printer has to pick one; `!` is the POSIX spelling and the one the corpus
+/// writes. `t₂ ≠ t₁` where the source said `^`, which the law permits.
 ///
-/// A `]` member needs no escaping and gets none: it can only have come from the
-/// first position, where it is a member rather than the close, and that is where
-/// it goes back.
+/// A `]` member needs no escaping and gets none: it can only have come from the first
+/// position, where it is a member rather than the close, and that is where it goes
+/// back.
 fn print_class(class: &Class) -> String {
     let mut out = String::from("[");
     if class.negated {

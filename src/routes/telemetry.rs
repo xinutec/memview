@@ -1,20 +1,18 @@
 //! Client activity trace: what the browser sees and the API does not.
 //!
-//! **Why this exists, and it is not analytics.** The per-request trace already
-//! logs every API call, and that was treated as sufficient. It is not: a tap
-//! that hits a cache, a control that was disabled, a graph that rendered wrong —
-//! none of it reaches the server, so none of it can be diagnosed afterwards from
-//! a report like "I pressed it and nothing happened". This view in particular
-//! spends most of its time doing things the API never hears about: turning the
-//! camera, changing the cluster grain, walking from memory to memory.
+//! **Why this exists, and it is not analytics.** The per-request trace already logs
+//! every API call, and that was treated as sufficient. It is not: a tap that hits a
+//! cache, a control that was disabled, a graph that rendered wrong — none of it
+//! reaches the server, so none of it can be diagnosed afterwards from a report like
+//! "I pressed it and nothing happened". The graph view in particular spends most of
+//! its time turning the camera and walking from memory to memory, which the API never
+//! hears about.
 //!
-//! The events fold into the **same** log stream as the API requests, so a
-//! session reads as one timeline: `client-event kind=nav path=/graph`, then
-//! `client-event kind=tap label="project_dev_lint"`, then the
-//! `GET /api/memory/... 200` the tap caused.
+//! The events fold into the **same** log stream as the API requests, so a session
+//! reads as one timeline.
 //!
-//! **There is no storage here.** These are logs, not data. The endpoint moves
-//! the client's events into the backend log and forgets them.
+//! **There is no storage here.** These are logs, not data: the endpoint moves the
+//! client's events into the backend log and forgets them.
 //!
 //! Ported from `fleetwatch`, which took it from `life`.
 

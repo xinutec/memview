@@ -3,17 +3,16 @@
 //!     cargo run --release --bin shadow-index
 //!     cargo run --release --bin shadow-index -- --write
 //!
-//! Prints the disagreements; `--write` also drops the assembled file in
-//! memview's cache so it can be diffed with ordinary tools.
+//! Prints the disagreements; `--write` also drops the assembled file in memview's
+//! cache so it can be diffed with ordinary tools.
 //!
-//! ⚠ **It never touches `MEMORY.md`.** The corpus is not memview's to edit —
-//! the tools are built here and the memory session runs them (memview#1310).
-//! The output guides; a session reads it and decides.
+//! ⚠ **It never touches `MEMORY.md`.** The corpus is not memview's to edit — the
+//! tools are built here and the memory session runs them (memview#1310).
 //!
-//! ⚠ **When the two disagree, the ALGORITHM is the first suspect.** This
-//! assembles from `teaser:` frontmatter, which most of the corpus does not yet
-//! carry, so a difference is far more likely to be a gap in the data than a
-//! fault in the file somebody maintains by hand.
+//! ⚠ **When the two disagree, the ALGORITHM is the first suspect.** This assembles
+//! from `teaser:` frontmatter, which most of the corpus does not yet carry, so a
+//! difference is far more likely to be a gap in the data than a fault in the file
+//! somebody maintains by hand.
 
 use anyhow::{Context, Result};
 use memview::store::Corpus;
