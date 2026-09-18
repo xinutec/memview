@@ -81,7 +81,17 @@ button.parse {
   appearance: none;
   background: none;
   border: none;
-  font: inherit;
+  // ⚠ **Longhands, because `font:` is a shorthand and would take the family with
+  // it.** This rule outranks `.tool-arg` (0,1,1 against 0,1,0), so `font: inherit`
+  // here handed the row's body font to the one argument that is a SHELL COMMAND —
+  // measured: the clickable row came out Roboto while the plain-span row beside it
+  // kept `ui-monospace`. Everything a button needs resetting is below; the family
+  // stays where it is declared once, on `.tool-arg`.
+  font-size: inherit;
+  font-weight: inherit;
+  font-style: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
   text-align: left;
   cursor: pointer;
   padding: 0.25rem 0;
