@@ -233,3 +233,39 @@ test('two devices writing at once are offered both, and the combination crosses 
   // And the combination is a draft like any other, so it crosses back.
   await expect(box(mac)).toHaveValue('from the mac\n\nfrom the phone', { timeout: 30_000 });
 });
+
+test('the other order is the other order, and it crosses back too', async ({ browser }) => {
+  // ⚠ **`mine first` was drawn and driven by nothing.** The branch above covers
+  // `theirs first`, and the two differ only in which side of the join comes
+  // first — which is exactly why an untested one is cheap to get backwards and
+  // impossible to notice: both produce a plausible message, and only the person
+  // who wrote the two halves knows which order they meant.
+  const talk = CONVERSATIONS[5];
+  const mac = await device(browser, `/s/${talk}`);
+  await expect(box(mac)).toBeVisible();
+
+  const context = await browser.newContext();
+  devices.push(context);
+  const phone = await context.newPage();
+  await phone.goto(`${runner.base}/s/${talk}`);
+  await expect(box(phone)).toBeVisible();
+
+  await phone.route('**/api/sync/drafts*', (route) => route.abort());
+
+  await type(mac, 'from the mac');
+  await type(phone, 'from the phone');
+  await phone.waitForTimeout(2_000);
+
+  await phone.unroute('**/api/sync/drafts*');
+
+  const clash = phone.locator('.clash');
+  await expect(clash).toBeVisible({ timeout: 30_000 });
+
+  // `mine first`: THIS device's words, then the other's — the mirror of the
+  // assertion above, on the same two halves, so a join written the wrong way
+  // round cannot satisfy both.
+  await phone.getByRole('button', { name: 'mine first' }).click();
+  await expect(box(phone)).toHaveValue('from the phone\n\nfrom the mac');
+
+  await expect(box(mac)).toHaveValue('from the phone\n\nfrom the mac', { timeout: 30_000 });
+});
