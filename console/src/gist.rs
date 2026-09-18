@@ -9,10 +9,10 @@
 //! restarts whenever it is upgraded. Dropped when the conversation is — see
 //! [`Gists::forget`].
 
+use parking_lot::RwLock;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::RwLock;
 
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
@@ -88,12 +88,12 @@ impl Gists {
 
     /// Every sentence there is, for the front page.
     pub fn all(&self) -> BTreeMap<String, Gist> {
-        self.held.read().expect("gists poisoned").clone()
+        self.held.read().clone()
     }
 
     fn keep(&self, id: &str, gist: Gist) {
         let all = {
-            let mut held = self.held.write().expect("gists poisoned");
+            let mut held = self.held.write();
             held.insert(id.to_string(), gist);
             held.clone()
         };
@@ -113,7 +113,7 @@ impl Gists {
             return;
         }
         let all = {
-            let mut held = self.held.write().expect("gists poisoned");
+            let mut held = self.held.write();
             let before = held.len();
             held.retain(|id, _| alive.contains(id));
             if held.len() == before {
@@ -143,7 +143,6 @@ impl Gists {
     fn current(&self, id: &str, bytes: u64) -> bool {
         self.held
             .read()
-            .expect("gists poisoned")
             .get(id)
             .is_some_and(|gist| gist.bytes == bytes)
     }

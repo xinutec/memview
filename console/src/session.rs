@@ -6,12 +6,12 @@
 //! process exists (`--session-id`), so a client can subscribe to a session that
 //! is still starting and `--resume` later takes the same id.
 
+use parking_lot::Mutex;
 use std::collections::{BTreeMap, VecDeque};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
@@ -714,7 +714,7 @@ impl Session {
         // upgrade (memview #1146). Set unconditionally, including to `None`;
         // `origin_read` is what makes `None` stick. See [`crate::past::opening`].
         {
-            let mut state = self.state.lock().expect("session state poisoned");
+            let mut state = self.state.lock();
             state.asked = crate::past::opening(&path);
             state.origin_read = true;
         }
@@ -730,7 +730,7 @@ impl Session {
         let Some(path) = crate::past::transcript_of(&root, &self.id) else {
             return;
         };
-        let mut so_far = self.state.lock().expect("session state poisoned").counted;
+        let mut so_far = self.state.lock().counted;
         // A seed arrives at zero, and zero is the whole file — gigabytes, on the
         // executor. Start where the last megabyte begins; [`crate::past::seed_from`]
         // says why the two agree exactly.
@@ -738,7 +738,7 @@ impl Session {
             so_far.through = crate::past::seed_from(&path);
         }
         let found = crate::past::counted(&path, so_far);
-        let mut state = self.state.lock().expect("session state poisoned");
+        let mut state = self.state.lock();
         state.counted = found.counted;
         // Work the harness reported finished, closing the count here because there is
         // no event — see [`crate::past::Appended::finished`].
@@ -923,11 +923,7 @@ impl Session {
                 session.id,
                 background.len()
             );
-            session
-                .state
-                .lock()
-                .expect("session state poisoned")
-                .background = background;
+            session.state.lock().background = background;
         }
         session.clone().read_from(Some(stdout), Some(stderr), true);
         reap_adopted(pid);
@@ -936,7 +932,7 @@ impl Session {
 
     /// What this session has counted, for an upgrade to hand on. See [`Tally`].
     pub fn tally(&self) -> Tally {
-        let state = self.state.lock().expect("session state poisoned");
+        let state = self.state.lock();
         Tally {
             started: self
                 .started
@@ -963,7 +959,6 @@ impl Session {
     pub fn asking(&self) -> Vec<(String, Pending)> {
         self.state
             .lock()
-            .expect("session state poisoned")
             .pending
             .iter()
             .map(|(id, question)| (id.clone(), question.clone()))
@@ -1075,7 +1070,7 @@ impl Session {
     /// notice.
     fn ended(&self, code: Option<i32>) {
         {
-            let mut state = self.state.lock().expect("session state poisoned");
+            let mut state = self.state.lock();
             if !state.alive {
                 return;
             }
@@ -1090,7 +1085,7 @@ impl Session {
     /// or lets this write straight through.
     pub async fn send(&self, text: &str) -> Result<()> {
         let parked = {
-            let mut state = self.state.lock().expect("session state poisoned");
+            let mut state = self.state.lock();
             let parking = state.working && protocol::is_command(text);
             if parking {
                 state.held.push_back(text.to_string());
@@ -1119,20 +1114,16 @@ impl Session {
             });
         } else {
             // In flight until the CLI replays it — the whole of what [`Self::deaf`] has to go on.
-            self.state
-                .lock()
-                .expect("session state poisoned")
-                .unread
-                .push_back(Unread {
-                    text: text.to_string(),
-                    at: now(),
-                });
+            self.state.lock().unread.push_back(Unread {
+                text: text.to_string(),
+                at: now(),
+            });
             self.push(Event::Accepted {
                 text: text.to_string(),
             });
         }
         // Held even if the CLI never echoes it.
-        let mut state = self.state.lock().expect("session state poisoned");
+        let mut state = self.state.lock();
         if state.asked.is_none() && !state.origin_read {
             state.asked = Some(text.to_string());
         }
@@ -1146,7 +1137,7 @@ impl Session {
     pub async fn release_held(&self) -> Result<()> {
         loop {
             let next = {
-                let mut state = self.state.lock().expect("session state poisoned");
+                let mut state = self.state.lock();
                 state.held.pop_front()
             };
             let Some(command) = next else { return Ok(()) };
@@ -1157,7 +1148,7 @@ impl Session {
     /// Take back a command that is waiting, by its exact text. False is not an
     /// error: a second tap on a command already released has nothing to undo.
     pub fn forget_held(&self, text: &str) -> bool {
-        let mut state = self.state.lock().expect("session state poisoned");
+        let mut state = self.state.lock();
         let Some(at) = state.held.iter().position(|held| held == text) else {
             return false;
         };
@@ -1185,7 +1176,7 @@ impl Session {
             .context("writing to the session")?;
         stdin.flush().await.context("flushing to the session")?;
         drop(held);
-        let mut state = self.state.lock().expect("session state poisoned");
+        let mut state = self.state.lock();
         if state.asked.is_none() && !state.origin_read {
             // What it was opened for, when a picture is the first thing said — not the
             // base64.
@@ -1210,7 +1201,7 @@ impl Session {
         reply: Option<&protocol::Reply>,
     ) -> Result<()> {
         let pending = {
-            let state = self.state.lock().expect("session state poisoned");
+            let state = self.state.lock();
             state
                 .pending
                 .get(id)
@@ -1275,7 +1266,7 @@ impl Session {
             .context("asking the session to change mode")?;
         stdin.flush().await.context("flushing the mode change")?;
         drop(held);
-        let mut state = self.state.lock().expect("session state poisoned");
+        let mut state = self.state.lock();
         // Kept so a refusal can put back the mode the session is really in. Only when
         // nothing is already outstanding, or the second change would record the first's
         // optimistic value as the truth.
@@ -1293,7 +1284,7 @@ impl Session {
     /// on screen for the life of the session (memview #96). The confirmed mode comes
     /// from the reply, not from what was asked — see [`protocol::mode_reply`].
     fn settle_mode(&self, reply: protocol::ModeReply) {
-        let mut state = self.state.lock().expect("session state poisoned");
+        let mut state = self.state.lock();
         match reply {
             protocol::ModeReply::Now(mode) => {
                 state.mode = Some(mode);
@@ -1315,7 +1306,7 @@ impl Session {
     /// Keep what the CLI answered about each window. Per window, not wholesale: an
     /// answer naming one window says nothing about another.
     fn record_usage(&self, windows: Vec<(String, f64, Option<i64>)>) {
-        let mut state = self.state.lock().expect("session state poisoned");
+        let mut state = self.state.lock();
         let at = Heard(now());
         // Through [`crate::usage::remember`], not a blind insert: an answer from cached
         // headers is an echo, and must not overwrite a fresh `rate_limit_event`.
@@ -1359,8 +1350,7 @@ impl Session {
     /// [`crate::roster::Roster::finish_stopping`] reads it.
     pub async fn stop(self: &Arc<Self>) {
         self.stdin.lock().await.take();
-        self.state.lock().expect("session state poisoned").stopping =
-            Some(now() + GRACE.as_millis() as i64);
+        self.state.lock().stopping = Some(now() + GRACE.as_millis() as i64);
         let session = self.clone();
         tokio::spawn(async move {
             tokio::time::sleep(GRACE).await;
@@ -1370,12 +1360,12 @@ impl Session {
 
     /// When this session's kill falls due, for one that has been stopped.
     pub fn stopping(&self) -> Option<i64> {
-        self.state.lock().expect("session state poisoned").stopping
+        self.state.lock().stopping
     }
 
     /// Kill the session now.
     pub fn force(&self) {
-        if let Some(kill) = self.kill.lock().expect("session kill poisoned").take() {
+        if let Some(kill) = self.kill.lock().take() {
             // A spawned session: the reaper holds the child and kills it.
             if kill.send(()).is_ok() {
                 return;
@@ -1397,12 +1387,12 @@ impl Session {
     /// not the conversation: which one holds a current answer to `get_usage`. See
     /// [`crate::roster::Roster::ask_usage`].
     fn heard(&self) {
-        self.state.lock().expect("session state poisoned").heard = now();
+        self.state.lock().heard = now();
     }
 
     /// When this session's process last said anything. See [`Self::heard`].
     pub fn last_heard(&self) -> i64 {
-        self.state.lock().expect("session state poisoned").heard
+        self.state.lock().heard
     }
 
     /// How long this session has been failing to read what was written to it, in
@@ -1414,7 +1404,7 @@ impl Session {
     /// whichever came second. It cannot see a session that goes deaf MID-TURN; both
     /// measured episodes were between turns.
     pub fn deaf(&self) -> Option<i64> {
-        deaf_for(&self.state.lock().expect("session state poisoned"))
+        deaf_for(&self.state.lock())
     }
 
     /// Say so, once, if this session has stopped reading: how long, when this is the
@@ -1422,7 +1412,7 @@ impl Session {
     /// comes back with it so the caller can capture the process before the cure
     /// destroys it — [`crate::roster::Roster::watch_for_deafness`].
     pub fn check_deaf(&self) -> Option<(u64, usize)> {
-        let mut state = self.state.lock().expect("session state poisoned");
+        let mut state = self.state.lock();
         let seconds = (deaf_for(&state)? / 1000) as u64;
         if state.announced_deaf {
             return None;
@@ -1436,11 +1426,7 @@ impl Session {
 
     /// What this session was last told it may do without asking. See [`Summary::mode`].
     pub fn mode(&self) -> Option<String> {
-        self.state
-            .lock()
-            .expect("session state poisoned")
-            .mode
-            .clone()
+        self.state.lock().mode.clone()
     }
 
     /// What was written to this session and never read, oldest first — the other
@@ -1449,7 +1435,6 @@ impl Session {
     pub fn unread(&self) -> Vec<String> {
         self.state
             .lock()
-            .expect("session state poisoned")
             .unread
             .iter()
             .map(|held| held.text.clone())
@@ -1460,7 +1445,7 @@ impl Session {
     /// than taken because a seeded event happened whenever the transcript says.
     fn push_at(&self, event: Event, at: Option<i64>) {
         let stamped = {
-            let mut state = self.state.lock().expect("session state poisoned");
+            let mut state = self.state.lock();
             match &event {
                 Event::Started { model, .. } => state.model = Some(model.clone()),
                 Event::Busy { status } => state.busy = Some(status.clone()),
@@ -1599,7 +1584,7 @@ impl Session {
     }
 
     fn note_stderr(&self, line: &str) {
-        let mut state = self.state.lock().expect("session state poisoned");
+        let mut state = self.state.lock();
         state.stderr.push_str(line);
         state.stderr.push('\n');
         if state.stderr.len() > STDERR_KEPT {
@@ -1612,7 +1597,6 @@ impl Session {
     pub fn history(&self) -> Vec<Event> {
         self.state
             .lock()
-            .expect("session state poisoned")
             .log
             .iter()
             .map(|stamped| stamped.event.clone())
@@ -1622,7 +1606,7 @@ impl Session {
     /// What a client that says it holds everything through `after` still needs.
     /// Resuming is refused rather than approximated — see [resumable].
     pub fn since(&self, after: Option<u64>) -> Backlog {
-        let state = self.state.lock().expect("session state poisoned");
+        let state = self.state.lock();
         // With an empty log nothing is held, so the earliest number still honourable
         // is the next one to be issued.
         let held_from = state
@@ -1658,7 +1642,7 @@ impl Session {
     /// the transcript — see [`crate::api`]. Every event at or below it has been
     /// written, so nothing after it is sent twice.
     pub fn issued(&self) -> u64 {
-        self.state.lock().expect("session state poisoned").issued
+        self.state.lock().issued
     }
 
     pub fn listen(&self) -> broadcast::Receiver<Stamped> {
@@ -1667,25 +1651,21 @@ impl Session {
 
     /// What the child said on stderr, for when it will not start.
     pub fn trouble(&self) -> String {
-        self.state
-            .lock()
-            .expect("session state poisoned")
-            .stderr
-            .clone()
+        self.state.lock().stderr.clone()
     }
 
     pub fn alive(&self) -> bool {
-        self.state.lock().expect("session state poisoned").alive
+        self.state.lock().alive
     }
 
     /// Whether a turn is running right now — [`Summary::working`], and NOT
     /// [`Summary::busy`], which cannot answer this.
     pub fn working(&self) -> bool {
-        self.state.lock().expect("session state poisoned").working
+        self.state.lock().working
     }
 
     pub fn summary(&self) -> Summary {
-        let state = self.state.lock().expect("session state poisoned");
+        let state = self.state.lock();
         Summary {
             id: self.id.clone(),
             dir: self.dir.display().to_string(),

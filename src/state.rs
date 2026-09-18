@@ -2,7 +2,9 @@
 //! per process).
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 use std::time::{Duration, Instant};
 
 use rand::RngCore;
@@ -88,7 +90,7 @@ impl AppState {
         };
         let path = std::path::Path::new(path);
         let at = std::fs::metadata(path).and_then(|m| m.modified()).ok();
-        let mut held = self.effects.lock().expect("effects poisoned");
+        let mut held = self.effects.lock();
         if let Some(cached) = held.as_ref()
             && cached.at == at
         {
@@ -115,7 +117,7 @@ impl AppState {
         };
         let path = std::path::Path::new(path);
         let at = std::fs::metadata(path).and_then(|m| m.modified()).ok();
-        let mut held = self.timeline.lock().expect("timeline poisoned");
+        let mut held = self.timeline.lock();
         if let Some(cached) = held.as_ref()
             && cached.at == at
         {
@@ -135,7 +137,7 @@ impl AppState {
         let path = self.cfg.reading_file.as_deref()?;
         let path = std::path::Path::new(path);
         let at = std::fs::metadata(path).and_then(|m| m.modified()).ok();
-        let mut held = self.reading.lock().expect("reading poisoned");
+        let mut held = self.reading.lock();
         if let Some(cached) = held.as_ref()
             && cached.at == at
         {
@@ -156,7 +158,7 @@ impl AppState {
         let mut bytes = [0u8; 24];
         rand::rng().fill_bytes(&mut bytes);
         let state = hex::encode(bytes);
-        let mut map = self.oauth.lock().expect("oauth map poisoned");
+        let mut map = self.oauth.lock();
         map.retain(|_, v| v.created.elapsed() < OAUTH_TTL);
         map.insert(
             state.clone(),
@@ -169,7 +171,7 @@ impl AppState {
     }
 
     pub fn consume_oauth_state(&self, state: &str) -> Option<PendingOauth> {
-        let mut map = self.oauth.lock().expect("oauth map poisoned");
+        let mut map = self.oauth.lock();
         let entry = map.remove(state)?;
         if entry.created.elapsed() > OAUTH_TTL {
             return None;

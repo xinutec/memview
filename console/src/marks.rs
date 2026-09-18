@@ -5,9 +5,9 @@
 //! trusts everything before a stored offset — and a file that SHRANK (compaction
 //! rewrites history) is re-walked, not extended.
 
+use parking_lot::RwLock;
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::RwLock;
 
 use crate::past::Landmark;
 
@@ -38,13 +38,7 @@ impl Marks {
     /// sheet queueing behind this one.
     pub fn of(&self, id: &str, path: &Path) -> Vec<Landmark> {
         let len = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-        let known = self
-            .held
-            .read()
-            .expect("marks poisoned")
-            .get(id)
-            .cloned()
-            .unwrap_or_default();
+        let known = self.held.read().get(id).cloned().unwrap_or_default();
 
         // Nothing complete has arrived since the last walk. `through` is where the walk
         // STOPPED, so a half-written tail line is re-read until it is finished — bounded
@@ -71,7 +65,7 @@ impl Marks {
             began.elapsed()
         );
 
-        self.held.write().expect("marks poisoned").insert(
+        self.held.write().insert(
             id.to_string(),
             Walked {
                 found: found.clone(),
@@ -84,6 +78,6 @@ impl Marks {
     /// Forget a conversation this console no longer holds; otherwise the map only
     /// grows, a Vec per conversation.
     pub fn forget(&self, id: &str) {
-        self.held.write().expect("marks poisoned").remove(id);
+        self.held.write().remove(id);
     }
 }

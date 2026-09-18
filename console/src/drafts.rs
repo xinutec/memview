@@ -12,9 +12,9 @@
 //! Text only. A picture is hundreds of kilobytes and there is no meaningful way
 //! to combine two; it stays in the client's own storage.
 
+use parking_lot::RwLock;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::RwLock;
 
 use serde::{Deserialize, Serialize};
 
@@ -127,13 +127,13 @@ impl Drafts {
 
     /// This conversation's draft, if any device has written one.
     pub fn get(&self, id: &str) -> Option<Draft> {
-        self.held.read().expect("drafts poisoned").get(id).cloned()
+        self.held.read().get(id).cloned()
     }
 
     /// Every draft, for the roster — a client that has just connected learns which
     /// conversations hold unsent words without asking per session.
     pub fn all(&self) -> BTreeMap<String, Draft> {
-        self.held.read().expect("drafts poisoned").clone()
+        self.held.read().clone()
     }
 
     /// Record what a device is holding, if what it assumed is what is here.
@@ -147,7 +147,7 @@ impl Drafts {
     /// device push the words back and resurrect a message already sent.
     pub fn apply(&self, id: &str, text: &str, assumed: Option<&str>, at: u64) -> Wrote {
         let (result, all) = {
-            let mut held = self.held.write().expect("drafts poisoned");
+            let mut held = self.held.write();
             let current = held.get(id).cloned();
             if let Some(theirs) = current.as_ref()
                 && assumed != Some(theirs.text.as_str())
@@ -176,7 +176,7 @@ impl Drafts {
             return;
         }
         let all = {
-            let mut held = self.held.write().expect("drafts poisoned");
+            let mut held = self.held.write();
             let before = held.len();
             held.retain(|id, _| alive.contains(id));
             if held.len() == before {
@@ -210,7 +210,7 @@ impl Drafts {
     /// paged: a sentence per conversation cannot outgrow one response. Revisit if a
     /// draft ever carries the picture.
     pub fn pull(&self, since: u64) -> PullResponse {
-        let held = self.held.read().expect("drafts poisoned");
+        let held = self.held.read();
         let mut documents: Vec<DraftDoc> = held
             .iter()
             .filter(|(_, d)| d.rev > since)

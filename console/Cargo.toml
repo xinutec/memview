@@ -17,6 +17,12 @@ edition = "2024"
 # configuration mistake apart. See ../docs/agent-console.md.
 
 [dependencies]
+# ⚠ **The locks, and not `std::sync`'s.** A std lock poisons when a thread panics
+# holding it, and every later reader gets an `Err` saying only "somebody else
+# crashed". Nothing here can act on that — the console's state is rebuilt by
+# re-reading the sessions on disk — so every call site unwrapped it, which put a
+# message nobody can use beside every lock in the crate. These do not poison.
+parking_lot = "0.12"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 axum = "0.8"

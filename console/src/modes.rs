@@ -6,9 +6,9 @@
 //! came back Manual after a restart and stopped at its first approval, with
 //! nothing saying why.
 
+use parking_lot::RwLock;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::RwLock;
 
 /// Every conversation's last known mode, by session id.
 #[derive(Debug)]
@@ -43,14 +43,14 @@ impl Modes {
 
     /// What this conversation was last allowed to do, if it has ever been said.
     pub fn get(&self, id: &str) -> Option<String> {
-        self.held.read().expect("modes poisoned").get(id).cloned()
+        self.held.read().get(id).cloned()
     }
 
     /// Remember a conversation's mode, if it has changed — this runs on every spawn
     /// and every mode request.
     pub fn set(&self, id: &str, mode: &str) {
         let all = {
-            let mut held = self.held.write().expect("modes poisoned");
+            let mut held = self.held.write();
             if held.get(id).is_some_and(|known| known == mode) {
                 return;
             }

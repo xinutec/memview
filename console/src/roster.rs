@@ -3,7 +3,9 @@
 
 use anyhow::Context as _;
 use std::collections::BTreeMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+
+use parking_lot::{Mutex, RwLock};
 
 use anyhow::Result;
 
@@ -37,7 +39,7 @@ pub struct Roster {
     /// heard it: derived fresh from live sessions, the figure went 92 → 93 → 92 as a
     /// session ended (memview #87). Utilisation only rises inside a window, and
     /// [`crate::usage::fresher`] discards an old window outright.
-    spent: std::sync::Mutex<BTreeMap<String, crate::session::Seen>>,
+    spent: Mutex<BTreeMap<String, crate::session::Seen>>,
 }
 
 /// The environment variable an upgrade hands its sessions over in.
@@ -88,7 +90,7 @@ impl Roster {
             tasks: Arc::default(),
             modes,
             marks: Arc::default(),
-            spent: std::sync::Mutex::new(BTreeMap::new()),
+            spent: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -206,10 +208,7 @@ impl Roster {
             ) {
                 Ok(session) => {
                     tracing::info!("carried {} (pid {}) across the upgrade", one.id, one.pid);
-                    self.sessions
-                        .write()
-                        .expect("roster poisoned")
-                        .insert(one.id, session);
+                    self.sessions.write().insert(one.id, session);
                     taken += 1;
                 }
                 Err(error) => {
@@ -403,10 +402,7 @@ impl Roster {
         let session = started
             .inspect_err(|err| tracing::error!("could not start {id}: {err:#}"))
             .map_err(|err| format!("{err:#}"))?;
-        self.sessions
-            .write()
-            .expect("roster poisoned")
-            .insert(id, session.clone());
+        self.sessions.write().insert(id, session.clone());
         Ok(session)
     }
 
@@ -414,7 +410,7 @@ impl Roster {
     /// `kill_on_drop` covers a clean exit only, and orphans keep their session ids
     /// and make their conversations look busy to the next console.
     pub fn shut_down(&self) {
-        for session in self.sessions.read().expect("roster poisoned").values() {
+        for session in self.sessions.read().values() {
             tracing::info!("killing {}", session.id);
             session.force();
         }
@@ -434,7 +430,7 @@ impl Roster {
     pub fn handover(&self) -> anyhow::Result<std::convert::Infallible> {
         use std::os::unix::process::CommandExt;
 
-        let sessions = self.sessions.read().expect("roster poisoned");
+        let sessions = self.sessions.read();
         let carried: Vec<Carried> = sessions
             .values()
             .filter(|session| session.alive())
@@ -486,11 +482,7 @@ impl Roster {
     }
 
     pub fn get(&self, id: &str) -> Option<Arc<Session>> {
-        self.sessions
-            .read()
-            .expect("roster poisoned")
-            .get(id)
-            .cloned()
+        self.sessions.read().get(id).cloned()
     }
 
     /// Ask a live session what the account has spent. One session — the figure is
@@ -500,7 +492,7 @@ impl Roster {
     /// returned; the answer lands in that session's tally, where [`Self::spent`] finds it.
     pub async fn ask_usage(&self) {
         let asked = {
-            let sessions = self.sessions.read().expect("roster poisoned");
+            let sessions = self.sessions.read();
             sessions
                 .values()
                 .filter(|session| session.alive())
@@ -517,11 +509,11 @@ impl Roster {
     /// What the API has most recently said about each rate-limit window, across every
     /// session: the session that heard it is an accident of which one was working.
     pub fn spent(&self) -> std::collections::BTreeMap<String, crate::session::Seen> {
-        let sessions = self.sessions.read().expect("roster poisoned");
+        let sessions = self.sessions.read();
         // Merged into what is remembered, not gathered afresh, and not "whichever
         // arrived last" — see [`crate::usage::fresher`]: an idle session answers from
         // its cache, so the freshest arrival is routinely the oldest figure.
-        let mut newest = self.spent.lock().expect("spent poisoned");
+        let mut newest = self.spent.lock();
         for session in sessions.values() {
             crate::usage::remember(&mut newest, session.tally().spent);
         }
@@ -534,7 +526,7 @@ impl Roster {
     /// Announced once per episode.
     pub async fn watch_for_deafness(&self) {
         let live: Vec<_> = {
-            let sessions = self.sessions.read().expect("roster poisoned");
+            let sessions = self.sessions.read();
             sessions
                 .values()
                 .filter(|session| session.alive())
@@ -568,7 +560,7 @@ impl Roster {
     }
 
     pub fn list(&self) -> Vec<Summary> {
-        let sessions = self.sessions.read().expect("roster poisoned");
+        let sessions = self.sessions.read();
         // The name and the last-activity time are the transcript's, not the session's,
         // so the roster reads them here in one pass over the tail and metadata.
         let root = crate::past::projects_root();
@@ -597,7 +589,7 @@ impl Roster {
     /// Forget an ended session. A live one is killed first, or an agent would be
     /// working with nothing holding its handle.
     pub fn forget(&self, id: &str) -> bool {
-        let Some(session) = self.sessions.write().expect("roster poisoned").remove(id) else {
+        let Some(session) = self.sessions.write().remove(id) else {
             tracing::info!("asked to forget {id}, which this console does not have");
             return false;
         };

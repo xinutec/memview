@@ -5,8 +5,8 @@
 //! leaked old link immediately stops working; revoke deletes it. Persisted
 //! as a small JSON file (SHARE_STATE) so it survives restarts.
 
+use parking_lot::Mutex;
 use std::path::PathBuf;
-use std::sync::Mutex;
 
 use anyhow::{Context, Result};
 use base64::Engine;
@@ -53,7 +53,7 @@ impl ShareStore {
     }
 
     pub fn get(&self) -> Option<ShareState> {
-        self.state.lock().expect("share state poisoned").clone()
+        self.state.lock().clone()
     }
 
     /// True when `token` matches the active share token. Constant-time, like the
@@ -71,14 +71,14 @@ impl ShareStore {
             created_at: Utc::now(),
             last_accessed_at: None,
         };
-        let mut guard = self.state.lock().expect("share state poisoned");
+        let mut guard = self.state.lock();
         self.persist(&Some(fresh.clone()))?;
         *guard = Some(fresh.clone());
         Ok(fresh)
     }
 
     pub fn revoke(&self) -> Result<()> {
-        let mut guard = self.state.lock().expect("share state poisoned");
+        let mut guard = self.state.lock();
         self.persist(&None)?;
         *guard = None;
         Ok(())
@@ -87,7 +87,7 @@ impl ShareStore {
     /// Bump last_accessed_at. Best-effort; a failed write must not fail the
     /// read it decorates.
     pub fn touch(&self) {
-        let mut guard = self.state.lock().expect("share state poisoned");
+        let mut guard = self.state.lock();
         if let Some(state) = guard.as_mut() {
             state.last_accessed_at = Some(Utc::now());
             if let Err(e) = self.persist(&Some(state.clone())) {
