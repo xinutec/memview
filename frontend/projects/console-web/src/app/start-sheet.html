@@ -27,7 +27,9 @@
 
 <!-- No opening instruction: it duplicated the composer this sheet navigates
      straight to. -->
+<!-- Says it is happening, as `rename-sheet` does: spawning a CLI takes a moment,
+     and a button that only greys out reads as unavailable rather than as busy. -->
 <button matButton="filled" class="go" (click)="start()" [disabled]="starting() || !dir()">
   <mat-icon>play_arrow</mat-icon>
-  start a session
+  {{ starting() ? 'starting…' : 'start a session' }}
 </button>
