@@ -1,45 +1,31 @@
 //! What a shell command *does*, as a type rather than a table lookup.
 //!
-//! [`crate::shell`] gives words; this gives meaning. The first version went
-//! straight from words to "which paths, read or written", and that projection
-//! threw away everything else the command said: `grep hsmmDecode src/x.ts`
-//! became one read, indistinguishable from `cat src/x.ts`, though only one of
-//! them records *what was being looked for*.
+//! [`crate::shell`] gives words; this gives meaning. The first version went straight
+//! from words to "which paths, read or written", and that projection threw away
+//! everything else the command said: `grep hsmmDecode src/x.ts` became one read,
+//! indistinguishable from `cat src/x.ts`, though only one of them records *what was
+//! being looked for*.
 //!
 //! Naming the operation keeps that. A [`Op::Search`] knows its pattern, a
-//! [`Op::Move`] knows a file's old name as well as its new one, and a
-//! [`Op::Run`] knows which script was executed. The file use that
-//! [`crate::shell_files`] mines is then a *projection* of these — one obvious
-//! function — rather than a second table that has to be kept in step with this
-//! one.
+//! [`Op::Move`] knows a file's old name as well as its new one. The file use
+//! [`crate::shell_files`] mines is then a *projection* of these rather than a second
+//! table to keep in step with this one.
 //!
-//! Everything the older table refused, this refuses identically: an unknown
-//! command is [`Op::Unknown`] and contributes nothing, nothing is expanded
-//! beyond `~`/`$HOME`, nothing is looked up on disk, and a word must be shaped
-//! like a path before it can be one.
+//! Everything the older table refused, this refuses identically: an unknown command
+//! is [`Op::Unknown`] and contributes nothing, nothing is expanded beyond
+//! `~`/`$HOME`, nothing is looked up on disk, and a word must be shaped like a path
+//! before it can be one.
 //!
-//! ⚠ **Two of those are principles and one is a limitation, and the difference
-//! decides which may be lifted.**
+//! ⚠ **Two of those are principles and one was a limitation.** *Permanent:* nothing
+//! is looked up on disk — the filesystem of the day is gone — and **nothing is ever
+//! guessed**, because an invented path makes every count downstream a lie. *Now a
+//! measurement:* a subject that cannot be determined used to vanish instead of
+//! counting, so a command that named an unreadable file looked exactly like one that
+//! named none. Those subjects are collected — see [`paths`] and [`undetermined`].
 //!
-//! *Principles, permanent:* nothing is looked up on disk — the filesystem of the
-//! day is gone and today's is a different machine's answer — and **nothing is
-//! ever guessed**, because an invented path is the one failure that makes every
-//! count downstream a lie.
-//!
-//! *What was the limitation, and is now a measurement:* a subject that cannot be
-//! determined used to **vanish instead of counting**. `resolve` answering `None`
-//! left nothing behind, so a command that named a file no one can read looked
-//! exactly like a command that named none, and the record read as complete when
-//! it was not. Those subjects are now collected — see [`paths`] and
-//! [`undetermined`] — and stand at 3,006 uses over 713 distinct words, 1.7% of
-//! all file uses, led by loop variables whose list is a glob or a `$(…)`.
-//!
-//! ⚠ **Counting them is the whole of what can be done about them.** A glob is
-//! answered by the filesystem of the day and a `$(…)` by running something, and
-//! neither is available here or ever will be; the remedy for an unknown of that
-//! kind is to say so, not to guess. What used to stand beside this — nothing is
-//! bound, nothing is evaluated — is done: `shell_files.rs` carries an environment
-//! and runs determinate loops out into the commands they ran.
+//! Counting them is the whole of what can be done about them: a glob is answered by
+//! the filesystem of the day and a `$(…)` by running something, and neither is
+//! available here or ever will be.
 
 use std::collections::BTreeMap;
 
@@ -79,44 +65,36 @@ pub enum Op {
     Run { script: String },
     /// Runs shell script text **in this same shell** — `bash -c '…'`,
     /// `nix-shell --run '…'`. The text is parsed and classified in turn by
-    /// [`crate::shell_files::extract`], which is where the working directory
-    /// lives; a `cd` inside stays inside, exactly as it does in a subshell.
+    /// [`crate::shell_files::extract`], where the working directory lives; a `cd` inside
+    /// stays inside.
     ///
     /// **`ssh host '…'` is [`Op::Remote`], not this** — the difference is which
     /// machine's filesystem the paths belong to.
     Nested { script: String },
-    /// Runs Python: `python3 -c '…'`, or a program fed in on stdin by a
-    /// heredoc — `python3 - <<'PY' … PY`.
+    /// Runs Python: `python3 -c '…'`, or a program fed in on stdin by a heredoc.
     ///
-    /// **The one non-shell language this reads**, and it is here because
-    /// refusing to was costing the most: 7,494 calls, and 3,547 file writes
-    /// inside them that nothing else in the fleet could see. Read by
-    /// [`crate::python`], which is as restrictive about Python as this module is
-    /// about the shell. `node -e` is still refused — nobody has measured a
-    /// reason to read it.
+    /// **The first non-shell language this read**, and it is here because refusing to
+    /// was costing the most: thousands of file writes inside Python that nothing else in
+    /// the fleet could see. Read by [`crate::python`], which is as restrictive about
+    /// Python as this module is about the shell.
     Python { source: String },
-    /// Runs JavaScript: `node -e '…'`, `node --input-type=module -e '…'`, or a
-    /// program fed in on stdin by a heredoc.
+    /// Runs JavaScript: `node -e '…'`, `node --input-type=module -e '…'`, or a program
+    /// fed in on stdin by a heredoc.
     ///
-    /// **The third language this reads.** An earlier ranking dismissed it —
-    /// "`node -e` is a query tool, not an editor" — by counting `node -e` alone,
-    /// by distinct payload, and counting no reads. Counted across every
-    /// JavaScript runtime and every program passed in a flag, the reads and
-    /// writes are there.
-    /// Read by [`crate::javascript`].
+    /// An earlier ranking dismissed it — "`node -e` is a query tool, not an editor" — by
+    /// counting `node -e` alone, by distinct payload, and counting no reads. Counted
+    /// across every runtime and every program passed in a flag, the reads and writes are
+    /// there. Read by [`crate::javascript`].
     JavaScript { source: String },
-    /// Statements sent to a database: `mariadb -e '…'`, `sqlite3 x.db '…'`, or
-    /// a heredoc on stdin. Read by [`crate::sql`].
+    /// Statements sent to a database: `mariadb -e '…'`, `sqlite3 x.db '…'`, or a
+    /// heredoc on stdin. Read by [`crate::sql`].
     ///
-    /// ⚠ **`database` is a FILE only for sqlite3.** `mariadb health` names a
-    /// database on a server — a name in a catalogue, not a path — and resolving
-    /// it against the working directory would invent a file that has never
-    /// existed. Measured: no `mariadb`/`mysql`/`psql` call in this corpus names
-    /// a path as its operand.
+    /// ⚠ **`database` is a FILE only for sqlite3.** `mariadb health` names a database on
+    /// a server — a name in a catalogue, not a path — and resolving it against the
+    /// working directory would invent a file that has never existed.
     ///
-    /// ⚠ **Whether that file is read or written is decided by the STATEMENTS**,
-    /// not by the command: `sqlite3 x.db 'SELECT …'` reads it and
-    /// `sqlite3 x.db 'DELETE …'` changes it, and the argv is identical in shape.
+    /// Whether that file is read or written is decided by the STATEMENTS, not by the
+    /// command: the argv of a `SELECT` and a `DELETE` are identical in shape.
     Sql {
         source: String,
         database: Vec<String>,
@@ -124,33 +102,27 @@ pub enum Op {
     /// A command run on another machine: `ssh host '…'`, `kubectl exec … -- …`,
     /// `docker exec …`.
     ///
-    /// **Read, but never attributed here.** The script is parsed like any other
-    /// — 8,666 of the corpus's `ssh` payloads are a quoted script, and what they
-    /// do to `/etc/nixos/configuration.nix` is real knowledge — but every path
-    /// in it belongs to `host`, and putting one in a local index would claim a
-    /// file that does not exist on this machine. Refusing to *parse* it was the
-    /// cruder version of that rule: it kept the index clean by knowing nothing.
+    /// **Read, but never attributed here.** The script is parsed like any other — what
+    /// an `ssh` payload does to `/etc/nixos/configuration.nix` is real knowledge — but
+    /// every path in it belongs to `host`, and putting one in a local index would claim
+    /// a file that does not exist on this machine. Refusing to *parse* it was the cruder
+    /// version of that rule: it kept the index clean by knowing nothing.
     ///
-    /// The remote working directory is unknown, so only absolute paths survive
-    /// unless the script `cd`s somewhere first — which many do.
+    /// The remote working directory is unknown, so only absolute paths survive unless
+    /// the script `cd`s somewhere first.
     Remote { host: String, script: String },
     /// A program run on another machine **with no shell anywhere**:
     /// `kubectl exec pod -- mariadb -e 'SELECT …'`, `docker exec c ls /etc`.
     ///
-    /// ⚠ **The distinction [`Op::Remote`] cannot express, and getting it wrong
-    /// accounts for nearly every nested refusal** (memview#1028; count it with
-    /// `reader/examples/nested-why.rs --by carrier`). `kubectl exec` and
-    /// `docker exec` hand their words to `exec()`; nothing re-splits them and
-    /// nothing removes a quote, because no shell is involved. Joining them back
-    /// into one string and parsing that as shell put SQL and JavaScript in front
-    /// of the shell grammar — `SELECT ROW_COUNT() AS deleted` reads as unmatched
-    /// grouping, and so does every `node -e` body with a `{` in it.
+    /// ⚠ **The distinction [`Op::Remote`] cannot express, and getting it wrong accounted
+    /// for nearly every nested refusal** (memview#1028). `kubectl exec` and `docker
+    /// exec` hand their words to `exec()`; nothing re-splits them and nothing removes a
+    /// quote. Joining them back into one string and parsing that as shell put SQL and
+    /// JavaScript in front of the shell grammar.
     ///
-    /// So the payload stays an **argv to classify**, never text to parse — the
-    /// same choice [`Verb::Carries`] makes, and for the same reason: it costs no
-    /// second parse and therefore cannot fail one. `-- sh -c '…'` is still
-    /// [`Op::Remote`]: there the shell is real and its argument really is a
-    /// script.
+    /// So the payload stays an **argv to classify**, never text to parse — the same
+    /// choice [`Verb::Carries`] makes, and for the same reason. `-- sh -c '…'` is still
+    /// [`Op::Remote`]: there the shell is real and its argument really is a script.
     RemoteRun { host: String, argv: Vec<String> },
     /// Changes the working directory. `None` is `cd` with no argument (home),
     /// and an unresolvable target is [`Op::Unknown`] rather than a guess.
@@ -183,10 +155,9 @@ pub enum Remote {
 /// The git subcommands whose effect on files is unambiguous.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GitOp {
-    /// `git add` — **staging, which changes no file.** Named rather than
-    /// dropped: it was 37% of every shell-derived write when it was miscounted
-    /// as one, and a variant that exists but projects to nothing is the way to
-    /// keep that decision visible instead of re-making it.
+    /// `git add` — **staging, which changes no file.** Named rather than dropped: it
+    /// was a large fraction of every shell-derived write when it was miscounted as one,
+    /// and a variant that exists but projects to nothing keeps that decision visible.
     Stage { paths: Vec<String> },
     /// `git rm`, `git restore`, `git mv` — these do change the working tree.
     Alter { paths: Vec<String> },
@@ -216,14 +187,13 @@ const BARE_FILENAMES: &[&str] = &[
 /// Whether a word is shaped like a path at all.
 ///
 /// **The guard that keeps invented paths out.** Some operands are not files — a
-/// stray context number, a git refspec, the word after a flag whose
-/// value-taking this table does not know about. Requiring a slash, a `~`, or an
-/// extension throws those away.
+/// stray context number, a git refspec, the word after a flag whose value-taking
+/// this table does not know about. Requiring a slash, a `~`, or an extension throws
+/// those away.
 ///
 /// It costs something real and known: `rg foo src` loses `src`, because a bare
-/// directory name is indistinguishable from a bare non-path. That is the side of
-/// the trade to be on — a lost read is an undercount, a kept non-path is a
-/// fabrication.
+/// directory name is indistinguishable from a bare non-path. That is the side of the
+/// trade to be on — a lost read is an undercount, a kept non-path is a fabrication.
 pub fn looks_like_path(word: &str) -> bool {
     if word.starts_with('~') || word.contains('/') {
         return true;
@@ -259,14 +229,14 @@ pub fn assignment(word: &str) -> Option<(&str, &str)> {
 
 /// Put the values this scope has bound back into a word.
 ///
-/// ⚠ **A name nobody bound is left exactly as it was**, which matters more than
-/// it looks: `resolve` refuses a word still holding a `$`, so an unexpanded
-/// variable stays refused rather than becoming a path named `$ADB`. Expansion
-/// can only ever turn a refusal into a resolution, never the reverse.
+/// ⚠ **A name nobody bound is left exactly as it was.** `resolve` refuses a word
+/// still holding a `$`, so an unexpanded variable stays refused rather than becoming
+/// a path named `$ADB`. Expansion can only ever turn a refusal into a resolution,
+/// never the reverse.
 ///
-/// `${NAME}` as well as `$NAME`, because both are written here. Nothing else of
-/// the shell's expansion vocabulary — no `${NAME:-default}`, no `$*` — since a
-/// half-understood expansion is the way to invent a path.
+/// `${NAME}` as well as `$NAME`, because both are written here. Nothing else of the
+/// shell's expansion vocabulary — a half-understood expansion is the way to invent a
+/// path.
 pub fn expand(word: &str, env: &BTreeMap<String, String>) -> String {
     expand_marking(word, env).0
 }
@@ -274,21 +244,20 @@ pub fn expand(word: &str, env: &BTreeMap<String, String>) -> String {
 /// [`expand`], and where in the answer a value was actually substituted.
 ///
 /// ⚠ **Only these spans may word-split, and that is bash's rule rather than a
-/// refinement of it.** Splitting happens to the characters an expansion
-/// *produced*, never to the literal text beside them in the same word:
+/// refinement of it.** Splitting happens to the characters an expansion *produced*,
+/// never to the literal text beside them in the same word:
 ///
 /// ```text
 /// awk '/^# page 1/{p=1;next} {print > "'$S'/'$v'.pg"}' $S/$v.words
 /// ```
 ///
-/// is ONE word — `$S` and `$v` hold no whitespace — and splitting the whole of
-/// it shredded a single-quoted `awk` program into `/^#`, `page`, `1/{p=1;next}`
-/// and filed the fragments as files (#1195). The spans are byte ranges into the
-/// returned string, in order and non-overlapping.
+/// is ONE word — `$S` and `$v` hold no whitespace — and splitting the whole of it
+/// shredded a single-quoted `awk` program into fragments and filed them as files
+/// (#1195). The spans are byte ranges into the returned string, in order and
+/// non-overlapping.
 ///
 /// A substitution nobody could evaluate produces no span, so nothing inside
-/// `$(cat list.txt)` splits either: its text is not its output, and cutting it
-/// up made `list.txt)` — closing paren and all — into a path.
+/// `$(cat list.txt)` splits either: its text is not its output.
 pub fn expand_marking(word: &str, env: &BTreeMap<String, String>) -> (String, Vec<(usize, usize)>) {
     if !word.contains('$') || env.is_empty() {
         return (word.to_string(), Vec::new());
@@ -335,17 +304,16 @@ pub fn expand_marking(word: &str, env: &BTreeMap<String, String>) -> (String, Ve
 
 /// Turn a word into an absolute path, or refuse it.
 ///
-/// Refuses more than it accepts, and each refusal is a category that would
-/// otherwise put a wrong path in the index:
-/// - an unexpanded `$VAR` — every value the binder knows is already in the word
-///   by the time it arrives here, so what is left is a name nobody bound, one
-///   bound twice, or one only running the command would answer. Filing it would
-///   put a path called `$ADB` in the index;
+/// Refuses more than it accepts, and each refusal is a category that would otherwise
+/// put a wrong path in the index:
+/// - an unexpanded `$VAR` — every value the binder knows is already in the word by
+///   now, so what is left is a name nobody bound, one bound twice, or one only
+///   running the command would answer;
 /// - `host:path` and anything with a scheme — another machine, or a URL;
-/// - `/dev/*`, which is plumbing: left in, `/dev/null` is the busiest path in
-///   the whole corpus at 25,407 writes and says nothing about anyone's work;
-/// - anything at all when the working directory is unknown, since a relative
-///   path without one names nothing.
+/// - `/dev/*`, which is plumbing: left in, `/dev/null` is the busiest path in the
+///   whole corpus and says nothing about anyone's work;
+/// - anything at all when the working directory is unknown, since a relative path
+///   without one names nothing.
 pub fn resolve(word: &str, cwd: Option<&str>, home: &str) -> Option<String> {
     if word.is_empty() || word == "-" || word.contains("://") || word.starts_with("/dev/") {
         return None;
@@ -401,11 +369,9 @@ fn normalise(path: &str) -> String {
 /// subjects that were refused because the text does not determine them.
 ///
 /// ⚠ **A refusal used to leave no trace, which made an unknown look like an
-/// absence.** `wc -l "$f"` inside a loop over a glob recorded exactly what `wc -l`
-/// with no operand records: nothing. The first is a file this reader cannot name,
-/// the second is a command that named none, and reporting them identically
-/// overstates how much of the corpus is understood — 592 distinct subjects' worth
-/// at the last count. See [`undetermined`].
+/// absence.** `wc -l "$f"` inside a glob loop recorded exactly what `wc -l` with no
+/// operand records: nothing. The first is a file this reader cannot name, the second
+/// is a command that named none. See [`undetermined`].
 fn paths(unnamed: &mut Vec<String>, words: &[&str], cwd: Option<&str>, home: &str) -> Vec<String> {
     let mut out = Vec::new();
     for word in words {
@@ -424,55 +390,36 @@ fn paths(unnamed: &mut Vec<String>, words: &[&str], cwd: Option<&str>, home: &st
 /// Whether a refused word is a subject the text does not determine, as opposed to
 /// one that is simply not a file.
 ///
-/// ⚠ **The distinction is the whole value of the count.** Most refusals are
-/// correct and uninteresting: `rg pattern src` loses `src` because a bare word
-/// cannot be told from a bare directory, `-` is stdin, a git refspec is not a
-/// path. Counting those would bury the ones that matter under noise nobody can
-/// act on, and would read as a confession about commands the reader understands
-/// perfectly well.
+/// ⚠ **The distinction is the whole value of the count.** Most refusals are correct
+/// and uninteresting: `rg pattern src` loses `src` because a bare word cannot be
+/// told from a bare directory, `-` is stdin, a git refspec is not a path. Counting
+/// those would bury the ones that matter under noise nobody can act on.
 ///
-/// A surviving `$` is the marker, because by this point every expansion the text
-/// determines has already been made: a literal binding, a loop run out, `$HOME`.
-/// What is left is a value that was never in the text — a loop over a glob or a
-/// `$(…)`, an environment variable set outside the transcript.
+/// A surviving `$` — or a backtick, since `` `which claude` `` carries no `$` — is
+/// the marker, because by this point every expansion the text determines has already
+/// been made. What is left is a value that was never in the text.
 ///
-/// ⚠ **A relative path under an unknown directory is NOT counted here**, though it
-/// is equally unnameable. That refusal has a different cause and a different
-/// remedy — the transcript's `cwd`, or a `cd` this reader could not follow — and
-/// folding the two together would make a count that cannot be acted on either
-/// way. It stays what the README calls it: a separate limit.
-/// ⚠ **A backtick counts too, and missing it undercounted the very thing this
-/// was built to count.** The first version tested `$` alone, on the reasoning
-/// that an unmade expansion is what a surviving `$` means — but `` `which
-/// claude` `` carries no `$`, and `cat `which claude`` therefore recorded no read
-/// *and* no admission that a subject had been refused.
-/// ⚠ **A word that spans lines is a program body, not a path.** Nothing in this
-/// corpus names a file with a newline in it, yet such words sat in the count of
-/// subjects the reader could not name — nearly all of them one shape,
-/// `perl /tmp/wire.pl <file> '<TypeScript body>'`; see `--example
-/// body-subjects`. A template literal carries `${…}`, which is
-/// the very marker this function reads as "an expansion the text did not make",
-/// so source text arrives here wearing the costume of an unnameable subject.
+/// ⚠ **A relative path under an unknown directory is NOT counted here**, though it is
+/// equally unnameable. That refusal has a different cause and a different remedy, and
+/// folding the two together would make a count that cannot be acted on either way.
 ///
-/// Dropped rather than counted, for the reason in the note above: the refusal is
-/// correct and there is nothing to act on. The file beside it is unaffected —
-/// `paths` decides word by word.
+/// ⚠ **A word that spans lines is a program body, not a path.** A template literal
+/// carries `${…}`, the very marker this reads as an unmade expansion, so source text
+/// arrives wearing the costume of an unnameable subject. Dropped rather than
+/// counted: the refusal is correct and there is nothing to act on.
 fn undetermined(word: &str) -> bool {
     word.contains(['$', '`']) && !only_arithmetic(word) && !word.contains('\n')
 }
 
 /// Whether a word is arithmetic and nothing a path could be made of.
 ///
-/// ⚠ **An arithmetic expansion evaluates to a NUMBER, so it was never a
-/// candidate for being a file** — and 458 of them sat in the count of subjects
-/// the reader could not name, which is the figure both apps print as the honest
-/// limit of what it knows. `$((now - before))` alone accounts for 60.
+/// ⚠ **An arithmetic expansion evaluates to a NUMBER, so it was never a candidate
+/// for being a file** — and they sat in the count of subjects the reader could not
+/// name, which is the figure both apps print as the honest limit of what it knows.
 ///
-/// ⚠ **Narrow on purpose: `/tmp/$((n)).txt` IS a path** and must stay a subject.
-/// The test is not "contains arithmetic" but "is arithmetic, with nothing
-/// path-shaped around it" — erring wide here would delete real subjects to make
-/// a number look better, which is the trade this exists to avoid. A `/` or a `~`
-/// anywhere in the word is enough to keep it.
+/// ⚠ **Narrow on purpose: `/tmp/$((n)).txt` IS a path** and must stay a subject. The
+/// test is not "contains arithmetic" but "is arithmetic, with nothing path-shaped
+/// around it" — erring wide would delete real subjects to make a number look better.
 fn only_arithmetic(word: &str) -> bool {
     if !word.contains("$((") || word.contains(['/', '~']) {
         return false;
@@ -514,10 +461,10 @@ fn only_arithmetic(word: &str) -> bool {
 
 /// The operands of a command: its words with the program and its flags removed.
 ///
-/// `--` ends the flags, `--flag=value` carries its own value, and a flag named
-/// in `valued` eats the word after it. An empty word is dropped — kept, BSD
-/// `sed -i '' 's/a/b/' f` offers `''` as the script to skip and the real script
-/// is then recorded as a path, since it is full of slashes.
+/// `--` ends the flags, `--flag=value` carries its own value, and a flag named in
+/// `valued` eats the word after it. An empty word is dropped — kept, BSD
+/// `sed -i '' 's/a/b/' f` offers `''` as the script to skip and the real script is
+/// then recorded as a path, since it is full of slashes.
 fn operands<'a>(argv: &'a [String], flags: &Flags) -> Vec<&'a str> {
     let mut out = Vec::new();
     let mut rest = argv.iter().skip(1);
@@ -556,19 +503,16 @@ fn paired_files<'a>(argv: &'a [String], pair_file: &[&str]) -> Vec<&'a str> {
     out
 }
 
-/// Whether one word spells `-i` as a FLAG, not as a character of some other
-/// flag's attached value.
+/// Whether one word spells `-i` as a FLAG, not as a character of some other flag's
+/// attached value.
 ///
-/// ⚠ **`perl -Itest/lib -e '…'` was in-place to a `contains('i')` test** — the
-/// `i` in `lib` — and `in_place` decides the operands' direction, so a file
-/// the command read was recorded as one it rewrote. Surfaced by the concept
-/// census surfaced it, lifted as a `Rewrite` of a test file.
+/// ⚠ **`perl -Itest/lib -e '…'` was in-place to a `contains('i')` test** — the `i`
+/// in `lib` — and `in_place` decides the operands' direction, so a file the command
+/// read was recorded as one it rewrote. Surfaced by the concept census.
 ///
-/// A cluster's letters end where a value-taking flag starts — `valued` is the
-/// verb's own list, so `-I` ends perl's cluster and does not end sed's `-Ei`,
-/// where `-E` takes nothing and the scan carries on to the `i`. Digits pass:
-/// `-0pi` spells a record separator in front of in-place. Anything that could
-/// not be a flag at all ends the word the same way a value does.
+/// A cluster's letters end where a value-taking flag starts — `valued` is the verb's
+/// own list, so `-I` ends perl's cluster and does not end sed's `-Ei`. Digits pass:
+/// `-0pi` spells a record separator in front of in-place.
 fn spells_in_place(word: &str, valued: &[&str]) -> bool {
     if !word.starts_with('-') || word.starts_with("--") {
         return false;
@@ -621,21 +565,20 @@ fn flag_values<'a>(argv: &'a [String], flags: &[&str]) -> Vec<&'a str> {
     out
 }
 
-/// The script a shell's `-c` carries, including when `c` closes a cluster of
-/// other short flags.
+/// The script a shell's `-c` carries, including when `c` closes a cluster of other
+/// short flags.
 ///
-/// ⚠ **`-lc` is not `-c`, and testing the token for equality misses it
-/// silently.** Bash reads `-l`, `-i` and `-c` as separate one-letter options,
-/// so `sh -lc 'x'` is a login shell running `x`. 120 of the corpus's 10,053
-/// shell `-c` invocations spell it that way (118 `-lc`, 2 `-lic`), and every
-/// one was misread: the `kubectl exec` arm fell back to joining the tail, which
-/// handed on `-lc NUM=$(…)` AS the script. The reader then refused it with a
-/// reason about the script's own text, so the fabricated word never appeared as
-/// a flag error — see `feedback_no_masking_fallbacks`.
+/// ⚠ **`-lc` is not `-c`, and testing the token for equality misses it silently.**
+/// Bash reads `-l`, `-i` and `-c` as separate one-letter options, so `sh -lc 'x'` is
+/// a login shell running `x`. Every corpus command spelling it that way was misread:
+/// the `kubectl exec` arm fell back to joining the tail, which handed on
+/// `-lc NUM=$(…)` AS the script. The reader then refused it with a reason about the
+/// script's own text, so the fabricated word never appeared as a flag error — see
+/// `feedback_no_masking_fallbacks`.
 ///
-/// ⚠ **Only sound for the shell family, and only called there.** A cluster is
-/// read as letters, so `-exec` would qualify on shape alone; `find` never
-/// reaches this because a verb decides first who is being asked.
+/// ⚠ **Only sound for the shell family, and only called there.** A cluster is read
+/// as letters, so `-exec` would qualify on shape alone; `find` never reaches this
+/// because a verb decides first who is being asked.
 pub fn shell_c_value(argv: &[String]) -> Option<&str> {
     let mut rest = argv.iter().skip(1);
     while let Some(word) = rest.next() {
@@ -670,8 +613,8 @@ fn wrapper(name: &str) -> Option<&'static [&'static str]> {
         "nohup" | "setsid" | "time" | "command" | "exec" | "stdbuf" | "builtin" => &[],
         "xargs" => &["-I", "-n", "-P", "-d", "-a"],
         // These run the real tool, which is the one worth classifying:
-        // `npx biome check --write x.ts` is a `biome`, and 3,785 calls went
-        // unread while `npx` stood in front of it.
+        // `npx biome check --write x.ts` is a `biome`, and thousands of calls went unread
+        // while `npx` stood in front of it.
         "npx" | "pnpx" | "bunx" => &[],
         "do" | "then" | "else" | "elif" | "if" | "while" | "until" | "!" => &[],
         _ => return None,
@@ -727,10 +670,6 @@ pub fn unwrap_command(argv: &[String]) -> &[String] {
 ///
 /// Not decoration: without `-A` here, `grep -A 3 dhall f` offers `3` as the
 /// pattern and `dhall` as a file — a word that is not a path, resolved against
-/// the working directory and recorded as one./// Context-taking flags for the search commands.
-///
-/// Not decoration: without `-A` here, `grep -A 3 dhall f` offers `3` as the
-/// pattern and `dhall` as a file — a word that is not a path, resolved against
 /// the working directory and recorded as one.
 const SEARCH_FLAGS: &[&str] = &[
     "-e", "--regexp", "-f", "--file", "-m", "-A", "-B", "-C", "-d", "-g", "--glob", "-t", "--type",
@@ -746,24 +685,21 @@ const SEARCH_FLAGS: &[&str] = &[
 struct Flags {
     /// Flags that consume the following word, which is therefore not an operand.
     valued: &'static [&'static str],
-    /// Flags that consume the following two words, where the SECOND is a file
-    /// the command reads.
+    /// Flags that consume the following two words, where the SECOND is a file the
+    /// command reads.
     ///
     /// ⚠ **Skipping both would delete a real read.** `jq --slurpfile a data.json
-    /// '.filter'` loads `data.json`; today it survives only by accident, as a
-    /// stray operand left over from the same shift `pair` fixes — so filing
-    /// these under `pair` would tidy the operand list and lose 32 genuine reads
-    /// with it. Measured over the corpus: `--slurpfile` 28, `--rawfile` 4.
+    /// '.filter'` loads `data.json`; today it survives only by accident, as a stray
+    /// operand left over from the same shift `pair` fixes — so filing these under `pair`
+    /// would tidy the operand list and lose genuine reads with it.
     pair_file: &'static [&'static str],
     /// Flags that consume the following **two** words — a name and a value.
     ///
-    /// ⚠ **`jq --arg dt 2026-01-01 '.filter' data.json` was read with the
-    /// operand list shifted by one.** Skipping a single word left the VALUE as
-    /// the first operand, so `2026-01-01` was recorded as the jq program and the
-    /// real filter fell through to the path list — where its `$dt` made it an
-    /// unnamed file subject. Two wrong facts from one missing word: a program
-    /// census that named a date, and an opacity figure inflated by programs that
-    /// were never paths.
+    /// ⚠ **`jq --arg dt 2026-01-01 '.filter' data.json` was read with the operand list
+    /// shifted by one.** Skipping a single word left the VALUE as the first operand, so
+    /// the date was recorded as the jq program and the real filter fell through to the
+    /// path list — where its `$dt` made it an unnamed file subject. Two wrong facts from
+    /// one missing word.
     pair: &'static [&'static str],
     /// Flags that supply the pattern or program.
     script: &'static [&'static str],
@@ -793,10 +729,9 @@ impl Flags {
 /// What kind of command this is — **the closed set, named once**.
 ///
 /// The classifier below matches on this rather than on the command name, so the
-/// string is parsed exactly once, at [`verb`], and a name nobody taught it
-/// cannot slip through a `_ =>` arm pretending to be understood. Grouped by
-/// *behaviour* rather than one variant per command: `cat` and `wc` differ in
-/// nothing this cares about.
+/// string is parsed exactly once, at [`verb`], and a name nobody taught it cannot
+/// slip through a `_ =>` arm pretending to be understood. Grouped by *behaviour*
+/// rather than one variant per command.
 #[derive(Debug, Clone, Copy)]
 enum Verb {
     /// Reads every operand: `cat`, `head`, `wc`, `ls`.
@@ -839,10 +774,10 @@ enum Verb {
     JavaScript,
     /// Reads what its input flags name and writes its LAST operand.
     ///
-    /// `ffmpeg -i in.wav out.wav`, and it is the only shape here where the
-    /// output is positional and the inputs are not. The path guard is what makes
-    /// "the last operand" safe: `-`, `pipe:1` and a bare `5` left over from an
-    /// undeclared flag are not paths, so they name no write.
+    /// `ffmpeg -i in.wav out.wav`, and it is the only shape here where the output is
+    /// positional and the inputs are not. The path guard is what makes "the last
+    /// operand" safe: `-`, `pipe:1` and a bare `5` left over from an undeclared flag are
+    /// not paths, so they name no write.
     Convert {
         input: &'static [&'static str],
         /// Flags naming the output. **Empty means the output is the LAST
@@ -870,30 +805,26 @@ enum Verb {
     Carries(&'static [&'static str]),
     /// Looked in its first operand; everything after is an expression.
     Walk(Flags),
-    /// A checker over path operands — a linter, a formatter, a type checker.
-    /// Reads them, unless one of `writes` is given, in which case it rewrites
-    /// them in place: `biome check --write x.ts`, `ktlint -F`.
+    /// A checker over path operands — a linter, a formatter, a type checker. Reads
+    /// them, unless one of `writes` is given, in which case it rewrites them in place:
+    /// `biome check --write x.ts`, `ktlint -F`.
     ///
-    /// These were invisible until the devshell wrappers were read, and then
-    /// they were the whole top of the unknown list: 1,458 `ruff`, 1,058
-    /// `ktlint`, 822 `mypy`.
+    /// These were invisible until the devshell wrappers were read, and then they were
+    /// the whole top of the unknown list.
     Check {
         flags: Flags,
         writes: &'static [&'static str],
     },
-    /// Fetches from the network, and names a local file only where a flag says
-    /// to save into one: `curl -o x.json`, `wget -O x.json`.
+    /// Fetches from the network, and names a local file only where a flag says to save
+    /// into one: `curl -o x.json`, `wget -O x.json`.
     ///
     /// ⚠ **These were `NoFiles` once, and the asymmetry is what gave it away.**
-    /// `curl URL > file` was always counted, because a redirect is collected
-    /// whatever the command is; `curl -o file URL` was not. Two spellings of one
-    /// act, counted differently, and a good fraction of every curl and wget call
-    /// wrote a file credited to nobody. The same shape
-    /// as the `sed -e` defect: an operand given by a FLAG leaves nothing in the
-    /// operand position to notice.
+    /// `curl URL > file` was always counted, because a redirect is collected whatever
+    /// the command is; `curl -o file URL` was not. Two spellings of one act, counted
+    /// differently. The same shape as the `sed -e` defect: an operand given by a FLAG
+    /// leaves nothing in the operand position to notice.
     ///
-    /// Everything else about them stays invisible on purpose: a URL is not a
-    /// path, and what is at the other end is not this machine's.
+    /// Everything else about them stays invisible on purpose: a URL is not a path.
     Fetch {
         /// The flags whose *value* is the file written. `-O` appears in both
         /// tools and means opposite things — wget's takes the name, curl's takes
@@ -910,10 +841,10 @@ enum Verb {
     Remote(Remote),
     /// Understood, and does nothing with files.
     ///
-    /// Distinct from a name that is absent, and the distinction matters: without
-    /// it the worklist of commands still to support is headed by `echo` forever,
-    /// and 58,243 commands that were never going to name a file look like a gap
-    /// in coverage.
+    /// Distinct from a name that is absent, and the distinction matters: without it the
+    /// worklist of commands still to support is headed by `echo` forever, and tens of
+    /// thousands of commands that were never going to name a file look like a gap in
+    /// coverage.
     NoFiles,
 }
 
@@ -921,10 +852,9 @@ enum Verb {
 /// `python3.12`.
 ///
 /// ⚠ **A dot is required for the two-part version, and that is not fussiness.**
-/// `python313` with no dot is a nixpkgs attribute — it appears 68 times in this
-/// corpus inside `nix-shell -p python313`, where it names a package and never
-/// runs anything. Reading it as a call would invent an interpreter invocation
-/// out of a dependency.
+/// `python313` with no dot is a nixpkgs attribute, appearing inside `nix-shell -p
+/// python313` where it names a package and runs nothing. Reading it as a call would
+/// invent an interpreter invocation out of a dependency.
 pub fn is_python(name: &str) -> bool {
     let Some(rest) = name.strip_prefix("python") else {
         return false;
@@ -944,21 +874,17 @@ pub fn is_python(name: &str) -> bool {
 
 /// What KIND of command this name is, without the flag tables that go with it.
 ///
-/// [`Verb`] is private and must stay so: its variants carry [`Flags`], so making
-/// it public emits `private_interfaces`, which under the gate's `-D warnings` is
-/// a build failure rather than a lint. This is the payload-free half, for a
-/// caller above the file layer that needs to know a command's kind and has no
-/// business with its flag spellings — the concept lens
-/// (`docs/concept-model.md`, memview#1364) is the first.
+/// [`Verb`] is private and must stay so: its variants carry [`Flags`], so making it
+/// public emits `private_interfaces`, which under the gate's `-D warnings` is a
+/// build failure. This is the payload-free half, for a caller above the file layer
+/// that needs a command's kind and has no business with its flag spellings.
 ///
-/// ⚠ **A projection of [`verb`], never a table beside it.** A second `match` on
-/// the NAME would be a second answer to keep in step by hand, and the first
-/// time the two disagreed nothing would say so. This one asks `verb` and names
-/// what came back, so a name taught there is taught here in the same edit.
+/// ⚠ **A projection of [`verb`], never a table beside it.** A second `match` on the
+/// NAME would be a second answer to keep in step by hand, and the first time the two
+/// disagreed nothing would say so.
 ///
-/// ⚠ **No `_` arm, deliberately.** Adding a [`Verb`] variant is then a compile
-/// error here rather than a silent fall into a wrong bucket — the same reason
-/// `verb` itself returns `Option` instead of guessing, one level up.
+/// ⚠ **No `_` arm, deliberately.** Adding a [`Verb`] variant is then a compile error
+/// here rather than a silent fall into a wrong bucket.
 ///
 /// The strings are a closed vocabulary and are compared by callers, so they are
 /// changed the way any wire name is: with everything that reads them.
@@ -1051,20 +977,17 @@ fn verb(name: &str) -> Option<Verb> {
         }
         "mv" => Verb::Move(Flags::NONE),
 
-        // ⚠ **A version suffix is part of how this interpreter is spelled**, and
-        // matching the two bare names missed `python3.12` entirely — not as a
-        // wrong reading but as an absence, since a name the table has never
-        // heard of produces no `Op::Python` and so appears in no Python report
-        // at all. Small in this corpus (`reader/examples/python-calls.rs` finds
-        // the population), and invisible by construction, which is the reason to
-        // match the shape rather than the spellings anyone thought to list.
+        // ⚠ **A version suffix is part of how this interpreter is spelled**, and matching
+        // the two bare names missed `python3.12` entirely — not as a wrong reading but as
+        // an absence, since a name the table has never heard of produces no `Op::Python`
+        // and so appears in no Python report at all. Invisible by construction, which is
+        // the reason to match the shape rather than the spellings anyone thought to list.
         name if is_python(name) => Verb::Python,
-        // ⚠ **`deno` and `bun` stay [`Verb::Interpreter`]** — their `-e` is
-        // JavaScript too, but between them they are a handful of calls in this
-        // corpus and neither spells its flags the way node does (`deno eval`,
-        // `deno run --allow-read`). Reading them as node would be a guess about
-        // a population nobody has measured; they are named here so that the
-        // absence is a decision and not an oversight.
+        // ⚠ **`deno` and `bun` stay [`Verb::Interpreter`]** — their `-e` is JavaScript too,
+        // but between them they are a handful of calls and neither spells its flags the way
+        // node does (`deno eval`, `deno run --allow-read`). Reading them as node would be a
+        // guess about a population nobody has measured; they are named here so the absence
+        // is a decision and not an oversight.
         "node" => Verb::JavaScript,
         "deno" | "bun" => Verb::Interpreter {
             flags: Flags::valued(&["-e", "-p", "--eval"]),
@@ -1075,15 +998,13 @@ fn verb(name: &str) -> Option<Verb> {
             flags: Flags::valued(&["-c", "-o"]),
             inline: &["-c"],
         },
-        // ⚠ **`perl -pi -e` is a REWRITER, and reading it as an interpreter got
-        // both halves wrong**: the file it rewrites was recorded as a script it
-        // ran, which is a read of the wrong direction against a use of the wrong
-        // kind. 3,300 of the corpus's 3,973 perl calls are that one shape —
-        // `-0pi -e` 2,114, `-pi -e` 1,028, `-i -pe` 38 — every one of them an
-        // edit to a real file that the projection was crediting to nobody.
+        // ⚠ **`perl -pi -e` is a REWRITER, and reading it as an interpreter got both halves
+        // wrong**: the file it rewrites was recorded as a script it ran — a read of the
+        // wrong direction against a use of the wrong kind. Most of the corpus's perl calls
+        // are that one shape.
         //
-        // Named beside `sed`, which it is: a program in a flag, files as
-        // operands, `-i` deciding whether they are read or rewritten.
+        // Named beside `sed`, which it is: a program in a flag, files as operands, `-i`
+        // deciding whether they are read or rewritten.
         "perl" => Verb::Stream {
             flags: Flags {
                 pair: &[],
@@ -1094,10 +1015,9 @@ fn verb(name: &str) -> Option<Verb> {
             },
             honours_i: true,
         },
-        // ⚠ **`ruby` stays an interpreter, and that is measured**: `ruby -e`
-        // appears ZERO times in this corpus, and 16 mentions of `ruby` at all.
-        // Giving it perl's treatment would be a guess about a population that
-        // does not exist.
+        // ⚠ **`ruby` stays an interpreter, and that is measured**: `ruby -e` appears ZERO
+        // times in this corpus. Giving it perl's treatment would be a guess about a
+        // population that does not exist.
         "ruby" => Verb::Interpreter {
             flags: Flags::valued(&["-e", "-E", "-I"]),
             inline: &[],
@@ -1112,37 +1032,32 @@ fn verb(name: &str) -> Option<Verb> {
             flags: Flags::NONE,
             inline: &[],
         },
-        // ⚠ **`sqlite3` was an `Interpreter`, which read its DATABASE as a
-        // script it ran** — the right file, recorded as the wrong kind of use,
-        // and its statements never read at all.
+        // ⚠ **`sqlite3` was an `Interpreter`, which read its DATABASE as a script it ran** —
+        // the right file, recorded as the wrong kind of use, and its statements never read
+        // at all.
         "sqlite3" => Verb::Sql {
             program: &["-cmd", "-init"],
             file_operand: true,
         },
 
-        // ⚠ **`md5` is the macOS spelling, and the only one that was missing** —
-        // `md5sum`, `shasum`, `sha1sum`, `sha256sum` and `cksum` have been in
-        // the `Verb::Read` list above since it was written. Adding "the family"
-        // duplicated five of them; the gate's `-D warnings` said so and a local
-        // `cargo clippy` did not, because the crate was already built and cargo
-        // does not re-emit a warning it has emitted before. 323 calls, comparing
-        // two builds: `md5 dist/a/index.html dist/b/index.html`.
+        // ⚠ **`md5` is the macOS spelling, and the only one that was missing** — `md5sum`,
+        // `shasum`, `sha1sum`, `sha256sum` and `cksum` have been in the `Verb::Read` list
+        // since it was written. Adding "the family" duplicated five of them; the gate's
+        // `-D warnings` said so and a local `cargo clippy` did not, because the crate was
+        // already built and cargo does not re-emit a warning it has emitted before.
         "md5" | "sha512sum"
         // `openssl x509 -in cert.pem` reads it; this corpus pipes instead
         // (`openssl x509 -noout -enddate`), where the subcommand and its flags
         // are not paths and the guard leaves nothing. Both readings are right.
         | "openssl" => Verb::Read,
-        // `wg show wg0 latest-handshakes` — an interface, not a file, in every
-        // one of its 371 calls. ⚠ `wg setconf <file>` and `wg-quick` DO read
-        // one, and neither appears here; if either starts to, this is where it
-        // would go wrong quietly.
+        // `wg show wg0 latest-handshakes` — an interface, not a file, in every call here.
+        // ⚠ `wg setconf <file>` and `wg-quick` DO read one, and neither appears; if either
+        // starts to, this is where it would go wrong quietly.
         "wg"
-        // ⚠ **`ss` is the same shape and was left out only because nothing had
-        // measured it.** Every spelling in this corpus is flags over a socket
-        // table — `-tlnp`, `-lnt`, `-ltn`, `-tlnH` — and the one quoted filter,
-        // `ss -tn state established "( sport = :8097 )"`, is a socket expression
-        // and not a path. Nearly all of them arrive through `ssh`,
-        // which is why they are the fleet's sockets and never this Mac's.
+        // ⚠ **`ss` is the same shape and was left out only because nothing had measured
+        // it.** Every spelling in this corpus is flags over a socket table, and the one
+        // quoted filter is a socket expression and not a path. Nearly all arrive through
+        // `ssh`, which is why they are the fleet's sockets and never this Mac's.
         | "ss" => Verb::NoFiles,
 
         // Reads every operand, like `cat`. This corpus writes it as `paste - -`,
@@ -1150,17 +1065,17 @@ fn verb(name: &str) -> Option<Verb> {
         // a file, it is a read, and the path guard already drops the dashes.
         "paste" => Verb::Read,
 
-        // 368 calls, and every one of them real media: the recall pipeline's
-        // audio, the heatcam captures. `-i` may be given more than once, and a
-        // synthetic input (`-f lavfi -i anoisesrc=duration=2`) is not a path, so
-        // the guard drops it without a special case.
+        // Every call here is real media: the recall pipeline's audio, the heatcam
+        // captures. `-i` may be given more than once, and a synthetic input
+        // (`-f lavfi -i anoisesrc=duration=2`) is not a path, so the guard drops it without
+        // a special case.
         "ffmpeg" => Verb::Convert {
             input: &["-i"],
             output: &[],
         },
-        // 444 calls, and this repository's own gate is one of them: the Dhall
-        // table is the source and `gate.json` is generated from it. 16 of them
-        // write by shell redirect instead, which is counted where it stands.
+        // This repository's own gate is one of these: the Dhall table is the source and
+        // `gate.json` is generated from it. Some write by shell redirect instead, which is
+        // counted where it stands.
         "dhall-to-json" | "dhall-to-yaml" | "json-to-dhall" | "yaml-to-dhall" => Verb::Convert {
             input: &["--file"],
             output: &["--output"],
@@ -1170,34 +1085,29 @@ fn verb(name: &str) -> Option<Verb> {
         // path, so the guard leaves only the file.
         "ffprobe" => Verb::Read,
         "unzip" => Verb::Archive,
-        // ⚠ **222 of its calls write a real file** — `-X hardcopy /tmp/…` dumps
-        // a window's contents, and `-L -Logfile x` logs a session. The rest
-        // (`-X stuff`, `-X quit`, attaching) touch nothing. It was left unread
-        // on purpose while the other terminal commands were swept into
-        // `NoFiles`, because sweeping it would have deleted those writes
-        // silently; this is the shape that was owed.
+        // ⚠ **Some of its calls write a real file** — `-X hardcopy /tmp/…` dumps a window's
+        // contents, and `-L -Logfile x` logs a session. The rest touch nothing. It was left
+        // unread on purpose while the other terminal commands were swept into `NoFiles`,
+        // because sweeping it would have deleted those writes silently.
         "screen" => Verb::Fetch {
             writes: &["hardcopy", "-Logfile"],
         },
-        // ⚠ **Read-only because that is all this corpus does with it**: every
-        // call is `zstd -dc <file>`, decompressing to stdout. `zstd <file>` in
-        // place would create one and delete the other, and would need its own
-        // reading — an undercount if it ever appears, which is the safe side.
+        // ⚠ **Read-only because that is all this corpus does with it**: every call is
+        // `zstd -dc <file>`, decompressing to stdout. `zstd <file>` in place would create
+        // one and delete the other, and would need its own reading — an undercount if it
+        // ever appears, which is the safe side.
         "zstd" | "unzstd" | "zstdcat" => Verb::Read,
 
-        // ⚠ **This fleet's own binary, and its SOURCE is the evidence** — the
-        // first entry in this table written that way, and it was written that
-        // way because the call shapes got it wrong. 1,076 calls spelled
-        // `replay --words <dir>`, `--paper <dir>`, `--bands <dir>`, which reads
-        // as six valued flags; `scanner/server/src/bin/replay.rs` shows they are
-        // bare `flag("--x")` mode tests and the session directory is the only
-        // positional. `--page N` is the one flag that takes a value, and left
-        // undeclared its `2` resolves against the cwd into a file nothing
-        // touched.
+        // ⚠ **This fleet's own binary, and its SOURCE is the evidence** — the first entry
+        // in this table written that way, because the call shapes got it wrong. Calls spell
+        // `replay --words <dir>`, `--paper <dir>`, `--bands <dir>`, which reads as valued
+        // flags; `scanner/server/src/bin/replay.rs` shows they are bare `flag("--x")` mode
+        // tests and the session directory is the only positional. `--page N` is the one
+        // flag that takes a value, and left undeclared its `2` resolves against the cwd
+        // into a file nothing touched.
         //
-        // `Walk` and not `Read` because it is the same shape as `find`: one
-        // directory operand, looked *in*. `--pdf` writes, but to stdout, which
-        // the shell's own redirection already carries.
+        // `Walk` and not `Read` because it is the same shape as `find`: one directory
+        // operand, looked *in*. `--pdf` writes, but to stdout.
         "replay" => Verb::Walk(Flags::valued(&["--page"])),
         "find" | "fd" => Verb::Walk(Flags::valued(&[
             "-name", "-iname", "-path", "-type", "-exec",

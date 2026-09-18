@@ -9,49 +9,36 @@
 //! $f                   bound by the script itself → a hole, and no lookup helps
 //! ```
 //!
-//! ⚠ **This classifies a shape and never asks the world**; asking is the
-//! console's job (`docs/reader.md`).
-//!
-//! ## Why this is not `opaque-shapes`
-//!
-//! That census cuts the same population by **shape** — locus, language — and
-//! two subjects of identical shape fall on opposite sides of this line. One of
-//! its buckets held both: `$(cd .. && pwd -P)/dev-lint` fell past a whole-word
-//! substitution parse into `BareName`, a label claiming an environment lookup
-//! might answer it — **4,118 uses, 74% of the unnamed population**
-//! (memview#1445).
-//!
-//! Hence: the substitution test comes **first and matches anywhere in the
-//! word**, and no arm absorbs what the arms above could not read.
+//! ⚠ **This classifies a shape and never asks the world**; asking is the console's
+//! job (`docs/reader.md`). The `opaque-shapes` census cuts the same population by
+//! shape instead, and two subjects of identical shape fall on opposite sides of
+//! this line — which is how `$(cd .. && pwd -P)/dev-lint` came to be labelled an
+//! environment lookup (memview#1445). Hence: the substitution test comes **first
+//! and matches anywhere in the word**, and no arm absorbs what the arms above
+//! could not read.
 
 /// What a subject the text could not name would take to answer.
 ///
-/// ⚠ **Exactly one variant is answerable, by decision rather than by corpus.**
-/// A second means reopening *Reading is not running*, which
-/// `docs/concept-model.md` lets a measurement do and convenience not;
-/// [`Unnamed::ALL`] and the invariant test make that impossible by accident.
+/// ⚠ **Exactly one variant is answerable, by decision rather than by corpus.** A
+/// second means reopening *Reading is not running*; [`Unnamed::ALL`] and the
+/// invariant test make that impossible by accident.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Unnamed {
-    /// `$TMPDIR`, `$HOME`, `$AMUN_DIR/photos` — a name the session's
-    /// environment **may** hold, answered by a lookup that runs nothing.
+    /// `$TMPDIR`, `$HOME`, `$AMUN_DIR/photos` — a name the session's environment
+    /// **may** hold, answered by a lookup that runs nothing.
     ///
-    /// ⚠ **An UPPER BOUND: all-uppercase is a convention, not a binding.**
-    /// `docs/reader.md` records `A="adb -s host"` and `GEB="ssh -o …"` as
-    /// *script* assignments, so some words here are [`Unnamed::ScriptBound`]
-    /// wearing the same spelling. Telling them apart needs the script's own
-    /// assignments, which a word classifier does not have (memview#1447), and
-    /// narrowing by guess — a length floor, an underscore — would be a rule with
-    /// no test. Left, named, and printed by the census as "at most", because the
-    /// error flatters the resolver.
+    /// ⚠ **An UPPER BOUND: all-uppercase is a convention, not a binding.** `A="adb -s
+    /// host"` is a *script* assignment wearing the same spelling, and telling the two
+    /// apart needs the script's own assignments, which a word classifier does not have
+    /// (memview#1447). Printed by the census as "at most", because the error flatters
+    /// the resolver.
     Environment,
-    /// `$f`, `$d`, `${line}` — bound by the script a few lines above, where no
-    /// lookup reaches.
+    /// `$f`, `$d`, `${line}` — bound by the script a few lines above, where no lookup
+    /// reaches.
     ///
     /// ⚠ **The split this module exists to make**: identical in spelling to
-    /// [`Unnamed::Environment`] and answerable by nothing, so counting the two
-    /// together reports a resolver ceiling that does not exist. Reaching here
-    /// means the reader could not follow the binding — an undeterminable loop, a
-    /// computed assignment.
+    /// [`Unnamed::Environment`] and answerable by nothing, so counting the two together
+    /// reports a resolver ceiling that does not exist.
     ScriptBound,
     /// `$(…)` or a backtick. Running it is the thing prediction precedes, and
     /// no allowlist of "provably pure" spellings survives contact: `$(git
@@ -61,16 +48,14 @@ pub enum Unnamed {
     /// level down, and a hole for the same reason: resolving it would be
     /// inventing the future.
     Positional,
-    /// Arithmetic, or a program body offered as a subject. Never a path, so it
-    /// is excluded from the population rather than counted as unanswerable —
-    /// counting it would inflate the hole side with words that were never
-    /// subjects.
+    /// Arithmetic, or a program body offered as a subject. Never a path, so it is
+    /// excluded from the population rather than counted as unanswerable — counting it
+    /// would inflate the hole side with words that were never subjects.
     NotASubject,
     /// A shape no rule here recognises.
     ///
-    /// ⚠ **Counted as a hole deliberately** — not by doctrine, but because
-    /// nothing has shown it answerable, and every refusal in this reader errs
-    /// toward undercounting.
+    /// ⚠ **Counted as a hole deliberately**: nothing has shown it answerable, and every
+    /// refusal in this reader errs toward undercounting.
     Unclassified,
 }
 
@@ -122,17 +107,13 @@ impl Unnamed {
 
 /// Every parameter name a word expands, in the order they appear.
 ///
-/// ⚠ **The word is not the name.** `$d/gate.json`, `${line}` and `/tmp/$X/y`
-/// each carry one name and none of them IS one, so any question asked of the
-/// name — is it bound in this script, is it all-uppercase — has to come through
-/// here rather than off the word.
+/// ⚠ **The word is not the name.** `$d/gate.json`, `${line}` and `/tmp/$X/y` each
+/// carry one name and none of them IS one, so any question asked of the name has to
+/// come through here rather than off the word.
 ///
-/// An expansion this does not model (`$@`, `$*`, a bare `$`) yields an empty
-/// string in place, so a caller can tell "no parameters" from "a parameter I
-/// could not read" — [`unnamed`] settles the whole word on the second.
-///
-/// Factored out of [`unnamed`] rather than copied, because a second reading of
-/// the same text is a second thing to keep true (memview#1450).
+/// An expansion this does not model (`$@`, `$*`, a bare `$`) yields an empty string
+/// in place, so a caller can tell "no parameters" from "a parameter I could not
+/// read" — [`unnamed`] settles the whole word on the second.
 pub fn names(word: &str) -> Vec<String> {
     word.split('$')
         .skip(1)
@@ -147,24 +128,20 @@ pub fn names(word: &str) -> Vec<String> {
 
 /// Classify one unnamed subject, as the text wrote it.
 ///
-/// ⚠ **The order is the whole correctness argument, and two of the four steps
-/// are there because getting them wrong has already happened.**
+/// ⚠ **The order is the whole correctness argument, and two of the four steps are
+/// there because getting them wrong has already happened.**
 ///
-/// 1. A word spanning lines is a program body, not a subject — and the `/*`
-///    half of that test carries its own reason, which was lost when this guard
-///    was copied from `opaque-shapes` and read as arbitrary here. A `jq` filter
-///    and a TypeScript body both reach this bucket, and both can open with a
-///    comment; without the test their text lands in a name arm and a program
-///    fragment is counted as a file.
-/// 2. Arithmetic before substitution: `$((300 * i))` contains `$(`, and reading
-///    it as a substitution files a non-path as an unanswerable subject.
+/// 1. A word spanning lines is a program body, not a subject. A `jq` filter and a
+///    TypeScript body both reach this bucket and both can open with a comment;
+///    without the `/*` half of the test their text lands in a name arm and a
+///    program fragment is counted as a file.
+/// 2. Arithmetic before substitution: `$((300 * i))` contains `$(`, and reading it
+///    as a substitution files a non-path as an unanswerable subject.
 /// 3. **Substitution anywhere in the word, before any name rule** — the
-///    memview#1445 fix. A whole-word parse fails on a trailing `/dev-lint` or a
-///    body the corpus truncated, and whatever it drops must not land in a
-///    name arm.
-/// 4. Digits before capitals: `$1` is vacuously all-uppercase, so an
-///    environment rule tested first swallows every positional (`opaque-shapes`
-///    filed 84 that way on its first run).
+///    memview#1445 fix. A whole-word parse fails on a trailing `/dev-lint`, and
+///    whatever it drops must not land in a name arm.
+/// 4. Digits before capitals: `$1` is vacuously all-uppercase, so an environment
+///    rule tested first swallows every positional.
 pub fn unnamed(word: &str) -> Unnamed {
     if word.contains('\n') || word.trim_start().starts_with("/*") {
         return Unnamed::NotASubject;
@@ -176,11 +153,9 @@ pub fn unnamed(word: &str) -> Unnamed {
     if word.contains("$(") || word.contains('`') {
         return Unnamed::Substitution;
     }
-    // ⚠ **Every parameter, not the first** (memview#1455). Resolvability across a
-    // word is a conjunction: `/tmp/$HOME/$f` is unanswerable because `$f` is,
-    // and reading only the first `$` answered `Environment` — the flattering
-    // direction, in the function written to stop #1447 flattering the same
-    // number. The first part the world cannot answer is what the word is.
+    // ⚠ **Every parameter, not the first** (memview#1455). Resolvability across a word
+    // is a conjunction: `/tmp/$HOME/$f` is unanswerable because `$f` is. The first
+    // part the world cannot answer is what the word is.
     let mut answerable = false;
     for name in names(word) {
         // `$@`, `$*`, a bare `$`: an expansion this does not model. Unrecognised

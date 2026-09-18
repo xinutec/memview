@@ -341,6 +341,13 @@ pub enum Tail {
     MayBeIncomplete,
 }
 
+/// The conversation a file claims to be, when the caller knows it.
+///
+/// Passed in rather than read, because this crate touches no filesystem — the
+/// binary that opened the file is the one that knows what it is called. `None`
+/// skips [`Rule::SessionMismatch`] and checks everything else.
+pub type Session<'a> = Option<&'a str>;
+
 /// Read a whole transcript and report everything wrong with it.
 ///
 /// Takes bytes rather than a path: this crate touches no filesystem, and the
@@ -350,13 +357,6 @@ pub enum Tail {
 /// Resolution is checked only once the whole file has been read, because a
 /// parent may be written after its child and file order is not something to
 /// assume.
-/// The conversation a file claims to be, when the caller knows it.
-///
-/// Passed in rather than read, because this crate touches no filesystem — the
-/// binary that opened the file is the one that knows what it is called. `None`
-/// skips [`Rule::SessionMismatch`] and checks everything else.
-pub type Session<'a> = Option<&'a str>;
-
 pub fn check(bytes: &[u8], tail: Tail, session: Session<'_>) -> Vec<Violation> {
     let mut found = Vec::new();
     let mut uuids: HashMap<String, &'static str> = HashMap::new();

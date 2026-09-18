@@ -1,26 +1,23 @@
 //! Text to tree, refusing everything it does not model.
 //!
-//! ⚠ **Refusal is the design, not a gap.** A parser that absorbs an
-//! unimplemented construct into literal text satisfies the round-trip law and
-//! contradicts nothing: it prints the text back and reads the same wrong tree a
-//! second time. Bash's printer does not object either, because it prints words
-//! verbatim. So the only place the error can be caught is here, at the moment a
-//! character that opens a construct is seen — and the answer has to be a
-//! [`Refusal`], never a `Literal`.
+//! ⚠ **Refusal is the design, not a gap.** A parser that absorbs an unimplemented
+//! construct into literal text satisfies the round-trip law and contradicts nothing:
+//! it prints the text back and reads the same wrong tree a second time. Bash's
+//! printer does not object either, because it prints words verbatim. So the only
+//! place the error can be caught is here, at the moment a character that opens a
+//! construct is seen — and the answer has to be a [`Refusal`], never a `Literal`.
 //!
-//! What that costs is coverage, and coverage is the thing that is supposed to be
-//! low at the start and ratchet. `bash-oracle`'s `syntax-report` ranks the
-//! refusals so the next construct is chosen by the corpus rather than by taste.
+//! What that costs is coverage, and coverage is what is supposed to be low at the
+//! start and ratchet. `bash-oracle`'s `syntax-report` ranks the refusals so the next
+//! construct is chosen by the corpus rather than by taste.
 //!
-//! ⚠ **A refusal names what cannot be read, and the survey checks that it is
-//! the truth.** Calling a malformed `for` header a `Redirection` was accurate
-//! about the character and wrong about the construct — and since redirections
-//! ARE modelled, the survey looked for one and found nothing. The invariant
-//! caught it; no test would have.
+//! ⚠ **A refusal names what cannot be read, and the survey checks that it is the
+//! truth.** Calling a malformed `for` header a `Redirection` was accurate about the
+//! character and wrong about the construct — and since redirections ARE modelled,
+//! the survey looked for one and found nothing. No test would have caught it.
 //!
-//! Scanning is over bytes. Every character with meaning to the shell is ASCII, so
-//! a multi-byte sequence can only ever be interior to a literal run, and slicing
-//! at a special character always lands on a character boundary.
+//! Scanning is over bytes. Every character with meaning to the shell is ASCII, so a
+//! multi-byte sequence can only be interior to a literal run.
 
 use super::ast::{
     Anchor, AndOr, Arith, Arm, ArmEnd, ArrayElement, Assignment, BinaryOp, BinaryTest, Brace, Case,
@@ -228,31 +225,22 @@ pub struct Refusal {
     pub span: Span,
 }
 
-/// The words bash treats as grammar when they open a command and are unquoted.
-///
-/// A reserved word is refused only where it is reserved: first word of a
-/// command, no quoting anywhere in it. `'time' ./x.sh` runs `/usr/bin/time`
-/// while `time ./x.sh` runs no program at all, and that distinction is invisible
-/// to both gates — bash prints the quotes straight back — which is why it is
-/// decided here, where the quoting is still known.
-///
-/// ⚠ **`time` is deliberately absent.** At the head of a pipeline it is grammar
-/// and [`Parser::pipeline`] consumes it before any word is read; anywhere else
-/// bash runs the program of that name — `a | time b` is accepted and executes
-/// `/usr/bin/time`. Refusing it as a word would refuse a legal command.
-///
-/// `!` stays, because it is grammar at the head and a *syntax error* elsewhere:
-/// bash rejects `a | ! b`. Refusing it is the right answer in both positions.
 /// Which construct does this reserved word belong to, if it is one?
 ///
-/// ⚠ **Grouped by construct, because a reason is a unit of work.** `if` and
-/// `case` share nothing but being keywords: one is a conditional, the other a
-/// pattern grammar. Counting them together would say how many commands hold a
-/// keyword, which is not a number anybody can build against.
+/// The words bash treats as grammar when they open a command and are unquoted. A
+/// reserved word is refused only where it is reserved: first word of a command, no
+/// quoting anywhere in it. `'time' ./x.sh` runs `/usr/bin/time` while `time ./x.sh`
+/// runs no program at all, and that distinction is invisible to both gates.
 ///
-/// The interior words (`then`, `do`, `esac`) sit with their openers. They are
-/// almost never the first word of a command — the opener is refused long before
-/// the scan reaches them — but where one is, it belongs to the same build.
+/// ⚠ **`time` is deliberately absent.** At the head of a pipeline it is grammar and
+/// [`Parser::pipeline`] consumes it before any word is read; anywhere else bash runs
+/// the program of that name. `!` stays, because it is grammar at the head and a
+/// *syntax error* elsewhere.
+///
+/// ⚠ **Grouped by construct, because a reason is a unit of work.** `if` and `case`
+/// share nothing but being keywords. Counting them together would say how many
+/// commands hold a keyword, which is not a number anybody can build against. The
+/// interior words (`then`, `do`, `esac`) sit with their openers.
 pub fn reserved_word(text: &str) -> Option<Reason> {
     Some(match text {
         "if" | "then" | "elif" | "else" | "fi" => Reason::Conditional,
@@ -462,21 +450,18 @@ impl<'t> Parser<'t> {
     }
 
     /// The lines from the cursor up to the one holding the delimiter alone.
-    /// ⚠ **The end of the input terminates a body, because that is what bash
-    /// makes of it** — with `warning: here-document at line N delimited by
-    /// end-of-file` on stderr, and the rest of the text as the body. The corpus
-    /// is shell history and holds 13 such commands; reading them the way they
-    /// ran is the whole point, and refusing them would drop real work for a
-    /// shape bash has a definite answer about.
     ///
-    /// The printer writes the delimiter back, so `t₂` is terminated where `t₁`
-    /// was not. That is a normalisation the law permits, and it is the same
-    /// tree.
+    /// ⚠ **The end of the input terminates a body, because that is what bash makes of
+    /// it** — with a warning on stderr, and the rest of the text as the body. The corpus
+    /// is shell history and holds a handful of these; reading them the way they ran is
+    /// the whole point. The printer writes the delimiter back, which is a normalisation
+    /// the law permits.
+    ///
     /// ⚠ **The terminator is matched against the JOINED line, not the raw one**
-    /// (memview#1564). For an unquoted delimiter bash removes `\`-newline as it
-    /// reads, so the delimiter is compared against what the continuations make.
-    /// Matching raw lines instead produced a WRONG TREE, unrefused, in both
-    /// directions — measured against `bash` itself:
+    /// (memview#1564). For an unquoted delimiter bash removes `\`-newline as it reads,
+    /// so the delimiter is compared against what the continuations make. Matching raw
+    /// lines instead produced a WRONG TREE, unrefused, in both directions — measured
+    /// against `bash` itself:
     ///
     /// ```text
     ///   cat <<EOF / X\ / EOF / echo after
@@ -489,15 +474,13 @@ impl<'t> Parser<'t> {
     ///     bash   `EO\⏎F` IS the terminator: empty body, then a stray `EOF`
     /// ```
     ///
-    /// The first is the one that mattered: nothing refused it, so a reader was
-    /// told a command ran that bash never ran — a false lower bound, which is
-    /// the single thing `S ⊆ L` forbids.
+    /// The first is the one that mattered: nothing refused it, so a reader was told a
+    /// command ran that bash never ran — a false lower bound, the single thing `S ⊆ L`
+    /// forbids.
     ///
-    /// ⚠ **A QUOTED delimiter joins NOTHING and still matches raw lines.**
-    /// Measured the same way: `<<'EOF'` over `EO\` + `F` prints both lines and
-    /// terminates at the literal `EOF`. So this is not "always join" — the two
-    /// cases genuinely differ, and treating them alike would break the quoted
-    /// one to fix the unquoted one.
+    /// ⚠ **A QUOTED delimiter joins NOTHING and still matches raw lines.** The two cases
+    /// genuinely differ, and treating them alike would break the quoted one to fix the
+    /// unquoted one.
     fn heredoc_body(&mut self, pending: &Pending) -> Result<Heredoc, Refusal> {
         let mut body = String::new();
         // The raw lines of the logical line being assembled, kept verbatim
@@ -563,20 +546,14 @@ impl<'t> Parser<'t> {
 
     /// Resolve a body once its extent is known, however it ended.
     ///
-    /// ⚠ **No collision check any more, because a collision can no longer
-    /// arise** (memview#1564, closing #1509). This used to refuse a joined body
-    /// holding a line equal to the delimiter — `EO\⏎F` becoming `EOF` — as
-    /// `Reason::EmptyOperand`, saying the printer had no spelling for it. Now
-    /// that `heredoc_body` tests the JOINED line, such a line is the terminator
-    /// and never reaches the body: every logical line here was compared against
-    /// the delimiter and differed, and joining the raw text reproduces exactly
-    /// those lines.
+    /// ⚠ **No collision check any more, because a collision can no longer arise**
+    /// (memview#1564, closing #1509). This used to refuse a joined body holding a line
+    /// equal to the delimiter. Now that `heredoc_body` tests the JOINED line, such a
+    /// line is the terminator and never reaches the body.
     ///
-    /// That also retires the miscount #1509 was about. The refusal claimed the
-    /// TEXT was broken, sat on `syntax-report`'s `bash -n` adjudication list on
-    /// that basis, and bash ACCEPTS the input — so it would have been reported
-    /// as our bug. It is gone rather than renamed, so no new `Reason` was spent
-    /// and the survey has nothing further to learn to report.
+    /// That also retires the miscount #1509 was about: the refusal claimed the TEXT was
+    /// broken while bash ACCEPTS the input. It is gone rather than renamed, so no new
+    /// `Reason` was spent.
     fn finish_body(&self, pending: &Pending, body: String) -> Result<Heredoc, Refusal> {
         let body = if pending.quoted {
             body
@@ -1421,19 +1398,17 @@ impl<'t> Parser<'t> {
 
     /// `$'…'` — a spelling of a LITERAL, resolved here and stored as one.
     ///
-    /// ⚠ **Not an expansion, and not a quoting style either.** Bash resolves the
-    /// escapes at parse time and prints the result as an ordinary single-quoted
-    /// string — `$'\x41'` comes back as `'A'`, `$'\101'` as `'A'`, `$'a\tb'`
-    /// with a real tab — so a tree keeping the `$'` spelling would say two texts
-    /// differ where bash says they do not, and the second gate would object.
-    /// Resolving it here is also what lets that gate CHECK the decoding: it
-    /// compares our tree against the tree of bash's own resolved output, so a
-    /// wrong escape is a difference rather than a shared mistake.
+    /// ⚠ **Not an expansion, and not a quoting style either.** Bash resolves the escapes
+    /// at parse time and prints the result as an ordinary single-quoted string —
+    /// `$'\x41'` comes back as `'A'` — so a tree keeping the `$'` spelling would say two
+    /// texts differ where bash says they do not. Resolving it here is also what lets the
+    /// second gate CHECK the decoding: it compares our tree against the tree of bash's
+    /// own resolved output, so a wrong escape is a difference rather than a shared
+    /// mistake.
     ///
-    /// ⚠ **`\u` and `\U` are refused rather than decoded.** Measured on bash
-    /// 5.3.15, `$'é'` comes back as the six characters `é` — parsed
-    /// and re-spelled rather than resolved — and guessing which of the two a
-    /// different build would do is not worth the commands it would buy.
+    /// ⚠ **`\u` and `\U` are refused rather than decoded.** Measured on bash 5.3.15,
+    /// `$'é'` comes back parsed and re-spelled rather than resolved, and guessing which
+    /// of the two a different build would do is not worth the commands it would buy.
     fn ansi_quote(&mut self) -> Result<Segment, Refusal> {
         let start = self.at;
         self.at += 2; // `$'`
@@ -1937,21 +1912,18 @@ impl<'t> Parser<'t> {
                 b'<' | b'>' if self.peek_at(1) == Some(b'(') => {
                     segments.push(self.process_substitution()?);
                 }
-                // ⚠ **A redirection GLUED to a word ends the word** — bash's own
-                // tokenising rule, since `>` and `<` are operators and need no
-                // whitespace around them. `pgrep -f "x">/dev/null` is one word
-                // and one redirect, and the caller retries `redirect()` the
-                // moment this returns, so ending here is all it takes.
+                // ⚠ **A redirection GLUED to a word ends the word** — bash's own tokenising rule,
+                // since `>` and `<` are operators and need no whitespace around them.
+                // `pgrep -f "x">/dev/null` is one word and one redirect, and the caller retries
+                // `redirect()` the moment this returns.
                 //
-                // This used to refuse, and the refusal was expensive out of
-                // proportion to the construct: a nested script that will not
-                // parse loses *every* file its commands named. `foo<<EOF` and
-                // `a<<<b` come back the same way.
+                // This used to refuse, and the refusal was expensive out of proportion to the
+                // construct: a nested script that will not parse loses *every* file its commands
+                // named.
                 //
-                // Only with something already read, though. An operator at the
-                // head of a word is the caller's business — it tried
-                // `redirect()` first and declined — so refusing there still says
-                // something true rather than looping on an empty word.
+                // Only with something already read, though. An operator at the head of a word is
+                // the caller's business — it tried `redirect()` first and declined — so refusing
+                // there still says something true rather than looping on an empty word.
                 b'<' | b'>' if !segments.is_empty() => break,
                 b'<' | b'>' => return self.refuse(Reason::Redirection, 1),
                 // Inside a substitution a `)` closes it rather than opening a
@@ -2275,20 +2247,15 @@ impl<'t> Parser<'t> {
 
     /// `` `cmd` `` — the older spelling of `$(cmd)`, and the SAME node.
     ///
-    /// ⚠ **One tree, because the two mean the same thing.** The difference is
-    /// how the interior is spelled, not what it does — and this tree normalises
-    /// spelling away, exactly as it does for `'a'` and `a`. The printer writes
-    /// `$( )`, which is `t₂ ≠ t₁` and permitted; bash's own print of the
-    /// original is verbatim, so the second gate parses that back to this same
-    /// tree and the comparison holds.
+    /// ⚠ **One tree, because the two mean the same thing.** The difference is how the
+    /// interior is spelled, not what it does — and this tree normalises spelling away.
+    /// The printer writes `$( )`, which is `t₂ ≠ t₁` and permitted; bash's own print of
+    /// the original is verbatim, so the second gate parses that back to this same tree.
     ///
-    /// ⚠ **The interior is not the source text.** Inside a backtick run bash
-    /// resolves `` \` ``, `\$` and `\\` before it is a script at all — measured
-    /// — and leaves every other backslash alone. So the resolved string is what
-    /// gets parsed, which is also how a nested `` \`…\` `` becomes a nested
-    /// substitution rather than a syntax error. The spans in there index the
-    /// resolved text rather than the command, which nothing but error reporting
-    /// reads and which [`Span`] excludes from equality.
+    /// ⚠ **The interior is not the source text.** Inside a backtick run bash resolves
+    /// `` \` ``, `\$` and `\\` before it is a script at all, and leaves every other
+    /// backslash alone. So the resolved string is what gets parsed, which is also how a
+    /// nested `` \`…\` `` becomes a nested substitution rather than a syntax error.
     fn backtick(&mut self, quoted: bool) -> Result<Segment, Refusal> {
         let start = self.at;
         self.at += 1; // the opening backtick
@@ -2360,24 +2327,18 @@ impl<'t> Parser<'t> {
         })
     }
 
-    /// The command list inside `$( … )` or `<( … )`, from just past the `(` to
-    /// just past the `)`, with its own heredoc bodies already paired up.
+    /// The command list inside `$( … )` or `<( … )`, from just past the `(` to just
+    /// past the `)`, with its own heredoc bodies already paired up.
     ///
-    /// ⚠ **A heredoc in here belongs to this list and nothing else.** Both
-    /// halves of that matter and both are measured in
-    /// `reader/probes/substitution-heredoc.sh`:
+    /// ⚠ **A heredoc in here belongs to this list and nothing else.** Both halves of
+    /// that matter and both are measured in `reader/probes/substitution-heredoc.sh`:
     ///
-    /// - An opener the ENCLOSING line left waiting may not be handed a body from
-    ///   in here. `cat <<A "$(cat <<X⏎i⏎X⏎)"` gives the argument `X`'s body and
-    ///   stdin `A`'s, so the pending list is set aside for the duration.
-    /// - This list's own bodies are paired up *here*, at the closing paren,
-    ///   rather than left for the walk in [`fill_script`]. Bash reads a body when
-    ///   the line holding its opener ends, and a line inside a substitution ends
-    ///   before the one around it — an order no walk over the finished tree
-    ///   reproduces, since it is neither the order the openers were written in
-    ///   nor the order the tree holds them in. Draining them at the close makes
-    ///   the question local, and leaves the outer walk with exactly the bodies
-    ///   the outer line opened.
+    /// - An opener the ENCLOSING line left waiting may not be handed a body from in
+    ///   here, so the pending list is set aside for the duration.
+    /// - This list's own bodies are paired up *here*, at the closing paren, rather than
+    ///   left for the walk in [`fill_script`]. Bash reads a body when the line holding
+    ///   its opener ends, and a line inside a substitution ends before the one around
+    ///   it — an order no walk over the finished tree reproduces.
     fn parenthesised_list(&mut self) -> Result<Vec<Item>, Refusal> {
         let outer = std::mem::take(&mut self.pending);
         // A whole script starts here, so neither the `case` arm nor the pattern
@@ -2964,17 +2925,15 @@ impl<'t> Parser<'t> {
 
     /// One operand, or a run of them written with nothing in between.
     ///
-    /// ⚠ **Adjacency, never across a blank.** `$(( ))` splices its interior
-    /// into text before evaluating it, so `1$c` is `12` for `c=2` — but `1 $c`
-    /// is `1 2`, which is an error for that same value, and the two are
-    /// therefore different programs. Reading them as one node would let the
-    /// printer drop the space and quietly write the other one, which is the
-    /// wrong-tree failure the round-trip law exists to catch. So this loop does
-    /// not call [`Self::skip_arith_blanks`], and `1 $c` stays refused.
+    /// ⚠ **Adjacency, never across a blank.** `$(( ))` splices its interior into text
+    /// before evaluating it, so `1$c` is `12` for `c=2` — but `1 $c` is `1 2`, which is
+    /// an error for that same value. Reading them as one node would let the printer drop
+    /// the space and quietly write the other program. So this loop does not call
+    /// [`Self::skip_arith_blanks`], and `1 $c` stays refused.
     ///
-    /// ⚠ **A run of literals is still refused**, because no value of any
-    /// variable makes `$((1 2))` evaluate — measured, along with `$((a b))`.
-    /// The expansion is what makes the splice a question rather than an error.
+    /// ⚠ **A run of literals is still refused**, because no value of any variable makes
+    /// `$((1 2))` evaluate. The expansion is what makes the splice a question rather
+    /// than an error.
     fn arith_operand(&mut self, stop: &[u8]) -> Result<Arith, Refusal> {
         let first = self.arith_operand_part(stop)?;
         // ⚠ Deliberately reading the raw byte rather than skipping blanks: see
@@ -3290,19 +3249,18 @@ fn one_command(kind: CommandKind, span: Span) -> Item {
     })
 }
 
-/// What is the `[` at `at`: a bracket expression, ordinary text, or something
-/// this reader cannot own?
+/// What is the `[` at `at`: a bracket expression, ordinary text, or something this
+/// reader cannot own?
 ///
-/// ⚠ **Three answers, and the third is why this is not an `Option`.** Falling
-/// back to literal text where bash would glob is a wrong tree that no gate can
-/// see — bash prints a bracket expression back verbatim, so it agrees with the
-/// mistake — so anything found inside one that is not modelled has to be
-/// REFUSED rather than absorbed. `Literal` is reserved for the case bash itself
-/// reads as text: no `]` closes it before the word ends.
+/// ⚠ **Three answers, and the third is why this is not an `Option`.** Falling back to
+/// literal text where bash would glob is a wrong tree that no gate can see — bash
+/// prints a bracket expression back verbatim, so it agrees with the mistake — so
+/// anything found inside one that is not modelled has to be REFUSED rather than
+/// absorbed. `Literal` is reserved for the case bash itself reads as text.
 ///
-/// ⚠ **Shared with the survey**, as [`brace_expansion`] and
-/// [`classify_expansion`] are: whether a given `[` opens one has a single
-/// answer, and two implementations of it would drift.
+/// ⚠ **Shared with the survey**, as [`brace_expansion`] and [`classify_expansion`]
+/// are: whether a given `[` opens one has a single answer, and two implementations
+/// of it would drift.
 pub fn bracket_expression(text: &str, at: usize) -> Bracket {
     let bytes = text.as_bytes();
     if bytes.get(at) != Some(&b'[') {
@@ -3624,13 +3582,6 @@ fn braced_parameter(bytes: &[u8], from: usize) -> Reason {
     }
 }
 
-/// Resolve the backslash-newlines in an unquoted heredoc body, as bash does at
-/// parse time.
-///
-/// ⚠ **The join is not a text replacement.** A backslash escapes the character
-/// after it, so an escaped backslash protects the newline that follows: `a\\⏎b`
-/// stays two lines while `a\⏎b` becomes one. Measured — a naive
-/// `replace("\\\n", "")` gets the first wrong.
 /// Whether a raw line ends in a continuation — an ODD run of backslashes.
 ///
 /// ⚠ **Parity, not "ends with a backslash".** Each `\` escapes the next, so a
@@ -3643,6 +3594,13 @@ fn continues(line: &str) -> bool {
     line.bytes().rev().take_while(|&b| b == b'\\').count() % 2 == 1
 }
 
+/// Resolve the backslash-newlines in an unquoted heredoc body, as bash does at
+/// parse time.
+///
+/// ⚠ **The join is not a text replacement.** A backslash escapes the character
+/// after it, so an escaped backslash protects the newline that follows: `a\\⏎b`
+/// stays two lines while `a\⏎b` becomes one. Measured — a naive
+/// `replace("\\\n", "")` gets the first wrong.
 fn join_continuations(body: &str) -> String {
     let bytes = body.as_bytes();
     let mut out = String::with_capacity(body.len());

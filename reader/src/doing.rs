@@ -1,34 +1,22 @@
 //! What each session did, in order, and how it turned out.
 //!
-//! The timeline. [`crate::activity`] names one command's work; this is the
-//! record of that work across the whole history — 90,166 Bash calls, each one
-//! its own turn, each with the result that came back.
+//! The timeline. [`crate::activity`] names one command's work; this is the record of
+//! that work across the whole history, each call its own turn with the result that
+//! came back.
 //!
-//! **Derived, never verbatim.** No command line, no prompt, no output text is
-//! kept: a row is an agent, a moment, a repository, a kind of work, how many
-//! commands of it, and whether it worked. That is the surviving half of
-//! `feedback_memview_distils_never_serves_history` — Pippijn lifted the
-//! no-timeline half and left this one standing, for the reason it was written:
-//! a viewer that serves the literal history makes the corpus
-//! depend on the transcripts instead of distilling them.
+//! **Derived, never verbatim.** No command line, no prompt, no output text is kept:
+//! a row is an agent, a moment, a repository, a kind of work, how many commands of
+//! it, and whether it worked. A viewer that served the literal history would make
+//! the corpus depend on the transcripts instead of distilling them.
 //!
-//! ⚠ **Everything that happened, not the notable part of it** — Pippijn's call
-//! when tool calls joined the shell here. Reading a file is smaller
-//! work than running a build and the timeline does not say so: it is a record,
-//! and a record that quietly dropped the small things would answer "what was
-//! this session doing" with a curated version of it. Weighting is a question for
-//! whatever *displays* a row, which can see how many there are; deciding it here
-//! would take the choice away from every reader at once.
+//! ⚠ **Everything that happened, not the notable part of it** — Pippijn's call.
+//! Reading a file is smaller work than running a build and the timeline does not say
+//! so: a record that quietly dropped the small things would answer "what was this
+//! session doing" with a curated version of it. Weighting belongs to whatever
+//! *displays* a row, which can see how many there are.
 //!
-//! Until that day this was **Bash-only**, so half the fleet's work was missing
-//! from it: the history holds 284,839 `Bash` calls against 127,502 `Read`,
-//! `Write` and `Edit` ones, and an agent who reached for `Edit` showed an
-//! emptier day than one who reached for `sed`.
-//!
-//! **Dictionaries, not strings.** The agent, repository, kind and host of every
-//! row repeat endlessly across a hundred thousand of them, so they are interned
-//! and the rows carry indices. It is what keeps the artefact in the same order
-//! of size as the roster beside it.
+//! **Dictionaries, not strings.** Agent, repository, kind and host repeat endlessly
+//! across a hundred thousand rows, so they are interned and the rows carry indices.
 
 use std::collections::BTreeMap;
 
@@ -37,23 +25,18 @@ use serde::{Deserialize, Serialize};
 
 /// How a piece of work turned out.
 ///
-/// ⚠ **`Rejected` is not a kind of failure — it means the command never ran.**
-/// Every other state here is about a process that started; this one is about one
-/// that did not exist. A file named by a rejected call was never opened, and
-/// recording it invents work out of an intention.
+/// ⚠ **`Rejected` is not a kind of failure — it means the command never ran.** Every
+/// other state here is about a process that started. A file named by a rejected call
+/// was never opened, and recording it invents work out of an intention.
 ///
-/// Reading the output text to tell the two apart is the one exception to the
-/// rule that this must not interpret what a command printed. It is not
-/// interpretation: the harness writes one fixed sentence at the start of the
-/// content, and matching it anchored there is reading a structural marker, not a
-/// program's stderr. Anchoring is what makes it safe — the same sentence
-/// appears 167 times across the transcripts and only 92 are real, the rest being
-/// sessions like this one that merely *searched* for the phrase and wrote it
-/// into their own record.
+/// Reading the output to tell the two apart is the one exception to the rule that
+/// this must not interpret what a command printed: the harness writes one fixed
+/// sentence at the start of the content, and matching it **anchored there** is
+/// reading a structural marker. Anchoring is what makes it safe — sessions that
+/// merely *searched* for the phrase wrote it into their own record.
 ///
-/// `Unknown` is a real state, not a synonym for `Ok`: an interruption is not a
-/// result at all but a separate message, so the call it stopped simply never
-/// gets an answer.
+/// `Unknown` is a real state, not a synonym for `Ok`: an interruption is a separate
+/// message, so the call it stopped never gets an answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Verdict {
@@ -64,67 +47,53 @@ pub enum Verdict {
 }
 
 impl Verdict {
-    /// Whether a command under this condition certainly ran.
-    ///
-    /// The join between what the *text* says had to hold and what the *result*
-    /// says happened — neither alone answers it. Deliberately one-sided: `true`
-    /// means certain, `false` means "cannot say", never "did not run". A file
-    /// use may only be attributed to somebody on a `true`.
-    ///
-    /// [`crate::shell::Reached::Always`] carries most of the corpus, and it is
-    /// the case the exit status cannot spoil: `a; b; c` runs all three whatever
-    /// any of them returns.
     /// Whether a call that does exactly **one** thing did it.
     ///
-    /// A tool call is atomic — an `Edit` either replaced the text or changed
-    /// nothing at all — so its result settles the matter outright, with none of
-    /// the reachability reasoning a shell script needs. Without this, 990 failed
-    /// `Edit`s and 289 failed `Write`s count as changes to files they left
-    /// exactly as they were.
+    /// A tool call is atomic — an `Edit` either replaced the text or changed nothing at
+    /// all — so its result settles the matter outright, with none of the reachability
+    /// reasoning a shell script needs. Without this, failed `Edit`s and `Write`s count
+    /// as changes to files they left exactly as they were.
     ///
-    /// `Unknown` counts: silence means the outcome went unrecorded, not that the
-    /// tool declined to act.
+    /// `Unknown` counts: silence means the outcome went unrecorded, not that the tool
+    /// declined to act.
     pub fn completed(self) -> bool {
         matches!(self, Verdict::Ok | Verdict::Unknown)
     }
 
     /// Whether a file use in a command reached this way may be attributed.
     ///
-    /// ⚠ **`Failed` cannot distinguish "ran and returned non-zero" from "bash
-    /// refused the text", and those are opposite facts.** A runtime failure
-    /// started and attempted its reads — `cat missing.txt` really did try. A
-    /// *syntax* error started nothing: bash parses its whole input before
-    /// running any of it, so one bad token means not a single command in the
-    /// script ran. That is the shape [`Verdict::Rejected`] is written for, but
-    /// `Rejected` means the harness declined, and bash declining arrives here
-    /// as an ordinary `Failed`.
+    /// The join between what the *text* says had to hold and what the *result* says
+    /// happened — neither alone answers it. Deliberately one-sided: `true` means
+    /// certain, `false` means "cannot say", never "did not run".
+    /// [`crate::shell::Reached::Always`] carries most of the corpus, and it is the case
+    /// the exit status cannot spoil: `a; b; c` runs all three whatever any returns.
     ///
-    /// Left alone deliberately, on a measurement: gate 2 puts the whole corpus
-    /// to bash, and **one command in 146,175 is text bash will not parse** —
-    /// which extracts 0 reads and 0 writes anyway, because its payload is
-    /// refused for an unterminated quote. Nothing downstream depends on it.
-    /// Detecting the case at all needs bash in the mining path, which is minutes
-    /// a run to protect zero uses. memview#1074 has the command and the repro.
+    /// ⚠ **`Failed` cannot distinguish "ran and returned non-zero" from "bash refused
+    /// the text", and those are opposite facts.** A runtime failure attempted its reads;
+    /// a *syntax* error started nothing, because bash parses its whole input before
+    /// running any of it. That is the shape [`Verdict::Rejected`] is written for, but
+    /// `Rejected` means the harness declined, and bash declining arrives here as an
+    /// ordinary `Failed`.
     ///
-    /// What would change the answer is that count moving, and only gate 2 can
-    /// see it move — no reasoning from here will, because such a tree parses,
-    /// round-trips and prints as valid shell.
+    /// Left alone deliberately, on a measurement: gate 2 puts the whole corpus to bash,
+    /// and the one command in it that bash will not parse extracts no reads and no
+    /// writes anyway. Detecting the case needs bash in the mining path, which is minutes
+    /// a run to protect zero uses — memview#1074 has the repro. Only gate 2 can see that
+    /// change, because such a tree parses, round-trips and prints as valid shell.
     pub fn admits(self, reached: crate::shell::Reached) -> bool {
         use crate::shell::Reached;
         match (self, reached) {
-            // Refused before it began: nothing in it ran, whatever it said.
-            // The one verdict that is a fact about the *process*, not about how
-            // the process went, which is why it alone overrides the text.
+            // Refused before it began: nothing in it ran, whatever it said. The one verdict
+            // that is a fact about the *process* rather than how the process went, which is why
+            // it alone overrides the text.
             (Verdict::Rejected, _) => false,
-            // Everything else started. An unconditional command in a script
-            // that started is the one thing no exit status can take away.
+            // Everything else started. An unconditional command in a script that started is
+            // the one thing no exit status can take away.
             //
-            // `Unknown` — no result line at all — is read as "started, outcome
-            // unrecorded" rather than "never ran". A transcript can lack results
-            // for reasons that say nothing about the shell: it was interrupted,
-            // it is still running, mining caught it mid-turn. Reading silence as
-            // refusal would drop every shell file use in such a transcript at
-            // once, which is a far larger error than the 12 calls it protects.
+            // `Unknown` — no result line at all — is read as "started, outcome unrecorded".
+            // A transcript can lack results for reasons that say nothing about the shell: it
+            // was interrupted, it is still running, mining caught it mid-turn. Reading silence
+            // as refusal would drop every shell file use in such a transcript at once.
             (_, Reached::Always) => true,
             // Exit 0 at the end of an `&&` chain means every link in it
             // succeeded, so every link ran. Only the final segment's chain
@@ -138,8 +107,8 @@ impl Verdict {
 
 /// One stretch of work: one kind of activity, in one turn.
 ///
-/// Field names are one character because there are a hundred thousand of these
-/// and the artefact is read over a VPN.
+/// Field names are one character because there are a hundred thousand of these and
+/// the artefact is read over a VPN.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Row {
     /// Index into [`Doing::agents`].
@@ -168,18 +137,15 @@ pub struct Row {
 
 /// One instruction, and everything done under it.
 ///
-/// ⚠ **The boundary is a user's turn, and that is the only one this reads.**
-/// Every other candidate — a gap in time, a change of repository, a change of
-/// kind — is *inferred*, and inference can merge two instructions into one,
-/// which is the error that makes a grouping lie. A recorded boundary can only
-/// over-segment: two consecutive `proceed`s read as two episodes, which is
-/// merely less useful. So the timeline takes the boundary the transcript
-/// actually writes down.
+/// ⚠ **The boundary is a user's turn, and that is the only one this reads.** Every
+/// other candidate — a gap in time, a change of repository, a change of kind — is
+/// *inferred*, and inference can merge two instructions into one, which is the error
+/// that makes a grouping lie. A recorded boundary can only over-segment, which is
+/// merely less useful.
 ///
-/// ⚠ **It cannot be labelled by what was asked.** No prompt text reaches an
-/// artefact — see this module's head — so an episode is a bracket in time plus
-/// whatever its own rows say. That is enough for a reader to see *this stretch
-/// was one instruction*, which is the thing the timeline could not show at all.
+/// ⚠ **It cannot be labelled by what was asked.** No prompt text reaches an artefact
+/// — see this module's head — so an episode is a bracket in time plus whatever its
+/// own rows say.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Episode {
     /// Index into [`Doing::agents`].
@@ -233,14 +199,14 @@ impl Names {
         self.list
     }
 
-    /// Rebuild a dictionary from a frozen one, so an index already written into
-    /// a row still means the same name.
+    /// Rebuild a dictionary from a frozen one, so an index already written into a row
+    /// still means the same name.
     ///
-    /// ⚠ **Positional, and that is the whole contract.** [`Names::into_vec`]
-    /// emits names in index order, so re-interning them in that order reproduces
-    /// every index exactly — which is what lets a resumed fold append rows
-    /// beside ones it did not build. Change either side and every `a`, `p`, `k`
-    /// and `h` in the carried rows silently means a different name.
+    /// ⚠ **Positional, and that is the whole contract.** [`Names::into_vec`] emits names
+    /// in index order, so re-interning them in that order reproduces every index — which
+    /// is what lets a resumed fold append rows beside ones it did not build. Change
+    /// either side and every `a`, `p`, `k` and `h` in the carried rows silently means a
+    /// different name.
     pub fn from_vec(list: Vec<String>) -> Self {
         let index = list
             .iter()
@@ -288,14 +254,12 @@ pub struct Log {
 impl Log {
     /// Continue the fold a previous run froze, instead of starting from nothing.
     ///
-    /// ⚠ **Everything here carries except `pending`.** A row waiting on a result
-    /// that had not arrived when the artefact was written stays
-    /// [`Verdict::Unknown`] forever: its answer lands in the tail, where nothing
-    /// is left to match it to. Against a real watermark a mere handful of calls
-    /// across the whole corpus cross the cut, far fewer than a full scan already
-    /// leaves unresolved. Carrying it would mean remapping row indices through
-    /// `finish`'s sort and putting resume state on an exported wire type, which
-    /// is not what a few rows a night buys.
+    /// ⚠ **Everything here carries except `pending`.** A row waiting on a result that
+    /// had not arrived when the artefact was written stays [`Verdict::Unknown`] forever:
+    /// its answer lands in the tail, where nothing is left to match it to. Against a
+    /// real watermark that is a handful of calls across the whole corpus, and carrying
+    /// it would mean remapping row indices through `finish`'s sort and putting resume
+    /// state on an exported wire type.
     ///
     /// The open episode is a different size of loss and does not stay here — see
     /// [`Log::reopen`].
@@ -322,28 +286,24 @@ impl Log {
         self.current = None;
     }
 
-    /// Re-enter a transcript mid-instruction, carrying the episode a previous
-    /// read left open.
+    /// Re-enter a transcript mid-instruction, carrying the episode a previous read left
+    /// open.
     ///
-    /// ⚠ **This is the loss a byte offset alone cannot avoid.** An episode is
-    /// bracketed by a user's turn, so a cut taken while an instruction is still
-    /// being carried out leaves every row until the *next* prompt with no
-    /// episode above it. That strands an order of magnitude more tail calls than
-    /// the unresolved results above, and unlike those it is cheap to keep,
-    /// because the state is an index and a name rather than a row position —
-    /// [`crate::watermark::Resume`] carries it.
+    /// ⚠ **This is the loss a byte offset alone cannot avoid.** An episode is bracketed
+    /// by a user's turn, so a cut taken mid-instruction leaves every row until the
+    /// *next* prompt with no episode above it. That strands far more tail calls than the
+    /// unresolved results above, and unlike those it is cheap to keep, because the state
+    /// is an index and a name rather than a row position — [`crate::watermark::Resume`]
+    /// carries it.
     pub fn reopen(&mut self, episode: Option<u32>, prompt: Option<String>) {
         self.prompt = prompt;
-        // ⚠ **An episode this log does not hold cannot be continued.** The index
-        // comes from a watermark, and a caller may legitimately have chosen not
-        // to carry the timeline — a reader that only wants the day sets does not
-        // load 122 MB of it. Left unchecked, the next `push` indexed an empty
-        // vector and PANICKED: "len is 0 but the index is 36887".
+        // ⚠ **An episode this log does not hold cannot be continued.** The index comes from
+        // a watermark, and a caller may legitimately not have carried the timeline. Left
+        // unchecked, the next `push` indexed an empty vector and PANICKED.
         //
-        // Filtering here rather than at the call site because the log is the only
-        // thing that knows what it holds, and this is the one place the two facts
-        // meet. Dropping to `None` starts a fresh episode, which is exactly what
-        // "I have no record of the one you mean" should do.
+        // Filtered here rather than at the call site because the log is the only thing that
+        // knows what it holds. Dropping to `None` starts a fresh episode, which is what "I
+        // have no record of the one you mean" should do.
         self.current = episode.filter(|at| (*at as usize) < self.episodes.len());
     }
 
@@ -410,34 +370,29 @@ impl Log {
     /// As [`Log::finish`], and also the map from each episode's OLD index to its
     /// canonical one.
     ///
-    /// ⚠ **A caller holding episode indices of its own MUST remap them.** The
-    /// resume watermarks record `open_episode()` during the scan, i.e. against
-    /// the pre-canonical numbering; saved unremapped they would name a different
-    /// instruction on the next run, silently. That is the whole reason this
-    /// returns the map instead of hiding it (memview#1240).
+    /// ⚠ **A caller holding episode indices of its own MUST remap them.** The resume
+    /// watermarks record `open_episode()` during the scan, against the pre-canonical
+    /// numbering; saved unremapped they would name a different instruction on the next
+    /// run, silently (memview#1240).
     pub fn finish_canonical(
         mut self,
         generated: &str,
     ) -> (Doing, std::collections::BTreeMap<u32, u32>) {
-        // ⚠ **A TOTAL order, not just the minute.** `sort_by_key(|row| row.t)`
-        // is stable, so rows sharing a minute kept their INSERTION order — which
-        // is the order transcripts happened to be read in, and therefore differs
-        // between a whole scan and a resumed one. Every field the row carries in
-        // its own right takes part; `e` cannot, because it is renumbered below.
+        // ⚠ **A TOTAL order, not just the minute.** `sort_by_key(|row| row.t)` is stable,
+        // so rows sharing a minute kept their INSERTION order — the order transcripts
+        // happened to be read in, which differs between a whole scan and a resumed one.
+        // Every field the row carries in its own right takes part; `e` cannot, because it
+        // is renumbered below.
         self.rows.sort_by(|x, y| {
             (x.t, x.a, x.p, x.k, x.n, x.h, x.v).cmp(&(y.t, y.a, y.p, y.k, y.n, y.h, y.v))
         });
         // ⚠ **Episode identity was its POSITION in this vector**, assigned as
-        // `episodes.len()` at creation — so it depended on when the scan reached
-        // it, which is exactly what reading only the changed transcripts alters.
-        // Most rows in the corpus differed by nothing but this index
-        // (memview#1240).
+        // `episodes.len()` at creation, so it depended on when the scan reached it — which
+        // is exactly what reading only the changed transcripts alters (memview#1240).
         //
-        // Renumbered here in the order an episode is first REFERENCED by the
-        // sorted rows, so the numbering is a property of the content rather than
-        // of the traversal. An episode holds at least one row by construction —
-        // `push` creates it only when there is a row to put in it — so none is
-        // dropped by walking the rows.
+        // Renumbered here in the order an episode is first REFERENCED by the sorted rows,
+        // so the numbering is a property of the content rather than of the traversal. An
+        // episode holds at least one row by construction, so none is dropped.
         let mut canonical: std::collections::BTreeMap<u32, u32> = std::collections::BTreeMap::new();
         let mut order: Vec<u32> = Vec::new();
         for row in &self.rows {
@@ -493,20 +448,15 @@ impl Doing {
 
 /// The `cd` targets the shell said it could not enter, read off a call's output.
 ///
-/// **Why the text and not the exit code.** `cd nope; cat x` can succeed as a
-/// whole — the `cd` failed, `cat` ran, the call exits 0 — so a verdict cannot
-/// say that the directory never moved. The shell says it in words, naming the
-/// target it refused, and that is the only place it is said.
+/// **Why the text and not the exit code.** `cd nope; cat x` can succeed as a whole,
+/// so a verdict cannot say the directory never moved. The shell says it in words,
+/// naming the target it refused, and that is the only place it is said. It matters
+/// because a `cd` the parser applies and the shell did not leaves every later
+/// relative path resolved against a directory the command never entered.
 ///
-/// This matters because a `cd` the parser applies but the shell did not leaves
-/// every later relative path in the script resolved against a directory the
-/// command never entered. Measured across this project's transcripts: **247
-/// results report one.**
-///
-/// **Anchored to the whole message, not to `cd: `.** That prefix alone matches
-/// prose — the corpus has `cd: TLS handshake + banner (amun.xinutec.org)` and
-/// `cd: harden inspircd …`, which are commit subjects in a `git log`, not a
-/// shell. What identifies a refusal is the shell's own suffix after the target.
+/// **Anchored to the whole message, not to `cd: `.** That prefix alone matches prose
+/// — the corpus has `cd: harden inspircd …`, a commit subject in a `git log`. What
+/// identifies a refusal is the shell's own suffix after the target.
 ///
 /// **Two shells, because the corpus has two.** bash puts the target before the
 /// message and zsh puts it after:
@@ -516,18 +466,13 @@ impl Doing {
 /// (eval):cd:1: no such file or directory: src
 /// ```
 ///
-/// ⚠ This read bash's form only, on the stated grounds that *"no measured call
-/// in the corpus uses"* zsh's. That was wrong, and it was wrong by a lot:
-/// zsh-worded refusals are nearly as common as bash-worded ones, so a large
-/// fraction of the corpus's refusals were invisible — and every one of them is a
-/// `cd` the parser applied and the shell did not, which is precisely the failure
-/// this function exists to prevent. The claim had no measurement behind it;
-/// `SHELL` being `bashInteractive` says what the session's own shell is, not what
-/// the `nix develop -c`, `nix-shell --run` and `ssh` invocations inside these
-/// commands run.
+/// ⚠ This read bash's form only, on the stated grounds that no measured call used
+/// zsh's. That was wrong by a lot: zsh-worded refusals are nearly as common, so a
+/// large fraction of the corpus's refusals were invisible. `SHELL` says what the
+/// session's own shell is, not what the `nix develop -c`, `nix-shell --run` and
+/// `ssh` invocations inside these commands run.
 ///
-/// The zsh grammar is anchored on the message *in position* — `cd`, an optional
-/// line number, then the message, then the target — so the same prose that
+/// The zsh grammar is anchored on the message *in position*, so the same prose that
 /// `cd: ` alone would match cannot reach it.
 pub fn refused_dirs(text: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
@@ -551,14 +496,11 @@ pub fn refused_dirs(text: &str) -> Vec<String> {
 /// Every wording the two readers below accept, as bytes to scan for.
 ///
 /// ⚠ **A caller that prescans MUST use this, and nothing narrower.** `agents::
-/// refusals` had its own `const ENDING: &[u8] = b"No such file or directory"` as
-/// a cheap gate before parsing a line, and that single needle silently decided
-/// what [`refused_dirs`] would ever be asked about: zsh's lower-cased wording
-/// never reached it, and neither did bash's own `Not a directory`, which this
-/// function has always handled. Widening the parser alone changed **nothing**
-/// measurably — 91 refusals to 102 — because the gate in front of it was the
-/// real limit. Two places holding one list is how that happened; this is the
-/// list.
+/// refusals` had its own one-needle gate before parsing a line, and that silently
+/// decided what [`refused_dirs`] would ever be asked about: zsh's wording never
+/// reached it, and neither did bash's own `Not a directory`. Widening the parser
+/// alone changed nothing measurably, because the gate in front of it was the real
+/// limit. Two places holding one list is how that happened; this is the list.
 pub const REFUSAL_PHRASES: [&str; 4] = [
     "No such file or directory",
     "no such file or directory",

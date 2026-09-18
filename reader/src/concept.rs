@@ -1,10 +1,9 @@
 //! What a command was *for*, as a thing that can be turned back into a command.
 //!
 //! The first lens of `docs/concept-model.md`. [`crate::shell_ops`] says what a
-//! command did to files and [`crate::activity`] names the kind of work; neither
-//! can be run backwards, and [`crate::activity`] says so about itself. This is
-//! the level that carries enough to regenerate — a **representation** rather
-//! than a classification — and the difference is the whole point of it.
+//! command did to files and [`crate::activity`] names the kind of work; neither can
+//! be run backwards. This is the level that carries enough to regenerate — a
+//! **representation** rather than a classification.
 //!
 //! ## The law
 //!
@@ -14,44 +13,40 @@
 //!                          and here the SPELLING (`sed -i` for `perl -pi`)
 //! ```
 //!
-//! The same shape as the syntax layer's round-trip law, one level up, and with
-//! the same constraint carried with it: **the concept is sufficient**. [`lower`]
-//! takes a [`Concept`] and nothing else — no `Step`, no source text — because a
-//! concept that can only be printed by consulting the command it came from is an
-//! annotation, not a concept.
+//! The same shape as the syntax layer's round-trip law, and with the same constraint
+//! carried with it: **the concept is sufficient**. [`lower`] takes a [`Concept`] and
+//! nothing else, because a concept that can only be printed by consulting the
+//! command it came from is an annotation, not a concept.
 //!
-//! ## Why `Rewrite` first, and why it is measured rather than chosen
+//! ## Why `Rewrite` first
 //!
 //! `sed -i 's/a/b/' f` and `perl -pi -e 's/a/b/' f` reach the **identical**
-//! [`Op::Transform { program, in_place }`], so two spellings meet in one concept
-//! and the cross-language claim has something real to assert. `Page` was the
-//! intuitive first pick and is the wrong one: [`Op::Read`] keeps only paths, so
-//! `head -5 f` and `cat f` are one key and the range is gone (memview#1364).
+//! [`Op::Transform { program, in_place }`], so two spellings meet in one concept and
+//! the cross-language claim has something real to assert. `Page` was the intuitive
+//! first pick and is the wrong one: [`Op::Read`] keeps only paths, so `head -5 f`
+//! and `cat f` are one key and the range is gone (memview#1364).
 //!
-//! ⚠ **Shell-only, and that is a correction to the design doc.** The merge one
-//! level down is thinner than it claimed: the type both carried readers share is
-//! `FileUse { path, write, reached }`, so `python::record` never extracts
-//! `re.sub`'s pattern and a Python `Rewrite` would have nothing to compare
-//! against. Cross-language needs a parameter field on `program.rs` first.
+//! ⚠ **Shell-only, and that is a correction to the design doc.** The type both
+//! carried readers share is `FileUse { path, write, reached }`, so `python::record`
+//! never extracts `re.sub`'s pattern and a Python `Rewrite` would have nothing to
+//! compare against. Cross-language needs a parameter field on `program.rs` first.
 //!
 //! ## Where it attaches
 //!
-//! [`crate::shell_files::Step`], which is the only place a command and its
-//! reading are both in hand. Not "a pure L2 reading", which is what the doc said
-//! and what the projection refutes: `operands()` drops flags by construction, so
-//! no seed concept's parameters survive at the `Op` alone.
+//! [`crate::shell_files::Step`], the only place a command and its reading are both
+//! in hand. Not "a pure L2 reading": `operands()` drops flags by construction, so no
+//! seed concept's parameters survive at the `Op` alone.
 
 use crate::shell_files::Step;
 use crate::shell_ops::{Op, basename, unwrap_command};
 
 /// A concept's parameter, carrying the precision the reader had and no more.
 ///
-/// ⚠ **The three-part artefact, at this level.** The reader's whole discipline
-/// is that a lower bound, a described middle and a counted remainder are
-/// different claims; a concept that flattened them to `Option<String>` would
-/// throw away the half that is falsifiable. So a subject the text located keeps
-/// its locus, a glob keeps its language, and a value that was never in the text
-/// stays a [`Subject::Hole`] rather than becoming a guess or a `⊤`.
+/// ⚠ **The three-part artefact, at this level.** A lower bound, a described middle
+/// and a counted remainder are different claims; a concept that flattened them to
+/// `Option<String>` would throw away the half that is falsifiable. So a subject the
+/// text located keeps its locus, a glob keeps its language, and a value that was
+/// never in the text stays a [`Subject::Hole`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Subject {
     /// A path the text determined.
@@ -68,17 +63,13 @@ pub enum Subject {
 /// Which part of a file a [`Concept::Page`] shows.
 ///
 /// ⚠ **The range is the point, and the projection below throws it away** — the
-/// census measured that (memview#1364): `Op::Read` keeps only paths, so
-/// `head -5 f` and `cat f` are one key there. A `Page` that dropped the range
-/// too would be a second name for `Read`. So the range is read off
-/// [`Step::argv`], the one place it survives.
+/// census measured that (memview#1364): `Op::Read` keeps only paths, so `head -5 f`
+/// and `cat f` are one key there. So the range is read off [`Step::argv`], the one
+/// place it survives.
 ///
-/// The vocabulary is closed to the shapes the corpus actually spells: a count
-/// from the top (`head`), a count from the bottom
-/// (`tail`), an explicit line span (`sed -n 'a,bp'`), or the whole file
-/// (`cat`). A byte count, a follow (`tail -f`), a `+N` prefix drop, and a
-/// `$`-relative address are **different acts** and refuse rather than flatten
-/// to one of these.
+/// The vocabulary is closed to the shapes the corpus actually spells. A byte count,
+/// a follow (`tail -f`), a `+N` prefix drop and a `$`-relative address are
+/// **different acts** and refuse rather than flatten to one of these.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Range {
     /// The whole file — `cat`.
@@ -95,15 +86,14 @@ pub enum Range {
 
 /// The language a [`Concept::Search`] pattern is written in.
 ///
-/// ⚠ **This is MEANING, not spelling, so it is carried rather than normalised
-/// away.** `a|b` matches the three characters under basic grep and either letter
-/// under `-E` — measured, both. A concept that dropped the dialect would lower
-/// to a command matching different lines, which is the one thing [`lower`] may
-/// not do. Contrast `sed -i` standing in for `perl -pi`, where the language is
-/// genuinely spelling because the act is identical.
+/// ⚠ **This is MEANING, not spelling, so it is carried rather than normalised away.**
+/// `a|b` matches the three characters under basic grep and either letter under `-E`.
+/// A concept that dropped the dialect would lower to a command matching different
+/// lines, which is the one thing [`lower`] may not do. Contrast `sed -i` standing in
+/// for `perl -pi`, where the act is identical.
 ///
-/// The three the corpus spells. `grep -P` and rg's own dialect are neither of
-/// these and refuse rather than flatten to [`Pattern::Extended`].
+/// The three the corpus spells. `grep -P` and rg's own dialect are neither of these
+/// and refuse rather than flatten to [`Pattern::Extended`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Pattern {
     /// A basic regular expression — `grep`'s default, where `|` and `+` are
@@ -132,9 +122,8 @@ pub enum Quantity {
 /// What a command was for.
 ///
 /// The vocabulary is mined and admitted the way a syntax construct was — biggest
-/// first (the census ranks it), refused by name until built — and a catch-all
-/// `Run { argv }` would take the lift rate to 100% on the first day and mean
-/// nothing.
+/// first, refused by name until built. A catch-all `Run { argv }` would take the
+/// lift rate to 100% on the first day and mean nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Concept {
     /// A file changed in place by a program applied to its contents.
@@ -150,15 +139,13 @@ pub enum Concept {
         substitution: Option<String>,
     },
     /// A file (or none, for a stream) shown without being changed — the corpus's
-    /// largest concept-shaped mass by a distance: the `head`, `tail`, `cat` and
-    /// `sed -n` pager shapes together dwarf every `Rewrite`.
+    /// largest concept-shaped mass by a distance.
     ///
-    /// ⚠ **Its spellings do NOT meet at one `Op`, and that recast gate 2.**
-    /// `head -5 f` is [`Op::Read`] and `sed -n '1,5p' f` is [`Op::Transform`]
-    /// printing — the reader below reads two operations for one act. The concept
-    /// is where they meet, so the level-below authority a lowered `Page` answers
-    /// to is the L3 *effect* reading (what was touched, in which direction), not
-    /// the `Op` variant. `reader/tests/suite/concept.rs::read_as` carries the reason.
+    /// ⚠ **Its spellings do NOT meet at one `Op`, and that recast gate 2.** `head -5 f`
+    /// is [`Op::Read`] and `sed -n '1,5p' f` is [`Op::Transform`] printing — the reader
+    /// below reads two operations for one act. The concept is where they meet, so the
+    /// authority a lowered `Page` answers to is the L3 *effect* reading, not the `Op`
+    /// variant. `reader/tests/suite/concept.rs::read_as` carries the reason.
     Page {
         /// Empty for a stream: `… | head -50` pages what flows in, and no file
         /// was named. Not a hole — a hole is a subject the text gestured at and
@@ -166,15 +153,13 @@ pub enum Concept {
         subjects: Vec<Subject>,
         range: Range,
     },
-    /// The lines of a file that match a pattern — the largest shape left in the
-    /// queue after `Page`, and this lens accepts about half of every row spelled
-    /// as a search.
+    /// The lines of a file that match a pattern — the largest shape left in the queue
+    /// after `Page`.
     ///
-    /// ⚠ **Only the act that PRODUCES MATCHING LINES.** `-c` counts them, `-l`
-    /// names the files, `-q` answers yes or no and prints nothing, `-o` prints
-    /// the matched fragment rather than the line. Each is a different product
-    /// from the same scan, so each refuses by name and the census sizes it —
-    /// 22,630 rows between them, which is what a later lens would be worth.
+    /// ⚠ **Only the act that PRODUCES MATCHING LINES.** `-c` counts them, `-l` names the
+    /// files, `-q` answers yes or no, `-o` prints the matched fragment. Each is a
+    /// different product from the same scan, so each refuses by name and the census
+    /// sizes it — which is what a later lens would be worth.
     Search {
         /// Empty for a stream: `… | grep -n foo` searches what flows in. Not a
         /// hole, for the reason [`Concept::Page`] gives.
@@ -190,18 +175,14 @@ pub enum Concept {
     },
     /// The entries of a directory — `ls`.
     ///
-    /// ⚠ **The product is NAMES, and that is the whole boundary.** `ls -l` adds
-    /// size, mode and time; `du` adds bytes; `wc -l` returns a count. Each reads
-    /// the same locus and hands back something else, so each refuses by name.
-    /// Most `ls` rows are a bare `ls <dir>`, and the `-l` family is most of the
-    /// rest.
+    /// ⚠ **The product is NAMES, and that is the whole boundary.** `ls -l` adds size,
+    /// mode and time; `du` adds bytes; `wc -l` returns a count. Each reads the same
+    /// locus and hands back something else, so each refuses by name.
     ///
-    /// ⚠ **`find` is NOT this concept, and the census is why.** Its operands are
-    /// a predicate EXPRESSION — `-o`, `-not` and `-prune` are all well used — so
-    /// no single `matching` field represents it, and keeping only the
-    /// `-name` value would claim a NARROWER set than the command walked. That is
-    /// a false lower bound, which is the direction this reader refuses
-    /// everywhere else. [`Why::Predicate`] holds it, counted.
+    /// ⚠ **`find` is NOT this concept, and the census is why.** Its operands are a
+    /// predicate EXPRESSION — `-o`, `-not` and `-prune` are all well used — so no single
+    /// `matching` field represents it, and keeping only the `-name` value would claim a
+    /// NARROWER set than the command walked. [`Why::Predicate`] holds it, counted.
     List {
         /// The directories enumerated. `ls a b` is one act over two loci, the
         /// same way `sed -i` is over two files.
@@ -215,18 +196,13 @@ pub enum Concept {
     },
     /// One number about a file's CONTENTS — `wc`.
     ///
-    /// ⚠ **The product is a COUNT, which is the same boundary drawn again.**
-    /// The locus `cat` shows and `grep` scans, read for a number instead:
-    /// `grep -c` refuses ([`Why::NotLines`] — a count of MATCHES is a
-    /// different question), and `du`/`stat` are numbers about the FILE rather
-    /// than its contents — metadata, the [`Concept::List`] `-l` boundary — and
-    /// stay queued, with `wc -l` much the largest of them and the `stat` shapes
-    /// the smallest and the most awkward, carrying format strings besides.
+    /// ⚠ **The product is a COUNT, which is the same boundary drawn again.** The locus
+    /// `cat` shows and `grep` scans, read for a number instead: `grep -c` refuses
+    /// ([`Why::NotLines`]), and `du`/`stat` are numbers about the FILE rather than its
+    /// contents — metadata, the [`Concept::List`] `-l` boundary — and stay queued.
     ///
-    /// ⚠ **One quantity.** Bare `wc` is the POSIX lines-words-bytes triple — a
-    /// real default, readable not writable — but a TABLE is a different
-    /// product from a number, and neither it nor a combined flag made the
-    /// census. Queued, not modelled.
+    /// ⚠ **One quantity.** Bare `wc` is the POSIX lines-words-bytes triple — a real
+    /// default — but a TABLE is a different product from a number. Queued, not modelled.
     Measure {
         /// Empty for a stream: `… | wc -l` counts what flows in. Not a hole,
         /// for the reason [`Concept::Page`] gives.
@@ -235,14 +211,12 @@ pub enum Concept {
     },
     /// The most recent commits of a repository — `git log`.
     ///
-    /// ⚠ **The FIRST concept whose subject is not a file.** A repository is
-    /// context, not an operand: `git log -3` names nothing, and the `-C` that
-    /// could name one is a location rather than a subject. So there is no repo
-    /// field — the concept says what the text says, and where it ran is the
-    /// step's business, exactly as a relative path's directory is.
+    /// ⚠ **The FIRST concept whose subject is not a file.** A repository is context, not
+    /// an operand: `git log -3` names nothing, and the `-C` that could name one is a
+    /// location rather than a subject. So there is no repo field — the concept says what
+    /// the text says, and where it ran is the step's business.
     ///
-    /// ⚠ **`git log`'s dominant shape is one shape.** Nearly every step carries
-    /// `--oneline` and a count, and nearly every one needs nothing but a count,
+    /// Nearly every step carries `--oneline` and a count, and needs nothing but a count,
     /// a revision and paths after `--`.
     History {
         /// `-3`, `-n 3`, `--max-count=3`. `None` where the text gave none, which
@@ -262,11 +236,10 @@ pub enum Concept {
     },
     /// What a repository has that its last commit does not — `git status`.
     ///
-    /// ⚠ **Essentially parameterless, and the census is why.** Of 15,436 steps,
-    /// 88 carry no flag at all and almost every flag that appears is FORMAT:
-    /// `--short` (9,089), `--porcelain` (4,779), `-sb` (1,391), `-b`. They
-    /// choose a spelling of the same listing, so they normalise away exactly as
-    /// `--oneline` does for [`Concept::History`].
+    /// ⚠ **Essentially parameterless, and the census is why.** Almost every flag that
+    /// appears is FORMAT — `--short`, `--porcelain`, `-sb`, `-b`. They choose a spelling
+    /// of the same listing, so they normalise away exactly as `--oneline` does for
+    /// [`Concept::History`].
     Status {
         /// Restricted to these paths where the text gave any. Empty means the
         /// whole tree, which is what almost every occurrence means.
@@ -275,9 +248,9 @@ pub enum Concept {
     /// Files put into the index — `git add`.
     ///
     /// ⚠ **Staging changes NO file**, which the level below already says: it is
-    /// [`crate::shell_ops::GitOp::Stage`], a variant that exists precisely to
-    /// keep that decision visible. The concept inherits it — an ask card must
-    /// not read a stage as a write.
+    /// [`crate::shell_ops::GitOp::Stage`], a variant that exists precisely to keep that
+    /// decision visible. The concept inherits it — an ask card must not read a stage as
+    /// a write.
     Stage {
         subjects: Vec<Subject>,
         /// `-A`. Load-bearing rather than decoration: it stages deletions and
@@ -292,9 +265,9 @@ pub enum Concept {
     /// the thing gate 4 wants and has never had in the argv. It is carried as
     /// written.
     Commit {
-        /// `None` where the message is real and NOT in this text — `-F file`,
-        /// or `-F -` reading stdin, which is 2,972 of 10,758 steps. Exactly the
-        /// sense [`Concept::Rewrite`]'s `substitution` is `None`.
+        /// `None` where the message is real and NOT in this text — `-F file`, or `-F -`
+        /// reading stdin, which is a good fraction of them. Exactly the sense
+        /// [`Concept::Rewrite`]'s `substitution` is `None`.
         message: Option<String>,
         amend: bool,
         /// `--no-verify` — the hooks do not run. Carried because it is the one
@@ -306,13 +279,11 @@ pub enum Concept {
 /// Why a step did not lift.
 ///
 /// ⚠ **The census's key, born with the layer.** #1142 rebuilt three temporary
-/// inventories before keying misses by reason, and the method learned from that
-/// (`docs/concept-model.md`): the layer starts with its `Why`, so the remainder
-/// is never a bare count. [`Why::NoLens`] is the queue — ranked by shape, it is
-/// where the next concept comes from. The rest are the lenses' own refusals:
-/// steps a lens *looked at* and turned down, each a design question the census
-/// sizes ([`Why::Described`] is "does a concept need to lower to a loop",
-/// counted).
+/// inventories before keying misses by reason, and this layer starts with its `Why`
+/// so the remainder is never a bare count. [`Why::NoLens`] is the queue — ranked by
+/// shape, it is where the next concept comes from. The rest are the lenses' own
+/// refusals: steps a lens *looked at* and turned down, each a design question the
+/// census sizes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Why {
     /// No lens covers this shape. The counted remainder, and the queue.
@@ -354,13 +325,12 @@ pub enum Why {
     PatternInFlag,
     /// The text named an operand the level below could not turn into a subject.
     ///
-    /// ⚠ **Refused because SILENCE HERE READS AS A STREAM.** `grep -rn foo src`
-    /// loses `src` — [`crate::shell_ops::looks_like_path`] cannot tell a bare
-    /// word from a bare directory, and says so — and it is not admitted as a
-    /// hole either, because most such words are genuinely not files. So the
-    /// subjects come back empty, which is the same shape a piped `… | grep foo`
-    /// produces, and the concept would claim nothing was named when something
-    /// was. Counting the operands is what tells the two apart.
+    /// ⚠ **Refused because SILENCE HERE READS AS A STREAM.** `grep -rn foo src` loses
+    /// `src` — [`crate::shell_ops::looks_like_path`] cannot tell a bare word from a bare
+    /// directory — and it is not admitted as a hole either. So the subjects come back
+    /// empty, which is the same shape a piped `… | grep foo` produces, and the concept
+    /// would claim nothing was named when something was. Counting the operands is what
+    /// tells the two apart.
     UnreadSubject,
     /// A listing that hands back more than names — `ls -l` and its family add
     /// mode, size and time. Same locus, different product, which is the same
@@ -394,12 +364,11 @@ pub enum Why {
 
 /// Lift one step into the concept it served, or say why not.
 ///
-/// ⚠ **The refusal is the honest answer and must stay cheap to give.** A command
-/// with no concept stays an L2/L3 leaf and is counted; that is what keeps a lift
-/// rate from being manufactured, and it is the same rule the parser follows when
-/// it refuses a construct by name. A caller that wants only the concept takes
-/// `.ok()`; the census reads the other arm, and the two cannot drift because
-/// there is one function.
+/// ⚠ **The refusal is the honest answer and must stay cheap to give.** A command with
+/// no concept stays an L2/L3 leaf and is counted; that is what keeps a lift rate
+/// from being manufactured. A caller that wants only the concept takes `.ok()`; the
+/// census reads the other arm, and the two cannot drift because there is one
+/// function.
 pub fn lift(step: &Step) -> Result<Concept, Why> {
     // ⚠ **A carrier is refused before its op is read as work** — its children
     // are steps of their own and are lifted there. See [`Why::Carrier`].
@@ -432,12 +401,11 @@ pub fn lift(step: &Step) -> Result<Concept, Why> {
             Some((range, operands)) => page(step, paths, range, operands),
             None => Err(Why::NotInPlace),
         },
-        // ⚠ **A read is a page only for the four pagers, and only in the
-        // shapes the corpus spells.** `wc -l` and `od` also reach [`Op::Read`];
-        // they MEASURE rather than show, and stay counted leaves. `ls` and
-        // `find` reach it too and are the [`Concept::List`] act — which is why
-        // the page reader is asked first and the listing reader second, rather
-        // than either of them owning the variant.
+        // ⚠ **A read is a page only for the four pagers, and only in the shapes the corpus
+        // spells.** `wc -l` and `od` also reach [`Op::Read`]; they MEASURE rather than
+        // show. `ls` and `find` reach it too and are the [`Concept::List`] act — which is
+        // why the page reader is asked first and the listing reader second, rather than
+        // either of them owning the variant.
         Some(Op::Read { paths }) => match read_page(step) {
             Some((range, operands)) => page(step, paths, range, operands),
             // Only a shape no earlier reader RECOGNISED falls through — a named
@@ -488,9 +456,9 @@ pub fn lift(step: &Step) -> Result<Concept, Why> {
 /// `git log` — the most recent commits, or the refusal a flag forces.
 ///
 /// ⚠ **Every other subcommand falls to [`Why::NoLens`] and stays in the queue**,
-/// where the census ranks it. `status` (10,739 rows), `commit` (9,541) and `add`
-/// (9,263) are each their own act and each their own lens; naming them here
-/// would be the flattening the vocabulary exists to avoid.
+/// where the census ranks it. `status`, `commit` and `add` are each their own act
+/// and each their own lens; naming them here would be the flattening the vocabulary
+/// exists to avoid.
 fn history(step: &Step, paths: &[String]) -> Result<Concept, Why> {
     // Decoration: it changes how a commit is printed, never which ones.
     const DECOR: &[&str] = &[
@@ -589,14 +557,11 @@ fn history(step: &Step, paths: &[String]) -> Result<Concept, Why> {
 
 /// `ls <dir>` — the entries of a directory, or the refusal its shape forces.
 ///
-/// ⚠ **`find` is turned away here rather than read**, and its own `Why` says
-/// why: its operands are a predicate expression, not a locus and a pattern.
+/// ⚠ **`find` is turned away here rather than read**, and its own `Why` says why.
 ///
-/// ⚠ **The page reader has already declined this step**, so a `cat`/`head`/
-/// `tail`/`sed -n` never reaches here and the two readers cannot both claim one
-/// command. Anything else under [`Op::Read`] that is not a listing — `wc`, `du`,
-/// `od`, `stat` — falls through to [`Why::NoLens`] and stays in the queue, where
-/// the census can rank it.
+/// The page reader has already declined this step, so a `cat`/`head`/`tail`/`sed -n`
+/// never reaches here and the two readers cannot both claim one command. Anything
+/// else under [`Op::Read`] that is not a listing falls through to [`Why::NoLens`].
 fn listing(step: &Step, paths: &[String]) -> Result<Concept, Why> {
     let argv = own_command(step).ok_or(Why::NoLens)?;
     match basename(argv.first().ok_or(Why::NoLens)?) {
@@ -609,11 +574,10 @@ fn listing(step: &Step, paths: &[String]) -> Result<Concept, Why> {
     let mut operands = 0;
     let mut after_sep = false;
     for word in argv.iter().skip(1) {
-        // ⚠ **`--` ends the FLAGS, not the loop** — and this read `break`, which
-        // stopped the COUNT with them (memview#1525). Every operand after the
-        // separator vanished, the count came out short of `subjects.len()`, and
-        // the row refused [`Why::UnreadSubject`] — a listing the lens could
-        // read, turned away for a miscount its own comment denied.
+        // ⚠ **`--` ends the FLAGS, not the loop** — and this read `break`, which stopped
+        // the COUNT with them (memview#1525). Every operand after the separator vanished,
+        // the count came out short of `subjects.len()`, and the row refused
+        // [`Why::UnreadSubject`].
         if !after_sep && word == "--" {
             after_sep = true;
             continue;
@@ -656,15 +620,12 @@ fn listing(step: &Step, paths: &[String]) -> Result<Concept, Why> {
 
 /// `wc` — one number per subject, and which number.
 ///
-/// ⚠ **Only `wc`.** `du`, `stat` and `od` reach [`Op::Read`] too and stay in
-/// the queue: the first two hand back metadata rather than a reading of the
-/// contents, the `stat` shapes carry format strings — the boundary
-/// [`Why::Formatted`] names one lens over — and the census sizes all three
-/// well below the flags this lens refuses. See [`Concept::Measure`].
+/// ⚠ **Only `wc`.** `du`, `stat` and `od` reach [`Op::Read`] too and stay in the
+/// queue: the first two hand back metadata rather than a reading of the contents,
+/// and the `stat` shapes carry format strings.
 ///
-/// ⚠ **Operands are counted PAST a `--`**, the way `status` and `stage` count
-/// and `search_shape` does not (memview#1525): stopping there would drop every
-/// subject after it and refuse the row for a miscount.
+/// ⚠ **Operands are counted PAST a `--`**, the way `status` and `stage` count and
+/// `search_shape` does not (memview#1525).
 fn measure(step: &Step, paths: &[String]) -> Result<Concept, Why> {
     let argv = own_command(step).ok_or(Why::NoLens)?;
     if basename(argv.first().ok_or(Why::NoLens)?) != "wc" {
@@ -707,9 +668,9 @@ fn measure(step: &Step, paths: &[String]) -> Result<Concept, Why> {
 
 /// `git status` — what the tree has that the last commit does not.
 ///
-/// ⚠ **Every flag here is a spelling of one listing.** `--short`, `--porcelain`
-/// and `-sb` differ in punctuation and stability, not in which paths appear, so
-/// they normalise away. What does NOT is a flag that changes the SET.
+/// ⚠ **Every flag here is a spelling of one listing.** `--short`, `--porcelain` and
+/// `-sb` differ in punctuation and stability, not in which paths appear. What does
+/// NOT normalise away is a flag that changes the SET.
 fn status<'a>(
     step: &Step,
     paths: &[String],
@@ -754,12 +715,10 @@ fn stage<'a>(
     rest: impl Iterator<Item = &'a str>,
 ) -> Result<Concept, Why> {
     let (mut all, mut operands) = (false, 0usize);
-    // ⚠ The same invariant the other four readers hold: `--` ends the flags, and
-    // a word after it is an operand HOWEVER IT IS SPELLED. This wrote
-    // `continue`, which skipped the separator and then read `-weird-name` as a
-    // flag — conservative (it refuses rather than mis-lifts) but wrong about
-    // what the author declared. Fixed with memview#1525's two `break` sites,
-    // because three of five readers right is how that defect started.
+    // ⚠ The same invariant the other four readers hold: `--` ends the flags, and a word
+    // after it is an operand HOWEVER IT IS SPELLED. This wrote `continue`, which
+    // skipped the separator and then read `-weird-name` as a flag — conservative but
+    // wrong about what the author declared (memview#1525).
     let mut after_sep = false;
     for word in rest {
         if !after_sep && word == "--" {
@@ -797,9 +756,9 @@ fn stage<'a>(
 
 /// `git commit` — a commit written, and the message that says why.
 ///
-/// ⚠ **No path guard here.** Staging already happened; a commit writes the
-/// repository rather than the operands, and `step.files` is empty for it. The
-/// other lenses' `reads_only` check would be asking the wrong question.
+/// ⚠ **No path guard here.** Staging already happened; a commit writes the repository
+/// rather than the operands, and `step.files` is empty for it. The other lenses'
+/// `reads_only` check would be asking the wrong question.
 fn commit<'a>(rest: impl Iterator<Item = &'a str>) -> Result<Concept, Why> {
     let (mut message, mut amend, mut no_verify, mut from_file) = (None, false, false, false);
     let mut operands = 0usize;
@@ -887,17 +846,15 @@ impl Shape {
 /// What a search argv asks for beyond its pattern and subjects, or the refusal a
 /// flag forces.
 ///
-/// ⚠ **The dialect and the recursion start from the PROGRAM, not from zero.**
-/// `egrep` is `grep -E` and `rg` both descends and reads its own dialect by
-/// default, so a reader that only looked at flags would call `egrep 'a|b'` basic
-/// and lower it to a command matching three literal characters.
+/// ⚠ **The dialect and the recursion start from the PROGRAM, not from zero.** `egrep`
+/// is `grep -E` and `rg` both descends and reads its own dialect by default, so a
+/// reader that only looked at flags would call `egrep 'a|b'` basic and lower it to a
+/// command matching three literal characters.
 ///
 /// ⚠ **rg's dialect is NOT `-E`.** It is Rust's regex crate — no backreferences,
-/// different classes — so it is admitted only where the two agree, which this
-/// lens cannot check. `rg` refuses; `ag` and `ack` refuse for the same reason.
-/// They are 193 rows against grep's 119,000, and claiming them would be the kind
-/// of flattening the whole vocabulary is built to avoid.
-///
+/// different classes — so it is admitted only where the two agree, which this lens
+/// cannot check. `rg`, `ag` and `ack` refuse; they are a rounding error against
+/// grep's share, and claiming them would be the flattening the vocabulary avoids.
 fn search_shape(step: &Step) -> Result<Shape, Why> {
     let argv = own_command(step).ok_or(Why::NoLens)?;
     let mut shape = match basename(argv.first().ok_or(Why::NoLens)?) {
@@ -926,11 +883,8 @@ fn search_shape(step: &Step) -> Result<Shape, Why> {
     };
     let mut after_sep = false;
     for word in argv.iter().skip(1) {
-        // ⚠ **Everything after `--` is an operand, however it is spelled** — and
-        // this said so in a comment above a `break`, which counted none of them
-        // (memview#1525). The pattern that holds it is the one `status`,
-        // `stage` and `history` already used; only the two readers that wrote
-        // `break` were wrong.
+        // ⚠ **Everything after `--` is an operand, however it is spelled** — and this said
+        // so in a comment above a `break`, which counted none of them (memview#1525).
         if !after_sep && word == "--" {
             after_sep = true;
             continue;
@@ -991,31 +945,14 @@ fn page(step: &Step, paths: &[String], range: Range, operands: usize) -> Result<
     Ok(Concept::Page { subjects, range })
 }
 
-/// The subjects, once the guards every file-reading lens shares have run:
-/// nothing touched beyond the operands, every operand resolved, one subject per
-/// operand.
+/// The subjects, once the guards every file-reading lens shares have run: nothing
+/// touched beyond the operands, every operand resolved, one subject per operand.
 ///
 /// ⚠ **One copy, because the copies drifted.** Both defects this file records —
 /// `Page` shipping without the count guard `Search` carried, the git dispatch
-/// reading paths from `Inspect` only — were one site missing its copy of a
-/// check the others had. A lens that names subjects ends here, or says in a
-/// comment why it cannot (see [`commit`]).
-///
-/// The two checks, and why each exists:
-///
-/// - **A redirect is a subject the argv never spells.** `head -5 f > out`
-///   writes `out` and `grep foo < f` reads an `f` no operand names; both show
-///   in `step.files` and neither is in the `Op`'s paths. A concept built from
-///   the operands alone would silently do less — gate 2 applied before the
-///   fact.
-/// - **An operand that produced no subject would read as a stream.** The level
-///   below drops a bare word rather than guess — see [`Why::UnreadSubject`] —
-///   so the count is the only thing that can tell "acted on a path nobody
-///   could resolve" from "acted on what the pipe gave it".
-///
-/// `operands` is the subject count the argv promises — `None` for a shape that
-/// can promise none, which refuses HERE, at the count check, so that the guards
-/// above it keep outranking it.
+/// reading paths from `Inspect` only — were one site missing its copy of a check the
+/// others had. A lens that names subjects ends here, or says in a comment why it
+/// cannot (see [`commit`]).
 fn counted_subjects(
     step: &Step,
     paths: &[String],
@@ -1588,14 +1525,13 @@ pub fn describe(concept: &Concept) -> String {
 
 /// The subjects as a phrase, every one of them.
 ///
-/// ⚠ **Never a summary.** "2 files" would let the card claim a concept while
-/// hiding which files, which is the one thing approval is for.
+/// ⚠ **Never a summary.** "2 files" would let the card claim a concept while hiding
+/// which files, which is the one thing approval is for.
 ///
-/// ⚠ **The `Bounded` and `Located` arms are UNREACHABLE and therefore
-/// unverified.** [`subjects_or_refuse`] turns both into [`Why::Described`]
-/// before a `Concept` exists, so no test covers them and no corpus command has
-/// ever produced one. They are kept against that refusal being lifted, and
-/// named here so they are not mistaken for exercised code.
+/// ⚠ **The `Bounded` and `Located` arms are UNREACHABLE and therefore unverified.**
+/// [`subjects_or_refuse`] turns both into [`Why::Described`] before a `Concept`
+/// exists, so no test covers them. They are kept against that refusal being lifted,
+/// and named here so they are not mistaken for exercised code.
 fn said(subjects: &[Subject]) -> String {
     subjects
         .iter()
@@ -1611,11 +1547,9 @@ fn said(subjects: &[Subject]) -> String {
 
 /// A subject as the lowered text writes it.
 ///
-/// ⚠ **`Bounded` and `Located` are UNREACHABLE here too, for the reason
-/// [`said`] gives** — [`subjects_or_refuse`] turns both into [`Why::Described`]
-/// before a `Concept` exists. Said in both places because they are two
-/// functions: a reader meeting this one alone has nothing to tell it that these
-/// arms are unexercised, and they are phrased as confidently as the live ones.
+/// ⚠ **`Bounded` and `Located` are UNREACHABLE here too, for the reason [`said`]
+/// gives.** Said in both places because they are two functions: a reader meeting
+/// this one alone has nothing to tell it that these arms are unexercised.
 fn spell(subject: &Subject) -> String {
     match subject {
         Subject::Named(path) => path.clone(),

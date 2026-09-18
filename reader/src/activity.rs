@@ -1,22 +1,18 @@
 //! What Claude was *doing*, one level above what it typed.
 //!
-//! [`crate::shell_ops`] answers "what does this command do to files", which is
-//! the right question for attribution and the wrong one for understanding: it
-//! reads `cargo test` and `nix build` and `kubectl rollout` as
+//! [`crate::shell_ops`] answers "what does this command do to files", which is the
+//! right question for attribution and the wrong one for understanding: it reads
+//! `cargo test` and `nix build` and `kubectl rollout` as
 //! [`Op::Nothing`](crate::shell_ops::Op::Nothing), because none of them names a
-//! file. Two thirds of what a session spends its time on is invisible at that
-//! level, and it is the two thirds a person would name first if you asked what
-//! the session had been doing.
+//! file. Most of what a session spends its time on is invisible at that level, and
+//! it is the part a person would name first if you asked what it had been doing.
 //!
 //! So this is a second, coarser reading of the same commands — **not a
-//! replacement**. The file dimensions stay exactly as they are; this says what
-//! kind of work the command was part of. It is deliberately lossy: an
-//! [`Activity`] cannot be turned back into the command it came from, and is not
-//! meant to be.
+//! replacement**. The file dimensions stay as they are. It is deliberately lossy: an
+//! [`Activity`] cannot be turned back into the command it came from.
 //!
-//! Built by the same method as everything else here: the set below is what the
-//! corpus actually contains, ranked by `activity-report`, and the tail it
-//! cannot name is counted rather than rounded away.
+//! The set below is what the corpus actually contains, ranked by `activity-report`,
+//! and the tail it cannot name is counted rather than rounded away.
 
 use crate::shell::Simple;
 use crate::shell_ops::{GitOp, Op, basename, unwrap_command};
@@ -56,11 +52,9 @@ pub enum Activity {
     Query,
     /// Handed work to another agent — the `Agent` tool.
     ///
-    /// ⚠ **Its own kind rather than [`Activity::Other`]**, which is the bucket
-    /// for a command nothing in the table names. Delegation is named everywhere
-    /// else in this repository — the roster counts it per agent — and a turn
-    /// that delegates is doing something quite different from one that runs an
-    /// unrecognised program.
+    /// ⚠ **Its own kind rather than [`Activity::Other`]**, which is the bucket for a
+    /// command nothing in the table names. A turn that delegates is doing something
+    /// quite different from one that runs an unrecognised program.
     Delegate,
     /// Moved around, listed a directory, printed something. Understood, and not
     /// work anybody would name.
@@ -82,11 +76,6 @@ pub struct Where {
     pub host: String,
 }
 
-/// The activity a command performs, from its typed operation and its name.
-///
-/// Both are needed and neither is enough. The operation knows that `sed -i`
-/// changes a file and `cargo test` does not; the name knows that `cargo test`
-/// is a test run and `cargo build` is not.
 /// Whether a redirect puts bytes somewhere that is a file.
 ///
 /// ⚠ **The refusal has to match [`shell_ops::resolve`]'s**, or the activity a
@@ -99,25 +88,26 @@ fn writes_a_file(redirect: &crate::shell::Redirect) -> bool {
     redirect.write && !redirect.target.starts_with("/dev/")
 }
 
+/// The activity a command performs, from its typed operation and its name.
+///
+/// Both are needed and neither is enough. The operation knows that `sed -i`
+/// changes a file and `cargo test` does not; the name knows that `cargo test`
+/// is a test run and `cargo build` is not.
 pub fn of(op: &Op, cmd: &Simple) -> Activity {
-    // A redirect changes a file whatever the command is, and it is how a third
-    // of the corpus's writing is done: `echo … > f`, `cat <<EOF > f`, and the
-    // 8,386 commands that are a redirect and nothing else.
+    // A redirect changes a file whatever the command is, and it is how much of the
+    // corpus's writing is done: `echo … > f`, `cat <<EOF > f`, and the commands that
+    // are a redirect and nothing else.
     //
-    // ⚠ **Except where the target is not a file, which is a quarter of this
-    // corpus.** `2>/dev/null` discards stderr and edits nothing, and reading it
-    // as a write filed every `ls -la x 2>/dev/null` on the timeline as an edit.
-    // [`shell_ops::resolve`] has always refused `/dev/*` — it calls `/dev/null`
-    // the busiest path in the corpus and keeps it out of the file index — so the
-    // two dimensions disagreed: no file was recorded, and the work was still
-    // called editing.
+    // ⚠ **Except where the target is not a file.** `2>/dev/null` discards stderr and
+    // edits nothing, and reading it as a write filed every `ls -la x 2>/dev/null` on
+    // the timeline as an edit. [`shell_ops::resolve`] has always refused `/dev/*`, so
+    // the two dimensions disagreed: no file was recorded, and the work was still called
+    // editing.
     //
-    // ⚠ **Found by the description corpus on its first run**
-    // (`docs/concept-model.md`, the zeroth lift-check): the `edit` kind's
-    // commonest stated intents were *read*, *find*, *list* and *inspect*, and
-    // sampling them showed `ls`. The authors were right and the reader was
-    // wrong — which is what that instrument exists to catch, and neither
-    // dimension could see it alone.
+    // ⚠ **Found by the description corpus** (`docs/concept-model.md`, the zeroth
+    // lift-check): the `edit` kind's commonest stated intents were *read*, *find*,
+    // *list* and *inspect*, and sampling them showed `ls`. The authors were right and
+    // the reader was wrong, which is what that instrument exists to catch.
     if cmd.redirects.iter().any(writes_a_file) {
         return Activity::Edit;
     }
@@ -165,10 +155,9 @@ pub fn of(op: &Op, cmd: &Simple) -> Activity {
 
 /// The command a devshell wrapper was asked to run, which is the work.
 ///
-/// `nix develop -c cargo test` is a test run, not a build of nix. The file
-/// layer already looks through the wrapper — `Verb::Carries` classifies the
-/// rest of the line in place — but it leaves the outer argv behind, and asked
-/// of *that*, every devshell invocation in the corpus reads as `nix develop`.
+/// `nix develop -c cargo test` is a test run, not a build of nix. The file layer
+/// already looks through the wrapper, but it leaves the outer argv behind — and
+/// asked of *that*, every devshell invocation reads as `nix develop`.
 fn carried(argv: &[String]) -> &[String] {
     let name = argv.first().map(|head| basename(head)).unwrap_or_default();
     if !matches!(name, "nix" | "nix-shell" | "nix-build") {
@@ -185,9 +174,9 @@ fn carried(argv: &[String]) -> &[String] {
 
 /// The activity a command's *name* implies, where its file operation cannot say.
 ///
-/// This is where the vocabulary earns its keep: `cargo test`, `cargo build` and
-/// `cargo add` are one command to the file layer — none of them names a file —
-/// and three different kinds of work to anybody reading a session.
+/// `cargo test`, `cargo build` and `cargo add` are one command to the file layer —
+/// none names a file — and three different kinds of work to anybody reading a
+/// session.
 fn named(name: &str, sub: &str, argv: &[String]) -> Option<Activity> {
     // A build tool running a test task is a test run, and the task is not the
     // subcommand: `./gradlew :app:testDebugUnitTest`, `cargo test -p geo`.

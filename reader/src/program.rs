@@ -1,23 +1,16 @@
 //! What a program in a carried language did with files.
 //!
 //! One set of types for every such reader — [`crate::python`] and
-//! [`crate::javascript`] — because there is nothing about a `Use`, a `Tally` or
-//! a `Refused` that is about Python or about JavaScript. This repository's own
-//! argument against the alternative is `gate.dhall`'s header: a thing written in
-//! two places drifts in one of them, and these two would have drifted the first
-//! time a counter was added to one report and not the other.
-//!
-//! The examples in the doc comments below stay Python, since that is the reader
-//! they were measured on.
+//! [`crate::javascript`] — because nothing about a `Use`, a `Tally` or a `Refused`
+//! is about one language. The examples below are Python, the reader they were
+//! measured on.
 
 use std::collections::BTreeMap;
 
 /// A file a carried program used, as the program named it.
 ///
-/// The path is **unresolved on purpose**: what it is relative to is the
-/// directory the shell was in, which is one layer up in
-/// [`crate::shell_files`] — and that is also where the rule about which words
-/// may become paths at all already lives.
+/// The path is **unresolved on purpose**: what it is relative to is the shell's
+/// directory, which is one layer up in [`crate::shell_files`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Use {
     pub path: String,
@@ -28,12 +21,10 @@ pub struct Use {
 
 /// A command a carried program handed to the system.
 ///
-/// ⚠ **The same distinction `Op::RemoteRun` draws, and it is the same mistake
-/// on the other side of it**: `subprocess.run(["ffmpeg", "-i", f])` and
-/// `child_process.spawnSync(p, args)` reach `exec()` with no shell, so joining
-/// their words and parsing the result as shell would invent quoting nobody
-/// wrote. `os.system(s)` and `execSync(s)` really do go through a shell, and
-/// their text really is a script.
+/// ⚠ **`subprocess.run(["ffmpeg", "-i", f])` and `spawnSync(p, args)` reach `exec()`
+/// with no shell**, so joining their words and parsing the result as shell would
+/// invent quoting nobody wrote. `os.system(s)` and `execSync(s)` do go through one,
+/// and their text really is a script.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Ran {
     /// Text a shell parses: `os.system("cd x && ls")`, `execSync(cmd)`.
@@ -47,13 +38,9 @@ pub enum Ran {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Program {
     pub uses: Vec<Use>,
-    /// Commands the program ran. Followed by [`crate::shell_files`], which is
-    /// where a shell's working directory lives — so `python3 -c 'os.system("cd
-    /// x && cat y")'` reads to the end, and so does the Python inside THAT.
-    ///
-    /// **`subprocess.run` is the largest single thing either reader could not
-    /// read** — 443 calls, top of the Python worklist and ahead of the next
-    /// entry by a factor of two.
+    /// Commands the program ran. Followed by [`crate::shell_files`], which is where a
+    /// shell's working directory lives — so `python3 -c 'os.system("cd x && cat y")'`
+    /// reads to the end, and so does the Python inside THAT.
     pub ran: Vec<Ran>,
     /// File operations recognised, by name — `open`, `write_text`, `os.remove`.
     pub calls: BTreeMap<String, usize>,
@@ -63,69 +50,50 @@ pub struct Program {
     pub unresolved: BTreeMap<String, usize>,
     /// The same operations, by [`Why`] their path was not knowable.
     ///
-    /// **`why.values().sum() == unresolved.values().sum()`, always** — every
-    /// unresolved operation carries exactly one reason, and there is a test
-    /// that says so. Keyed apart from `unresolved` because the two answer
-    /// different questions: BY CALL says where the misses are, BY REASON says
-    /// what rule would have to exist to stop missing them.
+    /// **`why.values().sum() == unresolved.values().sum()`, always**, and a test says
+    /// so. Keyed apart because BY CALL says where the misses are and BY REASON says
+    /// what rule would stop them.
     pub why: BTreeMap<Why, usize>,
-    /// Operations whose path is one of a **known finite set** — a name the
-    /// program bound to several literals — by the set, written `{a,b}`.
+    /// Operations whose path is one of a **known finite set** — a name the program
+    /// bound to several literals — by the set, written `{a,b}`.
     ///
-    /// ⚠ **One of them ran, not all of them.** Recording a use per candidate
-    /// would claim a file was changed that never was, which is the one thing
-    /// this reader promises never to do. Measured: this is the commonest
-    /// unnamed shape in the corpus at 37.9% of unresolved file
-    /// operations, so the wrong version would have been wrong thousands of
-    /// times.
-    ///
-    /// The same object as [`crate::shell_files::Extract::bounded`]: a language
-    /// without a choice. `⟦p⟧ = some element of {out/a.txt, out/b.txt}`.
-    ///
-    /// ⚠ Still **not named**, and `subjects_not_named` counts these.
+    /// ⚠ **One of them ran, not all of them.** A use per candidate would claim a file
+    /// was changed that never was. The same object as
+    /// [`crate::shell_files::Extract::bounded`]: a language without a choice. Still not
+    /// named, and `subjects_not_named` counts these.
     pub bounded: BTreeMap<String, usize>,
-    /// Those among [`Program::bounded`] whose candidates share a directory, by
-    /// that directory — the locus is certain even though the leaf is not.
+    /// Those among [`Program::bounded`] whose candidates share a directory, by that
+    /// directory — the locus is certain even though the leaf is not.
     ///
-    /// ⚠ **An annotation, not a second account — the opposite of the shell.**
-    /// `shell_files` puts a word in `bounded` OR `located`, so summing both is
-    /// right there. Here every entry is ALSO in [`Program::bounded`], because a
-    /// finite set of literals is a language and the shared directory is a fact
-    /// about that same language rather than a weaker answer to it. So
-    /// `subjects_not_named` counts `bounded` alone; adding this would count one
-    /// operation twice.
+    /// ⚠ **An annotation, not a second account.** Every entry is ALSO in
+    /// [`Program::bounded`], so `subjects_not_named` counts `bounded` alone; adding
+    /// this would count one operation twice.
     pub located: BTreeMap<String, usize>,
     /// Every other call, by name. **The worklist**: what tops this is what the
     /// reader should learn next, exactly as the grammar was grown.
     pub unknown: BTreeMap<String, usize>,
     /// Whether the program moved its own working directory.
     ///
-    /// It cannot be followed — `os.chdir(sys.argv[1])` has no value here — so
-    /// the honest response is to stop trusting relative paths out of that
-    /// program. The caller enforces it; this only reports it.
+    /// It cannot be followed — `os.chdir(sys.argv[1])` has no value here — so the
+    /// caller stops trusting relative paths out of that program. This only reports it.
     pub chdir: bool,
-    /// Set when the text is not Python any interpreter would accept, so the
-    /// program **raised a `SyntaxError` and ran none of itself**.
+    /// Set when the text is not Python any interpreter would accept, so the program
+    /// **raised a `SyntaxError` and ran none of itself**.
     ///
-    /// ⚠ **`uses` is empty whenever this is set, and that is the point.** A
-    /// permissive grammar reads a broken program as happily as a working one
-    /// and hands back the paths it mentions — which are then recorded as work
-    /// that happened. Soundness here is the same property the shell oracle
-    /// asserts: never claim an operation the machine did not perform.
+    /// ⚠ **`uses` is empty whenever this is set, and that is the point.** A permissive
+    /// grammar reads a broken program as happily as a working one and hands back the
+    /// paths it mentions, which are then recorded as work that happened.
     pub did_not_run: Option<&'static str>,
 }
 
-/// Why one file operation's path could not be known — the permanent census of
-/// the remainder, so sizing the next slice never again needs a temporary probe
-/// on `record`'s failure branch (memview#1142 accumulated three stale
-/// inventories for want of this).
+/// Why one file operation's path could not be known — the permanent census of the
+/// remainder, so sizing the next slice never needs a temporary probe again
+/// (memview#1142 accumulated three stale inventories for want of this).
 ///
-/// **Each variant names the rule that would shrink it**, which is what makes
-/// this a worklist rather than a shrug: `Computed` yields to evaluating more
-/// assignments, `Expression` to more value rules, `Loop` to more iterable
-/// languages — and `Outside` yields to nothing, because the value never was in
-/// the text. That last bucket is the reader's boundary, measured instead of
-/// guessed at.
+/// **Each variant names the rule that would shrink it**: `Computed` yields to
+/// evaluating more assignments, `Expression` to more value rules, `Loop` to more
+/// iterable languages. `Outside` yields to nothing — the value never was in the
+/// text, and that bucket is the reader's boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Why {
     /// A bare name never bound in this program — a function parameter, mostly.
@@ -133,10 +101,9 @@ pub enum Why {
     Outside,
     /// A bare name the program bound, to a value this could not read.
     Computed,
-    /// A loop variable whose iterable is not a language — `for p in files`.
-    /// Includes the refuted listing shape: `os.listdir` yields bare entry
-    /// names, not paths, so recording the listed directory would be a wrong
-    /// claim rather than a gained one (memview#1161, measured then dropped).
+    /// A loop variable whose iterable is not a language — `for p in files`. Includes
+    /// the refuted listing shape: `os.listdir` yields bare entry names, not paths, so
+    /// recording the listed directory would be a wrong claim (memview#1161).
     Loop,
     /// An inline expression with no value here: a call's result, a subscript,
     /// an attribute, a join or concatenation whose rendered shape was refused.
@@ -194,16 +161,14 @@ pub struct Tally {
 
 /// Why a use this reader *did* resolve still did not become a path.
 ///
-/// ⚠ **Three different facts, and only the first is an unknown of the kind
-/// [`Program::unresolved`] holds.** The program named a file plainly; what
-/// stopped it is a rule of the layer above — which directory to read it
-/// against, or whether a word may be a path at all. Kept apart because a rule
-/// that turns away thousands is worth revisiting and an unknowable value is not.
+/// ⚠ **Not an unknown of the kind [`Program::unresolved`] holds.** The program
+/// named a file plainly; what stopped it is a rule of the layer above. Kept apart
+/// because a rule that turns away thousands is worth revisiting and an unknowable
+/// value is not.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Refused {
-    /// The program called `os.chdir`, so its relative paths name no file this
-    /// reader can find. The argument is usually computed, so the move cannot be
-    /// followed and the paths cannot be trusted.
+    /// The program called `os.chdir`, so its relative paths name no file this reader
+    /// can find; the argument is usually computed, so the move cannot be followed.
     pub moved: usize,
     /// Relative, with no directory to resolve it against — the shell's own `cd`
     /// went somewhere this reader could not follow either.
