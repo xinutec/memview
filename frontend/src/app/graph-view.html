@@ -85,7 +85,7 @@
 
   @if (selected(); as node) {
     <div class="focus">
-      <h2>{{ node.name }}</h2>
+      <h2 [innerHTML]="node.name | slug"></h2>
       @if (node.description) {
         <p class="desc" [innerHTML]="node.description"></p>
       }
@@ -139,7 +139,7 @@
                 <span class="swatch" [style.background]="hop.colour"></span>
                 <span class="who">
                   <span class="name">
-                    {{ hop.name }}
+                    <span [innerHTML]="hop.name | slug"></span>
                     @if (hop.relation) {
                       <span class="claim">{{ hop.relation }}</span>
                     }
@@ -181,7 +181,7 @@
                   <span class="swatch" [style.background]="mate.colour"></span>
                   <span class="who">
                     <span class="name">
-                      {{ mate.name }}
+                      <span [innerHTML]="mate.name | slug"></span>
                       @if (!mate.linked) {
                         <span class="claim unwritten">not linked</span>
                       }
@@ -214,7 +214,7 @@
             (click)="focusCluster(row.index)"
           >
             <span class="swatch" [style.background]="row.colour"></span>
-            <span class="name">{{ row.core }}</span>
+            <span class="name" [innerHTML]="row.core | slug"></span>
             <span class="count">{{ row.members.length }}</span>
           </button>
         </li>
@@ -237,9 +237,7 @@
           <li>
             <button type="button" (click)="walkTo(row.core)">
               <span class="swatch" [style.background]="row.colour"></span>
-              <span class="who"
-                ><span class="name">{{ row.core }}</span></span
-              >
+              <span class="who"><span class="name" [innerHTML]="row.core | slug"></span></span>
             </button>
           </li>
         }

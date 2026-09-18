@@ -2,7 +2,7 @@
   <mat-progress-bar mode="indeterminate" />
 } @else if (page(); as p) {
   <header class="head">
-    <h1 class="name">{{ p.name }}</h1>
+    <h1 class="name" [innerHTML]="p.name | slug"></h1>
     <div class="meta">
       <span class="type">{{ p.mtype }}</span>
       @if (p.modified) {
@@ -33,7 +33,7 @@
       <ul class="link-list">
         @for (m of p.outlinks; track m.name) {
           <li>
-            <a [routerLink]="['/m', m.name]">{{ m.name }}</a>
+            <a [routerLink]="['/m', m.name]" [innerHTML]="m.name | slug"></a>
             @if (m.description) {
               <span class="desc" [innerHTML]="m.description"></span>
             }
@@ -52,7 +52,7 @@
       <ul class="link-list">
         @for (m of p.backlinks; track m.name) {
           <li>
-            <a [routerLink]="['/m', m.name]">{{ m.name }}</a>
+            <a [routerLink]="['/m', m.name]" [innerHTML]="m.name | slug"></a>
             @if (m.description) {
               <span class="desc" [innerHTML]="m.description"></span>
             }

@@ -5,13 +5,14 @@ import { RouterLink } from '@angular/router';
 
 import { MemviewApi } from './memview-api';
 import { MemoryMeta } from './models';
+import { Slug } from './slug';
 
 /** Every memory, grouped by type, with a type filter. */
 @Component({
   selector: 'app-all-view',
   templateUrl: './all-view.html',
   styleUrl: './all-view.scss',
-  imports: [RouterLink, MatButtonModule, MatProgressBarModule],
+  imports: [RouterLink, MatButtonModule, MatProgressBarModule, Slug],
 })
 export class AllView {
   private api = inject(MemviewApi);

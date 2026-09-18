@@ -11,6 +11,7 @@ import { Subject, catchError, of, switchMap } from 'rxjs';
 
 import { MemviewApi } from './memview-api';
 import { SearchHit, SearchResult, WorkMatch } from './models';
+import { Slug } from './slug';
 
 /**
  * What a failed search yields. Spelled out whole rather than as a partial
@@ -29,6 +30,7 @@ const EMPTY_RESULT: SearchResult = { hits: [], relaxed: false };
   templateUrl: './search-view.html',
   styleUrl: './search-view.scss',
   imports: [
+    Slug,
     FormsModule,
     RouterLink,
     MatButtonModule,

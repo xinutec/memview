@@ -42,6 +42,7 @@ import {
 } from './graph-layout';
 import { MemviewApi } from './memview-api';
 import { GraphData, GraphNode, Usage } from './models';
+import { Slug } from './slug';
 
 /** Below this drag distance a pointer gesture counts as a click, not a rotate. */
 const CLICK_SLOP = 4;
@@ -209,6 +210,7 @@ interface Placed {
   templateUrl: './graph-view.html',
   styleUrl: './graph-view.scss',
   imports: [
+    Slug,
     DatePipe,
     RouterLink,
     MatButtonModule,

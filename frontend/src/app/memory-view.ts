@@ -9,13 +9,14 @@ import { catchError, of, switchMap } from 'rxjs';
 import { ContentNav } from './content-nav';
 import { MemviewApi } from './memview-api';
 import { MemoryPage } from './models';
+import { Slug } from './slug';
 
 /** One memory: frontmatter header, rendered body, out/backlinks. */
 @Component({
   selector: 'app-memory-view',
   templateUrl: './memory-view.html',
   styleUrl: './memory-view.scss',
-  imports: [DatePipe, RouterLink, ContentNav, MatProgressBarModule],
+  imports: [DatePipe, RouterLink, ContentNav, MatProgressBarModule, Slug],
 })
 export class MemoryView {
   private api = inject(MemviewApi);

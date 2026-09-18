@@ -118,7 +118,7 @@
   <ul class="hit-list">
     @for (h of hits; track h.name) {
       <li>
-        <a [routerLink]="['/m', h.name]">{{ h.name }}</a>
+        <a [routerLink]="['/m', h.name]" [innerHTML]="h.name | slug"></a>
         @if (h.description) {
           <span class="desc" [innerHTML]="h.description"></span>
         }
