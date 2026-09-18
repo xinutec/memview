@@ -5,7 +5,7 @@ import { DOCUMENT, Injectable, OnDestroy, inject } from '@angular/core';
  * Rising, since a dropped connection is over in a moment and a runner
  * mid-rebuild is not; bounded, since a file that is gone will not arrive.
  */
-export const BACKOFF_MS = [500, 2_000, 8_000];
+export const BACKOFF_MS = [500, 2_000, 8_000] as const;
 
 /** Where the inline recorder in `index.html` leaves what broke before boot. */
 declare global {

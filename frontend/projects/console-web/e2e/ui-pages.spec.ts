@@ -2,7 +2,8 @@ import { expect, test, type Page } from '@playwright/test';
 
 // The golden the Rust test writes — see the note on PARSED below.
 import PARSED_GOLDEN from './parsed.fixture.json';
-import type { Overview } from '../src/app/models';
+import type { Overview, Summary } from '../src/app/models';
+import { first, last, nth } from '../src/app/testing';
 // The fleet-shared harness, published as @xinutec/ui-harness (source repo
 // ~/Code/ui-harness). Ships compiled JS, so it loads straight from node_modules.
 import {
@@ -156,21 +157,23 @@ async function expectIconsCentred(page: Page, slack = 1): Promise<void> {
     const off: { label: string; dx: number; dy: number }[] = [];
     for (const control of document.querySelectorAll('button, a[href]')) {
       const glyphs = control.querySelectorAll('mat-icon');
+      const only = glyphs[0];
       // Only controls that ARE an icon. A button with an icon beside a label
       // places the pair, and neither one belongs in the middle by itself.
       if (
+        !only ||
         glyphs.length !== 1 ||
-        (control.textContent ?? '').trim() !== glyphs[0].textContent?.trim()
+        (control.textContent ?? '').trim() !== only.textContent?.trim()
       )
         continue;
       const box = control.getBoundingClientRect();
-      const glyph = glyphs[0].getBoundingClientRect();
+      const glyph = only.getBoundingClientRect();
       if (box.width === 0 || glyph.width === 0) continue;
       const dx = glyph.x + glyph.width / 2 - (box.x + box.width / 2);
       const dy = glyph.y + glyph.height / 2 - (box.y + box.height / 2);
       if (Math.abs(dx) <= tolerance && Math.abs(dy) <= tolerance) continue;
       off.push({
-        label: glyphs[0].textContent?.trim() ?? control.className,
+        label: only.textContent?.trim() ?? control.className,
         dx: Math.round(dx * 10) / 10,
         dy: Math.round(dy * 10) / 10,
       });
@@ -246,60 +249,63 @@ const REPOS = [
   '/home/example/Code/nixos-config',
 ];
 
+/** The session most of these tests open: deep path, long first instruction, still alive. */
+const RUNNING: Summary = {
+  id: '6f7c2f11-0000-4000-8000-000000000001',
+  dir: '/home/example/Code/health/packages/health-sync-backend/src/decode',
+  started: 1785600000,
+  alive: true,
+  model: 'claude-opus-5[1m]',
+  // ⚠ **Without this the header's mode icon does not exist in the harness.**
+  // Both the card and the session header draw it only for a session whose
+  // mode the runner has read (`@if (modeIcon(); as icon)`), so a fixture
+  // with none put every control check — thumb targets, icon centring,
+  // overlap, overflow — on a row missing an element. It cost a real
+  // regression: making that glyph a button inherited the app-wide 3rem
+  // floor, the header went 19px → 40px, and the full gate passed. It was
+  // caught by looking at the render.
+  //
+  // `acceptEdits` rather than the loudest mode: `NAMED` below already
+  // carries `bypassPermissions`, so between them the quiet and the shouting
+  // variants are both on screen somewhere.
+  mode: 'acceptEdits',
+  busy: 'requesting',
+  working: false,
+  interactions: 12,
+  cost_usd: 4.2137,
+  background: 0,
+  running: [],
+  waiting: 1,
+  unread: 0,
+  held: [],
+  asked:
+    'Port the remaining matcher gate to Lean and prove it bit-exact against the TypeScript quant twin, then run the golden set and report which journeys moved.',
+};
+
+/** The other one on the roster: ended, cheap, and holding no tasks. */
+const ENDED: Summary = {
+  id: '6f7c2f11-0000-4000-8000-000000000002',
+  dir: '/home/example/Code/memview',
+  started: 1785599000,
+  alive: false,
+  model: 'claude-haiku-4-5-20251001',
+  working: false,
+  interactions: 3,
+  cost_usd: 0.0084,
+  background: 0,
+  running: [],
+  waiting: 0,
+  unread: 0,
+  held: [],
+  asked: 'check the corpus',
+};
+
 /** A roster with the shapes that crowd a narrow screen: a deep path, a long
  *  first instruction, a session that is working and one that has ended. */
 const STATE: Overview = {
   dirs: ['/home/example/Code'],
   repos: REPOS,
-  sessions: [
-    {
-      id: '6f7c2f11-0000-4000-8000-000000000001',
-      dir: '/home/example/Code/health/packages/health-sync-backend/src/decode',
-      started: 1785600000,
-      alive: true,
-      model: 'claude-opus-5[1m]',
-      // ⚠ **Without this the header's mode icon does not exist in the harness.**
-      // Both the card and the session header draw it only for a session whose
-      // mode the runner has read (`@if (modeIcon(); as icon)`), so a fixture
-      // with none put every control check — thumb targets, icon centring,
-      // overlap, overflow — on a row missing an element. It cost a real
-      // regression: making that glyph a button inherited the app-wide 3rem
-      // floor, the header went 19px → 40px, and the full gate passed. It was
-      // caught by looking at the render.
-      //
-      // `acceptEdits` rather than the loudest mode: `NAMED` below already
-      // carries `bypassPermissions`, so between them the quiet and the shouting
-      // variants are both on screen somewhere.
-      mode: 'acceptEdits',
-      busy: 'requesting',
-      working: false,
-      interactions: 12,
-      cost_usd: 4.2137,
-      background: 0,
-      running: [],
-      waiting: 1,
-      unread: 0,
-      held: [],
-      asked:
-        'Port the remaining matcher gate to Lean and prove it bit-exact against the TypeScript quant twin, then run the golden set and report which journeys moved.',
-    },
-    {
-      id: '6f7c2f11-0000-4000-8000-000000000002',
-      dir: '/home/example/Code/memview',
-      started: 1785599000,
-      alive: false,
-      model: 'claude-haiku-4-5-20251001',
-      working: false,
-      interactions: 3,
-      cost_usd: 0.0084,
-      background: 0,
-      running: [],
-      waiting: 0,
-      unread: 0,
-      held: [],
-      asked: 'check the corpus',
-    },
-  ],
+  sessions: [RUNNING, ENDED],
   // Who is holding what, keyed by id the way the runner sends it — every holder
   // counted in one sweep, so the row and the ⋮ menu both read the same two
   // numbers without opening anything. The second session keeps no list, which is
@@ -356,7 +362,7 @@ const LONG_RESULT = Array.from(
  *  fit: an absolute path, a piped shell command, a failed call, a cut tool
  *  result, and an answer carrying a fenced code block of unbreakable lines. */
 const TRANSCRIPT = [
-  { kind: 'started', model: 'claude-opus-5[1m]', cwd: STATE.sessions[0].dir, tools: 30, at: LATE },
+  { kind: 'started', model: 'claude-opus-5[1m]', cwd: RUNNING.dir, tools: 30, at: LATE },
   // A call whose result was never written, and the boundary that reveals it. The
   // process that would have recorded the answer died first, so the row carries
   // no verdict and no clock — a third state beside the tick and the cross, and
@@ -591,13 +597,15 @@ async function expectNoPinnedOverlap(page: Page): Promise<void> {
     const bad: string[] = [];
     for (let i = 0; i < boxes.length; i++) {
       for (let j = i + 1; j < boxes.length; j++) {
-        const a = boxes[i].box;
-        const b = boxes[j].box;
-        if (!a || !b) continue;
+        const one = boxes[i];
+        const other = boxes[j];
+        const a = one?.box;
+        const b = other?.box;
+        if (!one || !other || !a || !b) continue;
         const over =
           Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1 &&
           Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1;
-        if (over) bad.push(`${boxes[i].sel} over ${boxes[j].sel}`);
+        if (over) bad.push(`${one.sel} over ${other.sel}`);
       }
     }
     return bad;
@@ -998,7 +1006,7 @@ test('starting a session is behind one button, not in the way @ phone width', as
   let sent: Record<string, unknown> | undefined;
   await page.route('**/api/sessions', (r) => {
     sent = r.request().postDataJSON() as Record<string, unknown>;
-    return r.fulfill({ json: STATE.sessions[0] });
+    return r.fulfill({ json: RUNNING });
   });
   await page.goto('/');
   await page.getByText('decode').first().waitFor();
@@ -1016,7 +1024,7 @@ test('starting a session is behind one button, not in the way @ phone width', as
   // ever been started in, which is the kind of wrong that looks deliberate — see
   // [[SessionsView.commonest]]. Here that is the busiest session's own
   // directory, which both mocked sessions share.
-  await expect(where).toHaveValue(STATE.sessions[0].dir);
+  await expect(where).toHaveValue(RUNNING.dir);
   // ⚠ **Opening the sheet must not open a list.** The field opens on `~/Code`,
   // a prefix of every repository, and the native `<datalist>` this replaced
   // matched the whole value — so pressing + painted all 24 over the phone.
@@ -1058,7 +1066,7 @@ test('transcript — tool arguments and a fixed composer @ phone width', async (
   page,
 }, testInfo) => {
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   // The failed shell call is the widest thing on the page; wait for it rather
   // than for the first paint, or the checks run against half a transcript.
   await openTools(page);
@@ -1140,7 +1148,7 @@ test('go to — a long conversation is reachable by landmark @ phone width', asy
       json: { events: [{ kind: 'text', text: 'what was said back then' }], from: 0 },
     }),
   );
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.getByRole('button', { name: /what to do with/ }).click();
   await page.getByRole('menuitem', { name: 'Go to…' }).click();
 
@@ -1212,9 +1220,9 @@ test('a picture waits to be sent with what is said about it @ phone width', asyn
   await mockRunner(page);
   await page.route('**/api/sessions/*/image', (r) => {
     sent = r.request().postDataJSON() as Record<string, unknown>;
-    return r.fulfill({ json: STATE.sessions[0] });
+    return r.fulfill({ json: RUNNING });
   });
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.composer').waitFor();
 
   // A real 2×4 PNG, chosen the way the picker hands one over.
@@ -1255,10 +1263,10 @@ test('a command waiting for the turn says so, and can be taken back @ phone widt
   // no name was ever written. The runner holds it now; this is the screen saying
   // so, which is the half that makes it not a second silent thing.
   await mockRunner(page);
-  const id = STATE.sessions[0].id;
-  const working = { ...STATE.sessions[0], working: true, held: ['/compact'] };
+  const id = RUNNING.id;
+  const working = { ...RUNNING, working: true, held: ['/compact'] };
   await page.route('**/api/state', (r) =>
-    r.fulfill({ json: { ...STATE, sessions: [working, STATE.sessions[1]] } }),
+    r.fulfill({ json: { ...STATE, sessions: [working, ENDED] } }),
   );
   let cancelled: Record<string, unknown> | undefined;
   await page.route(`**/api/sessions/${id}/unhold`, (r) => {
@@ -1291,8 +1299,8 @@ test('what is being written survives leaving the conversation @ phone width', as
   // scale of a phone photograph — and the words are the half nobody wants to
   // type twice on a phone.
   await mockRunner(page);
-  const first = STATE.sessions[0].id;
-  const second = STATE.sessions[1].id;
+  const first = RUNNING.id;
+  const second = ENDED.id;
   await page.goto(`/s/${first}`);
   await page.locator('.composer').waitFor();
   await page.locator('.picker').setInputFiles(tinyPng());
@@ -1353,7 +1361,7 @@ test('a picture that was sent is on the screen, not a path to it @ phone width',
     asked = r.request().url();
     return r.fulfill({ path: tinyPng(), contentType: 'image/png' });
   });
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
 
   const picture = page.locator('.picture img');
   await picture.waitFor();
@@ -1408,7 +1416,7 @@ test('a finger on the transcript stops it being pulled to the end @ phone width'
         .join(''),
     }),
   );
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   const list = page.locator('.transcript');
   await list.waitFor();
 
@@ -1448,7 +1456,7 @@ test('a picture can be put down again without being sent @ phone width', async (
   // The discard is not decoration: the picker is a gallery on a phone and the
   // wrong screenshot is one tap away from the right one.
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.composer').waitFor();
   await page.locator('.picker').setInputFiles(tinyPng());
   await page.locator('.chosen').waitFor();
@@ -1508,7 +1516,7 @@ test('a call waiting to be allowed is one widget, not two @ phone width', async 
       body: DECIDING.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''),
     }),
   );
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.question').waitFor();
 
   // ONE widget for the call being asked about: the question, and no row of its
@@ -1541,7 +1549,7 @@ async function mockQuestion(page: Page): Promise<() => Record<string, unknown> |
   );
   await page.route('**/api/sessions/*/decide', (r) => {
     sent = r.request().postDataJSON() as Record<string, unknown>;
-    return r.fulfill({ json: STATE.sessions[0] });
+    return r.fulfill({ json: RUNNING });
   });
   return () => sent;
 }
@@ -1554,7 +1562,7 @@ test('a question offers what was asked, not allow and refuse @ phone width', asy
   // rendered, so the only answer it could give was an approval with no answer in
   // it — which the CLI reports as "the user did not answer the questions".
   const sent = await mockQuestion(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.getByRole('button', { name: /options only/ }).waitFor();
 
   await expect(
@@ -1617,7 +1625,7 @@ test('an answered question says what was chosen @ phone width', async ({ page },
         .join(''),
     }),
   );
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.chose').waitFor();
 
   // ⚠ **Not yet 'answered', and that is the fix.** The verdict used to be drawn
@@ -1651,7 +1659,7 @@ test('a typed reply is recorded as one, not as a choice @ phone width', async ({
         .join(''),
     }),
   );
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.chose').waitFor();
   // Sent, not yet taken up — see the note in the test above.
   await expect(page.locator('.verdict')).toHaveText('sent — not taken up yet');
@@ -1663,7 +1671,7 @@ test('a note rides with the choice it qualifies @ phone width', async ({ page },
   // note qualifies one, so both must arrive — and the options must stay live
   // while one is being written.
   const sent = await mockQuestion(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   const options = page.getByRole('button', { name: /options only/ });
   await options.waitFor();
 
@@ -1689,7 +1697,7 @@ test('a note alone is enough to send @ phone width', async ({ page }) => {
   // answered, so a card that waited for a tap would sit grey over something the
   // session would have taken.
   const sent = await mockQuestion(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.getByRole('button', { name: /options only/ }).waitFor();
 
   for (const which of [/a note about How far/, /a note about Which of these/]) {
@@ -1714,7 +1722,7 @@ test('words instead of a choice take the card over @ phone width', async ({ page
   // alongside a set of taps would throw the taps away and say nothing about it.
   // Typing therefore disables the options rather than sitting beside them.
   const sent = await mockQuestion(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   const options = page.getByRole('button', { name: /options only/ });
   await options.waitFor();
   await expect(options).toBeEnabled();
@@ -1740,7 +1748,7 @@ test('words instead of a choice take the card over @ phone width', async ({ page
 
 test('clearing the words hands the options back @ phone width', async ({ page }) => {
   await mockQuestion(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   const options = page.getByRole('button', { name: /options only/ });
   await options.waitFor();
   await page.locator('.say').first().fill('actually, never mind');
@@ -1757,10 +1765,10 @@ test('a lone single-choice question answers on the tap @ phone width', async ({ 
   // lock screen or put off until later.
   let sent: Record<string, unknown> | undefined;
   await mockRunner(page);
-  const [first] = QUESTION_TRANSCRIPT.slice(-1);
+  const asking = last(QUESTION_TRANSCRIPT);
   const alone = {
-    ...first,
-    input: { questions: [(first.input as { questions: unknown[] }).questions[0]] },
+    ...asking,
+    input: { questions: [first((asking.input as { questions: unknown[] }).questions)] },
   };
   await page.route('**/api/sessions/*/events', (r) =>
     r.fulfill({
@@ -1772,10 +1780,10 @@ test('a lone single-choice question answers on the tap @ phone width', async ({ 
   );
   await page.route('**/api/sessions/*/decide', (r) => {
     sent = r.request().postDataJSON() as Record<string, unknown>;
-    return r.fulfill({ json: STATE.sessions[0] });
+    return r.fulfill({ json: RUNNING });
   });
 
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.getByRole('button', { name: /full parity/ }).click();
   await expect
     .poll(() => sent)
@@ -1792,7 +1800,7 @@ test('transcript — an undecided question with its two buttons @ phone width', 
   // The one screen that must work under a thumb on a train: a long command and
   // two controls, on a narrow screen, with nothing pushed off the edge.
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.getByRole('button', { name: 'allow' }).waitFor();
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
@@ -1900,7 +1908,7 @@ test('scrolling to the top fetches what came before it @ phone width', async ({ 
       },
     });
   });
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.transcript').waitFor();
   await expect(page.locator('.earlier')).toHaveCount(1);
   // The control it replaces is gone, not merely hidden.
@@ -1985,7 +1993,7 @@ test('an answer does not pay for the newlines between its blocks @ phone width',
         .join(''),
     }),
   );
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.body').first().waitFor();
 
   const gaps = await page.evaluate(() => {
@@ -1994,10 +2002,13 @@ test('an answer does not pay for the newlines between its blocks @ phone width',
     const kids = [...body.children];
     const found: { between: string; gap: number }[] = [];
     for (let i = 0; i < kids.length - 1; i++) {
-      const above = kids[i].getBoundingClientRect();
-      const below = kids[i + 1].getBoundingClientRect();
+      const top = kids[i];
+      const under = kids[i + 1];
+      if (!top || !under) continue;
+      const above = top.getBoundingClientRect();
+      const below = under.getBoundingClientRect();
       found.push({
-        between: `${kids[i].tagName}→${kids[i + 1].tagName}`,
+        between: `${top.tagName}→${under.tagName}`,
         gap: Math.round((below.top - above.bottom) * 10) / 10,
       });
     }
@@ -2020,7 +2031,7 @@ test('a table keeps the alignment its author wrote @ phone width', async ({ page
   // `text-align: left` on `th, td` was throwing all of it away.
   await handControlOfTheStream(page);
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.transcript').waitFor();
   await say(
     page,
@@ -2047,7 +2058,7 @@ test('a task list says which of its items are done @ phone width', async ({ page
   // bullet that would sit beside it has to be gone.
   await handControlOfTheStream(page);
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.transcript').waitFor();
   await say(page, { kind: 'text', text: '- [x] shipped\n- [ ] not yet\n' }, 1);
 
@@ -2072,7 +2083,7 @@ test('the transcript keeps following while the reader is at the end @ phone widt
   // had no answer but somebody's memory of it.
   await handControlOfTheStream(page);
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.transcript').waitFor();
 
   await say(page, { kind: 'prompt', text: 'go on then', at: NEXT }, 1);
@@ -2095,7 +2106,7 @@ test('the transcript does not yank a reader who has scrolled back @ phone width'
   // morning is worse than not following.
   await handControlOfTheStream(page);
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.transcript').waitFor();
   await say(page, { kind: 'text', text: LONG_ANSWER }, 1);
 
@@ -2130,7 +2141,7 @@ test('the transcript keeps following through a thumb resting on it @ phone width
   // which was the wrong instrument for a question a browser can answer.
   await handControlOfTheStream(page);
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.transcript').waitFor();
   await say(page, { kind: 'text', text: LONG_ANSWER }, 1);
   expect(await distanceFromTheEnd(page), 'not at the end to begin with').toBeLessThan(4);
@@ -2183,7 +2194,7 @@ test('the transcript picks a reader up again when they scroll back to the end @ 
   // said it through a real gesture.
   await handControlOfTheStream(page);
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.transcript').waitFor();
   await say(page, { kind: 'text', text: LONG_ANSWER }, 1);
 
@@ -2234,7 +2245,7 @@ test('the transcript stops following when the finger really scrolled back @ phon
   // the other is not a fix, it is following that cannot be stopped by hand.
   await handControlOfTheStream(page);
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.transcript').waitFor();
   await say(page, { kind: 'text', text: LONG_ANSWER }, 1);
 
@@ -2255,7 +2266,7 @@ test('the transcript follows an answer arriving in deltas @ phone width', async 
   // the two are the case where the page could talk itself out of following.
   await handControlOfTheStream(page);
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.transcript').waitFor();
   await say(page, { kind: 'prompt', text: 'explain the decoder', at: NEXT }, 1);
 
@@ -2282,7 +2293,7 @@ test('the transcript is at the end again after the stream resets @ phone width',
   // happens without anybody touching the screen.
   await handControlOfTheStream(page);
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.transcript').waitFor();
   await say(page, { kind: 'text', text: LONG_ANSWER }, 1);
   expect(await distanceFromTheEnd(page)).toBeLessThan(4);
@@ -2301,22 +2312,22 @@ test('the transcript is at the end again after the stream resets @ phone width',
 const MIXED = {
   ...STATE,
   sessions: [
-    { ...STATE.sessions[1], id: 'aaaa0000-0000-4000-8000-000000000001', name: 'finished' },
+    { ...ENDED, id: 'aaaa0000-0000-4000-8000-000000000001', name: 'finished' },
     {
-      ...STATE.sessions[0],
+      ...RUNNING,
       id: 'aaaa0000-0000-4000-8000-000000000002',
       name: 'idle-one',
       busy: undefined,
       waiting: 0,
     },
     {
-      ...STATE.sessions[0],
+      ...RUNNING,
       id: 'aaaa0000-0000-4000-8000-000000000003',
       name: 'blocked',
       busy: undefined,
       waiting: 1,
     },
-    { ...STATE.sessions[0], id: 'aaaa0000-0000-4000-8000-000000000004', name: 'working' },
+    { ...RUNNING, id: 'aaaa0000-0000-4000-8000-000000000004', name: 'working' },
   ],
 };
 
@@ -2392,7 +2403,7 @@ test('session list — the time is when it last did something @ phone width', as
         ...STATE,
         sessions: [
           {
-            ...STATE.sessions[0],
+            ...RUNNING,
             name: 'worked-all-night',
             // Picked up a day ago, answering this minute.
             started: Math.floor(Date.now() / 1000) - DAY,
@@ -2419,7 +2430,7 @@ test('session list — how full each conversation is @ phone width', async ({ pa
     r.fulfill({
       json: {
         ...STATE,
-        sessions: [{ ...STATE.sessions[0], name: 'running', context: 496_231, window: 1_000_000 }],
+        sessions: [{ ...RUNNING, name: 'running', context: 496_231, window: 1_000_000 }],
       },
     }),
   );
@@ -2460,7 +2471,7 @@ test('session list — work still running says so, silence otherwise @ phone wid
         ...STATE,
         sessions: [
           {
-            ...STATE.sessions[0],
+            ...RUNNING,
             id: 'aaaa0000-0000-4000-8000-000000000001',
             name: 'a-session-with-a-name-long-enough-to-crowd',
             busy: undefined,
@@ -2468,7 +2479,7 @@ test('session list — work still running says so, silence otherwise @ phone wid
             background: 1,
           },
           {
-            ...STATE.sessions[0],
+            ...RUNNING,
             id: 'aaaa0000-0000-4000-8000-000000000002',
             name: 'quiet',
             busy: undefined,
@@ -2517,10 +2528,10 @@ test('session list — what each conversation still owes @ phone width', async (
       json: {
         ...STATE,
         sessions: [
-          { ...STATE.sessions[0], id: 'aaaa0000-0000-4000-8000-000000000001', name: 'owing' },
-          { ...STATE.sessions[0], id: 'aaaa0000-0000-4000-8000-000000000002', name: 'no-list' },
-          { ...STATE.sessions[0], id: 'aaaa0000-0000-4000-8000-000000000003', name: 'all-done' },
-          { ...STATE.sessions[0], id: 'aaaa0000-0000-4000-8000-000000000004', name: 'astray' },
+          { ...RUNNING, id: 'aaaa0000-0000-4000-8000-000000000001', name: 'owing' },
+          { ...RUNNING, id: 'aaaa0000-0000-4000-8000-000000000002', name: 'no-list' },
+          { ...RUNNING, id: 'aaaa0000-0000-4000-8000-000000000003', name: 'all-done' },
+          { ...RUNNING, id: 'aaaa0000-0000-4000-8000-000000000004', name: 'astray' },
         ],
         tasks: {
           sessions: {
@@ -2616,9 +2627,7 @@ test('session list — what each conversation is about, marked as a guess @ phon
     r.fulfill({
       json: {
         ...STATE,
-        sessions: [
-          { ...STATE.sessions[0], id: 'aaaa0000-0000-4000-8000-000000000001', name: 'health' },
-        ],
+        sessions: [{ ...RUNNING, id: 'aaaa0000-0000-4000-8000-000000000001', name: 'health' }],
         gists: {
           'aaaa0000-0000-4000-8000-000000000001': {
             text: 'porting the last matcher gate to Lean and checking it against the golden set',
@@ -2669,12 +2678,12 @@ test('session list — the opening instruction stands in for a missing name @ ph
         ...STATE,
         sessions: [
           {
-            ...STATE.sessions[0],
+            ...RUNNING,
             id: 'aaaa0000-0000-4000-8000-000000000001',
             asked: 'fix the gate',
           },
           {
-            ...STATE.sessions[0],
+            ...RUNNING,
             id: 'aaaa0000-0000-4000-8000-000000000002',
             name: 'health',
             asked: 'Proceed',
@@ -2703,9 +2712,9 @@ test('the list says working, and how many messages are still queued @ phone widt
   // session the page calls idle should land at once, so its not landing read as
   // a failure, and the same sentence went twice.
   await mockRunner(page);
-  const busy = { ...STATE.sessions[0], busy: undefined, waiting: 0, working: true, unread: 2 };
+  const busy = { ...RUNNING, busy: undefined, waiting: 0, working: true, unread: 2 };
   await page.route('**/api/state', (r) =>
-    r.fulfill({ json: { ...STATE, sessions: [busy, STATE.sessions[1]] } }),
+    r.fulfill({ json: { ...STATE, sessions: [busy, ENDED] } }),
   );
   await page.goto('/');
   await page.getByText('working').first().waitFor();
@@ -2732,7 +2741,7 @@ test('the transcript keeps its end while the composer grows @ phone width', asyn
   // asks.
   await handControlOfTheStream(page);
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.transcript').waitFor();
   await say(page, { kind: 'text', text: LONG_ANSWER }, 1);
   expect(await distanceFromTheEnd(page)).toBeLessThan(4);
@@ -2753,7 +2762,7 @@ test('the composer grows with what is being typed @ phone width', async ({ page 
   // through a one-line slit, on the device the console is driven from. jsdom has
   // no layout, so only a real browser can say whether the box actually grew.
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   const box = page.locator('textarea');
   await box.waitFor();
   const oneLine = (await box.boundingBox())!.height;
@@ -2779,7 +2788,7 @@ test('a tool result opens without widening the page @ phone width', async ({ pag
   // Unwrapped source, two thousand characters of it, on a 412px screen — the
   // widest single thing the transcript can be asked to hold.
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await openTools(page);
   const unfold = page.getByRole('button', { name: /characters/ });
   await unfold.waitFor();
@@ -2971,7 +2980,7 @@ const NAMED = {
   ...STATE,
   sessions: [
     {
-      ...STATE.sessions[0],
+      ...RUNNING,
       name: 'health',
       mode: 'bypassPermissions',
       // The two sizes: what the model still holds, and what has been said. 62 MB
@@ -2981,7 +2990,7 @@ const NAMED = {
       window: 1_000_000,
       bytes: 65_011_712,
     },
-    STATE.sessions[1],
+    ENDED,
   ],
   // What it is about, keyed by conversation the way the runner sends it. Long
   // enough that the card clamps it, which is the case the sheet exists for.
@@ -3000,7 +3009,7 @@ test('the toolbar says which session this is, beside what can be done to it @ ph
 }) => {
   await mockRunner(page);
   await page.route('**/api/state', (r) => r.fulfill({ json: NAMED }));
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await expect(page.locator('.bar .name')).toHaveText('health');
   // The ⋮ beside it is a glyph in a circle, and it has to be in the middle of it.
   await expectIconsCentred(page);
@@ -3038,7 +3047,7 @@ test('the bar is a session bar before the runner has answered @ phone width', as
     await new Promise<void>((go) => (answer = go));
     await route.fulfill({ json: NAMED });
   });
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
 
   // Nothing has answered yet, and the way out is already on screen.
   await expect(
@@ -3062,7 +3071,7 @@ test('a session with no name yet says where it runs, and which one it is @ phone
   // for all of them — the short id is what tells two new sessions apart, and it
   // is also what claims a task list.
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await expect(page.locator('.bar .name')).toHaveText('decode · 6f7c2f11');
   await expect(page.locator('.bar .name')).toHaveClass(/anonymous/);
 });
@@ -3124,7 +3133,7 @@ test('the screen can be kept on from either screen @ phone width', async ({ page
   await withWakeLock(page);
   await mockRunner(page);
 
-  for (const url of ['/', `/s/${STATE.sessions[0].id}`]) {
+  for (const url of ['/', `/s/${RUNNING.id}`]) {
     await page.goto(url);
     const button = page.locator('.bar .awake');
     await button.waitFor();
@@ -3161,7 +3170,7 @@ test('a browser that cannot keep the screen on is not offered it @ phone width',
     delete (Navigator.prototype as { wakeLock?: unknown }).wakeLock;
   });
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.bar .name').waitFor();
   await expect(page.locator('.bar .awake')).toHaveCount(0);
 });
@@ -3188,7 +3197,7 @@ test('the toolbar starts in the same place on both screens @ phone width', async
   // elements is a strict-mode violation rather than a measurement.
   await page.locator('.bar mat-icon').first().waitFor();
   const list = await leadingGlyph(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.bar [aria-label="all sessions"]').waitFor();
   const session = await leadingGlyph(page);
   expect(list, 'the list has no leading glyph to measure').toBeGreaterThan(0);
@@ -3225,13 +3234,11 @@ test('a name too long for the bar gives way rather than pushing @ phone width', 
     r.fulfill({
       json: {
         ...STATE,
-        sessions: [
-          { ...STATE.sessions[0], name: 'health-sync-backend-decode-matcher-gate-quantiser' },
-        ],
+        sessions: [{ ...RUNNING, name: 'health-sync-backend-decode-matcher-gate-quantiser' }],
       },
     }),
   );
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.bar .name').waitFor();
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
   await expectThumbTargets(page);
@@ -3289,7 +3296,7 @@ test('what the session may do without asking is on the header @ phone width', as
 }, testInfo) => {
   // ⚠ **The check this suite could not make, because the fixture had no mode.**
   // Both the card and the session header draw the glyph only for a session whose
-  // mode the runner has read, so with `STATE.sessions[0]` carrying none it was
+  // mode the runner has read, so with `RUNNING` carrying none it was
   // absent from every render the harness measured — and `expectThumbTargets`,
   // `expectIconsCentred`, the overlap and overflow passes were all measuring a
   // row missing an element.
@@ -3302,7 +3309,7 @@ test('what the session may do without asking is on the header @ phone width', as
   // `.facts` checks all use `toContain`, so an extra ligature slips past them
   // and so does its disappearance.
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   const mode = page.locator('.head .mode');
   await expect(mode).toHaveCount(1);
   // The name is what the icon means, and it is the only thing that says so on
@@ -3346,7 +3353,7 @@ test('the session is still named after scrolling to the end @ phone width', asyn
   // the only thing on this page that scrolls), so this measures that they do.
   await mockRunner(page);
   await page.route('**/api/state', (r) => r.fulfill({ json: NAMED }));
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   // Opened, because this needs a transcript tall enough to scroll and a folded
   // run is deliberately short.
   await openTools(page);
@@ -3380,7 +3387,7 @@ test('the details sheet holds what the page has no room for @ phone width', asyn
   // that pushes a 412px screen sideways.
   await mockRunner(page);
   await page.route('**/api/state', (r) => r.fulfill({ json: NAMED }));
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   // Behind the ⋮, where everything else you can do to a session already was.
   await page
     .locator('.bar')
@@ -3392,9 +3399,9 @@ test('the details sheet holds what the page has no room for @ phone width', asyn
 
   const said = await sheet.innerText();
   // The path, which nothing on the screen shows any more.
-  expect(said).toContain(STATE.sessions[0].dir);
+  expect(said).toContain(RUNNING.dir);
   // The session id, which nothing in the console showed anywhere.
-  expect(said).toContain(STATE.sessions[0].id);
+  expect(said).toContain(RUNNING.id);
   // The model as it is shipped, not the one word the facts row has room for.
   expect(said).toContain('claude-opus-5[1m]');
   // The permission mode in words. The facts row has only its icon, and a
@@ -3449,7 +3456,7 @@ test('the task sheet opens on what is left rather than what is done @ phone widt
       },
     }),
   );
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page
     .locator('.bar')
     .getByRole('button', { name: /what to do with/ })
@@ -3563,7 +3570,7 @@ test('back dismisses an overlay rather than the page under it @ phone width', as
   // Walked in from the list rather than deep-linked, so there is real history
   // behind this page: `goto` alone leaves one entry and back exits to about:blank,
   // which measures Playwright rather than the console.
-  const at = `/s/${STATE.sessions[0].id}`;
+  const at = `/s/${RUNNING.id}`;
   await page.goto('/');
   await page.locator('.session').first().click();
   await page.locator('.transcript').waitFor();
@@ -3656,7 +3663,7 @@ test('leaving a session leaves its name behind @ phone width', async ({ page }) 
     await new Promise<void>((go) => (answer = go));
     await route.fulfill({ json: NAMED });
   });
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.transcript').waitFor();
   // Away before the runner has answered.
   await page.locator('.bar [aria-label="all sessions"]').click();
@@ -3686,7 +3693,7 @@ test('a run of tool calls is folded into one row @ phone width', async ({ page }
   // width and a turn can hold a dozen, so a conversation with any work in it is
   // mostly rows nobody came for, between the two sentences they did.
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   const run = page.locator('.entry.tools .run');
   await run.waitFor();
   await expect(run).toContainText('2 tool calls');
@@ -3719,7 +3726,7 @@ test('a tool call on its own says which tool it was @ phone width', async ({ pag
   // pass against the defect.
   await handControlOfTheStream(page);
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.transcript').waitFor();
   let seq = 0;
   await say(page, { kind: 'said', text: 'Let me look at the gate.' }, ++seq);
@@ -3752,11 +3759,11 @@ test('a running thing says how long it has been running @ phone width', async ({
     r.fulfill({
       json: {
         ...STATE,
-        sessions: [{ ...STATE.sessions[0], waiting: 0 }, ...STATE.sessions.slice(1)],
+        sessions: [{ ...RUNNING, waiting: 0 }, ...STATE.sessions.slice(1)],
       },
     }),
   );
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.transcript').waitFor();
   let seq = 0;
   // Stamped two minutes ago, so what is counted from does not depend on how
@@ -3799,7 +3806,7 @@ test('a run stays folded while it works, and says it is working @ phone width', 
   // affects pages loaded after it.
   await handControlOfTheStream(page);
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.transcript').waitFor();
   let seq = 0;
   for (const event of [
@@ -3839,7 +3846,7 @@ test('one event does not rebuild the rows already on screen @ phone width', asyn
   // element instead of making a new one.
   await handControlOfTheStream(page);
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.transcript').waitFor();
   let seq = 0;
   await say(page, { kind: 'text', text: 'the first thing' }, ++seq);
@@ -3874,7 +3881,7 @@ test('scrolling up by a line stops it following @ phone width', async ({ page })
   // is what stops a terminal, a messages app and a chat client following.
   await handControlOfTheStream(page);
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   const list = page.locator('.transcript');
   await list.waitFor();
   let seq = 0;
@@ -3904,7 +3911,7 @@ test('scrolling up by a line stops it following @ phone width', async ({ page })
 test('a seed that arrives in pieces still ends at the end @ phone width', async ({ page }) => {
   await handControlOfTheStream(page);
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.transcript').waitFor();
   let seq = 0;
   // Delivered one at a time with a frame between, as the runner streams a seed
@@ -4012,7 +4019,7 @@ test('a shell command opens as written and as read @ phone width', async ({ page
   // it is a list of the same.
   await mockRunner(page);
   await mockParse(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await openParse(page);
 
   // The command entire, which the row it was opened from could only ellipsise.
@@ -4041,7 +4048,7 @@ test('both halves of a parsed command fit one screen @ phone width', async ({ pa
   // the one thing it was stacked this way to do.
   await mockRunner(page);
   await mockParse(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await openParse(page);
 
   const together = await page.evaluate(() => {
@@ -4070,7 +4077,7 @@ test('a command that will not parse says so rather than looking empty @ phone wi
     error: 'parameter with an operator (${x:-y}, ${#x})',
     steps: [],
   });
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await openParse(page);
 
   await expect(page.locator('.unread')).toContainText('does not parse');
@@ -4112,7 +4119,7 @@ test('another machine is named on the step and on every path @ phone width', asy
       },
     ],
   });
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await openParse(page);
 
   await expect(page.locator('.step').nth(1).locator('.host')).toContainText('isis');
@@ -4121,7 +4128,9 @@ test('another machine is named on the step and on every path @ phone width', asy
   const indents = await page.evaluate(() =>
     [...document.querySelectorAll('.step')].map((s) => s.getBoundingClientRect().left),
   );
-  expect(indents[1], 'the command inside the wrapper is not indented').toBeGreaterThan(indents[0]);
+  expect(nth(indents, 1), 'the command inside the wrapper is not indented').toBeGreaterThan(
+    first(indents),
+  );
   await expectNoHorizontalOverflow(page, testInfo, SHEET);
   await expectNoClippedText(page, testInfo, SHEET);
 });
@@ -4137,11 +4146,11 @@ test('a session that has stopped reading names it, with the cure @ phone width',
   // At phone width because that is where it has to fit: a sentence, a duration
   // and a button on one row beside a transcript that is already tight.
   await mockRunner(page);
-  const deaf = { ...STATE.sessions[0], busy: undefined, waiting: 0, unread: 2, deaf: 1284 };
+  const deaf = { ...RUNNING, busy: undefined, waiting: 0, unread: 2, deaf: 1284 };
   await page.route('**/api/state', (r) =>
-    r.fulfill({ json: { ...STATE, sessions: [deaf, STATE.sessions[1]] } }),
+    r.fulfill({ json: { ...STATE, sessions: [deaf, ENDED] } }),
   );
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.deaf').waitFor();
   await expect(page.locator('.deaf')).toContainText('Not reading');
   await expect(page.locator('.deaf')).toContainText('21m');
@@ -4156,7 +4165,7 @@ test('an ended session offers the way back @ phone width', async ({ page }, test
   // card stays a link to this page, and the resume affordance on the front page
   // exists only for a conversation the console is NOT holding. This is it.
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[1].id}`);
+  await page.goto(`/s/${ENDED.id}`);
   await page.locator('.deaf.ended').waitFor();
   await expect(page.getByRole('button', { name: 'Start it again' })).toBeEnabled();
   await expectNoTextOverlaps(page, testInfo);
@@ -4187,7 +4196,7 @@ test('the verdict becomes the plain one once the session acts on it @ phone widt
         .join(''),
     }),
   );
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('.chose').waitFor();
 
   await expect(page.locator('.verdict')).toHaveText('answered');
@@ -4204,9 +4213,9 @@ test('a working session can be renamed from the menu @ phone width', async ({ pa
   await mockRunner(page);
   await page.route('**/api/sessions/*/rename', (r) => {
     sent = r.request().postDataJSON() as Record<string, unknown>;
-    return r.fulfill({ json: STATE.sessions[0] });
+    return r.fulfill({ json: RUNNING });
   });
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page
     .locator('.bar')
     .getByRole('button', { name: /what to do with/ })
@@ -4240,7 +4249,7 @@ test('the rename sheet offers the name a model wrote, and does not apply it @ ph
       json: {
         ...STATE,
         gists: {
-          [STATE.sessions[0].id]: {
+          [RUNNING.id]: {
             text: 'porting the last of the matcher gate to Lean and running the golden set',
             at: 1785600000000,
             name: 'Lean port',
@@ -4251,9 +4260,9 @@ test('the rename sheet offers the name a model wrote, and does not apply it @ ph
   );
   await page.route('**/api/sessions/*/rename', (r) => {
     sent = r.request().postDataJSON() as Record<string, unknown>;
-    return r.fulfill({ json: STATE.sessions[0] });
+    return r.fulfill({ json: RUNNING });
   });
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page
     .locator('.bar')
     .getByRole('button', { name: /what to do with/ })
@@ -4295,7 +4304,7 @@ test('the rename sheet offers nothing when no model has named the conversation @
   // line, and a conversation with no gist has never had one. The sheet must be
   // exactly what it was — an empty box — rather than a gap where an offer goes.
   await mockRunner(page);
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page
     .locator('.bar')
     .getByRole('button', { name: /what to do with/ })
@@ -4320,11 +4329,11 @@ test('a refused mode change says so and puts the mode back @ phone width', async
   await mockRunner(page);
   // What the runner sends once its own `settle_mode` has put the mode back: the
   // true mode, and the CLI's words for why the other one did not take.
-  const settled = { ...STATE.sessions[0], mode: 'auto', mode_refused: REFUSED };
+  const settled = { ...RUNNING, mode: 'auto', mode_refused: REFUSED };
   await page.route('**/api/state', (r) =>
-    r.fulfill({ json: { ...STATE, sessions: [settled, STATE.sessions[1]] } }),
+    r.fulfill({ json: { ...STATE, sessions: [settled, ENDED] } }),
   );
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
 
   // Said out loud, because the mode lives in a menu that is shut by the time the
   // answer comes back — a correction nobody can see is the defect over again.
@@ -4350,7 +4359,7 @@ test('a session opened with no answer from the Mac reads from the kept copy @ ph
   // wanted: a phone whose tunnel has dropped can still READ the session it was
   // looking at. Sending is untouched; a send that cannot reach the Mac keeps its
   // draft in the composer as it always did.
-  const id = STATE.sessions[0].id;
+  const id = RUNNING.id;
   // ⚠ **The copy is MADE by reading, not seeded into storage.** A fixture
   // written straight into the store pins where the store happens to be today —
   // this walks the path a phone walks: read the conversation once with the
@@ -4391,11 +4400,11 @@ test('the permission modes are one row that opens a sheet @ phone width', async 
   await mockRunner(page);
   // With a mode set, which every real session has — the runner records one at
   // spawn. The row shows it, so the state is readable without opening anything.
-  const onAuto = { ...STATE.sessions[0], mode: 'acceptEdits' };
+  const onAuto = { ...RUNNING, mode: 'acceptEdits' };
   await page.route('**/api/state', (r) =>
-    r.fulfill({ json: { ...STATE, sessions: [onAuto, STATE.sessions[1]] } }),
+    r.fulfill({ json: { ...STATE, sessions: [onAuto, ENDED] } }),
   );
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page
     .locator('.bar')
     .getByRole('button', { name: /what to do with/ })
@@ -4434,14 +4443,14 @@ test('session strip — a background call is named, not counted @ phone width', 
   // and a `Bash` one-liner arrives long enough to overflow a 412px line — which
   // is why the runner cuts to 60 and the strip ellipsises on top of that.
   await mockRunner(page);
-  const id = STATE.sessions[0].id;
+  const id = RUNNING.id;
   await page.route('**/api/state', (r) =>
     r.fulfill({
       json: {
         ...STATE,
         sessions: [
           {
-            ...STATE.sessions[0],
+            ...RUNNING,
             id,
             background: 2,
             running: [
@@ -4490,13 +4499,13 @@ test('a session that has ended dates its background work @ phone width', async (
   // row is where the contradiction was noticed and the strip is where somebody
   // goes to find out what the work WAS.
   await mockRunner(page);
-  const ended = STATE.sessions[1];
+  const ended = ENDED;
   await page.route('**/api/state', (r) =>
     r.fulfill({
       json: {
         ...STATE,
         sessions: [
-          STATE.sessions[0],
+          RUNNING,
           {
             ...ended,
             background: 2,
@@ -4542,7 +4551,7 @@ test('a session that has ended dates its background work @ phone width', async (
   // the console this bug outlived.
   await page.route('**/api/state', (r) =>
     r.fulfill({
-      json: { ...STATE, sessions: [STATE.sessions[0], { ...ended, background: 2 }] },
+      json: { ...STATE, sessions: [RUNNING, { ...ended, background: 2 }] },
     }),
   );
   await page.reload();
@@ -4689,7 +4698,7 @@ test('a link to a render opens over the conversation, and back puts it away @ ph
     asked = r.request().url();
     return r.fulfill({ path: tinyPng(), contentType: 'image/png' });
   });
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
 
   // The address is still what the sentence says — it is how a person tells two
   // renders of the same room apart.
@@ -4725,7 +4734,7 @@ test('a link to a render opens over the conversation, and back puts it away @ ph
   // behind it, because a sheet takes no part in history. See `dismiss.ts`.
   await page.goBack();
   await expect(page.locator('app-picture-sheet')).toHaveCount(0);
-  await expect(page).toHaveURL(new RegExp(`/s/${STATE.sessions[0].id}$`));
+  await expect(page).toHaveURL(new RegExp(`/s/${RUNNING.id}$`));
   await expect(page.locator('.entry.said')).toContainText('Rendered from the sofa');
 
   await expectNoHorizontalOverflow(page, testInfo, null, BUSY_BAR);
@@ -4758,7 +4767,7 @@ test("a render whose server is gone says so, in the console's words @ phone widt
       body: 'could not reach it: connection refused',
     }),
   );
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('a.picture-link').click();
 
   const sheet = page.locator('app-picture-sheet');
@@ -4796,7 +4805,7 @@ test('a picture the session named by its place on the disk opens too @ phone wid
     asked = r.request().url();
     return r.fulfill({ path: tinyPng(), contentType: 'image/png' });
   });
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
 
   // The alt text is the label: it is what the author wrote it to be, and it
   // reads better than a path that fills three lines of a phone.
@@ -4847,7 +4856,7 @@ async function opened(page: Page): Promise<void> {
       contentType: 'image/png',
     }),
   );
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await page.locator('a.picture-link').click();
   await page.locator('app-picture-sheet img').waitFor();
   await settleTransforms(page);
@@ -4981,7 +4990,7 @@ test('the concept leads and the argv follows as evidence @ phone width', async (
       },
     ],
   });
-  await page.goto(`/s/${STATE.sessions[0].id}`);
+  await page.goto(`/s/${RUNNING.id}`);
   await openParse(page);
 
   // Exactly one of the two steps says what it was for.

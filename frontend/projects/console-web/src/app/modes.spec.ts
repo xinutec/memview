@@ -38,8 +38,8 @@ describe('permission modes', () => {
     // The CLI keeps this order; `plan` is the most restricted and
     // `bypassPermissions` the least.
     const ranks = Object.values(MODES).map((mode) => mode.rank);
-    expect(Math.min(...ranks)).toBe(MODES['plan'].rank);
-    expect(Math.max(...ranks)).toBe(MODES['bypassPermissions'].rank);
+    expect(Math.min(...ranks)).toBe(MODES.plan.rank);
+    expect(Math.max(...ranks)).toBe(MODES.bypassPermissions.rank);
   });
 });
 

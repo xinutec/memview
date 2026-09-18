@@ -170,10 +170,13 @@ export class PictureSheet implements OnDestroy {
     const after = [...this.fingers.values()];
     if (Math.hypot(now.x - was.x, now.y - was.y) > SLIP) this.travelled = true;
 
-    if (after.length >= 2) {
-      // The first two, so a third finger joining changes nothing — a Map keeps
-      // insertion order, including when a key is written again.
-      const gesture = pinched([before[0], before[1]], [after[0], after[1]]);
+    // The first two, so a third finger joining changes nothing — a Map keeps
+    // insertion order, including when a key is written again, so `before` and
+    // `after` are the same length and a pair on one is a pair on the other.
+    const [wasFirst, wasSecond] = before;
+    const [first, second] = after;
+    if (wasFirst && wasSecond && first && second) {
+      const gesture = pinched([wasFirst, wasSecond], [first, second]);
       this.view.update((view) =>
         scaledAbout(view, this.at_point(gesture.at), gesture.by, measures.frame, measures.base),
       );

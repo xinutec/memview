@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { type Entry, type Questioned, type Timed, type ToolCall, asking } from './models';
 import { blocks, fold, ran } from './transcript';
+import { first, nth } from './testing';
 
 function transcript(...events: Timed[]): Entry[] {
   return events.reduce<Entry[]>((entries, event) => fold(entries, event), []);
@@ -83,15 +84,15 @@ describe('transcript', () => {
   });
 
   it('shows a call with no result yet as running', () => {
-    const [call] = tools(transcript(tool('a', 'Bash', { command: 'sleep 60' })));
+    const call = first(tools(transcript(tool('a', 'Bash', { command: 'sleep 60' }))));
     expect(call.ok).toBeUndefined();
     expect(call.text).toBe('sleep 60');
   });
 
   it('names a tool call by its most telling argument', () => {
-    const [read] = tools(transcript(tool('a', 'Read', { file_path: '/etc/hosts', limit: 5 })));
+    const read = first(tools(transcript(tool('a', 'Read', { file_path: '/etc/hosts', limit: 5 }))));
     expect(read.text).toBe('/etc/hosts');
-    const [task] = tools(transcript(tool('b', 'Task', { subagent_type: 'Explore' })));
+    const task = first(tools(transcript(tool('b', 'Task', { subagent_type: 'Explore' }))));
     expect(task.text).toBe('subagent_type');
   });
 
@@ -113,8 +114,15 @@ describe('transcript', () => {
 
 describe('questions', () => {
   it('shows a question as undecided until it is answered', () => {
-    const [question] = transcript(
-      ask('q1', 'Bash', { command: 'rm -rf build' }, { title: 'Claude wants to run rm -rf build' }),
+    const question = first(
+      transcript(
+        ask(
+          'q1',
+          'Bash',
+          { command: 'rm -rf build' },
+          { title: 'Claude wants to run rm -rf build' },
+        ),
+      ),
     );
     expect(question.kind).toBe('ask');
     expect(asked(question).ask).toBe('q1');
@@ -123,33 +131,42 @@ describe('questions', () => {
   });
 
   it('carries the options of a question through to the entry', () => {
-    const [question] = transcript(
-      ask('q1', 'AskUserQuestion', {
-        questions: [
-          {
-            question: 'which way?',
-            header: 'Way',
-            multiSelect: false,
-            options: [
-              { label: 'left', description: 'go left' },
-              { label: 'right', description: 'go right' },
-            ],
-          },
-        ],
-      }),
+    const question = first(
+      transcript(
+        ask('q1', 'AskUserQuestion', {
+          questions: [
+            {
+              question: 'which way?',
+              header: 'Way',
+              multiSelect: false,
+              options: [
+                { label: 'left', description: 'go left' },
+                { label: 'right', description: 'go right' },
+              ],
+            },
+          ],
+        }),
+      ),
     );
-    expect(asked(question).questions?.[0].options.map((o) => o.label)).toEqual(['left', 'right']);
+    expect(first(asked(question).questions ?? []).options.map((o) => o.label)).toEqual([
+      'left',
+      'right',
+    ]);
   });
 
   it('leaves every other tool without options, which is what keeps allow and refuse', () => {
-    const [question] = transcript(
-      ask('q1', 'Bash', { questions: [{ question: 'which way?', options: [{ label: 'left' }] }] }),
+    const question = first(
+      transcript(
+        ask('q1', 'Bash', {
+          questions: [{ question: 'which way?', options: [{ label: 'left' }] }],
+        }),
+      ),
     );
     expect(asked(question).questions).toBeUndefined();
   });
 
   it('falls back to the arguments when the CLI offers no sentence', () => {
-    const [question] = transcript(ask('q1', 'Write', { file_path: '/tmp/x' }));
+    const question = first(transcript(ask('q1', 'Write', { file_path: '/tmp/x' })));
     expect(asked(question).text).toBe('/tmp/x');
   });
 
@@ -211,8 +228,8 @@ describe('transcript · time and detail', () => {
   }
 
   it('gives a tool call what its result said, not just whether it worked', () => {
-    const [call] = tools(
-      transcript(tool('a', 'Bash', { command: 'grep -c foo' }), result('a', true, '3')),
+    const call = first(
+      tools(transcript(tool('a', 'Bash', { command: 'grep -c foo' }), result('a', true, '3'))),
     );
     expect(call.ok).toBe(true);
     expect(call.detail).toBe('3');
@@ -220,10 +237,12 @@ describe('transcript · time and detail', () => {
   });
 
   it('keeps the first line apart, because that is what the row shows', () => {
-    const [call] = tools(
-      transcript(
-        tool('a', 'Bash', { command: 'lake build' }),
-        result('a', false, 'error: unknown flag\nnote: try --help'),
+    const call = first(
+      tools(
+        transcript(
+          tool('a', 'Bash', { command: 'lake build' }),
+          result('a', false, 'error: unknown flag\nnote: try --help'),
+        ),
       ),
     );
     expect(call.head).toBe('error: unknown flag');
@@ -231,17 +250,19 @@ describe('transcript · time and detail', () => {
   });
 
   it('says nothing extra when the whole result is one line', () => {
-    const [call] = tools(
-      transcript(tool('a', 'Bash', { command: 'true' }), result('a', true, 'done')),
+    const call = first(
+      tools(transcript(tool('a', 'Bash', { command: 'true' }), result('a', true, 'done'))),
     );
     expect(call.head).toBe(call.detail);
   });
 
   it('keeps the true length when the runner cut the result', () => {
-    const [call] = tools(
-      transcript(
-        tool('a', 'Read', { file_path: '/tmp/big' }),
-        result('a', true, 'x'.repeat(2000), 9000),
+    const call = first(
+      tools(
+        transcript(
+          tool('a', 'Read', { file_path: '/tmp/big' }),
+          result('a', true, 'x'.repeat(2000), 9000),
+        ),
       ),
     );
     expect(call.cut).toBe(9000);
@@ -272,7 +293,7 @@ describe('transcript · time and detail', () => {
   it('invents no date for a transcript that does not say when', () => {
     const seen = transcript({ kind: 'prompt', text: 'when was this' });
     expect(seen.map((e) => e.kind)).toEqual(['asked']);
-    expect(seen[0].at).toBeUndefined();
+    expect(first(seen).at).toBeUndefined();
   });
 });
 
@@ -308,18 +329,20 @@ describe('a call that arrives twice', () => {
   });
 
   it('does not leave a row running for ever', () => {
-    const [seen] = tools(transcript(call, call, result('toolu_dup', true, 'done')));
+    const seen = first(tools(transcript(call, call, result('toolu_dup', true, 'done'))));
     expect(seen.ok).toBe(true);
   });
 
   it('gives a result to the call it belongs to, not the newest one', () => {
-    const [slow, fast] = tools(
+    const both = tools(
       transcript(
         tool('toolu_slow', 'Bash', { command: 'sleep 60' }),
         tool('toolu_fast', 'Read', { file_path: '/tmp/x' }),
         result('toolu_slow', false, 'timed out'),
       ),
     );
+    const slow = first(both);
+    const fast = nth(both, 1);
     expect(slow.ok, 'the slow call took its own verdict').toBe(false);
     expect(fast.ok, 'the newest call was given a verdict it never earned').toBeUndefined();
   });
@@ -338,7 +361,7 @@ describe('folding runs of tool calls', () => {
   it('gathers consecutive calls into one block', () => {
     const found = blocks([said('before'), call('a'), call('b'), call('c'), said('after')]);
     expect(found.map((b) => b.kind)).toEqual(['one', 'tools', 'one']);
-    const run = found[1];
+    const run = nth(found, 1);
     expect(run.kind === 'tools' && run.entries.length).toBe(3);
     expect(run.kind === 'tools' && run.key).toBe('a');
   });
@@ -369,7 +392,7 @@ describe('folding runs of tool calls', () => {
     const answered: Entry = { ...call('c'), ask: 'q1', allowed: true };
     const found = blocks([call('a'), call('b'), answered, call('d')]);
     expect(found.map((b) => b.kind)).toEqual(['tools']);
-    const run = found[0];
+    const run = first(found);
     expect(run.kind === 'tools' && run.entries.length).toBe(4);
     expect(run.kind === 'tools' && run.key).toBe('a');
   });
@@ -504,19 +527,21 @@ describe('transcript · where a message that waited belongs', () => {
 
 describe('a call whose result was never written', () => {
   it('stops claiming a call from before the console joined is running', () => {
-    const [call] = tools(
-      transcript(tool('dead', 'Bash', { command: 'home-manager switch' }), joined(2, true)),
+    const call = first(
+      tools(transcript(tool('dead', 'Bash', { command: 'home-manager switch' }), joined(2, true))),
     );
     expect(call.unrecorded).toBe(true);
     expect(call.ok).toBeUndefined();
   });
 
   it('lets a call that was genuinely in flight correct itself', () => {
-    const [call] = tools(
-      transcript(
-        tool('live', 'Bash', { command: 'sleep 60' }),
-        joined(1, true),
-        result('live', true, 'done'),
+    const call = first(
+      tools(
+        transcript(
+          tool('live', 'Bash', { command: 'sleep 60' }),
+          joined(1, true),
+          result('live', true, 'done'),
+        ),
       ),
     );
     expect(call.unrecorded).toBeUndefined();
@@ -525,13 +550,13 @@ describe('a call whose result was never written', () => {
 
   it('does not call a running task lost when a reader merely joined', () => {
     const seen = tools(transcript(tool('live', 'Bash', { command: 'sleep 600' }), joined(1)));
-    expect(seen[0].unrecorded).toBeUndefined();
-    expect(seen[0].ok).toBeUndefined();
+    expect(first(seen).unrecorded).toBeUndefined();
+    expect(first(seen).ok).toBeUndefined();
     expect(ran(seen)).toEqual({ calls: 1, failed: 0, running: 1, unrecorded: 0 });
   });
 
   it('leaves calls made after the boundary alone', () => {
-    const [call] = tools(transcript(joined(0), tool('now', 'Bash', { command: 'ls' })));
+    const call = first(tools(transcript(joined(0), tool('now', 'Bash', { command: 'ls' }))));
     expect(call.unrecorded).toBeUndefined();
     expect(call.ok).toBeUndefined();
   });

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { Landmark, Mark } from './models';
 import { byDay, signpostOf } from './jump-sheet';
+import { first, nth } from './testing';
 
 /** Midday, so a day either side is a whole day away rather than an hour. */
 const NOW = Date.UTC(2026, 7, 12, 12, 0, 0);
@@ -35,7 +36,7 @@ describe('byDay', () => {
   it('puts the newest thing first inside a day too', () => {
     // Same argument one level down: a day with forty things said in it is
     // scrolled from the top, and the top should be the end of the afternoon.
-    const [today] = byDay([mark(10, NOW - 3600_000), mark(20, NOW)], NOW);
+    const today = first(byDay([mark(10, NOW - 3600_000), mark(20, NOW)], NOW));
 
     expect(today.marks.map((it) => it.at)).toEqual([20, 10]);
   });
@@ -48,7 +49,7 @@ describe('byDay', () => {
     const days = byDay([mark(10, undefined), mark(20, NOW)], NOW);
 
     expect(days.map((day) => day.title)).toEqual(['Today', 'Undated']);
-    expect(days[1].marks.map((it) => it.at)).toEqual([10]);
+    expect(nth(days, 1).marks.map((it) => it.at)).toEqual([10]);
   });
 
   it('has nothing to group when nothing survives the filter', () => {

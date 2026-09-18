@@ -70,7 +70,7 @@ export function colour(text: string): string {
     const sgr = /^\x1b\[([0-9;]*)m$/.exec(found[0]);
     if (!sgr) continue;
 
-    const next = restyled(active, sgr[1]);
+    const next = restyled(active, sgr[1] ?? '');
     if (next.join(' ') === active.join(' ')) continue;
     close();
     active = next;
@@ -92,7 +92,7 @@ function restyled(active: string[], parameters: string): string[] {
   const codes = (parameters || '0').split(';').map((code) => Number(code || 0));
   let next = [...active];
   for (let i = 0; i < codes.length; i++) {
-    const code = codes[i];
+    const code = codes[i] ?? 0;
     // Skipped WHOLE: `38;5;196` is one instruction, and read a number at a time it
     // sets a different colour and an unrelated attribute. Extended colour is not
     // drawn here.

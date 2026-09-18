@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { Summary } from './models';
 import { factsOf } from './session-sheet';
+import { first } from './testing';
 
 /** The least a session can be: what the runner knows about one it has just
  *  started, before it has read a name, a model or a mode for it. */
@@ -52,10 +53,10 @@ describe('factsOf', () => {
       'TypeScript twin, and running the golden set to see which journeys moved';
     const facts = factsOf(BARE, { text: long, at: new Date(2026, 7, 5, 8, 30).getTime() });
 
-    expect(facts[0].label, 'it is the question the sheet is opened with').toBe('about');
-    expect(facts[0].value).toBe(long);
+    expect(first(facts).label, 'it is the question the sheet is opened with').toBe('about');
+    expect(first(facts).value).toBe(long);
     // ⚠ Said in words. Every other line here is read off a file or a process.
-    expect(facts[0].note).toContain('written by Haiku');
+    expect(first(facts).note).toContain('written by Haiku');
   });
 
   it('says nothing about a conversation nothing has been written for', () => {

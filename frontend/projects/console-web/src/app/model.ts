@@ -20,6 +20,6 @@ export function modelName(id: string | undefined): string | undefined {
   if (!family || !FAMILIES.includes(family)) return id;
   // A build date is not part of the name anybody says out loud.
   if (/^\d{8}$/.test(parts.at(-1) ?? '')) parts.pop();
-  const named = family[0].toUpperCase() + family.slice(1);
+  const named = family.charAt(0).toUpperCase() + family.slice(1);
   return parts.length ? `${named} ${parts.join('.')}` : named;
 }

@@ -7,6 +7,7 @@ import { ConsoleApi, type Streamed } from './console-api';
 import { ConsoleDb } from './console-db';
 import { Entry, Page, Timed } from './models';
 import { SessionStore } from './session-store';
+import { first, last, nth } from './testing';
 
 /** One stream the store opened, and the handles to drive it from the test. */
 interface Opened {
@@ -59,7 +60,7 @@ class Runner {
 
   /** The stream opened most recently, which is the one under test. */
   get latest(): Opened {
-    return this.opened[this.opened.length - 1];
+    return last(this.opened);
   }
 }
 
@@ -115,7 +116,7 @@ describe('SessionStore', () => {
     expect(said(held.entries())).toContain('an answer');
 
     store.leave('one');
-    expect(runner.opened[0].closed).toBe(true);
+    expect(first(runner.opened).closed).toBe(true);
 
     const again = store.open('one');
     expect(again).toBe(held);
@@ -155,8 +156,8 @@ describe('SessionStore', () => {
     store.open('twice');
     store.open('twice');
     expect(runner.opened.length).toBe(2);
-    expect(runner.opened[0].closed).toBe(true);
-    expect(runner.opened[1].closed).toBe(false);
+    expect(first(runner.opened).closed).toBe(true);
+    expect(nth(runner.opened, 1).closed).toBe(false);
   });
 
   it('lets go of what it was doing when the stream starts again', () => {
@@ -222,7 +223,7 @@ describe('SessionStore', () => {
     store.goTo('jumper', 4096).subscribe();
 
     expect(runner.asked).toEqual([4096]);
-    expect(runner.opened[0].closed, 'the live stream is left behind').toBe(true);
+    expect(first(runner.opened).closed, 'the live stream is left behind').toBe(true);
     expect(held.adrift()).toBe(true);
     // And nothing is claimed about the present any more: the stream that would
     // have said is closed, so a spinner left running would be from before.

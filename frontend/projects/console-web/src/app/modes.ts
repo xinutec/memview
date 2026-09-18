@@ -1,3 +1,9 @@
+interface Mode {
+  title: string;
+  rank: number;
+  icon: string;
+}
+
 /**
  * What a session may do without asking, in the CLI's own words. The stored
  * name is not the shown name: `default` displays as *Manual*. Read off the
@@ -6,14 +12,17 @@
  * The icons are ours — the CLI's are terminal glyphs, two of them the same ⏵⏵
  * — and each says what the mode DOES: a raised hand asks, an open padlock does not.
  */
-export const MODES: Record<string, { title: string; rank: number; icon: string }> = {
+export const MODES = {
   plan: { title: 'Plan', rank: 0, icon: 'map' },
   default: { title: 'Manual', rank: 1, icon: 'pan_tool' },
   dontAsk: { title: "Don't Ask", rank: 1, icon: 'notifications_off' },
   acceptEdits: { title: 'Accept edits', rank: 2, icon: 'edit' },
   auto: { title: 'Auto', rank: 3, icon: 'auto_mode' },
   bypassPermissions: { title: 'Bypass Permissions', rank: 4, icon: 'lock_open' },
-};
+} satisfies Record<string, Mode>;
+
+/** The same table read by a name off the wire, which may be none of them. */
+const BY_NAME: Record<string, Mode | undefined> = MODES;
 
 /**
  * How a mode should read on screen. An unknown mode is shown as it arrived:
@@ -21,7 +30,7 @@ export const MODES: Record<string, { title: string; rank: number; icon: string }
  */
 export function modeTitle(mode: string | undefined): string | undefined {
   if (!mode) return undefined;
-  return MODES[mode]?.title ?? mode;
+  return BY_NAME[mode]?.title ?? mode;
 }
 
 /**
@@ -40,7 +49,7 @@ export function modeIsLoud(mode: string | undefined): boolean {
  */
 export function modeIcon(mode: string | undefined): string | undefined {
   if (!mode) return undefined;
-  return MODES[mode]?.icon ?? 'help';
+  return BY_NAME[mode]?.icon ?? 'help';
 }
 
 /**

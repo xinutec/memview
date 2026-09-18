@@ -89,7 +89,7 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
       const index = out.findIndex((entry) => asking(entry) && entry.ask === event.id);
       if (index < 0) break;
       const question = out[index];
-      if (asking(question)) {
+      if (question && asking(question)) {
         out[index] = {
           ...question,
           allowed: event.allowed,
@@ -174,7 +174,7 @@ function callIn(entries: readonly Entry[], call: string): ToolCall | undefined {
 function running(entries: readonly Entry[]): ToolCall | undefined {
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i];
-    if (entry.kind === 'tool' && entry.ok === undefined) return entry;
+    if (entry?.kind === 'tool' && entry.ok === undefined) return entry;
   }
   return undefined;
 }
@@ -245,7 +245,7 @@ export function blocks(entries: readonly Entry[]): Block[] {
   let run: ToolCall[] = [];
   const flush = () => {
     if (run.length >= A_RUN) {
-      out.push({ kind: 'tools', key: run[0].call ?? `at-${out.length}`, entries: run });
+      out.push({ kind: 'tools', key: run[0]?.call ?? `at-${out.length}`, entries: run });
     } else {
       for (const entry of run) out.push({ kind: 'one', entry });
     }

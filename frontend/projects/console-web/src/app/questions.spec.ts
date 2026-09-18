@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { choiceOf, complete, questionsOf } from './questions';
+import { first } from './testing';
 
 /** The shape a real `AskUserQuestion` arrives in, captured off the wire. */
 const ASKED = {
@@ -19,12 +20,12 @@ const ASKED = {
 
 describe('questionsOf', () => {
   it('reads a question the way it was asked', () => {
-    const [question] = questionsOf(ASKED) ?? [];
+    const question = first(questionsOf(ASKED) ?? []);
     expect(question.question).toBe('how far should the question UI go?');
     expect(question.header).toBe('Scope');
     expect(question.multiSelect).toBe(false);
     expect(question.options.map((o) => o.label)).toEqual(['options only', 'full parity']);
-    expect(question.options[0].description).toBe('render each option as a button');
+    expect(first(question.options).description).toBe('render each option as a button');
   });
 
   it('says nothing about a tool call that asks no questions', () => {
@@ -59,14 +60,16 @@ describe('questionsOf', () => {
   it('treats a missing multiSelect as a single choice', () => {
     // The safe direction: guessing the other way would let one tap answer a
     // question that wanted several, and send before the person had finished.
-    const [question] =
-      questionsOf({ questions: [{ ...ASKED.questions[0], multiSelect: 'yes' }] }) ?? [];
+    const question = first(
+      questionsOf({ questions: [{ ...first(ASKED.questions), multiSelect: 'yes' }] }) ?? [],
+    );
     expect(question.multiSelect).toBe(false);
   });
 
   it('fills in a header that was not sent rather than dropping the question', () => {
-    const [question] =
-      questionsOf({ questions: [{ ...ASKED.questions[0], header: undefined }] }) ?? [];
+    const question = first(
+      questionsOf({ questions: [{ ...first(ASKED.questions), header: undefined }] }) ?? [],
+    );
     expect(question.header).toBe('');
   });
 });

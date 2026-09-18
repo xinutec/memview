@@ -2,6 +2,12 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "outDir": "../../out-tsc/console-spec",
+    // `xs[0]` is `T | undefined`: these lists come off the wire, where an element
+    // genuinely may be absent, and turning this on found two types that were
+    // lying about their keys. Not memview-web, whose layout module indexes
+    // parallel arrays by node id inside an O(n²) force loop — ~240 sites where
+    // the bound is the loop's own, so it is its own piece of work.
+    "noUncheckedIndexedAccess": true,
     "types": ["vitest/globals"]
   },
   "include": ["src/**/*.spec.ts", "src/**/*.test.ts", "src/**/*.d.ts"],

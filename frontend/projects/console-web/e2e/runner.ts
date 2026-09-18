@@ -24,7 +24,7 @@ export const CONVERSATIONS = [
   '33333333-3333-3333-3333-333333333333',
   '44444444-4444-4444-4444-444444444444',
   '55555555-5555-5555-5555-555555555555',
-];
+] as const;
 
 /**
  * Where the fixture says it ran, and it has to satisfy two rules at once.
@@ -156,7 +156,8 @@ export async function start(port: number, staticDir: string): Promise<Runner> {
       // all would satisfy any check phrased as "no strangers". Both are refused
       // by insisting on exactly the fixture.
       const missing = CONVERSATIONS.filter((id) => !seen.includes(id));
-      const strangers = seen.filter((id) => !CONVERSATIONS.includes(id));
+      const ours: readonly string[] = CONVERSATIONS;
+      const strangers = seen.filter((id) => !ours.includes(id));
       if (missing.length || strangers.length) {
         stop(child, root);
         throw new Error(
