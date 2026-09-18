@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { first, nth } from './testing';
+
 import {
   boundingRadius,
   bridges,
@@ -108,11 +110,7 @@ describe('stepLayout', () => {
     for (let i = 0; i < 600; i++) stepLayout(layout);
     expect(layout.alpha).toBeLessThan(SETTLED);
 
-    const at = (name: string) => {
-      const node = layout.nodes[layout.index.get(name) ?? -1];
-      expect(node, name).toBeDefined();
-      return node.pos;
-    };
+    const at = (name: string) => nth(layout.nodes, layout.index.get(name) ?? -1).pos;
     // project_a—feedback_rule are linked; reference_lonely is in no component,
     // so repulsion is the only force acting between it and anything else.
     const linked = distance(at('project_a'), at('feedback_rule'));
@@ -133,7 +131,7 @@ describe('stepLayout', () => {
     ];
     const layout = createLayout(inputs, [], ['A', 'B']);
     for (let i = 0; i < 600; i++) stepLayout(layout);
-    const at = (name: string) => layout.nodes[layout.index.get(name) ?? -1].pos;
+    const at = (name: string) => nth(layout.nodes, layout.index.get(name) ?? -1).pos;
     expect(distance(at('a1'), at('a2'))).toBeLessThan(distance(at('a1'), at('b1')));
     expect(distance(at('b1'), at('b2'))).toBeLessThan(distance(at('b1'), at('a2')));
   });
@@ -148,7 +146,7 @@ describe('stepLayout', () => {
     ];
     const layout = createLayout(inputs, [], ['A', 'B']);
     for (let i = 0; i < 600; i++) stepLayout(layout);
-    const at = (name: string) => layout.nodes[layout.index.get(name) ?? -1].pos;
+    const at = (name: string) => nth(layout.nodes, layout.index.get(name) ?? -1).pos;
     const origin = { x: 0, y: 0, z: 0 };
     expect(distance(at('loose'), origin)).toBeLessThan(distance(at('a1'), origin));
   });
@@ -163,13 +161,13 @@ describe('stepLayout', () => {
       ],
       [],
     );
-    layout.nodes[0].pos = { x: 0, y: 0, z: 0 };
-    layout.nodes[1].pos = { x: 0, y: 0, z: 0 };
+    nth(layout.nodes, 0).pos = { x: 0, y: 0, z: 0 };
+    nth(layout.nodes, 1).pos = { x: 0, y: 0, z: 0 };
     for (let i = 0; i < 50; i++) stepLayout(layout);
     for (const node of layout.nodes) {
       expect(Number.isFinite(node.pos.x + node.pos.y + node.pos.z)).toBe(true);
     }
-    expect(distance(layout.nodes[0].pos, layout.nodes[1].pos)).toBeGreaterThan(0);
+    expect(distance(nth(layout.nodes, 0).pos, nth(layout.nodes, 1).pos)).toBeGreaterThan(0);
   });
 });
 
@@ -333,7 +331,9 @@ describe('companionsOf', () => {
   });
 
   it('reports no support rather than guessing when the miner gave none', () => {
-    expect(companionsOf([{ a: 'root', b: 'other', npmi: 0.5 }], [], 'root')[0].sessions).toBe(0);
+    expect(first(companionsOf([{ a: 'root', b: 'other', npmi: 0.5 }], [], 'root')).sessions).toBe(
+      0,
+    );
   });
 
   it('ignores a pair of one memory with itself', () => {
@@ -363,7 +363,7 @@ describe('clusterLevels', () => {
   const BARBELL_NAMES = ['a1', 'a2', 'a3', 'b1', 'b2', 'b3'];
 
   it('finds the groups the links actually form', () => {
-    const [finest] = clusterLevels(BARBELL_NAMES, BARBELL);
+    const finest = first(clusterLevels(BARBELL_NAMES, BARBELL));
     const of = new Map<string, number>();
     finest.forEach((c, i) => c.members.forEach((m) => of.set(m, i)));
     expect(of.get('a1')).toBe(of.get('a2'));
@@ -373,7 +373,7 @@ describe('clusterLevels', () => {
   });
 
   it('names each cluster after its most-connected member', () => {
-    const [finest] = clusterLevels(BARBELL_NAMES, BARBELL);
+    const finest = first(clusterLevels(BARBELL_NAMES, BARBELL));
     // a1 and b1 carry the joining link, so they outrank their triangle-mates.
     expect(finest.map((c) => c.core).sort()).toEqual(['a1', 'b1']);
   });
@@ -403,13 +403,13 @@ describe('clusterLevels', () => {
     const levels = clusterLevels(['p1', 'p2', 'q1', 'q2', 'r1', 'r2'], chain);
     expect(levels.length).toBeGreaterThan(0);
     for (let i = 1; i < levels.length; i++) {
-      expect(levels[i].length).toBeLessThan(levels[i - 1].length);
+      expect(nth(levels, i).length).toBeLessThan(nth(levels, i - 1).length);
     }
   });
 
   it('leaves a memory nothing links to in a cluster of its own', () => {
     const levels = clusterLevels([...BARBELL_NAMES, 'alone'], BARBELL);
-    const solo = levels[0].find((c) => c.members.includes('alone'));
+    const solo = first(levels).find((c) => c.members.includes('alone'));
     expect(solo?.members).toEqual(['alone']);
   });
 
@@ -470,8 +470,8 @@ describe('boundingRadius', () => {
   });
 
   it('measures only the named subset', () => {
-    const one = new Set([spread.nodes[0].name]);
-    const centre = spread.nodes[0].pos;
+    const one = new Set([first(spread.nodes).name]);
+    const centre = first(spread.nodes).pos;
     // The node is the centre of its own measurement, so the radius collapses to
     // the floor of 1 rather than reaching out to the rest of the corpus.
     expect(boundingRadius(spread, centre, one)).toBe(1);
@@ -541,7 +541,7 @@ describe('frameFor', () => {
   it('centres on the focused memory itself', () => {
     const framing = frameFor(spread, 'feedback_rule', null, 412, 620);
     const i = spread.index.get('feedback_rule')!;
-    expect(framing.target).toEqual({ ...spread.nodes[i].pos });
+    expect(framing.target).toEqual({ ...nth(spread.nodes, i).pos });
   });
 
   it('does not alias the node position it is centred on', () => {
@@ -670,8 +670,8 @@ describe('planLabels', () => {
     expect(plan.drawn.map((l) => l.name)).toEqual(['first', 'second']);
     expect(plan.collided).toBe(0);
     // The first keeps its node's own line; the second steps off it.
-    expect(plan.drawn[0].y).toBe(100);
-    expect(plan.drawn[1].y).not.toBe(100);
+    expect(first(plan.drawn).y).toBe(100);
+    expect(nth(plan.drawn, 1).y).not.toBe(100);
   });
 
   it('still counts a label with nowhere left to go', () => {
@@ -702,8 +702,8 @@ describe('planLabels', () => {
     const plan = planLabels(nodes, measure, 412);
 
     expect(plan.drawn.length).toBe(1);
-    expect(plan.drawn[0].flipped).toBe(true);
-    expect(plan.drawn[0].x).toBeLessThan(380);
+    expect(first(plan.drawn).flipped).toBe(true);
+    expect(first(plan.drawn).x).toBeLessThan(380);
   });
 
   it('drops a label that fits on neither side', () => {
@@ -734,8 +734,8 @@ describe('planLabels', () => {
 
     const plan = planLabels(nodes, measure, 1000);
 
-    expect(plan.drawn[0].name).toBe('asked_about');
-    expect(plan.drawn[0].y).toBe(100);
+    expect(first(plan.drawn).name).toBe('asked_about');
+    expect(first(plan.drawn).y).toBe(100);
     expect(plan.drawn.map((l) => l.name)).toContain('hub');
   });
 
@@ -817,7 +817,7 @@ describe('affinities', () => {
   const settle = (affinities: { a: string; b: string; npmi: number }[]) => {
     const layout = createLayout(APART, [], ['A', 'B'], affinities);
     for (let i = 0; i < 600; i++) stepLayout(layout);
-    const at = (n: string) => layout.nodes[layout.index.get(n) ?? -1].pos;
+    const at = (n: string) => nth(layout.nodes, layout.index.get(n) ?? -1).pos;
     return distance(at('a1'), at('b1'));
   };
 
@@ -853,7 +853,10 @@ describe('affinities', () => {
       stepLayout(affine);
     }
     const gap = (l: typeof linked) =>
-      distance(l.nodes[l.index.get('a1') ?? -1].pos, l.nodes[l.index.get('b1') ?? -1].pos);
+      distance(
+        nth(l.nodes, l.index.get('a1') ?? -1).pos,
+        nth(l.nodes, l.index.get('b1') ?? -1).pos,
+      );
     expect(gap(linked)).toBeLessThan(gap(affine));
   });
 
@@ -880,7 +883,7 @@ describe('affinities', () => {
     const gap = (affinities: { a: string; b: string; npmi: number }[]) => {
       const layout = createLayout(APART, tight, ['A', 'B'], affinities);
       for (let i = 0; i < 600; i++) stepLayout(layout);
-      const at = (n: string) => layout.nodes[layout.index.get(n) ?? -1].pos;
+      const at = (n: string) => nth(layout.nodes, layout.index.get(n) ?? -1).pos;
       return distance(at('a1'), at('a2'));
     };
     const linkAlone = gap([]);
@@ -907,7 +910,7 @@ describe('groupGraph', () => {
   it('collapses members into one node per group, biggest first', () => {
     const g = groupGraph(NAMES, [], of);
     expect(g.nodes.map((n) => n.key)).toEqual(['A', 'B']);
-    expect(g.nodes[0].members).toEqual(['a1', 'a2', 'a3']);
+    expect(first(g.nodes).members).toEqual(['a1', 'a2', 'a3']);
   });
 
   it('sums the links between two groups into one weighted edge', () => {
@@ -947,7 +950,7 @@ describe('groupGraph', () => {
     // would show a region as connected to something the reader cannot follow.
     const g = groupGraph(NAMES, [{ source: 'a1', target: 'loose' }], of);
     expect(g.edges).toEqual([]);
-    expect(g.nodes[0].internal).toBe(0);
+    expect(first(g.nodes).internal).toBe(0);
   });
 
   it('reads a link the same way whichever end is written first', () => {
@@ -1071,12 +1074,12 @@ describe('groupGraph core', () => {
 
   it('breaks a degree tie on the name, so the core is deterministic', () => {
     const g = groupGraph(['zeta', 'alpha'], [], () => 'A');
-    expect(g.nodes[0].core).toBe('alpha');
+    expect(first(g.nodes).core).toBe('alpha');
   });
 
   it('gives a single-member group that member as its core', () => {
     const g = groupGraph(['only'], [], () => 'A');
-    expect(g.nodes[0].core).toBe('only');
-    expect(g.nodes[0].members).toEqual(['only']);
+    expect(first(g.nodes).core).toBe('only');
+    expect(first(g.nodes).members).toEqual(['only']);
   });
 });

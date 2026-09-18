@@ -2,6 +2,10 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "./out-tsc/spec",
+    // `xs[0]` is `T | undefined`: these lists come off the wire, where an element
+    // genuinely may be absent, and turning this on found two types that were
+    // lying about their keys.
+    "noUncheckedIndexedAccess": true,
     "types": ["vitest/globals"]
   },
   "include": ["src/**/*.spec.ts", "src/**/*.test.ts", "src/**/*.d.ts"],

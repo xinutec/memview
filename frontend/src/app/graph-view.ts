@@ -336,9 +336,9 @@ export class GraphView {
     const levels = this.levels();
     let best = 0;
     levels.forEach((level, i) => {
+      const incumbent = levels[best]?.length ?? 0;
       const closer =
-        Math.abs(level.length - READABLE_CLUSTERS) <
-        Math.abs(levels[best].length - READABLE_CLUSTERS);
+        Math.abs(level.length - READABLE_CLUSTERS) < Math.abs(incumbent - READABLE_CLUSTERS);
       if (closer) best = i;
     });
     return best;
@@ -979,10 +979,12 @@ export class GraphView {
     const screen = new Map<string, Placed>();
     for (let i = 0; i < graph.nodes.length; i++) {
       const node = graph.nodes[i];
+      const at = layout.nodes[i];
+      if (!node || !at) continue;
       const isLit = lit === null || lit.has(node.name);
       const isCompanion = !isLit && companions.has(node.name);
       if (isolate && !isLit && !isCompanion) continue;
-      const p = project(layout.nodes[i].pos, this.camera, this.width, this.height);
+      const p = project(at.pos, this.camera, this.width, this.height);
       // A region's dot is sized by how much it stands for; a memory's by the
       // reader's chosen metric. sqrt, because 63 members against 1 is a 63x
       // range and a linear dot would swamp the picture.
@@ -1150,6 +1152,7 @@ export class GraphView {
   private hit(x: number, y: number): GraphNode | null {
     for (let i = this.placed.length - 1; i >= 0; i--) {
       const entry = this.placed[i];
+      if (!entry) continue;
       const dx = entry.x - x;
       const dy = entry.y - y;
       const reach = Math.max(entry.radius, 6);
@@ -1162,6 +1165,7 @@ export class GraphView {
   private gesture(): { spread: number; mid: { x: number; y: number } } | null {
     if (this.pointers.size !== 2) return null;
     const [a, b] = [...this.pointers.values()];
+    if (!a || !b) return null;
     return {
       spread: Math.hypot(a.x - b.x, a.y - b.y),
       mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },

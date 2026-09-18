@@ -132,19 +132,6 @@ fn a_session_still_fails_on_its_own_memory() {
     ));
 }
 
-/// ⚠ The whole point: another session's memory does not fail this one's commit.
-#[test]
-fn another_sessions_memory_does_not_fail_this_one() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let corpus = stamped(dir.path(), "project_a", Some("session-2"));
-    assert!(passed_for_session(
-        &corpus,
-        &[an_error("project_a")],
-        Some("session-1"),
-        unrecorded
-    ));
-}
-
 /// ⚠ **A missing author is REPORTED, and reported as a WARNING** — two halves of
 /// one claim, pinned together (memview#1499).
 ///
@@ -246,7 +233,8 @@ fn damaging_another_sessions_memory_fails_this_session() {
 
 /// ⚠ **And the tolerance #1047 bought is KEPT** — this is the control that
 /// stops the fix above from becoming "fail on every error", which is what #1047
-/// was written to remove. Somebody else's memory, somebody else's last write:
+/// was written to remove. ⚠ **The whole point: another session's memory does not
+/// fail this one's commit.** Somebody else's memory, somebody else's last write:
 /// still not this session's problem.
 #[test]
 fn inheriting_another_sessions_error_still_fails_nobody() {

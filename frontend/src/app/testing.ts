@@ -5,7 +5,7 @@
  * so the absence is a test failure with a message, not a `!` that turns into
  * `undefined is not an object` three lines later.
  *
- * memview-web has its own copy: the two apps share no code by design, and these
+ * The console has its own copy: the two apps share no code by design, and these
  * are three functions whose behaviour their names fully describe.
  */
 export function nth<T>(items: readonly T[], index: number): T {

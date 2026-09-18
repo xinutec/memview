@@ -8,6 +8,7 @@ import { provideRouter } from '@angular/router';
 import { AgentsView } from './agents-view';
 import { Agent, AgentsResult } from './models';
 import { routes } from './app.routes';
+import { first } from './testing';
 
 /**
  * One agent that does most of its work where no tool call can see it — a
@@ -74,7 +75,7 @@ describe('AgentsView — every dimension of the evidence', () => {
   });
 
   it('counts shell work into the totals and says how much of it there was', () => {
-    const row = fixture.componentInstance.rows()[0];
+    const row = first(fixture.componentInstance.rows());
     // 4 tool reads + 6 shell reads; 1 tool edit + 9 shell edits. The old page
     // said 4 and 1, which is the undercount the shell reader exists to fix.
     expect(row.reads).toBe(10);
@@ -84,7 +85,7 @@ describe('AgentsView — every dimension of the evidence', () => {
   });
 
   it('keeps uses that may never have happened out of every count they are not', () => {
-    const row = fixture.componentInstance.rows()[0];
+    const row = first(fixture.componentInstance.rows());
     // ⚠ The property the whole separation exists for. The fixture's 5 maybe
     // reads and 3 maybe edits are carried, and are in NEITHER the totals nor the
     // shell breakdown — those stay at the 10/10 and 6/9 asserted above. Summing
@@ -96,7 +97,12 @@ describe('AgentsView — every dimension of the evidence', () => {
     expect(row.writes).toBe(10);
     expect(row.shellReads).toBe(6);
     expect(row.shellWrites).toBe(9);
-    expect(row.places[0]).toMatchObject({ maybeReads: 5, maybeWrites: 3, reads: 10, writes: 10 });
+    expect(first(row.places)).toMatchObject({
+      maybeReads: 5,
+      maybeWrites: 3,
+      reads: 10,
+      writes: 10,
+    });
   });
 
   it('draws the uncertainty inside the shell phrase and nowhere else', () => {
@@ -113,15 +119,15 @@ describe('AgentsView — every dimension of the evidence', () => {
   });
 
   it('carries committed lines, which are size where the counts are frequency', () => {
-    const row = fixture.componentInstance.rows()[0];
+    const row = first(fixture.componentInstance.rows());
     expect(row.added).toBe(300);
     expect(row.deleted).toBe(12);
     expect(row.commits).toBe(4);
-    expect(row.places[0]).toMatchObject({ project: 'health', added: 300, deleted: 12 });
+    expect(first(row.places)).toMatchObject({ project: 'health', added: 300, deleted: 12 });
   });
 
   it('keeps other machines out of the projects and names them separately', () => {
-    const row = fixture.componentInstance.rows()[0];
+    const row = first(fixture.componentInstance.rows());
     expect(row.places.map((p) => p.project)).toEqual(['health']);
     expect(row.machines).toEqual([
       { host: 'odin', reads: 4, writes: 2 },

@@ -170,6 +170,20 @@ const AFFINITY_SPRING = 0.04;
  */
 const AFFINITY_REST = 40;
 const ORIGIN: Vec3 = { x: 0, y: 0, z: 0 };
+
+/**
+ * An element of a dense array, by an index the caller's own structure produced.
+ *
+ * The clustering arrays below are built `length: size` and indexed by node id,
+ * so an absent element is a bug in the graph rather than a case to handle.
+ * `noUncheckedIndexedAccess` cannot see that, and a `?? 0` in its place would
+ * turn the bug into a layout that is silently wrong instead of one that stops.
+ */
+function nth<T>(dense: readonly T[], i: number): T {
+  const value = dense[i];
+  if (value === undefined) throw new Error(`graph: no entry ${i} of ${dense.length}`);
+  return value;
+}
 /** Below this the picture has stopped visibly moving, so the loop can idle. */
 export const SETTLED = 0.02;
 /** Guards the inverse-square term when two nodes land almost on top of another. */
@@ -273,8 +287,10 @@ export function stepLayout(layout: Layout): void {
 
   for (let i = 0; i < n; i++) {
     const a = nodes[i];
+    if (!a) continue;
     for (let j = i + 1; j < n; j++) {
       const b = nodes[j];
+      if (!b) continue;
       let dx = a.pos.x - b.pos.x;
       let dy = a.pos.y - b.pos.y;
       let dz = a.pos.z - b.pos.z;
@@ -301,6 +317,7 @@ export function stepLayout(layout: Layout): void {
   for (const [i, j] of pairs) {
     const a = nodes[i];
     const b = nodes[j];
+    if (!a || !b) continue;
     const dx = b.pos.x - a.pos.x;
     const dy = b.pos.y - a.pos.y;
     const dz = b.pos.z - a.pos.z;
@@ -323,16 +340,14 @@ export function stepLayout(layout: Layout): void {
   for (const [i, j, strength] of soft) {
     const a = nodes[i];
     const b = nodes[j];
+    if (!a || !b) continue;
     const dx = b.pos.x - a.pos.x;
     const dy = b.pos.y - a.pos.y;
     const dz = b.pos.z - a.pos.z;
     const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || MIN_DISTANCE;
-    // One-sided: a pair already nearer than the rest is left exactly where
-    // its links put it. See AFFINITY_REST for the measured failure a
-    // two-sided spring caused here.
-    // One-sided: a pair already nearer than the rest is left exactly where
-    // its links put it. See AFFINITY_REST for the measured failure a
-    // two-sided spring caused here.
+    // One-sided: a pair already nearer than the rest is left exactly where its
+    // links put it. See AFFINITY_REST for the measured failure a two-sided
+    // spring caused here.
     const stretch = d - AFFINITY_REST;
     if (stretch <= 0) continue;
     const force = AFFINITY_SPRING * strength * stretch;
@@ -435,7 +450,7 @@ export function frameFor(
   view?: Pick<Camera, 'yaw' | 'pitch' | 'distance'>,
 ): Framing {
   const i = centre === null ? undefined : layout.index.get(centre);
-  const at = i === undefined ? ORIGIN : layout.nodes[i].pos;
+  const at = i === undefined ? ORIGIN : nth(layout.nodes, i).pos;
   // Copied, not aliased: node positions are mutated in place by every step, so
   // holding the reference would make the camera track a moving node silently
   // and skip the easing the caller is about to do.
@@ -749,15 +764,15 @@ function weightedFrom(size: number, links: readonly [number, number, number][]):
   let volume = 0;
   for (const [a, b, w] of links) {
     if (a === b) {
-      self[a] += w;
-      degree[a] += 2 * w;
+      self[a] = nth(self, a) + w;
+      degree[a] = nth(degree, a) + 2 * w;
       volume += 2 * w;
       continue;
     }
-    adj[a].set(b, (adj[a].get(b) ?? 0) + w);
-    adj[b].set(a, (adj[b].get(a) ?? 0) + w);
-    degree[a] += w;
-    degree[b] += w;
+    nth(adj, a).set(b, (nth(adj, a).get(b) ?? 0) + w);
+    nth(adj, b).set(a, (nth(adj, b).get(a) ?? 0) + w);
+    degree[a] = nth(degree, a) + w;
+    degree[b] = nth(degree, b) + w;
     volume += 2 * w;
   }
   return { adj, self, degree, volume };
@@ -781,28 +796,29 @@ function localMoving(g: Weighted): number[] {
   for (let sweep = 0; sweep < 30; sweep++) {
     let moved = 0;
     for (let v = 0; v < size; v++) {
-      const own = community[v];
+      const own = nth(community, v);
       // Take v out before scoring, so staying put is judged on the same terms
       // as moving. Leaving it in makes its own community look better than it is
       // by exactly its own degree, and almost nothing ever moves.
-      total[own] -= g.degree[v];
+      total[own] = nth(total, own) - nth(g.degree, v);
 
       const weightTo = new Map<number, number>();
-      for (const [w, weight] of g.adj[v]) {
-        weightTo.set(community[w], (weightTo.get(community[w]) ?? 0) + weight);
+      for (const [w, weight] of nth(g.adj, v)) {
+        const to = nth(community, w);
+        weightTo.set(to, (weightTo.get(to) ?? 0) + weight);
       }
 
       let best = own;
-      let bestGain = (weightTo.get(own) ?? 0) - (total[own] * g.degree[v]) / g.volume;
+      let bestGain = (weightTo.get(own) ?? 0) - (nth(total, own) * nth(g.degree, v)) / g.volume;
       for (const [c, weight] of weightTo) {
-        const gain = weight - (total[c] * g.degree[v]) / g.volume;
+        const gain = weight - (nth(total, c) * nth(g.degree, v)) / g.volume;
         if (gain > bestGain) {
           bestGain = gain;
           best = c;
         }
       }
 
-      total[best] += g.degree[v];
+      total[best] = nth(total, best) + nth(g.degree, v);
       community[v] = best;
       if (best !== own) moved++;
     }
@@ -849,8 +865,8 @@ export function clusterLevels(names: readonly string[], edges: readonly Edge[]):
 
   const degree = new Array<number>(names.length).fill(0);
   for (const [a, b] of links) {
-    degree[a]++;
-    degree[b]++;
+    degree[a] = nth(degree, a) + 1;
+    degree[b] = nth(degree, b) + 1;
   }
 
   const levels: Cluster[][] = [];
@@ -864,13 +880,13 @@ export function clusterLevels(names: readonly string[], edges: readonly Edge[]):
     if (count === graph.adj.length) break;
 
     const grouped = Array.from({ length: count }, (): number[] => []);
-    members.forEach((owned, i) => grouped[labels[i]].push(...owned));
+    members.forEach((owned, i) => nth(grouped, nth(labels, i)).push(...owned));
     levels.push(
       grouped.map((owned) => {
         const sorted = [...owned].sort(
-          (a, b) => degree[b] - degree[a] || (names[a] < names[b] ? -1 : 1),
+          (a, b) => nth(degree, b) - nth(degree, a) || (nth(names, a) < nth(names, b) ? -1 : 1),
         );
-        return { core: names[sorted[0]], members: sorted.map((i) => names[i]) };
+        return { core: nth(names, nth(sorted, 0)), members: sorted.map((i) => nth(names, i)) };
       }),
     );
 
@@ -878,10 +894,11 @@ export function clusterLevels(names: readonly string[], edges: readonly Edge[]):
     // becoming self-loops so the next level still sees how dense each one is.
     const next: [number, number, number][] = [];
     for (let v = 0; v < graph.adj.length; v++) {
-      if (graph.self[v] > 0) next.push([labels[v], labels[v], graph.self[v]]);
-      for (const [w, weight] of graph.adj[v]) {
+      const self = nth(graph.self, v);
+      if (self > 0) next.push([nth(labels, v), nth(labels, v), self]);
+      for (const [w, weight] of nth(graph.adj, v)) {
         if (w < v) continue;
-        next.push([labels[v], labels[w], weight]);
+        next.push([nth(labels, v), nth(labels, w), weight]);
       }
     }
     graph = weightedFrom(count, next);
@@ -1281,7 +1298,7 @@ export function groupGraph(
       const ordered = [...ms].sort(
         (a, b) => (degree.get(b) ?? 0) - (degree.get(a) ?? 0) || a.localeCompare(b),
       );
-      return { key, members: ordered, core: ordered[0], internal: internal.get(key) ?? 0 };
+      return { key, members: ordered, core: nth(ordered, 0), internal: internal.get(key) ?? 0 };
     })
     .sort((x, y) => y.members.length - x.members.length || x.key.localeCompare(y.key));
 
