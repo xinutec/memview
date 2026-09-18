@@ -49,7 +49,9 @@
               [disabled]="replying()"
               (click)="addNote(question)"
             >
-              add a note
+              <!-- In a span so the rule underlines the words and not the whitespace the
+                   formatter puts around them: measured, `textContent` is `" add a note "`. -->
+              <span>add a note</span>
             </button>
           }
         </div>

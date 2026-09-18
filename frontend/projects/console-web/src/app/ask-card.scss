@@ -143,8 +143,14 @@ input.note:disabled {
   background: none;
   color: var(--mat-sys-primary);
   font: var(--mat-sys-label-small);
-  text-decoration: underline;
   cursor: pointer;
+
+  // On the span, not the button: the button's text node carries the whitespace
+  // the formatter leaves around the words, and an underline on it ran past the
+  // last letter.
+  span {
+    text-decoration: underline;
+  }
 }
 
 // The way out of a list that does not contain the answer.

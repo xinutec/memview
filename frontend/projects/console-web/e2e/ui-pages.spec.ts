@@ -758,7 +758,13 @@ async function expectOneLine(page: Page, rowSel: string, tol = 1): Promise<void>
 }
 
 /**
- * The stamp at the foot of the shell is not painted over by the page above it.
+ * Nothing in the page paints over `selector` — the stamp at the foot of the
+ * shell, or the button pinned above it.
+ *
+ * ⚠ **Two claims, one implementation.** A second copy of the clipping walk below
+ * is a second answer to keep in step, and the two targets differ in nothing but
+ * which box is the target: `.add` is skipped when it IS the target, and a caller
+ * scrolls first when the overlap only happens at the foot of a list.
  *
  * ⚠ **A different failure from `expectNoPinnedOverlap`**, which compares the
  * pinned regions with each other and never looks at the content. The shell is a
@@ -768,10 +774,10 @@ async function expectOneLine(page: Page, rowSel: string, tol = 1): Promise<void>
  * clipped nor scrolled: it spills out of the box and paints over the next row.
  * So the check has to be against what the page actually holds.
  */
-async function expectTheStampIsClear(page: Page): Promise<void> {
-  const clashes = await page.evaluate(() => {
-    const stamp = document.querySelector('.build')?.getBoundingClientRect();
-    if (!stamp) return ['no build stamp on this page'];
+async function expectNothingPaintsOver(page: Page, selector: string): Promise<void> {
+  const clashes = await page.evaluate((selector) => {
+    const target = document.querySelector(selector)?.getBoundingClientRect();
+    if (!target) return [`no ${selector} on this page`];
 
     // ⚠ **What is painted, not what is laid out.** A card scrolled halfway out
     // of a scrolling region still reports its whole box from
@@ -814,20 +820,21 @@ async function expectTheStampIsClear(page: Page): Promise<void> {
     // is gone; a selector naming an element that no longer exists is a check
     // quietly covering less than it reads as covering.
     for (const card of document.querySelectorAll('.page .session, .page .past, .page .add')) {
+      if (card.matches(selector)) continue;
       const box = painted(card);
       const over =
-        Math.min(box.bottom, stamp.bottom) - Math.max(box.top, stamp.top) > 1 &&
-        Math.min(box.right, stamp.right) - Math.max(box.left, stamp.left) > 1;
+        Math.min(box.bottom, target.bottom) - Math.max(box.top, target.top) > 1 &&
+        Math.min(box.right, target.right) - Math.max(box.left, target.left) > 1;
       if (over) {
         bad.push(
           `${card.className.split(' ')[0]} [${Math.round(box.top)}–${Math.round(box.bottom)}]` +
-            ` over .build [${Math.round(stamp.top)}–${Math.round(stamp.bottom)}]`,
+            ` over ${selector} [${Math.round(target.top)}–${Math.round(target.bottom)}]`,
         );
       }
     }
     return bad;
-  });
-  expect(clashes, 'the page paints over the build stamp').toEqual([]);
+  }, selector);
+  expect(clashes, `the page paints over ${selector}`).toEqual([]);
 }
 
 /**
@@ -1057,9 +1064,21 @@ test('session list — a dozen sessions do not reach the build stamp @ phone wid
   await page.route('**/api/state', (r) => r.fulfill({ json: CROWDED }));
   await page.goto('/');
   await expect(page.locator('.page .session')).toHaveCount(CROWDED.sessions.length);
-  await expectTheStampIsClear(page);
+  await expectNothingPaintsOver(page, '.build');
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
+
+  // ⚠ **And the last card has to clear the button, which only shows at the
+  // bottom.** `.add` is `fixed`, so a list with nothing under it scrolls its last
+  // card straight underneath — measured at 56×56, with the button's own touch
+  // target answering `elementFromPoint` there, so the tap went to it as well.
+  // The same shape as the composer covering the last entry's buttons, which
+  // `app.scss` records; the cure is the same, room at the foot of the list.
+  await page.evaluate(() => {
+    const list = document.querySelector('.page');
+    if (list) list.scrollTop = list.scrollHeight;
+  });
+  await expectNothingPaintsOver(page, '.add');
 });
 
 test('transcript — tool arguments and a fixed composer @ phone width', async ({

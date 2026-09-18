@@ -293,12 +293,23 @@
   height: 1.1rem;
 }
 
+// The floating button's own geometry, read by its rule below and by the padding
+// that keeps the list clear of it. Material's FAB is 56px.
+$add-size: 3.5rem;
+$add-bottom: 2.5rem;
+
 // The list pads its own reading column, now that `.page` supplies only vertical
 // room — and a custom element is `display: inline` until something says
 // otherwise, so the block it looks like was never there either.
 :host {
   display: block;
-  padding: 0 1rem;
+  // ⚠ **Room for the last card to clear the button below.** `.add` is `fixed`, so
+  // it covers whatever the list scrolls under it — measured at 56×56 of the last
+  // card, with `elementFromPoint` at that corner returning the button's own touch
+  // target, so it took the tap as well as the view. The same shape as the
+  // composer covering the last entry's buttons by 66px, which `app.scss` records.
+  // The room is the button's own offset, its height, and a gap.
+  padding: 0 1rem calc(#{$add-bottom} + #{$add-size} + 0.75rem);
 }
 
 // The control that starts a session, pinned where a thumb already is. `fixed`,
@@ -307,7 +318,7 @@
 .add {
   position: fixed;
   right: 1rem;
-  bottom: calc(2.5rem + env(safe-area-inset-bottom));
+  bottom: calc($add-bottom + env(safe-area-inset-bottom));
   // Above the cards, below a bottom sheet — which is exactly what it opens, and
   // the one thing that should cover it.
   z-index: 2;
