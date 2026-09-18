@@ -675,17 +675,6 @@ impl Walk {
         (values.len().checked_mul(body)? <= MAX_UNROLL).then_some(values)
     }
 
-    /// A word as `argv` holds it, with whatever a loop has bound standing in.
-    ///
-    /// ⚠ **Substitution happens on the TREE, not on the printed string.** The
-    /// flat chain expanded `$f` by rewriting text, which meant knowing every
-    /// spelling of a parameter and getting `${f}` right by hand. Here the two
-    /// spellings are one node, so replacing it is exact and `${f}x` needs no
-    /// special case at all.
-    ///
-    /// A parameter carrying an operator is left alone: `${f%.txt}` is a
-    /// transduction this reader does not perform, and putting the value in
-    /// without applying it would be worse than leaving the question open.
     /// Whether the shell would split this word into several once its
     /// expansions are substituted.
     ///
@@ -701,6 +690,17 @@ impl Walk {
         })
     }
 
+    /// A word as `argv` holds it, with whatever a loop has bound standing in.
+    ///
+    /// ⚠ **Substitution happens on the TREE, not on the printed string.** The
+    /// flat chain expanded `$f` by rewriting text, which meant knowing every
+    /// spelling of a parameter and getting `${f}` right by hand. Here the two
+    /// spellings are one node, so replacing it is exact and `${f}x` needs no
+    /// special case at all.
+    ///
+    /// A parameter carrying an operator is left alone: `${f%.txt}` is a
+    /// transduction this reader does not perform, and putting the value in
+    /// without applying it would be worse than leaving the question open.
     fn word(&self, word: &Word) -> String {
         if self.bound.is_empty() {
             return value(word);

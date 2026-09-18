@@ -1,14 +1,12 @@
 //! MEMORY.md's membership over time, recovered from the transcripts.
 //!
-//! The index is edited in place and versioned nowhere before 2026-08-14, so what
-//! it CONTAINED on a given day exists only where a session happened to read it
-//! back.
+//! The index is edited in place and versioned nowhere before 2026-08-14, so what it
+//! CONTAINED on a given day exists only where a session happened to read it back.
 //!
 //! ⚠ **This was believed unrecoverable and it is not.** The artefact it rebuilds
-//! carried the note *"Claude Code prunes its own old transcripts, so this
-//! baseline is perishable"* — the premise memview#1240 refuted. It was
-//! unrecomputable because nobody had written this, not because the evidence had
-//! gone.
+//! carried a note calling the baseline perishable — the premise memview#1240
+//! refuted. It was unrecomputable because nobody had written this, not because the
+//! evidence had gone.
 
 use std::collections::{BTreeMap, BTreeSet};
 

@@ -1,18 +1,16 @@
 //! Who last wrote each file — the one question `staged-check` asks, kept small
 //! enough to live on this machine.
 //!
-//! ⚠ **This exists because `effects.json` LEFT.** The evidence it is folded from
-//! is 70 MB and is now an export the nightly builds in a temp directory and
-//! deletes (memview#1240), so the check that reads it could not run here at all.
-//! Last-writer-per-path is the same answer at about a twentieth of the size,
-//! because it keeps one row per path instead of every row.
+//! ⚠ **This exists because `effects.json` LEFT.** The evidence it is folded from is
+//! an export the nightly builds in a temp directory and deletes (memview#1240), so
+//! the check that reads it could not run here at all. Last-writer-per-path is the
+//! same answer at a fraction of the size, because it keeps one row per path.
 //!
-//! ⚠ **A fold with carried state, which is the bug family this repo has already
-//! paid for.** The rule that keeps it right: a FULL mine builds from empty, a
-//! RESUMED mine loads and absorbs the tail. Absorbing onto a stale map after a
-//! full read would leave entries for paths the full read no longer mentions, and
-//! the artefact would stop being a function of the corpus — which is exactly
-//! what makes a from-scratch run the baseline a parity check can stand on.
+//! ⚠ **A fold with carried state, which is the bug family this repo has already paid
+//! for.** The rule that keeps it right: a FULL mine builds from empty, a RESUMED
+//! mine loads and absorbs the tail. Absorbing onto a stale map after a full read
+//! would leave entries for paths the full read no longer mentions, and the artefact
+//! would stop being a function of the corpus.
 
 use std::collections::BTreeMap;
 use std::path::Path;

@@ -269,12 +269,6 @@ fn print_pattern(pattern: &Word) -> String {
     }
 }
 
-/// Put a keyword after a command list, with the separator the list has earned.
-///
-/// ⚠ **A `&` already terminates its list, so no `;` may follow it.** Bash
-/// accepts `if a; then b & fi` and refuses `if a; then b & ; fi` — measured —
-/// and the same is true of every `do … done`. Shared rather than repeated,
-/// because it was written out three times and got the loops wrong.
 /// An arithmetic expression, parenthesised wherever the tree says something the
 /// bare spelling would not.
 ///
@@ -452,6 +446,12 @@ fn spans_lines(list: &str) -> bool {
     list.contains('\n')
 }
 
+/// Put a keyword after a command list, with the separator the list has earned.
+///
+/// ⚠ **A `&` already terminates its list, so no `;` may follow it.** Bash
+/// accepts `if a; then b & fi` and refuses `if a; then b & ; fi` — measured —
+/// and the same is true of every `do … done`. Shared rather than repeated,
+/// because it was written out three times and got the loops wrong.
 fn follow(list: &str, keyword: &str) -> String {
     let separator = if spans_lines(list) {
         "\n"

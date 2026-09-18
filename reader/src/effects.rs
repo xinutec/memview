@@ -1,38 +1,33 @@
 //! What each turn actually did to which file, with the command that did it.
 //!
-//! [`crate::doing`] answers *what was this agent working on, and when* — one row
-//! per kind of work in a turn, which is the right grain for a timeline. This
-//! answers the question a reader asks next, standing on one of those rows: **which
-//! files, and how do you know?** One row per file use, each carrying the command
-//! it came from.
+//! [`crate::doing`] answers *what was this agent working on, and when* — one row per
+//! kind of work in a turn, the right grain for a timeline. This answers the question
+//! a reader asks next, standing on one of those rows: **which files, and how do you
+//! know?** One row per file use, each carrying the command it came from.
 //!
 //! ⚠ **A derived artefact keyed to the timeline, not a mirror of the history.**
-//! `scripts/sync.sh` removed a mined `history.json` for two reasons, and only one
-//! of them was privacy — Pippijn settled that (*"Isis should be trusted.
-//! Everything can go there."*), so the command text travels in full. The
-//! other reason stands on its own: memview is for reading the memory documents
-//! well, and a viewer that also served the literal history made the corpus depend
-//! on the transcripts instead of distilling them. So a command travels **because
-//! a claim needs the command it rests on**, never so the history can be browsed.
-//! Nothing here is keyed by session or ordered as a conversation.
+//! `scripts/sync.sh` removed a mined `history.json` for two reasons, and only one of
+//! them was privacy — Pippijn settled that, so the command text travels in full. The
+//! other reason stands on its own: memview is for reading the memory documents well,
+//! and a viewer that also served the literal history made the corpus depend on the
+//! transcripts instead of distilling them. So a command travels **because a claim
+//! needs the command it rests on**, never so the history can be browsed. Nothing
+//! here is keyed by session or ordered as a conversation.
 //!
-//! ⚠ **`doing.json` does not change.** A row here carries `(agent, minute)`
-//! itself, which is the key a timeline row already has, so opening a turn is a
-//! filter rather than a join and no published format is touched.
+//! ⚠ **`doing.json` does not change.** A row here carries `(agent, minute)` itself,
+//! which is the key a timeline row already has, so opening a turn is a filter rather
+//! than a join and no published format is touched.
 //!
 //! # Why the dictionaries, and why the command is in one
 //!
-//! Measured over 120,427 Bash calls: the text of every distinct *whole call* is
-//! 41.5 MB, which is most of an artefact by itself. But an effect does not rest
-//! on a whole call — it rests on the one simple command inside it that touched
-//! the file, and **most simple commands touch nothing**. A `cd`, an `echo`, a
-//! bare `head` at the end of a pipe never appears in a row, so its text is never
-//! stored. The dictionary of commands that do bear an effect is **9.7 MB over
-//! 127,028 entries** (memview#93).
+//! The text of every distinct *whole call* in the corpus is tens of megabytes, which
+//! is most of an artefact by itself. But an effect does not rest on a whole call —
+//! it rests on the one simple command inside it that touched the file, and **most
+//! simple commands touch nothing**. A `cd`, an `echo`, a bare `head` at the end of a
+//! pipe never appears in a row, so its text is never stored (memview#93).
 //!
-//! That is a saving from *relevance*, not from deduplication: simple commands
-//! dedupe worse than whole calls do — 275,892 distinct against 115,578 — because
-//! unrolling a loop multiplies them.
+//! That is a saving from *relevance*, not from deduplication: simple commands dedupe
+//! worse than whole calls do, because unrolling a loop multiplies them.
 
 use std::collections::BTreeMap;
 

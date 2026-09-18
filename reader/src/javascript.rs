@@ -1,32 +1,28 @@
 //! The JavaScript Claude has actually written, and nothing more.
 //!
-//! A third language after the shell and Python, and it is here for the same
-//! reason both of those are: the work is invisible without it. Measured over the
-//! union corpus, **11,748 Bash calls mention a JavaScript runtime
-//! and 3,824 carry a program in a flag** — and inside them are 1,790
-//! `readFileSync` calls, 214 `writeFileSync`, 1,909 `require` and 670 `import`,
-//! every one a file an agent touched that no `Read`, no `Write` and no `sed`
-//! recorded. The sniffed heredoc census agrees from the other side: TypeScript
-//! or JavaScript is the largest carried language at 1,445 bodies and 2.0 MB.
+//! A third language after the shell and Python, and it is here for the same reason
+//! both of those are: the work is invisible without it. Thousands of Bash calls
+//! mention a JavaScript runtime and carry a program in a flag, and inside them are
+//! the `readFileSync`, `writeFileSync`, `require` and `import` calls that touched
+//! files no `Read`, no `Write` and no `sed` recorded. The sniffed heredoc census
+//! agrees from the other side: TypeScript or JavaScript is the largest carried
+//! language by body count and by bytes.
 //!
 //! ⚠ **This corrects a ranking, and the older one is worth keeping in view.**
-//! `docs/reader.md` listed `node -e` under "not done — a query tool, not an
-//! editor", on a count of 724 calls with 23 writes. That was `node -e` alone and
-//! by distinct payload; it missed the heredocs, the `--input-type=module`
-//! shape, and every read. Reads are most of what a projection is for, so the
-//! decision moved when the denominator did.
+//! `docs/reader.md` listed `node -e` under "not done — a query tool, not an editor",
+//! counting `node -e` alone and by distinct payload. It missed the heredocs, the
+//! `--input-type=module` shape, and every read. Reads are most of what a projection
+//! is for, so the decision moved when the denominator did.
 //!
-//! Built like [`crate::python`]: a grammar (`javascript.pest`) for the syntax,
-//! this module for the meaning, and a report — `cargo run --bin
-//! javascript-report` — ranking the calls it could not read, which is what
-//! decides what to teach it next.
+//! Built like [`crate::python`]: a grammar (`javascript.pest`) for the syntax, this
+//! module for the meaning, and `cargo run --bin javascript-report` ranking the calls
+//! it could not read.
 //!
-//! **It is not an interpreter.** It evaluates nothing, imports nothing and
-//! follows no control flow. What it cannot resolve to a literal it counts and
-//! drops — an unread call is an undercount, an invented path is a lie.
+//! **It is not an interpreter.** It evaluates nothing, imports nothing and follows no
+//! control flow. What it cannot resolve to a literal it counts and drops.
 //!
-//! The one variable it trusts is a name bound exactly once to a literal, the
-//! same rule and the same reason as the Python reader:
+//! The one variable it trusts is a name bound exactly once to a literal, the same
+//! rule and the same reason as the Python reader:
 //!
 //! ```javascript
 //! const p = "src/geo/velocity.ts";
@@ -34,12 +30,12 @@
 //! fs.writeFileSync(p, s.replace("a", "b"));
 //! ```
 //!
-//! A name bound twice, bound to anything computed, or bound by a pattern, a
-//! `for` or a `catch` is not a constant.
+//! A name bound twice, bound to anything computed, or bound by a pattern, a `for` or
+//! a `catch` is not a constant.
 //!
-//! ⚠ **A template literal with a `${…}` in it is computed**, exactly as an
-//! f-string is, and is recorded as unresolved rather than guessed at. A template
-//! with no substitution is an ordinary string, because that is all it is.
+//! ⚠ **A template literal with a `${…}` in it is computed**, exactly as an f-string
+//! is, and is recorded as unresolved rather than guessed at. A template with no
+//! substitution is an ordinary string.
 
 use std::collections::{BTreeMap, BTreeSet};
 

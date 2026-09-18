@@ -1,21 +1,20 @@
 //! What the fleet's SQL did, in tables.
 //!
-//! The third carried language, and the first that names something other than a
-//! file. `python.rs` and `javascript.rs` answer "which paths did this touch";
-//! this answers "which tables did this read, and which did it change" — a
-//! different kind of subject, kept in a different field for that reason.
+//! The third carried language, and the first that names something other than a file.
+//! `python.rs` and `javascript.rs` answer "which paths did this touch"; this answers
+//! "which tables did this read, and which did it change" — a different kind of
+//! subject, kept in a different field for that reason.
 //!
-//! ⚠ **It contributes NOTHING to any file count, and that is a measurement
-//! rather than a simplification.** Over 5,727 corpus commands carrying a SQL
-//! client there is not one `INTO OUTFILE`, not one `LOAD DATA INFILE`, and not
-//! one sqlite `.read`/`.output`/`.dump`. The forms are read anyway — a rule
-//! apiece against a silent write — but a table is not a file and folding the two
-//! together would inflate the figure the whole reader is judged on.
+//! ⚠ **It contributes NOTHING to any file count, and that is a measurement rather
+//! than a simplification.** Across the corpus's SQL-client commands there is not one
+//! `INTO OUTFILE`, not one `LOAD DATA INFILE`, and not one sqlite
+//! `.read`/`.output`/`.dump`. The forms are read anyway — a rule apiece against a
+//! silent write — but a table is not a file.
 //!
-//! ⚠ **The direction of a table is decided by the VERB, never by the clause it
-//! sits in.** `SELECT … FROM x` reads `x`; `DELETE FROM x` changes it. A reader
-//! that mapped `FROM` to "read" would report every deletion in the corpus as a
-//! read of the table it emptied.
+//! ⚠ **The direction of a table is decided by the VERB, never by the clause it sits
+//! in.** `SELECT … FROM x` reads `x`; `DELETE FROM x` changes it. A reader that
+//! mapped `FROM` to "read" would report every deletion in the corpus as a read of
+//! the table it emptied.
 
 use std::collections::BTreeMap;
 

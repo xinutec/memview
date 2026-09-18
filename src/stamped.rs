@@ -1,19 +1,16 @@
 //! A memory whose content changed while its `modified:` stamp did not.
 //!
-//! ⚠ **`memory-lint`'s `missing-modified` cannot see this.** That rule asks
-//! whether a stamp EXISTS; this asks whether it MOVED. A memory edited by
-//! `sed`, a python script or any tool that is not Edit/Write keeps a stamp
-//! describing a version that no longer exists — and the stamp is what recall's
-//! age banner reads, so the memory then claims to be fresher than its content
-//! (`reference_modified_stamp_is_not_the_file_mtime`).
+//! ⚠ **`memory-lint`'s `missing-modified` cannot see this.** That rule asks whether a
+//! stamp EXISTS; this asks whether it MOVED. A memory edited by `sed`, a python
+//! script or any tool that is not Edit/Write keeps a stamp describing a version that
+//! no longer exists — and the stamp is what recall's age banner reads, so the memory
+//! then claims to be fresher than its content.
 //!
-//! ⚠ **A DIFF, not the filesystem and not git.** mtime was considered and is
-//! ruled out by that same memory: it is a property of the filesystem rather than
-//! of the corpus and misfires on any synced or restored copy. And git is ruled
-//! out inside a hook — a pre-commit hook exports `GIT_DIR` to every child, so a
-//! binary running `git -C <other repo>` writes into the COMMITTING repo instead
-//! (`reference_a_git_hook_exports_its_repo_to_every_child`). Reading a unified
-//! diff on stdin needs neither.
+//! ⚠ **A DIFF, not the filesystem and not git.** mtime is a property of the
+//! filesystem rather than of the corpus and misfires on any synced or restored copy.
+//! And git is ruled out inside a hook, which exports `GIT_DIR` to every child, so a
+//! binary running `git -C <other repo>` writes into the COMMITTING repo instead.
+//! Reading a unified diff on stdin needs neither.
 
 /// The stamp line, as the corpus writes it in frontmatter.
 const STAMP: &str = "modified:";
@@ -39,18 +36,16 @@ impl Missing {
 
 /// What a memory's frontmatter does not say about its own provenance.
 ///
-/// ⚠ **Frontmatter only**, for the reason the rest of this module gives: a
-/// `modified:` in the body is prose and not a stamp.
+/// ⚠ **Frontmatter only**: a `modified:` in the body is prose and not a stamp.
 ///
-/// ⚠ **BOTH fields, because asking only about the stamp made `memory-stamp`
-/// blind to the field it exists to recover** (memview#1499). Measured: every
-/// memory carried a `modified:` while a handful carried no `originSessionId`,
-/// so every one of those gaps had a stamp, none was returned, and the tool
-/// reported "every memory carries a stamp" over them.
+/// ⚠ **BOTH fields, because asking only about the stamp made `memory-stamp` blind to
+/// the field it exists to recover** (memview#1499). Every memory carried a
+/// `modified:` while a handful carried no `originSessionId`, so every one of those
+/// gaps had a stamp, none was returned, and the tool reported "every memory carries
+/// a stamp" over them.
 ///
-/// ⚠ **In the library rather than the bin, so a test can reach it.** That
-/// defect survived as long as it did because it lived in a `bin` — the same
-/// argument `memory-lint`'s SETTLE constant already makes against itself.
+/// ⚠ **In the library rather than the bin, so a test can reach it.** That defect
+/// survived as long as it did because it lived in a `bin`.
 pub fn missing(raw: &str) -> Missing {
     let front = raw.split("\n---").next().unwrap_or_default();
     Missing {
@@ -59,13 +54,12 @@ pub fn missing(raw: &str) -> Missing {
     }
 }
 
-/// What a diff says about stamps: which memories went stale, and which files
-/// could not be judged at all.
+/// What a diff says about stamps: which memories went stale, and which files could
+/// not be judged at all.
 ///
-/// Two lists rather than one, because they call for different words from the
-/// caller — the first is the author's mistake, the second is this tool failing
-/// to do its job, and collapsing them would let the second pass as "nothing
-/// wrong".
+/// Two lists rather than one, because they call for different words from the caller —
+/// the first is the author's mistake, the second is this tool failing to do its job,
+/// and collapsing them would let the second pass as "nothing wrong".
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Stale {
     /// Memories whose body moved while their `modified:` did not.

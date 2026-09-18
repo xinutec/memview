@@ -2,13 +2,13 @@
 //!
 //! ⚠ **`.parse().ok().unwrap_or(default)` makes `--half-life bogus` produce output
 //! BYTE-IDENTICAL to passing no flag** — the flag is accepted and its value thrown
-//! away. `memory-rank` and `memory-tiers` produce the figures quoted in task
-//! bodies, so that is a wrong measurement rather than a wrong run.
+//! away. `memory-rank` and `memory-tiers` produce the figures quoted in task bodies,
+//! so that is a wrong measurement rather than a wrong run.
 //!
 //! ⚠ **Absent and unusable are DIFFERENT.** No flag means "the default is what I
-//! want" and stays silent; a missing or unparseable value means the caller asked
-//! for something the tool cannot do, and falling back is how they come to believe
-//! a number nobody computed.
+//! want" and stays silent; a missing or unparseable value means the caller asked for
+//! something the tool cannot do, and falling back is how they come to believe a
+//! number nobody computed.
 
 use std::str::FromStr;
 

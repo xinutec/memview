@@ -1,34 +1,29 @@
 //! The mined artefacts, brought up to date at the moment they are read.
 //!
-//! ⚠ **A cache nobody refreshes is a cache that lies, and every reader here
-//! handled that differently.** Before this existed: `memory-rank` REFUSED when
-//! the artefacts were stale and told you to spend 4m31 re-mining, `memory-tiers`
-//! disclosed the staleness and used the old numbers anyway, and
-//! `demotion-study`, `memory-blame` and the viewer API did not look. Three
-//! answers to one question, none of them "be up to date".
+//! ⚠ **A cache nobody refreshes is a cache that lies, and every reader here handled
+//! that differently.** Before this existed: `memory-rank` REFUSED when the artefacts
+//! were stale and told you to re-mine, `memory-tiers` disclosed the staleness and
+//! used the old numbers anyway, and `demotion-study`, `memory-blame` and the viewer
+//! API did not look. Three answers to one question, none of them "be up to date".
 //!
-//! ⚠ **The point is not that the nightly gets faster.** The nightly is ~9
-//! minutes, unattended, and nobody waits for it. The point is that catching up
-//! now costs about **9 seconds**, which is cheap enough to do before answering
-//! rather than to warn about. That is what makes `--stale-ok` and the refusal in
-//! `memory-rank` unnecessary.
+//! ⚠ **The point is not that the nightly gets faster.** The nightly is unattended and
+//! nobody waits for it. The point is that catching up now costs seconds, which is
+//! cheap enough to do before answering rather than to warn about.
 //!
-//! ⚠ **The nightly stays a FULL rebuild on purpose.** A resumed run is only ever
-//! as correct as the chain of resumes behind it; a from-scratch mine is the
-//! thing that repairs any drift the chain accumulates, and it is the baseline
-//! every parity check is measured against.
+//! ⚠ **The nightly stays a FULL rebuild on purpose.** A resumed run is only ever as
+//! correct as the chain of resumes behind it; a from-scratch mine repairs any drift
+//! the chain accumulates, and it is the baseline every parity check is measured
+//! against.
 //!
-//! ⚠ **A reader here NEVER WRITES, and that is the point.** Only `bin/agents`
-//! owns the artefacts. A reader that wrote them would be a second writer racing
-//! every other session — but worse, it could not then skip any work, because
-//! writing a partially-computed artefact corrupts it. Staying read-only is what
-//! lets a caller say [`Needs::MEMORIES`] and not pay 4.4s of git walk for
-//! numbers it never looks at.
+//! ⚠ **A reader here NEVER WRITES.** Only `bin/agents` owns the artefacts. A reader
+//! that wrote them would be a second writer racing every other session — and worse,
+//! it could not then skip any work, because writing a partially-computed artefact
+//! corrupts it. Staying read-only is what lets a caller say [`Needs::MEMORIES`] and
+//! not pay for a git walk it never looks at.
 //!
-//! ⚠ **So each reader catches up from the last MINE, not from the last reader.**
-//! Measured: the corpus grows about 1 MB per eight minutes, so a full
-//! day of drift is a few hundred MB of tails — seconds, not minutes. Cheaper
-//! than the coordination a shared writable cache would need.
+//! ⚠ **So each reader catches up from the last MINE, not from the last reader.** The
+//! corpus grows slowly enough that a full day of drift is seconds of tails, which is
+//! cheaper than the coordination a shared writable cache would need.
 
 use anyhow::Result;
 
@@ -67,18 +62,15 @@ impl Where {
 
 /// The effects — who last touched which file — current as of now.
 ///
-/// ⚠ **This one DOES carry `effects.json`**, because the question is "who wrote
-/// this path, ever", not "what happened lately". [`mined`] deliberately does not,
-/// and the difference is the whole reason both exist: a memory tool wants a fold
-/// over the corpus, this wants the corpus.
-///
-/// Still writes nothing. Costs the 70 MB parse plus whatever grew.
+/// ⚠ **This one DOES carry `effects.json`**, because the question is "who wrote this
+/// path, ever", not "what happened lately". [`mined`] deliberately does not, and the
+/// difference is the whole reason both exist: a memory tool wants a fold over the
+/// corpus, this wants the corpus. Still writes nothing.
 pub fn effects(at: &Where) -> Result<reader::effects::Effects> {
-    // ⚠ **Refuse rather than answer from nothing.** Without the carried artefact
-    // a resumed scan sees only what grew, so "who last wrote this path" would be
-    // answered from a few minutes of history and read as "nobody" — a check that
-    // reports all-clear because it has no evidence, which is worse than one that
-    // does not run.
+    // ⚠ **Refuse rather than answer from nothing.** Without the carried artefact a
+    // resumed scan sees only what grew, so "who last wrote this path" would be answered
+    // from a few minutes of history and read as "nobody" — a check that reports
+    // all-clear because it has no evidence.
     anyhow::ensure!(
         reader::home::cache("effects.json").exists(),
         "no effects.json on this machine — it is an export the nightly builds and \
