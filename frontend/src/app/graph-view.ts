@@ -37,6 +37,7 @@ import {
   panDelta,
   planLabels,
   project,
+  regionLabels,
   sectionColour,
   stepLayout,
 } from './graph-layout';
@@ -290,8 +291,12 @@ export class GraphView {
       // not drawn here.
       graph: { ...graph, nodes, edges, affinities: [] },
       size: new Map(groups.nodes.map((g) => [g.core, g.members.length])),
-      // Called by its region, not by the core memory it stands on.
-      label: new Map(groups.nodes.map((g) => [g.core, g.key])),
+      // Called by its region, not by the core memory it stands on, and by the
+      // region's SHORT name where its family is on screen — see `regionLabels`.
+      label: (() => {
+        const shown = regionLabels(groups.nodes.map((g) => g.key));
+        return new Map(groups.nodes.map((g) => [g.core, shown.get(g.key) ?? g.key]));
+      })(),
       derived: new Set(
         groups.nodes
           .filter((g) => g.key.startsWith(DERIVED_PREFIX))

@@ -1321,6 +1321,36 @@ export function groupGraph(
 export const DERIVED_PREFIX = 'derived: ';
 
 /**
+ * What MEMORY.md puts between a section and its refinement: `Rules — code & verify`.
+ */
+const SECTION_SPLIT = ' — ';
+
+/**
+ * What to call each region on screen, keyed by the region's own key.
+ *
+ * A heading is written once in MEMORY.md, where it sits above its list and is
+ * read in isolation. On the overview five of the `Rules` family are adjacent
+ * dots, and at label size the shared `Rules — ` is most of the characters in
+ * four of them — so even when two are drawn the eye cannot tell which is which.
+ *
+ * ⚠ **Shortened only when the parent is a region of its own.** Then the family
+ * still reads as one — `Rules` beside `code & verify` — and the context the
+ * prefix carried is on screen rather than deleted. A heading whose parent is not
+ * drawn keeps its full name, because nothing else would supply it.
+ */
+export function regionLabels(keys: readonly string[]): Map<string, string> {
+  const all = new Set(keys);
+  const labels = new Map<string, string>();
+  for (const key of keys) {
+    const at = key.indexOf(SECTION_SPLIT);
+    const parent = key.slice(0, at);
+    const rest = key.slice(at + SECTION_SPLIT.length);
+    labels.set(key, at > 0 && rest !== '' && all.has(parent) ? rest : key);
+  }
+  return labels;
+}
+
+/**
  * Where each memory belongs in the overview: the authored section if it has one,
  * otherwise the derived cluster it fell into.
  *

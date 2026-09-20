@@ -14,6 +14,7 @@ import {
   frameFor,
   groupGraph,
   hybridGroups,
+  regionLabels,
   LABEL_BUDGET,
   LabelCandidate,
   LayoutInput,
@@ -892,6 +893,59 @@ describe('affinities', () => {
     // must not widen it. Strict inequality would demand the pull win against a
     // settled link, which is not the claim — the claim is only "never apart".
     expect(linkAndAffinity).toBeLessThanOrEqual(linkAlone * 1.001);
+  });
+});
+
+describe('regionLabels', () => {
+  // The real family, verbatim from MEMORY.md — five headings, four of them
+  // sharing a prefix that is most of the characters at label size.
+  const RULES = [
+    'Rules',
+    'Rules — code & verify',
+    'Rules — commits & git',
+    'Rules — deploy & infra ops',
+    'Rules — Angular/UI & health',
+  ];
+
+  it('drops the shared prefix from a heading whose parent is also a region', () => {
+    const of = regionLabels(RULES);
+    expect(of.get('Rules — code & verify')).toBe('code & verify');
+    expect(of.get('Rules — commits & git')).toBe('commits & git');
+    // The parent keeps its own name: there is nothing to take off it.
+    expect(of.get('Rules')).toBe('Rules');
+  });
+
+  it('leaves no label a prefix of another, which is the whole point', () => {
+    // ⚠ **Not set-distinctness.** `Rules` and `Rules — code & verify` are
+    // already distinct STRINGS, so a uniqueness check passes on the unshortened
+    // names and proves nothing — measured by ablation. What the eye cannot do at
+    // label size is split two names that begin the same way.
+    const drawn = [...regionLabels(RULES).values()];
+    for (const one of drawn) {
+      for (const other of drawn) {
+        if (one === other) continue;
+        expect(other.startsWith(one), `${other} still opens with ${one}`).toBe(false);
+      }
+    }
+  });
+
+  it('keeps the full heading when the parent is not on screen', () => {
+    // Nothing else would supply the context, so shortening here would lose it
+    // rather than move it.
+    const of = regionLabels(['Rules — code & verify', 'memview']);
+    expect(of.get('Rules — code & verify')).toBe('Rules — code & verify');
+  });
+
+  it('leaves a heading that merely contains the separator alone', () => {
+    const of = regionLabels(['Medical case file (dicom-scan)', 'Tool & API quirks']);
+    expect(of.get('Tool & API quirks')).toBe('Tool & API quirks');
+  });
+
+  it('does not shorten a derived group against an authored parent', () => {
+    // A derived key is `derived: <core memory>`; its parent is never a region,
+    // so the guard is what keeps the two kinds of name from interfering.
+    const of = regionLabels([`${DERIVED_PREFIX}feedback_x`, 'Rules']);
+    expect(of.get(`${DERIVED_PREFIX}feedback_x`)).toBe(`${DERIVED_PREFIX}feedback_x`);
   });
 });
 

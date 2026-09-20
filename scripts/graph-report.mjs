@@ -361,7 +361,10 @@ const overviewReport = (() => {
   const oZoom = layout.fitZoom(layout.boundingRadius(oState), WIDTH, HEIGHT);
   const oCam = { yaw: 0.6, pitch: 0.35, distance: 900, zoom: oZoom, target: { x: 0, y: 0, z: 0 } };
   const size = new Map(overview.nodes.map((g) => [g.core, g.members.length]));
-  const label = new Map(overview.nodes.map((g) => [g.core, g.key]));
+  // Short where the family is on screen, as the view draws it — the same
+  // `regionLabels` call, so the two cannot model different pictures.
+  const shown = layout.regionLabels(overview.nodes.map((g) => g.key));
+  const label = new Map(overview.nodes.map((g) => [g.core, shown.get(g.key) ?? g.key]));
   const oCand = oState.nodes.map((nd) => {
     const p = layout.project(nd.pos, oCam, WIDTH, HEIGHT);
     return {
