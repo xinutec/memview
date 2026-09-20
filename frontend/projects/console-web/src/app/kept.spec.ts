@@ -89,14 +89,6 @@ describe('Kept', () => {
     expect(await store.entries('s3')).toEqual([said('ok')]);
   });
 
-  it('forgets a conversation on request', async () => {
-    const { store } = kept();
-    store.keepNow('s1', [said('hello')]);
-    await settled(store, 's1', 1);
-    await store.forget('s1');
-    expect(await store.entries('s1')).toEqual([]);
-  });
-
   /**
    * ⚠ **A transcript is this phone's copy and must not reach another device.**
    * It is kept in [[Local]], which has no sync of any kind — where the draft it

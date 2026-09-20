@@ -67,11 +67,6 @@ export class Kept {
   private async write(id: string, entries: Entry[]): Promise<void> {
     await this.store.set(`kept-${id}`, { entries: entries.slice(-Kept.ENTRIES) });
   }
-
-  /** Throw away what was kept — for a conversation that is gone. */
-  async forget(id: string): Promise<void> {
-    await this.store.delete(`kept-${id}`);
-  }
 }
 
 const text = (value: object): boolean => 'text' in value && typeof value.text === 'string';

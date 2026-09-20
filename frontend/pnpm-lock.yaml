@@ -45,9 +45,6 @@ importers:
       '@xinutec/ui-harness':
         specifier: github:xinutec/ui-harness#fd31cb2613875bb3ba4f429a66cdacff8077b2f1
         version: https://codeload.github.com/xinutec/ui-harness/tar.gz/fd31cb2613875bb3ba4f429a66cdacff8077b2f1(@playwright/test@1.61.1)
-      dexie:
-        specifier: ^4.4.6
-        version: 4.4.6
       marked:
         specifier: ^18.0.7
         version: 18.0.7
@@ -1757,9 +1754,6 @@ packages:
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
-
-  dexie@4.4.6:
-    resolution: {integrity: sha512-hJP/BO6mjB+tX6hToIO1kmxYLNmun90wYbfcoAoLpKEyDYal/k33dg0TAfoUe2TDsbbLoVIzljJ3BN2UbR5EOg==}
 
   dom-serializer@2.0.0:
     resolution: {integrity: sha512-wIkAryiqt/nV5EQKqQpo3SToSOV9J0DnbJqwK7Wv/Trc92zIAYZ4FlMu+JPFW1DfGFt81ZTCGgDEabffXeLyJg==}
@@ -4610,8 +4604,6 @@ snapshots:
 
   detect-libc@2.1.2:
     optional: true
-
-  dexie@4.4.6: {}
 
   dom-serializer@2.0.0:
     dependencies:

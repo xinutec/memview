@@ -5,12 +5,12 @@ import { start, CONVERSATIONS, type Runner } from './runner';
 /**
  * Two devices, one runner, a real draft crossing between them.
  *
- * ⚠ **This is the only test in the repo where the Rust runner and the RxDB
- * client meet.** `console/tests/suite/drafts.rs` drives the protocol with
- * documents Rust wrote; `drafts.spec.ts` drives the client against a `vi.fn()`
- * answering what TypeScript expects. Both pass while the two disagree about the
- * wire — which is how four sync defects reached the phone, each found by hand
- * with two browsers and none by a test.
+ * ⚠ **This is the only test in the repo where the Rust runner and a real
+ * browser meet.** `console/tests/suite/drafts.rs` merges documents Rust wrote;
+ * `drafts.spec.ts` drives the client against a `vi.fn()` answering what
+ * TypeScript expects. Both pass while the two disagree about the wire — which is
+ * how four sync defects reached the phone, each found by hand with two browsers
+ * and none by a test.
  *
  * The composer is the subject, not the API: a draft that syncs but never reaches
  * the box is the defect that opening a conversation CLEARED it, which no
@@ -241,12 +241,12 @@ test('a device that is only watching is never asked about words it did not write
   // merely open. Under the old protocol the watcher republished what it had just
   // received, against a master the typist had already moved past.
   const talk = CONVERSATIONS[5];
-  const clashes: string[] = [];
+  const complaints: string[] = [];
   const typist = await device(browser, `/s/${talk}`);
   const watcher = await device(browser, `/s/${talk}`);
   for (const page of [typist, watcher]) {
     page.on('console', (message) => {
-      if (message.text().includes('draft sync:')) clashes.push(message.text());
+      if (message.text().includes('draft sync:')) complaints.push(message.text());
     });
   }
 
@@ -259,7 +259,7 @@ test('a device that is only watching is never asked about words it did not write
   }
   await runnerHolds(talk, 'one two th');
   await expect(box(watcher)).toHaveValue('one two th', { timeout: 20_000 });
-  expect(clashes, `the sync complained:\n${clashes.join('\n')}`).toEqual([]);
+  expect(complaints, `the sync complained:\n${complaints.join('\n')}`).toEqual([]);
 });
 
 test('a long message typed straight through arrives whole', async ({ browser }) => {
