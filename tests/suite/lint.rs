@@ -752,3 +752,27 @@ fn a_tripwire_whose_line_states_no_claim_is_reported_and_a_pointers_is_not() {
     // clause of four words; and the pointer is left alone by design.
     assert_eq!(flagged, vec!["mute_trip".to_string()]);
 }
+
+#[test]
+fn a_duplicate_key_is_reported_as_an_unparsable_frontmatter_not_a_missing_field() {
+    // The whole frontmatter is defaulted when it does not parse, so EVERY field
+    // rule fires on a file that states the field perfectly well. Two of Pippijn's
+    // memories sat flagged `missing-description` for a day with descriptions in
+    // them; serde_yaml had rejected a second `modified:` a stamping hook appended
+    // (reference_an_api_error_can_blame_the_wrong_field).
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("MEMORY.md"), "# Memory index\n").expect("write index");
+    std::fs::write(
+        dir.path().join("project_dup.md"),
+        "---\nname: project_dup\ndescription: a description the duplicate key hides\n\
+         metadata:\n  modified: 2026-09-20T09:00:00.000Z\n  type: project\n  \
+         modified: 2026-09-11T08:40:00.000Z\n---\n\nBody.\n",
+    )
+    .expect("write memory");
+    let corpus = Corpus::load(dir.path()).expect("loads");
+
+    assert_eq!(findings(&corpus, "unparsable-frontmatter"), ["project_dup"]);
+    // The consequence rules must stay SILENT: reporting both names the wrong
+    // repair, which is how this cost a day.
+    assert!(findings(&corpus, "missing-description").is_empty());
+}

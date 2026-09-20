@@ -114,6 +114,15 @@ const RULES: &[(&str, Severity, &str)] = &[
         "the description is what recall reads to decide relevance; without one the memory is invisible",
     ),
     (
+        // Reported INSTEAD OF the field rules, not alongside them: when the frontmatter
+        // did not parse, every field is a default and every field rule would accuse the
+        // wrong thing. A duplicate `modified:` is the way this happens in practice.
+        "unparsable-frontmatter",
+        Severity::Error,
+        "the frontmatter did not parse, so every field below it reads as ABSENT — \
+         recall sees no description and no type, whatever the file says",
+    ),
+    (
         // Presence only, not accuracy. Do not rebuild this on mtime: most files
         // disagree with their own stamp by days (#1219). The message names a repair
         // tool; do NOT let that become an auto-fix — this failing is the only visible
@@ -348,7 +357,9 @@ pub fn check(
         if name.chars().any(char::is_uppercase) {
             push("uppercase-filename", name, format!("{name}.md"));
         }
-        if doc.meta.description.trim().is_empty() {
+        if let Some(err) = &doc.frontmatter_error {
+            push("unparsable-frontmatter", name, err.clone());
+        } else if doc.meta.description.trim().is_empty() {
             push("missing-description", name, "no description".to_string());
         }
         if frontmatter_value(&doc.raw, "modified").is_none() {

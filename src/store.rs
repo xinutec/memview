@@ -82,6 +82,9 @@ pub struct MemoryDoc {
     pub links: Vec<Wikilink>,
     /// The file exactly as written, so linting can see what the frontmatter SAYS.
     pub raw: String,
+    /// Why the frontmatter did not parse, when it did not. `Some` means every field
+    /// below is a DEFAULT rather than what the file says.
+    pub frontmatter_error: Option<String>,
     /// The session that wrote this memory, if it declares one. Deliberately NOT on
     /// [`MemoryMeta`], which is serialised into every list and graph node a
     /// share-link recipient may read; resolving a session to its agent is what
@@ -134,8 +137,17 @@ impl Corpus {
             }
             let name = fname.trim_end_matches(".md").to_string();
             let (yaml, body) = split_frontmatter(&text);
+            // A parse failure must not read as an ABSENT field. serde_yaml rejects a
+            // duplicate key, so one stray second `modified:` used to blank the whole
+            // frontmatter and `memory-lint` then reported "no description" — the wrong
+            // field and the wrong layer. Keep the default so one bad file cannot hide a
+            // memory, but carry the error so linting can name the real cause.
+            let mut frontmatter_error = None;
             let fm: Frontmatter = match yaml {
-                Some(y) => serde_yaml::from_str(y).unwrap_or_default(),
+                Some(y) => serde_yaml::from_str(y).unwrap_or_else(|e| {
+                    frontmatter_error = Some(e.to_string());
+                    Frontmatter::default()
+                }),
                 None => Frontmatter::default(),
             };
             let meta = fm.metadata.unwrap_or_default();
@@ -188,6 +200,7 @@ impl Corpus {
                     links: wikilinks(body),
                     body: body.to_string(),
                     raw: text.clone(),
+                    frontmatter_error,
                     origin_session,
                 },
             );
