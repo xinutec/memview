@@ -13,11 +13,8 @@
  * crashed on an unfamiliar event would turn every new variant into an outage.
  * The check belongs at build time, where the person who added the variant is;
  * at run time the honest thing is to carry on and draw what is understood.
- *
- * So: passing anything but `never` is a compile error, and running it is a no-op.
  */
 export function unhandled(variant: never): void {
-  // Read once so the parameter is used, and never otherwise: `never` has no
-  // members, so there is nothing here to do with it.
+  // Read only so the parameter counts as used; `never` has no members.
   void variant;
 }

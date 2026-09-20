@@ -18,3 +18,10 @@ node_modules/
 # build stamp, which is a fact about a build and not about the source.
 frontend/src/app/build-info.ts
 frontend/projects/console-web/src/app/build-info.ts
+
+# ts-rs writes its exports INSIDE the crates, and `gen-types` reads them from
+# there — so they are scratch that appears after every generation and belongs to
+# nobody. Untracked they sat in `git status` for ever; worse, writing them
+# re-fingerprints the package, which costs the gate's rustdoc row ~12s (#1673).
+/console/bindings/
+/reader/bindings/
