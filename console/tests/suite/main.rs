@@ -20,6 +20,7 @@ mod orphan;
 mod paging;
 mod parse;
 mod past;
+mod peers;
 mod protocol;
 mod resume;
 mod serving;

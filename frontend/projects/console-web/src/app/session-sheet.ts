@@ -14,10 +14,7 @@ export interface Fact {
   readonly label: string;
   readonly value: string;
   readonly mono?: boolean;
-  /**
-   * Where the value came from, when it matters: the one fact that is not a fact,
-   * the sentence a model wrote.
-   */
+  /** Where the value came from, or what it disagrees with, when that matters. */
   readonly note?: string;
 }
 
@@ -55,6 +52,22 @@ export function factsOf(session: Summary, gist?: Details['gist']): Fact[] {
   if (mode) facts.push({ label: 'permission mode', value: mode });
   // What `--resume` takes — nowhere else in the console.
   facts.push({ label: 'session id', value: session.id, mono: true });
+  // The session's other address, and the only one another session can reach it
+  // by. Noted when it disagrees with the name on the card, which is what a
+  // rename leaves behind until the conversation is next resumed — see
+  // `Summary.peer_name`.
+  if (session.peer_name) {
+    const title = titleOf(session);
+    facts.push({
+      label: 'known to peers as',
+      value: session.peer_name,
+      mono: true,
+      note:
+        session.peer_name === title
+          ? undefined
+          : `this card says ${title}; a rename reaches here at the next resume`,
+    });
+  }
   // Absolute, where the list is relative.
   facts.push({ label: 'started', value: when(session.started * 1000) });
   if (session.touched) facts.push({ label: 'last active', value: when(session.touched) });

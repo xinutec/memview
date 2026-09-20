@@ -292,6 +292,17 @@ pub struct Summary {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub name: Option<String>,
+
+    /// What the OTHER sessions on this machine call this one — the name
+    /// `ListAgents` prints and `SendMessage` resolves. Not [`Self::name`], which is
+    /// the title in the transcript: only `-n` at spawn writes this one, so a
+    /// conversation renamed while it runs keeps the name its peers already knew
+    /// until it is next resumed. Shown so that gap is visible rather than
+    /// discovered by a session reporting that a name does not exist. Filled by the
+    /// roster; see [`crate::peers::named`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub peer_name: Option<String>,
     /// What the session may do without asking: `default`, `plan`, `dontAsk`,
     /// `acceptEdits`, `auto`, `bypassPermissions`. What the console SET, not what the
     /// transcript says — a resumed session carries the previous session's mode
@@ -1711,6 +1722,7 @@ impl Session {
             asked: state.asked.clone(),
             // Filled in by the roster, which knows where the transcripts are.
             name: None,
+            peer_name: None,
             waiting: state.pending.len(),
             unread: state.unread.len(),
             deaf: deaf_for(&state).map(|ms| (ms / 1000) as u64),

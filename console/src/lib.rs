@@ -16,6 +16,7 @@ pub mod marks;
 pub mod modes;
 pub mod parse;
 pub mod past;
+pub mod peers;
 pub mod protocol;
 pub mod roster;
 pub mod session;

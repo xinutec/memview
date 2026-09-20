@@ -568,6 +568,7 @@ impl Roster {
         // The name and the last-activity time are the transcript's, not the session's,
         // so the roster reads them here in one pass over the tail and metadata.
         let root = crate::past::projects_root();
+        let peers = crate::peers::sessions_root();
         let mut all: Vec<Summary> = sessions
             .values()
             .map(|session| {
@@ -579,6 +580,9 @@ impl Roster {
                     summary.touched = Some(about.touched);
                     summary.bytes = Some(about.bytes);
                 }
+                // The other name, read by pid rather than by conversation — it belongs to
+                // the process, not the transcript. See [`Summary::peer_name`].
+                summary.peer_name = crate::peers::named(&peers, session.pid());
                 summary
             })
             .collect();

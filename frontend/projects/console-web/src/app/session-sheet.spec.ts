@@ -24,8 +24,32 @@ const BARE: Summary = {
 const labels = (session: Summary): string[] => factsOf(session).map((fact) => fact.label);
 const value = (session: Summary, label: string): string | undefined =>
   factsOf(session).find((fact) => fact.label === label)?.value;
+const note = (session: Summary, label: string): string | undefined =>
+  factsOf(session).find((fact) => fact.label === label)?.note;
 
 describe('factsOf', () => {
+  it('says what other sessions reach it by', () => {
+    const session = { ...BARE, name: 'health', peer_name: 'health' };
+    expect(value(session, 'known to peers as')).toBe('health');
+    expect(note(session, 'known to peers as')).toBeUndefined();
+  });
+
+  it('says so when the name on the card is not the name that reaches it', () => {
+    // The state a rename leaves behind: the title is in the transcript at once,
+    // the peer name only at the next spawn. Every session in one directory
+    // derives the same `code-` and a hash, so without this the card claims a name
+    // nothing can address and gives no sign of it.
+    const session = { ...BARE, name: 'health', peer_name: 'code-a7' };
+    expect(value(session, 'known to peers as')).toBe('code-a7');
+    expect(note(session, 'known to peers as')).toContain('health');
+  });
+
+  it('leaves the fact out entirely when nothing knows the session', () => {
+    // A session the CLI has written no record for. Blank would read as "reachable
+    // as nothing", which is a different and wrong claim.
+    expect(labels(BARE)).not.toContain('known to peers as');
+  });
+
   it('says where it is running, in full', () => {
     // The whole point of the sheet: the header shows the session's name, and the
     // path it stands for has to be somewhere.

@@ -3001,6 +3001,11 @@ const NAMED = {
     {
       ...RUNNING,
       name: 'health',
+      // ⚠ **Deliberately NOT `health`.** The two names diverge the moment a
+      // conversation is renamed, because only a spawn writes the one its peers
+      // use — so the interesting render is the one carrying the note, and a
+      // fixture where they agreed would draw a row this suite never sees.
+      peer_name: 'code-a7',
       mode: 'bypassPermissions',
       // The two sizes: what the model still holds, and what has been said. 62 MB
       // of history under a context two thirds full is a conversation that has
@@ -3437,6 +3442,13 @@ test('the details sheet holds what the page has no room for @ phone width', asyn
   // model wrote, which the sheet has room to say in words.
   expect(said).toContain('running the golden set to see which journeys moved');
   expect(said).toContain('written by Haiku');
+  // The other name, and the sentence saying the two disagree. Nothing else in
+  // the console shows what another session would have to type to reach this one.
+  // Lowercased: the sheet's labels are uppercased in CSS, which `innerText`
+  // carries through.
+  expect(said.toLowerCase()).toContain('known to peers as');
+  expect(said).toContain('code-a7');
+  expect(said, 'the disagreement is drawn but not explained').toContain('next resume');
 
   await expectNoTextOverlaps(page, testInfo, '.session-sheet');
   await expectNoHorizontalOverflow(page, testInfo, '.session-sheet');

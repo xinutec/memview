@@ -76,6 +76,16 @@ asked?: string,
  */
 name?: string, 
 /**
+ * What the OTHER sessions on this machine call this one — the name
+ * `ListAgents` prints and `SendMessage` resolves. Not [`Self::name`], which is
+ * the title in the transcript: only `-n` at spawn writes this one, so a
+ * conversation renamed while it runs keeps the name its peers already knew
+ * until it is next resumed. Shown so that gap is visible rather than
+ * discovered by a session reporting that a name does not exist. Filled by the
+ * roster; see [`crate::peers::named`].
+ */
+peer_name?: string, 
+/**
  * What the session may do without asking: `default`, `plan`, `dontAsk`,
  * `acceptEdits`, `auto`, `bypassPermissions`. What the console SET, not what the
  * transcript says — a resumed session carries the previous session's mode
