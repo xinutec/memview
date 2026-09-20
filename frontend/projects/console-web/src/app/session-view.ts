@@ -80,6 +80,8 @@ export class SessionView implements OnDestroy {
   readonly more = computed(() => (this.held()?.cursor() ?? 0) > 0);
   readonly adrift = computed(() => this.held()?.adrift() ?? false);
   readonly stale = computed(() => this.held()?.stale() ?? false);
+  /** The stream has been down long enough that what is below may be behind. */
+  readonly dropped = computed(() => this.held()?.dropped() ?? false);
   readonly doing = computed(
     () => this.held()?.doing() ?? (this.held()?.spoken() ? undefined : this.session()?.busy),
   );

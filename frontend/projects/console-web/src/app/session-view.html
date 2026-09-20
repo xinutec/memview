@@ -51,6 +51,17 @@
 @if (trouble() || unreachable(); as what) {
   <p class="trouble">{{ what }}</p>
 }
+<!-- Below the kept-copy card and above the reader's own place: this is about the
+     connection, where `adrift` is about where they have scrolled to. -->
+@if (dropped()) {
+  <div class="deaf adrift" role="status">
+    <mat-icon>cloud_off</mat-icon>
+    <div class="what">
+      <strong>Not live.</strong>
+      <span>The stream dropped, so anything said since is not below yet.</span>
+    </div>
+  </div>
+}
 @if (stale()) {
   <div class="deaf adrift" role="status">
     <mat-icon>cloud_off</mat-icon>

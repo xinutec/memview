@@ -13,6 +13,13 @@ import { fold } from './transcript';
  */
 const KEPT = 4;
 
+/**
+ * How long the stream must be CONTINUOUSLY disconnected before the reader is told.
+ * Comfortably past the browser's own retry, measured at about three seconds, so an
+ * ordinary reconnect never raises a warning.
+ */
+const DROPPED_AFTER_MS = 8000;
+
 /** One session's transcript, and the reader's place in it. */
 export interface Held {
   readonly entries: WritableSignal<Entry[]>;
@@ -53,8 +60,25 @@ export interface Held {
   /**
    * Whether the stream is connected right now. The browser retries on its own; this
    * decides whether the kept copy is worth offering.
+   *
+   * ⚠ **Not what to draw.** It goes true for a moment every time the browser
+   * reconnects — measured in the phone-width harness, whose mocked stream ends at
+   * once and comes back about every three seconds, five times in fifteen. A marker
+   * on this would blink at a reader whose connection is fine. See [dropped].
    */
   readonly offline: WritableSignal<boolean>;
+  /**
+   * Whether the stream has been down long enough to say so: [DROPPED_AFTER_MS]
+   * disconnected without a single event arriving.
+   *
+   * The gap this fills is a stream that stays dead while the poll behind the roster
+   * keeps answering. Then the list looks healthy, nothing is said, and the
+   * transcript simply stops — which on screen is indistinguishable from a session
+   * that is thinking.
+   */
+  readonly dropped: WritableSignal<boolean>;
+  /** Counting down to [dropped], while it is. */
+  patience?: ReturnType<typeof setTimeout>;
   /**
    * Whether the reader has jumped away from the live end. Only
    * [[SessionStore.goTo]] sets this and only [[SessionStore.rejoin]] clears it: it
@@ -100,7 +124,7 @@ export class SessionStore {
     const watching = this.api.follow(id, held.seen).subscribe((from) => {
       switch (from.kind) {
         case 'event':
-          held.offline.set(false);
+          this.connected(held);
           this.take(id, held, from.event, from.seq);
           break;
         // Only when the runner says the stream starts again — see [[ConsoleApi]].
@@ -110,13 +134,16 @@ export class SessionStore {
           break;
         // The replay is over; what follows is happening — see [Held.live].
         case 'caught-up':
-          held.offline.set(false);
+          this.connected(held);
           held.live.set(true);
           break;
         // The one moment a kept copy is wanted. Asked for here it races nothing: the
         // conversation is known not to be arriving.
         case 'offline':
           held.offline.set(true);
+          // Armed here and cancelled by the next event, so a stream that keeps
+          // reconnecting never reaches it.
+          held.patience ??= setTimeout(() => held.dropped.set(true), DROPPED_AFTER_MS);
           void this.hydrate(id, held);
           break;
         default:
@@ -150,6 +177,9 @@ export class SessionStore {
     if (!held) return;
     held.close?.();
     held.close = undefined;
+    // Not reading it any more, so a drop is nothing to report.
+    clearTimeout(held.patience);
+    held.patience = undefined;
     // Flushed on the way out, past the throttle: leaving is the moment a copy is
     // most likely to be wanted next.
     if (!held.stale()) this.kept.keepNow(id, held.entries());
@@ -211,6 +241,14 @@ export class SessionStore {
     return this.open(id);
   }
 
+  /** Anything arriving means the stream is up: the count stops and the marker goes. */
+  private connected(held: Held): void {
+    held.offline.set(false);
+    held.dropped.set(false);
+    clearTimeout(held.patience);
+    held.patience = undefined;
+  }
+
   private fresh(id: string): Held {
     const held: Held = {
       entries: signal<Entry[]>([]),
@@ -221,6 +259,7 @@ export class SessionStore {
       live: signal(false),
       stale: signal(false),
       offline: signal(false),
+      dropped: signal(false),
       adrift: signal(false),
       seen: 0,
       used: ++this.clock,
@@ -274,6 +313,7 @@ export class SessionStore {
    * page showed a timer running for as long as it was left open.
    */
   private forget(held: Held): void {
+    this.connected(held);
     held.entries.set([]);
     held.cursor.set(0);
     held.seen = 0;

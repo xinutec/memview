@@ -285,4 +285,66 @@ describe('SessionStore', () => {
     store.open('e');
     expect(runner.latest.after).toBe(3);
   });
+
+  describe('a stream that drops', () => {
+    // ⚠ **The browser retries on its own, about every three seconds** — measured
+    // against the phone-width harness, whose mocked stream ends at once and was
+    // re-requested five times in fifteen seconds. So a marker on `offline` itself
+    // would blink at a reader whose connection is fine. What is drawn is
+    // CONTINUOUS loss.
+    //
+    // ⚠ Fake timers are installed and removed AROUND each test rather than inside
+    // it: a failed assertion skips whatever follows it, and one leaked set of fake
+    // timers stalled the next three tests into their own timeouts.
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it('says nothing in the gap before the browser has retried', () => {
+      // The blink this exists to prevent: three seconds of disconnection is the
+      // ORDINARY case, not news.
+      const held = store.open('s1');
+      runner.latest.offline();
+      expect(held.dropped(), 'warned the instant the stream dropped').toBe(false);
+      vi.advanceTimersByTime(3000);
+      expect(held.dropped(), 'warned while the browser was still retrying').toBe(false);
+    });
+
+    it('says so once the stream has been down long enough', () => {
+      const held = store.open('s1');
+      runner.latest.offline();
+      vi.advanceTimersByTime(8000);
+      expect(held.dropped()).toBe(true);
+    });
+
+    it('takes it back the moment anything arrives', () => {
+      const held = store.open('s1');
+      runner.latest.offline();
+      vi.advanceTimersByTime(8000);
+      expect(held.dropped()).toBe(true);
+      runner.latest.send({ at: 2, kind: 'text', text: 'back' }, 1);
+      expect(held.dropped(), 'the marker outlived the reconnection').toBe(false);
+    });
+
+    it('starts the count again rather than carrying it, on a second drop', () => {
+      const held = store.open('s1');
+      runner.latest.offline();
+      vi.advanceTimersByTime(5000);
+      runner.latest.send({ at: 1, kind: 'text', text: 'briefly back' }, 1);
+      runner.latest.offline();
+      vi.advanceTimersByTime(5000);
+      expect(held.dropped(), 'the first drop’s count was still running').toBe(false);
+      vi.advanceTimersByTime(3000);
+      expect(held.dropped()).toBe(true);
+    });
+
+    it('does not count down for a transcript nobody is reading', () => {
+      // Leaving closes the stream, so the drop that follows is this app's own
+      // doing and is not news.
+      const held = store.open('s1');
+      runner.latest.offline();
+      store.leave('s1');
+      vi.advanceTimersByTime(60_000);
+      expect(held.dropped()).toBe(false);
+    });
+  });
 });

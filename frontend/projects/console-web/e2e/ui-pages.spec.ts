@@ -5042,3 +5042,37 @@ test('the concept leads and the argv follows as evidence @ phone width', async (
   await expectNoHorizontalOverflow(page, testInfo, SHEET);
   await expectNoClippedText(page, testInfo, SHEET);
 });
+
+test('a stream that stays dead says so, and says it once @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **The only connection state the reader was ever shown was the roster's.**
+  // That poll covers the Mac being unreachable; it says nothing when the stream
+  // alone dies, and then the transcript simply stops, which on screen is a
+  // session that is thinking. This is that case.
+  //
+  // ⚠ **The clock is driven, not waited out.** The marker is deliberately patient
+  // — the browser retries on its own about every three seconds — so a real wait
+  // would put eight seconds into this suite to watch a timer.
+  await page.clock.install();
+  await mockRunner(page);
+  // Registered after `mockRunner`'s, so this one wins: playwright matches the
+  // last route first.
+  await page.route('**/api/sessions/*/events', (r) => r.abort());
+  await page.goto(`/s/${RUNNING.id}`);
+
+  const marker = page.getByText('Not live.');
+  await expect(marker, 'warned before the browser had a chance to retry').toBeHidden();
+  await page.clock.fastForward('00:10');
+  await expect(marker).toBeVisible();
+  await expect(page.getByText('not below yet')).toBeVisible();
+  // Once, not twice: the roster's poll is answering here, which is the whole
+  // point — the app looks healthy and only this transcript is not.
+  await expect(page.getByText('cannot reach the runner')).toBeHidden();
+  expect(await marker.count(), 'the marker was drawn more than once').toBe(1);
+
+  await page.screenshot({ path: '/private/tmp/notlive.png' });
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+  await expectNoClippedText(page, testInfo);
+});
