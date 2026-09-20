@@ -5071,7 +5071,6 @@ test('a stream that stays dead says so, and says it once @ phone width', async (
   await expect(page.getByText('cannot reach the runner')).toBeHidden();
   expect(await marker.count(), 'the marker was drawn more than once').toBe(1);
 
-  await page.screenshot({ path: '/private/tmp/notlive.png' });
   await expectNoTextOverlaps(page, testInfo);
   await expectNoHorizontalOverflow(page, testInfo);
   await expectNoClippedText(page, testInfo);
