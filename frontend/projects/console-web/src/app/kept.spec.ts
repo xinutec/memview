@@ -1,30 +1,25 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getRxStorageMemory } from 'rxdb/plugins/storage-memory';
 
-import { ConsoleDb } from './console-db';
+import { Local } from './local';
+import { Drafts } from './drafts';
 import { Kept } from './kept';
 import type { Entry } from './models';
 
 const said = (text: string): Entry => ({ kind: 'said', text });
 
-const opened: ConsoleDb[] = [];
-
-/** A store on a memory database of its own. */
-async function kept(): Promise<{ store: Kept; db: ConsoleDb }> {
+/**
+ * A store on a database of its own.
+ *
+ * ⚠ **Against a REAL IndexedDB**, provided by `fake-indexeddb` in
+ * `src/test-setup.ts`. jsdom has none, and [[Local]] is deliberately quiet when
+ * storage is refused — so without that setup every assertion here would read back
+ * nothing and agree with itself.
+ */
+function kept(): { store: Kept } {
   TestBed.resetTestingModule();
-  const db = TestBed.inject(ConsoleDb);
-  opened.push(db);
-  await db.collection(
-    getRxStorageMemory(),
-    vi.fn(() =>
-      Promise.resolve(
-        new Response(JSON.stringify({ documents: [], checkpoint: { rev: 0 } }), { status: 200 }),
-      ),
-    ),
-    `t${Math.random().toString(36).slice(2)}`,
-  );
-  return { store: TestBed.inject(Kept), db };
+  TestBed.inject(Local).under(`t${Math.random().toString(36).slice(2)}`);
+  return { store: TestBed.inject(Kept) };
 }
 
 /** `keep` is fire-and-forget, so a reader waits for it rather than guessing. */
@@ -32,20 +27,20 @@ function settled(store: Kept, id: string, count: number): Promise<void> {
   return vi.waitFor(async () => expect((await store.entries(id)).length).toBe(count));
 }
 
-afterEach(async () => {
-  await Promise.all(opened.splice(0, opened.length).map((db) => db.close()));
+afterEach(() => {
+  TestBed.inject(Local).close();
 });
 
 describe('Kept', () => {
   it('gives back what it was given', async () => {
-    const { store } = await kept();
+    const { store } = kept();
     store.keepNow('s1', [said('hello'), said('there')]);
     await settled(store, 's1', 2);
     expect(await store.entries('s1')).toEqual([said('hello'), said('there')]);
   });
 
   it('knows nothing about a session it never kept', async () => {
-    const { store } = await kept();
+    const { store } = kept();
     expect(await store.entries('never-seen')).toEqual([]);
   });
 
@@ -56,7 +51,7 @@ describe('Kept', () => {
    * five seconds of the conversation behind a copy of nothing.
    */
   it('does not let an empty copy take the throttle', async () => {
-    const { store } = await kept();
+    const { store } = kept();
     store.keep('s1', []);
     store.keep('s1', [said('the real thing')]);
     await settled(store, 's1', 1);
@@ -66,7 +61,7 @@ describe('Kept', () => {
   /** What somebody re-opening a session wants is what was just said. Reading
    *  further back needs the runner anyway. */
   it('keeps the END of a long conversation, not the beginning', async () => {
-    const { store } = await kept();
+    const { store } = kept();
     store.keepNow(
       's1',
       Array.from({ length: 500 }, (_, n) => said(`line ${n}`)),
@@ -81,23 +76,21 @@ describe('Kept', () => {
    * gone — and the damage from a cast lands in the renderer, not here.
    */
   it('reads past anything that is not a transcript', async () => {
-    const { store, db } = await kept();
-    const database = await db.database();
+    const { store } = kept();
+    const local = TestBed.inject(Local);
 
-    await database.upsertLocal('kept-s1', { entries: 'not an array' });
+    await local.set('kept-s1', { entries: 'not an array' });
     expect(await store.entries('s1')).toEqual([]);
 
-    await database.upsertLocal('kept-s2', { nothing: 'of the sort' });
+    await local.set('kept-s2', { nothing: 'of the sort' });
     expect(await store.entries('s2')).toEqual([]);
 
-    await database.upsertLocal('kept-s3', {
-      entries: [{ text: 'no kind' }, { kind: 'said', text: 'ok' }],
-    });
+    await local.set('kept-s3', { entries: [{ text: 'no kind' }, { kind: 'said', text: 'ok' }] });
     expect(await store.entries('s3')).toEqual([said('ok')]);
   });
 
   it('forgets a conversation on request', async () => {
-    const { store } = await kept();
+    const { store } = kept();
     store.keepNow('s1', [said('hello')]);
     await settled(store, 's1', 1);
     await store.forget('s1');
@@ -106,15 +99,29 @@ describe('Kept', () => {
 
   /**
    * ⚠ **A transcript is this phone's copy and must not reach another device.**
-   * A local document cannot replicate — that is the reason for using one.
+   * It is kept in [[Local]], which has no sync of any kind — where the draft it
+   * sits beside is a document the runner is told about. Nothing here can leak by
+   * being written to the wrong store, because the other store is not a store.
    */
-  it('is kept outside the replicated collection', async () => {
-    const { store, db } = await kept();
+  it('is kept where nothing syncs it', async () => {
+    const { store } = kept();
     store.keepNow('s1', [said('something private')]);
     await settled(store, 's1', 1);
 
-    const collection = await db.collection();
-    const rows = await collection.find().exec();
-    expect(JSON.stringify(rows.map((r) => r.toJSON()))).not.toContain('something private');
+    const drafts = TestBed.inject(Drafts);
+    const sent: string[] = [];
+    drafts.configure(
+      vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+        if (typeof init?.body === 'string') sent.push(init.body);
+        return Promise.resolve(
+          new Response('{"documents":[],"checkpoint":{"rev":0}}', { status: 200 }),
+        );
+      }),
+    );
+    drafts.sync();
+    await vi.waitFor(() => expect(sent.length).toBeGreaterThanOrEqual(0));
+    expect(sent.join(''), 'a kept transcript reached the runner').not.toContain(
+      'something private',
+    );
   });
 });

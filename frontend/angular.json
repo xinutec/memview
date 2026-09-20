@@ -147,7 +147,8 @@
           "options": {
             "buildTarget": "console-web:build:development",
             "runner": "vitest",
-            "tsConfig": "projects/console-web/tsconfig.spec.json"
+            "tsConfig": "projects/console-web/tsconfig.spec.json",
+            "setupFiles": ["projects/console-web/src/test-setup.ts"]
           }
         }
       }

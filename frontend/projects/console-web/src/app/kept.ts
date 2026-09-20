@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 
-import { ConsoleDb } from './console-db';
+import { Local } from './local';
 import type { Entry } from './models';
 
 /**
@@ -16,7 +16,7 @@ import type { Entry } from './models';
  */
 @Injectable({ providedIn: 'root' })
 export class Kept {
-  private db = inject(ConsoleDb);
+  private store = inject(Local);
 
   /**
    * How much of a conversation is kept, in entries — the end of it. Reading
@@ -34,18 +34,12 @@ export class Kept {
    * storage outlives every deploy that touched this phone.
    */
   async entries(id: string): Promise<Entry[]> {
-    try {
-      const db = await this.db.database();
-      const held = await db.getLocal(`kept-${id}`);
-      const stored: unknown = held?.toJSON().data;
-      if (typeof stored !== 'object' || stored === null || !('entries' in stored)) return [];
-      const { entries } = stored;
-      return Array.isArray(entries) ? entries.filter(isEntry) : [];
-    } catch {
-      // A database that will not open must not take the reader with it: IndexedDB is
-      // refused in some private-browsing modes, and only the offline copy is lost.
-      return [];
-    }
+    // [[Local]] answers `undefined` rather than throwing when storage is refused —
+    // some private-browsing modes do — so only the offline copy is ever lost.
+    const stored: unknown = await this.store.get(`kept-${id}`);
+    if (typeof stored !== 'object' || stored === null || !('entries' in stored)) return [];
+    const { entries } = stored;
+    return Array.isArray(entries) ? entries.filter(isEntry) : [];
   }
 
   /**
@@ -71,23 +65,12 @@ export class Kept {
   }
 
   private async write(id: string, entries: Entry[]): Promise<void> {
-    try {
-      const db = await this.db.database();
-      await db.upsertLocal(`kept-${id}`, { entries: entries.slice(-Kept.ENTRIES) });
-    } catch {
-      // A copy that cannot be written is not worth propagating: the session is being
-      // read live at this moment.
-    }
+    await this.store.set(`kept-${id}`, { entries: entries.slice(-Kept.ENTRIES) });
   }
 
   /** Throw away what was kept — for a conversation that is gone. */
   async forget(id: string): Promise<void> {
-    try {
-      const db = await this.db.database();
-      await (await db.getLocal(`kept-${id}`))?.remove();
-    } catch {
-      // Nothing kept is nothing to throw away — see [[entries]].
-    }
+    await this.store.delete(`kept-${id}`);
   }
 }
 

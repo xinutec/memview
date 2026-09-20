@@ -1,11 +1,21 @@
 import { TestBed } from '@angular/core/testing';
+import { firstValueFrom } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getRxStorageMemory } from 'rxdb/plugins/storage-memory';
-import { firstValueFrom, filter } from 'rxjs';
+import * as Y from 'yjs';
 
-import { Drafts, type Resolution } from './drafts';
-import { ConsoleDb, type DraftDoc } from './console-db';
+import { Drafts, difference } from './drafts';
+import { Local } from './local';
 import type { Picture } from './picture';
+
+/**
+ * Unsent words on this device, and what crosses to the runner.
+ *
+ * ⚠ **What the RUNNER does with a push is tested in Rust**, in
+ * `console/tests/suite/drafts.rs`, and the two meeting for real is
+ * `e2e/two-devices.spec.ts`. What is tested here is this side: that a keystroke
+ * becomes the smallest edit it can, that what comes back merges rather than
+ * replaces, and that the runner's own bytes are never echoed at it.
+ */
 
 /** A scaled picture as `shrink` hands one over, small enough to read in a test. */
 const PICTURE: Picture = {
@@ -14,201 +24,215 @@ const PICTURE: Picture = {
   width: 100,
   height: 200,
   bytes: 5,
-  // An object URL, which is what the picker makes and what does NOT survive.
   preview: 'blob:http://localhost/8f0e',
 };
 
-/** A runner that answers the protocol and holds nothing. What the RUNNER decides
- *  is tested in Rust — `console/tests/suite/drafts.rs` owns which pushes land. */
-function quiet(): typeof fetch {
-  return vi.fn((_url: string | URL | Request, init?: RequestInit) =>
-    Promise.resolve(
-      init?.method === 'POST'
-        ? new Response('[]', { status: 200 })
-        : new Response(JSON.stringify({ documents: [], checkpoint: { rev: 0 } }), { status: 200 }),
-    ),
+/** One push as it reached the runner. */
+interface Sent {
+  readonly ulid: string;
+  readonly update: string;
+}
+
+function harness(answer?: (url: string, init?: RequestInit) => Response): {
+  drafts: Drafts;
+  sent: Sent[];
+} {
+  const sent: Sent[] = [];
+  const get = vi.fn((url: string | URL | Request, init?: RequestInit) => {
+    const at = url instanceof Request ? url.url : String(url);
+    if (init?.method === 'POST') {
+      const body: unknown = JSON.parse(typeof init.body === 'string' ? init.body : '[]');
+      if (Array.isArray(body)) {
+        for (const one of body as Sent[]) sent.push(one);
+      }
+    }
+    return Promise.resolve(
+      answer?.(at, init) ??
+        new Response(init?.method === 'POST' ? '[]' : '{"documents":[],"checkpoint":{"rev":0}}', {
+          status: 200,
+        }),
+    );
+  });
+  const drafts = TestBed.inject(Drafts);
+  drafts.configure(get);
+  return { drafts, sent };
+}
+
+/** The text a pushed document holds. */
+function reads(update: string): string {
+  const binary = atob(update);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, bytes);
+  return doc.getText('text').toJSON();
+}
+
+/** A document somebody else wrote, base64, as the runner would hand it over. */
+function elsewhere(text: string): string {
+  const doc = new Y.Doc();
+  doc.getText('text').insert(0, text);
+  let binary = '';
+  for (const byte of Y.encodeStateAsUpdate(doc)) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+/** What the runner answers a pull with, carrying one document. */
+function holding(id: string, text: string): Response {
+  return new Response(
+    JSON.stringify({
+      documents: [{ ulid: id, update: elsewhere(text), text, at: 1, rev: 1 }],
+      checkpoint: { rev: 1 },
+    }),
+    { status: 200 },
   );
 }
 
-const opened: ConsoleDb[] = [];
+const words = (drafts: Drafts, id: string): Promise<string> => firstValueFrom(drafts.text$(id));
 
-function fresh(get: typeof fetch = quiet()): Drafts {
-  const db = TestBed.inject(ConsoleDb);
-  opened.push(db);
-  // A database name of its own: RxDB refuses a second one under the same name.
-  void db.collection(getRxStorageMemory(), get, `t${Math.random().toString(36).slice(2)}`);
-  return TestBed.inject(Drafts);
-}
-
-afterEach(async () => {
-  await Promise.all(opened.splice(0, opened.length).map((db) => db.close()));
-});
-
-/** The next text the collection reports, skipping the "not read yet" state. */
-function settled(drafts: Drafts, id: string): Promise<string | undefined> {
-  return firstValueFrom(drafts.text$(id).pipe(filter((t) => t !== undefined)));
-}
+/** A moment for the sync round to have finished, without asserting on a clock. */
+const settled = (): Promise<void> => new Promise((done) => setTimeout(done, 0));
 
 describe('Drafts', () => {
-  let drafts: Drafts;
-  let db: ConsoleDb;
-
-  beforeEach(async () => {
-    drafts = fresh();
-    db = TestBed.inject(ConsoleDb);
-    await db.collection();
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    // A database of this test's own. IndexedDB is absent under jsdom anyway, and
+    // [[Local]] answers `undefined` rather than throwing — which is the behaviour
+    // every one of these relies on.
+    TestBed.inject(Local).under(`t${Math.random().toString(36).slice(2)}`);
+  });
+  afterEach(async () => {
+    await TestBed.inject(Drafts).close();
   });
 
   it('has nothing to say about a conversation nobody has written to', async () => {
-    expect(await settled(drafts, 'nobody')).toBe('');
+    const { drafts } = harness();
+    expect(await words(drafts, 'nobody')).toBe('');
   });
 
-  it('keeps one conversation unsent message apart from another', async () => {
+  it('keeps one conversation apart from another', async () => {
+    const { drafts } = harness();
     await drafts.write('a', 'for a');
     await drafts.write('b', 'for b');
-    expect(await settled(drafts, 'a')).toBe('for a');
-    expect(await settled(drafts, 'b')).toBe('for b');
+    expect(await words(drafts, 'a')).toBe('for a');
+    expect(await words(drafts, 'b')).toBe('for b');
   });
 
-  /**
-   * ⚠ **Opening a conversation is not a statement about its draft** —
-   * memview#89's first live bug. The composer records itself on open with an
-   * empty box; a document created for that makes a device that has only LOOKED
-   * the first writer, and the device that actually typed is then refused.
-   */
-  it('writes no document at all for a conversation that was only opened', async () => {
-    await drafts.write('a', '');
-    const collection = await db.collection();
-    expect(await collection.findOne('a').exec()).toBeNull();
+  it('sends the whole document, which is what makes a push mergeable', async () => {
+    const { drafts, sent } = harness();
+    await drafts.write('a', 'half a thought');
+    drafts.sync();
+    await vi.waitFor(() => expect(sent.length).toBeGreaterThan(0));
+    expect(sent[0]?.ulid).toBe('a');
+    expect(reads(sent[0]?.update ?? '')).toBe('half a thought');
   });
 
-  /**
-   * ⚠ **But clearing one that EXISTS is a send, and the tombstone is what stops
-   * the other device pushing the message back.**
-   */
-  it('leaves a tombstone when a message is sent', async () => {
+  it('merges what the runner sends rather than replacing what is here', async () => {
+    // ⚠ **The whole design in one assertion.** The other device's words arrive
+    // while this one holds its own, and BOTH survive. Under the old protocol this
+    // was the moment somebody was asked to choose between them.
+    const { drafts } = harness((url) =>
+      url.includes('since=') ? holding('a', 'from the phone') : new Response('[]', { status: 200 }),
+    );
+    await drafts.write('a', 'from the mac');
+    drafts.sync();
+    await vi.waitFor(async () => {
+      expect(await words(drafts, 'a')).toContain('from the phone');
+    });
+    expect(await words(drafts, 'a')).toContain('from the mac');
+  });
+
+  it('does not push back what the runner just sent it', async () => {
+    // ⚠ **The echo loop, which is what a merging design gets wrong if it is
+    // careless.** A device that applies an arriving update and then counts it as
+    // its own edit sends the runner's bytes back for ever.
+    const { drafts, sent } = harness((url) =>
+      url.includes('since=') ? holding('a', 'theirs') : new Response('[]', { status: 200 }),
+    );
+    drafts.sync();
+    await vi.waitFor(async () => expect(await words(drafts, 'a')).toBe('theirs'));
+    sent.length = 0;
+    drafts.sync();
+    await settled();
+    expect(sent, 'the runner was sent its own document back').toEqual([]);
+  });
+
+  it('keeps a cleared draft as an empty one', async () => {
+    const { drafts } = harness();
     await drafts.write('a', 'the message');
     await drafts.write('a', '');
-    const collection = await db.collection();
-    const doc = await collection.findOne('a').exec();
-    expect(doc, 'a tombstone, not a removal').not.toBeNull();
-    expect(doc?.text).toBe('');
+    expect(await words(drafts, 'a')).toBe('');
   });
 
-  /**
-   * ⚠ **The runner's counter is the runner's.** A client minting a `rev` would
-   * be inventing an ordering only the runner is authority on; the pull cursor is
-   * built from it.
-   */
-  it('never mints a revision of its own', async () => {
-    const collection = await db.collection();
-    await collection.upsert({ ulid: 'a', text: 'from elsewhere', at: 1, rev: 7, _deleted: false });
-    await drafts.write('a', 'and something of mine');
-    expect((await collection.findOne('a').exec())?.rev).toBe(7);
+  it('says nothing about the words when the network fails', async () => {
+    const { drafts } = harness(() => new Response('nope', { status: 500 }));
+    const said: string[] = [];
+    const warn = vi
+      .spyOn(console, 'warn')
+      .mockImplementation((...args: unknown[]) => said.push(args.join(' ')));
+    await drafts.write('a', 'a private sentence');
+    drafts.sync();
+    await vi.waitFor(() => expect(said.length).toBeGreaterThan(0));
+    warn.mockRestore();
+    expect(said.join(' ')).not.toContain('a private sentence');
+    // And the edit is not lost: it goes back on the pile for the next round.
+    expect(await words(drafts, 'a')).toBe('a private sentence');
   });
 
-  describe('the picture', () => {
-    /**
-     * ⚠ **A LOCAL document, so it cannot replicate — by construction, not by a
-     * promise in a comment.** #89 settled that a picture does not cross devices:
-     * two images have no meaningful combination, and the device that took one is
-     * the one that wants it.
-     */
-    it('is held outside the replicated collection', async () => {
-      await drafts.write('a', 'about this');
-      await drafts.hold('a', PICTURE);
-
-      const collection = await db.collection();
-      const replicated = await collection.findOne('a').exec();
-      expect(Object.keys(replicated?.toJSON() ?? {})).not.toContain('picture');
-      expect(JSON.stringify(replicated?.toJSON())).not.toContain(PICTURE.data);
-      expect(await collection.getLocal('picture-a')).not.toBeNull();
-    });
-
+  describe('the held picture', () => {
     it('comes back with a preview a reloaded page can show', async () => {
+      const { drafts } = harness();
       await drafts.hold('a', PICTURE);
-      const held = await firstValueFrom(drafts.picture$('a').pipe(filter(Boolean)));
-      expect(held.preview).toBe('data:image/png;base64,aGVsbG8=');
-      expect(held.width).toBe(100);
+      const held = await firstValueFrom(drafts.picture$('a'));
+      expect(held?.preview).toBe('data:image/png;base64,aGVsbG8=');
     });
 
     it('is put down when the composer lets go of it', async () => {
+      const { drafts } = harness();
       await drafts.hold('a', PICTURE);
       await drafts.hold('a', undefined);
-      const collection = await db.collection();
-      expect(await collection.getLocal('picture-a')).toBeNull();
-    });
-
-    /** Written by a build that is two versions gone: not a picture, so not
-     *  offered as one. */
-    it('refuses a stored shape that is not a picture', async () => {
-      const collection = await db.collection();
-      await collection.upsertLocal('picture-a', { data: 'aGk=' });
       expect(await firstValueFrom(drafts.picture$('a'))).toBeUndefined();
     });
-  });
 
-  describe('settling a clash', () => {
-    const theirs: DraftDoc = { ulid: 'a', text: 'theirs', at: 1000, rev: 4, _deleted: false };
-
-    it.each([
-      ['mine', 'mine'],
-      ['theirs', 'theirs'],
-      ['mine-first', 'mine\n\ntheirs'],
-      ['theirs-first', 'theirs\n\nmine'],
-    ])('%s leaves the conversation holding %j', async (how, expected) => {
-      db.clash.set({ id: 'a', mine: 'mine', theirs, where: 'test' });
-      await drafts.resolve('a', theirs, how as Resolution);
-      expect(await settled(drafts, 'a')).toBe(expected);
-      expect(drafts.clash()).toBeUndefined();
-    });
-
-    /**
-     * ⚠ **A clash that is never recorded cannot be diagnosed**, and a trace
-     * showing clashes but never how they ended reads as though every one was
-     * abandoned. Pinned on the SHAPE — lengths and the choice, never the words,
-     * because a draft is a private message and this reaches `adb logcat` and the
-     * fleet trace.
-     */
-    it('says which way it was settled, without putting the words in the log', async () => {
-      const secret: DraftDoc = { ...theirs, text: 'brandenburg concerto' };
-      db.clash.set({ id: 'a', mine: 'schleswig holstein', theirs: secret, where: 'test' });
-
-      const said = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-      await drafts.resolve('a', secret, 'mine-first');
-      const line = said.mock.calls.map((c) => String(c[0])).join(' ');
-      said.mockRestore();
-
-      expect(line).toContain('settled as mine-first');
-      expect(line, 'a draft is a private message; it must not reach a log').not.toContain(
-        'schleswig',
-      );
-      expect(line).not.toContain('brandenburg');
-      expect(line).toMatch(/\d+ here, \d+ there, \d+ kept/);
+    it('never crosses to the other device', async () => {
+      // #89 settled this: hundreds of kilobytes, and no way to combine two.
+      const { drafts, sent } = harness();
+      await drafts.hold('a', PICTURE);
+      drafts.sync();
+      await settled();
+      expect(
+        sent.map((one) => one.update).join(''),
+        'a picture was pushed to the runner',
+      ).not.toContain('aGVsbG8');
     });
   });
+});
 
-  describe('with no connection at all', () => {
-    /** The case this store exists for — a phone in a tunnel. */
-    async function underground(): Promise<Drafts> {
-      TestBed.resetTestingModule();
-      const store = fresh(vi.fn(() => Promise.reject(new Error('no route to host'))));
-      await TestBed.inject(ConsoleDb).collection();
-      return store;
-    }
+describe('difference', () => {
+  // ⚠ **A keystroke has to be ONE insert.** Replacing the whole text instead
+  // merges with a concurrent edit as two people retyping the sentence at once,
+  // which is how a merging design can still lose words.
+  it('takes a character added at the end as one insert', () => {
+    expect(difference('hell', 'hello')).toEqual({ at: 4, removed: 0, added: 'o' });
+  });
 
-    it('keeps every word, and says nothing about the network', async () => {
-      const store = await underground();
-      await store.write('a', 'written between two stations');
-      expect(await settled(store, 'a')).toBe('written between two stations');
-      expect(store.clash()).toBeUndefined();
-    });
+  it('takes a character removed at the end as one delete', () => {
+    expect(difference('hello', 'hell')).toEqual({ at: 4, removed: 1, added: '' });
+  });
 
-    it('holds them locally, so they go when the tunnel comes back', async () => {
-      const store = await underground();
-      await store.write('a', 'written between two stations');
-      const collection = await TestBed.inject(ConsoleDb).collection();
-      expect((await collection.findOne('a').exec())?.text).toBe('written between two stations');
-    });
+  it('finds an edit in the middle without touching either end', () => {
+    expect(difference('the cat sat', 'the dog sat')).toEqual({ at: 4, removed: 3, added: 'dog' });
+  });
+
+  it('says nothing changed when nothing did', () => {
+    expect(difference('same', 'same')).toEqual({ at: 4, removed: 0, added: '' });
+  });
+
+  it('handles a box emptied outright', () => {
+    expect(difference('gone', '')).toEqual({ at: 0, removed: 4, added: '' });
+  });
+
+  it('handles a box filled from empty', () => {
+    expect(difference('', 'new')).toEqual({ at: 0, removed: 0, added: 'new' });
   });
 });

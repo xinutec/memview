@@ -4,61 +4,75 @@
 //! presses send, so it can be replicated freely — unlike the queued send memview
 //! #90 refused, which would deliver an instruction minutes after it was meant.
 //!
-//! The runner holds it because both clients talk to this process; the only
-//! conflict is a genuine one, both edited while a device was away. One way in,
+//! The runner holds it because both clients talk to this process. One way in,
 //! `/api/sync/drafts`, in the shape life uses: two mechanisms writing one map is
 //! how drafts diverge silently.
+//!
+//! ⚠ **There is no such thing as a conflict here, by construction.** The earlier
+//! design compared whole texts and refused a push whose assumed master had moved,
+//! leaving a person to choose between two versions of their own sentence. Its
+//! premise was written down — *prose cannot be field-merged* — and it is wrong:
+//! merging prose character by character is what a CRDT does, and it is why a
+//! shared document has no conflict dialogue. Measured before replacing it: 44
+//! refusals in one log, and in 13 of 15 the client's assumed text was a few
+//! characters SHORT of what was held. Not two thoughts. One, mid-keystroke.
+//!
+//! So a draft is a [`yrs`] document and a push is an UPDATE, which merges. Two
+//! devices typing produce one text and nobody is asked anything.
 //!
 //! Text only. A picture is hundreds of kilobytes and there is no meaningful way
 //! to combine two; it stays in the client's own storage.
 
+use base64::Engine;
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+use yrs::updates::decoder::Decode;
+use yrs::{GetString, ReadTxn, Text, Transact};
 
-/// One conversation's unsent words.
+/// The name of the shared text inside a draft's document. Both ends must agree on
+/// it or each would read an empty string out of the other's writes.
+pub const TEXT: &str = "text";
+
+/// One conversation's unsent words, as the roster reports them.
+///
+/// A VIEW of the document, not the document: what the session list draws is the
+/// sentence, and handing it the encoded state would put a CRDT somewhere that
+/// only wants a string.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct Draft {
-    /// What was being typed.
+    /// What is being typed, read out of the merged document.
     pub text: String,
-    /// Bumped on every accepted write, and used for ONE thing: ordering a pull. It
-    /// counts across the WHOLE store, not per conversation — see [`Drafts::apply`].
-    /// It is NOT what a conflict is judged on; the text is.
+    /// Bumped on every merge, and used for ONE thing: ordering a pull. It counts
+    /// across the WHOLE store, not per conversation — see [`Drafts::merge`].
     pub rev: u64,
-    /// Unix milliseconds. The only thing distinguishing the two drafts, deliberately:
-    /// whoever is choosing stands at one of the two devices, and the useful question
-    /// is which thought is newer.
+    /// Unix milliseconds of the last merge that changed the text.
     pub at: u64,
 }
 
-/// What a write did, which is what the client draws.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Wrote {
-    /// Stored. The new state is the caller's own text at the returned revision.
-    Stored(Draft),
-    /// Refused: somebody else has written since the revision this edit was made
-    /// from. Carries THEIRS, because the client cannot resolve without it.
-    Conflict(Draft),
-}
-
-/// One draft as it travels over sync — RxDB's document shape, as in life's
-/// `src/sync/types.rs`. `ulid` is the SESSION id: a draft is one per conversation,
-/// and the conversation already has a stable identity.
+/// One draft on the wire: the merged document, and the text it reads as.
+///
+/// `ulid` is the SESSION id — a draft is one per conversation, and the
+/// conversation already has a stable identity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct DraftDoc {
     pub ulid: String,
+    /// The whole document state, base64. Applying it is idempotent and
+    /// order-independent, which is the whole reason this design has no conflicts: a
+    /// client that applies it twice, or applies it after its own newer edit,
+    /// converges either way.
+    pub update: String,
+    /// What [`Self::update`] reads as, for anything that wants the sentence rather
+    /// than the document. Never read as input — the document is the truth.
+    #[serde(default)]
     pub text: String,
     pub at: u64,
-    /// RxDB's tombstone flag. A cleared draft is a live document with empty text, not
-    /// a deletion — see [`Drafts::apply`] — so this is written `false`.
-    #[serde(rename = "_deleted", default)]
-    pub deleted: bool,
     /// Server revision, for the pull cursor. Ignored as push input; set here.
     #[serde(default)]
     pub rev: u64,
@@ -81,24 +95,95 @@ pub struct Checkpoint {
     pub rev: u64,
 }
 
-/// One change from a client: the state it wants, and the state it assumed —
-/// `None` for a fresh insert. Only the assumed `text` is read; [`Drafts::apply`]
-/// says why its `rev` cannot be.
+/// One change from a client: an update to merge into whatever is held.
+///
+/// ⚠ **No assumed state, and nothing to refuse.** An update carries its own
+/// causal context, so the runner never has to be told what the client thought was
+/// here — which is exactly the question the old protocol asked and got wrong.
 #[derive(Debug, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export))]
 pub struct PushEntry {
-    #[serde(rename = "newDocumentState")]
-    pub new_document_state: DraftDoc,
-    #[serde(rename = "assumedMasterState", default)]
-    pub assumed_master_state: Option<DraftDoc>,
+    pub ulid: String,
+    /// The client's document state, base64.
+    pub update: String,
+    pub at: u64,
+}
+
+/// One conversation's document, as it is kept.
+#[derive(Debug, Clone)]
+struct Held {
+    /// The merged state, encoded. Kept encoded rather than as a live document
+    /// because that is what goes to disk and to clients, and decoding per write
+    /// costs nothing at a draft's size.
+    state: Vec<u8>,
+    text: String,
+    rev: u64,
+    at: u64,
+}
+
+/// What is written to disk: [`Held`] with the state in base64, so the file stays
+/// readable text like every other the console keeps.
+#[derive(Debug, Serialize, Deserialize)]
+struct Stored {
+    update: String,
+    rev: u64,
+    at: u64,
 }
 
 /// Every conversation's unsent words, by session id.
 #[derive(Debug)]
 pub struct Drafts {
     store: PathBuf,
-    held: RwLock<BTreeMap<String, Draft>>,
+    held: RwLock<BTreeMap<String, Held>>,
+}
+
+/// The document an encoded update reads as, or `None` if it is not one.
+///
+/// ⚠ **A bad update is dropped, never fatal.** It arrives over the wire from a
+/// client that may be older than this binary, and refusing to start — or
+/// poisoning the store — would turn one malformed push into an outage for every
+/// conversation.
+fn decoded(update: &[u8]) -> Option<yrs::Doc> {
+    let doc = yrs::Doc::new();
+    let update = yrs::Update::decode_v1(update).ok()?;
+    doc.transact_mut().apply_update(update).ok()?;
+    Some(doc)
+}
+
+/// The text inside a document.
+fn reads_as(doc: &yrs::Doc) -> String {
+    let text = doc.get_or_insert_text(TEXT);
+    let txn = doc.transact();
+    text.get_string(&txn)
+}
+
+/// A document's whole state, which is what both disk and the wire carry.
+fn encoded(doc: &yrs::Doc) -> Vec<u8> {
+    doc.transact()
+        .encode_state_as_update_v1(&yrs::StateVector::default())
+}
+
+fn to_base64(bytes: &[u8]) -> String {
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+/// Bytes out of base64, or `None` — the same tolerance as [`decoded`], for the
+/// same reason.
+pub fn from_base64(text: &str) -> Option<Vec<u8>> {
+    base64::engine::general_purpose::STANDARD.decode(text).ok()
+}
+
+/// A document holding `text`, encoded — for a caller that has words rather than a
+/// document, which is every test and nothing in production.
+pub fn document_of(text: &str) -> Vec<u8> {
+    let doc = yrs::Doc::new();
+    let shared = doc.get_or_insert_text(TEXT);
+    {
+        let mut txn = doc.transact_mut();
+        shared.insert(&mut txn, 0, text);
+    }
+    encoded(&doc)
 }
 
 impl Drafts {
@@ -107,8 +192,25 @@ impl Drafts {
     /// OTHER device, which still holds its own copy.
     pub fn load(store: PathBuf) -> Self {
         let held = match std::fs::read_to_string(&store) {
-            Ok(text) => match serde_json::from_str(&text) {
-                Ok(held) => held,
+            Ok(text) => match serde_json::from_str::<BTreeMap<String, Stored>>(&text) {
+                Ok(held) => held
+                    .into_iter()
+                    .filter_map(|(id, one)| {
+                        // A row that will not decode is dropped rather than kept as an empty
+                        // draft, which would look like somebody had cleared it.
+                        let state = from_base64(&one.update)?;
+                        let text = reads_as(&decoded(&state)?);
+                        Some((
+                            id,
+                            Held {
+                                state,
+                                text,
+                                rev: one.rev,
+                                at: one.at,
+                            },
+                        ))
+                    })
+                    .collect(),
                 Err(why) => {
                     tracing::error!(
                         "drafts: {} will not parse ({why}) — unsent words will not cross devices",
@@ -127,46 +229,58 @@ impl Drafts {
 
     /// This conversation's draft, if any device has written one.
     pub fn get(&self, id: &str) -> Option<Draft> {
-        self.held.read().get(id).cloned()
+        self.held.read().get(id).map(Held::seen)
     }
 
     /// Every draft, for the roster — a client that has just connected learns which
     /// conversations hold unsent words without asking per session.
     pub fn all(&self) -> BTreeMap<String, Draft> {
-        self.held.read().clone()
+        self.held
+            .read()
+            .iter()
+            .map(|(id, held)| (id.clone(), held.seen()))
+            .collect()
     }
 
-    /// Record what a device is holding, if what it assumed is what is here.
+    /// Merge a device's document into what is held, and answer with the result.
     ///
-    /// `assumed` is the TEXT the edit was made against, never the revision: a client
-    /// learns its new revision only on the next pull, so judging on revisions calls
-    /// the second keystroke in a pull interval a conflict. `None` assumes nothing is
-    /// here, so against an existing draft it conflicts.
+    /// ⚠ **This cannot fail on a disagreement, and that is the point.** Two updates
+    /// written without knowledge of each other merge into one document holding both
+    /// edits, and applying the same update twice changes nothing. There is no state a
+    /// caller can be in that this has to refuse.
     ///
-    /// A cleared draft is a TOMBSTONE, not a removal: erasing the entry lets the other
-    /// device push the words back and resurrect a message already sent.
-    pub fn apply(&self, id: &str, text: &str, assumed: Option<&str>, at: u64) -> Wrote {
-        let (result, all) = {
+    /// `None` only when the bytes are not a document at all.
+    pub fn merge(&self, id: &str, update: &[u8], at: u64) -> Option<Draft> {
+        let update = yrs::Update::decode_v1(update).ok()?;
+        let (one, all) = {
             let mut held = self.held.write();
-            let current = held.get(id).cloned();
-            if let Some(theirs) = current.as_ref()
-                && assumed != Some(theirs.text.as_str())
-            {
-                return Wrote::Conflict(theirs.clone());
-            }
+            let doc = match held.get(id) {
+                Some(mine) => decoded(&mine.state)?,
+                None => yrs::Doc::new(),
+            };
+            doc.transact_mut().apply_update(update).ok()?;
+            let text = reads_as(&doc);
             // One counter for the whole STORE: the pull cursor is one number across the
             // collection, and a per-document counter left a fresh conversation at rev 1
             // behind a client already at 3 — never synced, and random-looking from outside.
-            let next = Draft {
-                text: text.to_string(),
-                rev: held.values().map(|d| d.rev).max().unwrap_or(0) + 1,
+            let rev = held.values().map(|one| one.rev).max().unwrap_or(0) + 1;
+            // A merge that changed no character does not move the clock the list dates a
+            // draft by: a device can contribute history without anybody having typed.
+            let at = match held.get(id) {
+                Some(was) if was.text == text => was.at,
+                _ => at,
+            };
+            let one = Held {
+                state: encoded(&doc),
+                text,
+                rev,
                 at,
             };
-            held.insert(id.to_string(), next.clone());
-            (Wrote::Stored(next), held.clone())
+            held.insert(id.to_string(), one.clone());
+            (one, held.clone())
         };
         self.write(&all);
-        result
+        Some(one.seen())
     }
 
     /// Drop the drafts of conversations no longer on disk. An empty `alive` is a
@@ -191,10 +305,65 @@ impl Drafts {
         self.write(&all);
     }
 
+    /// Every draft past `since`, oldest revision first, with the new checkpoint. Not
+    /// paged: a sentence per conversation cannot outgrow one response.
+    pub fn pull(&self, since: u64) -> PullResponse {
+        let held = self.held.read();
+        let mut documents: Vec<DraftDoc> = held
+            .iter()
+            .filter(|(_, one)| one.rev > since)
+            .map(|(id, one)| one.wire(id))
+            .collect();
+        documents.sort_by_key(|one| one.rev);
+        let rev = documents.last().map_or(since, |one| one.rev);
+        PullResponse {
+            documents,
+            checkpoint: Checkpoint { rev },
+        }
+    }
+
+    /// Merge everything a client sent, and answer with the merged documents.
+    ///
+    /// ⚠ **Always the merged state, never a refusal.** The client applies what comes
+    /// back and is then level with the runner — the round trip the old protocol spent
+    /// asking whether it was allowed to write at all.
+    pub fn push(&self, entries: Vec<PushEntry>) -> Vec<DraftDoc> {
+        entries
+            .into_iter()
+            .filter_map(|entry| {
+                let Some(update) = from_base64(&entry.update) else {
+                    tracing::info!("{}: a draft push that is not base64", entry.ulid);
+                    return None;
+                };
+                if self.merge(&entry.ulid, &update, entry.at).is_none() {
+                    tracing::info!("{}: a draft push that is not a document", entry.ulid);
+                    return None;
+                }
+                self.held
+                    .read()
+                    .get(&entry.ulid)
+                    .map(|one| one.wire(&entry.ulid))
+            })
+            .collect()
+    }
+
     /// Written whole each time — a short line per conversation, and a rewrite cannot
     /// leave a half-updated entry.
-    fn write(&self, all: &BTreeMap<String, Draft>) {
-        if let Ok(text) = serde_json::to_string_pretty(all)
+    fn write(&self, all: &BTreeMap<String, Held>) {
+        let stored: BTreeMap<&String, Stored> = all
+            .iter()
+            .map(|(id, one)| {
+                (
+                    id,
+                    Stored {
+                        update: to_base64(&one.state),
+                        rev: one.rev,
+                        at: one.at,
+                    },
+                )
+            })
+            .collect();
+        if let Ok(text) = serde_json::to_string_pretty(&stored)
             && let Some(dir) = self.store.parent()
         {
             let _ = std::fs::create_dir_all(dir);
@@ -205,66 +374,22 @@ impl Drafts {
     }
 }
 
-impl Drafts {
-    /// Every draft past `since`, oldest revision first, with the new checkpoint. Not
-    /// paged: a sentence per conversation cannot outgrow one response. Revisit if a
-    /// draft ever carries the picture.
-    pub fn pull(&self, since: u64) -> PullResponse {
-        let held = self.held.read();
-        let mut documents: Vec<DraftDoc> = held
-            .iter()
-            .filter(|(_, d)| d.rev > since)
-            .map(|(id, d)| DraftDoc {
-                ulid: id.clone(),
-                text: d.text.clone(),
-                at: d.at,
-                deleted: false,
-                rev: d.rev,
-            })
-            .collect();
-        documents.sort_by_key(|d| d.rev);
-        let rev = documents.last().map_or(since, |d| d.rev);
-        PullResponse {
-            documents,
-            checkpoint: Checkpoint { rev },
+impl Held {
+    fn seen(&self) -> Draft {
+        Draft {
+            text: self.text.clone(),
+            rev: self.rev,
+            at: self.at,
         }
     }
 
-    /// Apply a batch, and answer with the documents that lost. An empty answer means
-    /// every entry landed — RxDB's contract, the opposite of an HTTP status: a
-    /// conflicting push is a successful request carrying the current master.
-    pub fn push(&self, entries: Vec<PushEntry>) -> Vec<DraftDoc> {
-        entries
-            .into_iter()
-            .filter_map(|entry| {
-                let id = entry.new_document_state.ulid.clone();
-                let assumed = entry.assumed_master_state.as_ref().map(|d| d.text.as_str());
-                match self.apply(
-                    &id,
-                    &entry.new_document_state.text,
-                    assumed,
-                    entry.new_document_state.at,
-                ) {
-                    Wrote::Stored(_) => None,
-                    Wrote::Conflict(theirs) => {
-                        // The one outcome nobody can diagnose from a screen: which texts were compared.
-                        // Lengths rather than words — a conversation does not belong in a log.
-                        tracing::info!(
-                            "{id}: refused a draft push assuming {} char(s), holding {} at rev {}",
-                            assumed.map_or(0, |t| t.chars().count()),
-                            theirs.text.chars().count(),
-                            theirs.rev,
-                        );
-                        Some(DraftDoc {
-                            ulid: id,
-                            text: theirs.text,
-                            at: theirs.at,
-                            deleted: false,
-                            rev: theirs.rev,
-                        })
-                    }
-                }
-            })
-            .collect()
+    fn wire(&self, id: &str) -> DraftDoc {
+        DraftDoc {
+            ulid: id.to_string(),
+            update: to_base64(&self.state),
+            text: self.text.clone(),
+            at: self.at,
+            rev: self.rev,
+        }
     }
 }

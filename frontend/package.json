@@ -39,9 +39,9 @@
     "dexie": "^4.4.6",
     "marked": "^18.0.7",
     "material-icons": "^1.13.14",
-    "rxdb": "^17.5.0",
     "rxjs": "~7.8.0",
-    "tslib": "^2.3.0"
+    "tslib": "^2.3.0",
+    "yjs": "^13.6.32"
   },
   "devDependencies": {
     "@angular/build": "^22.0.5",
@@ -52,6 +52,7 @@
     "angular-eslint": "^22.0.0",
     "esbuild": "^0.28.1",
     "eslint": "^10.6.0",
+    "fake-indexeddb": "^6.2.5",
     "jsdom": "^29.1.1",
     "prettier": "^3.9.6",
     "typescript": "~6.0.3",

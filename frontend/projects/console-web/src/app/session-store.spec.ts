@@ -1,10 +1,9 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Observable, of } from 'rxjs';
-import { getRxStorageMemory } from 'rxdb/plugins/storage-memory';
 
 import { ConsoleApi, type Streamed } from './console-api';
-import { ConsoleDb } from './console-db';
+import { Local } from './local';
 import { Entry, Page, Timed } from './models';
 import { SessionStore } from './session-store';
 import { first, last, nth } from './testing';
@@ -64,8 +63,6 @@ class Runner {
   }
 }
 
-const opened: ConsoleDb[] = [];
-
 const said = (entries: readonly Entry[]): string[] =>
   entries.flatMap((entry) => (entry.kind === 'said' ? [entry.text] : []));
 
@@ -78,26 +75,16 @@ describe('SessionStore', () => {
     TestBed.configureTestingModule({
       providers: [{ provide: ConsoleApi, useValue: runner }],
     });
-    // ⚠ **Open the database on MEMORY before anything reaches for it.** [[Kept]]
-    // keeps the offline copy in it, and left to its default it opens IndexedDB —
-    // which jsdom does not have, and whose failure surfaces inside RxDB as a
-    // rejection nothing here can catch.
-    const db = TestBed.inject(ConsoleDb);
-    opened.push(db);
-    void db.collection(
-      getRxStorageMemory(),
-      vi.fn(() =>
-        Promise.resolve(
-          new Response(JSON.stringify({ documents: [], checkpoint: { rev: 0 } }), { status: 200 }),
-        ),
-      ),
-      `t${Math.random().toString(36).slice(2)}`,
-    );
+    // A database of this test's own, before anything reaches for it: [[Kept]]
+    // keeps the offline copy in it, and two tests sharing one would read each
+    // other's transcripts.
+    TestBed.inject(Local).under(`t${Math.random().toString(36).slice(2)}`);
     store = TestBed.inject(SessionStore);
   });
 
   afterEach(async () => {
-    await Promise.all(opened.splice(0, opened.length).map((d) => d.close()));
+    TestBed.inject(Local).close();
+    await Promise.resolve();
   });
 
   /** Say something, as the runner would, and number it. */

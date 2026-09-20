@@ -182,31 +182,6 @@
     </button>
   </div>
 }
-@if (clash(); as clash) {
-  <div class="clash">
-    <div class="what">
-      <mat-icon>call_split</mat-icon>
-      <span>this was also written elsewhere, {{ ago(clash.theirs.at) }}</span>
-    </div>
-    <div class="side">
-      <div class="whose">yours</div>
-      <p>{{ clash.mine }}</p>
-    </div>
-    <div class="side">
-      <div class="whose">elsewhere</div>
-      <p>{{ clash.theirs.text }}</p>
-    </div>
-    <div class="choices">
-      <button matButton type="button" (click)="settle('mine')">keep mine</button>
-      <button matButton type="button" (click)="settle('theirs')">use theirs</button>
-    </div>
-    <div class="choices">
-      <span class="both">both:</span>
-      <button matButton type="button" (click)="settle('mine-first')">mine first</button>
-      <button matButton type="button" (click)="settle('theirs-first')">theirs first</button>
-    </div>
-  </div>
-}
 <app-composer
   [(text)]="text"
   [sending]="sending()"

@@ -189,14 +189,12 @@ test('the three above mean something: with sync blocked, nothing arrives', async
   await expect(box(page)).toHaveValue('');
 });
 
-test('two devices writing at once are offered both, and the combination crosses back', async ({
-  browser,
-}) => {
-  // ⚠ **The feature in this task's title, and nothing has ever driven it.** The
-  // clash UI and its four buttons are drawn by `session-view.html`; `mine first`
-  // and `theirs first` are the reason the screen exists rather than a silent
-  // last-writer-wins. Two half-written thoughts join into one message, which no
-  // automatic rule could do for somebody.
+test('two devices writing at once keep both, with nobody asked to choose', async ({ browser }) => {
+  // ⚠ **The behaviour this whole design exists for.** Two half-written thoughts
+  // become one text holding both. What was here before drew a card with four
+  // buttons and made a person pick; `console/src/drafts.rs` carries the
+  // measurement that ended it — 44 refusals, and in 13 of 15 the two sides were
+  // the same sentence a few characters apart.
   const talk = CONVERSATIONS[4];
   const mac = await device(browser, `/s/${talk}`);
   await expect(box(mac)).toBeVisible();
@@ -208,8 +206,8 @@ test('two devices writing at once are offered both, and the combination crosses 
   await expect(box(phone)).toBeVisible();
 
   // The tunnel drops. `abort`, not an empty answer: a reply saying "nothing
-  // landed" is a SUCCESS to the replication, which would then never retry — and
-  // the queued write is the whole mechanism being tested.
+  // landed" is a SUCCESS to the client, which would then never retry — and the
+  // queued write is the whole mechanism being tested.
   await phone.route('**/api/sync/drafts*', (route) => route.abort());
 
   // Both write, neither knowing about the other.
@@ -218,54 +216,70 @@ test('two devices writing at once are offered both, and the combination crosses 
   await phone.waitForTimeout(2_000);
 
   await phone.unroute('**/api/sync/drafts*');
+  // ⚠ **`inputValue`, not `toContainText`.** A textarea's text CONTENT is what
+  // the markup shipped; what a person typed is its value, and asserting on the
+  // former reads empty on every controlled box in this app.
+  for (const page of [phone, mac]) {
+    await expect.poll(() => box(page).inputValue(), { timeout: 30_000 }).toContain('from the mac');
+    await expect
+      .poll(() => box(page).inputValue(), { timeout: 30_000 })
+      .toContain('from the phone');
+  }
+  await expect(phone.getByText('this was also written elsewhere')).toBeHidden();
 
-  // ⚠ **Both texts IN FULL, not a diff and not a count.** The choice is between
-  // two things somebody wrote, and it cannot be made from a summary.
-  const clash = phone.locator('.clash');
-  await expect(clash).toBeVisible({ timeout: 30_000 });
-  await expect(clash).toContainText('from the mac');
-  await expect(clash).toContainText('from the phone');
-
-  // `theirs first`: the other device's words, then this one's.
-  await phone.getByRole('button', { name: 'theirs first' }).click();
-  await expect(box(phone)).toHaveValue('from the mac\n\nfrom the phone');
-
-  // And the combination is a draft like any other, so it crosses back.
-  await expect(box(mac)).toHaveValue('from the mac\n\nfrom the phone', { timeout: 30_000 });
+  // ⚠ **And the two devices agree on ONE text**, character for character. Each
+  // holding both halves in a different order would be a merge that converged on
+  // nothing, which reads as working until somebody presses send.
+  const settled = await box(phone).inputValue();
+  await expect(box(mac)).toHaveValue(settled, { timeout: 30_000 });
 });
 
-test('the other order is the other order, and it crosses back too', async ({ browser }) => {
-  // ⚠ **`mine first` was drawn and driven by nothing.** The branch above covers
-  // `theirs first`, and the two differ only in which side of the join comes
-  // first — which is exactly why an untested one is cheap to get backwards and
-  // impossible to notice: both produce a plausible message, and only the person
-  // who wrote the two halves knows which order they meant.
+test('a device that is only watching is never asked about words it did not write', async ({
+  browser,
+}) => {
+  // The shape the reported defect took: one person typing, the other device
+  // merely open. Under the old protocol the watcher republished what it had just
+  // received, against a master the typist had already moved past.
   const talk = CONVERSATIONS[5];
-  const mac = await device(browser, `/s/${talk}`);
-  await expect(box(mac)).toBeVisible();
+  const clashes: string[] = [];
+  const typist = await device(browser, `/s/${talk}`);
+  const watcher = await device(browser, `/s/${talk}`);
+  for (const page of [typist, watcher]) {
+    page.on('console', (message) => {
+      if (message.text().includes('draft sync:')) clashes.push(message.text());
+    });
+  }
 
-  const context = await browser.newContext();
-  devices.push(context);
-  const phone = await context.newPage();
-  await phone.goto(`${runner.base}/s/${talk}`);
-  await expect(box(phone)).toBeVisible();
+  await type(typist, 'one');
+  await expect(box(watcher)).toHaveValue('one', { timeout: 20_000 });
 
-  await phone.route('**/api/sync/drafts*', (route) => route.abort());
+  // Straight through, without waiting for any of it to reach the runner.
+  for (const said of ['one t', 'one tw', 'one two', 'one two t', 'one two th']) {
+    await box(typist).fill(said);
+  }
+  await runnerHolds(talk, 'one two th');
+  await expect(box(watcher)).toHaveValue('one two th', { timeout: 20_000 });
+  expect(clashes, `the sync complained:\n${clashes.join('\n')}`).toEqual([]);
+});
 
-  await type(mac, 'from the mac');
-  await type(phone, 'from the phone');
-  await phone.waitForTimeout(2_000);
+test('a long message typed straight through arrives whole', async ({ browser }) => {
+  // ⚠ **A keystroke must be ONE insert, not a rewrite of the sentence.** If the
+  // client replaced the whole text on every change, two devices would merge as
+  // two people retyping at once and the result would be shredded. Sixty
+  // keystrokes with a second device watching is what that looks like if it is
+  // wrong.
+  const talk = CONVERSATIONS[6];
+  const typist = await device(browser, `/s/${talk}`);
+  const watcher = await device(browser, `/s/${talk}`);
+  await expect(box(watcher)).toBeVisible();
 
-  await phone.unroute('**/api/sync/drafts*');
+  const whole = 'a sentence typed one character at a time, all the way to the end';
+  let said = '';
+  for (const letter of whole) {
+    said += letter;
+    await box(typist).fill(said);
+  }
 
-  const clash = phone.locator('.clash');
-  await expect(clash).toBeVisible({ timeout: 30_000 });
-
-  // `mine first`: THIS device's words, then the other's — the mirror of the
-  // assertion above, on the same two halves, so a join written the wrong way
-  // round cannot satisfy both.
-  await phone.getByRole('button', { name: 'mine first' }).click();
-  await expect(box(phone)).toHaveValue('from the phone\n\nfrom the mac');
-
-  await expect(box(mac)).toHaveValue('from the phone\n\nfrom the mac', { timeout: 30_000 });
+  await runnerHolds(talk, whole);
+  await expect(box(watcher)).toHaveValue(whole, { timeout: 20_000 });
 });

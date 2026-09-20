@@ -23,7 +23,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { Composer } from './composer';
 import { ConsoleApi } from './console-api';
 import { Dismiss } from './dismiss';
-import { Drafts, type Resolution } from './drafts';
+import { Drafts } from './drafts';
 import { EntryRow } from './entry-row';
 import { reason } from './errors';
 import { Folding } from './folding';
@@ -40,7 +40,6 @@ import { PictureSheet } from './picture-sheet';
 import { pointedAt, shrink } from './picture';
 import { Roster } from './roster';
 import { Held, SessionStore } from './session-store';
-import { since } from './since';
 import { Telemetry } from './telemetry';
 import { fullness } from './tokens';
 import { Block, Ran, blocks, ran } from './transcript';
@@ -126,11 +125,6 @@ export class SessionView implements OnDestroy {
     toObservable(this.id).pipe(switchMap((id) => this.drafts.picture$(id))),
     { initialValue: undefined },
   );
-  readonly clash = computed(() => {
-    const clash = this.drafts.clash();
-    return clash?.id === this.id() ? clash : undefined;
-  });
-
   readonly reviving = signal(false);
   readonly unholding = signal<string | undefined>(undefined);
   readonly loading = signal(false);
@@ -346,15 +340,6 @@ export class SessionView implements OnDestroy {
         this.trouble.set(reason(err));
       },
     });
-  }
-
-  ago(at: number): string {
-    return since(at);
-  }
-
-  settle(how: Resolution): void {
-    const clash = this.clash();
-    if (clash) void this.drafts.resolve(clash.id, clash.theirs, how);
   }
 
   send(): void {
