@@ -3,7 +3,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { ConsoleApi } from './console-api';
 import { reason } from './errors';
 import { Here } from './here';
-import type { Questioned, Unanswered } from './models';
+import type { Identified, Questioned, Unanswered } from './models';
 import { type Answers, type Notes, type Question, complete } from './questions';
 
 /**
@@ -29,16 +29,16 @@ export class Asks {
    */
   readonly trouble = signal('');
 
-  answers(ask: string): Answers {
-    return this.chosen()[ask] ?? {};
+  answers(of: Identified): Answers {
+    return this.chosen()[of.ask] ?? {};
   }
 
-  notes(ask: string): Notes {
-    return this.noted()[ask] ?? {};
+  notes(of: Identified): Notes {
+    return this.noted()[of.ask] ?? {};
   }
 
-  words(ask: string): string {
-    return this.said()[ask] ?? '';
+  words(of: Identified): string {
+    return this.said()[of.ask] ?? '';
   }
 
   /**
@@ -46,37 +46,35 @@ export class Asks {
    * are alternatives: the CLI reports `response` before `answers` and only the
    * one it finds, so typing takes the card over and clearing the field hands it back.
    */
-  replying(ask: string): boolean {
-    return this.words(ask).trim() !== '';
+  replying(of: Identified): boolean {
+    return this.words(of).trim() !== '';
   }
 
   /** Whether everything asked has been answered. The send button waits for it. */
   ready(entry: Questioned): boolean {
-    const ask = entry.ask;
-    return complete(entry.questions ?? [], this.answers(ask), this.notes(ask));
+    return complete(entry.questions ?? [], this.answers(entry), this.notes(entry));
   }
 
   /** Whether a question's note field has been opened. It never closes on its own. */
-  noteOpen(ask: string, question: Question): boolean {
+  noteOpen(of: Identified, question: Question): boolean {
     return (
-      this.noting().has(`${ask}::${question.question}`) ||
-      this.notes(ask)[question.question] !== undefined
+      this.noting().has(field(of, question)) || this.notes(of)[question.question] !== undefined
     );
   }
 
-  openNote(ask: string, question: Question): void {
-    this.noting.update((open) => new Set([...open, `${ask}::${question.question}`]));
+  openNote(of: Identified, question: Question): void {
+    this.noting.update((open) => new Set([...open, field(of, question)]));
   }
 
-  jot(ask: string, question: Question, text: string): void {
+  jot(of: Identified, question: Question, text: string): void {
     this.noted.update((all) => ({
       ...all,
-      [ask]: { ...(all[ask] ?? {}), [question.question]: text },
+      [of.ask]: { ...(all[of.ask] ?? {}), [question.question]: text },
     }));
   }
 
-  say(ask: string, text: string): void {
-    this.said.update((all) => ({ ...all, [ask]: text }));
+  say(of: Identified, text: string): void {
+    this.said.update((all) => ({ ...all, [of.ask]: text }));
   }
 
   /**
@@ -85,15 +83,14 @@ export class Asks {
    * from the lock screen against putting it off. Anything else waits for [answer].
    */
   pick(entry: Unanswered, question: Question, label: string): void {
-    const ask = entry.ask;
-    if (this.replying(ask)) return;
+    if (this.replying(entry)) return;
     const questions = entry.questions ?? [];
     if (questions.length === 1 && !question.multiSelect) {
-      this.send(entry, { [question.question]: label }, undefined, this.notes(ask));
+      this.send(entry, { [question.question]: label }, undefined, this.notes(entry));
       return;
     }
     this.chosen.update((all) => {
-      const here = { ...(all[ask] ?? {}) };
+      const here = { ...(all[entry.ask] ?? {}) };
       if (question.multiSelect) {
         const had = here[question.question];
         const list = Array.isArray(had) ? had : [];
@@ -103,20 +100,19 @@ export class Asks {
       } else {
         here[question.question] = label;
       }
-      return { ...all, [ask]: here };
+      return { ...all, [entry.ask]: here };
     });
   }
 
   /** Send what has been chosen, or what has been typed instead of choosing. */
   answer(entry: Unanswered): void {
-    const ask = entry.ask;
-    if (this.replying(ask)) {
+    if (this.replying(entry)) {
       // Words override the choices in the CLI, so nothing else goes with them.
-      this.send(entry, undefined, this.words(ask).trim(), undefined);
+      this.send(entry, undefined, this.words(entry).trim(), undefined);
       return;
     }
     if (!this.ready(entry)) return;
-    this.send(entry, this.answers(ask), undefined, this.notes(ask));
+    this.send(entry, this.answers(entry), undefined, this.notes(entry));
   }
 
   /** Allow or refuse outright, for an ask that offers no questions. */
@@ -137,4 +133,9 @@ export class Asks {
       error: (err: unknown) => this.trouble.set(reason(err)),
     });
   }
+}
+
+/** Where one question's note is kept: the ask it belongs to, then the question. */
+function field(of: Identified, question: Question): string {
+  return `${of.ask}::${question.question}`;
 }

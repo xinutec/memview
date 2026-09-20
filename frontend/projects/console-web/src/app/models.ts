@@ -148,6 +148,17 @@ export interface Noted extends Stamped {
 /** An entry that is still, or was, a question — what the ask card draws. */
 export type Questioned = (ToolCall & Ask) | Asking;
 
+/**
+ * Anything that names an ask: what everything keyed by one takes.
+ *
+ * ⚠ **Not the id itself.** A `ToolCall` carries two ids — `call`, the tool_use,
+ * and `ask`, the control request — and both are strings, so a function taking
+ * `ask: string` accepts the wrong one happily and files an answer under an id no
+ * runner will ever quote back. Taking the carrier makes that unsayable without a
+ * branded type and the assertion minting one would need.
+ */
+export type Identified = Pick<Ask, 'ask'>;
+
 export function asking(entry: Entry): entry is Questioned {
   return (entry.kind === 'tool' || entry.kind === 'ask') && entry.ask !== undefined;
 }

@@ -92,7 +92,7 @@ describe('Asks', () => {
     asks.pick(entry, q, 'left');
     asks.pick(entry, q, 'right');
     expect(sent, 'a multi-select must wait for the send').toHaveLength(0);
-    expect(asks.answers('ask-1')).toEqual({ 'which ways': ['left', 'right'] });
+    expect(asks.answers(open())).toEqual({ 'which ways': ['left', 'right'] });
   });
 
   it('takes a second tap on a chosen option as taking it back', () => {
@@ -101,7 +101,7 @@ describe('Asks', () => {
     const entry = open([q]);
     asks.pick(entry, q, 'left');
     asks.pick(entry, q, 'left');
-    expect(asks.answers('ask-1')).toEqual({ 'which ways': [] });
+    expect(asks.answers(open())).toEqual({ 'which ways': [] });
   });
 
   it('holds two questions back until both are answered', () => {
@@ -129,7 +129,7 @@ describe('Asks', () => {
     const one = question('which way');
     const entry = open([one, question('how fast')]);
     asks.pick(entry, one, 'left');
-    asks.say('ask-1', '  neither, go back  ');
+    asks.say(open(), '  neither, go back  ');
     asks.answer(entry);
     expect(sent).toHaveLength(1);
     expect(sent[0]?.response).toBe('neither, go back');
@@ -138,26 +138,26 @@ describe('Asks', () => {
 
   it('hands the card back when the typed words are cleared', () => {
     const { asks } = harness();
-    asks.say('ask-1', 'wait');
-    expect(asks.replying('ask-1')).toBe(true);
-    asks.say('ask-1', '   ');
-    expect(asks.replying('ask-1'), 'whitespace still counted as a reply').toBe(false);
+    asks.say(open(), 'wait');
+    expect(asks.replying(open())).toBe(true);
+    asks.say(open(), '   ');
+    expect(asks.replying(open()), 'whitespace still counted as a reply').toBe(false);
   });
 
   it('refuses to tap an option while words are being typed', () => {
     const { asks, sent } = harness();
     const q = question('which way');
-    asks.say('ask-1', 'hold on');
+    asks.say(open(), 'hold on');
     asks.pick(open([q]), q, 'left');
     expect(sent).toHaveLength(0);
-    expect(asks.answers('ask-1')).toEqual({});
+    expect(asks.answers(open())).toEqual({});
   });
 
   it('carries a note with the choice rather than instead of it', () => {
     const { asks, sent } = harness();
     const q = question('which way');
     const entry = open([q]);
-    asks.jot('ask-1', q, 'because the left one is shorter');
+    asks.jot(open(), q, 'because the left one is shorter');
     asks.pick(entry, q, 'left');
     expect(sent[0]?.answers).toEqual({ 'which way': 'left' });
     expect(sent[0]?.notes).toEqual({ 'which way': 'because the left one is shorter' });
@@ -176,9 +176,9 @@ describe('Asks', () => {
     // thumb is worse than a field nobody fills.
     const { asks } = harness();
     const q = question('which way');
-    expect(asks.noteOpen('ask-1', q)).toBe(false);
-    asks.openNote('ask-1', q);
-    expect(asks.noteOpen('ask-1', q)).toBe(true);
+    expect(asks.noteOpen(open(), q)).toBe(false);
+    asks.openNote(open(), q);
+    expect(asks.noteOpen(open(), q)).toBe(true);
   });
 
   it('keeps each ask’s answers to itself', () => {
@@ -187,7 +187,7 @@ describe('Asks', () => {
     const { asks } = harness();
     const q = question('which way');
     asks.pick({ ...open([q, question('and back?')]) }, q, 'left');
-    expect(asks.answers('ask-2')).toEqual({});
+    expect(asks.answers({ ask: 'ask-2' })).toEqual({});
   });
 
   it('reports a failed send instead of losing it', () => {

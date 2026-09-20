@@ -16,7 +16,6 @@ export class AskCard {
   readonly entry = input.required<Questioned>();
 
   protected readonly asks = inject(Asks);
-  private readonly ask = computed(() => this.entry().ask);
   /**
    * This question while it is still answerable, else null. The one place a card's
    * entry becomes something [[Asks]] will take — see `Unanswered`. The template
@@ -38,8 +37,8 @@ export class AskCard {
     if (!entry.allowed) return 'skipped';
     return entry.reply?.response?.trim() ? 'replied' : 'answered';
   });
-  protected readonly words = computed(() => this.asks.words(this.ask()));
-  protected readonly replying = computed(() => this.asks.replying(this.ask()));
+  protected readonly words = computed(() => this.asks.words(this.entry()));
+  protected readonly replying = computed(() => this.asks.replying(this.entry()));
   protected readonly ready = computed(() => this.asks.ready(this.entry()));
   /** A single single-choice question answers on the tap; anything else needs a send. */
   protected readonly needsSending = computed(() => {
@@ -48,16 +47,16 @@ export class AskCard {
   });
 
   protected picked(question: Question, label: string): boolean {
-    const chosen = this.asks.answers(this.ask())[question.question];
+    const chosen = this.asks.answers(this.entry())[question.question];
     return Array.isArray(chosen) ? chosen.includes(label) : chosen === label;
   }
 
   protected note(question: Question): string {
-    return this.asks.notes(this.ask())[question.question] ?? '';
+    return this.asks.notes(this.entry())[question.question] ?? '';
   }
 
   protected notable(question: Question): boolean {
-    return this.asks.noteOpen(this.ask(), question);
+    return this.asks.noteOpen(this.entry(), question);
   }
 
   protected pick(question: Question, label: string): void {
@@ -66,15 +65,15 @@ export class AskCard {
   }
 
   protected jot(question: Question, text: string): void {
-    this.asks.jot(this.ask(), question, text);
+    this.asks.jot(this.entry(), question, text);
   }
 
   protected addNote(question: Question): void {
-    this.asks.openNote(this.ask(), question);
+    this.asks.openNote(this.entry(), question);
   }
 
   protected say(text: string): void {
-    this.asks.say(this.ask(), text);
+    this.asks.say(this.entry(), text);
   }
 
   protected answer(): void {
