@@ -426,6 +426,47 @@ describe('transcript · a message the session has not read yet', () => {
     expect(seen.map((entry) => only(entry, 'asked').queued)).toEqual([true, undefined]);
   });
 
+  it('does not break the model mid-sentence when a message is sent while it types', () => {
+    // ⚠ **The defect: one message became TWO.** A queued message is added the
+    // moment it is sent, so the next delta found an `asked` at the end and
+    // started a fresh `said`. On screen that is a paragraph break in the middle
+    // of a sentence — and if the split falls inside a list or a code fence, BOTH
+    // halves render as broken markdown.
+    //
+    // It did not interrupt anything: the CLI parks a message sent mid-turn and
+    // reads it when the turn ends. So the model's words stay one block and the
+    // message sits after them, which is also the order it was read in.
+    const seen = transcript(
+      { kind: 'text', text: '- one\n- two\n' },
+      { kind: 'accepted', text: 'sent while it was typing' },
+      { kind: 'text', text: '- three\n' },
+    );
+    expect(seen.map((entry) => entry.kind)).toEqual(['said', 'asked']);
+    expect(only(first(seen), 'said').text).toBe('- one\n- two\n- three\n');
+  });
+
+  it('still starts a new block after a tool call, which DID interrupt', () => {
+    // The control. Text either side of a tool call is two blocks and must stay
+    // two — a fix that skipped back past anything would merge these.
+    const seen = transcript(
+      { kind: 'text', text: 'before' },
+      { kind: 'tool', id: 'toolu_1', name: 'Bash', input: { command: 'ls' } },
+      { kind: 'text', text: 'after' },
+    );
+    expect(seen.filter((entry) => entry.kind === 'said')).toHaveLength(2);
+  });
+
+  it('carries on through several messages sent in a row', () => {
+    const seen = transcript(
+      { kind: 'text', text: 'one ' },
+      { kind: 'accepted', text: 'first' },
+      { kind: 'accepted', text: 'second' },
+      { kind: 'text', text: 'two' },
+    );
+    expect(only(first(seen), 'said').text).toBe('one two');
+    expect(seen.map((entry) => entry.kind)).toEqual(['said', 'asked', 'asked']);
+  });
+
   it('shows a replayed message plainly, having never seen it wait', () => {
     const seen = transcript({ kind: 'prompt', text: 'from the transcript' });
     expect(seen).toEqual([{ kind: 'asked', text: 'from the transcript' }]);

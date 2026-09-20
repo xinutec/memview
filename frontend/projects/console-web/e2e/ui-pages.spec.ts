@@ -5075,3 +5075,45 @@ test('a stream that stays dead says so, and says it once @ phone width', async (
   await expectNoHorizontalOverflow(page, testInfo);
   await expectNoClippedText(page, testInfo);
 });
+
+test('a message sent mid-answer does not cut the answer in half @ phone width', async ({
+  page,
+}, testInfo) => {
+  // ⚠ **The defect, and the visible half of it was the lesser half.** A message
+  // sent while the model is typing is shown at once, so the next delta found it
+  // at the end of the transcript and started a NEW block. A paragraph break
+  // mid-sentence is what you notice; a fenced code block cut across two renders
+  // is what actually breaks, because each half is then invalid markdown and
+  // neither renders as code.
+  //
+  // The CLI parks a message sent mid-turn and reads it when the turn ends, so it
+  // interrupted nothing and the answer stays one block.
+  await mockRunner(page);
+  await page.route('**/api/sessions/*/events', (r) =>
+    r.fulfill({
+      contentType: 'text/event-stream',
+      body: [
+        { kind: 'text', text: 'Here it is:\n\n```ts\nconst a = 1;\n' },
+        { kind: 'accepted', text: 'sent while you were typing' },
+        { kind: 'text', text: 'const b = 2;\n```\n' },
+      ]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    }),
+  );
+  await page.goto(`/s/${RUNNING.id}`);
+  await expect(page.getByText('sent while you were typing')).toBeVisible();
+
+  // One code block holding BOTH lines — not two, and not a stray ``` on screen.
+  const code = page.locator('.body pre');
+  await expect(code).toHaveCount(1);
+  await expect(code).toContainText('const a = 1;');
+  await expect(code).toContainText('const b = 2;');
+  // The answer's own block, not every `.body` on the page — yours is one too.
+  await expect(page.locator('.body').first(), 'a fence survived as literal text').not.toContainText(
+    '```',
+  );
+
+  await expectNoTextOverlaps(page, testInfo);
+  await expectNoHorizontalOverflow(page, testInfo);
+});

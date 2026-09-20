@@ -11,12 +11,26 @@ import { QUESTION_TOOL, questionsOf } from './questions';
  */
 export function fold(entries: readonly Entry[], event: Timed): Entry[] {
   const out = SPOKE.has(event.kind) ? entries.map(settled) : [...entries];
-  const last = out[out.length - 1];
   switch (event.kind) {
-    case 'text':
-      if (last?.kind === 'said') out[out.length - 1] = { ...last, text: last.text + event.text };
-      else add(out, { kind: 'said', text: event.text, at: at(event) });
+    case 'text': {
+      // ⚠ **Past anything QUEUED, and nothing else.** A message sent while the
+      // model is typing is shown the moment it is sent, but the CLI parks it and
+      // reads it when the turn ends — so it interrupted nothing, and letting it
+      // end the model's block split one message into two. On screen that is a
+      // paragraph break mid-sentence, and a list or code fence cut in half
+      // renders as broken markdown on BOTH sides.
+      //
+      // A tool call is the opposite: it really did interrupt, and the text after
+      // it is a new block. So this steps back over queued messages only.
+      const carries = lastSaid(out);
+      if (carries !== undefined) {
+        const said = out[carries];
+        if (said?.kind === 'said') out[carries] = { ...said, text: said.text + event.text };
+      } else {
+        add(out, { kind: 'said', text: event.text, at: at(event) });
+      }
       break;
+    }
     case 'accepted':
       add(out, { kind: 'asked', text: event.text, at: at(event), queued: true });
       break;
@@ -158,6 +172,21 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
       unhandled(event);
   }
   return out;
+}
+
+/**
+ * Where the model's current block is, stepping back over messages it has not
+ * read yet. `undefined` when the run has been ended by anything else — a tool
+ * call, a result, a turn — all of which genuinely end a block.
+ */
+function lastSaid(entries: readonly Entry[]): number | undefined {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    if (entry?.kind === 'said') return i;
+    if (entry?.kind === 'asked' && entry.queued) continue;
+    return undefined;
+  }
+  return undefined;
 }
 
 /** Events that mean the session is moving, so a decision has been taken up. */
