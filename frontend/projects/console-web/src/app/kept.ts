@@ -91,27 +91,38 @@ export class Kept {
   }
 }
 
+const text = (value: object): boolean => 'text' in value && typeof value.text === 'string';
+
+/**
+ * What each kind of entry must carry to be drawable, one rule per kind.
+ *
+ * ⚠ **A table rather than a `switch`, so the compiler counts the kinds.** The
+ * `satisfies` below fails when an `Entry` variant is added without a rule here,
+ * where a switch would simply fall to its default and drop every revived entry
+ * of the new kind — silently, and only on a phone that had been offline.
+ */
+const DRAWABLE = {
+  shown: (value) => 'picture' in value && typeof value.picture === 'string',
+  said: text,
+  asked: text,
+  turn: text,
+  note: text,
+  day: text,
+  tool: (value) => text(value) && 'tool' in value && typeof value.tool === 'string',
+  ask: (value) => text(value) && 'tool' in value && typeof value.tool === 'string',
+} satisfies Record<Entry['kind'], (value: object) => boolean>;
+
+/**
+ * The same table under the type a WIRE key needs: any string, and a miss.
+ * An alias rather than an assertion — the assignment is checked, so the table
+ * stays the thing that decides which kinds exist.
+ */
+const DRAWABLE_BY_KIND: Readonly<Record<string, ((value: object) => boolean) | undefined>> =
+  DRAWABLE;
+
 /** Whether a revived value is an entry this app can draw. */
 function isEntry(value: unknown): value is Entry {
   if (typeof value !== 'object' || value === null || !('kind' in value)) return false;
-  switch (value.kind) {
-    case 'shown':
-      return 'picture' in value && typeof value.picture === 'string';
-    case 'said':
-    case 'asked':
-    case 'turn':
-    case 'note':
-    case 'day':
-      return 'text' in value && typeof value.text === 'string';
-    case 'tool':
-    case 'ask':
-      return (
-        'text' in value &&
-        typeof value.text === 'string' &&
-        'tool' in value &&
-        typeof value.tool === 'string'
-      );
-    default:
-      return false;
-  }
+  if (typeof value.kind !== 'string') return false;
+  return DRAWABLE_BY_KIND[value.kind]?.(value) ?? false;
 }

@@ -2,6 +2,7 @@ import { Injectable, WritableSignal, inject, signal } from '@angular/core';
 import { Observable, map } from 'rxjs';
 
 import { ConsoleApi } from './console-api';
+import { unhandled } from './exhaustive';
 import { Kept } from './kept';
 import { Entry, Timed } from './models';
 import { fold } from './transcript';
@@ -118,6 +119,8 @@ export class SessionStore {
           held.offline.set(true);
           void this.hydrate(id, held);
           break;
+        default:
+          unhandled(from);
       }
     });
     held.close = () => watching.unsubscribe();

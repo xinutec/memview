@@ -152,7 +152,18 @@ export function asking(entry: Entry): entry is Questioned {
   return (entry.kind === 'tool' || entry.kind === 'ask') && entry.ask !== undefined;
 }
 
+/**
+ * A question still open — the only thing that can be answered.
+ *
+ * ⚠ **A separate type because "already decided" was four runtime guards.**
+ * Every method that sends a verdict re-checked `allowed !== undefined` and
+ * returned early, which is an invariant kept by remembering rather than by the
+ * compiler: a fifth path would have answered a question twice. Taking this type
+ * instead moves the check to the one place a `Questioned` becomes answerable.
+ */
+export type Unanswered = Questioned & { allowed?: undefined };
+
 /** A question nobody has answered yet. */
-export function pending(entry: Entry): entry is Questioned {
+export function pending(entry: Entry): entry is Unanswered {
   return asking(entry) && entry.allowed === undefined;
 }

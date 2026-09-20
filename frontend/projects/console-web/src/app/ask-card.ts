@@ -2,7 +2,7 @@ import { Component, computed, inject, input } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 
 import { Asks } from './asks';
-import type { Questioned } from './models';
+import { type Questioned, pending } from './models';
 import { type Question, choiceOf } from './questions';
 
 /** A question the session is asking, or asked: the choices, and then the answer. */
@@ -17,6 +17,16 @@ export class AskCard {
 
   protected readonly asks = inject(Asks);
   private readonly ask = computed(() => this.entry().ask);
+  /**
+   * This question while it is still answerable, else null. The one place a card's
+   * entry becomes something [[Asks]] will take — see `Unanswered`. The template
+   * already hides the controls once a verdict is in; this is what makes that a
+   * fact the compiler holds rather than a rule the markup remembers.
+   */
+  private readonly open = computed(() => {
+    const entry = this.entry();
+    return pending(entry) ? entry : null;
+  });
 
   protected readonly choice = computed(() =>
     this.entry().allowed ? choiceOf(this.entry().reply) : '',
@@ -51,7 +61,8 @@ export class AskCard {
   }
 
   protected pick(question: Question, label: string): void {
-    this.asks.pick(this.entry(), question, label);
+    const open = this.open();
+    if (open) this.asks.pick(open, question, label);
   }
 
   protected jot(question: Question, text: string): void {
@@ -67,10 +78,12 @@ export class AskCard {
   }
 
   protected answer(): void {
-    this.asks.answer(this.entry());
+    const open = this.open();
+    if (open) this.asks.answer(open);
   }
 
   protected decide(allow: boolean): void {
-    this.asks.decide(this.entry(), allow);
+    const open = this.open();
+    if (open) this.asks.decide(open, allow);
   }
 }

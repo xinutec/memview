@@ -1,3 +1,4 @@
+import { unhandled } from './exhaustive';
 import { type Asked, type Entry, type Timed, type ToolCall, asking } from './models';
 import { QUESTION_TOOL, questionsOf } from './questions';
 
@@ -146,12 +147,15 @@ export function fold(entries: readonly Entry[], event: Timed): Entry[] {
         at: at(event),
       });
       break;
+    // Carried in the session's own state, not on the transcript.
     case 'started':
     case 'context':
     case 'background':
     case 'limit':
     case 'busy':
       break;
+    default:
+      unhandled(event);
   }
   return out;
 }

@@ -3,7 +3,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { ConsoleApi } from './console-api';
 import { reason } from './errors';
 import { Here } from './here';
-import type { Questioned } from './models';
+import type { Questioned, Unanswered } from './models';
 import { type Answers, type Notes, type Question, complete } from './questions';
 
 /**
@@ -84,9 +84,9 @@ export class Asks {
    * almost every question has, and on a phone one tap against two is answering
    * from the lock screen against putting it off. Anything else waits for [answer].
    */
-  pick(entry: Questioned, question: Question, label: string): void {
+  pick(entry: Unanswered, question: Question, label: string): void {
     const ask = entry.ask;
-    if (entry.allowed !== undefined || this.replying(ask)) return;
+    if (this.replying(ask)) return;
     const questions = entry.questions ?? [];
     if (questions.length === 1 && !question.multiSelect) {
       this.send(entry, { [question.question]: label }, undefined, this.notes(ask));
@@ -108,9 +108,8 @@ export class Asks {
   }
 
   /** Send what has been chosen, or what has been typed instead of choosing. */
-  answer(entry: Questioned): void {
+  answer(entry: Unanswered): void {
     const ask = entry.ask;
-    if (entry.allowed !== undefined) return;
     if (this.replying(ask)) {
       // Words override the choices in the CLI, so nothing else goes with them.
       this.send(entry, undefined, this.words(ask).trim(), undefined);
@@ -121,18 +120,18 @@ export class Asks {
   }
 
   /** Allow or refuse outright, for an ask that offers no questions. */
-  decide(entry: Questioned, allow: boolean): void {
+  decide(entry: Unanswered, allow: boolean): void {
     const at = this.here.at();
-    if (entry.allowed !== undefined || !at) return;
+    if (!at) return;
     this.trouble.set('');
     this.api.decide(at, entry.ask, allow).subscribe({
       error: (err: unknown) => this.trouble.set(reason(err)),
     });
   }
 
-  private send(entry: Questioned, answers?: Answers, response?: string, notes?: Notes): void {
+  private send(entry: Unanswered, answers?: Answers, response?: string, notes?: Notes): void {
     const at = this.here.at();
-    if (entry.allowed !== undefined || !at) return;
+    if (!at) return;
     this.trouble.set('');
     this.api.decide(at, entry.ask, true, undefined, answers, response, notes).subscribe({
       error: (err: unknown) => this.trouble.set(reason(err)),
