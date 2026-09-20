@@ -650,6 +650,15 @@ impl std::fmt::Debug for Session {
 pub struct Spawn {
     pub binary: String,
     pub model: Option<String>,
+    /// What this session is called to its PEERS — `-n`, which is the only thing that
+    /// writes a chosen name into `~/.claude/sessions/<pid>.json`, the file
+    /// `ListAgents` reads and `SendMessage` addresses. Without it every session in
+    /// one directory derives the same name from that directory and is told apart
+    /// only by a hash, so a session asked to reach `memview` finds no such peer.
+    /// `rename_session` does NOT do this: the CLI calls it the user-facing title and
+    /// it goes no further than the transcript. See [`crate::roster::Roster::resume`],
+    /// which is where a conversation's own name becomes this argument.
+    pub name: Option<String>,
     /// What the session may do without being asked. In headless mode there is nobody
     /// to answer a prompt, so under the CLI's default EVERY tool call needing
     /// permission is refused (measured: a `Write` came back `is_error`).
@@ -781,6 +790,9 @@ impl Session {
             .kill_on_drop(true);
         if let Some(model) = &spawn.model {
             command.args(["--model", model]);
+        }
+        if let Some(name) = &spawn.name {
+            command.args(["-n", name]);
         }
         if let Some(mode) = &spawn.permission_mode {
             command.args(["--permission-mode", mode]);
@@ -1237,6 +1249,12 @@ impl Session {
     /// session hands to the MODEL as words. See [`protocol::rename`]. Nothing is
     /// recorded on the way out: the CLI writes a `custom-title` line and the roster
     /// reads names from there ([`crate::past::about`]).
+    ///
+    /// ⚠ **This is the TITLE, and it does not reach the session's peers.** The CLI
+    /// keeps the name other sessions address separately, and no control subtype
+    /// writes it — only `-n` at spawn does, so a rename becomes visible to the rest
+    /// of the fleet at the conversation's next resume and not before. See
+    /// [`Spawn::name`].
     pub async fn rename(&self, title: &str) -> Result<()> {
         let line = protocol::rename(&format!("rename-{}", self.id), title);
         let mut held = self.stdin.lock().await;

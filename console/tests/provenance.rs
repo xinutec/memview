@@ -213,6 +213,7 @@ fn roster(dir: &std::path::Path) -> Arc<Roster> {
         spawn: Spawn {
             binary: stub(),
             model: None,
+            name: None,
             permission_mode: None,
         },
         static_dir: None,

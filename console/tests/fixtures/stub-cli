@@ -9,12 +9,26 @@
 session="unknown"
 # The session-so-far total, because that is what the CLI reports each time.
 total=0
+# What it was called and which conversation it was handed, for the one test that
+# asks about the argument list rather than the protocol. `--resume` is read into
+# a separate name so the init line keeps saying what it always said.
+name=""
+resumed=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --session-id) session="$2"; shift ;;
+    --resume) resumed="$2"; shift ;;
+    -n) name="$2"; shift ;;
   esac
   shift
 done
+
+# Unset everywhere else, so this leaves nothing behind in the tests that do not
+# care. Written even when empty: absent and empty are different findings, and a
+# test for a MISSING argument needs the file to exist.
+if [ -n "${CONSOLE_STUB_ARGV:-}" ]; then
+  printf '%s' "$name" > "$CONSOLE_STUB_ARGV/${resumed:-$session}.name"
+fi
 
 printf '{"type":"system","subtype":"init","model":"stub","cwd":"%s","tools":["Bash"],"session_id":"%s"}\n' \
   "$PWD" "$session"

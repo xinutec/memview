@@ -96,6 +96,8 @@ impl Config {
                 permission_mode: std::env::var("CONSOLE_PERMISSION_MODE")
                     .ok()
                     .filter(|mode| !mode.is_empty()),
+                // Per conversation, not per console: a resume fills it from the transcript.
+                name: None,
             },
             static_dir: std::env::var("STATIC_DIR").ok(),
             // Defaulted rather than required: it is the same dashboard for every machine.

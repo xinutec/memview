@@ -33,6 +33,7 @@ fn roster(dir: &std::path::Path) -> Arc<Roster> {
         spawn: Spawn {
             binary: stub(),
             model: None,
+            name: None,
             permission_mode: None,
         },
         static_dir: None,
@@ -385,6 +386,7 @@ fn a_symlink_out_of_an_allowed_directory_does_not_escape_it() {
         spawn: Spawn {
             binary: stub(),
             model: None,
+            name: None,
             permission_mode: None,
         },
         static_dir: None,

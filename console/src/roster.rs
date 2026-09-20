@@ -321,12 +321,16 @@ impl Roster {
                  on one transcript both append, and neither sees the other's turns."
             ));
         }
-        let spawn = match &mode {
-            Some(mode) => crate::session::Spawn {
-                permission_mode: Some(mode.clone()),
-                ..self.config.spawn.clone()
-            },
-            None => self.config.spawn.clone(),
+        // The conversation's own name becomes `-n`, because that is the only route by
+        // which it reaches the peer registry: renaming a running session writes a title
+        // to the transcript and nothing else, so a name given through this console was
+        // invisible to every other session until its next resume. See [`Spawn::name`].
+        let spawn = crate::session::Spawn {
+            permission_mode: mode
+                .clone()
+                .or_else(|| self.config.spawn.permission_mode.clone()),
+            name: crate::past::named(&crate::past::projects_root(), id),
+            ..self.config.spawn.clone()
         };
         // Said out loud: the one thing about a resume that used to change silently.
         tracing::info!(
