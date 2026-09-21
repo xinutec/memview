@@ -310,12 +310,9 @@ fn a_frozen_tripwire_is_held_for_its_role_not_for_the_freeze() {
     );
 }
 
-/// ⚠ **The session judging a candidate is one of its readers, and that can
-/// disqualify it.** THIN is `breadth <= thin_breadth`; opening a memory to decide
-/// whether to demote it adds an agent, so the demotable set drains by inspection.
-/// Measured 2026-09-21 on the live corpus: `memview` had read 383 memories, 65 of
-/// them at breadth exactly 3 — every one THIN without it. `--excluding` is how a
-/// reader asks what the tiering says without their own opens.
+/// Opening a memory to decide whether to demote it adds an agent, so a candidate
+/// can leave the thin tier by being examined. `--excluding` is how a reader asks
+/// what the tiering says without their own opens.
 #[test]
 fn one_agents_opens_can_be_subtracted_from_breadth() {
     let read = |name: &str| {
@@ -346,9 +343,8 @@ fn one_agents_opens_can_be_subtracted_from_breadth() {
     assert_eq!(breadth(&agents, name, Some("nobody")), (3, 0));
 }
 
-/// Unprovable opens stay apart when an agent is subtracted — they are SHOWN and
-/// never scored (#1214), and a filter that quietly folded them into breadth would
-/// undo that in the one place breadth is recomputed.
+/// Unprovable opens stay apart when an agent is subtracted: they are shown and
+/// never scored, and this is the one place breadth is recomputed.
 #[test]
 fn subtracting_an_agent_keeps_provable_and_unprovable_opens_apart() {
     let mut shell = memview::agents::Agent {
@@ -373,12 +369,9 @@ fn subtracting_an_agent_keeps_provable_and_unprovable_opens_apart() {
     );
 }
 
-/// ⚠ **The record can be WRONG, and the line is the thing a reader meets.**
-/// `memory-roles.json` is one model's 2026-08 classification, so a judgement of
-/// POINTER on a line that states its claim is a stale answer about a live
-/// tripwire — and demoting on it deletes the only place that claim fires. This
-/// is #1234's own defect one level down: that fix screened what the RECORD calls
-/// a tripwire and trusted the record for the other half.
+/// The record can be wrong, and the line is what a reader meets: a judgement of
+/// pointer on a line that states its claim is a stale answer about a live
+/// tripwire, and demoting on it deletes the only place that claim fires.
 #[test]
 fn a_pointer_whose_line_states_a_claim_is_held_on_the_line() {
     let at = Thresholds::default();
@@ -405,10 +398,8 @@ fn a_pointer_whose_line_states_nothing_stays_demotable() {
     assert_eq!(trade.demote.len(), 1);
 }
 
-/// ⚠ **Checked BEFORE the freeze, for the same reason #1234's role check is.**
-/// Held as `Frozen` this becomes demotable the day the harvest lands; held on
-/// its line it never does, because a line that states a claim does not stop
-/// stating it on a date.
+/// Held on its line rather than the freeze, which expires: a line that states a
+/// claim does not stop stating it on a date.
 #[test]
 fn a_frozen_claim_stating_pointer_is_held_on_the_line_not_the_freeze() {
     let at = Thresholds::default();

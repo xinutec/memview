@@ -341,21 +341,11 @@ fn repo_with_a_commit(root: &std::path::Path, name: &str) -> String {
     };
     let mut sha = short(git(&["rev-parse", "--short=8", "HEAD"]));
 
-    // A hash-shaped token needs at least one LETTER to be read as a mention —
-    // `commits::hash_candidates`, deliberately, because an all-digit run is far
-    // more often a number in prose than a hash. The cost is stated there: 3.4% of
-    // real commits go unattributed, counted rather than hidden.
-    //
-    // An 8-character short sha is all digits 2.3% of the time. A fixture that
-    // takes whatever git produced therefore failed that often, attributing zero
-    // commits while finding its agent — which is exactly the signature memview#1596
-    // chased for three sessions, refuting hermeticity, the nix TMPDIR spelling,
-    // GIT_* leakage, spawn failure under fork pressure and concurrent gates. All
-    // of those were correctly refuted; the randomness was in this line.
-    //
-    // It also disposes of that ticket's abandon condition. At 2.3% a twelve-run
-    // green streak happens by luck 75% of the time, so the streak was never
-    // evidence that anything had been fixed.
+    // A mention needs at least one letter to be recognised — `hash_candidates`,
+    // because an all-digit run is more often a number in prose than a hash. An
+    // 8-character short sha is all digits 2.3% of the time, so a fixture that takes
+    // whatever git produced fails that often, finding its agent and attributing
+    // nothing.
     for attempt in 1.. {
         if sha.chars().any(|c| c.is_ascii_alphabetic()) {
             break;
@@ -370,18 +360,11 @@ fn repo_with_a_commit(root: &std::path::Path, name: &str) -> String {
     sha
 }
 
-/// The flake in memview#1596, made deterministic.
+/// A mention without a letter attributes nothing, deterministically.
 ///
-/// An 8-character short sha is all digits 2.3% of the time, and a hash-shaped
-/// token without a letter is not read as a mention — see `commits::hash_candidates`,
-/// where the trade is stated and costed. So the fixture beside this one failed
-/// 2.3% of runs with an agent found and zero commits attributed, which is the
-/// signature that ticket chased through hermeticity, the nix TMPDIR spelling,
-/// GIT_* leakage, fork pressure and concurrent gates.
-///
-/// This names the mechanism instead of waiting for it: the mention is all digits
-/// by construction, and attribution is zero every time. If the letter rule is
-/// ever relaxed, this fails and points at the retry loop that then has no job.
+/// The fixture above draws a short sha at random and so meets this shape 2.3% of
+/// the time; here it is the shape by construction. If the letter rule is ever
+/// relaxed, this fails and points at the retry loop that then has no job.
 #[test]
 fn an_all_digit_mention_attributes_nothing_which_is_what_1596_was() {
     let root = tempfile::tempdir().expect("tempdir");
@@ -390,8 +373,7 @@ fn an_all_digit_mention_attributes_nothing_which_is_what_1596_was() {
     let memory = tempfile::tempdir().expect("tempdir");
 
     repo_with_a_commit(code.path(), "alpha");
-    // Not the repo's real hash: eight digits, the shape git produces 2.3% of the
-    // time and the shape a mention cannot be recognised in.
+    // Eight digits: the shape a mention cannot be recognised in.
     let digits = "12345678";
     assert!(memview::commits::hash_candidates(format!("landed in {digits}").as_bytes()).is_empty());
 

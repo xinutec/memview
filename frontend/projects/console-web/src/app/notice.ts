@@ -2,12 +2,11 @@ import { Component, computed, input } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
 
 /**
- * What to tell the reader about the link to the runner. Three sources, and never
- * two of them at once — see [[notice]] for the ranking.
+ * What to tell the reader about the link to the runner. Never two at once — see
+ * [[notice]] for the ranking.
  *
- * Deliberately NOT a place for "this is a kept copy": that is a fact about what
- * is on screen rather than about the link, and folding it in here would let a
- * dropped stream outrank it and take away the more useful sentence.
+ * Not a place for "this is a kept copy": that is a fact about what is on screen
+ * rather than about the link, and a dropped stream would outrank it.
  */
 export type Notice =
   /** Something the reader pressed failed. Said on the press: they are watching. */
@@ -18,12 +17,9 @@ export type Notice =
   | { readonly kind: 'stream' };
 
 /**
- * The one thing worth saying, of everything that might be.
- *
- * Ranked, so that only ever one banner shows. An action the reader just took
- * beats a state, being the more specific and the one they caused. The runner
- * beats the stream: a stream that has stopped is what a runner that is not
- * answering LOOKS like, and naming the cause is more use than naming the symptom.
+ * The one thing worth saying, of everything that might be. An action the reader
+ * just took beats a state, being the one they caused; the runner beats the
+ * stream, a stopped stream being what an unreachable runner looks like.
  */
 export function notice(from: {
   readonly acting: string;
@@ -60,10 +56,7 @@ function worded(notice: Notice): Worded {
   }
 }
 
-/**
- * The one banner. Angular Material has no banner component, so this is the
- * card the rest of the console draws by hand, done once.
- */
+/** The one banner. Angular Material has none, so this is the card, done once. */
 @Component({
   selector: 'app-notice',
   imports: [MatIconModule],

@@ -29,14 +29,11 @@ pub fn role_of(roles: &serde_json::Value, name: &str) -> Option<Role> {
     named_role(roles["roles"][name].as_str())
 }
 
-/// Whether an index line STATES ITS CLAIM, which is what makes a line fire on a
-/// reader who did not come looking — `feedback_pointer_or_tripwire`'s test.
+/// Whether an index line states its claim, which is what lets it fire on a reader
+/// who did not come looking.
 ///
-/// ⚠ **One definition, deliberately.** Two copies of a string match gave opposite
-/// answers for 192 entries (memview#884), which is why `role_of` above reads one
-/// record rather than re-deriving. The same applies here: `memory-lint` and
-/// `memory-tiers` must agree about a line, or one will offer a demotion the other
-/// reports as a defect.
+/// One definition: `memory-lint` and `memory-tiers` must agree about a line, or
+/// one offers a demotion the other reports as a defect.
 pub fn states_a_claim(label: &str) -> bool {
     label.contains("**") || label.split_whitespace().count() >= 4
 }

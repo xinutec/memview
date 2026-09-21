@@ -30,11 +30,9 @@ struct FrontmatterMeta {
     /// `memory-dated`, not observed. Absent on a memory no surviving transcript
     /// records — a DETECTION gap, never an mtime.
     created: Option<String>,
-    /// Never read as the judgement: `role` belongs at the TOP level, beside
-    /// `description`. Captured only so a misplacement can be REPORTED. Five
-    /// declarations sat here being ignored, and serde drops an unknown key without
-    /// a word, so an ignored declaration and an absent one looked identical — the
-    /// memory read as unjudged while its author believed it judged (memview#1537).
+    /// Never the judgement — `role` belongs at the top level, beside `description`.
+    /// Captured only so a misplacement can be reported: serde drops an unknown key
+    /// silently, which makes an ignored declaration look exactly like an absent one.
     role: Option<String>,
 }
 
@@ -69,12 +67,11 @@ pub struct MemoryMeta {
     /// `memory-roles.json` cannot grow with the corpus (memview#1537).
     pub role: Option<String>,
     /// Whether a `role:` was written under `metadata:`, where nothing reads it.
-    /// Reported rather than honoured: guessing the author's intent would make the
-    /// wrong spelling work and the schema meaningless.
+    /// Reported rather than honoured: accepting the wrong spelling would make the
+    /// schema mean nothing.
     ///
-    /// Off the wire. A frontmatter spelling mistake is a fact for `memory-lint`,
-    /// not something a reader of the memory needs, and every serialized field here
-    /// is one the TypeScript mirror must carry.
+    /// Off the wire — a frontmatter mistake is the linter's business, and every
+    /// serialized field here is one the TypeScript mirror must carry.
     #[serde(skip)]
     pub misplaced_role: bool,
     /// user | feedback | project | reference (from metadata.type, falling
@@ -166,8 +163,7 @@ impl Corpus {
                 None => Frontmatter::default(),
             };
             let meta = fm.metadata.unwrap_or_default();
-            // Checked before `meta` is consumed below. A `role:` written here is not
-            // an alternative spelling to honour — it is a mistake to name.
+            // Before `meta` is consumed below.
             let misplaced = meta.role.as_deref().is_some_and(|r| !r.trim().is_empty());
             let mtype = meta
                 .mtype

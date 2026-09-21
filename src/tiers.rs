@@ -167,20 +167,16 @@ pub fn median_entry_cost(entries: &[Entry]) -> usize {
     costs[costs.len() / 2]
 }
 
-/// Distinct agents that have opened `memory`, as `(proven, unprovable)`.
+/// Distinct agents that have opened `memory`, as `(proven, unprovable)`. Forty
+/// opens by one agent count once: breadth is how widely a memory travelled.
 ///
-/// Forty opens by one agent count once — breadth is about how widely a memory
-/// travelled, not how hard one session leaned on it.
+/// `excluding` is for the session judging a candidate, which is one of its
+/// readers — reading a memory to decide whether to demote it can lift it out of
+/// the thin tier, so the candidate set drains by inspection.
 ///
-/// ⚠ **`excluding` exists because the session judging a candidate is one of its
-/// readers.** THIN is `breadth <= thin_breadth`, so opening a memory to decide
-/// whether to demote it can lift it out of the demotable set, and the set drains
-/// by inspection. Measured 2026-09-21: `memview` alone had read 383 memories, 65
-/// of them sitting at breadth exactly 3 — every one of which is THIN without it.
-///
-/// Not filtered by default. The mine cannot tell an adjudication from a genuine
-/// consultation, and guessing wrong UNDERSTATES use, which pushes toward
-/// demotion — the direction that loses a rule that fires from its line.
+/// Not filtered by default: the mine cannot tell an adjudication from a genuine
+/// consultation, and guessing wrong understates use, which pushes toward
+/// demotion — the direction that loses a rule.
 pub fn breadth(
     agents: &[crate::agents::Agent],
     memory: &str,
@@ -207,9 +203,8 @@ pub fn breadth(
 pub enum Held {
     /// The line IS the memory — a low open count is what SUCCESS looks like.
     Tripwire,
-    /// Judged a POINTER, but the line STATES A CLAIM. The record and the line
-    /// disagree and the line is what a reader meets, so it is held on the shape
-    /// and the judgement is reported instead — see `memory-lint`'s `loud-pointer`.
+    /// Judged a pointer, but the line states a claim. The line is what a reader
+    /// meets, so it is held on that and the judgement reported instead.
     Claims,
     /// An absent judgement is not a pointer: it fails toward deleting a rule that
     /// fires from its line.
@@ -294,11 +289,9 @@ pub fn propose(
         let why = match entry.role {
             Some(Role::Tripwire) => Some(Held::Tripwire),
             None => Some(Held::Unjudged),
-            // ⚠ **Before the two reasons that can lift.** A record saying POINTER is
-            // one model's 2026-08 classification and cannot keep up with the corpus;
-            // the line is the thing a reader actually meets. Where they disagree,
-            // demoting on the record deletes a claim that fires from the index —
-            // which is #1234's own defect, one level down.
+            // Before the two reasons that can lift: a line that states a claim does
+            // not stop stating it on a date, where the freeze and the unproven-opens
+            // hold both expire.
             Some(Role::Pointer) if entry.claims => Some(Held::Claims),
             Some(Role::Pointer) if turns_on_discarded => Some(Held::Unproven),
             Some(Role::Pointer) if entry.frozen => Some(Held::Frozen),

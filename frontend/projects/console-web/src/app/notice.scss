@@ -1,9 +1,6 @@
-// ⚠ **Vertical rhythm only — the gutter belongs to whoever places this.** The
-// two views that draw it have different ones: `sessions-view`'s host pads the
-// whole list by 1rem, `session-view` has no page gutter and each card sets its
-// own 0.75rem. A horizontal margin here is correct in the second and DOUBLED in
-// the first, which is what shipped — 356px wide in the overview against 388 in a
-// session, on a 412px screen.
+// Vertical rhythm only: the gutter belongs to whoever places this. The two views
+// that draw it have different ones, so a horizontal margin here is right in one
+// and doubled in the other.
 .notice {
   display: flex;
   align-items: center;
@@ -25,7 +22,7 @@
   }
 }
 
-// The transcript being behind is not an error: the browser is already mending it.
+// Not an error: the browser is already mending it.
 .notice.quiet {
   background: var(--mat-sys-surface-container-high);
   color: var(--mat-sys-on-surface);

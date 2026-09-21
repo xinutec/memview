@@ -84,9 +84,8 @@ const RULES: &[(&str, Severity, &str)] = &[
          a reader who already knows it and warns nobody else",
     ),
     (
-        // A WARNING first, and promoted only once it has held at zero. A rule that
-        // flips to ERROR while instances remain blocks sixteen sessions' commits —
-        // the sequencing memview#1537 had to learn.
+        // A warning until the count has held at zero: a rule that flips to error
+        // with instances live blocks every session's commits.
         "loud-pointer",
         Severity::Warning,
         "a memory judged POINTER whose index line STATES A CLAIM — the judgement \
@@ -94,12 +93,9 @@ const RULES: &[(&str, Severity, &str)] = &[
          deletes the only place it fires (memview#1234)",
     ),
     (
-        // An ERROR from the start, against this repo's usual warning-first
-        // sequencing, for two reasons. The corpus holds ZERO of these once the five
-        // found on 2026-09-21 were moved, so nothing is grandfathered; and the
-        // failure it reports is SILENT — serde drops the key, the memory reads as
-        // unjudged, and the author believes it judged. A warning for a silent fault
-        // is the same fault at one remove.
+        // An error rather than a warning, against the usual sequencing here: the
+        // corpus holds none of these, so nothing is grandfathered, and the fault it
+        // reports is silent — a warning for that is the same fault at one remove.
         "misplaced-role",
         Severity::Error,
         "a `role:` written under `metadata:`, where nothing reads it — it belongs \
@@ -550,9 +546,8 @@ pub fn check(
                     );
                     continue;
                 };
-                // A bare label is CORRECT for a pointer, and a tripwire's job is to act on a
-                // reader who did not come looking — so the shape test accuses each role in
-                // the opposite direction.
+                // A bare label is right for a pointer and mute for a tripwire, so the
+                // shape test accuses each role in the opposite direction.
                 let claims = crate::study::states_a_claim(&entry.label);
                 if role == crate::study::Role::Pointer && claims {
                     push(

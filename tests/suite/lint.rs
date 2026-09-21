@@ -753,11 +753,9 @@ fn a_tripwire_whose_line_states_no_claim_is_reported_and_a_pointers_is_not() {
     assert_eq!(flagged, vec!["mute_trip".to_string()]);
 }
 
-/// ⚠ **The same shape test, accusing the other role.** A judgement of POINTER on
-/// a line that states its claim is the record disagreeing with what a reader
-/// meets — and `memory-tiers` demotes on the record, so the disagreement costs
-/// the claim its only firing place (memview#1234). The mute-tripwire control
-/// above is this one's mirror: neither half means anything without the other.
+/// The same shape test, accusing the other role. `memory-tiers` demotes on the
+/// record, so a pointer whose line states a claim loses that claim its only
+/// firing place. The mute-tripwire case above is this one's mirror.
 #[test]
 fn a_pointer_whose_line_states_a_claim_is_reported_and_a_tripwires_is_not() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -797,10 +795,8 @@ fn a_pointer_whose_line_states_a_claim_is_reported_and_a_tripwires_is_not() {
 }
 
 /// A `role:` under `metadata:` is dropped by serde without a word, so the memory
-/// reads as unjudged while its author believes it judged. Five sat that way on
-/// 2026-09-21, written by a session that had just built the rule that reads them.
-/// The control is the second file: the same declaration, spelled correctly, must
-/// not be accused.
+/// reads as unjudged while its author believes it judged. The second file is the
+/// control: the same declaration, spelled correctly, must not be accused.
 #[test]
 fn a_role_under_metadata_is_reported_and_a_top_level_one_is_not() {
     let dir = tempfile::tempdir().expect("tempdir");

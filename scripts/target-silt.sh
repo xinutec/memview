@@ -1,31 +1,19 @@
 #!/usr/bin/env bash
-# Cargo never prunes stale artefacts, and exec cost is O(files in the directory).
+# How many files the build tree holds, failing past the threshold.
 #
-#   ./scripts/target-silt.sh            # report, and fail past the threshold
+#   ./scripts/target-silt.sh            # report
 #   ./scripts/target-silt.sh --prune    # move the silted directories aside
 #
-# ⚠ **The gate is what does this to itself.** Every commit writes fresh binaries
-# and cargo keeps every older one for ever, so `target/debug/deps` went from
-# 4,884 to 639,616 in THREE DAYS (2026-09-17 to 09-20). Nothing pruned it,
-# because nothing was ever built to; the memory note said "check weekly", which
-# is a chore nobody scheduled.
+# Cargo never prunes stale artefacts and exec cost is O(files in the directory),
+# so a repo gated on every commit silts up its own build tree and then pays for
+# it on the first run of each freshly written binary.
 #
-# ⚠ **The cost is not theoretical and it is not linear in anything you can see.**
-# The tax falls on the FIRST exec of each newly written binary, and a test suite
-# starts dozens. Measured on this repo at 639,616 files against a pruned tree:
-#
-#     rustdoc row    111.2s -> 44.2s
-#     tests row       34.0s -> 20.0s
-#     whole gate       6.8  -> 5.9 minutes
-#
-# Moved, never deleted: `mv` is atomic and cargo simply rebuilds, where a delete
-# of 35 GB mid-build is neither. What to do with the stale copies afterwards is a
-# decision for a person, which is why this only ever reports them.
+# Moved rather than deleted: `mv` is atomic and cargo rebuilds, where deleting
+# tens of gigabytes under a running build is neither.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)" || exit 1
 
-# Past this, the exec tax is worth a rebuild. The memory note's figure, and the
-# measurements above are what it is drawn from.
+# Past this the exec tax costs more than a rebuild.
 LIMIT=${TARGET_SILT_LIMIT:-100000}
 
 silted=()
@@ -33,24 +21,18 @@ for deps in target/*/deps; do
     # A glob that matched nothing, or a stale copy already moved aside.
     [[ -d $deps ]] || continue
     [[ $deps == target/*.stale-*/deps ]] && continue
-    # `ls -f` does not sort or stat, which is what keeps this ~2s at 640k files.
+    # `ls -f` neither sorts nor stats, so this stays fast at any size.
     count=$(ls -f "$deps" | wc -l | tr -d ' ')
     printf '%-28s %10s files\n' "$deps" "$count"
-    # An `if`, not `(( … )) && …`: a false arithmetic test returns 1, and under
-    # `set -e` that is exempt only because it is not the final command of the
-    # AND-list. One edit away from killing the script silently.
+    # An `if`, not `(( … )) && …`: a false arithmetic test returns 1, which under
+    # `set -e` is exempt only while it is not the last command of the AND-list.
     if (( count > LIMIT )); then
         silted+=("$(dirname "$deps")")
     fi
 done
 
-# Named whatever else happens: the prune leaves 30+ GB behind each time and
-# nothing tracks that either.
-#
-# ⚠ **NOT sized.** `du -sh` on one 31 GB copy is 20 SECONDS, which this row paid
-# on every commit until it was measured — a check that costs more than the
-# problem it reports. The names are the useful part; `du -sh target/*.stale-*`
-# is there when somebody wants the number.
+# Names only. Sizing them walks tens of gigabytes and takes twenty seconds, which
+# this would pay on every commit; `du -sh target/*.stale-*` when you want it.
 stale=(target/*.stale-*)
 if [[ -d ${stale[0]:-} ]]; then
     echo
