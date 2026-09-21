@@ -46,11 +46,16 @@ done
 
 # Named whatever else happens: the prune leaves 30+ GB behind each time and
 # nothing tracks that either.
+#
+# ⚠ **NOT sized.** `du -sh` on one 31 GB copy is 20 SECONDS, which this row paid
+# on every commit until it was measured — a check that costs more than the
+# problem it reports. The names are the useful part; `du -sh target/*.stale-*`
+# is there when somebody wants the number.
 stale=(target/*.stale-*)
 if [[ -d ${stale[0]:-} ]]; then
     echo
     echo "Stale copies from earlier prunes, kept rather than deleted:"
-    du -sh "${stale[@]}" 2>/dev/null | sed 's/^/  /'
+    printf '  %s\n' "${stale[@]}"
 fi
 
 if (( ${#silted[@]} == 0 )); then
