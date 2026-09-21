@@ -111,6 +111,13 @@
   }
 }
 
+// No page gutter on this view, so the banner is inset like the cards it sits
+// among — see `notice.scss`, which sets no horizontal margin of its own.
+app-notice {
+  display: block;
+  margin-inline: 0.75rem;
+}
+
 .deaf {
   display: flex;
   align-items: center;

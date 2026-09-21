@@ -1,8 +1,14 @@
+// ⚠ **Vertical rhythm only — the gutter belongs to whoever places this.** The
+// two views that draw it have different ones: `sessions-view`'s host pads the
+// whole list by 1rem, `session-view` has no page gutter and each card sets its
+// own 0.75rem. A horizontal margin here is correct in the second and DOUBLED in
+// the first, which is what shipped — 356px wide in the overview against 388 in a
+// session, on a 412px screen.
 .notice {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  margin: 0.5rem 0.75rem;
+  margin: 0.5rem 0;
   padding: 0.6rem 0.75rem;
   border-radius: var(--mat-sys-corner-medium);
   background: var(--mat-sys-error-container);
