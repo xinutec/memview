@@ -323,13 +323,26 @@ $add-bottom: 2.5rem;
 // Something written and not sent. Neutral, which puts it with the task tally
 // rather than the state words: `.tasks` is primary and `.unread` tertiary, both
 // green here, and a third green was swallowed by the run.
-// Only ever drawn when there IS one, so it sits on the loud side of the
-// distinction `.list` already makes: variant while a count is empty, on-surface
-// once the row is holding something. NOT the accent — `.tasks.past` gives green
-// up for the reason it would bite here too (#879): it reads as busy before it is
-// read, and a draft is not the session working. Tertiary is no escape from that
-// in this theme; it resolves to the same value as primary.
+// OUTLINED, where every other marker on this row is filled or bare. The row has
+// three treatments and a draft is none of the first two: a filled pill is the
+// session's state (`waiting for you`, `ended`), bare text is its history
+// (`51d ago`), and this is neither — it is yours, and unsent.
+//
+// ⚠ **Colour alone cannot do this, and the reason is invisible in light mode.**
+// M3's neutral ramp is compressed at the top in dark: `on-surface-variant` is
+// #dde5da and `on-surface` is #e2e3de, a difference of five in one channel. The
+// same pair in light is #414941 against #191c19 and looks like a real change, so
+// a light-only render certifies a marker that is INVISIBLE on a dark phone —
+// which is how this shipped once already.
+//
+// Not the accent either: `.tasks.past` gives green up for the reason it would
+// bite here (#879) — it reads as busy before it is read, and a draft is not the
+// session working. Tertiary is no escape, resolving to the same value as primary
+// in this theme.
 .draft {
   font: var(--mat-sys-label-small);
   color: var(--mat-sys-on-surface);
+  padding: 0.05rem 0.45rem;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 1rem;
 }
