@@ -167,6 +167,40 @@ pub fn median_entry_cost(entries: &[Entry]) -> usize {
     costs[costs.len() / 2]
 }
 
+/// Distinct agents that have opened `memory`, as `(proven, unprovable)`.
+///
+/// Forty opens by one agent count once — breadth is about how widely a memory
+/// travelled, not how hard one session leaned on it.
+///
+/// ⚠ **`excluding` exists because the session judging a candidate is one of its
+/// readers.** THIN is `breadth <= thin_breadth`, so opening a memory to decide
+/// whether to demote it can lift it out of the demotable set, and the set drains
+/// by inspection. Measured 2026-09-21: `memview` alone had read 383 memories, 65
+/// of them sitting at breadth exactly 3 — every one of which is THIN without it.
+///
+/// Not filtered by default. The mine cannot tell an adjudication from a genuine
+/// consultation, and guessing wrong UNDERSTATES use, which pushes toward
+/// demotion — the direction that loses a rule that fires from its line.
+pub fn breadth(
+    agents: &[crate::agents::Agent],
+    memory: &str,
+    excluding: Option<&str>,
+) -> (usize, usize) {
+    let (mut proven, mut unprovable) = (0, 0);
+    for use_ in agents
+        .iter()
+        .filter(|agent| excluding != Some(agent.name.as_str()))
+        .filter_map(|agent| agent.memories.get(memory))
+    {
+        if use_.reads > 0 {
+            proven += 1;
+        } else if use_.maybe_reads > 0 {
+            unprovable += 1;
+        }
+    }
+    (proven, unprovable)
+}
+
 /// Why a demotion the evidence would offer is not being offered. Checked in this
 /// order: the freeze lifts at the harvest, a tripwire's reason never does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,7 +1,8 @@
 //! What the tiering must get right about the root's two populations (#1210).
 
 use memview::tiers::{
-    Entry, Held, HeldEntry, Role, Thresholds, Tier, census, expired, median_entry_cost, propose,
+    Entry, Held, HeldEntry, Role, Thresholds, Tier, breadth, census, expired, median_entry_cost,
+    propose,
 };
 
 /// Day 100 is "now" in every test here, so an age is `100 - created`.
@@ -306,6 +307,69 @@ fn a_frozen_tripwire_is_held_for_its_role_not_for_the_freeze() {
     assert_eq!(
         reasons(&trade.held),
         [("feedback_in_the_control_arm_and_a_tripwire", Held::Tripwire)]
+    );
+}
+
+/// ⚠ **The session judging a candidate is one of its readers, and that can
+/// disqualify it.** THIN is `breadth <= thin_breadth`; opening a memory to decide
+/// whether to demote it adds an agent, so the demotable set drains by inspection.
+/// Measured 2026-09-21 on the live corpus: `memview` had read 383 memories, 65 of
+/// them at breadth exactly 3 — every one THIN without it. `--excluding` is how a
+/// reader asks what the tiering says without their own opens.
+#[test]
+fn one_agents_opens_can_be_subtracted_from_breadth() {
+    let read = |name: &str| {
+        let mut agent = memview::agents::Agent {
+            name: name.to_string(),
+            ..Default::default()
+        };
+        agent.memories.insert(
+            "reference_looked_at_while_being_judged".to_string(),
+            memview::agents::MemoryUse {
+                reads: 1,
+                ..Default::default()
+            },
+        );
+        agent
+    };
+    let agents = [read("health"), read("memory"), read("memview")];
+    let name = "reference_looked_at_while_being_judged";
+
+    assert_eq!(breadth(&agents, name, None), (3, 0));
+    assert_eq!(
+        breadth(&agents, name, Some("memview")),
+        (2, 0),
+        "the judging session's own open was still counted"
+    );
+    // The control: subtracting an agent that never read it changes nothing, so the
+    // assertion above is about `memview` and not about the arity of the list.
+    assert_eq!(breadth(&agents, name, Some("nobody")), (3, 0));
+}
+
+/// Unprovable opens stay apart when an agent is subtracted — they are SHOWN and
+/// never scored (#1214), and a filter that quietly folded them into breadth would
+/// undo that in the one place breadth is recomputed.
+#[test]
+fn subtracting_an_agent_keeps_provable_and_unprovable_opens_apart() {
+    let mut shell = memview::agents::Agent {
+        name: "recall".to_string(),
+        ..Default::default()
+    };
+    shell.memories.insert(
+        "reference_read_after_an_and".to_string(),
+        memview::agents::MemoryUse {
+            maybe_reads: 4,
+            ..Default::default()
+        },
+    );
+    let agents = [shell];
+    assert_eq!(
+        breadth(&agents, "reference_read_after_an_and", None),
+        (0, 1)
+    );
+    assert_eq!(
+        breadth(&agents, "reference_read_after_an_and", Some("recall")),
+        (0, 0)
     );
 }
 

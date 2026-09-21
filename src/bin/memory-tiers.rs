@@ -3,6 +3,7 @@
 //!
 //!     cargo run --release --bin memory-tiers
 //!     cargo run --release --bin memory-tiers -- --lease-days 21 --breadth 5
+//!     cargo run --release --bin memory-tiers -- --excluding memview
 //!
 //! A REPORT, not an editor, like `memory-rank`. Breadth — distinct agents, not
 //! opens — is the measure: volume cannot separate forty reads by one session
@@ -45,7 +46,7 @@ fn main() -> Result<()> {
     // Refuse a flag this tool does not know (memview#1588).
     memview::flags::reject_unknown(
         &std::env::args().collect::<Vec<_>>(),
-        &["--breadth", "--lease-days"],
+        &["--breadth", "--lease-days", "--excluding"],
     )?;
     let args: Vec<String> = std::env::args().collect();
     // Both refuse a bad value rather than defaulting past it: a defaulted
@@ -135,23 +136,16 @@ fn main() -> Result<()> {
     };
     let frozen: BTreeSet<String> = arm("treated").union(&arm("control")).cloned().collect();
 
+    // Ask what the tiering says without one agent's opens — see [`tiers::breadth`]
+    // for why the session running this is the one worth subtracting.
+    let excluding = memview::flags::value_of::<String>(&args, "--excluding", String::new())?;
+    let excluding = (!excluding.is_empty()).then_some(excluding);
     let entries: Vec<Entry> = corpus
         .docs
         .keys()
         .map(|name| {
-            // Breadth is over agents, so forty opens by one agent count once.
-            let uses = mined
-                .agents
-                .iter()
-                .filter_map(|agent| agent.memories.get(name));
-            let (mut breadth, mut maybe_breadth) = (0, 0);
-            for use_ in uses {
-                if use_.reads > 0 {
-                    breadth += 1;
-                } else if use_.maybe_reads > 0 {
-                    maybe_breadth += 1;
-                }
-            }
+            let (breadth, maybe_breadth) =
+                memview::tiers::breadth(&mined.agents, name, excluding.as_deref());
             Entry {
                 // The memory's own frontmatter first, the sidecar as a fallback: once every
                 // memory carries `created:` the sidecar can go (#1240). `get`, not `[]`: a
