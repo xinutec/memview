@@ -21,7 +21,6 @@ import {
  * index is dense `·`-separated link runs, and memory bodies carry fenced code
  * and tables that must scroll inside themselves rather than widening the page.
  */
-test.use({ serviceWorkers: 'block' });
 
 const ME = { user_id: 'pippijn', display_name: 'Pippijn', shared: false, auth_enabled: true };
 
